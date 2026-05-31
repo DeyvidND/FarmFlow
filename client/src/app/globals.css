@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ---- shadcn semantic tokens (HSL) mapped to the FarmFlow earthy palette ---- */
+    --background: 42 38% 92%; /* #F3EEE2 */
+    --foreground: 47 14% 13%; /* #26241D ink */
+    --card: 0 0% 100%;
+    --card-foreground: 47 14% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 47 14% 13%;
+    --primary: 125 32% 25%; /* #2C5530 green-700 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 96 26% 93%; /* #EEF3E9 green-50 */
+    --secondary-foreground: 130 33% 22%; /* green-800 */
+    --muted: 40 50% 96%; /* #FBF8F1 surface-2 */
+    --muted-foreground: 43 11% 50%; /* #8B8573 */
+    --accent: 41 79% 92%; /* #FBF1DC amber-softer */
+    --accent-foreground: 36 69% 48%; /* #D08B26 amber-600 */
+    --destructive: 7 57% 48%; /* #BF4434 red */
+    --destructive-foreground: 0 0% 100%;
+    --border: 40 33% 85%; /* #E6DECE */
+    --input: 40 33% 85%;
+    --ring: 125 28% 35%; /* green-500-ish */
+    --radius: 12px;
+    --radius-sm: 8px;
+
+    /* ---- raw FarmFlow design tokens (exact hex) ---- */
+    --ff-bg: #f3eee2;
+    --ff-surface: #ffffff;
+    --ff-surface-2: #fbf8f1;
+    --ff-green-950: #16301c;
+    --ff-green-900: #1f3d26;
+    --ff-green-800: #244a2c;
+    --ff-green-700: #2c5530;
+    --ff-green-600: #387040;
+    --ff-green-500: #4c8a54;
+    --ff-green-100: #e2ebdd;
+    --ff-green-50: #eef3e9;
+    --ff-amber: #e8a33d;
+    --ff-amber-600: #d08b26;
+    --ff-amber-soft: #f8e8c9;
+    --ff-amber-softer: #fbf1dc;
+    --ff-ink: #26241d;
+    --ff-ink-2: #585242;
+    --ff-muted: #8b8573;
+    --ff-muted-2: #a8a290;
+    --ff-border: #e6dece;
+    --ff-border-2: #efe9dc;
+    --ff-gray-badge-bg: #ece8dd;
+    --ff-gray-badge-ink: #75705f;
+    --ff-red: #bf4434;
+
+    --sidebar-w: 220px;
+    --topbar-h: 68px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+  /* tabular figures for money / stat numbers */
+  .ff-fig {
+    font-family: var(--font-bitter), Georgia, serif;
+    font-feature-settings: 'tnum' 1;
+  }
+  ::selection {
+    background: var(--ff-amber-soft);
+  }
+  *::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: #d9d0bd;
+    border-radius: 8px;
+    border: 3px solid var(--ff-bg);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: #c9bfa9;
+  }
+  input:focus {
+    border-color: var(--ff-green-500);
+  }
+}

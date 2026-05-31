@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FarmFlow — Админ панел</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700;800&family=Commissioner:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #F3EEE2;
+    --surface: #FFFFFF;
+    --surface-2: #FBF8F1;
+    --green-950: #16301C;
+    --green-900: #1F3D26;
+    --green-800: #244A2C;
+    --green-700: #2C5530;
+    --green-600: #387040;
+    --green-500: #4C8A54;
+    --green-100: #E2EBDD;
+    --green-50: #EEF3E9;
+    --amber: #E8A33D;
+    --amber-600: #D08B26;
+    --amber-soft: #F8E8C9;
+    --amber-softer: #FBF1DC;
+    --ink: #26241D;
+    --ink-2: #585242;
+    --muted: #8B8573;
+    --muted-2: #A8A290;
+    --border: #E6DECE;
+    --border-2: #EFE9DC;
+    --gray-badge-bg: #ECE8DD;
+    --gray-badge-ink: #75705F;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 16px rgba(40, 35, 20, 0.08);
+    --shadow-lg: 0 12px 40px rgba(30, 28, 15, 0.16);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-lg: 18px;
+    --sidebar-w: 220px;
+    --topbar-h: 68px;
+    --font-ui: "Commissioner", system-ui, sans-serif;
+    --font-display: "Bitter", Georgia, "Times New Roman", serif;
+    font-family: var(--font-ui);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, .ff-fig {
+    font-family: var(--font-display);
+  }
+  .ff-fig { font-feature-settings: "tnum" 1; }
+
+  #root { height: 100%; }
+
+  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input, select { font-family: inherit; }
+
+  ::selection { background: var(--amber-soft); }
+
+  /* scrollbar */
+  *::-webkit-scrollbar { width: 11px; height: 11px; }
+  *::-webkit-scrollbar-thumb { background: #D9D0BD; border-radius: 8px; border: 3px solid var(--bg); }
+  *::-webkit-scrollbar-thumb:hover { background: #C9BFA9; }
+
+  @keyframes ff-fade-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes ff-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes ff-slide-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+  @keyframes ff-pop {
+    0% { transform: scale(0.96); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes ff-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+
+  /* ============ RESPONSIVE ============ */
+  @media (max-width: 1024px) {
+    .ff-sidebar {
+      position: fixed !important; top: 0; left: 0; height: 100%; z-index: 60 !important;
+      transform: translateX(-100%);
+      transition: transform .28s cubic-bezier(.32,.72,0,1);
+      box-shadow: var(--shadow-lg);
+    }
+    .ff-sidebar[data-open="true"] { transform: translateX(0) !important; }
+    .ff-hamburger { display: grid !important; }
+    .ff-stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .ff-slots-grid {
+      display: flex !important; overflow-x: auto; gap: 12px; padding-bottom: 8px;
+      scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+    }
+    .ff-slot-day { min-width: 160px; flex: 0 0 auto; scroll-snap-align: start; }
+    .ff-products-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  }
+
+  @media (max-width: 900px) {
+    .ff-dash-grid { grid-template-columns: 1fr !important; }
+    .ff-prod-grid { grid-template-columns: 1fr !important; }
+    .ff-prod-side { position: static !important; }
+    .ff-route-grid {
+      display: flex !important; flex-direction: column;
+      height: auto !important; min-height: 0 !important;
+    }
+    .ff-route-map { order: -1; height: 280px; flex: 0 0 auto; }
+    .ff-route-list { max-height: 70vh; }
+  }
+
+  @media (max-width: 680px) {
+    .ff-orders-table { display: none !important; }
+    .ff-orders-cards { display: flex !important; }
+    .ff-search { width: 100% !important; }
+    .ff-filters {
+      margin-left: 0 !important; width: 100%;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+    }
+    .ff-filters button { white-space: nowrap; }
+    .ff-order-panel { width: 100% !important; max-width: 100% !important; }
+  }
+
+  @media (max-width: 640px) {
+    .ff-main { padding: 16px 16px 32px !important; }
+    .ff-topbar { padding: 0 16px !important; }
+    .ff-tenant { display: none !important; }
+    .ff-page-title { font-size: 19px !important; }
+    .ff-stats-grid { grid-template-columns: 1fr !important; }
+    .ff-products-grid { grid-template-columns: 1fr !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="data.js"></script>
+<script type="text/babel" src="icons.jsx"></script>
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="pages.jsx"></script>
+<script type="text/babel" src="pages2.jsx"></script>
+<script type="text/babel" src="production.jsx"></script>
+<script type="text/babel" src="auth.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+</body>
+</html>

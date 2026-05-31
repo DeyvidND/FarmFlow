@@ -1,0 +1,26 @@
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { SESSION_COOKIE } from '@/lib/session';
+
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  const hasSession = Boolean(req.cookies.get(SESSION_COOKIE)?.value);
+  const isAuthPage = pathname === '/login';
+  const isProtected = pathname === '/tenants' || pathname.startsWith('/tenants/');
+
+  if (!hasSession && isProtected) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/login';
+    return NextResponse.redirect(url);
+  }
+  if (hasSession && isAuthPage) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/tenants';
+    return NextResponse.redirect(url);
+  }
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ['/tenants/:path*', '/login'],
+};

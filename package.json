@@ -1,0 +1,19 @@
+{
+  "name": "farmflow",
+  "private": true,
+  "version": "0.0.1",
+  "packageManager": "pnpm@9.12.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "db:generate": "pnpm --filter @farmflow/db generate",
+    "db:migrate": "pnpm --filter @farmflow/db migrate",
+    "db:seed": "pnpm --filter @farmflow/db seed"
+  },
+  "devDependencies": {
+    "turbo": "^2.1.0",
+    "typescript": "~5.6.0"
+  }
+}
