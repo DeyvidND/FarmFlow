@@ -66,6 +66,10 @@ async function main() {
     { tenantId: tenant.id, name: 'Домашно сладко малина', slug: 'domashno-sladko-malina', priceStotinki: 990, unit: 'бр', weight: '320 г', category: 'Преработени', tint: '#B23B5E', stockQuantity: 14, isActive: true },
     { tenantId: tenant.id, name: 'Мед липов', slug: 'med-lipov', priceStotinki: 1350, unit: 'бр', weight: '450 г', category: 'Преработени', tint: '#D89A2B', stockQuantity: 7, isActive: true },
     { tenantId: tenant.id, name: 'Арония', slug: 'aroniya', priceStotinki: 620, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#4A2E55', stockQuantity: 4, isActive: true },
+    // Bundles (category 'bundle') — curated contents + struck-through old price.
+    { tenantId: tenant.id, name: 'Летен микс', slug: 'paket-leten', description: 'за 2–3 души', priceStotinki: 2490, compareAtPriceStotinki: 2940, unit: 'бр', weight: 'пакет', category: 'bundle', tint: '#C0426B', stockQuantity: null, isActive: true, bundleItems: ['Малини 250 г', 'Боровинки 250 г', 'Къпини 300 г', 'Ягоди 500 г'] },
+    { tenantId: tenant.id, name: 'Семеен пакет', slug: 'paket-semeen', description: 'за цялото семейство', priceStotinki: 4200, compareAtPriceStotinki: 4980, unit: 'бр', weight: 'пакет', category: 'bundle', tint: '#A11E2E', stockQuantity: null, isActive: true, featured: true, bundleItems: ['Малини 500 г', 'Боровинки 500 г', 'Череши 500 г', 'Ягоди 500 г', 'Сироп от бъз', 'Горско сладко'] },
+    { tenantId: tenant.id, name: 'Подаръчна кутия', slug: 'paket-podarak', description: 'в дървена кутийка', priceStotinki: 3450, compareAtPriceStotinki: 3800, unit: 'бр', weight: 'пакет', category: 'bundle', tint: '#D89A2B', stockQuantity: null, isActive: true, bundleItems: ['Микс горски плодове 750 г', 'Сироп от малина', 'Горско сладко', 'Картичка с поздрав'] },
   ]).returning();
 
   // Full week of slots (25–31 May 2026) from docs/farmflow/project/data.js.

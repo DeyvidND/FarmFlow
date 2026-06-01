@@ -15,7 +15,8 @@ export default async function ProductsPage({
   let products: PublicProduct[] = [];
   let failed = false;
   try {
-    products = await getProducts(slug);
+    // Bundles (category='bundle') live on their own /bundles page.
+    products = (await getProducts(slug)).filter((p) => p.category !== 'bundle');
   } catch {
     failed = true;
   }

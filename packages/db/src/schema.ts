@@ -79,6 +79,12 @@ export const products = pgTable(
     // inline price_data so it never blocks).
     stripeProductId: text('stripe_product_id'),
     stripePriceId: text('stripe_price_id'),
+    // Bundles (category='bundle'): the curated contents (one line each, e.g.
+    // "Малини 250 г"), the struck-through "old" price, and a featured flag for
+    // the "★ Най-популярен" ribbon. NULL/false for regular products.
+    bundleItems: jsonb('bundle_items').$type<string[]>(),
+    compareAtPriceStotinki: integer('compare_at_price_stotinki'),
+    featured: boolean('featured').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
