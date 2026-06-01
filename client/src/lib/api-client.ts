@@ -2,11 +2,14 @@ import type {
   Article,
   ArticleMedia,
   DashboardSummary,
+  Farmer,
   Order,
   Product,
   ProductionSummary,
   RouteResult,
   Slot,
+  Subcategory,
+  TenantProfile,
 } from './types';
 
 /** Thrown by apiFetch on a non-2xx response, carrying the API's BG message. */
@@ -67,6 +70,46 @@ export function uploadProductImage(id: string, file: File) {
   fd.append('image', file);
   return apiFetch<Product>(`products/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
 }
+
+// ---- Farmers ----
+export const listFarmers = () => apiFetch<Farmer[]>('farmers');
+
+export const createFarmer = (data: Partial<Farmer>) =>
+  apiFetch<Farmer>('farmers', { method: 'POST', ...json(data) }, 'Неуспешно създаване');
+
+export const updateFarmer = (id: string, data: Partial<Farmer>) =>
+  apiFetch<Farmer>(`farmers/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешно записване');
+
+export const deleteFarmer = (id: string) =>
+  apiFetch<{ id: string }>(`farmers/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
+
+export function uploadFarmerImage(id: string, file: File) {
+  const fd = new FormData();
+  fd.append('image', file);
+  return apiFetch<Farmer>(`farmers/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
+}
+
+// ---- Subcategories ----
+export const listSubcategories = () => apiFetch<Subcategory[]>('subcategories');
+
+export const createSubcategory = (data: Partial<Subcategory>) =>
+  apiFetch<Subcategory>('subcategories', { method: 'POST', ...json(data) }, 'Неуспешно създаване');
+
+export const updateSubcategory = (id: string, data: Partial<Subcategory>) =>
+  apiFetch<Subcategory>(`subcategories/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешно записване');
+
+export const deleteSubcategory = (id: string) =>
+  apiFetch<{ id: string }>(`subcategories/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
+
+export function uploadSubcategoryImage(id: string, file: File) {
+  const fd = new FormData();
+  fd.append('image', file);
+  return apiFetch<Subcategory>(`subcategories/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
+}
+
+// ---- Tenant toggles ----
+export const updateTenant = (data: { multiFarmer?: boolean; multiSubcat?: boolean }) =>
+  apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
 // ---- Articles ----
 export const listArticles = () => apiFetch<Article[]>('articles');

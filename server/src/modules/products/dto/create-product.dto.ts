@@ -1,4 +1,4 @@
-import { IsString, IsInt, IsOptional, IsBoolean, IsUrl, Min } from 'class-validator';
+import { IsString, IsInt, IsOptional, IsBoolean, IsUrl, IsUUID, Min, ValidateIf } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateProductDto {
@@ -50,4 +50,16 @@ export class CreateProductDto {
   @IsOptional()
   @IsUrl()
   imageUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Linked farmer (multi-producer mode); null to unlink' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsUUID()
+  farmerId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Linked subcategory section; null to unlink' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsUUID()
+  subcategoryId?: string | null;
 }

@@ -3,6 +3,8 @@ import type {
   tenants,
   users,
   products,
+  farmers,
+  subcategories,
   deliverySlots,
   orders,
   orderItems,
@@ -19,6 +21,12 @@ export type NewUser = InferInsertModel<typeof users>;
 
 export type Product = InferSelectModel<typeof products>;
 export type NewProduct = InferInsertModel<typeof products>;
+
+export type Farmer = InferSelectModel<typeof farmers>;
+export type NewFarmer = InferInsertModel<typeof farmers>;
+
+export type Subcategory = InferSelectModel<typeof subcategories>;
+export type NewSubcategory = InferInsertModel<typeof subcategories>;
 
 export type DeliverySlot = InferSelectModel<typeof deliverySlots>;
 export type NewDeliverySlot = InferInsertModel<typeof deliverySlots>;
@@ -47,8 +55,15 @@ export type PublicArticle = Omit<Article, 'tenantId' | 'sentAt'> & {
   media: PublicArticleMedia[];
 };
 
-export type PublicProduct = Omit<Product, 'tenantId' | 'stockQuantity'>;
+export type PublicProduct = Omit<
+  Product,
+  'tenantId' | 'stockQuantity' | 'stripeProductId' | 'stripePriceId'
+>;
 export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'>;
+
+/** Public storefront shapes — tenant_id stripped. */
+export type PublicFarmer = Omit<Farmer, 'tenantId'>;
+export type PublicSubcategory = Omit<Subcategory, 'tenantId'>;
 export type SafeUser = Omit<User, 'passwordHash'>;
 
 export type TenantRole = 'admin' | 'driver' | 'customer';

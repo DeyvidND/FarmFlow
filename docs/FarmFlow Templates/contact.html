@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="bg" data-theme="priroda">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Контакти · Горска Градина</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Commissioner:wght@300;400;500;600;700&family=Onest:wght@400;500;600;700;800&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Mulish:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>try{document.documentElement.setAttribute('data-theme',localStorage.getItem('ff_theme')||'priroda')}catch(e){}</script>
+<link rel="stylesheet" href="assets/theme.css">
+<link rel="stylesheet" href="assets/main.css">
+<link rel="stylesheet" href="assets/home-themes.css">
+</head>
+<body>
+<div id="site-header" data-active="contact.html"></div>
+
+<main data-screen-label="Contact">
+  <div class="wrap">
+    <nav class="breadcrumb"><a href="home.html">Начало</a> / <span>Контакти</span></nav>
+  </div>
+
+  <section class="section--tight">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Контакти</span>
+        <h2 style="margin-top:8px">Ще се радваме да чуем</h2>
+        <p>Въпрос за поръчка, идея за пакет или просто здравей — пиши ни по който начин ти е удобен.</p>
+      </div>
+
+      <div class="split" style="margin-top:30px;align-items:flex-start">
+        <!-- contact info + map -->
+        <div class="stack" style="gap:18px">
+          <div class="grid grid--2" style="gap:14px">
+            <a href="tel:+359881234567" class="card" style="padding:20px;display:flex;gap:14px;align-items:center">
+              <span class="ic-mini" data-ic="truck"></span>
+              <span><span class="muted" style="font-size:13px">Телефон / Viber</span><br><b>+359 88 123 4567</b></span>
+            </a>
+            <a href="mailto:zdravei@example.bg" class="card" style="padding:20px;display:flex;gap:14px;align-items:center">
+              <span class="ic-mini" data-ic="heart"></span>
+              <span><span class="muted" style="font-size:13px">Имейл</span><br><b>zdravei@example.bg</b></span>
+            </a>
+          </div>
+
+          <div class="card" style="padding:20px;display:flex;gap:14px;align-items:center">
+            <span class="ic-mini" data-ic="leaf"></span>
+            <span><span class="muted" style="font-size:13px">Адрес</span><br><b>гр. Варна, България</b> · Пон–Съб 9:00–18:00</span>
+          </div>
+
+          <!-- map placeholder -->
+          <div class="ph ph--rounded" style="aspect-ratio:16/10">
+            <span class="ph__label">Карта · Варна · Google Maps</span>
+          </div>
+
+          <div>
+            <div class="muted" style="font-size:13.5px;margin-bottom:10px">Последвай ни</div>
+            <div class="socials" id="socialRow" style="margin:0"></div>
+          </div>
+        </div>
+
+        <!-- message form -->
+        <div class="card" style="padding:clamp(22px,3vw,34px)">
+          <h3 style="font-size:24px;margin-bottom:6px">Изпрати съобщение</h3>
+          <p class="muted" style="margin-bottom:22px">Отговаряме в рамките на работния ден.</p>
+          <form class="stack" style="gap:14px" onsubmit="event.preventDefault();FFtoast('Съобщението е изпратено!');this.reset();">
+            <div class="field-row">
+              <div class="field"><label>Име</label><input class="input" placeholder="Твоето име" required></div>
+              <div class="field"><label>Телефон</label><input class="input" type="tel" placeholder="+359 ..."></div>
+            </div>
+            <div class="field"><label>Имейл</label><input class="input" type="email" placeholder="ime@example.bg" required></div>
+            <div class="field"><label>Съобщение</label><textarea class="textarea" placeholder="Как можем да помогнем?" required></textarea></div>
+            <button class="btn btn--primary" type="submit" style="align-self:flex-start">Изпрати</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="site-footer"></div>
+<script src="assets/app.js"></script>
+<script>
+  const I = window.FFICON;
+  document.querySelectorAll("[data-ic]").forEach((el) => {
+    el.innerHTML = I[el.dataset.ic];
+    el.style.cssText = "width:44px;height:44px;border-radius:var(--radius-sm);display:grid;place-items:center;background:var(--primary-050);color:var(--primary);flex:none";
+    el.querySelector("svg").style.width = "22px"; el.querySelector("svg").style.height = "22px";
+  });
+  document.getElementById("socialRow").innerHTML =
+    `<a href="#">${I.fb}</a><a href="#">${I.ig}</a><a href="#">${I.tt}</a>`;
+  document.querySelectorAll("#socialRow a").forEach((a) => {
+    a.style.cssText = "background:var(--primary-050);color:var(--primary)";
+  });
+</script>
+</body>
+</html>

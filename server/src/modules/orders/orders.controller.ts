@@ -72,4 +72,13 @@ export class PublicOrdersController {
   create(@Param('slug') slug: string, @Body() dto: CreateOrderDto) {
     return this.ordersService.create(slug, dto);
   }
+
+  // Public order recap for the confirmation page (UUID + slug gated).
+  @Get(':id')
+  getPublicSummary(
+    @Param('slug') slug: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.ordersService.findPublicOrderSummary(slug, id);
+  }
 }

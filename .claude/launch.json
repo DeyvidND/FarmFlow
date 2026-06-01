@@ -6,6 +6,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@farmflow/web", "exec", "next", "start", "-p", "3005"],
       "port": 3005
+    },
+    {
+      "name": "storefront",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@farmflow/storefront", "exec", "next", "start", "-p", "3003"],
+      "port": 3003
     }
   ]
 }

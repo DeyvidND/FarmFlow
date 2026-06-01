@@ -10,12 +10,16 @@ import { AppController } from './app.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { ProductsModule } from './modules/products/products.module';
+import { FarmersModule } from './modules/farmers/farmers.module';
+import { SubcategoriesModule } from './modules/subcategories/subcategories.module';
 import { SlotsModule } from './modules/slots/slots.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { RoutingModule } from './modules/routing/routing.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { StripeModule } from './modules/stripe/stripe.module';
+import { IntakeModule } from './modules/intake/intake.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CatalogCacheModule } from './modules/catalog-cache/catalog-cache.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { ArticlesModule } from './modules/articles/articles.module';
@@ -32,6 +36,8 @@ import { ArticlesModule } from './modules/articles/articles.module';
     AuthModule,
     TenantsModule,
     ProductsModule,
+    FarmersModule,
+    SubcategoriesModule,
     SlotsModule,
     // RoutingModule before OrdersModule so `/orders/route` registers before `/orders/:id`.
     RoutingModule,
@@ -39,6 +45,8 @@ import { ArticlesModule } from './modules/articles/articles.module';
     DashboardModule,
     PlatformModule,
     StripeModule,
+    IntakeModule,
+    ReviewsModule,
     CatalogCacheModule,
     StorageModule,
     ArticlesModule,

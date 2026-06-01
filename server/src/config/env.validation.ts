@@ -6,6 +6,8 @@ export const envValidationSchema = Joi.object({
   JWT_SECRET: Joi.string().required(),
   STRIPE_SECRET_KEY: Joi.string().optional().allow(''),
   STRIPE_WEBHOOK_SECRET: Joi.string().optional().allow(''),
+  // Storefront origin for Stripe success/cancel redirect URLs.
+  STOREFRONT_URL: Joi.string().default('http://localhost:3003'),
   R2_ACCOUNT_ID: Joi.string().optional().allow(''),
   R2_ACCESS_KEY_ID: Joi.string().optional().allow(''),
   R2_SECRET_ACCESS_KEY: Joi.string().optional().allow(''),

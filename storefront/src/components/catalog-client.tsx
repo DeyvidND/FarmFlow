@@ -1,0 +1,56 @@
+'use client';
+
+/**
+ * Catalog grid + category chips — React port of `products.html` (the `data-tabs`
+ * behavior becomes a state filter). Receives the live catalog from the server
+ * page; chips are built from the categories actually present.
+ */
+import { useMemo, useState } from 'react';
+import type { PublicProduct, PublicFarmer } from '@/lib/api';
+import { buildCategoryTabs, productInTab } from '@/lib/categories';
+import { ProductCard } from './product-card';
+
+export function CatalogClient({
+  products,
+  farmers = [],
+}: {
+  products: PublicProduct[];
+  farmers?: PublicFarmer[];
+}) {
+  const tabs = useMemo(() => buildCategoryTabs(products), [products]);
+  const farmerById = useMemo(() => new Map(farmers.map((f) => [f.id, f])), [farmers]);
+  const [active, setActive] = useState('all');
+
+  const shown = products.filter((p) => productInTab(p, active));
+
+  return (
+    <>
+      <div
+        className="chips-row"
+        style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '28px 0 26px' }}
+      >
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`chip${active === t.key ? ' is-active' : ''}`}
+            aria-selected={active === t.key}
+            onClick={() => setActive(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {shown.length === 0 ? (
+        <p className="muted">Няма продукти в тази категория.</p>
+      ) : (
+        <div className="grid grid--4">
+          {shown.map((p) => (
+            <ProductCard key={p.id} product={p} farmer={p.farmerId ? farmerById.get(p.farmerId) : undefined} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ProductCard } from './product-card';
-import { CreateProductDialog } from './create-product-dialog';
+import { ProductDialog } from './product-dialog';
 import {
   ApiError,
   createProduct,
@@ -13,17 +13,33 @@ import {
   updateProduct,
   uploadProductImage,
 } from '@/lib/api-client';
-import type { Product } from '@/lib/types';
+import type { Farmer, Product, Subcategory } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
-export function ProductsClient({ initial }: { initial: Product[] }) {
+export function ProductsClient({
+  initial,
+  farmers = [],
+  subcats = [],
+  multiFarmer = false,
+  multiSubcat = false,
+}: {
+  initial: Product[];
+  farmers?: Farmer[];
+  subcats?: Subcategory[];
+  multiFarmer?: boolean;
+  multiSubcat?: boolean;
+}) {
   const [products, setProducts] = useState<Product[]>(initial);
   const [editId, setEditId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [fullEdit, setFullEdit] = useState<Product | null>(null);
 
   const activeCount = products.filter((p) => p.isActive).length;
+  const linkEnabled = multiFarmer || multiSubcat;
+  const farmerName = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
+  const subcatName = useMemo(() => new Map(subcats.map((s) => [s.id, s.name])), [subcats]);
 
   const patchLocal = (id: string, patch: Partial<Product>) =>
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -90,6 +106,13 @@ export function ProductsClient({ initial }: { initial: Product[] }) {
     toast.success('Продуктът е създаден');
   }
 
+  async function onFullUpdate(data: Partial<Product>) {
+    if (!fullEdit) return;
+    const updated = await updateProduct(fullEdit.id, data);
+    patchLocal(fullEdit.id, updated);
+    toast.success('Продуктът е обновен');
+  }
+
   return (
     <div className="animate-ff-fade-up">
       <div className="mb-[18px] flex items-center justify-between">
@@ -118,12 +141,34 @@ export function ProductsClient({ initial }: { initial: Product[] }) {
               onToggle={(on) => onToggle(p, on)}
               onUpload={(f) => onUpload(p, f)}
               onDelete={() => onDelete(p)}
+              farmerLabel={multiFarmer ? (p.farmerId ? farmerName.get(p.farmerId) ?? null : null) : undefined}
+              subcatLabel={multiSubcat ? (p.subcategoryId ? subcatName.get(p.subcategoryId) ?? null : null) : undefined}
+              onEditFull={linkEnabled ? () => setFullEdit(p) : undefined}
             />
           ))}
         </div>
       )}
 
-      <CreateProductDialog open={createOpen} onClose={() => setCreateOpen(false)} onCreate={onCreate} />
+      <ProductDialog
+        open={createOpen}
+        farmers={farmers}
+        subcats={subcats}
+        multiFarmer={multiFarmer}
+        multiSubcat={multiSubcat}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={onCreate}
+      />
+
+      <ProductDialog
+        open={!!fullEdit}
+        product={fullEdit}
+        farmers={farmers}
+        subcats={subcats}
+        multiFarmer={multiFarmer}
+        multiSubcat={multiSubcat}
+        onClose={() => setFullEdit(null)}
+        onSubmit={onFullUpdate}
+      />
     </div>
   );
 }

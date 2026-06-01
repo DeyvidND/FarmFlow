@@ -37,6 +37,10 @@ export const tenants = pgTable('tenants', {
   subscriptionSince: timestamp('subscription_since'),
   // Farmer opts in to self-delivery; only then do slots surface on the storefront.
   deliveryEnabled: boolean('delivery_enabled').notNull().default(false),
+  // Optional catalog groupings — when on, the matching admin page + product link
+  // field + storefront grouping/attribution activate. Default off.
+  multiFarmer: boolean('multi_farmer').notNull().default(false),
+  multiSubcat: boolean('multi_subcat').notNull().default(false),
   stripeAccountId: text('stripe_account_id'),
   // Farm origin for delivery-route optimization (nullable until set).
   farmAddress: text('farm_address'),
@@ -55,22 +59,48 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-export const products = pgTable('products', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  name: text('name').notNull(),
-  description: text('description'),
-  priceStotinki: integer('price_stotinki').notNull(),
-  unit: text('unit').notNull(),
-  weight: text('weight'),
-  category: text('category'),
-  tint: text('tint'),
-  // NULL = unlimited stock; 0 = out of stock.
-  stockQuantity: integer('stock_quantity').default(0),
-  isActive: boolean('is_active').default(true),
-  imageUrl: text('image_url'),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    name: text('name').notNull(),
+    // URL key for the storefront product page (/product/[slug]). Unique per
+    // tenant; nullable-safe (admin-created rows may lack one until set).
+    slug: text('slug'),
+    description: text('description'),
+    priceStotinki: integer('price_stotinki').notNull(),
+    unit: text('unit').notNull(),
+    weight: text('weight'),
+    category: text('category'),
+    tint: text('tint'),
+    // NULL = unlimited stock; 0 = out of stock.
+    stockQuantity: integer('stock_quantity').default(0),
+    isActive: boolean('is_active').default(true),
+    imageUrl: text('image_url'),
+    // Optional multi-producer + section grouping links (admin toggles). FK SET NULL
+    // on delete so removing a farmer/subcategory just unlinks its products.
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'set null' }),
+    subcategoryId: uuid('subcategory_id').references(() => subcategories.id, {
+      onDelete: 'set null',
+    }),
+    // Synced ids for the farm's Stripe catalog (per connected account). Set by
+    // StripeService.syncCatalog; NULL until synced (checkout falls back to
+    // inline price_data so it never blocks).
+    stripeProductId: text('stripe_product_id'),
+    stripePriceId: text('stripe_price_id'),
+    // Bundles (category='bundle'): the curated contents (one line each, e.g.
+    // "Малини 250 г"), the struck-through "old" price, and a featured flag for
+    // the "★ Най-популярен" ribbon. NULL/false for regular products.
+    bundleItems: jsonb('bundle_items').$type<string[]>(),
+    compareAtPriceStotinki: integer('compare_at_price_stotinki'),
+    featured: boolean('featured').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantSlugUnique: uniqueIndex('products_tenant_slug_unique').on(t.tenantId, t.slug),
+  }),
+);
 
 export const deliverySlots = pgTable('delivery_slots', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
@@ -100,6 +130,12 @@ export const orders = pgTable('orders', {
   deliveryLat: numeric('delivery_lat', { precision: 10, scale: 7 }),
   deliveryLng: numeric('delivery_lng', { precision: 10, scale: 7 }),
   notes: text('notes'),
+  // Stripe payment linkage (set by the checkout + webhook flow). `paidAt` is the
+  // paid marker — status flips to `confirmed` on a successful payment (no extra
+  // enum value); these stay NULL for cash / no-Stripe orders.
+  stripeCheckoutSessionId: text('stripe_checkout_session_id'),
+  stripePaymentIntentId: text('stripe_payment_intent_id'),
+  paidAt: timestamp('paid_at', { withTimezone: true }),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -152,6 +188,9 @@ export const articles = pgTable(
     excerpt: text('excerpt'),
     body: text('body'),
     coverImageUrl: text('cover_image_url'),
+    // Free-text editorial category (e.g. "Рецепти" / "От полето" / "Съвети") —
+    // powers the storefront blog filter tabs + per-article tag. Nullable.
+    category: text('category'),
     status: articleStatusEnum('status').notNull().default('draft'),
     publishedAt: timestamp('published_at'),
     sentAt: timestamp('sent_at'),
@@ -197,10 +236,68 @@ export const newsletterSubscribers = pgTable('newsletter_subscribers', {
   unsubscribedAt: timestamp('unsubscribed_at'),
 });
 
+// Storefront contact-form submissions (public intake). Read in the admin panel
+// later; for now just persisted.
+export const contactMessages = pgTable('contact_messages', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  name: text('name').notNull(),
+  email: text('email').notNull(),
+  phone: text('phone'),
+  message: text('message').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const reviewStatusEnum = pgEnum('review_status', ['pending', 'published', 'hidden']);
+
+// Customer reviews. Public submissions land as `pending` (moderated in the admin
+// panel); only `published` rows are served to the storefront. `productId` null =
+// a site-wide review; set = a review tied to one product.
+export const reviews = pgTable('reviews', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  productId: uuid('product_id').references(() => products.id),
+  authorName: text('author_name').notNull(),
+  authorLocation: text('author_location'),
+  rating: integer('rating').notNull(), // 1–5
+  body: text('body').notNull(),
+  status: reviewStatusEnum('status').notNull().default('pending'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Producers behind one storefront (multi-farmer mode). A product may link to one.
+export const farmers = pgTable('farmers', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  name: text('name').notNull(),
+  role: text('role'),
+  bio: text('bio'),
+  phone: text('phone'),
+  since: text('since'),
+  tint: text('tint'),
+  imageUrl: text('image_url'),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Optional product grouping into photographed storefront sections.
+export const subcategories = pgTable('subcategories', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  name: text('name').notNull(),
+  description: text('description'),
+  tint: text('tint'),
+  imageUrl: text('image_url'),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const schema = {
   tenants,
   users,
   products,
+  farmers,
+  subcategories,
   deliverySlots,
   orders,
   orderItems,
@@ -209,7 +306,10 @@ export const schema = {
   articles,
   articleMedia,
   newsletterSubscribers,
+  contactMessages,
+  reviews,
   userRoleEnum,
+  reviewStatusEnum,
   orderStatusEnum,
   subscriptionStatusEnum,
   articleStatusEnum,

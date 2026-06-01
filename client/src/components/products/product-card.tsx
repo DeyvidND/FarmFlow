@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Pencil, Check, Trash2 } from 'lucide-react';
+import { Pencil, Check, Trash2, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ProductThumb } from './product-thumb';
@@ -23,6 +23,11 @@ interface Props {
   onToggle: (on: boolean) => void;
   onUpload: (file: File) => void;
   onDelete: () => void;
+  /** Shown when the farmer/subcategory toggles are on. */
+  farmerLabel?: string | null;
+  subcatLabel?: string | null;
+  /** Opens the full product dialog (relink + full edit); only when linking is enabled. */
+  onEditFull?: () => void;
 }
 
 export function ProductCard({
@@ -36,6 +41,9 @@ export function ProductCard({
   onToggle,
   onUpload,
   onDelete,
+  farmerLabel,
+  subcatLabel,
+  onEditFull,
 }: Props) {
   const [price, setPrice] = useState('');
   const [stock, setStock] = useState('');
@@ -82,6 +90,21 @@ export function ProductCard({
         </div>
         <ToggleSwitch small checked={product.isActive} disabled={busy} onChange={onToggle} />
       </div>
+
+      {(farmerLabel !== undefined || subcatLabel !== undefined) && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {farmerLabel !== undefined && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-ff-border bg-ff-surface-2 px-2 py-0.5 text-[11.5px] font-bold text-ff-ink-2">
+              <Link2 size={11} /> {farmerLabel ?? 'Без фермер'}
+            </span>
+          )}
+          {subcatLabel !== undefined && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-ff-border bg-ff-surface-2 px-2 py-0.5 text-[11.5px] font-bold text-ff-ink-2">
+              {subcatLabel ?? 'Без секция'}
+            </span>
+          )}
+        </div>
+      )}
 
       {editing ? (
         <div className="mt-[13px] flex flex-col gap-[9px]">
@@ -135,12 +158,23 @@ export function ProductCard({
               {sm.label}
             </span>
           </div>
-          <button
-            onClick={start}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-[9px] border border-ff-border bg-ff-surface-2 px-2 py-2 text-[13px] font-bold text-ff-ink-2 transition-colors hover:bg-ff-green-50 hover:text-ff-ink"
-          >
-            <Pencil size={15} /> Редактирай
-          </button>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={start}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-[9px] border border-ff-border bg-ff-surface-2 px-2 py-2 text-[13px] font-bold text-ff-ink-2 transition-colors hover:bg-ff-green-50 hover:text-ff-ink"
+            >
+              <Pencil size={15} /> Редактирай
+            </button>
+            {onEditFull && (
+              <button
+                onClick={onEditFull}
+                title="Свържи / пълна редакция"
+                className="flex items-center justify-center gap-1.5 rounded-[9px] border border-ff-border bg-ff-surface-2 px-3 py-2 text-[13px] font-bold text-ff-ink-2 transition-colors hover:bg-ff-green-50 hover:text-ff-ink"
+              >
+                <Link2 size={15} /> Свържи
+              </button>
+            )}
+          </div>
         </>
       )}
     </div>

@@ -84,4 +84,12 @@ export class PublicProductsController {
     // Caching (Redis, keyed by tenantId) lives in the service.
     return this.productsService.findPublicBySlug(slug);
   }
+
+  @Get(':productSlug')
+  findPublicOne(
+    @Param('slug') slug: string,
+    @Param('productSlug') productSlug: string,
+  ) {
+    return this.productsService.findPublicProductBySlug(slug, productSlug);
+  }
 }
