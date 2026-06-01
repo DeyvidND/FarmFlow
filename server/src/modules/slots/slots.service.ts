@@ -13,6 +13,19 @@ import { UpdateSlotDto } from './dto/update-slot.dto';
 /** A delivery slot plus its live `booked` count (non-cancelled orders). */
 type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
 
+/**
+ * Public-facing slot shape for the storefront picker. Internal columns
+ * (`tenantId`, `maxOrders`, `currentOrders`, `isActive`, `createdAt`) are
+ * dropped; times are trimmed `HH:MM` and `remaining` is precomputed.
+ */
+export interface PublicSlot {
+  id: string;
+  date: string; // YYYY-MM-DD
+  startTime: string; // HH:MM
+  endTime: string; // HH:MM
+  remaining: number;
+}
+
 @Injectable()
 export class SlotsService {
   constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
@@ -87,8 +100,12 @@ export class SlotsService {
     return row;
   }
 
-  /** Public: slots for a storefront slug that still have remaining capacity. */
-  async findPublicBySlug(slug: string, date?: string): Promise<SlotWithBooked[]> {
+  /**
+   * Public: slots for a storefront slug that still have remaining capacity.
+   * Returns the trimmed {@link PublicSlot} shape — internal columns and the
+   * tenant id are never exposed to the storefront.
+   */
+  async findPublicBySlug(slug: string, date?: string): Promise<PublicSlot[]> {
     const [tenant] = await this.db
       .select({ id: tenants.id, deliveryEnabled: tenants.deliveryEnabled })
       .from(tenants)
@@ -103,8 +120,12 @@ export class SlotsService {
 
     return this.db
       .select({
-        ...getTableColumns(deliverySlots),
-        booked: sql<number>`count(${orders.id})::int`,
+        id: deliverySlots.id,
+        date: deliverySlots.date,
+        // pg `time` serializes as HH:MM:SS — trim to HH:MM for the UI.
+        startTime: sql<string>`substring(${deliverySlots.timeFrom}::text from 1 for 5)`,
+        endTime: sql<string>`substring(${deliverySlots.timeTo}::text from 1 for 5)`,
+        remaining: sql<number>`(${deliverySlots.maxOrders} - count(${orders.id}))::int`,
       })
       .from(deliverySlots)
       .leftJoin(

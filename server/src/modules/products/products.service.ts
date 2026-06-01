@@ -119,6 +119,18 @@ export class ProductsService {
     return result;
   }
 
+  /** Single active product by its storefront slug, or 404. Reuses the cached
+   *  public catalog so a product page hits Redis, not Postgres. */
+  async findPublicProductBySlug(
+    slug: string,
+    productSlug: string,
+  ): Promise<PublicProduct> {
+    const catalog = await this.findPublicBySlug(slug);
+    const product = catalog.find((p) => p.slug === productSlug);
+    if (!product) throw new NotFoundException('Продуктът не е намерен');
+    return product;
+  }
+
   /** Best-effort removal of a stored object given its public URL. */
   private async deleteObject(url: string): Promise<void> {
     try {
@@ -130,8 +142,8 @@ export class ProductsService {
   }
 }
 
-/** Strip tenant + stock before exposing a product publicly. */
+/** Strip tenant + stock + internal Stripe ids before exposing a product publicly. */
 function toPublicProduct(p: Product): PublicProduct {
-  const { tenantId, stockQuantity, ...rest } = p;
+  const { tenantId, stockQuantity, stripeProductId, stripePriceId, ...rest } = p;
   return rest;
 }

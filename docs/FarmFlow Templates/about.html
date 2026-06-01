@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="bg" data-theme="priroda">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>За нас · Горска Градина</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Commissioner:wght@300;400;500;600;700&family=Onest:wght@400;500;600;700;800&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Mulish:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>try{document.documentElement.setAttribute('data-theme',localStorage.getItem('ff_theme')||'priroda')}catch(e){}</script>
+<link rel="stylesheet" href="assets/theme.css">
+<link rel="stylesheet" href="assets/main.css">
+<link rel="stylesheet" href="assets/home-themes.css">
+</head>
+<body>
+<div id="site-header" data-active="about.html"></div>
+
+<main data-screen-label="About">
+  <!-- founder hero -->
+  <section class="section">
+    <div class="wrap split">
+      <div>
+        <span class="eyebrow">За нас</span>
+        <h1 style="font-size:clamp(36px,5.5vw,60px);margin:12px 0 18px">Една градина,<br>отгледана с ръце<br>и търпение</h1>
+        <p class="lead">
+          Зад всяка кутийка малини стои семейство, което става преди изгрев и си ляга, когато последният ред е полят.
+          Това не е фабрика — това е нашият двор, нашата работа и нашата гордост.
+        </p>
+        <div class="cta-row">
+          <a href="products.html" class="btn btn--primary">Към продуктите</a>
+          <a href="contact.html" class="btn btn--ghost">Свържи се с нас</a>
+        </div>
+      </div>
+      <div class="ph ph--rounded" style="aspect-ratio:4/5"><span class="ph__label">Портрет на стопанина · 4:5</span></div>
+    </div>
+  </section>
+
+  <!-- narrative -->
+  <section class="section--tight">
+    <div class="wrap prose">
+      <p>Започнахме през 2014-та с няколко реда малини зад къщата — повече като хоби, отколкото като бизнес. Първото лято раздадохме почти цялата реколта на съседи и приятели. Те се връщаха. После водеха свои познати.</p>
+      <p>Днес гледаме над тридесет сорта горски плодове на близо два декара, но философията не се е променила. Не пръскаме. Не бързаме. Берем на ръка, рано сутрин, и доставяме същия ден — защото вярваме, че разликата се усеща още с първата хапка.</p>
+      <p>Не сме най-големите и не искаме да бъдем. Искаме да познаваме клиентите си по име и да знаем, че когато отворят кутийката, ще се усмихнат.</p>
+    </div>
+  </section>
+
+  <!-- values -->
+  <section class="section" style="background:var(--surface-2)">
+    <div class="wrap">
+      <div class="section-head center" style="margin-bottom:36px">
+        <span class="eyebrow">Нашите ценности</span>
+        <h2 style="margin-top:8px">В какво вярваме</h2>
+      </div>
+      <div class="grid grid--4">
+        <div class="card value-card"><div class="ic" data-ic="leaf"></div><h3>Биологично чисти</h3><p>Без химия, без изкуствени торове — само природа.</p></div>
+        <div class="card value-card"><div class="ic" data-ic="heart"></div><h3>Специално отношение</h3><p>Всеки клиент е съсед, не номер на поръчка.</p></div>
+        <div class="card value-card"><div class="ic" data-ic="truck"></div><h3>Берем днес — доставяме днес</h3><p>От храста до вратата ти за по-малко от 24 часа.</p></div>
+        <div class="card value-card"><div class="ic" data-ic="star"></div><h3>Качествата на плода</h3><p>Сорт, зрялост и вкус — подбираме ги внимателно.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- gallery -->
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head" style="margin-bottom:28px">
+        <span class="eyebrow">От градината</span>
+        <h2 style="margin-top:8px">Един обикновен ден при нас</h2>
+      </div>
+      <div class="gallery">
+        <div class="ph wide"><span class="ph__label">Изгрев над насажденията · 2:1</span></div>
+        <div class="ph"><span class="ph__label">Ръце с малини</span></div>
+        <div class="ph tall"><span class="ph__label">Кошници · 1:2</span></div>
+        <div class="ph"><span class="ph__label">Цвят на къпина</span></div>
+        <div class="ph"><span class="ph__label">Поливане</span></div>
+        <div class="ph"><span class="ph__label">Пакетиране</span></div>
+        <div class="ph"><span class="ph__label">Доставка</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- quote -->
+  <section class="section--tight">
+    <div class="wrap center">
+      <p class="quote" style="margin-inline:auto">Не продаваме плодове. Продаваме сутрешната роса, слънцето и малко от нашето семейство — във всяка кутийка.”</p>
+      <div style="margin-top:22px;font-weight:600">— стопанинът на Горска Градина</div>
+    </div>
+  </section>
+</main>
+
+<div id="site-footer"></div>
+<script src="assets/app.js"></script>
+<script>
+  const I = window.FFICON;
+  document.querySelectorAll("[data-ic]").forEach((el) => el.innerHTML = I[el.dataset.ic]);
+</script>
+</body>
+</html>

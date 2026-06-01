@@ -64,6 +64,20 @@
       "when": 1780232652353,
       "tag": "0008_condemned_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780258851531,
+      "tag": "0009_wise_tyrannus",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780287960357,
+      "tag": "0010_stormy_lila_cheney",
+      "breakpoints": true
     }
   ]
 }

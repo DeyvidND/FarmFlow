@@ -1,0 +1,86 @@
+/**
+ * Site footer — React port of `buildFooter` (shop / info / contact columns).
+ * Static, so it stays a server component.
+ */
+import Link from 'next/link';
+import { Berry, Facebook, Instagram, TikTok } from './icons';
+import { SITE, telHref, FOOTER_SHOP, FOOTER_INFO } from '@/lib/site';
+
+export function SiteFooter() {
+  const year = 2026;
+  return (
+    <footer className="site-footer">
+      <div className="wrap footer-grid">
+        <div>
+          <span className="brand">
+            <span className="brand__mark">
+              <Berry />
+            </span>
+            <span className="brand__name">{SITE.name}</span>
+          </span>
+          <p
+            style={{
+              marginTop: 14,
+              opacity: 0.85,
+              maxWidth: '30ch',
+              fontSize: 15,
+            }}
+          >
+            {SITE.blurb}
+          </p>
+          <div className="socials">
+            <a href={SITE.socials.facebook} aria-label="Facebook">
+              <Facebook />
+            </a>
+            <a href={SITE.socials.instagram} aria-label="Instagram">
+              <Instagram />
+            </a>
+            <a href={SITE.socials.tiktok} aria-label="TikTok">
+              <TikTok />
+            </a>
+          </div>
+        </div>
+
+        <div>
+          <h4>Магазин</h4>
+          <div className="footer-links">
+            {FOOTER_SHOP.map((l) => (
+              <Link key={l.href} href={l.href}>
+                {l.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <h4>Информация</h4>
+          <div className="footer-links">
+            {FOOTER_INFO.map((l) => (
+              <Link key={l.href} href={l.href}>
+                {l.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <h4>Контакти</h4>
+          <div className="footer-contact">
+            <a href={telHref(SITE.phone)}>{SITE.phone}</a>
+            <br />
+            <a href={`mailto:${SITE.email}`}>{SITE.email}</a>
+            <br />
+            {SITE.city}
+            <br />
+            {SITE.hours}
+          </div>
+        </div>
+      </div>
+
+      <div className="wrap footer-bottom">
+        <span>© {year} {SITE.name}. Всички права запазени.</span>
+        <span>Шаблон FarmFlow</span>
+      </div>
+    </footer>
+  );
+}

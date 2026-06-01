@@ -47,7 +47,10 @@ export type PublicArticle = Omit<Article, 'tenantId' | 'sentAt'> & {
   media: PublicArticleMedia[];
 };
 
-export type PublicProduct = Omit<Product, 'tenantId' | 'stockQuantity'>;
+export type PublicProduct = Omit<
+  Product,
+  'tenantId' | 'stockQuantity' | 'stripeProductId' | 'stripePriceId'
+>;
 export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'>;
 export type SafeUser = Omit<User, 'passwordHash'>;
 

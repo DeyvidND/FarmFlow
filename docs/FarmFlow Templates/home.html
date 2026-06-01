@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="bg" data-theme="priroda">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Начало · Горска Градина</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Commissioner:wght@300;400;500;600;700&family=Onest:wght@400;500;600;700;800&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Mulish:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>try{document.documentElement.setAttribute('data-theme',localStorage.getItem('ff_theme')||'priroda')}catch(e){}</script>
+<link rel="stylesheet" href="assets/theme.css">
+<link rel="stylesheet" href="assets/main.css">
+<link rel="stylesheet" href="assets/home-themes.css">
+</head>
+<body>
+
+<div id="site-header" data-active="home.html"></div>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero section" data-screen-label="Home / Hero">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="eyebrow">Семейно стопанство · от 2014</span>
+        <h1 style="margin-top:14px">Берем сутрин,<br>на вратата ти<br>до вечерта.</h1>
+        <p class="lead" style="margin-top:20px;max-width:46ch">
+          Био малини, боровинки и горски плодове от слънчевите хълмове край Варна.
+          Без пръскане, без компромис — само истински вкус.
+        </p>
+        <div class="cta-row">
+          <a href="products.html" class="btn btn--primary btn--lg">Поръчай сега</a>
+          <a href="about.html" class="btn btn--ghost btn--lg">Нашата история</a>
+        </div>
+        <div class="hero-stats">
+          <div><div class="n">100%</div><div class="l">био, без пръскане</div></div>
+          <div><div class="n">24ч</div><div class="l">от бране до доставка</div></div>
+          <div><div class="n">1 200+</div><div class="l">щастливи клиенти</div></div>
+        </div>
+      </div>
+      <div>
+        <div class="ph ph--rounded" style="aspect-ratio:4/5">
+          <span class="ph__label">Hero снимка · купа с малини · 4:5</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURED PRODUCTS STRIP -->
+  <section class="section--tight" data-screen-label="Home / Featured">
+    <div class="wrap">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:26px;flex-wrap:wrap">
+        <div class="section-head" style="margin:0">
+          <span class="eyebrow">Любими на сезона</span>
+          <h2 style="margin-top:8px">Свежо набрани днес</h2>
+        </div>
+        <a href="products.html" class="btn btn--soft">Виж всички продукти</a>
+      </div>
+      <div class="grid grid--4" id="featured"></div>
+    </div>
+  </section>
+
+  <!-- TRUST -->
+  <section class="section" style="background:var(--surface-2)" data-screen-label="Home / Trust">
+    <div class="wrap">
+      <div class="grid grid--3">
+        <div class="card value-card">
+          <div class="ic" id="t1"></div>
+          <h3>Биологично чисти</h3>
+          <p>Отглеждаме без химически пръскания и изкуствени торове. Само вода, слънце и грижа.</p>
+        </div>
+        <div class="card value-card">
+          <div class="ic" id="t2"></div>
+          <h3>Берем днес — доставяме днес</h3>
+          <p>Поръчаното сутрин се бере същия ден и пътува към теб още преди да е омекнало.</p>
+        </div>
+        <div class="card value-card">
+          <div class="ic" id="t3"></div>
+          <h3>Специално отношение</h3>
+          <p>Към всеки клиент се отнасяме като към съсед. Питаме, помним, благодарим.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ABOUT TEASER -->
+  <section class="section" data-screen-label="Home / About teaser">
+    <div class="wrap split">
+      <div class="ph ph--rounded" style="aspect-ratio:5/4">
+        <span class="ph__label">Снимка · стопанинът сред насажденията · 5:4</span>
+      </div>
+      <div>
+        <span class="eyebrow">Нашата история</span>
+        <h2 style="font-size:clamp(28px,4vw,42px);margin-top:10px">Малка градина с<br>голяма мисия</h2>
+        <p class="lead" style="margin-top:18px">
+          Започнахме с няколко реда малини зад къщата. Днес гледаме над тридесет сорта горски плодове,
+          но философията не се е променила — качество пред количество, всеки плод обран на ръка.
+        </p>
+        <a href="about.html" class="btn btn--primary" style="margin-top:24px">Научи повече</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- BLOG TEASER -->
+  <section class="section--tight" data-screen-label="Home / Blog teaser">
+    <div class="wrap">
+      <div class="section-head center" style="margin-bottom:30px">
+        <span class="eyebrow">От влога</span>
+        <h2 style="margin-top:8px">Рецепти, съвети и истории от полето</h2>
+      </div>
+      <div class="grid grid--3" id="blogTeaser"></div>
+    </div>
+  </section>
+
+  <!-- NEWSLETTER -->
+  <section class="section--tight" data-screen-label="Home / Newsletter">
+    <div class="wrap">
+      <div class="newsletter">
+        <div>
+          <h2>Получавай сезонните оферти първи</h2>
+          <p>Веднъж седмично — какво зрее сега, нови пакети и рецепти. Без спам.</p>
+        </div>
+        <form onsubmit="event.preventDefault();FFtoast('Благодарим за абонамента!');this.reset();">
+          <input type="email" placeholder="твоят имейл" required>
+          <button class="btn btn--accent" type="submit">Абонирай се</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div id="site-footer"></div>
+
+<script src="assets/app.js"></script>
+<script>
+  const I = window.FFICON;
+  // featured products
+  const featured = [
+    { id: "malini",    name: "Малини",    weight: "250 г", price: 6.50, label: "Малини · 4:3" },
+    { id: "borovinki", name: "Боровинки", weight: "250 г", price: 7.90, label: "Боровинки · 4:3" },
+    { id: "kapini",    name: "Къпини",    weight: "300 г", price: 5.80, label: "Къпини · 4:3" },
+    { id: "yagodi",    name: "Ягоди",     weight: "500 г", price: 6.20, label: "Ягоди · 4:3" },
+  ];
+  document.getElementById("featured").innerHTML = featured.map((p) => `
+    <article class="card product" data-product>
+      <a href="product.html" class="ph"><span class="ph__label">${p.label}</span></a>
+      <div class="product__body">
+        <a href="product.html"><h3 class="product__name">${p.name}</h3></a>
+        <div class="product__meta">${p.weight} · прясно набрани</div>
+        <div class="product__price">${FFmoney(p.price)}</div>
+        <div class="product__foot">
+          <button class="btn btn--primary btn--sm btn--full" data-add-cart
+            data-id="${p.id}" data-name="${p.name}" data-price="${p.price}" data-weight="${p.weight}">
+            ${I.cart} Добави
+          </button>
+        </div>
+      </div>
+    </article>`).join("");
+
+  // trust icons
+  document.getElementById("t1").innerHTML = I.leaf;
+  document.getElementById("t2").innerHTML = I.truck;
+  document.getElementById("t3").innerHTML = I.heart;
+
+  // blog teaser
+  const posts = [
+    { t: "5 начина да съхраниш малините за зимата", c: "Рецепти", d: "12 май 2026", r: "4 мин" },
+    { t: "Защо обираме на ръка (и защо има значение)", c: "От полето", d: "28 апр 2026", r: "6 мин" },
+    { t: "Домашен сироп от бъз — стъпка по стъпка", c: "Рецепти", d: "9 апр 2026", r: "5 мин" },
+  ];
+  document.getElementById("blogTeaser").innerHTML = posts.map((p) => `
+    <a href="article.html" class="card">
+      <div class="ph" style="aspect-ratio:16/10"><span class="ph__label">Корица · ${p.c} · 16:10</span></div>
+      <div style="padding:20px 20px 24px">
+        <span class="tag">${p.c}</span>
+        <h3 style="font-size:21px;margin:12px 0 10px">${p.t}</h3>
+        <div class="muted" style="font-size:13.5px">${p.d} · ${p.r} четене</div>
+      </div>
+    </a>`).join("");
+</script>
+</body>
+</html>

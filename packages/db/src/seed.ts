@@ -55,16 +55,17 @@ async function main() {
   });
 
   // 9 demo products from docs/farmflow/project/data.js (prices in stotinki).
+  // `slug` = storefront URL key (unique per tenant), transliterated from the name.
   const productRows = await db.insert(products).values([
-    { tenantId: tenant.id, name: 'Ягоди', priceStotinki: 650, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#D94A4A', stockQuantity: 24, isActive: true },
-    { tenantId: tenant.id, name: 'Боровинки', priceStotinki: 790, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#5B5BA8', stockQuantity: 12, isActive: true },
-    { tenantId: tenant.id, name: 'Малини', priceStotinki: 820, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#C0426B', stockQuantity: 6, isActive: true },
-    { tenantId: tenant.id, name: 'Къпини', priceStotinki: 580, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#3B3B57', stockQuantity: 0, isActive: false },
-    { tenantId: tenant.id, name: 'Череши', priceStotinki: 940, unit: 'кг', weight: '1 кг', category: 'Плодове', tint: '#A11E2E', stockQuantity: 18, isActive: true },
-    { tenantId: tenant.id, name: 'Сироп от ягоди', priceStotinki: 1100, unit: 'бр', weight: '330 мл', category: 'Преработени', tint: '#C13A52', stockQuantity: 9, isActive: true },
-    { tenantId: tenant.id, name: 'Домашно сладко малина', priceStotinki: 990, unit: 'бр', weight: '320 г', category: 'Преработени', tint: '#B23B5E', stockQuantity: 14, isActive: true },
-    { tenantId: tenant.id, name: 'Мед липов', priceStotinki: 1350, unit: 'бр', weight: '450 г', category: 'Преработени', tint: '#D89A2B', stockQuantity: 7, isActive: true },
-    { tenantId: tenant.id, name: 'Арония', priceStotinki: 620, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#4A2E55', stockQuantity: 4, isActive: true },
+    { tenantId: tenant.id, name: 'Ягоди', slug: 'yagodi', priceStotinki: 650, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#D94A4A', stockQuantity: 24, isActive: true },
+    { tenantId: tenant.id, name: 'Боровинки', slug: 'borovinki', priceStotinki: 790, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#5B5BA8', stockQuantity: 12, isActive: true },
+    { tenantId: tenant.id, name: 'Малини', slug: 'malini', priceStotinki: 820, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#C0426B', stockQuantity: 6, isActive: true },
+    { tenantId: tenant.id, name: 'Къпини', slug: 'kapini', priceStotinki: 580, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#3B3B57', stockQuantity: 0, isActive: false },
+    { tenantId: tenant.id, name: 'Череши', slug: 'chereshi', priceStotinki: 940, unit: 'кг', weight: '1 кг', category: 'Плодове', tint: '#A11E2E', stockQuantity: 18, isActive: true },
+    { tenantId: tenant.id, name: 'Сироп от ягоди', slug: 'sirop-ot-yagodi', priceStotinki: 1100, unit: 'бр', weight: '330 мл', category: 'Преработени', tint: '#C13A52', stockQuantity: 9, isActive: true },
+    { tenantId: tenant.id, name: 'Домашно сладко малина', slug: 'domashno-sladko-malina', priceStotinki: 990, unit: 'бр', weight: '320 г', category: 'Преработени', tint: '#B23B5E', stockQuantity: 14, isActive: true },
+    { tenantId: tenant.id, name: 'Мед липов', slug: 'med-lipov', priceStotinki: 1350, unit: 'бр', weight: '450 г', category: 'Преработени', tint: '#D89A2B', stockQuantity: 7, isActive: true },
+    { tenantId: tenant.id, name: 'Арония', slug: 'aroniya', priceStotinki: 620, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#4A2E55', stockQuantity: 4, isActive: true },
   ]).returning();
 
   // Full week of slots (25–31 May 2026) from docs/farmflow/project/data.js.
@@ -79,10 +80,41 @@ async function main() {
     ['2026-05-31', [['10:00', '11:00', 4], ['11:00', '12:00', 4]]],
   ];
 
+  // Rolling storefront window: standard slots for the next 7 days (today..+6),
+  // so the public slot picker always has live availability regardless of the
+  // real date. The storefront date pills compute the same window from the
+  // browser clock, so seed and UI always line up. Dates already covered by the
+  // fixed demo week above are skipped to avoid duplicate slots.
+  const DAY_TEMPLATE: Array<[string, string, number]> = [
+    ['09:00', '10:00', 5],
+    ['10:00', '11:00', 5],
+    ['11:00', '12:00', 5],
+    ['12:00', '13:00', 5],
+    ['17:00', '18:00', 4],
+  ];
+  const seededDates = new Set(SLOT_WEEK.map(([date]) => date));
+  const windowBase = new Date();
+  windowBase.setUTCHours(0, 0, 0, 0);
+  const ROLLING_SLOTS = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(windowBase);
+    d.setUTCDate(windowBase.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
+  })
+    .filter((date) => !seededDates.has(date))
+    .flatMap((date) =>
+      DAY_TEMPLATE.map(([timeFrom, timeTo, maxOrders]) => ({
+        tenantId: tenant.id,
+        date,
+        timeFrom,
+        timeTo,
+        maxOrders,
+      })),
+    );
+
   const slotRows = await db
     .insert(deliverySlots)
-    .values(
-      SLOT_WEEK.flatMap(([date, daySlots]) =>
+    .values([
+      ...SLOT_WEEK.flatMap(([date, daySlots]) =>
         daySlots.map(([timeFrom, timeTo, maxOrders]) => ({
           tenantId: tenant.id,
           date,
@@ -91,7 +123,8 @@ async function main() {
           maxOrders,
         })),
       ),
-    )
+      ...ROLLING_SLOTS,
+    ])
     .returning();
 
   // 13 demo orders (all "today" = Събота 30.05.2026) from data.js, across statuses.

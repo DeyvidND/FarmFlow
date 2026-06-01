@@ -48,6 +48,22 @@ export interface ProductionSummary {
   items: ProductionItem[];
 }
 
+/** Safe, public-facing order recap for the storefront confirmation page —
+ *  no phone/email/tenant ids; keyed by the order's (unguessable) UUID. */
+export interface PublicOrderSummary {
+  id: string;
+  status: string;
+  paidAt: string | null;
+  totalStotinki: number;
+  customerName: string | null;
+  deliveryType: 'address' | 'econt';
+  deliveryAddress: string | null;
+  econtOffice: string | null;
+  slot: { date: string; startTime: string; endTime: string } | null;
+  items: { name: string; quantity: number; priceStotinki: number }[];
+  createdAt: string | null;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
@@ -250,6 +266,58 @@ export class OrdersService {
 
       return { ...order, slotFrom, slotTo, items: inserted };
     });
+  }
+
+  /**
+   * Public order recap for the storefront confirmation page. Gated by the
+   * order UUID **and** the storefront slug (you can't read another farm's order
+   * through the wrong slug); never exposes phone/email/tenant. Server-fetched,
+   * so the page survives a refresh.
+   */
+  async findPublicOrderSummary(slug: string, id: string): Promise<PublicOrderSummary> {
+    const [row] = await this.db
+      .select({
+        ...getTableColumns(orders),
+        slotDate: deliverySlots.date,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+      })
+      .from(orders)
+      .innerJoin(tenants, eq(orders.tenantId, tenants.id))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(and(eq(orders.id, id), eq(tenants.slug, slug)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Поръчката не е намерена');
+
+    const items = await this.db
+      .select({
+        name: orderItems.productName,
+        quantity: orderItems.quantity,
+        priceStotinki: orderItems.priceStotinki,
+      })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, id));
+
+    const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
+    return {
+      id: row.id,
+      status: row.status ?? 'pending',
+      paidAt: row.paidAt ? row.paidAt.toISOString() : null,
+      totalStotinki: row.totalStotinki,
+      customerName: row.customerName,
+      deliveryType: row.deliveryType,
+      deliveryAddress: row.deliveryAddress,
+      econtOffice: row.econtOffice,
+      slot: row.slotFrom
+        ? { date: row.slotDate!, startTime: hhmm(row.slotFrom), endTime: hhmm(row.slotTo) }
+        : null,
+      items: items.map((i) => ({
+        name: i.name ?? '',
+        quantity: i.quantity,
+        priceStotinki: i.priceStotinki,
+      })),
+      createdAt: row.createdAt ? row.createdAt.toISOString() : null,
+    };
   }
 
   /** Batch-load items for a set of orders and attach them (no N+1). */

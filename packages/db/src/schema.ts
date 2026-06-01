@@ -55,22 +55,36 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-export const products = pgTable('products', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  name: text('name').notNull(),
-  description: text('description'),
-  priceStotinki: integer('price_stotinki').notNull(),
-  unit: text('unit').notNull(),
-  weight: text('weight'),
-  category: text('category'),
-  tint: text('tint'),
-  // NULL = unlimited stock; 0 = out of stock.
-  stockQuantity: integer('stock_quantity').default(0),
-  isActive: boolean('is_active').default(true),
-  imageUrl: text('image_url'),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    name: text('name').notNull(),
+    // URL key for the storefront product page (/product/[slug]). Unique per
+    // tenant; nullable-safe (admin-created rows may lack one until set).
+    slug: text('slug'),
+    description: text('description'),
+    priceStotinki: integer('price_stotinki').notNull(),
+    unit: text('unit').notNull(),
+    weight: text('weight'),
+    category: text('category'),
+    tint: text('tint'),
+    // NULL = unlimited stock; 0 = out of stock.
+    stockQuantity: integer('stock_quantity').default(0),
+    isActive: boolean('is_active').default(true),
+    imageUrl: text('image_url'),
+    // Synced ids for the farm's Stripe catalog (per connected account). Set by
+    // StripeService.syncCatalog; NULL until synced (checkout falls back to
+    // inline price_data so it never blocks).
+    stripeProductId: text('stripe_product_id'),
+    stripePriceId: text('stripe_price_id'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantSlugUnique: uniqueIndex('products_tenant_slug_unique').on(t.tenantId, t.slug),
+  }),
+);
 
 export const deliverySlots = pgTable('delivery_slots', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
@@ -100,6 +114,12 @@ export const orders = pgTable('orders', {
   deliveryLat: numeric('delivery_lat', { precision: 10, scale: 7 }),
   deliveryLng: numeric('delivery_lng', { precision: 10, scale: 7 }),
   notes: text('notes'),
+  // Stripe payment linkage (set by the checkout + webhook flow). `paidAt` is the
+  // paid marker — status flips to `confirmed` on a successful payment (no extra
+  // enum value); these stay NULL for cash / no-Stripe orders.
+  stripeCheckoutSessionId: text('stripe_checkout_session_id'),
+  stripePaymentIntentId: text('stripe_payment_intent_id'),
+  paidAt: timestamp('paid_at', { withTimezone: true }),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
