@@ -7,6 +7,7 @@ import {
   Mulish,
 } from 'next/font/google';
 import { DEFAULT_THEME, NO_FLASH_THEME_SCRIPT } from '@/lib/theme';
+import { SITE } from '@/lib/site';
 import { ThemeBar } from '@/components/theme-bar';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
@@ -57,9 +58,26 @@ const fontVars = [
   mulish.variable,
 ].join(' ');
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3003';
+const DESCRIPTION = 'Свежи био плодове, брани сутрин и доставени до вратата ти.';
+
 export const metadata: Metadata = {
-  title: 'FarmFlow',
-  description: 'Свежи био плодове, брани сутрин и доставени до вратата ти.',
+  metadataBase: new URL(SITE_URL),
+  // Per-page `title: 'X'` renders as "X · <Farm>"; the home/default omits the suffix.
+  title: {
+    default: `${SITE.name} · Свежи био плодове`,
+    template: `%s · ${SITE.name}`,
+  },
+  description: DESCRIPTION,
+  applicationName: SITE.name,
+  openGraph: {
+    type: 'website',
+    locale: 'bg_BG',
+    siteName: SITE.name,
+    title: `${SITE.name} · Свежи био плодове`,
+    description: DESCRIPTION,
+  },
+  twitter: { card: 'summary_large_image' },
 };
 
 export default function RootLayout({

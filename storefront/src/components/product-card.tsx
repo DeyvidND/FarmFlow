@@ -45,6 +45,8 @@ export function ProductCard({
     <img
       src={product.imageUrl}
       alt={product.name}
+      loading="lazy"
+      decoding="async"
       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
     />
   ) : (
