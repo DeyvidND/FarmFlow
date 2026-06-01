@@ -10,6 +10,8 @@ import { AppController } from './app.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { ProductsModule } from './modules/products/products.module';
+import { FarmersModule } from './modules/farmers/farmers.module';
+import { SubcategoriesModule } from './modules/subcategories/subcategories.module';
 import { SlotsModule } from './modules/slots/slots.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { RoutingModule } from './modules/routing/routing.module';
@@ -34,6 +36,8 @@ import { ArticlesModule } from './modules/articles/articles.module';
     AuthModule,
     TenantsModule,
     ProductsModule,
+    FarmersModule,
+    SubcategoriesModule,
     SlotsModule,
     // RoutingModule before OrdersModule so `/orders/route` registers before `/orders/:id`.
     RoutingModule,

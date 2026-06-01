@@ -22,4 +22,14 @@ export class UpdateTenantDto {
   @IsOptional()
   @IsBoolean()
   deliveryEnabled?: boolean;
+
+  @ApiPropertyOptional({ example: false, description: 'Multiple producers share this storefront' })
+  @IsOptional()
+  @IsBoolean()
+  multiFarmer?: boolean;
+
+  @ApiPropertyOptional({ example: false, description: 'Group products into subcategory sections' })
+  @IsOptional()
+  @IsBoolean()
+  multiSubcat?: boolean;
 }
