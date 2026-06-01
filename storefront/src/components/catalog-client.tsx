@@ -6,12 +6,19 @@
  * page; chips are built from the categories actually present.
  */
 import { useMemo, useState } from 'react';
-import type { PublicProduct } from '@/lib/api';
+import type { PublicProduct, PublicFarmer } from '@/lib/api';
 import { buildCategoryTabs, productInTab } from '@/lib/categories';
 import { ProductCard } from './product-card';
 
-export function CatalogClient({ products }: { products: PublicProduct[] }) {
+export function CatalogClient({
+  products,
+  farmers = [],
+}: {
+  products: PublicProduct[];
+  farmers?: PublicFarmer[];
+}) {
   const tabs = useMemo(() => buildCategoryTabs(products), [products]);
+  const farmerById = useMemo(() => new Map(farmers.map((f) => [f.id, f])), [farmers]);
   const [active, setActive] = useState('all');
 
   const shown = products.filter((p) => productInTab(p, active));
@@ -40,7 +47,7 @@ export function CatalogClient({ products }: { products: PublicProduct[] }) {
       ) : (
         <div className="grid grid--4">
           {shown.map((p) => (
-            <ProductCard key={p.id} product={p} />
+            <ProductCard key={p.id} product={p} farmer={p.farmerId ? farmerById.get(p.farmerId) : undefined} />
           ))}
         </div>
       )}

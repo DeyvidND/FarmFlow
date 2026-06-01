@@ -1,7 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getProducts, resolveSlug, type PublicProduct } from '@/lib/api';
-import { CatalogClient } from '@/components/catalog-client';
+import {
+  getProducts,
+  getSubcategories,
+  getFarmers,
+  resolveSlug,
+  type PublicProduct,
+  type PublicSubcategory,
+  type PublicFarmer,
+} from '@/lib/api';
+import { StorefrontCatalog } from '@/components/storefront-catalog';
 
 export const metadata: Metadata = { title: 'Продукти' };
 
@@ -13,10 +21,16 @@ export default async function ProductsPage({
   const slug = resolveSlug(searchParams?.slug);
 
   let products: PublicProduct[] = [];
+  let subcategories: PublicSubcategory[] = [];
+  let farmers: PublicFarmer[] = [];
   let failed = false;
   try {
     // Bundles (category='bundle') live on their own /bundles page.
-    products = (await getProducts(slug)).filter((p) => p.category !== 'bundle');
+    [products, subcategories, farmers] = await Promise.all([
+      getProducts(slug).then((ps) => ps.filter((p) => p.category !== 'bundle')),
+      getSubcategories(slug),
+      getFarmers(slug),
+    ]);
   } catch {
     failed = true;
   }
@@ -45,7 +59,7 @@ export default async function ProductsPage({
               Каталогът е временно недостъпен. Опитайте отново по-късно.
             </p>
           ) : (
-            <CatalogClient products={products} />
+            <StorefrontCatalog products={products} subcategories={subcategories} farmers={farmers} />
           )}
         </div>
       </section>

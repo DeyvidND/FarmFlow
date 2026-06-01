@@ -4,10 +4,12 @@ import { notFound } from 'next/navigation';
 import {
   getProduct,
   getProducts,
+  getFarmers,
   resolveSlug,
   money,
   ApiError,
   type PublicProduct,
+  type PublicFarmer,
 } from '@/lib/api';
 import { categoryMeta } from '@/lib/categories';
 import { ProductBuy } from '@/components/product-buy';
@@ -57,6 +59,16 @@ export default async function ProductPage({ params, searchParams }: Props) {
       .slice(0, 4);
   } catch {
     related = [];
+  }
+
+  // Farmer attribution — only when the farm runs multi-producer (non-fatal).
+  let farmer: PublicFarmer | undefined;
+  if (product.farmerId) {
+    try {
+      farmer = (await getFarmers(tenantSlug)).find((f) => f.id === product.farmerId);
+    } catch {
+      farmer = undefined;
+    }
   }
 
   const meta = [product.weight, product.unit].filter(Boolean).join(' · ');
@@ -113,6 +125,17 @@ export default async function ProductPage({ params, searchParams }: Props) {
             {meta && (
               <div className="muted" style={{ fontSize: 16 }}>
                 {meta}
+              </div>
+            )}
+            {farmer && (
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 15, fontWeight: 600 }}
+              >
+                <span
+                  style={{ width: 10, height: 10, borderRadius: 99, background: farmer.tint ?? '#4C8A54', flexShrink: 0 }}
+                />
+                Произведено от {farmer.name}
+                {farmer.role && <span className="muted" style={{ fontWeight: 500 }}>· {farmer.role}</span>}
               </div>
             )}
             <div className="product__price" style={{ fontSize: 34, margin: '18px 0' }}>

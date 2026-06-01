@@ -8,7 +8,7 @@
  */
 import { useState } from 'react';
 import Link from 'next/link';
-import type { PublicProduct } from '@/lib/api';
+import type { PublicProduct, PublicFarmer } from '@/lib/api';
 import { money } from '@/lib/api';
 import { useCart } from '@/lib/cart';
 import { toast } from './toast';
@@ -17,9 +17,11 @@ import { Cart } from './icons';
 
 export function ProductCard({
   product,
+  farmer,
   withStepper = true,
 }: {
   product: PublicProduct;
+  farmer?: PublicFarmer;
   withStepper?: boolean;
 }) {
   const add = useCart((s) => s.add);
@@ -74,6 +76,17 @@ export function ProductCard({
           <h3 className="product__name">{product.name}</h3>
         )}
         {product.weight && <div className="product__meta">{product.weight}</div>}
+        {farmer && (
+          <div
+            className="product__meta"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}
+          >
+            <span
+              style={{ width: 8, height: 8, borderRadius: 99, background: farmer.tint ?? '#4C8A54', flexShrink: 0 }}
+            />
+            Произведено от {farmer.name}
+          </div>
+        )}
         <div className="product__price">{money(product.priceStotinki)}</div>
         <div className="product__foot">
           {withStepper && <QtyStepper value={qty} onChange={setQty} />}

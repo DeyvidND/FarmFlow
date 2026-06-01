@@ -10,9 +10,14 @@
  *   GET  /public/:slug/articles
  *   GET  /public/:slug/articles/:articleSlug
  */
-import type { PublicProduct, PublicArticle } from '@farmflow/types';
+import type {
+  PublicProduct,
+  PublicArticle,
+  PublicFarmer,
+  PublicSubcategory,
+} from '@farmflow/types';
 
-export type { PublicProduct, PublicArticle };
+export type { PublicProduct, PublicArticle, PublicFarmer, PublicSubcategory };
 
 /** Base URL of the Nest public API. */
 export const API_URL =
@@ -156,6 +161,20 @@ export function getProduct(
     `/public/${slug}/products/${productSlug}`,
     { next: { revalidate: 300 } } as RequestInit,
   );
+}
+
+/** Farmers for a storefront — `[]` when the farm runs single-producer (toggle off). */
+export function getFarmers(slug: string): Promise<PublicFarmer[]> {
+  return request<PublicFarmer[]>(`/public/${slug}/farmers`, {
+    next: { revalidate: 300 },
+  } as RequestInit);
+}
+
+/** Subcategory sections — `[]` when grouping is off (toggle off). */
+export function getSubcategories(slug: string): Promise<PublicSubcategory[]> {
+  return request<PublicSubcategory[]>(`/public/${slug}/subcategories`, {
+    next: { revalidate: 300 },
+  } as RequestInit);
 }
 
 /** Available delivery slots for a date (`[]` when delivery is disabled). */
