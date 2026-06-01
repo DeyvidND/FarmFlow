@@ -37,6 +37,10 @@ export const tenants = pgTable('tenants', {
   subscriptionSince: timestamp('subscription_since'),
   // Farmer opts in to self-delivery; only then do slots surface on the storefront.
   deliveryEnabled: boolean('delivery_enabled').notNull().default(false),
+  // Optional catalog groupings — when on, the matching admin page + product link
+  // field + storefront grouping/attribution activate. Default off.
+  multiFarmer: boolean('multi_farmer').notNull().default(false),
+  multiSubcat: boolean('multi_subcat').notNull().default(false),
   stripeAccountId: text('stripe_account_id'),
   // Farm origin for delivery-route optimization (nullable until set).
   farmAddress: text('farm_address'),
@@ -74,6 +78,12 @@ export const products = pgTable(
     stockQuantity: integer('stock_quantity').default(0),
     isActive: boolean('is_active').default(true),
     imageUrl: text('image_url'),
+    // Optional multi-producer + section grouping links (admin toggles). FK SET NULL
+    // on delete so removing a farmer/subcategory just unlinks its products.
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'set null' }),
+    subcategoryId: uuid('subcategory_id').references(() => subcategories.id, {
+      onDelete: 'set null',
+    }),
     // Synced ids for the farm's Stripe catalog (per connected account). Set by
     // StripeService.syncCatalog; NULL until synced (checkout falls back to
     // inline price_data so it never blocks).
@@ -178,6 +188,9 @@ export const articles = pgTable(
     excerpt: text('excerpt'),
     body: text('body'),
     coverImageUrl: text('cover_image_url'),
+    // Free-text editorial category (e.g. "Рецепти" / "От полето" / "Съвети") —
+    // powers the storefront blog filter tabs + per-article tag. Nullable.
+    category: text('category'),
     status: articleStatusEnum('status').notNull().default('draft'),
     publishedAt: timestamp('published_at'),
     sentAt: timestamp('sent_at'),
@@ -252,10 +265,39 @@ export const reviews = pgTable('reviews', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// Producers behind one storefront (multi-farmer mode). A product may link to one.
+export const farmers = pgTable('farmers', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  name: text('name').notNull(),
+  role: text('role'),
+  bio: text('bio'),
+  phone: text('phone'),
+  since: text('since'),
+  tint: text('tint'),
+  imageUrl: text('image_url'),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Optional product grouping into photographed storefront sections.
+export const subcategories = pgTable('subcategories', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  name: text('name').notNull(),
+  description: text('description'),
+  tint: text('tint'),
+  imageUrl: text('image_url'),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const schema = {
   tenants,
   users,
   products,
+  farmers,
+  subcategories,
   deliverySlots,
   orders,
   orderItems,

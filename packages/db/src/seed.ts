@@ -3,7 +3,7 @@ config({ path: '../../.env' });
 config();
 import * as argon2 from 'argon2';
 import { sql } from 'drizzle-orm';
-import { createDb, tenants, users, products, deliverySlots, orders, orderItems, platformAdmins, articles, articleMedia, reviews } from './index';
+import { createDb, tenants, users, products, farmers, subcategories, deliverySlots, orders, orderItems, platformAdmins, articles, articleMedia, reviews } from './index';
 
 // Demo owner credentials (matches the design's prefilled login).
 const OWNER_EMAIL = 'ivan@ferma-petrovi.bg';
@@ -21,7 +21,7 @@ async function main() {
 
   // Idempotent: wipe existing rows so re-running the seed is safe.
   await db.execute(
-    sql`TRUNCATE article_media, articles, newsletter_subscribers, order_items, orders, delivery_slots, products, users, tenants, platform_admins, audit_logs RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE article_media, articles, newsletter_subscribers, order_items, orders, delivery_slots, products, subcategories, farmers, users, tenants, platform_admins, audit_logs RESTART IDENTITY CASCADE`,
   );
 
   // Platform admin (manages all farms from the separate admin app).
@@ -54,18 +54,37 @@ async function main() {
     role: 'admin',
   });
 
+  // 3 demo farmers + 3 subcategories from docs/farmflow/project/data.js. Tenant
+  // toggles stay off by default, so these stay dormant until the owner enables them.
+  const farmerRows = await db.insert(farmers).values([
+    { tenantId: tenant.id, name: 'Петър Петров', role: 'Ягодоплодни насаждения', since: '2014', phone: '+359 88 412 0001', tint: '#2C5530', position: 0,
+      bio: 'Гледа ягоди, малини и череши на 4 декара край Варна. Бере рано сутрин и доставя в същия ден.' },
+    { tenantId: tenant.id, name: 'Мария Петрова', role: 'Преработка — сладка и сиропи', since: '2016', phone: '+359 88 412 0002', tint: '#B23B5E', position: 1,
+      bio: 'Прави домашни сладка, конфитюри и сиропи по семейни рецепти, без консерванти и оцветители.' },
+    { tenantId: tenant.id, name: 'Стоян Петров', role: 'Пчелар — мед и пчелни продукти', since: '2018', phone: '+359 88 412 0003', tint: '#D08B26', position: 2,
+      bio: 'Поддържа 40 кошера в Лонгоза. Липов, акациев и полифлорен мед, прополис и восък.' },
+  ]).returning();
+
+  const subcatRows = await db.insert(subcategories).values([
+    { tenantId: tenant.id, name: 'Сезонни плодове', tint: '#4C8A54', position: 0, description: 'Прясно набрани плодове през текущия сезон.' },
+    { tenantId: tenant.id, name: 'Зимнина и буркани', tint: '#B23B5E', position: 1, description: 'Домашни сладка, конфитюри и сиропи за зимата.' },
+    { tenantId: tenant.id, name: 'Пчелни продукти', tint: '#D08B26', position: 2, description: 'Мед и продукти от собствен пчелин.' },
+  ]).returning();
+
   // 9 demo products from docs/farmflow/project/data.js (prices in stotinki).
   // `slug` = storefront URL key (unique per tenant), transliterated from the name.
+  // farmerId/subcategoryId follow data.js: fruits → Петър/Сезонни плодове,
+  // processed → Мария/Зимнина, honey → Стоян/Пчелни продукти.
   const productRows = await db.insert(products).values([
-    { tenantId: tenant.id, name: 'Ягоди', slug: 'yagodi', priceStotinki: 650, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#D94A4A', stockQuantity: 24, isActive: true },
-    { tenantId: tenant.id, name: 'Боровинки', slug: 'borovinki', priceStotinki: 790, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#5B5BA8', stockQuantity: 12, isActive: true },
-    { tenantId: tenant.id, name: 'Малини', slug: 'malini', priceStotinki: 820, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#C0426B', stockQuantity: 6, isActive: true },
-    { tenantId: tenant.id, name: 'Къпини', slug: 'kapini', priceStotinki: 580, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#3B3B57', stockQuantity: 0, isActive: false },
-    { tenantId: tenant.id, name: 'Череши', slug: 'chereshi', priceStotinki: 940, unit: 'кг', weight: '1 кг', category: 'Плодове', tint: '#A11E2E', stockQuantity: 18, isActive: true },
-    { tenantId: tenant.id, name: 'Сироп от ягоди', slug: 'sirop-ot-yagodi', priceStotinki: 1100, unit: 'бр', weight: '330 мл', category: 'Преработени', tint: '#C13A52', stockQuantity: 9, isActive: true },
-    { tenantId: tenant.id, name: 'Домашно сладко малина', slug: 'domashno-sladko-malina', priceStotinki: 990, unit: 'бр', weight: '320 г', category: 'Преработени', tint: '#B23B5E', stockQuantity: 14, isActive: true },
-    { tenantId: tenant.id, name: 'Мед липов', slug: 'med-lipov', priceStotinki: 1350, unit: 'бр', weight: '450 г', category: 'Преработени', tint: '#D89A2B', stockQuantity: 7, isActive: true },
-    { tenantId: tenant.id, name: 'Арония', slug: 'aroniya', priceStotinki: 620, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#4A2E55', stockQuantity: 4, isActive: true },
+    { tenantId: tenant.id, name: 'Ягоди', slug: 'yagodi', priceStotinki: 650, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#D94A4A', stockQuantity: 24, isActive: true, farmerId: farmerRows[0].id, subcategoryId: subcatRows[0].id },
+    { tenantId: tenant.id, name: 'Боровинки', slug: 'borovinki', priceStotinki: 790, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#5B5BA8', stockQuantity: 12, isActive: true, farmerId: farmerRows[0].id, subcategoryId: subcatRows[0].id },
+    { tenantId: tenant.id, name: 'Малини', slug: 'malini', priceStotinki: 820, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#C0426B', stockQuantity: 6, isActive: true, farmerId: farmerRows[0].id, subcategoryId: subcatRows[0].id },
+    { tenantId: tenant.id, name: 'Къпини', slug: 'kapini', priceStotinki: 580, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#3B3B57', stockQuantity: 0, isActive: false, farmerId: farmerRows[0].id, subcategoryId: subcatRows[0].id },
+    { tenantId: tenant.id, name: 'Череши', slug: 'chereshi', priceStotinki: 940, unit: 'кг', weight: '1 кг', category: 'Плодове', tint: '#A11E2E', stockQuantity: 18, isActive: true, farmerId: farmerRows[0].id, subcategoryId: subcatRows[0].id },
+    { tenantId: tenant.id, name: 'Сироп от ягоди', slug: 'sirop-ot-yagodi', priceStotinki: 1100, unit: 'бр', weight: '330 мл', category: 'Преработени', tint: '#C13A52', stockQuantity: 9, isActive: true, farmerId: farmerRows[1].id, subcategoryId: subcatRows[1].id },
+    { tenantId: tenant.id, name: 'Домашно сладко малина', slug: 'domashno-sladko-malina', priceStotinki: 990, unit: 'бр', weight: '320 г', category: 'Преработени', tint: '#B23B5E', stockQuantity: 14, isActive: true, farmerId: farmerRows[1].id, subcategoryId: subcatRows[1].id },
+    { tenantId: tenant.id, name: 'Мед липов', slug: 'med-lipov', priceStotinki: 1350, unit: 'бр', weight: '450 г', category: 'Преработени', tint: '#D89A2B', stockQuantity: 7, isActive: true, farmerId: farmerRows[2].id, subcategoryId: subcatRows[2].id },
+    { tenantId: tenant.id, name: 'Арония', slug: 'aroniya', priceStotinki: 620, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#4A2E55', stockQuantity: 4, isActive: true, farmerId: farmerRows[0].id, subcategoryId: subcatRows[0].id },
     // Bundles (category 'bundle') — curated contents + struck-through old price.
     { tenantId: tenant.id, name: 'Летен микс', slug: 'paket-leten', description: 'за 2–3 души', priceStotinki: 2490, compareAtPriceStotinki: 2940, unit: 'бр', weight: 'пакет', category: 'bundle', tint: '#C0426B', stockQuantity: null, isActive: true, bundleItems: ['Малини 250 г', 'Боровинки 250 г', 'Къпини 300 г', 'Ягоди 500 г'] },
     { tenantId: tenant.id, name: 'Семеен пакет', slug: 'paket-semeen', description: 'за цялото семейство', priceStotinki: 4200, compareAtPriceStotinki: 4980, unit: 'бр', weight: 'пакет', category: 'bundle', tint: '#A11E2E', stockQuantity: null, isActive: true, featured: true, bundleItems: ['Малини 500 г', 'Боровинки 500 г', 'Череши 500 г', 'Ягоди 500 г', 'Сироп от бъз', 'Горско сладко'] },
@@ -212,6 +231,7 @@ async function main() {
         body:
           'Тази седмица започваме бране на ягодите от ранните лехи. Реколтата е отлична — едри, ароматни плодове, брани рано сутрин и доставяни същия ден.\n\nПоръчайте през магазина и изберете удобен слот за доставка. Количествата са ограничени в пиковите дни.',
         coverImageUrl: 'https://images.unsplash.com/photo-1464965911861-746a04b4bca6?w=1200&q=80',
+        category: 'От полето',
         status: 'published',
         publishedAt: new Date('2026-05-28T07:30:00'),
       },
@@ -223,6 +243,7 @@ async function main() {
         body:
           'Боровинките се пазят най-добре в хладилник, немити, в проветрива опаковка. Измивайте ги непосредствено преди консумация.\n\nТака запазват вкуса и плътността си до седмица.',
         coverImageUrl: 'https://images.unsplash.com/photo-1498557850523-fd3d118b962e?w=1200&q=80',
+        category: 'Съвети',
         status: 'published',
         publishedAt: new Date('2026-05-26T09:00:00'),
       },
@@ -233,6 +254,7 @@ async function main() {
         excerpt: 'Какво садим наесен и какви продукти да очаквате през следващите месеци.',
         body: 'Чернова — предстои да опишем плановете за есента.',
         coverImageUrl: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=1200&q=80',
+        category: 'От полето',
         status: 'draft',
       },
     ])
