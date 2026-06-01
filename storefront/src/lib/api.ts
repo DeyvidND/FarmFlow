@@ -263,6 +263,46 @@ export function submitContact(slug: string, dto: ContactInput): Promise<{ ok: tr
   });
 }
 
+/* --------------------------------- reviews ------------------------------ */
+
+export interface PublicReview {
+  id: string;
+  authorName: string;
+  authorLocation: string | null;
+  rating: number;
+  body: string;
+  createdAt: string | null;
+}
+
+export interface ReviewSummary {
+  average: number;
+  count: number;
+  reviews: PublicReview[];
+}
+
+export interface ReviewInput {
+  authorName: string;
+  authorLocation?: string;
+  rating: number;
+  body: string;
+}
+
+/** Published reviews + average + count. */
+export function getReviews(slug: string): Promise<ReviewSummary> {
+  return request<ReviewSummary>(`/public/${slug}/reviews`, { cache: 'no-store' });
+}
+
+/** Submit a review — lands `pending` (moderated). Throws `ApiError` (400 invalid). */
+export function submitReview(
+  slug: string,
+  dto: ReviewInput,
+): Promise<{ ok: true; status: string }> {
+  return request<{ ok: true; status: string }>(`/public/${slug}/reviews`, {
+    method: 'POST',
+    body: JSON.stringify(dto),
+  });
+}
+
 /* --------------------------------- money -------------------------------- */
 
 /** Format integer stotinki as the template's `"6,50 лв"`. */

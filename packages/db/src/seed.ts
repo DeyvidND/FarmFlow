@@ -3,7 +3,7 @@ config({ path: '../../.env' });
 config();
 import * as argon2 from 'argon2';
 import { sql } from 'drizzle-orm';
-import { createDb, tenants, users, products, deliverySlots, orders, orderItems, platformAdmins, articles, articleMedia } from './index';
+import { createDb, tenants, users, products, deliverySlots, orders, orderItems, platformAdmins, articles, articleMedia, reviews } from './index';
 
 // Demo owner credentials (matches the design's prefilled login).
 const OWNER_EMAIL = 'ivan@ferma-petrovi.bg';
@@ -258,7 +258,17 @@ async function main() {
     },
   ]);
 
-  console.log(`Seed complete — tenant "Ферма Петрови" + ${productRows.length} products + ${slotRows.length} slots + ${DEMO_ORDERS.length} orders + 3 articles`);
+  // Published customer reviews (avg 4.8 over 6).
+  await db.insert(reviews).values([
+    { tenantId: tenant.id, authorName: 'Мария Д.', authorLocation: 'Варна', rating: 5, status: 'published', body: 'Малините са невероятни — наистина се усеща, че са брани същия ден. Децата ги изяждат преди да съм ги прибрала.' },
+    { tenantId: tenant.id, authorName: 'Иван П.', authorLocation: 'Девня', rating: 5, status: 'published', body: 'Поръчвам всяка седмица. Доставката е точна, плодовете — безупречни. Сиропът от бъз е любим вкъщи.' },
+    { tenantId: tenant.id, authorName: 'Елена Г.', authorLocation: 'Варна', rating: 5, status: 'published', body: 'Семейният пакет беше идеален подарък за рожден ден. Опаковката е красива, а вкусът — още по-добър.' },
+    { tenantId: tenant.id, authorName: 'Георги Т.', authorLocation: 'Аксаково', rating: 4, status: 'published', body: 'Качеството е отлично. Единствено бих искал по-голям избор от сладка през зимата.' },
+    { tenantId: tenant.id, authorName: 'Радостина К.', authorLocation: 'Варна', rating: 5, status: 'published', body: 'Личи си, че зад това стои семейство, на което му пука. Отношението е топло, а боровинките — най-добрите.' },
+    { tenantId: tenant.id, authorName: 'Стефан М.', authorLocation: 'Белослав', rating: 5, status: 'published', body: 'Берем днес – доставяме днес не е просто реклама. Разликата с магазинните плодове е огромна.' },
+  ]);
+
+  console.log(`Seed complete — tenant "Ферма Петрови" + ${productRows.length} products + ${slotRows.length} slots + ${DEMO_ORDERS.length} orders + 3 articles + 6 reviews`);
   console.log(`  login: ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
   process.exit(0);
 }

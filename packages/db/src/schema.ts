@@ -235,6 +235,23 @@ export const contactMessages = pgTable('contact_messages', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const reviewStatusEnum = pgEnum('review_status', ['pending', 'published', 'hidden']);
+
+// Customer reviews. Public submissions land as `pending` (moderated in the admin
+// panel); only `published` rows are served to the storefront. `productId` null =
+// a site-wide review; set = a review tied to one product.
+export const reviews = pgTable('reviews', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  productId: uuid('product_id').references(() => products.id),
+  authorName: text('author_name').notNull(),
+  authorLocation: text('author_location'),
+  rating: integer('rating').notNull(), // 1–5
+  body: text('body').notNull(),
+  status: reviewStatusEnum('status').notNull().default('pending'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const schema = {
   tenants,
   users,
@@ -248,7 +265,9 @@ export const schema = {
   articleMedia,
   newsletterSubscribers,
   contactMessages,
+  reviews,
   userRoleEnum,
+  reviewStatusEnum,
   orderStatusEnum,
   subscriptionStatusEnum,
   articleStatusEnum,
