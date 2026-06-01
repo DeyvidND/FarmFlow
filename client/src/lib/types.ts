@@ -12,7 +12,41 @@ export interface Product {
   stockQuantity: number | null;
   isActive: boolean;
   imageUrl: string | null;
+  farmerId: string | null;
+  subcategoryId: string | null;
   createdAt: string;
+}
+
+export interface Farmer {
+  id: string;
+  name: string;
+  role: string | null;
+  bio: string | null;
+  phone: string | null;
+  since: string | null;
+  tint: string | null;
+  imageUrl: string | null;
+  position: number;
+  createdAt: string;
+}
+
+export interface Subcategory {
+  id: string;
+  name: string;
+  description: string | null;
+  tint: string | null;
+  imageUrl: string | null;
+  position: number;
+  createdAt: string;
+}
+
+/** Subset of the tenant profile the panels read (GET /tenants/me). */
+export interface TenantProfile {
+  id: string;
+  name: string;
+  multiFarmer: boolean;
+  multiSubcat: boolean;
+  deliveryEnabled: boolean;
 }
 
 export type ArticleStatus = 'draft' | 'published';

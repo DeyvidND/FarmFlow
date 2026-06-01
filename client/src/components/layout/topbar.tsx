@@ -18,6 +18,8 @@ const PAGE_TITLES: Record<string, string> = {
   '/orders': 'Поръчки',
   '/production': 'За приготвяне днес',
   '/products': 'Продукти',
+  '/farmers': 'Фермери',
+  '/subcategories': 'Подкатегории',
   '/slots': 'Слотове за доставка',
   '/route': 'Маршрут за днес',
   '/articles': 'Статии',
