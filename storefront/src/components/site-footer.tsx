@@ -5,6 +5,7 @@
 import Link from 'next/link';
 import { Berry, Facebook, Instagram, TikTok } from './icons';
 import { SITE, telHref, FOOTER_SHOP, FOOTER_INFO } from '@/lib/site';
+import { NewsletterForm } from './newsletter-form';
 
 export function SiteFooter() {
   const year = 2026;
@@ -74,6 +75,11 @@ export function SiteFooter() {
             <br />
             {SITE.hours}
           </div>
+          <h4 style={{ marginTop: 22 }}>Бюлетин</h4>
+          <p style={{ opacity: 0.85, fontSize: 14, marginTop: 2 }}>
+            Сезонни оферти и новини от градината.
+          </p>
+          <NewsletterForm />
         </div>
       </div>
 

@@ -238,6 +238,31 @@ export function getArticle(
   } as RequestInit);
 }
 
+/* --------------------------------- intake ------------------------------- */
+
+export interface ContactInput {
+  name: string;
+  email: string;
+  phone?: string;
+  message: string;
+}
+
+/** Subscribe an email to the farm's newsletter (idempotent). Throws `ApiError`. */
+export function subscribeNewsletter(slug: string, email: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/public/${slug}/newsletter`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+/** Send a contact-form message. Throws `ApiError` (400 on validation). */
+export function submitContact(slug: string, dto: ContactInput): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/public/${slug}/contact`, {
+    method: 'POST',
+    body: JSON.stringify(dto),
+  });
+}
+
 /* --------------------------------- money -------------------------------- */
 
 /** Format integer stotinki as the template's `"6,50 лв"`. */

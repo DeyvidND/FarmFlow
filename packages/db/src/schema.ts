@@ -223,6 +223,18 @@ export const newsletterSubscribers = pgTable('newsletter_subscribers', {
   unsubscribedAt: timestamp('unsubscribed_at'),
 });
 
+// Storefront contact-form submissions (public intake). Read in the admin panel
+// later; for now just persisted.
+export const contactMessages = pgTable('contact_messages', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  name: text('name').notNull(),
+  email: text('email').notNull(),
+  phone: text('phone'),
+  message: text('message').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const schema = {
   tenants,
   users,
@@ -235,6 +247,7 @@ export const schema = {
   articles,
   articleMedia,
   newsletterSubscribers,
+  contactMessages,
   userRoleEnum,
   orderStatusEnum,
   subscriptionStatusEnum,
