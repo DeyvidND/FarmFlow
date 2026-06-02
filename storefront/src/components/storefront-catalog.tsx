@@ -36,8 +36,24 @@ export function StorefrontCatalog({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 48, marginTop: 28 }}>
+      {/* jump nav — deep links from farmer pages / home land on a section anchor */}
+      {sections.length > 1 && (
+        <div className="sub-nav" style={{ marginTop: -16 }}>
+          {sections.map(({ subcat, items }) => (
+            <a key={subcat.id} href={`#${subcat.id}`} className="chip">
+              {subcat.name} · {items.length}
+            </a>
+          ))}
+          {ungrouped.length > 0 && (
+            <a href="#other" className="chip">
+              Други · {ungrouped.length}
+            </a>
+          )}
+        </div>
+      )}
+
       {sections.map(({ subcat, items }) => (
-        <section key={subcat.id}>
+        <section key={subcat.id} id={subcat.id} style={{ scrollMarginTop: 120 }}>
           {subcat.imageUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -59,7 +75,7 @@ export function StorefrontCatalog({
       ))}
 
       {ungrouped.length > 0 && (
-        <section>
+        <section id="other" style={{ scrollMarginTop: 120 }}>
           <div className="section-head" style={{ textAlign: 'left', marginBottom: 16 }}>
             <h2>Други</h2>
           </div>

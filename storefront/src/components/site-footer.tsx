@@ -4,11 +4,12 @@
  */
 import Link from 'next/link';
 import { Berry, Facebook, Instagram, TikTok } from './icons';
-import { SITE, telHref, FOOTER_SHOP, FOOTER_INFO } from '@/lib/site';
+import { SITE, telHref, footerShop, FOOTER_INFO } from '@/lib/site';
 import { NewsletterForm } from './newsletter-form';
 
-export function SiteFooter() {
+export function SiteFooter({ hasFarmers = false }: { hasFarmers?: boolean }) {
   const year = 2026;
+  const shop = footerShop(hasFarmers);
   return (
     <footer className="site-footer">
       <div className="wrap footer-grid">
@@ -45,7 +46,7 @@ export function SiteFooter() {
         <div>
           <h4>Магазин</h4>
           <div className="footer-links">
-            {FOOTER_SHOP.map((l) => (
+            {shop.map((l) => (
               <Link key={l.href} href={l.href}>
                 {l.label}
               </Link>

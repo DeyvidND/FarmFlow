@@ -11,12 +11,13 @@ import { usePathname } from 'next/navigation';
 import { Berry, Cart, Menu, Search } from './icons';
 import { PromoBar } from './promo-bar';
 import { MobileDrawer } from './mobile-drawer';
-import { NAV, SITE, isActiveHref } from '@/lib/site';
+import { mainNav, SITE, isActiveHref } from '@/lib/site';
 import { useCart, selectCount } from '@/lib/cart';
 import { useHasMounted } from '@/lib/use-has-mounted';
 
-export function SiteHeader() {
+export function SiteHeader({ hasFarmers = false }: { hasFarmers?: boolean }) {
   const pathname = usePathname();
+  const nav = mainNav(hasFarmers);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const mounted = useHasMounted();
   const count = useCart(selectCount);
@@ -65,7 +66,7 @@ export function SiteHeader() {
               </span>
             </Link>
             <div className="nav__links">
-              {NAV.map((item) => (
+              {nav.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
@@ -104,6 +105,7 @@ export function SiteHeader() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         pathname={pathname}
+        hasFarmers={hasFarmers}
       />
     </>
   );

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getArticles, resolveSlug, type PublicArticle } from '@/lib/api';
 import { formatDate, readingTime } from '@/lib/format';
+import { BlogGrid } from '@/components/blog-grid';
 
 export const metadata: Metadata = { title: 'Влог' };
 
@@ -84,7 +85,7 @@ export default async function BlogPage({
                   }}
                 >
                   <span className="tag" style={{ alignSelf: 'flex-start' }}>
-                    Препоръчано
+                    Препоръчано{featured.category ? ` · ${featured.category}` : ''}
                   </span>
                   <h3 style={{ fontSize: 'clamp(24px,3vw,34px)', margin: '14px 0 12px' }}>
                     {featured.title}
@@ -96,44 +97,7 @@ export default async function BlogPage({
                 </div>
               </Link>
 
-              {rest.length > 0 && (
-                <div className="grid grid--3">
-                  {rest.map((p) => (
-                    <Link href={`/article/${p.slug}`} className="card" key={p.id}>
-                      {p.coverImageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={p.coverImageUrl}
-                          alt={p.title}
-                          style={{ width: '100%', aspectRatio: '16 / 10', objectFit: 'cover' }}
-                        />
-                      ) : (
-                        <div className="ph" style={{ aspectRatio: '16 / 10' }}>
-                          <span className="ph__label">Корица · 16:10</span>
-                        </div>
-                      )}
-                      <div
-                        style={{
-                          padding: '20px 20px 24px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          flex: 1,
-                        }}
-                      >
-                        <h3 style={{ fontSize: 20, margin: '0 0 10px' }}>{p.title}</h3>
-                        {p.excerpt && (
-                          <p className="muted" style={{ fontSize: 14.5 }}>
-                            {p.excerpt}
-                          </p>
-                        )}
-                        <div className="muted" style={{ fontSize: 13, marginTop: 14 }}>
-                          {formatDate(p.publishedAt)} · {readingTime(p.body)}
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
+              {rest.length > 0 && <BlogGrid posts={rest} />}
             </>
           )}
         </div>

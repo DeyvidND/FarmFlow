@@ -163,6 +163,28 @@ export function getProduct(
   );
 }
 
+/**
+ * Lean public storefront profile (`GET /public/:slug`) — farm contact + the
+ * module toggles the storefront gates on: `deliveryEnabled` (personal/address
+ * delivery + slots), `multiFarmer` (farmers nav/section), `multiSubcat`
+ * (subcategory grouping). Throws `ApiError` 404 if the slug is unknown.
+ */
+export interface StorefrontProfile {
+  name: string;
+  slug: string;
+  phone: string | null;
+  email: string | null;
+  deliveryEnabled: boolean;
+  multiFarmer: boolean;
+  multiSubcat: boolean;
+}
+
+export function getStorefront(slug: string): Promise<StorefrontProfile> {
+  return request<StorefrontProfile>(`/public/${slug}`, {
+    next: { revalidate: 300 },
+  } as RequestInit);
+}
+
 /** Farmers for a storefront — `[]` when the farm runs single-producer (toggle off). */
 export function getFarmers(slug: string): Promise<PublicFarmer[]> {
   return request<PublicFarmer[]>(`/public/${slug}/farmers`, {

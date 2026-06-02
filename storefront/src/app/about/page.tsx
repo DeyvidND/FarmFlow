@@ -99,6 +99,39 @@ export default function AboutPage() {
         </div>
       </section>
 
+      {/* gallery */}
+      <section className="section">
+        <div className="wrap">
+          <div className="section-head" style={{ marginBottom: 28 }}>
+            <span className="eyebrow">От градината</span>
+            <h2 style={{ marginTop: 8 }}>Един обикновен ден при нас</h2>
+          </div>
+          <div className="gallery">
+            <div className="ph wide">
+              <span className="ph__label">Изгрев над насажденията · 2:1</span>
+            </div>
+            <div className="ph">
+              <span className="ph__label">Ръце с малини</span>
+            </div>
+            <div className="ph tall">
+              <span className="ph__label">Кошници · 1:2</span>
+            </div>
+            <div className="ph">
+              <span className="ph__label">Цвят на къпина</span>
+            </div>
+            <div className="ph">
+              <span className="ph__label">Поливане</span>
+            </div>
+            <div className="ph">
+              <span className="ph__label">Пакетиране</span>
+            </div>
+            <div className="ph">
+              <span className="ph__label">Доставка</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* quote */}
       <section className="section--tight">
         <div className="wrap center">
