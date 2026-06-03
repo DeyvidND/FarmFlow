@@ -10,6 +10,7 @@ import {
 } from '@/lib/api';
 import { SITE } from '@/lib/site';
 import { formatDate, readingTime, paragraphs } from '@/lib/format';
+import { Facebook, Instagram, TikTok } from '@/components/icons';
 
 type MediaItem = PublicArticle['media'][number];
 
@@ -52,11 +53,41 @@ function ArticleMedia({ m }: { m: MediaItem }) {
 
   if (m.type === 'instagram') {
     return (
-      <figure style={{ margin: '28px 0', textAlign: 'center' }}>
-        <a href={m.url} target="_blank" rel="noopener noreferrer" className="btn btn--ghost">
-          Виж публикацията в Instagram
+      <figure style={{ margin: '28px 0' }}>
+        <a
+          href={m.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="embed-ig card"
+          style={{
+            padding: 0,
+            display: 'block',
+            maxWidth: 540,
+            marginInline: 'auto',
+            textDecoration: 'none',
+            color: 'inherit',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '14px 16px',
+              borderBottom: '1px solid var(--line)',
+            }}
+          >
+            <div className="ph" style={{ width: 36, height: 36, borderRadius: '50%' }} />
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{SITE.name}</div>
+            <span style={{ marginLeft: 'auto', color: 'var(--muted)', display: 'inline-flex' }}>
+              <Instagram style={{ width: 20, height: 20 }} />
+            </span>
+          </div>
+          <div className="ph" style={{ aspectRatio: '1', borderRadius: 0 }}>
+            <span className="ph__label">Instagram пост · 1:1</span>
+          </div>
+          {m.caption && <div style={{ padding: '14px 16px', fontSize: 14 }}>{m.caption}</div>}
         </a>
-        {caption}
       </figure>
     );
   }
@@ -125,6 +156,7 @@ export default async function ArticlePage({
             <Link href="/">Начало</Link> / <Link href="/blog">Влог</Link> / <span>Статия</span>
           </nav>
           <header style={{ margin: '8px 0 26px' }}>
+            {article.category && <span className="tag">{article.category}</span>}
             <h1 style={{ fontSize: 'clamp(32px,5vw,56px)', margin: '14px 0 16px' }}>
               {article.title}
             </h1>
@@ -137,6 +169,7 @@ export default async function ArticlePage({
                 fontSize: 14.5,
               }}
             >
+              <div className="ph" style={{ width: 40, height: 40, borderRadius: '50%' }} />
               <span>
                 от екипа на {SITE.name} · {formatDate(article.publishedAt)} ·{' '}
                 {readingTime(article.body)}
@@ -184,6 +217,29 @@ export default async function ArticlePage({
           <hr className="divider" style={{ margin: '36px 0 24px' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 600 }}>Сподели:</span>
+            <div className="socials" style={{ margin: 0 }}>
+              <a
+                href={SITE.socials.facebook}
+                aria-label="Сподели във Facebook"
+                style={{ background: 'var(--primary-050)', color: 'var(--primary)' }}
+              >
+                <Facebook />
+              </a>
+              <a
+                href={SITE.socials.instagram}
+                aria-label="Instagram"
+                style={{ background: 'var(--primary-050)', color: 'var(--primary)' }}
+              >
+                <Instagram />
+              </a>
+              <a
+                href={SITE.socials.tiktok}
+                aria-label="TikTok"
+                style={{ background: 'var(--primary-050)', color: 'var(--primary)' }}
+              >
+                <TikTok />
+              </a>
+            </div>
             <Link href="/blog" className="btn btn--ghost btn--sm" style={{ marginLeft: 'auto' }}>
               ← Обратно към влога
             </Link>
@@ -211,7 +267,8 @@ export default async function ArticlePage({
                     </div>
                   )}
                   <div style={{ padding: '18px 18px 22px' }}>
-                    <h3 style={{ fontSize: 19, marginTop: 0 }}>{p.title}</h3>
+                    {p.category && <span className="tag">{p.category}</span>}
+                    <h3 style={{ fontSize: 19, marginTop: p.category ? 12 : 0 }}>{p.title}</h3>
                   </div>
                 </Link>
               ))}

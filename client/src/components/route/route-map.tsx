@@ -1,14 +1,195 @@
 'use client';
 
+import { useEffect } from 'react';
 import { Plus, Minus } from 'lucide-react';
+import {
+  APIProvider,
+  Map,
+  AdvancedMarker,
+  useMap,
+  useMapsLibrary,
+} from '@vis.gl/react-google-maps';
 import { cn } from '@/lib/utils';
-import type { RouteStop } from '@/lib/types';
+import type { RouteStop, RouteResult, RouteEnd } from '@/lib/types';
+
+const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+// Reserved demo map id — renders AdvancedMarkers without cloud map styling.
+const MAP_ID = 'DEMO_MAP_ID';
+const BG_CENTROID = { lat: 42.7339, lng: 25.4858 };
+
+type Origin = RouteResult['origin'];
 
 interface RouteMapProps {
   stops: RouteStop[];
+  origin: Origin;
+  end: RouteEnd;
   activeId: string | null;
   onPick: (id: string) => void;
 }
+
+/**
+ * Delivery route map. With a Maps key + geocoded points it renders a real
+ * Google map (farm origin + numbered stop pins + a connecting route line);
+ * otherwise it falls back to the styled demo placeholder.
+ */
+export function RouteMap({ stops, origin, end, activeId, onPick }: RouteMapProps) {
+  const located = stops.filter((s) => s.lat != null && s.lng != null);
+  const hasOrigin = origin.lat != null && origin.lng != null;
+  const canRenderReal = !!MAPS_KEY && (located.length > 0 || hasOrigin);
+
+  // A distinct end marker only when the route ends somewhere other than home.
+  const customEnd =
+    end.mode === 'custom' && end.lat != null && end.lng != null
+      ? { lat: end.lat, lng: end.lng }
+      : null;
+
+  if (!canRenderReal) {
+    return <DemoMap stops={stops} activeId={activeId} onPick={onPick} />;
+  }
+
+  const center = hasOrigin
+    ? { lat: origin.lat as number, lng: origin.lng as number }
+    : { lat: located[0].lat as number, lng: located[0].lng as number };
+
+  return (
+    <APIProvider apiKey={MAPS_KEY} language="bg" region="BG">
+      <Map
+        mapId={MAP_ID}
+        defaultCenter={center ?? BG_CENTROID}
+        defaultZoom={11}
+        gestureHandling="greedy"
+        disableDefaultUI={false}
+        style={{ width: '100%', height: '100%' }}
+      >
+        <FitBounds origin={origin} stops={located} end={customEnd} />
+        <RouteLine origin={origin} stops={located} end={end} />
+
+        {hasOrigin && (
+          <AdvancedMarker
+            position={{ lat: origin.lat as number, lng: origin.lng as number }}
+            title={origin.address ?? 'Ферма'}
+          >
+            <FarmPin />
+          </AdvancedMarker>
+        )}
+
+        {customEnd && (
+          <AdvancedMarker position={customEnd} title={end.address ?? 'Край'}>
+            <EndPin />
+          </AdvancedMarker>
+        )}
+
+        {located.map((s, i) => (
+          <AdvancedMarker
+            key={s.id}
+            position={{ lat: s.lat as number, lng: s.lng as number }}
+            onClick={() => onPick(s.id)}
+          >
+            <NumPin n={i + 1} active={activeId === s.id} />
+          </AdvancedMarker>
+        ))}
+      </Map>
+    </APIProvider>
+  );
+}
+
+/** Pin marker content for a delivery stop (mirrors the demo pin look). */
+function NumPin({ n, active }: { n: number; active: boolean }) {
+  return (
+    <span
+      className={cn(
+        'grid h-[30px] w-[30px] place-items-center rounded-[50%_50%_50%_2px] shadow-[0_4px_10px_rgba(0,0,0,0.25)]',
+        active ? 'bg-ff-amber' : 'bg-ff-green-700',
+      )}
+      style={{ transform: 'rotate(45deg)' }}
+    >
+      <span
+        className={cn('text-[13.5px] font-extrabold', active ? 'text-[#3a2a08]' : 'text-white')}
+        style={{ transform: 'rotate(-45deg)' }}
+      >
+        {n}
+      </span>
+    </span>
+  );
+}
+
+function FarmPin() {
+  return (
+    <span className="grid h-[28px] w-[28px] place-items-center rounded-full bg-white text-[15px] font-bold text-ff-green-800 shadow-ff-md ring-2 ring-ff-green-700">
+      ★
+    </span>
+  );
+}
+
+function EndPin() {
+  return (
+    <span className="grid h-[28px] w-[28px] place-items-center rounded-full bg-white text-[14px] font-bold text-ff-amber-600 shadow-ff-md ring-2 ring-ff-amber">
+      ⚑
+    </span>
+  );
+}
+
+/** Fit the viewport to the farm + all stops (+ custom end). */
+function FitBounds({
+  origin,
+  stops,
+  end,
+}: {
+  origin: Origin;
+  stops: RouteStop[];
+  end: { lat: number; lng: number } | null;
+}) {
+  const map = useMap();
+  // LatLngBounds lives in the 'core' library, not 'maps'.
+  const core = useMapsLibrary('core');
+  useEffect(() => {
+    if (!map || !core) return;
+    const pts: { lat: number; lng: number }[] = [];
+    if (origin.lat != null && origin.lng != null) pts.push({ lat: origin.lat, lng: origin.lng });
+    stops.forEach((s) => pts.push({ lat: s.lat as number, lng: s.lng as number }));
+    if (end) pts.push(end);
+    if (!pts.length) return;
+    if (pts.length === 1) {
+      map.setCenter(pts[0]);
+      map.setZoom(14);
+      return;
+    }
+    const bounds = new core.LatLngBounds();
+    pts.forEach((p) => bounds.extend(p));
+    map.fitBounds(bounds, 48);
+  }, [map, core, origin, stops, end]);
+  return null;
+}
+
+/** Draw the route line: farm → stops → end (home = back to farm, last = stop, custom = end point). */
+function RouteLine({ origin, stops, end }: { origin: Origin; stops: RouteStop[]; end: RouteEnd }) {
+  const map = useMap();
+  const maps = useMapsLibrary('maps');
+  useEffect(() => {
+    if (!map || !maps) return;
+    const path: { lat: number; lng: number }[] = [];
+    const start = origin.lat != null && origin.lng != null ? { lat: origin.lat, lng: origin.lng } : null;
+    if (start) path.push(start);
+    stops.forEach((s) => path.push({ lat: s.lat as number, lng: s.lng as number }));
+    if (end.mode === 'home' && start) {
+      path.push(start);
+    } else if (end.mode === 'custom' && end.lat != null && end.lng != null) {
+      path.push({ lat: end.lat, lng: end.lng });
+    }
+    if (path.length < 2) return;
+    const line = new maps.Polyline({
+      path,
+      strokeColor: '#2d6a4f',
+      strokeOpacity: 0.85,
+      strokeWeight: 3,
+    });
+    line.setMap(map);
+    return () => line.setMap(null);
+  }, [map, maps, origin, stops, end]);
+  return null;
+}
+
+/* ----------------------------- demo fallback ---------------------------- */
 
 /** Deterministic demo-map position (%) for a stop when no real geo is available. */
 function demoPos(i: number, n: number): { x: number; y: number } {
@@ -17,8 +198,15 @@ function demoPos(i: number, n: number): { x: number; y: number } {
   return { x, y };
 }
 
-export function RouteMap({ stops, activeId, onPick }: RouteMapProps) {
-  // Demo placeholder map (matches the prototype) — no external maps dependency.
+function DemoMap({
+  stops,
+  activeId,
+  onPick,
+}: {
+  stops: RouteStop[];
+  activeId: string | null;
+  onPick: (id: string) => void;
+}) {
   const pts = stops.map((_, i) => demoPos(i, stops.length));
 
   return (

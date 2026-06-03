@@ -15,6 +15,8 @@ import {
   tenants,
 } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { MapsService } from '../../common/maps/maps.service';
+import { bgToday, bgDate } from '../../common/time/bg-time';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
@@ -66,7 +68,10 @@ export interface PublicOrderSummary {
 
 @Injectable()
 export class OrdersService {
-  constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
+  constructor(
+    @Inject(DB_TOKEN) private readonly db: Database,
+    private readonly maps: MapsService,
+  ) {}
 
   /** Admin list: tenant-scoped, filterable, newest first, items batched (no N+1). */
   async findAll(tenantId: string, filters: OrderFilters = {}): Promise<OrderWithItems[]> {
@@ -88,7 +93,7 @@ export class OrdersService {
     if (filters.deliveryType) {
       conds.push(eq(orders.deliveryType, filters.deliveryType as OrderRow['deliveryType']));
     }
-    if (filters.date) conds.push(sql`${orders.createdAt}::date = ${filters.date}`);
+    if (filters.date) conds.push(sql`${bgDate(orders.createdAt)} = ${filters.date}`);
     if (filters.search) {
       const q = `%${filters.search}%`;
       const searchCond = or(ilike(orders.customerName, q), sql`${orders.id}::text ilike ${q}`);
@@ -134,11 +139,11 @@ export class OrdersService {
    * query for the rows + one scalar for the confirmed-order count (no N+1).
    */
   async production(tenantId: string, date?: string): Promise<ProductionSummary> {
-    const day = date ?? new Date().toISOString().slice(0, 10);
+    const day = date ?? bgToday();
     const onDay = and(
       eq(orders.tenantId, tenantId),
       eq(orders.status, 'confirmed'),
-      sql`${orders.createdAt}::date = ${day}`,
+      sql`${bgDate(orders.createdAt)} = ${day}`,
     )!;
 
     const rows = await this.db
@@ -172,7 +177,7 @@ export class OrdersService {
   /** Bulk confirm all pending orders (optionally for a single day). */
   async confirmPending(tenantId: string, date?: string): Promise<{ confirmed: number }> {
     const conds = [eq(orders.tenantId, tenantId), eq(orders.status, 'pending')];
-    if (date) conds.push(sql`${orders.createdAt}::date = ${date}`);
+    if (date) conds.push(sql`${bgDate(orders.createdAt)} = ${date}`);
     const rows = await this.db
       .update(orders)
       .set({ status: 'confirmed' })
@@ -187,14 +192,34 @@ export class OrdersService {
    * (double-booking impossible), compute the total, create the pending order.
    */
   async create(slug: string, dto: CreateOrderDto): Promise<OrderWithItems> {
-    return this.db.transaction(async (tx) => {
-      const [tenant] = await tx
-        .select({ id: tenants.id })
-        .from(tenants)
-        .where(eq(tenants.slug, slug))
-        .limit(1);
-      if (!tenant) throw new NotFoundException('Фермата не е намерена');
+    const isEcont = dto.deliveryType === 'econt';
 
+    // Resolve the tenant (+ farm coords) up front so geocoding can run outside
+    // the transaction (no network call while holding row locks).
+    const [tenant] = await this.db
+      .select({ id: tenants.id, farmLat: tenants.farmLat, farmLng: tenants.farmLng })
+      .from(tenants)
+      .where(eq(tenants.slug, slug))
+      .limit(1);
+    if (!tenant) throw new NotFoundException('Фермата не е намерена');
+
+    // Delivery coordinates: prefer the precise storefront pin; otherwise geocode
+    // the typed address, biased to the farm's region so an ambiguous street
+    // ("ул. Шипка 5") resolves near the farm, not in Sofia. No-op when maps off.
+    let lat = dto.deliveryLat ?? null;
+    let lng = dto.deliveryLng ?? null;
+    if (!isEcont && lat == null && dto.deliveryAddress) {
+      const fLat = tenant.farmLat == null ? null : Number(tenant.farmLat);
+      const fLng = tenant.farmLng == null ? null : Number(tenant.farmLng);
+      const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
+      const geo = await this.maps.geocode(dto.deliveryAddress, bias);
+      if (geo) {
+        lat = geo.lat;
+        lng = geo.lng;
+      }
+    }
+
+    return this.db.transaction(async (tx) => {
       const productIds = dto.items.map((i) => i.productId);
       const prods = await tx
         .select()
@@ -241,7 +266,6 @@ export class OrdersService {
         };
       });
 
-      const isEcont = dto.deliveryType === 'econt';
       const [order] = await tx
         .insert(orders)
         .values({
@@ -254,6 +278,8 @@ export class OrdersService {
           totalStotinki: total,
           deliveryType: dto.deliveryType ?? 'address',
           deliveryAddress: isEcont ? null : dto.deliveryAddress ?? null,
+          deliveryLat: isEcont || lat == null ? null : String(lat),
+          deliveryLng: isEcont || lng == null ? null : String(lng),
           econtOffice: isEcont ? dto.econtOffice ?? null : null,
           notes: dto.notes ?? null,
         })

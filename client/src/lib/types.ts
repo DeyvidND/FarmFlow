@@ -47,6 +47,146 @@ export interface TenantProfile {
   multiFarmer: boolean;
   multiSubcat: boolean;
   deliveryEnabled: boolean;
+  /** Home / depot — the delivery route origin. */
+  farmAddress: string | null;
+  farmLat: string | null;
+  farmLng: string | null;
+  /** Per-tenant delivery config (settings.delivery). Null until first saved. */
+  delivery: DeliveryConfig | null;
+  /** Route-end config (settings.routing): { endMode, endAddress, endLat, endLng }. */
+  routing: RoutingConfig | null;
+}
+
+export type RouteEndMode = 'home' | 'last' | 'custom';
+export type RouteOrderMode = 'slots' | 'distance';
+
+export interface RoutingConfig {
+  endMode?: RouteEndMode;
+  endAddress?: string | null;
+  endLat?: string | null;
+  endLng?: string | null;
+}
+
+// ---- Delivery configuration (persisted to tenant.settings.delivery) ----
+
+export type DeliveryMethodKey = 'econtOffice' | 'econtAddress' | 'ownSlots' | 'pickup';
+export type PricingType = 'free' | 'flat' | 'byWeight' | 'freeOver';
+export type Payer = 'customer' | 'farm';
+
+/** Per-method price rule. Money in integer stotinki (cents). */
+export interface MethodPricing {
+  type: PricingType;
+  feeStotinki?: number;
+  freeOverStotinki?: number;
+}
+
+export interface DeliveryMethod {
+  enabled: boolean;
+  label: string;
+  pricing?: MethodPricing;
+  etaText?: string;
+  payer?: Payer;
+  minOrderStotinki?: number;
+  /** pickup only */
+  address?: string;
+  hours?: string;
+}
+
+export interface DeliveryMethods {
+  econtOffice: DeliveryMethod;
+  econtAddress: DeliveryMethod;
+  ownSlots: DeliveryMethod;
+  pickup: DeliveryMethod;
+  /** display order of the method keys */
+  order: DeliveryMethodKey[];
+}
+
+export interface DeliverySchedule {
+  weekdays: number[]; // 0=Sun … 6=Sat
+  cutoffTime: string; // HH:MM
+  leadDays: number;
+  sameDay: boolean;
+  maxPerDay: number;
+  blackout: string[]; // ISO dates
+}
+
+export interface WeightTier {
+  uptoKg: number;
+  feeStotinki: number;
+}
+export interface DeliveryZone {
+  region: string;
+  feeStotinki: number;
+}
+
+export interface DeliveryPricing {
+  freeThresholdStotinki: number;
+  model: 'flat' | 'byWeight' | 'byZone';
+  flatFeeStotinki?: number;
+  weightTiers?: WeightTier[];
+  zones?: DeliveryZone[];
+  packagingFeeStotinki?: number;
+}
+
+export interface EcontSender {
+  name: string;
+  phone: string;
+  cityId: number;
+  cityName: string;
+  mode: 'office' | 'address';
+  officeCode?: string;
+  address?: string;
+}
+
+export interface EcontConfig {
+  env: 'demo' | 'prod';
+  /** True once credentials have been saved. The raw password is never stored/returned. */
+  configured: boolean;
+  username?: string;
+  sender: EcontSender;
+  defaultPackage: { weightKg: number; dimensions?: string; contents: string };
+  cod: { enabled: boolean; feePayer: Payer };
+  label: { paper: 'A4' | 'A6'; autoCreate: boolean };
+  nomenclature: { lastSyncedAt: string; cities: number; offices: number };
+}
+
+/** The full per-tenant delivery config blob (without the master `enabled` flag,
+ *  which maps to the tenant's `deliveryEnabled` column). */
+export interface DeliveryConfig {
+  methods: DeliveryMethods;
+  schedule: DeliverySchedule;
+  pricing: DeliveryPricing;
+  econt: EcontConfig;
+}
+
+/** Econt office nomenclature row (global, mock for now). */
+export interface EcontOffice {
+  code: string;
+  name: string;
+  address: string;
+  cityName: string;
+  workingHours: string;
+  dist?: string;
+}
+
+export type ShipmentStatus = 'pending' | 'created' | 'shipped' | 'delivered' | 'returned';
+
+export interface ShipmentEvent {
+  at: string;
+  label: string;
+  location?: string;
+}
+
+/** An order with its Econt waybill (mock for now). */
+export interface Shipment {
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  method: DeliveryMethodKey;
+  status: ShipmentStatus;
+  trackingNumber?: string;
+  priceStotinki?: number;
+  history?: ShipmentEvent[];
 }
 
 export type ArticleStatus = 'draft' | 'published';
@@ -135,10 +275,21 @@ export interface RouteStop {
 }
 
 /** Delivery route for a date (GET /orders/route?date=). */
+export interface RouteEnd {
+  mode: RouteEndMode;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
 export interface RouteResult {
   date: string; // YYYY-MM-DD
   origin: { address: string | null; lat: number | null; lng: number | null };
   stops: RouteStop[];
+  /** Where the van goes after the last delivery. */
+  end: RouteEnd;
+  /** How stops were ordered (by time slot, or by shortest distance). */
+  orderMode: RouteOrderMode;
   totalDistanceM: number | null;
   totalDurationS: number | null;
   optimized: boolean;

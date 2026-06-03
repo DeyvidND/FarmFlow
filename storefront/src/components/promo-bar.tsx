@@ -25,7 +25,7 @@ export function PromoBar() {
   return (
     <div className={`promo${hidden ? ' hide' : ''}`} id="promo">
       🍓 Специални отстъпки за <b>сезонните ни пакети</b>! Безплатна доставка над
-      40,00 лв.
+      40,00 €.
       <button
         className="promo__close"
         type="button"

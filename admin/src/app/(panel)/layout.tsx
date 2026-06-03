@@ -1,7 +1,8 @@
 'use client';
 
 import { Toaster } from 'sonner';
-import { Leaf, LogOut } from 'lucide-react';
+import { Leaf, LogOut, Settings } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 export default function PanelLayout({ children }: { children: React.ReactNode }) {
@@ -25,12 +26,20 @@ export default function PanelLayout({ children }: { children: React.ReactNode })
             <div className="mt-0.5 text-[11.5px] font-semibold text-ff-muted">Администрация</div>
           </div>
         </div>
-        <button
-          onClick={logout}
-          className="inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2"
-        >
-          <LogOut size={17} /> Изход
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/settings"
+            className="inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2"
+          >
+            <Settings size={17} /> Настройки
+          </Link>
+          <button
+            onClick={logout}
+            className="inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2"
+          >
+            <LogOut size={17} /> Изход
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto max-w-[1100px] px-8 py-8 max-sm:px-4">{children}</main>

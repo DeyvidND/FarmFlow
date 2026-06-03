@@ -51,3 +51,30 @@ export const setTenantStatus = (id: string, status: 'active' | 'inactive') =>
     },
     'Неуспешна промяна на статуса',
   );
+
+export const createTenant = (data: {
+  farmName: string;
+  email: string;
+  tempPassword: string;
+  phone?: string;
+}) =>
+  apiFetch<{ id: string; name: string; slug: string; email: string }>(
+    'platform/tenants',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(data),
+    },
+    'Неуспешно създаване на ферма',
+  );
+
+export const changePassword = (data: { currentPassword: string; newPassword: string }) =>
+  apiFetch<void>(
+    'platform/change-password',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(data),
+    },
+    'Неуспешна смяна на паролата',
+  );

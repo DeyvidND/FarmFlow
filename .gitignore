@@ -128,6 +128,12 @@ dist
 # pnpm
 .pnpm-store
 
+# Email dev preview
+.mail-preview/
+
+# Turborepo cache
+.turbo/
+
 # yarn v3
 .pnp.*
 .yarn/*

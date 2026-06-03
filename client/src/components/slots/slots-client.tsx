@@ -1,10 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, bgWeekdayShort, ddmm } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { Button } from '@/components/ui/button';
+import { HelpModal, InfoNote } from '@/components/delivery/ui';
+import { SLOTS_HELP } from '@/lib/delivery-data';
 import { SlotPill } from './slot-pill';
 import { AddSlotDialog } from './add-slot-dialog';
 import { ApiError, createSlot, deleteSlot, setDeliveryEnabled } from '@/lib/api-client';
@@ -27,6 +30,7 @@ export function SlotsClient({
   const [delivery, setDelivery] = useState(deliveryEnabled);
   const [addDate, setAddDate] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [help, setHelp] = useState(false);
 
   const byDay = (d: string) =>
     slots.filter((s) => s.date === d).sort((a, b) => a.timeFrom.localeCompare(b.timeFrom));
@@ -65,19 +69,30 @@ export function SlotsClient({
   return (
     <div className="animate-ff-fade-up">
       <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ff-muted">Седмица 25 – 31 май 2026 · Варна</p>
+        <p className="text-sm text-ff-muted">
+          <span className="font-extrabold text-ff-ink">Лична доставка</span> · Седмица 25 – 31 май 2026 ·
+          Варна
+        </p>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3 text-[12.5px] font-semibold text-ff-muted max-sm:hidden">
             <Legend c="var(--ff-green-500)" t="свободно" />
             <Legend c="var(--ff-amber)" t="почти пълно" />
             <Legend c="var(--ff-muted-2)" t="пълно" />
           </div>
+          <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
+            <Info size={16} /> Обяснения
+          </Button>
           <label className="flex cursor-pointer items-center gap-2 text-[13px] font-bold text-ff-ink-2">
             <ToggleSwitch small checked={delivery} onChange={onToggleDelivery} />
             Доставка
           </label>
         </div>
       </div>
+
+      <InfoNote tone="green">
+        Това са часовете за <b>личната ти доставка</b> — ти доставяш сам, без куриер. Клиентът избира
+        свободен час при поръчка. За доставка с куриер виж „Доставка → Еконт“.
+      </InfoNote>
 
       {!delivery && (
         <div className="mb-4 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3 text-[13.5px] font-semibold text-ff-amber-600">
@@ -127,6 +142,17 @@ export function SlotsClient({
       </div>
 
       <AddSlotDialog date={addDate} onClose={() => setAddDate(null)} onAdd={onAdd} />
+
+      {help && (
+        <HelpModal
+          eyebrow={SLOTS_HELP.eyebrow}
+          title={SLOTS_HELP.title}
+          intro={SLOTS_HELP.intro}
+          steps={SLOTS_HELP.steps}
+          tips={SLOTS_HELP.tips}
+          onClose={() => setHelp(false)}
+        />
+      )}
     </div>
   );
 }

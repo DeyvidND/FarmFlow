@@ -59,7 +59,15 @@ export type PublicProduct = Omit<
   Product,
   'tenantId' | 'stockQuantity' | 'stripeProductId' | 'stripePriceId'
 >;
-export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'>;
+/**
+ * Tenant profile for the admin panel. `settings` + `stripeAccountId` are stripped,
+ * but the delivery config (kept under `settings.delivery`) is surfaced as `delivery`
+ * so the panel can hydrate its saved settings. Shape is owned by the client.
+ */
+export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
+  delivery?: unknown;
+  routing?: unknown;
+};
 
 /** Public storefront shapes — tenant_id stripped. */
 export type PublicFarmer = Omit<Farmer, 'tenantId'>;
@@ -78,6 +86,7 @@ export type JwtPayload = {
   type?: 'tenant' | 'platform';
   tenantId?: string;
   role?: TenantRole;
+  mustChangePassword?: boolean;
   iat?: number;
   exp?: number;
 };

@@ -5,15 +5,15 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Format a value to "6,50 лв". Accepts either a BGN amount (number) or stotinki (int). */
+/** Format a value to "6,50 €". Accepts either a euro amount (number) or cents (int). */
 export function money(value: number, { fromStotinki = false } = {}): string {
-  const bgn = fromStotinki ? value / 100 : value;
-  return bgn.toFixed(2).replace('.', ',') + ' лв';
+  const eur = fromStotinki ? value / 100 : value;
+  return eur.toFixed(2).replace('.', ',') + ' €';
 }
 
-/** Format integer stotinki to "6,50 лв". */
-export function moneyFromStotinki(stotinki: number): string {
-  return money(stotinki, { fromStotinki: true });
+/** Format integer cents to "6,50 €". */
+export function moneyFromStotinki(cents: number): string {
+  return money(cents, { fromStotinki: true });
 }
 
 export type OrderStatus = 'pending' | 'confirmed' | 'delivered' | 'cancelled';

@@ -8,6 +8,7 @@ import {
 } from 'next/font/google';
 import { DEFAULT_THEME, NO_FLASH_THEME_SCRIPT } from '@/lib/theme';
 import { SITE } from '@/lib/site';
+import { getStorefront, resolveSlug } from '@/lib/api';
 import { ThemeBar } from '@/components/theme-bar';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
@@ -80,11 +81,16 @@ export const metadata: Metadata = {
   twitter: { card: 'summary_large_image' },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Multi-farmer farms surface a "Фермери" nav item; single-producer farms don't.
+  const hasFarmers = await getStorefront(resolveSlug())
+    .then((p) => p.multiFarmer)
+    .catch(() => false);
+
   return (
     <html lang="bg" data-theme={DEFAULT_THEME} className={fontVars} suppressHydrationWarning>
       <head>
@@ -93,9 +99,9 @@ export default function RootLayout({
       </head>
       <body>
         <ThemeBar />
-        <SiteHeader />
+        <SiteHeader hasFarmers={hasFarmers} />
         {children}
-        <SiteFooter />
+        <SiteFooter hasFarmers={hasFarmers} />
         <Toaster />
         <StoreHydrator />
       </body>

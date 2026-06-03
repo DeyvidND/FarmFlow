@@ -1,0 +1,219 @@
+/**
+ * FarmFlow delivery — defaults, static mock nomenclature/shipments, helpers and
+ * help-modal copy. Ported from the Claude Design prototype (data.js) into the real
+ * client stack. The `DEFAULT_DELIVERY` blob hydrates a tenant that has never saved
+ * delivery settings; the office/shipment data is mock until a live Econt API exists.
+ */
+import type {
+  DeliveryConfig,
+  DeliveryMethodKey,
+  EcontOffice,
+  Shipment,
+  ShipmentStatus,
+} from './types';
+
+/** Default per-tenant delivery config (no master `enabled` — that's deliveryEnabled). */
+export const DEFAULT_DELIVERY: DeliveryConfig = {
+  methods: {
+    econtOffice: {
+      enabled: true,
+      label: 'До офис на Еконт',
+      pricing: { type: 'flat', feeStotinki: 499 },
+      etaText: '1–2 работни дни',
+      payer: 'customer',
+      minOrderStotinki: 0,
+    },
+    econtAddress: {
+      enabled: true,
+      label: 'До адрес (Еконт до врата)',
+      pricing: { type: 'freeOver', freeOverStotinki: 6000, feeStotinki: 690 },
+      etaText: '1–2 работни дни',
+      payer: 'customer',
+    },
+    ownSlots: { enabled: true, label: 'Лична доставка (Варна)', pricing: { type: 'free' } },
+    pickup: {
+      enabled: false,
+      label: 'Вземане от място',
+      address: 'гр. Варна, ул. Цар Симеон 12 (двора на фермата)',
+      hours: 'Пн–Сб, 09:00–18:00',
+    },
+    order: ['econtOffice', 'econtAddress', 'ownSlots', 'pickup'],
+  },
+  schedule: {
+    weekdays: [1, 2, 3, 4, 5, 6],
+    cutoffTime: '14:00',
+    leadDays: 1,
+    sameDay: false,
+    maxPerDay: 30,
+    blackout: ['2026-06-01', '2026-09-06', '2026-09-22'],
+  },
+  pricing: {
+    freeThresholdStotinki: 6000,
+    model: 'byWeight',
+    flatFeeStotinki: 499,
+    weightTiers: [
+      { uptoKg: 2, feeStotinki: 499 },
+      { uptoKg: 5, feeStotinki: 690 },
+      { uptoKg: 10, feeStotinki: 990 },
+    ],
+    zones: [
+      { region: 'Варна (град)', feeStotinki: 0 },
+      { region: 'Варненска област', feeStotinki: 490 },
+      { region: 'Останалата страна', feeStotinki: 690 },
+    ],
+    packagingFeeStotinki: 0,
+  },
+  econt: {
+    env: 'demo',
+    configured: false,
+    username: '',
+    sender: {
+      name: 'Ферма Петрови ЕООД',
+      phone: '+359 88 412 0001',
+      cityId: 41,
+      cityName: 'Варна',
+      mode: 'office',
+      officeCode: '1010',
+      address: '',
+    },
+    defaultPackage: { weightKg: 1.5, dimensions: '30×20×15', contents: 'Хранителни продукти' },
+    cod: { enabled: true, feePayer: 'customer' },
+    label: { paper: 'A6', autoCreate: true },
+    nomenclature: { lastSyncedAt: 'никога', cities: 0, offices: 0 },
+  },
+};
+
+/** Deep-ish merge of a saved config over the defaults so missing/new keys are filled. */
+export function hydrateDelivery(saved: DeliveryConfig | null | undefined): DeliveryConfig {
+  if (!saved) return structuredClone(DEFAULT_DELIVERY);
+  const d = DEFAULT_DELIVERY;
+  return {
+    methods: {
+      econtOffice: { ...d.methods.econtOffice, ...saved.methods?.econtOffice },
+      econtAddress: { ...d.methods.econtAddress, ...saved.methods?.econtAddress },
+      ownSlots: { ...d.methods.ownSlots, ...saved.methods?.ownSlots },
+      pickup: { ...d.methods.pickup, ...saved.methods?.pickup },
+      order: saved.methods?.order ?? d.methods.order,
+    },
+    schedule: { ...d.schedule, ...saved.schedule },
+    pricing: { ...d.pricing, ...saved.pricing },
+    econt: {
+      ...d.econt,
+      ...saved.econt,
+      sender: { ...d.econt.sender, ...saved.econt?.sender },
+      defaultPackage: { ...d.econt.defaultPackage, ...saved.econt?.defaultPackage },
+      cod: { ...d.econt.cod, ...saved.econt?.cod },
+      label: { ...d.econt.label, ...saved.econt?.label },
+      nomenclature: { ...d.econt.nomenclature, ...saved.econt?.nomenclature },
+    },
+  };
+}
+
+/** Bulgarian cities for the sender-city autocomplete (mock subset). */
+export const BG_CITIES: { id: number; name: string }[] = [
+  { id: 41, name: 'Варна' },
+  { id: 1, name: 'София' },
+  { id: 56, name: 'Пловдив' },
+  { id: 22, name: 'Бургас' },
+  { id: 70, name: 'Русе' },
+  { id: 18, name: 'Стара Загора' },
+  { id: 33, name: 'Плевен' },
+  { id: 12, name: 'Добрич' },
+  { id: 9, name: 'Шумен' },
+];
+
+/** Mock Econt office nomenclature (until live API). */
+export const ECONT_OFFICES: EcontOffice[] = [
+  { code: '1010', name: 'Офис Варна Център', address: 'бул. Владислав Варненчик 15', cityName: 'Варна', workingHours: 'Пн–Пт 08:30–19:00, Сб 09:00–14:00', dist: '0.6 км' },
+  { code: '1024', name: 'Офис Варна Чайка', address: 'ж.к. Чайка, бл. 67', cityName: 'Варна', workingHours: 'Пн–Пт 09:00–18:30, Сб 09:00–13:00', dist: '2.4 км' },
+  { code: '1038', name: 'Офис Варна Левски', address: 'ул. Подвис 5', cityName: 'Варна', workingHours: 'Пн–Пт 08:30–18:00', dist: '3.1 км' },
+  { code: '1042', name: 'Офис Варна Аспарухово', address: 'ул. Народни будители 12', cityName: 'Варна', workingHours: 'Пн–Пт 09:00–18:00, Сб 09:00–13:00', dist: '4.7 км' },
+  { code: '1055', name: 'Автомат Варна Гранд Мол', address: 'бул. Академик Курчатов 1', cityName: 'Варна', workingHours: 'Всеки ден 09:00–21:00', dist: '5.3 км' },
+];
+
+/** Mock shipments (orders with Econt waybills). */
+export const MOCK_SHIPMENTS: Shipment[] = [
+  { orderId: '1042', orderNumber: '1042', customerName: 'Иван Петров', method: 'econtAddress', status: 'created', trackingNumber: '1052 7788 4421', priceStotinki: 690, history: [{ at: '30 май, 09:12', label: 'Създадена товарителница', location: 'Варна' }] },
+  { orderId: '1041', orderNumber: '1041', customerName: 'Мария Георгиева', method: 'econtOffice', status: 'shipped', trackingNumber: '1052 7788 4398', priceStotinki: 499, history: [{ at: '30 май, 08:40', label: 'Създадена товарителница', location: 'Варна' }, { at: '30 май, 13:05', label: 'Приета в офис', location: 'Офис Варна Център' }, { at: '30 май, 17:20', label: 'В транзит', location: 'Разпределителен център Варна' }] },
+  { orderId: '1040', orderNumber: '1040', customerName: 'Димитър Иванов', method: 'econtOffice', status: 'delivered', trackingNumber: '1052 7701 9930', priceStotinki: 499, history: [{ at: '29 май, 10:00', label: 'Създадена товарителница', location: 'Варна' }, { at: '29 май, 15:30', label: 'В транзит', location: 'РЦ Варна' }, { at: '30 май, 11:18', label: 'Доставена', location: 'Офис Варна Чайка' }] },
+  { orderId: '1039', orderNumber: '1039', customerName: 'Елена Стоянова', method: 'ownSlots', status: 'pending', priceStotinki: 0, history: [] },
+  { orderId: '1037', orderNumber: '1037', customerName: 'Георги Тодоров', method: 'econtAddress', status: 'returned', trackingNumber: '1052 7700 1247', priceStotinki: 690, history: [{ at: '27 май, 09:30', label: 'Създадена товарителница', location: 'Варна' }, { at: '28 май, 14:00', label: 'Неуспешна доставка', location: 'Варна' }, { at: '29 май, 16:40', label: 'Върната към подател', location: 'РЦ Варна' }] },
+];
+
+export const SHIPMENT_META: Record<ShipmentStatus, { label: string; tone: 'gray' | 'amber' | 'green' | 'red' }> = {
+  pending: { label: 'Чака', tone: 'gray' },
+  created: { label: 'Създадена', tone: 'amber' },
+  shipped: { label: 'Изпратена', tone: 'amber' },
+  delivered: { label: 'Доставена', tone: 'green' },
+  returned: { label: 'Върната', tone: 'red' },
+};
+
+export const METHOD_META: Record<
+  DeliveryMethodKey,
+  { name: string; econt: boolean; desc: string }
+> = {
+  econtOffice: { name: 'До офис на Еконт', econt: true, desc: 'Клиентът си взема поръчката от избран офис на Еконт.' },
+  econtAddress: { name: 'До адрес (Еконт до врата)', econt: true, desc: 'Куриер на Еконт носи поръчката до вратата на клиента.' },
+  ownSlots: { name: 'Лична доставка (слотове)', econt: false, desc: 'Ти доставяш сам в час, избран от клиента — не минава през Еконт.' },
+  pickup: { name: 'Вземане от място', econt: false, desc: 'Клиентът идва да си вземе поръчката от твой адрес.' },
+};
+
+export const SHORT_METHOD: Record<DeliveryMethodKey, string> = {
+  econtOffice: 'Еконт офис',
+  econtAddress: 'Еконт адрес',
+  ownSlots: 'Лична',
+  pickup: 'Вземане',
+};
+
+export const WEEKDAYS = [
+  { i: 1, l: 'Пн' },
+  { i: 2, l: 'Вт' },
+  { i: 3, l: 'Ср' },
+  { i: 4, l: 'Чт' },
+  { i: 5, l: 'Пт' },
+  { i: 6, l: 'Сб' },
+  { i: 0, l: 'Нд' },
+];
+
+/** cents → "12,34 €" */
+export const lv = (stotinki: number) => (stotinki / 100).toFixed(2).replace('.', ',') + ' €';
+
+// ---- Help-modal copy ----
+
+export const ECONT_HELP = {
+  eyebrow: 'Доставка с куриер',
+  title: 'Как се използва Еконт доставката',
+  intro:
+    'Еконт е куриерската фирма. Когато свържеш акаунта си, можеш да създаваш товарителници и да печаташ етикети направо оттук — клиентите получават пратките до офис на Еконт или до вратата си.',
+  steps: [
+    { title: 'Свържи акаунта си', body: 'Въведи API потребител и парола от Еконт. Избери „Тест“ за проба или „Реален“ за истински пратки, после натисни „Провери връзката“.' },
+    { title: 'Попълни профил на подател', body: 'Името, телефонът и градът на фермата ти. Оттам тръгват пратките — попълват се автоматично във всяка товарителница.' },
+    { title: 'Задай пакет по подразбиране', body: 'Обичайно тегло и размери на пратките ти, за да не ги пишеш всеки път.' },
+    { title: 'Включи методите за доставка', body: 'В секция „Методи на доставка“ активирай „До офис на Еконт“ и/или „До адрес“. Те се появяват на клиента при поръчка.' },
+    { title: 'Създай товарителница за поръчка', body: 'В „Товарителници“ натисни иконата камионче до поръчката — генерира се номер за проследяване.' },
+    { title: 'Принтирай и проследявай', body: 'Принтирай етикета (A4 или A6), залепи го на пратката и я предай на Еконт. Статусът се обновява тук.' },
+  ],
+  tips: [
+    'Наложен платеж (COD): клиентът плаща при доставка — избираш кой плаща таксата.',
+    'Авто-товарителница: при платена поръчка системата създава товарителницата сама.',
+    'Обнови „Номенклатури“, ако в Еконт има нови градове или офиси.',
+  ],
+};
+
+export const SLOTS_HELP = {
+  eyebrow: 'Доставка от теб',
+  title: 'Как работи личната доставка',
+  intro:
+    'Личната доставка значи, че ти доставяш сам — без куриер. Клиентът избира свободен час от твоите слотове при поръчка, а ти разнасяш по маршрут. Това е отделно от доставката с Еконт.',
+  steps: [
+    { title: 'Създай слотове', body: 'Добави часови интервали за дните, в които доставяш (напр. 10:00–11:00). Всеки слот има капацитет — колко поръчки поемаш за него.' },
+    { title: 'Клиентът избира час', body: 'При поръчка клиентът вижда свободните ти часове и си запазва един. Пълните часове не се показват.' },
+    { title: 'Следи запълването', body: 'Виждаш колко са заети (зелено = свободно, амбър = почти пълно). Така не се претоварваш.' },
+    { title: 'Доставяй по маршрут', body: 'В „Маршрут“ виждаш поръчките за деня подредени за разнасяне.' },
+  ],
+  tips: [
+    'Цената на личната доставка се задава в „Доставка → Методи → Лична доставка“.',
+    'Капацитетът на слота те пази от твърде много поръчки за един час.',
+    'Личната доставка не изисква Еконт акаунт — тя е изцяло твоя.',
+  ],
+};

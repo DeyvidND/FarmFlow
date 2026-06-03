@@ -68,6 +68,8 @@ export interface CreateOrderDto {
   slotId?: string; // uuid
   deliveryType?: DeliveryType;
   deliveryAddress?: string;
+  deliveryLat?: number; // precise pin from the checkout map/autocomplete
+  deliveryLng?: number;
   econtOffice?: string;
   notes?: string;
 }
@@ -161,6 +163,28 @@ export function getProduct(
     `/public/${slug}/products/${productSlug}`,
     { next: { revalidate: 300 } } as RequestInit,
   );
+}
+
+/**
+ * Lean public storefront profile (`GET /public/:slug`) — farm contact + the
+ * module toggles the storefront gates on: `deliveryEnabled` (personal/address
+ * delivery + slots), `multiFarmer` (farmers nav/section), `multiSubcat`
+ * (subcategory grouping). Throws `ApiError` 404 if the slug is unknown.
+ */
+export interface StorefrontProfile {
+  name: string;
+  slug: string;
+  phone: string | null;
+  email: string | null;
+  deliveryEnabled: boolean;
+  multiFarmer: boolean;
+  multiSubcat: boolean;
+}
+
+export function getStorefront(slug: string): Promise<StorefrontProfile> {
+  return request<StorefrontProfile>(`/public/${slug}`, {
+    next: { revalidate: 300 },
+  } as RequestInit);
 }
 
 /** Farmers for a storefront — `[]` when the farm runs single-producer (toggle off). */
@@ -324,7 +348,7 @@ export function submitReview(
 
 /* --------------------------------- money -------------------------------- */
 
-/** Format integer stotinki as the template's `"6,50 лв"`. */
+/** Format integer cents as `"6,50 €"`. */
 export function money(stotinki: number): string {
-  return (stotinki / 100).toFixed(2).replace('.', ',') + ' лв';
+  return (stotinki / 100).toFixed(2).replace('.', ',') + ' €';
 }

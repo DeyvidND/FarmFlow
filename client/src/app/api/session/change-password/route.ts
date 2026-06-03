@@ -4,22 +4,28 @@ import { API_BASE, SESSION_COOKIE, SESSION_MAX_AGE, extractApiMessage } from '@/
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
+  const token = cookies().get(SESSION_COOKIE)?.value;
 
-  const res = await fetch(`${API_BASE}/auth/register`, {
+  if (!token) {
+    return NextResponse.json({ message: 'Не сте влезли в системата' }, { status: 401 });
+  }
+
+  const res = await fetch(`${API_BASE}/auth/change-password`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({
-      farmName: body?.farmName,
-      email: body?.email,
-      phone: body?.phone,
-      password: body?.password,
+      currentPassword: body?.currentPassword,
+      newPassword: body?.newPassword,
     }),
   });
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
     return NextResponse.json(
-      { message: extractApiMessage(data) ?? 'Регистрацията е неуспешна' },
+      { message: extractApiMessage(data) ?? 'Грешна текуща парола' },
       { status: res.status },
     );
   }

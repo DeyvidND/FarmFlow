@@ -1,0 +1,215 @@
+// server/src/modules/digest/digest.service.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { Logger } from '@nestjs/common';
+import { DigestService } from './digest.service';
+import { EmailService } from '../../common/email/email.service';
+import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+
+// ── Mock DB builder ─────────────────────────────────────────────────────────
+function makeDb() {
+  return {
+    select: jest.fn().mockReturnThis(),
+    from: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockResolvedValue([]),
+    leftJoin: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockResolvedValue([]),
+  };
+}
+
+function makeEmailService() {
+  return { sendMail: jest.fn().mockResolvedValue(undefined) };
+}
+
+const TENANT_ID = 'tenant-uuid-1';
+const TODAY = '2026-06-03';
+
+describe('DigestService', () => {
+  let service: DigestService;
+  let db: ReturnType<typeof makeDb>;
+  let emailService: ReturnType<typeof makeEmailService>;
+
+  beforeEach(async () => {
+    db = makeDb();
+    emailService = makeEmailService();
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DigestService,
+        { provide: DB_TOKEN, useValue: db },
+        { provide: EmailService, useValue: emailService },
+      ],
+    }).compile();
+
+    service = module.get(DigestService);
+    // Suppress logger noise in tests
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+  });
+
+  // ── buildDigest ─────────────────────────────────────────────────────────
+
+  describe('buildDigest', () => {
+    it('returns null when there are no confirmed orders for the date', async () => {
+      // DB query returns empty array for orders
+      db.orderBy.mockResolvedValue([]);
+
+      const result = await service.buildDigest(TENANT_ID, TODAY);
+
+      expect(result).toBeNull();
+    });
+
+    it('splits address orders vs econt orders into the correct groups', async () => {
+      const addressOrder = {
+        id: 'ord-1',
+        deliveryType: 'address',
+        customerName: 'Иван Иванов',
+        deliveryAddress: 'ул. Роза 5, София',
+        econtOffice: null,
+        slotFrom: '10:00:00',
+        slotTo: '12:00:00',
+      };
+      const econtOrder = {
+        id: 'ord-2',
+        deliveryType: 'econt',
+        customerName: 'Мария Петрова',
+        deliveryAddress: null,
+        econtOffice: 'Офис Пловдив Център',
+        slotFrom: null,
+        slotTo: null,
+      };
+      db.orderBy.mockResolvedValue([addressOrder, econtOrder]);
+
+      const result = await service.buildDigest(TENANT_ID, TODAY);
+
+      expect(result).not.toBeNull();
+      expect(result!.summary.selfDeliveryCount).toBe(1);
+      expect(result!.summary.econtCount).toBe(1);
+      expect(result!.summary.totalOrders).toBe(2);
+      expect(result!.summary.distinctCustomers).toBe(2);
+    });
+
+    it('generates html containing customer names', async () => {
+      const addressOrder = {
+        id: 'ord-1',
+        deliveryType: 'address',
+        customerName: 'Иван Иванов',
+        deliveryAddress: 'ул. Роза 5, София',
+        econtOffice: null,
+        slotFrom: '10:00:00',
+        slotTo: '12:00:00',
+      };
+      db.orderBy.mockResolvedValue([addressOrder]);
+
+      const result = await service.buildDigest(TENANT_ID, TODAY);
+
+      expect(result!.html).toContain('Иван Иванов');
+      expect(result!.text).toContain('Иван Иванов');
+    });
+
+    it('generates html containing econt office name', async () => {
+      const econtOrder = {
+        id: 'ord-1',
+        deliveryType: 'econt',
+        customerName: 'Мария Петрова',
+        deliveryAddress: null,
+        econtOffice: 'Офис Пловдив Център',
+        slotFrom: null,
+        slotTo: null,
+      };
+      db.orderBy.mockResolvedValue([econtOrder]);
+
+      const result = await service.buildDigest(TENANT_ID, TODAY);
+
+      expect(result!.html).toContain('Офис Пловдив Център');
+      expect(result!.text).toContain('Офис Пловдив Център');
+    });
+
+    it('includes slot time range for address orders that have a slot', async () => {
+      const addressOrder = {
+        id: 'ord-1',
+        deliveryType: 'address',
+        customerName: 'Иван Иванов',
+        deliveryAddress: 'ул. Роза 5',
+        econtOffice: null,
+        slotFrom: '10:00:00',
+        slotTo: '12:00:00',
+      };
+      db.orderBy.mockResolvedValue([addressOrder]);
+
+      const result = await service.buildDigest(TENANT_ID, TODAY);
+
+      expect(result!.html).toContain('10:00');
+      expect(result!.html).toContain('12:00');
+    });
+  });
+
+  // ── runDailyDigests ─────────────────────────────────────────────────────
+
+  describe('runDailyDigests', () => {
+    it('sends an email when a tenant has a non-null email and has orders', async () => {
+      const tenantRow = { id: TENANT_ID, email: 'farmer@test.bg' };
+      // First call: get all tenants with email
+      db.orderBy.mockResolvedValueOnce([tenantRow]);
+      // Second call: buildDigest → orders query
+      const addressOrder = {
+        id: 'ord-1',
+        deliveryType: 'address',
+        customerName: 'Тест Клиент',
+        deliveryAddress: 'ул. 1',
+        econtOffice: null,
+        slotFrom: null,
+        slotTo: null,
+      };
+      db.orderBy.mockResolvedValueOnce([addressOrder]);
+
+      await service.runDailyDigests();
+
+      expect(emailService.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'farmer@test.bg' }),
+      );
+    });
+
+    it('does not send when digest returns null (no orders)', async () => {
+      const tenantRow = { id: TENANT_ID, email: 'farmer@test.bg' };
+      db.orderBy.mockResolvedValueOnce([tenantRow]);
+      // buildDigest returns null (no orders)
+      db.orderBy.mockResolvedValueOnce([]);
+
+      await service.runDailyDigests();
+
+      expect(emailService.sendMail).not.toHaveBeenCalled();
+    });
+
+    it('catches error for one tenant and continues to the next', async () => {
+      const tenant1 = { id: 'tenant-1', email: 'farmer1@test.bg' };
+      const tenant2 = { id: 'tenant-2', email: 'farmer2@test.bg' };
+      db.orderBy.mockResolvedValueOnce([tenant1, tenant2]);
+
+      // tenant1 buildDigest throws
+      db.orderBy
+        .mockRejectedValueOnce(new Error('DB error for tenant 1'))
+        // tenant2 buildDigest succeeds with one order
+        .mockResolvedValueOnce([
+          {
+            id: 'ord-1',
+            deliveryType: 'address',
+            customerName: 'Клиент 2',
+            deliveryAddress: 'ул. 2',
+            econtOffice: null,
+            slotFrom: null,
+            slotTo: null,
+          },
+        ]);
+
+      await expect(service.runDailyDigests()).resolves.toBeUndefined();
+
+      // Only tenant2 email sent
+      expect(emailService.sendMail).toHaveBeenCalledTimes(1);
+      expect(emailService.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'farmer2@test.bg' }),
+      );
+    });
+  });
+});

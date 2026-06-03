@@ -5,7 +5,12 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { subscribeNewsletter, resolveSlug, ApiError } from '@/lib/api';
 import { toast } from './toast';
 
-export function NewsletterForm() {
+/**
+ * `footer` (default) = compact island used in the site footer.
+ * `panel` = the big home `.newsletter` strip — plain markup so the template's
+ * `.newsletter form` / `.newsletter input` rules style it (no inline overrides).
+ */
+export function NewsletterForm({ variant = 'footer' }: { variant?: 'footer' | 'panel' }) {
   const slug = useMemo(() => resolveSlug(), []);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,6 +32,23 @@ export function NewsletterForm() {
       setBusy(false);
     }
   };
+
+  if (variant === 'panel') {
+    return (
+      <form onSubmit={submit}>
+        <input
+          type="email"
+          placeholder="твоят имейл"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <button className="btn btn--accent" type="submit" disabled={busy}>
+          {busy ? '…' : 'Абонирай се'}
+        </button>
+      </form>
+    );
+  }
 
   return (
     <form onSubmit={submit} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>

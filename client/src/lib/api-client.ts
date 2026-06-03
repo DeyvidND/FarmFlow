@@ -2,6 +2,7 @@ import type {
   Article,
   ArticleMedia,
   DashboardSummary,
+  DeliveryConfig,
   Farmer,
   Order,
   Product,
@@ -108,8 +109,16 @@ export function uploadSubcategoryImage(id: string, file: File) {
 }
 
 // ---- Tenant toggles ----
-export const updateTenant = (data: { multiFarmer?: boolean; multiSubcat?: boolean }) =>
-  apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
+export const getTenant = () => apiFetch<TenantProfile>('tenants/me');
+
+export const updateTenant = (data: {
+  multiFarmer?: boolean;
+  multiSubcat?: boolean;
+  farmAddress?: string;
+  farmLat?: number;
+  farmLng?: number;
+  routing?: { endMode?: 'home' | 'last' | 'custom'; endAddress?: string | null };
+}) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
 // ---- Articles ----
 export const listArticles = () => apiFetch<Article[]>('articles');
@@ -206,3 +215,18 @@ export const setDeliveryEnabled = (enabled: boolean) =>
     { method: 'PATCH', ...json({ deliveryEnabled: enabled }) },
     'Неуспешна промяна',
   );
+
+/** Persist the master toggle + the full delivery config (settings.delivery). */
+export const saveDelivery = (data: { deliveryEnabled: boolean; delivery: DeliveryConfig }) =>
+  apiFetch<TenantProfile>(
+    'tenants/me',
+    { method: 'PATCH', ...json(data) },
+    'Неуспешно записване на настройките',
+  );
+
+// ---- Newsletters ----
+export const listSubscribers = () =>
+  apiFetch<{ subscribers: { id: string; email: string; createdAt: string | null }[]; activeCount: number; unsubscribedCount: number }>('subscribers');
+
+export const sendBroadcast = (data: { subject: string; body: string }) =>
+  apiFetch<{ sent: number }>('broadcast', { method: 'POST', ...json(data) }, 'Неуспешно изпращане');

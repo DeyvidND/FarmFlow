@@ -109,7 +109,7 @@ export function ProductCard({
       {editing ? (
         <div className="mt-[13px] flex flex-col gap-[9px]">
           <label className="flex flex-col gap-1 text-[11.5px] font-bold text-ff-muted">
-            Цена (лв)
+            Цена (€)
             <input
               autoFocus
               inputMode="decimal"

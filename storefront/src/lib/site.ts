@@ -24,8 +24,13 @@ export const SITE = {
 /** Telephone href with whitespace stripped (matches the template). */
 export const telHref = (phone: string) => `tel:${phone.replace(/\s/g, '')}`;
 
+export interface NavItem {
+  label: string;
+  href: string;
+}
+
 /** Primary nav — template labels, mapped from `*.html` to Next routes. */
-export const NAV: ReadonlyArray<{ label: string; href: string }> = [
+export const NAV: ReadonlyArray<NavItem> = [
   { label: 'Начало', href: '/' },
   { label: 'Продукти', href: '/products' },
   { label: 'За нас', href: '/about' },
@@ -36,13 +41,34 @@ export const NAV: ReadonlyArray<{ label: string; href: string }> = [
   { label: 'ЧЗВ', href: '/faq' },
 ];
 
+const FARMERS_NAV: NavItem = { label: 'Фермери', href: '/farmers' };
+
+/**
+ * Primary nav with the "Фермери" item spliced in after "Продукти" when the farm
+ * runs multi-farmer mode (`hasFarmers`). Single-producer farms keep the base nav,
+ * so the link never points at an empty page.
+ */
+export function mainNav(hasFarmers: boolean): ReadonlyArray<NavItem> {
+  if (!hasFarmers) return NAV;
+  const i = NAV.findIndex((n) => n.href === '/products');
+  const out = [...NAV];
+  out.splice(i + 1, 0, FARMERS_NAV);
+  return out;
+}
+
 /** Footer "Магазин" column. */
-export const FOOTER_SHOP: ReadonlyArray<{ label: string; href: string }> = [
+export const FOOTER_SHOP: ReadonlyArray<NavItem> = [
   { label: 'Продукти', href: '/products' },
   { label: 'Сезонни пакети', href: '/bundles' },
   { label: 'Количка', href: '/cart' },
   { label: 'Отзиви', href: '/reviews' },
 ];
+
+/** Footer "Магазин" column with "Фермери" added when multi-farmer mode is on. */
+export function footerShop(hasFarmers: boolean): ReadonlyArray<NavItem> {
+  if (!hasFarmers) return FOOTER_SHOP;
+  return [FOOTER_SHOP[0], FARMERS_NAV, ...FOOTER_SHOP.slice(1)];
+}
 
 /** Footer "Информация" column. */
 export const FOOTER_INFO: ReadonlyArray<{ label: string; href: string }> = [

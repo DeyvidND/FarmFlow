@@ -8,17 +8,20 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { Berry, Cart, Close } from './icons';
-import { NAV, SITE, telHref, isActiveHref } from '@/lib/site';
+import { mainNav, SITE, telHref, isActiveHref } from '@/lib/site';
 
 export function MobileDrawer({
   open,
   onClose,
   pathname,
+  hasFarmers = false,
 }: {
   open: boolean;
   onClose: () => void;
   pathname: string;
+  hasFarmers?: boolean;
 }) {
+  const nav = mainNav(hasFarmers);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -54,7 +57,7 @@ export function MobileDrawer({
             <Close />
           </button>
         </div>
-        {NAV.map((item) => (
+        {nav.map((item) => (
           <Link
             key={item.href}
             href={item.href}
