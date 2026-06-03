@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
+import { MustChangePasswordGuard } from './common/guards/must-change-password.guard';
 import { envValidationSchema } from './config/env.validation';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { DrizzleModule } from './common/drizzle/drizzle.module';
 import { RedisModule } from './common/redis/redis.module';
+import { EmailModule } from './common/email/email.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { AppController } from './app.controller';
 import { AuthModule } from './modules/auth/auth.module';
@@ -23,6 +26,8 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CatalogCacheModule } from './modules/catalog-cache/catalog-cache.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { ArticlesModule } from './modules/articles/articles.module';
+import { DigestModule } from './modules/digest/digest.module';
+import { NewsletterModule } from './modules/newsletter/newsletter.module';
 
 @Module({
   imports: [
@@ -31,8 +36,10 @@ import { ArticlesModule } from './modules/articles/articles.module';
       envFilePath: ['../.env', '.env'],
       validationSchema: envValidationSchema,
     }),
+    ScheduleModule.forRoot(),
     DrizzleModule,
     RedisModule,
+    EmailModule,
     AuthModule,
     TenantsModule,
     ProductsModule,
@@ -50,6 +57,8 @@ import { ArticlesModule } from './modules/articles/articles.module';
     CatalogCacheModule,
     StorageModule,
     ArticlesModule,
+    DigestModule,
+    NewsletterModule,
   ],
   controllers: [AppController],
   providers: [
@@ -60,6 +69,10 @@ import { ArticlesModule } from './modules/articles/articles.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: AuditInterceptor,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: MustChangePasswordGuard,
     },
   ],
 })

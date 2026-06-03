@@ -23,6 +23,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/slots': 'Слотове за доставка',
   '/route': 'Маршрут за днес',
   '/articles': 'Статии',
+  '/newsletters': 'Имейл клиенти',
 };
 
 function titleFor(pathname: string): string {

@@ -10,10 +10,13 @@ import {
   Users,
   Tags,
   CalendarDays,
+  Truck,
   Route as RouteIcon,
   Newspaper,
+  Mail,
   Leaf,
   LogOut,
+  Settings,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -33,8 +36,10 @@ export const NAV: NavItem[] = [
   { href: '/farmers', label: 'Фермери', Icon: Users },
   { href: '/subcategories', label: 'Подкатегории', Icon: Tags },
   { href: '/slots', label: 'Слотове', Icon: CalendarDays },
+  { href: '/delivery', label: 'Доставка', Icon: Truck },
   { href: '/route', label: 'Маршрут', Icon: RouteIcon },
   { href: '/articles', label: 'Статии', Icon: Newspaper },
+  { href: '/newsletters', label: 'Имейл клиенти', Icon: Mail },
 ];
 
 function Logo({ size = 38 }: { size?: number }) {
@@ -122,6 +127,20 @@ export function Sidebar({ pendingCount = 0 }: { pendingCount?: number }) {
             Прибиране на реколтата — пик. 9 продукта в наличност.
           </div>
         </div>
+        <Link
+          href="/settings"
+          onClick={closeDrawer}
+          data-on={pathname === '/settings' || pathname.startsWith('/settings/')}
+          className={cn(
+            'ff-nav-item mt-1.5 flex items-center gap-[13px] rounded-[10px] border-l-[3px] px-[13px] py-2.5 text-[14.5px] transition-colors',
+            pathname === '/settings' || pathname.startsWith('/settings/')
+              ? 'border-ff-green-600 bg-ff-green-50 font-bold text-ff-green-800'
+              : 'border-transparent font-semibold text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
+          )}
+        >
+          <Settings size={20} strokeWidth={pathname === '/settings' || pathname.startsWith('/settings/') ? 2 : 1.8} />
+          Настройки
+        </Link>
         <button
           type="button"
           onClick={onLogout}

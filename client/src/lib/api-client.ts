@@ -2,6 +2,7 @@ import type {
   Article,
   ArticleMedia,
   DashboardSummary,
+  DeliveryConfig,
   Farmer,
   Order,
   Product,
@@ -206,3 +207,18 @@ export const setDeliveryEnabled = (enabled: boolean) =>
     { method: 'PATCH', ...json({ deliveryEnabled: enabled }) },
     'Неуспешна промяна',
   );
+
+/** Persist the master toggle + the full delivery config (settings.delivery). */
+export const saveDelivery = (data: { deliveryEnabled: boolean; delivery: DeliveryConfig }) =>
+  apiFetch<TenantProfile>(
+    'tenants/me',
+    { method: 'PATCH', ...json(data) },
+    'Неуспешно записване на настройките',
+  );
+
+// ---- Newsletters ----
+export const listSubscribers = () =>
+  apiFetch<{ subscribers: { id: string; email: string; createdAt: string | null }[]; activeCount: number; unsubscribedCount: number }>('subscribers');
+
+export const sendBroadcast = (data: { subject: string; body: string }) =>
+  apiFetch<{ sent: number }>('broadcast', { method: 'POST', ...json(data) }, 'Неуспешно изпращане');

@@ -85,6 +85,7 @@ export type JwtPayload = {
   type?: 'tenant' | 'platform';
   tenantId?: string;
   role?: TenantRole;
+  mustChangePassword?: boolean;
   iat?: number;
   exp?: number;
 };

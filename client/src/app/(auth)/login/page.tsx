@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AuthShell, AuthField, firstMessage } from '@/components/auth/auth-shell';
 import { Button } from '@/components/ui/button';
@@ -85,12 +84,6 @@ export default function LoginPage() {
         </Button>
       </form>
 
-      <div className="mt-5 text-center text-[13.5px] text-ff-ink-2">
-        Нямаш акаунт?{' '}
-        <Link href="/register" className="font-bold text-ff-green-700 no-underline">
-          Регистрирай се
-        </Link>
-      </div>
     </AuthShell>
   );
 }

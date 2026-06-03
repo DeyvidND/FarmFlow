@@ -15,4 +15,12 @@ export const envValidationSchema = Joi.object({
   R2_PUBLIC_URL: Joi.string().optional().allow(''),
   PORT: Joi.number().default(3000),
   CORS_ORIGIN: Joi.string().default('http://localhost:3000'),
+  // Email / SMTP (all optional — app boots without them)
+  SMTP_HOST: Joi.string().optional().allow(''),
+  SMTP_PORT: Joi.number().default(587),
+  SMTP_USER: Joi.string().optional().allow(''),
+  SMTP_PASS: Joi.string().optional().allow(''),
+  SMTP_FROM: Joi.string().optional().allow(''),
+  MAIL_PREVIEW_DIR: Joi.string().optional().allow(''),
+  PUBLIC_APP_URL: Joi.string().default('http://localhost:3000'),
 });
