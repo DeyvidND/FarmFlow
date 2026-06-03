@@ -2,9 +2,11 @@ import {
   IsArray,
   IsEmail,
   IsEnum,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
+  ValidateIf,
   ValidateNested,
   ArrayMinSize,
 } from 'class-validator';
@@ -45,14 +47,18 @@ export class CreateOrderDto {
   @IsEnum(['address', 'econt'])
   deliveryType?: 'address' | 'econt';
 
-  @ApiPropertyOptional({ description: 'Street address (delivery_type=address)' })
-  @IsOptional()
+  // Required when delivering to an address (the default when deliveryType is omitted).
+  @ApiPropertyOptional({ description: 'Street address (required when delivery_type=address)' })
+  @ValidateIf((o) => (o.deliveryType ?? 'address') === 'address')
   @IsString()
+  @IsNotEmpty({ message: 'Адресът за доставка е задължителен' })
   deliveryAddress?: string;
 
-  @ApiPropertyOptional({ description: 'Еконт office (delivery_type=econt)' })
-  @IsOptional()
+  // Required when delivering to an Econt office.
+  @ApiPropertyOptional({ description: 'Еконт office (required when delivery_type=econt)' })
+  @ValidateIf((o) => o.deliveryType === 'econt')
   @IsString()
+  @IsNotEmpty({ message: 'Изборът на офис на Еконт е задължителен' })
   econtOffice?: string;
 
   @ApiPropertyOptional()

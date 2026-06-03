@@ -102,6 +102,7 @@ const config: Config = {
         'ff-fade': 'ff-fade .2s ease',
         'ff-slide-in': 'ff-slide-in .26s cubic-bezier(.32,.72,0,1)',
         'ff-pop': 'ff-pop .18s ease',
+        'ff-pulse': 'ff-pulse 1.6s ease-in-out infinite',
       },
     },
   },
