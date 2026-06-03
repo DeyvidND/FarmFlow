@@ -4,7 +4,7 @@
  *
  * FLAG (S9): a public `GET /public/:slug` profile could expose per-farm
  * shipping settings; until then these are platform constants matching the
- * template (free ≥ 40,00 лв, else 4,90 лв).
+ * template (free ≥ 40,00 €, else 4,90 €).
  */
 export const FREE_SHIPPING_THRESHOLD_STOTINKI = 4000;
 export const SHIPPING_FEE_ADDRESS_STOTINKI = 490;

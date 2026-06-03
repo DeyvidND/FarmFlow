@@ -32,7 +32,8 @@ function nl2br(s: string): string {
 @Injectable()
 export class NewsletterService {
   private readonly logger = new Logger(NewsletterService.name);
-  private readonly appUrl: string;
+  /** Origin of the API that serves the unsubscribe page (GET /unsubscribe). */
+  private readonly apiBaseUrl: string;
 
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
@@ -40,7 +41,8 @@ export class NewsletterService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
   ) {
-    this.appUrl = config.get<string>('PUBLIC_APP_URL') ?? 'http://localhost:3000';
+    this.apiBaseUrl =
+      config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3001';
   }
 
   async getSubscribers(tenantId: string): Promise<SubscribersResult> {
@@ -80,7 +82,7 @@ export class NewsletterService {
           { sub: subscriber.id, typ: 'unsub' },
           { expiresIn: '3650d' },
         );
-        const unsubscribeUrl = `${this.appUrl}/unsubscribe?token=${encodeURIComponent(token)}`;
+        const unsubscribeUrl = `${this.apiBaseUrl}/unsubscribe?token=${encodeURIComponent(token)}`;
         const html = this.renderBroadcastHtml(dto.subject, dto.body, unsubscribeUrl);
         const text = `${dto.body}\n\n---\nОтпишете се: ${unsubscribeUrl}`;
 

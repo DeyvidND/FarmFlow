@@ -196,7 +196,7 @@ export function DBadge({
   );
 }
 
-/** лв input bound to integer stotinki. */
+/** € input bound to integer cents. */
 export function LvInput({
   label,
   value,
@@ -228,7 +228,7 @@ export function LvInput({
           className={cn(error ? fieldErrCls : fieldCls, 'pr-9')}
         />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[13px] font-bold text-ff-muted">
-          лв
+          €
         </span>
       </div>
     </DLabel>

@@ -18,7 +18,7 @@ export function PricingSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut }) 
   return (
     <DSection
       title="Ценообразуване"
-      helper="Цени в лв (BGN). Цените се изчисляват без ДДС; ДДС се добавя при поръчка."
+      helper="Цени в € (EUR). Цените се изчисляват без ДДС; ДДС се добавя при поръчка."
       info={
         <>
           Тук решаваш <b>колко струва доставката</b> за клиента. Можеш да я направиш безплатна над
@@ -101,7 +101,7 @@ function TierTable({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut }) {
                 className={cn(fieldCls, 'pr-8')}
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[13px] font-bold text-ff-muted">
-                лв
+                €
               </span>
             </div>
             <button
@@ -159,7 +159,7 @@ function ZoneTable({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut }) {
                 className={cn(fieldCls, 'pr-8')}
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[13px] font-bold text-ff-muted">
-                лв
+                €
               </span>
             </div>
             <button

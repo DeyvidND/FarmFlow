@@ -23,4 +23,7 @@ export const envValidationSchema = Joi.object({
   SMTP_FROM: Joi.string().optional().allow(''),
   MAIL_PREVIEW_DIR: Joi.string().optional().allow(''),
   PUBLIC_APP_URL: Joi.string().default('http://localhost:3000'),
+  // Public origin of THIS API — used to build links the API itself serves
+  // (e.g. the newsletter unsubscribe page). Defaults to the dev API port.
+  API_PUBLIC_URL: Joi.string().default('http://localhost:3001'),
 });

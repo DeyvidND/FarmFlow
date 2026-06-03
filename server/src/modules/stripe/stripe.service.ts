@@ -47,8 +47,8 @@ export interface CreateCheckoutParams {
  * degrades gracefully: with no `STRIPE_SECRET_KEY` it is "disabled" and the
  * checkout flow falls back to the cash path (`POST /public/:slug/orders`).
  *
- * Money is integer stotinki end-to-end; Stripe `unit_amount` is also the minor
- * unit, so values pass through unchanged. Currency = `bgn`.
+ * Money is integer cents end-to-end; Stripe `unit_amount` is also the minor
+ * unit, so values pass through unchanged. Currency = `eur`.
  */
 @Injectable()
 export class StripeService {
@@ -153,7 +153,7 @@ export class StripeService {
     if (priceId) {
       try {
         const existing = await this.stripe.prices.retrieve(priceId, undefined, options);
-        if (existing.unit_amount !== p.priceStotinki || existing.currency !== 'bgn') {
+        if (existing.unit_amount !== p.priceStotinki || existing.currency !== 'eur') {
           await this.stripe.prices.update(priceId, { active: false }, options);
           needNewPrice = true;
         }
@@ -163,7 +163,7 @@ export class StripeService {
     }
     if (needNewPrice) {
       const price = await this.stripe.prices.create(
-        { product: stripeProductId, unit_amount: p.priceStotinki, currency: 'bgn' },
+        { product: stripeProductId, unit_amount: p.priceStotinki, currency: 'eur' },
         options,
       );
       priceId = price.id;
@@ -186,7 +186,7 @@ export class StripeService {
         : {
             quantity: l.quantity,
             price_data: {
-              currency: 'bgn',
+              currency: 'eur',
               unit_amount: l.priceStotinki,
               product_data: { name: l.productName },
             },
@@ -197,7 +197,7 @@ export class StripeService {
       lineItems.push({
         quantity: 1,
         price_data: {
-          currency: 'bgn',
+          currency: 'eur',
           unit_amount: params.shippingStotinki,
           product_data: { name: 'Доставка' },
         },

@@ -3,9 +3,12 @@ import {
   IsEmail,
   IsEnum,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
   ValidateIf,
   ValidateNested,
   ArrayMinSize,
@@ -53,6 +56,22 @@ export class CreateOrderDto {
   @IsString()
   @IsNotEmpty({ message: 'Адресът за доставка е задължителен' })
   deliveryAddress?: string;
+
+  // Precise delivery coordinates from the storefront map/autocomplete. Optional:
+  // when absent (e.g. free-typed address), the server geocodes deliveryAddress.
+  @ApiPropertyOptional({ description: 'Delivery latitude (storefront map pin)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  deliveryLat?: number;
+
+  @ApiPropertyOptional({ description: 'Delivery longitude (storefront map pin)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  deliveryLng?: number;
 
   // Required when delivering to an Econt office.
   @ApiPropertyOptional({ description: 'Еконт office (required when delivery_type=econt)' })

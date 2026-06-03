@@ -4,6 +4,7 @@ import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { type Database, orders, deliverySlots, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
+import { bgToday, bgDate } from '../../common/time/bg-time';
 
 interface DigestOrder {
   id: string;
@@ -177,7 +178,7 @@ export class DigestService {
         and(
           eq(orders.tenantId, tenantId),
           eq(orders.status, 'confirmed'),
-          sql`${orders.createdAt}::date = ${date}`,
+          sql`${bgDate(orders.createdAt)} = ${date}`,
         )!,
       )
       .orderBy(orders.createdAt);
@@ -211,7 +212,7 @@ export class DigestService {
    */
   @Cron('0 7 * * *', { timeZone: 'Europe/Sofia' })
   async runDailyDigests(): Promise<void> {
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Sofia' });
+    const today = bgToday();
 
     const tenantRows = await this.db
       .select({ id: tenants.id, email: tenants.email })
@@ -249,7 +250,7 @@ export class DigestService {
    * send it to that tenant's email immediately. Returns { sent, reason? }.
    */
   async sendTestDigest(tenantId: string): Promise<{ sent: boolean; reason?: string }> {
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Sofia' });
+    const today = bgToday();
 
     const [tenant] = await this.db
       .select({ email: tenants.email })

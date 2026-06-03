@@ -68,6 +68,8 @@ export interface CreateOrderDto {
   slotId?: string; // uuid
   deliveryType?: DeliveryType;
   deliveryAddress?: string;
+  deliveryLat?: number; // precise pin from the checkout map/autocomplete
+  deliveryLng?: number;
   econtOffice?: string;
   notes?: string;
 }
@@ -346,7 +348,7 @@ export function submitReview(
 
 /* --------------------------------- money -------------------------------- */
 
-/** Format integer stotinki as the template's `"6,50 лв"`. */
+/** Format integer cents as `"6,50 €"`. */
 export function money(stotinki: number): string {
-  return (stotinki / 100).toFixed(2).replace('.', ',') + ' лв';
+  return (stotinki / 100).toFixed(2).replace('.', ',') + ' €';
 }

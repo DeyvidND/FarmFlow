@@ -16,6 +16,7 @@ import { useCart, selectSubtotal, useCartHydrated } from '@/lib/cart';
 import { money, createCheckout, resolveSlug, ApiError, type DeliveryType } from '@/lib/api';
 import { shippingFor } from '@/lib/shipping';
 import { SlotPicker } from '@/components/slot-picker';
+import { AddressFields } from '@/components/address-fields';
 import { toast } from '@/components/toast';
 
 export function CheckoutClient({ deliveryEnabled }: { deliveryEnabled: boolean }) {
@@ -34,6 +35,9 @@ export function CheckoutClient({ deliveryEnabled }: { deliveryEnabled: boolean }
     deliveryEnabled ? 'address' : 'econt',
   );
   const [addressInput, setAddressInput] = useState('');
+  // Precise pin coordinates from the address autocomplete/map (address delivery only).
+  const [addressLat, setAddressLat] = useState<number | null>(null);
+  const [addressLng, setAddressLng] = useState<number | null>(null);
   const [slotId, setSlotId] = useState<string | null>(null);
   const [hasSlots, setHasSlots] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -62,6 +66,8 @@ export function CheckoutClient({ deliveryEnabled }: { deliveryEnabled: boolean }
         slotId: slotId ?? undefined,
         deliveryType,
         deliveryAddress: isEcont ? undefined : addressInput.trim() || undefined,
+        deliveryLat: isEcont ? undefined : addressLat ?? undefined,
+        deliveryLng: isEcont ? undefined : addressLng ?? undefined,
         econtOffice: isEcont ? addressInput.trim() || undefined : undefined,
       });
       if (res.checkoutUrl) {
@@ -186,7 +192,7 @@ export function CheckoutClient({ deliveryEnabled }: { deliveryEnabled: boolean }
                         <b>Доставка до адрес</b>
                         <br />
                         <span className="muted" style={{ fontSize: 14 }}>
-                          Куриер до врата · 4,90 лв · безплатна над 40 лв
+                          Куриер до врата · 4,90 € · безплатна над 40 €
                         </span>
                       </span>
                     </label>
@@ -200,20 +206,36 @@ export function CheckoutClient({ deliveryEnabled }: { deliveryEnabled: boolean }
                       <b>Еконт офис</b>
                       <br />
                       <span className="muted" style={{ fontSize: 14 }}>
-                        Вземане от офис на Еконт · 3,50 лв
+                        Вземане от офис на Еконт · 3,50 €
                       </span>
                     </span>
                   </label>
                 </div>
-                <div className="field" style={{ marginTop: 14 }}>
-                  <label>{isEcont ? 'Избери офис на Еконт' : 'Адрес за доставка'}</label>
-                  <input
-                    className="input"
-                    placeholder={isEcont ? 'напр. Еконт Варна Център' : 'ул., №, град, пощенски код'}
-                    value={addressInput}
-                    onChange={(e) => setAddressInput(e.target.value)}
-                  />
-                </div>
+                {isEcont ? (
+                  <div className="field" style={{ marginTop: 14 }}>
+                    <label>Избери офис на Еконт</label>
+                    <input
+                      className="input"
+                      placeholder="напр. Еконт Варна Център"
+                      value={addressInput}
+                      onChange={(e) => setAddressInput(e.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 14 }}>
+                    <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>
+                      Адрес за доставка
+                    </label>
+                    <AddressFields
+                      onChange={(text) => {
+                        setAddressInput(text);
+                        // Structured text → server geocodes (region+town disambiguate).
+                        setAddressLat(null);
+                        setAddressLng(null);
+                      }}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* delivery slot — only for personal delivery, when the farm offers slots */}

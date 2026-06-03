@@ -171,7 +171,7 @@ describe('NewsletterService', () => {
       await service.broadcast(TENANT_ID, { subject: 'Test', body: 'Здравей!' });
 
       const callArg = emailService.sendMail.mock.calls[0][0];
-      expect(callArg.html).toContain('/public/unsubscribe');
+      expect(callArg.html).toContain('/unsubscribe?token=');
       expect(callArg.html).toContain('unsub-token-abc');
     });
 

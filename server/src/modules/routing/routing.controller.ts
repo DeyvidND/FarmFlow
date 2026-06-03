@@ -1,6 +1,6 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
-import { RoutingService } from './routing.service';
+import { RoutingService, type RouteEndMode, type RouteOrderMode } from './routing.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -17,7 +17,17 @@ export class RoutingController {
   @Get('route')
   @UseGuards(ActiveSubscriptionGuard)
   @ApiQuery({ name: 'date', required: false })
-  getRoute(@CurrentTenant() tenantId: string, @Query('date') date?: string) {
-    return this.routingService.getRoute(tenantId, date);
+  @ApiQuery({ name: 'end', required: false, enum: ['home', 'last', 'custom'] })
+  @ApiQuery({ name: 'order', required: false, enum: ['slots', 'distance'] })
+  getRoute(
+    @CurrentTenant() tenantId: string,
+    @Query('date') date?: string,
+    @Query('end') end?: string,
+    @Query('order') order?: string,
+  ) {
+    const endMode: RouteEndMode | undefined =
+      end === 'home' || end === 'last' || end === 'custom' ? end : undefined;
+    const orderMode: RouteOrderMode = order === 'distance' ? 'distance' : 'slots';
+    return this.routingService.getRoute(tenantId, date, endMode, orderMode);
   }
 }

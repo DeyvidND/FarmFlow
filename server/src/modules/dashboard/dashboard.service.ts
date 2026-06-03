@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import { type Database, orders, deliverySlots, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { bgToday, bgDate } from '../../common/time/bg-time';
 
 export interface DashboardSlot {
   id: string;
@@ -31,7 +32,7 @@ export class DashboardService {
 
   /** Today's summary: counts, revenue (non-cancelled), pending, next slot + capacity bars. */
   async summary(tenantId: string, date?: string): Promise<DashboardSummary> {
-    const day = date ?? new Date().toISOString().slice(0, 10);
+    const day = date ?? bgToday();
 
     const [agg] = await this.db
       .select({
@@ -40,12 +41,12 @@ export class DashboardService {
         pendingCount: sql<number>`count(*) filter (where ${orders.status} = 'pending')::int`,
       })
       .from(orders)
-      .where(and(eq(orders.tenantId, tenantId), sql`${orders.createdAt}::date = ${day}`));
+      .where(and(eq(orders.tenantId, tenantId), sql`${bgDate(orders.createdAt)} = ${day}`));
 
     const [{ yesterday }] = await this.db
       .select({ yesterday: sql<number>`count(*)::int` })
       .from(orders)
-      .where(and(eq(orders.tenantId, tenantId), sql`${orders.createdAt}::date = ${day}::date - 1`));
+      .where(and(eq(orders.tenantId, tenantId), sql`${bgDate(orders.createdAt)} = ${day}::date - 1`));
 
     const [tenant] = await this.db
       .select({ status: tenants.subscriptionStatus })

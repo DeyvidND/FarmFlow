@@ -1,4 +1,14 @@
-import { IsBoolean, IsEmail, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateTenantDto {
@@ -32,6 +42,37 @@ export class UpdateTenantDto {
   @IsOptional()
   @IsBoolean()
   multiSubcat?: boolean;
+
+  // Home / depot — the delivery route origin. If an address is given without
+  // coords, the server geocodes it on save.
+  @ApiPropertyOptional({ example: 'с. Звездица, общ. Варна' })
+  @IsOptional()
+  @IsString()
+  farmAddress?: string;
+
+  @ApiPropertyOptional({ description: 'Home latitude (map pin)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  farmLat?: number;
+
+  @ApiPropertyOptional({ description: 'Home longitude (map pin)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  farmLng?: number;
+
+  /**
+   * Route-end config, persisted to `settings.routing`:
+   * `{ endMode: 'home' | 'last' | 'custom', endAddress?: string }`.
+   * A custom `endAddress` is geocoded on save into endLat/endLng.
+   */
+  @ApiPropertyOptional({ description: 'Route end config (persisted to settings.routing)' })
+  @IsOptional()
+  @IsObject()
+  routing?: Record<string, unknown>;
 
   /**
    * Per-tenant delivery configuration blob (methods, schedule, pricing, Econt

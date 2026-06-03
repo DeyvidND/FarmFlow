@@ -114,7 +114,7 @@ export function ProductDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <label className={labelCls}>
-              Цена (лв)
+              Цена (€)
               <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="6,50" className={field} />
             </label>
             <label className={labelCls}>

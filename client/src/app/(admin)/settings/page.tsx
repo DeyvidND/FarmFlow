@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { firstMessage } from '@/components/auth/auth-shell';
+import { getTenant, updateTenant } from '@/lib/api-client';
+import type { RouteEndMode, RoutingConfig } from '@/lib/types';
+
+const END_LABELS: { mode: RouteEndMode; label: string; hint: string }[] = [
+  { mode: 'home', label: 'Към дома', hint: 'обратно до базата' },
+  { mode: 'last', label: 'Едностранно', hint: 'край при последната доставка' },
+  { mode: 'custom', label: 'По избор', hint: 'друг адрес' },
+];
 
 function Field({
   label,
@@ -30,6 +38,12 @@ export default function SettingsPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Home / depot + route-end settings.
+  const [home, setHome] = useState('');
+  const [endMode, setEndMode] = useState<RouteEndMode>('home');
+  const [endAddr, setEndAddr] = useState('');
+  const [savingLoc, setSavingLoc] = useState(false);
+
   useEffect(() => {
     fetch('/bff/auth/me')
       .then((r) => (r.ok ? r.json() : null))
@@ -37,7 +51,31 @@ export default function SettingsPage() {
         if (data?.mustChangePassword) setMustChange(true);
       })
       .catch(() => {});
+    getTenant()
+      .then((t) => {
+        setHome(t.farmAddress ?? '');
+        const r = (t.routing ?? {}) as RoutingConfig;
+        setEndMode(r.endMode ?? 'home');
+        setEndAddr(r.endAddress ?? '');
+      })
+      .catch(() => {});
   }, []);
+
+  async function saveLocation(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingLoc(true);
+    try {
+      await updateTenant({
+        farmAddress: home.trim(),
+        routing: { endMode, endAddress: endMode === 'custom' ? endAddr.trim() : '' },
+      });
+      toast.success('Локацията е запазена');
+    } catch {
+      toast.error('Неуспешно записване');
+    } finally {
+      setSavingLoc(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -125,6 +163,61 @@ export default function SettingsPage() {
             className="mt-0.5 w-full rounded-sm py-[13px] text-[15.5px]"
           >
             {loading ? 'Зареждане…' : 'Смени паролата'}
+          </Button>
+        </form>
+      </div>
+
+      {/* Home / depot + route end */}
+      <div className="mt-6 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-sm">
+        <h2 className="mb-1 text-[16px] font-extrabold">Локация и маршрут</h2>
+        <p className="mb-4 text-[13px] text-ff-muted">
+          Адресът на базата е началото на маршрута за доставка. Запазва се като точка на картата.
+        </p>
+        <form onSubmit={saveLocation} className="flex flex-col gap-4">
+          <Field
+            label="Адрес на базата (дом)"
+            placeholder="напр. с. Звездица, общ. Варна"
+            value={home}
+            onChange={(e) => setHome(e.target.value)}
+          />
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-bold text-ff-ink-2">Край на маршрута</span>
+            <div className="flex flex-wrap gap-2">
+              {END_LABELS.map(({ mode, label, hint }) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setEndMode(mode)}
+                  className={`flex-1 rounded-sm border px-3 py-2.5 text-left transition ${
+                    endMode === mode
+                      ? 'border-ff-green-500 bg-ff-green-100'
+                      : 'border-ff-border bg-ff-surface-2 hover:border-ff-green-500'
+                  }`}
+                >
+                  <span className="block text-[14px] font-bold text-ff-ink">{label}</span>
+                  <span className="block text-[12px] text-ff-muted">{hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {endMode === 'custom' && (
+            <Field
+              label="Краен адрес"
+              placeholder="напр. бул. Сливница 33, Варна"
+              value={endAddr}
+              onChange={(e) => setEndAddr(e.target.value)}
+            />
+          )}
+
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={savingLoc}
+            className="mt-0.5 w-full rounded-sm py-[13px] text-[15.5px]"
+          >
+            {savingLoc ? 'Записване…' : 'Запази локацията'}
           </Button>
         </form>
       </div>

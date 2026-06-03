@@ -8,6 +8,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { DrizzleModule } from './common/drizzle/drizzle.module';
 import { RedisModule } from './common/redis/redis.module';
 import { EmailModule } from './common/email/email.module';
+import { MapsModule } from './common/maps/maps.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { AppController } from './app.controller';
 import { AuthModule } from './modules/auth/auth.module';
@@ -40,6 +41,7 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
     DrizzleModule,
     RedisModule,
     EmailModule,
+    MapsModule,
     AuthModule,
     TenantsModule,
     ProductsModule,

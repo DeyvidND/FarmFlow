@@ -175,8 +175,8 @@ export const WEEKDAYS = [
   { i: 0, l: 'Нд' },
 ];
 
-/** stotinki → "12,34 лв" */
-export const lv = (stotinki: number) => (stotinki / 100).toFixed(2).replace('.', ',') + ' лв';
+/** cents → "12,34 €" */
+export const lv = (stotinki: number) => (stotinki / 100).toFixed(2).replace('.', ',') + ' €';
 
 // ---- Help-modal copy ----
 

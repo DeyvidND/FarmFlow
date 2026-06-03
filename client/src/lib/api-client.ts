@@ -109,8 +109,16 @@ export function uploadSubcategoryImage(id: string, file: File) {
 }
 
 // ---- Tenant toggles ----
-export const updateTenant = (data: { multiFarmer?: boolean; multiSubcat?: boolean }) =>
-  apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
+export const getTenant = () => apiFetch<TenantProfile>('tenants/me');
+
+export const updateTenant = (data: {
+  multiFarmer?: boolean;
+  multiSubcat?: boolean;
+  farmAddress?: string;
+  farmLat?: number;
+  farmLng?: number;
+  routing?: { endMode?: 'home' | 'last' | 'custom'; endAddress?: string | null };
+}) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
 // ---- Articles ----
 export const listArticles = () => apiFetch<Article[]>('articles');

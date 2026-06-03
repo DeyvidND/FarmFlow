@@ -66,6 +66,7 @@ export type PublicProduct = Omit<
  */
 export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
   delivery?: unknown;
+  routing?: unknown;
 };
 
 /** Public storefront shapes — tenant_id stripped. */

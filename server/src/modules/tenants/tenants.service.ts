@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { type Database, tenants } from '@farmflow/db';
 import type { PublicTenant, Tenant } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { MapsService } from '../../common/maps/maps.service';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 
 /** Lean storefront profile shape returned by `GET /public/:slug` (no secrets). */
@@ -18,7 +19,10 @@ export interface PublicStorefront {
 
 @Injectable()
 export class TenantsService {
-  constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
+  constructor(
+    @Inject(DB_TOKEN) private readonly db: Database,
+    private readonly maps: MapsService,
+  ) {}
 
   async getMe(tenantId: string): Promise<PublicTenant> {
     const [row] = await this.db
@@ -55,11 +59,29 @@ export class TenantsService {
   }
 
   async updateMe(tenantId: string, dto: UpdateTenantDto): Promise<PublicTenant> {
-    // `delivery` is not a column — it's merged into the `settings` jsonb.
-    const { delivery, ...flat } = dto;
+    // `delivery` and `routing` aren't columns — they merge into `settings` jsonb.
+    const { delivery, routing, farmAddress, farmLat, farmLng, ...flat } = dto;
     const set: Record<string, unknown> = { ...flat };
 
-    if (delivery !== undefined) {
+    // Home / depot. Prefer explicit pin coords; else geocode the typed address.
+    if (farmAddress !== undefined) {
+      set.farmAddress = farmAddress;
+      if (farmLat != null && farmLng != null) {
+        set.farmLat = String(farmLat);
+        set.farmLng = String(farmLng);
+      } else if (farmAddress) {
+        const geo = await this.maps.geocode(farmAddress);
+        if (geo) {
+          set.farmLat = String(geo.lat);
+          set.farmLng = String(geo.lng);
+        }
+      }
+    } else if (farmLat != null && farmLng != null) {
+      set.farmLat = String(farmLat);
+      set.farmLng = String(farmLng);
+    }
+
+    if (delivery !== undefined || routing !== undefined) {
       const [cur] = await this.db
         .select({ settings: tenants.settings })
         .from(tenants)
@@ -67,7 +89,12 @@ export class TenantsService {
         .limit(1);
       if (!cur) throw new NotFoundException('Фермата не е намерена');
       const existing = (cur.settings as Record<string, unknown> | null) ?? {};
-      set.settings = { ...existing, delivery: sanitizeDelivery(delivery) };
+      const nextSettings: Record<string, unknown> = { ...existing };
+      if (delivery !== undefined) nextSettings.delivery = sanitizeDelivery(delivery);
+      if (routing !== undefined) {
+        nextSettings.routing = await this.resolveRouting(existing.routing, routing);
+      }
+      set.settings = nextSettings;
     }
 
     const [row] = await this.db
@@ -77,6 +104,32 @@ export class TenantsService {
       .returning();
     if (!row) throw new NotFoundException('Фермата не е намерена');
     return toPublicTenant(row);
+  }
+
+  /**
+   * Merge route-end config and geocode a custom end address into endLat/endLng.
+   * Clears the coords when the address is removed.
+   */
+  private async resolveRouting(
+    prev: unknown,
+    routing: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const next: Record<string, unknown> = {
+      ...((prev as Record<string, unknown> | null) ?? {}),
+      ...routing,
+    };
+    if ('endAddress' in routing) {
+      const endAddress = (routing.endAddress as string | null) ?? '';
+      if (endAddress) {
+        const geo = await this.maps.geocode(endAddress);
+        next.endLat = geo ? String(geo.lat) : null;
+        next.endLng = geo ? String(geo.lng) : null;
+      } else {
+        next.endLat = null;
+        next.endLng = null;
+      }
+    }
+    return next;
   }
 }
 
@@ -103,6 +156,6 @@ function sanitizeDelivery(delivery: Record<string, unknown>): Record<string, unk
  *  config from `settings` so the admin panel can read its saved settings back. */
 function toPublicTenant(t: Tenant): PublicTenant {
   const { stripeAccountId, settings, ...rest } = t;
-  const delivery = (settings as Record<string, unknown> | null)?.delivery ?? null;
-  return { ...rest, delivery };
+  const s = settings as Record<string, unknown> | null;
+  return { ...rest, delivery: s?.delivery ?? null, routing: s?.routing ?? null };
 }

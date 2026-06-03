@@ -47,8 +47,24 @@ export interface TenantProfile {
   multiFarmer: boolean;
   multiSubcat: boolean;
   deliveryEnabled: boolean;
+  /** Home / depot — the delivery route origin. */
+  farmAddress: string | null;
+  farmLat: string | null;
+  farmLng: string | null;
   /** Per-tenant delivery config (settings.delivery). Null until first saved. */
   delivery: DeliveryConfig | null;
+  /** Route-end config (settings.routing): { endMode, endAddress, endLat, endLng }. */
+  routing: RoutingConfig | null;
+}
+
+export type RouteEndMode = 'home' | 'last' | 'custom';
+export type RouteOrderMode = 'slots' | 'distance';
+
+export interface RoutingConfig {
+  endMode?: RouteEndMode;
+  endAddress?: string | null;
+  endLat?: string | null;
+  endLng?: string | null;
 }
 
 // ---- Delivery configuration (persisted to tenant.settings.delivery) ----
@@ -259,10 +275,21 @@ export interface RouteStop {
 }
 
 /** Delivery route for a date (GET /orders/route?date=). */
+export interface RouteEnd {
+  mode: RouteEndMode;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
 export interface RouteResult {
   date: string; // YYYY-MM-DD
   origin: { address: string | null; lat: number | null; lng: number | null };
   stops: RouteStop[];
+  /** Where the van goes after the last delivery. */
+  end: RouteEnd;
+  /** How stops were ordered (by time slot, or by shortest distance). */
+  orderMode: RouteOrderMode;
   totalDistanceM: number | null;
   totalDurationS: number | null;
   optimized: boolean;
