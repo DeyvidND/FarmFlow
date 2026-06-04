@@ -5,13 +5,15 @@ import { type Database, products, orders, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { OrdersService } from './orders.service';
 import { StripeService, type CheckoutLine } from '../stripe/stripe.service';
+import { EcontService } from '../econt/econt.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 
 // Shipping rule (mirrors the storefront `lib/shipping.ts`): free over the
 // threshold, otherwise a flat fee per delivery method.
 const FREE_SHIPPING_THRESHOLD_STOTINKI = 4000;
-const SHIPPING_ADDRESS_STOTINKI = 490;
-const SHIPPING_ECONT_STOTINKI = 350;
+const SHIPPING_ADDRESS_STOTINKI = 490; // local farm delivery (flat, regional)
+const SHIPPING_ECONT_STOTINKI = 350; // Econt → office, fallback when no live quote
+const SHIPPING_ECONT_ADDRESS_STOTINKI = 590; // Econt → door, fallback when no live quote
 
 export interface CheckoutResult {
   orderId: string;
@@ -32,6 +34,7 @@ export class CheckoutService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly ordersService: OrdersService,
     private readonly stripe: StripeService,
+    private readonly econt: EcontService,
     private readonly config: ConfigService,
   ) {}
 
@@ -41,7 +44,7 @@ export class CheckoutService {
 
     // 2. Fold shipping into the order total so the admin record matches the charge.
     const subtotal = order.items.reduce((sum, i) => sum + i.priceStotinki * i.quantity, 0);
-    const shipping = this.shippingStotinki(order.deliveryType, subtotal);
+    const shipping = await this.shippingStotinki(order, subtotal);
     const grandTotal = subtotal + shipping;
     if (grandTotal !== order.totalStotinki) {
       await this.db
@@ -85,6 +88,7 @@ export class CheckoutService {
       orderId: order.id,
       lines,
       shippingStotinki: shipping,
+      totalStotinki: grandTotal,
       customerEmail: order.customerEmail,
       successUrl: `${base}/confirmation?order=${order.id}`,
       cancelUrl: `${base}/checkout`,
@@ -98,8 +102,41 @@ export class CheckoutService {
     return { orderId: order.id, checkoutUrl: session.checkoutUrl };
   }
 
-  private shippingStotinki(deliveryType: 'address' | 'econt' | null, subtotal: number): number {
-    if (subtotal >= FREE_SHIPPING_THRESHOLD_STOTINKI) return 0;
-    return deliveryType === 'econt' ? SHIPPING_ECONT_STOTINKI : SHIPPING_ADDRESS_STOTINKI;
+  /**
+   * Order shipping in stotinki. Free over the threshold. For Econt, prefer a live
+   * price quote from the courier (when the farm has Econt connected); fall back to
+   * the flat fee if Econt is unconfigured/unreachable. Address delivery is flat.
+   */
+  private async shippingStotinki(
+    order: {
+      tenantId: string | null;
+      deliveryType: 'address' | 'econt' | 'econt_address' | null;
+      customerName: string | null;
+      customerPhone: string | null;
+      econtOffice: string | null;
+      deliveryAddress: string | null;
+      deliveryCity: string | null;
+      items: { productName: string | null; quantity: number }[];
+    },
+    subtotal: number,
+  ): Promise<number> {
+    const method = order.deliveryType ?? 'address';
+    // Local farm delivery — flat regional fee, free over the threshold (the farm
+    // absorbs its own local delivery cost on big baskets).
+    if (method === 'address') {
+      return subtotal >= FREE_SHIPPING_THRESHOLD_STOTINKI ? 0 : SHIPPING_ADDRESS_STOTINKI;
+    }
+
+    // Econt (office or door) — always priced (a national courier charge is real;
+    // no free-over-threshold). Prefer a live quote; fall back per method.
+    if (order.tenantId) {
+      const live = await this.econt.estimateShipping(
+        order.tenantId,
+        order,
+        order.items.map((i) => ({ name: i.productName, qty: i.quantity })),
+      );
+      if (live != null) return live;
+    }
+    return method === 'econt_address' ? SHIPPING_ECONT_ADDRESS_STOTINKI : SHIPPING_ECONT_STOTINKI;
   }
 }

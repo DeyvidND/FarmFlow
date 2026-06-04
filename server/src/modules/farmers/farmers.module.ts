@@ -7,5 +7,6 @@ import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
   imports: [CatalogCacheModule],
   controllers: [FarmersController, PublicFarmersController],
   providers: [FarmersService],
+  exports: [FarmersService],
 })
 export class FarmersModule {}

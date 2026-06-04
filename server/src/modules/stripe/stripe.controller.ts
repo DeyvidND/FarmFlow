@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Req,
   Headers,
   RawBodyRequest,
@@ -40,5 +41,26 @@ export class StripeCatalogController {
   @Post('sync')
   sync(@CurrentTenant() tenantId: string) {
     return this.stripeService.syncCatalog(tenantId);
+  }
+}
+
+/** Tenant-scoped Stripe Connect onboarding — self-serve account link + status. */
+@ApiTags('stripe')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@Controller('stripe/connect')
+export class StripeConnectController {
+  constructor(private readonly stripeService: StripeService) {}
+
+  /** Create (if needed) the farm's connected account and return a hosted onboarding URL. */
+  @Post('onboard')
+  onboard(@CurrentTenant() tenantId: string) {
+    return this.stripeService.createOnboardingLink(tenantId);
+  }
+
+  /** Onboarding/payment-readiness of the farm's connected account. */
+  @Get('status')
+  status(@CurrentTenant() tenantId: string) {
+    return this.stripeService.accountStatus(tenantId);
   }
 }

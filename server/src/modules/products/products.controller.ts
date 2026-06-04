@@ -11,6 +11,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import {
   UploadImageDto,
   PRODUCT_IMAGE_MIME_REGEX,
@@ -71,6 +72,51 @@ export class ProductsController {
     file: Express.Multer.File,
   ) {
     return this.productsService.uploadImage(id, tenantId, file);
+  }
+
+  // ---- Gallery (multi-image) ----
+
+  @Get(':id/media')
+  listMedia(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.productsService.listMedia(id, tenantId);
+  }
+
+  @Post(':id/media')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: UploadImageDto })
+  @UseInterceptors(FileInterceptor('image'))
+  addMedia(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new FileTypeValidator({ fileType: PRODUCT_IMAGE_MIME_REGEX }),
+          new MaxFileSizeValidator({ maxSize: PRODUCT_IMAGE_MAX_BYTES }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    return this.productsService.addMedia(id, tenantId, file);
+  }
+
+  @Patch(':id/media/reorder')
+  reorderMedia(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: ReorderMediaDto,
+  ) {
+    return this.productsService.reorderMedia(id, tenantId, dto);
+  }
+
+  @Delete(':id/media/:mediaId')
+  removeMedia(
+    @Param('id') id: string,
+    @Param('mediaId') mediaId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.productsService.removeMedia(id, mediaId, tenantId);
   }
 }
 

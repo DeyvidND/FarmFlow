@@ -7,6 +7,7 @@ import {
 import { and, desc, eq } from 'drizzle-orm';
 import { type Database, tenants, products, reviews } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewStatusDto } from './dto/update-review-status.dto';
 
@@ -27,7 +28,10 @@ export interface ReviewSummary {
 
 @Injectable()
 export class ReviewsService {
-  constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
+  constructor(
+    @Inject(DB_TOKEN) private readonly db: Database,
+    private readonly publicCache: PublicCacheService,
+  ) {}
 
   private async resolveTenantId(slug: string): Promise<string> {
     const [tenant] = await this.db
@@ -41,7 +45,12 @@ export class ReviewsService {
 
   /** Public: published reviews + average rating + count. */
   async findPublic(slug: string): Promise<ReviewSummary> {
-    const tenantId = await this.resolveTenantId(slug);
+    const tenant = await this.publicCache.resolveTenant(this.db, slug);
+
+    const key = publicCacheKeys.reviews(tenant.id);
+    const cached = await this.publicCache.get<ReviewSummary>(key);
+    if (cached) return cached;
+
     const rows = await this.db
       .select({
         id: reviews.id,
@@ -52,7 +61,7 @@ export class ReviewsService {
         createdAt: reviews.createdAt,
       })
       .from(reviews)
-      .where(and(eq(reviews.tenantId, tenantId), eq(reviews.status, 'published')))
+      .where(and(eq(reviews.tenantId, tenant.id), eq(reviews.status, 'published')))
       .orderBy(desc(reviews.createdAt));
 
     const count = rows.length;
@@ -60,7 +69,7 @@ export class ReviewsService {
       ? Math.round((rows.reduce((s, r) => s + r.rating, 0) / count) * 10) / 10
       : 0;
 
-    return {
+    const summary: ReviewSummary = {
       average,
       count,
       reviews: rows.map((r) => ({
@@ -68,6 +77,8 @@ export class ReviewsService {
         createdAt: r.createdAt ? r.createdAt.toISOString() : null,
       })),
     };
+    await this.publicCache.set(key, summary);
+    return summary;
   }
 
   /** Public submission → stored as `pending` for moderation. */
@@ -114,6 +125,8 @@ export class ReviewsService {
       .where(and(eq(reviews.id, id), eq(reviews.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Ревюто не е намерено');
+    // Publishing/hiding changes the public list + average.
+    await this.publicCache.del(publicCacheKeys.reviews(tenantId));
     return row;
   }
 }

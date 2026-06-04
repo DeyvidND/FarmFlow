@@ -18,16 +18,35 @@ export class R2StorageProvider extends StorageService {
   constructor(private readonly config: ConfigService) {
     super();
     const accountId = this.config.get<string>('R2_ACCOUNT_ID', '');
+    const accessKeyId = this.config.get<string>('R2_ACCESS_KEY_ID', '');
+    const secretAccessKey = this.config.get<string>('R2_SECRET_ACCESS_KEY', '');
     this.bucket = this.config.get<string>('R2_BUCKET_NAME', '');
-    this.publicUrl = this.config.get<string>('R2_PUBLIC_URL', '');
+    // Trim trailing slashes so getPublicUrl never produces `host//key`.
+    this.publicUrl = this.config.get<string>('R2_PUBLIC_URL', '').replace(/\/+$/, '');
 
-    if (!accountId) {
+    // Live only when the full credential set is present. A partial config (e.g.
+    // account id but no keys) would otherwise build a client that throws on the
+    // first upload — instead, fall back to stub mode and say why, loudly.
+    const complete = !!(accountId && accessKeyId && secretAccessKey && this.bucket);
+    if (!complete) {
       this.stubMode = true;
       this.client = null;
-      this.logger.warn(
-        'R2_ACCOUNT_ID not set — StorageService running in dev no-op stub mode. Uploads will return fake URLs.',
-      );
+      if (accountId || accessKeyId || secretAccessKey || this.bucket) {
+        this.logger.error(
+          'R2 is partially configured (need R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, ' +
+            'R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME together) — staying in stub mode. Uploads return fake URLs.',
+        );
+      } else {
+        this.logger.warn(
+          'R2 not configured — StorageService running in dev no-op stub mode. Uploads will return fake URLs.',
+        );
+      }
       return;
+    }
+    if (!this.publicUrl) {
+      this.logger.warn(
+        'R2 is configured but R2_PUBLIC_URL is empty — stored image URLs will be relative and unservable.',
+      );
     }
 
     this.stubMode = false;
@@ -35,10 +54,7 @@ export class R2StorageProvider extends StorageService {
       endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
       forcePathStyle: true,
       region: 'auto',
-      credentials: {
-        accessKeyId: this.config.get<string>('R2_ACCESS_KEY_ID', ''),
-        secretAccessKey: this.config.get<string>('R2_SECRET_ACCESS_KEY', ''),
-      },
+      credentials: { accessKeyId, secretAccessKey },
     });
   }
 
@@ -73,6 +89,6 @@ export class R2StorageProvider extends StorageService {
   }
 
   getPublicUrl(key: string): string {
-    return `${this.publicUrl}/${key}`;
+    return `${this.publicUrl}/${key.replace(/^\/+/, '')}`;
   }
 }

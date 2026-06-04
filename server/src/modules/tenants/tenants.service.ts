@@ -4,6 +4,7 @@ import { type Database, tenants } from '@farmflow/db';
 import type { PublicTenant, Tenant } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 
 /** Lean storefront profile shape returned by `GET /public/:slug` (no secrets). */
@@ -15,6 +16,7 @@ export interface PublicStorefront {
   deliveryEnabled: boolean;
   multiFarmer: boolean;
   multiSubcat: boolean;
+  econtEnabled: boolean;
 }
 
 @Injectable()
@@ -22,6 +24,7 @@ export class TenantsService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly maps: MapsService,
+    private readonly publicCache: PublicCacheService,
   ) {}
 
   async getMe(tenantId: string): Promise<PublicTenant> {
@@ -41,21 +44,10 @@ export class TenantsService {
    * grouping without inferring them from empty list responses. 404 if unknown.
    */
   async findPublicProfileBySlug(slug: string): Promise<PublicStorefront> {
-    const [row] = await this.db
-      .select({
-        name: tenants.name,
-        slug: tenants.slug,
-        phone: tenants.phone,
-        email: tenants.email,
-        deliveryEnabled: tenants.deliveryEnabled,
-        multiFarmer: tenants.multiFarmer,
-        multiSubcat: tenants.multiSubcat,
-      })
-      .from(tenants)
-      .where(eq(tenants.slug, slug))
-      .limit(1);
-    if (!row) throw new NotFoundException('Фермата не е намерена');
-    return row;
+    // Reuses the shared, Redis-cached slug→tenant resolver. The cached meta IS
+    // the profile shape plus an internal `id` — strip it before returning.
+    const { id: _id, ...profile } = await this.publicCache.resolveTenant(this.db, slug);
+    return profile;
   }
 
   async updateMe(tenantId: string, dto: UpdateTenantDto): Promise<PublicTenant> {
@@ -103,6 +95,14 @@ export class TenantsService {
       .where(eq(tenants.id, tenantId))
       .returning();
     if (!row) throw new NotFoundException('Фермата не е намерена');
+
+    // Bust the cached profile, and the farmers/subcategories lists too: flipping
+    // multiFarmer/multiSubcat changes whether those endpoints return data or [].
+    await this.publicCache.del(
+      publicCacheKeys.tenant(row.slug),
+      publicCacheKeys.farmers(tenantId),
+      publicCacheKeys.subcategories(tenantId),
+    );
     return toPublicTenant(row);
   }
 

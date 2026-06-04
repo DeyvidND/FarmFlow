@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Button } from '@/components/ui/button';
 import { BG_CITIES, ECONT_OFFICES, ECONT_HELP } from '@/lib/delivery-data';
+import { saveEcontCredentials, syncEcontNomenclature, ApiError } from '@/lib/api-client';
 import type { DeliveryConfig } from '@/lib/types';
 import {
   DSection,
@@ -39,22 +40,36 @@ export function EcontConnectionSection({
   const [cityOpen, setCityOpen] = React.useState(false);
   const [help, setHelp] = React.useState(false);
 
-  const runCheck = () => {
+  const runCheck = async () => {
+    // Already connected and not changing the password — nothing to re-validate
+    // (the server holds the encrypted password).
+    if (e.configured && !pwChanging) {
+      setCheck('ok');
+      toast.success('Еконт вече е свързан');
+      return;
+    }
+    if (!e.username || pw.length < 3) {
+      setCheck('fail');
+      toast.error('Въведи потребител и парола за Еконт');
+      return;
+    }
     setCheck('loading');
-    window.setTimeout(() => {
-      const hasUser = !!e.username && e.username.length > 0;
-      const pwOk = e.configured && !pwChanging ? true : pw.length >= 4;
-      const ok = hasUser && pwOk;
-      setCheck(ok ? 'ok' : 'fail');
-      if (ok) {
-        mut((d) => {
-          d.econt.configured = true;
-        });
-        toast.success('Връзката с Еконт е успешна');
-      } else {
-        toast.error('Невалидни данни за Еконт');
-      }
-    }, 1100);
+    try {
+      // Validates the credentials live against Econt, then stores them (password
+      // encrypted server-side). Flipping `configured` is what makes the storefront
+      // offer the Econt delivery options.
+      await saveEcontCredentials({ env: e.env, username: e.username, password: pw });
+      setCheck('ok');
+      setPwChanging(false);
+      setPw('');
+      mut((d) => {
+        d.econt.configured = true;
+      });
+      toast.success('Връзката с Еконт е успешна и запазена');
+    } catch (err) {
+      setCheck('fail');
+      toast.error(err instanceof ApiError ? err.message : 'Невалидни данни за Еконт');
+    }
   };
 
   const headerBadge =
@@ -354,13 +369,18 @@ export function EcontConnectionSection({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => {
-              mut((d) => {
-                d.econt.nomenclature.lastSyncedAt = 'току-що';
-                if (d.econt.nomenclature.cities === 0) d.econt.nomenclature.cities = 1240;
-                if (d.econt.nomenclature.offices === 0) d.econt.nomenclature.offices = 980;
-              });
-              toast.success('Номенклатурите са обновени');
+            onClick={async () => {
+              try {
+                const r = await syncEcontNomenclature();
+                mut((d) => {
+                  d.econt.nomenclature.lastSyncedAt = 'току-що';
+                  d.econt.nomenclature.cities = r.cities;
+                  d.econt.nomenclature.offices = r.offices;
+                });
+                toast.success(`Обновени: ${r.cities} населени места, ${r.offices} офиса`);
+              } catch (err) {
+                toast.error(err instanceof ApiError ? err.message : 'Неуспешно обновяване');
+              }
             }}
           >
             <RefreshCw size={16} /> Обнови градове и офиси

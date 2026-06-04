@@ -26,6 +26,27 @@ async function bootstrap() {
     }
     res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+
+    // Edge/CDN caching for the world-readable storefront catalog. `max-age=0`
+    // keeps browsers revalidating (cheap 304 via Express's ETag) while a shared
+    // cache serves `s-maxage` seconds and refreshes in the background within the
+    // `stale-while-revalidate` window. Slots carry live remaining-capacity, so
+    // they get a short window; all other public reads can sit longer. Public
+    // writes (checkout/orders/reviews) must never be cached.
+    if (isPublic) {
+      if (req.method === 'GET') {
+        const isSlots = req.path.endsWith('/slots');
+        res.header(
+          'Cache-Control',
+          isSlots
+            ? 'public, max-age=0, s-maxage=10, stale-while-revalidate=30'
+            : 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+        );
+      } else {
+        res.header('Cache-Control', 'no-store');
+      }
+    }
+
     if (req.method === 'OPTIONS') {
       res.sendStatus(204);
       return;

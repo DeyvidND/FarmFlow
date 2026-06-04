@@ -8,10 +8,10 @@ import { ProductCard } from './product-card';
 import { ProductDialog } from './product-dialog';
 import {
   ApiError,
+  addMedia,
   createProduct,
   deleteProduct,
   updateProduct,
-  uploadProductImage,
 } from '@/lib/api-client';
 import type { Farmer, Product, Subcategory } from '@/lib/types';
 
@@ -37,7 +37,6 @@ export function ProductsClient({
   const [fullEdit, setFullEdit] = useState<Product | null>(null);
 
   const activeCount = products.filter((p) => p.isActive).length;
-  const linkEnabled = multiFarmer || multiSubcat;
   const farmerName = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
   const subcatName = useMemo(() => new Map(subcats.map((s) => [s.id, s.name])), [subcats]);
 
@@ -75,8 +74,10 @@ export function ProductsClient({
   async function onUpload(p: Product, file: File) {
     setBusyId(p.id);
     try {
-      const updated = await uploadProductImage(p.id, file);
-      patchLocal(p.id, { imageUrl: updated.imageUrl });
+      // Quick-add from the card routes through the gallery; the cover only changes
+      // when the product had none (the server keeps imageUrl synced to photo 0).
+      const item = await addMedia('products', p.id, file);
+      patchLocal(p.id, { imageUrl: p.imageUrl ?? item.url });
       toast.success('Снимката е качена');
     } catch (e) {
       toast.error(errMsg(e));
@@ -143,7 +144,7 @@ export function ProductsClient({
               onDelete={() => onDelete(p)}
               farmerLabel={multiFarmer ? (p.farmerId ? farmerName.get(p.farmerId) ?? null : null) : undefined}
               subcatLabel={multiSubcat ? (p.subcategoryId ? subcatName.get(p.subcategoryId) ?? null : null) : undefined}
-              onEditFull={linkEnabled ? () => setFullEdit(p) : undefined}
+              onEditFull={() => setFullEdit(p)}
             />
           ))}
         </div>
@@ -168,6 +169,7 @@ export function ProductsClient({
         multiSubcat={multiSubcat}
         onClose={() => setFullEdit(null)}
         onSubmit={onFullUpdate}
+        onCoverChange={(url) => fullEdit && patchLocal(fullEdit.id, { imageUrl: url })}
       />
     </div>
   );

@@ -4,8 +4,9 @@ import * as React from 'react';
 import { Search, Truck, Printer, Navigation, X, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { MOCK_SHIPMENTS, SHIPMENT_META, SHORT_METHOD, lv } from '@/lib/delivery-data';
+import { SHIPMENT_META, SHORT_METHOD, lv } from '@/lib/delivery-data';
 import type { Shipment, ShipmentStatus } from '@/lib/types';
+import { listShipments, createShipment, voidShipment, ApiError } from '@/lib/api-client';
 import { DSection, DBadge, Segmented, fieldCls } from './ui';
 
 type Toast = { success: (m: string) => void; info?: (m: string) => void; error: (m: string) => void };
@@ -21,10 +22,18 @@ const STATUS_OPTS: { value: ShipmentStatus | 'all'; label: string }[] = [
 const actBtnCls =
   'grid h-8 w-8 place-items-center rounded-sm border border-ff-border bg-ff-surface text-ff-ink-2 transition-colors hover:bg-ff-green-50 hover:text-ff-green-700';
 
-const rand4 = () => Math.floor(1000 + Math.random() * 8999);
-
 export function ShipmentsTable({ toast }: { toast: Toast }) {
-  const [rows, setRows] = React.useState<Shipment[]>(() => structuredClone(MOCK_SHIPMENTS));
+  const [rows, setRows] = React.useState<Shipment[]>([]);
+  const reload = React.useCallback(async () => {
+    try {
+      setRows(await listShipments());
+    } catch {
+      /* leave current rows */
+    }
+  }, []);
+  React.useEffect(() => {
+    void reload();
+  }, [reload]);
   const [status, setStatus] = React.useState<ShipmentStatus | 'all'>('all');
   const [method, setMethod] = React.useState<string>('all');
   const [q, setQ] = React.useState('');
@@ -44,29 +53,24 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
     setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const allSel = shown.length > 0 && shown.every((r) => sel.includes(r.orderId));
 
-  const createLabel = (id: string) => {
-    setRows((prev) =>
-      prev.map((r) =>
-        r.orderId === id
-          ? {
-              ...r,
-              status: 'created',
-              trackingNumber: `1052 ${rand4()} ${rand4()}`,
-              priceStotinki: r.priceStotinki || 499,
-              history: [{ at: 'сега', label: 'Създадена товарителница', location: 'Варна' }],
-            }
-          : r,
-      ),
-    );
-    toast.success('Товарителницата е създадена');
+  const createLabel = async (id: string) => {
+    try {
+      await createShipment(id);
+      await reload();
+      toast.success('Товарителницата е създадена');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Неуспешно създаване');
+    }
   };
-  const voidLabel = (id: string) => {
-    setRows((prev) =>
-      prev.map((r) =>
-        r.orderId === id ? { ...r, status: 'pending', trackingNumber: undefined, history: [] } : r,
-      ),
-    );
-    toast.info?.('Товарителницата е отказана');
+  const voidLabel = async (r: Shipment) => {
+    if (!r.shipmentId) return;
+    try {
+      await voidShipment(r.shipmentId);
+      await reload();
+      toast.info?.('Товарителницата е отказана');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Неуспешно анулиране');
+    }
   };
   const copyTrack = (t: string) => {
     navigator.clipboard?.writeText(t.replace(/\s/g, ''));
@@ -223,7 +227,7 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
                       <button
                         className={cn(actBtnCls, 'hover:text-ff-red')}
                         title="Откажи"
-                        onClick={() => voidLabel(r.orderId)}
+                        onClick={() => voidLabel(r)}
                       >
                         <X size={16} />
                       </button>
@@ -272,7 +276,7 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
                       <button
                         className={cn(actBtnCls, 'hover:text-ff-red')}
                         title="Откажи"
-                        onClick={() => voidLabel(r.orderId)}
+                        onClick={() => voidLabel(r)}
                       >
                         <X size={16} />
                       </button>

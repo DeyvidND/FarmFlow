@@ -18,9 +18,15 @@ export function OrderPanel({
   onAction: (status: OrderStatus) => void;
 }) {
   const slotLabel = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '—';
+  const isEcont = order.deliveryType === 'econt' || order.deliveryType === 'econt_address';
   const deliveryVal =
     order.deliveryType === 'econt' ? order.econtOffice ?? 'Еконт офис' : order.deliveryAddress ?? '—';
-  const deliveryLabel = order.deliveryType === 'econt' ? 'Еконт офис' : 'Адрес за доставка';
+  const deliveryLabel =
+    order.deliveryType === 'econt'
+      ? 'Еконт — до офис'
+      : order.deliveryType === 'econt_address'
+        ? 'Еконт — до адрес'
+        : 'Адрес за доставка';
 
   return (
     <>
@@ -45,7 +51,7 @@ export function OrderPanel({
           <div className="mb-[22px] flex flex-col gap-2.5">
             <InfoRow icon={<Phone size={18} />} label="Телефон" value={order.customerPhone ?? '—'} />
             <InfoRow
-              icon={order.deliveryType === 'econt' ? <Package size={18} /> : <MapPin size={18} />}
+              icon={isEcont ? <Package size={18} /> : <MapPin size={18} />}
               label={deliveryLabel}
               value={deliveryVal}
             />

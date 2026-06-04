@@ -52,9 +52,9 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
 
   const itemsSummary = (o: Order) => o.items.map((i) => `${i.productName} × ${i.quantity}`).join(', ');
   const deliveryCell = (o: Order) =>
-    o.deliveryType === 'econt' ? (
+    o.deliveryType === 'econt' || o.deliveryType === 'econt_address' ? (
       <span className="inline-flex items-center gap-1.5 font-semibold text-ff-amber-600">
-        <Package size={15} /> Еконт
+        <Package size={15} /> {o.deliveryType === 'econt_address' ? 'Еконт адрес' : 'Еконт офис'}
       </span>
     ) : (
       <span className="inline-flex items-center gap-1.5 font-semibold text-ff-green-700">

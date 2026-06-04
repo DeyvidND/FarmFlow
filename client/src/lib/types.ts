@@ -40,6 +40,14 @@ export interface Subcategory {
   createdAt: string;
 }
 
+/** One gallery photo (admin GET /{products|farmers|subcategories}/:id/media).
+ *  The cover is whichever photo sits at position 0. */
+export interface MediaItem {
+  id: string;
+  url: string;
+  position: number;
+}
+
 /** Subset of the tenant profile the panels read (GET /tenants/me). */
 export interface TenantProfile {
   id: string;
@@ -187,6 +195,8 @@ export interface Shipment {
   trackingNumber?: string;
   priceStotinki?: number;
   history?: ShipmentEvent[];
+  /** The Econt shipment row id (present once a waybill exists) — for void/refresh. */
+  shipmentId?: string;
 }
 
 export type ArticleStatus = 'draft' | 'published';
@@ -317,7 +327,7 @@ export interface Order {
   customerEmail: string | null;
   status: 'pending' | 'confirmed' | 'delivered' | 'cancelled';
   totalStotinki: number;
-  deliveryType: 'address' | 'econt';
+  deliveryType: 'address' | 'econt' | 'econt_address';
   deliveryAddress: string | null;
   econtOffice: string | null;
   notes: string | null;

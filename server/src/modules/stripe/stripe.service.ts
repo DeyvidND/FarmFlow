@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { and, eq } from 'drizzle-orm';
 import Stripe from 'stripe';
-import { type Database, products, orders, tenants } from '@farmflow/db';
+import { type Database, products, orders, tenants, stripeEvents } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
 // stripe@22 ships `export = StripeConstructor`, so the rich `Stripe.*` type
@@ -36,6 +36,8 @@ export interface CreateCheckoutParams {
   orderId: string;
   lines: CheckoutLine[];
   shippingStotinki: number;
+  /** Order grand total (items + shipping) — the base for the platform fee. */
+  totalStotinki: number;
   customerEmail?: string | null;
   successUrl: string;
   cancelUrl: string;
@@ -55,6 +57,9 @@ export class StripeService {
   private readonly logger = new Logger(StripeService.name);
   private readonly client: StripeClient | null;
   private readonly webhookSecret: string;
+  private readonly feeBps: number;
+  private readonly connectCountry: string;
+  private readonly panelUrl: string;
 
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
@@ -62,6 +67,9 @@ export class StripeService {
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
+    this.feeBps = config.get<number>('STRIPE_PLATFORM_FEE_BPS', 0);
+    this.connectCountry = config.get<string>('STRIPE_CONNECT_COUNTRY', 'BG');
+    this.panelUrl = (config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000').replace(/\/+$/, '');
     this.client = key ? new Stripe(key) : null;
     if (!this.client) {
       this.logger.warn(
@@ -83,6 +91,81 @@ export class StripeService {
   private get stripe(): StripeClient {
     if (!this.client) throw new BadRequestException('Stripe не е конфигуриран');
     return this.client;
+  }
+
+  /* --------------------------- connect onboarding -------------------------- */
+
+  /**
+   * The tenant's connected-account id, creating an Express account on the first
+   * call and persisting it to `tenants.stripe_account_id`. Lets a farm self-serve
+   * connect Stripe instead of an operator pasting an `acct_…` id into the DB.
+   */
+  async ensureConnectedAccount(tenantId: string): Promise<string> {
+    const [tenant] = await this.db
+      .select({
+        id: tenants.id,
+        stripeAccountId: tenants.stripeAccountId,
+        email: tenants.email,
+        name: tenants.name,
+      })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!tenant) throw new NotFoundException('Фермата не е намерена');
+    if (tenant.stripeAccountId) return tenant.stripeAccountId;
+
+    const account = await this.stripe.accounts.create({
+      type: 'express',
+      country: this.connectCountry,
+      email: tenant.email ?? undefined,
+      business_profile: { name: tenant.name },
+      capabilities: {
+        card_payments: { requested: true },
+        transfers: { requested: true },
+      },
+      metadata: { farmflowTenantId: tenant.id },
+    });
+    await this.db
+      .update(tenants)
+      .set({ stripeAccountId: account.id })
+      .where(eq(tenants.id, tenantId));
+    return account.id;
+  }
+
+  /** Hosted onboarding link the farm follows to finish connecting its account. */
+  async createOnboardingLink(tenantId: string): Promise<{ url: string }> {
+    const accountId = await this.ensureConnectedAccount(tenantId);
+    const link = await this.stripe.accountLinks.create({
+      account: accountId,
+      type: 'account_onboarding',
+      refresh_url: `${this.panelUrl}/settings?stripe=refresh`,
+      return_url: `${this.panelUrl}/settings?stripe=done`,
+    });
+    return { url: link.url };
+  }
+
+  /** Whether the farm can take card payments yet (onboarding complete + enabled). */
+  async accountStatus(tenantId: string): Promise<{
+    connected: boolean;
+    chargesEnabled: boolean;
+    payoutsEnabled: boolean;
+    detailsSubmitted: boolean;
+  }> {
+    const [tenant] = await this.db
+      .select({ stripeAccountId: tenants.stripeAccountId })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!tenant?.stripeAccountId) {
+      return { connected: false, chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false };
+    }
+    const acct = await this.stripe.accounts.retrieve(tenant.stripeAccountId);
+    return {
+      connected: true,
+      chargesEnabled: !!acct.charges_enabled,
+      payoutsEnabled: !!acct.payouts_enabled,
+      detailsSubmitted: !!acct.details_submitted,
+    };
   }
 
   /* ------------------------------ catalog sync ----------------------------- */
@@ -204,13 +287,21 @@ export class StripeService {
       });
     }
 
+    // Platform commission on the connected-account direct charge. 0 bps → omitted
+    // so the farm keeps 100%.
+    const feeAmount =
+      this.feeBps > 0 ? Math.round((params.totalStotinki * this.feeBps) / 10000) : 0;
+
     const session = await this.stripe.checkout.sessions.create(
       {
         mode: 'payment',
         line_items: lineItems,
         customer_email: params.customerEmail || undefined,
         metadata: { orderId: params.orderId },
-        payment_intent_data: { metadata: { orderId: params.orderId } },
+        payment_intent_data: {
+          metadata: { orderId: params.orderId },
+          ...(feeAmount > 0 ? { application_fee_amount: feeAmount } : {}),
+        },
         success_url: params.successUrl,
         cancel_url: params.cancelUrl,
       },
@@ -241,18 +332,48 @@ export class StripeService {
       );
     }
 
-    if (
-      event.type === 'checkout.session.completed' ||
-      event.type === 'payment_intent.succeeded'
-    ) {
-      const obj = event.data.object as {
-        id?: string;
-        metadata?: Record<string, string> | null;
-        payment_intent?: string | { id: string } | null;
-      };
-      const paymentIntentId =
-        event.type === 'payment_intent.succeeded' ? obj.id ?? null : this.idOf(obj.payment_intent);
-      await this.markOrderPaid(obj.metadata?.orderId, paymentIntentId);
+    // Idempotency: record the event id, and no-op if Stripe redelivers it (retries
+    // happen on any non-2xx or network blip — without this a refund/payment could
+    // be double-applied).
+    const [fresh] = await this.db
+      .insert(stripeEvents)
+      .values({ id: event.id, type: event.type })
+      .onConflictDoNothing()
+      .returning({ id: stripeEvents.id });
+    if (!fresh) return { received: true };
+
+    switch (event.type) {
+      case 'checkout.session.completed':
+      case 'payment_intent.succeeded': {
+        const obj = event.data.object as {
+          id?: string;
+          metadata?: Record<string, string> | null;
+          payment_intent?: string | { id: string } | null;
+        };
+        const paymentIntentId =
+          event.type === 'payment_intent.succeeded'
+            ? obj.id ?? null
+            : this.idOf(obj.payment_intent);
+        await this.markOrderPaid(obj.metadata?.orderId, paymentIntentId);
+        break;
+      }
+      case 'charge.refunded': {
+        // The charge rarely carries our orderId; resolve via the stored payment
+        // intent. A refund cancels the order (which also frees its slot).
+        const charge = event.data.object as {
+          payment_intent?: string | { id: string } | null;
+          metadata?: Record<string, string> | null;
+        };
+        await this.markOrderRefunded(this.idOf(charge.payment_intent), charge.metadata?.orderId);
+        break;
+      }
+      case 'payment_intent.payment_failed': {
+        const pi = event.data.object as { metadata?: Record<string, string> | null };
+        this.logger.warn(
+          `Stripe payment failed for order ${pi.metadata?.orderId ?? '?'} — left pending`,
+        );
+        break;
+      }
     }
 
     return { received: true };
@@ -279,5 +400,22 @@ export class StripeService {
         ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
       })
       .where(eq(orders.id, orderId));
+  }
+
+  /** A refunded charge cancels the order (frees the slot) and clears the paid mark. */
+  private async markOrderRefunded(
+    paymentIntentId: string | null,
+    orderId?: string,
+  ): Promise<void> {
+    const cond = orderId
+      ? eq(orders.id, orderId)
+      : paymentIntentId
+        ? eq(orders.stripePaymentIntentId, paymentIntentId)
+        : null;
+    if (!cond) {
+      this.logger.warn('Stripe refund webhook with no order linkage — ignoring');
+      return;
+    }
+    await this.db.update(orders).set({ status: 'cancelled', paidAt: null }).where(cond);
   }
 }

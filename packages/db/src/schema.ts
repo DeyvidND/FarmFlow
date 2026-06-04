@@ -25,7 +25,12 @@ export const orderStatusEnum = pgEnum('order_status', [
   'cancelled',
 ]);
 export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', 'inactive']);
-export const deliveryTypeEnum = pgEnum('delivery_type', ['address', 'econt']);
+// Delivery methods:
+//  - `address`       → the farm's own (local) delivery to a street address: slots,
+//                      route optimization, flat regional fee. Local only.
+//  - `econt`         → Econt courier to an office (nationwide; live-priced).
+//  - `econt_address` → Econt courier to a home address / door (nationwide; live-priced).
+export const deliveryTypeEnum = pgEnum('delivery_type', ['address', 'econt', 'econt_address']);
 
 export const tenants = pgTable('tenants', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
@@ -127,6 +132,9 @@ export const orders = pgTable('orders', {
   totalStotinki: integer('total_stotinki').notNull(),
   deliveryType: deliveryTypeEnum('delivery_type').notNull().default('address'),
   deliveryAddress: text('delivery_address'),
+  // Settlement for Econt door delivery (the structured city Econt needs to route
+  // a waybill to an address). NULL for office/local delivery.
+  deliveryCity: text('delivery_city'),
   econtOffice: text('econt_office'),
   deliveryLat: numeric('delivery_lat', { precision: 10, scale: 7 }),
   deliveryLng: numeric('delivery_lng', { precision: 10, scale: 7 }),
@@ -148,6 +156,39 @@ export const orderItems = pgTable('order_items', {
   quantity: integer('quantity').notNull(),
   priceStotinki: integer('price_stotinki').notNull(),
 });
+
+// Stripe webhook idempotency ledger. Every handled event id is recorded so a
+// redelivered webhook (Stripe retries on non-2xx / network blips) is a no-op.
+export const stripeEvents = pgTable('stripe_events', {
+  id: text('id').primaryKey(), // Stripe event id, e.g. evt_...
+  type: text('type').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Econt courier shipments — one per order sent via Econt. Created when the farm
+// generates a waybill (label); `status` mirrors Econt's lifecycle. One shipment
+// per order (unique). `tracking_json` caches the last status payload from Econt.
+export const shipments = pgTable(
+  'shipments',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    orderId: uuid('order_id')
+      .references(() => orders.id)
+      .notNull(),
+    econtShipmentNumber: text('econt_shipment_number'),
+    status: text('status').notNull().default('pending'),
+    labelPdfUrl: text('label_pdf_url'),
+    courierPriceStotinki: integer('courier_price_stotinki'),
+    codAmountStotinki: integer('cod_amount_stotinki'),
+    trackingJson: jsonb('tracking_json'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    orderUnique: uniqueIndex('shipments_order_unique').on(t.orderId),
+  }),
+);
 
 // Platform-level admins (FarmFlow staff) — NOT tied to any tenant. Manage all farms.
 export const platformAdmins = pgTable('platform_admins', {
@@ -293,15 +334,76 @@ export const subcategories = pgTable('subcategories', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// Ordered image galleries (image-only) for catalog entities. One row per photo;
+// `position` orders the gallery and position 0 is the cover (mirrored into the
+// owner's `image_url` for back-compat reads). `tenant_id` is denormalized for
+// tenant-scoped queries/deletes. FK is ON DELETE CASCADE so removing an owner
+// drops its photos (the service still purges the R2 objects). Pattern mirrors
+// `article_media`, minus the type/embed columns (these are uploads only).
+export const productMedia = pgTable(
+  'product_media',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    url: text('url').notNull(),
+    position: integer('position').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    productPositionIdx: index('product_media_product_position_idx').on(t.productId, t.position),
+  }),
+);
+
+export const farmerMedia = pgTable(
+  'farmer_media',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'cascade' }),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    url: text('url').notNull(),
+    position: integer('position').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    farmerPositionIdx: index('farmer_media_farmer_position_idx').on(t.farmerId, t.position),
+  }),
+);
+
+export const subcategoryMedia = pgTable(
+  'subcategory_media',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    subcategoryId: uuid('subcategory_id').references(() => subcategories.id, {
+      onDelete: 'cascade',
+    }),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    url: text('url').notNull(),
+    position: integer('position').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    subcategoryPositionIdx: index('subcategory_media_subcategory_position_idx').on(
+      t.subcategoryId,
+      t.position,
+    ),
+  }),
+);
+
 export const schema = {
   tenants,
   users,
   products,
   farmers,
   subcategories,
+  productMedia,
+  farmerMedia,
+  subcategoryMedia,
   deliverySlots,
   orders,
   orderItems,
+  stripeEvents,
+  shipments,
   auditLogs,
   platformAdmins,
   articles,

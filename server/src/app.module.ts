@@ -25,8 +25,11 @@ import { StripeModule } from './modules/stripe/stripe.module';
 import { IntakeModule } from './modules/intake/intake.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CatalogCacheModule } from './modules/catalog-cache/catalog-cache.module';
+import { PublicCacheModule } from './common/cache/public-cache.module';
+import { PublicBootstrapModule } from './modules/public-bootstrap/public-bootstrap.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { ArticlesModule } from './modules/articles/articles.module';
+import { EcontModule } from './modules/econt/econt.module';
 import { DigestModule } from './modules/digest/digest.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
 
@@ -57,10 +60,14 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
     IntakeModule,
     ReviewsModule,
     CatalogCacheModule,
+    PublicCacheModule,
     StorageModule,
     ArticlesModule,
+    EcontModule,
     DigestModule,
     NewsletterModule,
+    // After the feature modules it composes (Tenants/Products/Farmers/Subcategories).
+    PublicBootstrapModule,
   ],
   controllers: [AppController],
   providers: [

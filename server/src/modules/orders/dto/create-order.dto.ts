@@ -45,17 +45,25 @@ export class CreateOrderDto {
   @IsUUID()
   slotId?: string;
 
-  @ApiPropertyOptional({ enum: ['address', 'econt'], default: 'address' })
+  @ApiPropertyOptional({ enum: ['address', 'econt', 'econt_address'], default: 'address' })
   @IsOptional()
-  @IsEnum(['address', 'econt'])
-  deliveryType?: 'address' | 'econt';
+  @IsEnum(['address', 'econt', 'econt_address'])
+  deliveryType?: 'address' | 'econt' | 'econt_address';
 
-  // Required when delivering to an address (the default when deliveryType is omitted).
-  @ApiPropertyOptional({ description: 'Street address (required when delivery_type=address)' })
-  @ValidateIf((o) => (o.deliveryType ?? 'address') === 'address')
+  // Required for any address-based method: local farm delivery (`address`) or
+  // Econt door delivery (`econt_address`). Only `econt` (office) omits it.
+  @ApiPropertyOptional({ description: 'Street address (required unless delivery_type=econt)' })
+  @ValidateIf((o) => (o.deliveryType ?? 'address') !== 'econt')
   @IsString()
   @IsNotEmpty({ message: 'Адресът за доставка е задължителен' })
   deliveryAddress?: string;
+
+  // Settlement (city/village) for Econt door delivery — the structured city Econt
+  // needs to route a waybill. Recommended for delivery_type=econt_address.
+  @ApiPropertyOptional({ description: 'City/settlement (Econt door delivery)' })
+  @IsOptional()
+  @IsString()
+  deliveryCity?: string;
 
   // Precise delivery coordinates from the storefront map/autocomplete. Optional:
   // when absent (e.g. free-typed address), the server geocodes deliveryAddress.

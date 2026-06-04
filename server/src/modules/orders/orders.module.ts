@@ -4,9 +4,10 @@ import { OrdersController, PublicOrdersController } from './orders.controller';
 import { CheckoutService } from './checkout.service';
 import { PublicCheckoutController } from './checkout.controller';
 import { StripeModule } from '../stripe/stripe.module';
+import { EcontModule } from '../econt/econt.module';
 
 @Module({
-  imports: [StripeModule],
+  imports: [StripeModule, EcontModule],
   controllers: [OrdersController, PublicOrdersController, PublicCheckoutController],
   providers: [OrdersService, CheckoutService],
 })

@@ -58,7 +58,7 @@ export interface PublicOrderSummary {
   paidAt: string | null;
   totalStotinki: number;
   customerName: string | null;
-  deliveryType: 'address' | 'econt';
+  deliveryType: 'address' | 'econt' | 'econt_address';
   deliveryAddress: string | null;
   econtOffice: string | null;
   slot: { date: string; startTime: string; endTime: string } | null;
@@ -192,7 +192,12 @@ export class OrdersService {
    * (double-booking impossible), compute the total, create the pending order.
    */
   async create(slug: string, dto: CreateOrderDto): Promise<OrderWithItems> {
-    const isEcont = dto.deliveryType === 'econt';
+    // Three delivery methods: local farm delivery (slots + route + coords),
+    // Econt → office, Econt → home address. Only local delivery consumes a slot
+    // and is geocoded for the farm's route; the Econt methods are courier-shipped.
+    const method = dto.deliveryType ?? 'address';
+    const isLocal = method === 'address';
+    const isEcontOffice = method === 'econt';
 
     // Resolve the tenant (+ farm coords) up front so geocoding can run outside
     // the transaction (no network call while holding row locks).
@@ -208,7 +213,7 @@ export class OrdersService {
     // ("ул. Шипка 5") resolves near the farm, not in Sofia. No-op when maps off.
     let lat = dto.deliveryLat ?? null;
     let lng = dto.deliveryLng ?? null;
-    if (!isEcont && lat == null && dto.deliveryAddress) {
+    if (isLocal && lat == null && dto.deliveryAddress) {
       const fLat = tenant.farmLat == null ? null : Number(tenant.farmLat);
       const fLng = tenant.farmLng == null ? null : Number(tenant.farmLng);
       const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
@@ -232,7 +237,9 @@ export class OrdersService {
         if (!p || !p.isActive) throw new BadRequestException('Невалиден или неактивен продукт');
       }
 
-      const slotId = dto.slotId ?? null;
+      // Only local farm delivery uses a slot; Econt orders are courier-shipped
+      // and never count against the farm's delivery capacity.
+      const slotId = isLocal ? dto.slotId ?? null : null;
       let slotFrom: string | null = null;
       let slotTo: string | null = null;
       if (slotId) {
@@ -276,11 +283,14 @@ export class OrdersService {
           slotId,
           status: 'pending',
           totalStotinki: total,
-          deliveryType: dto.deliveryType ?? 'address',
-          deliveryAddress: isEcont ? null : dto.deliveryAddress ?? null,
-          deliveryLat: isEcont || lat == null ? null : String(lat),
-          deliveryLng: isEcont || lng == null ? null : String(lng),
-          econtOffice: isEcont ? dto.econtOffice ?? null : null,
+          deliveryType: method,
+          // Address stored for local + Econt-to-address; only Econt-office omits it.
+          deliveryAddress: isEcontOffice ? null : dto.deliveryAddress ?? null,
+          deliveryCity: isEcontOffice ? null : dto.deliveryCity ?? null,
+          // Coords are for the farm's own route — local delivery only.
+          deliveryLat: isLocal && lat != null ? String(lat) : null,
+          deliveryLng: isLocal && lng != null ? String(lng) : null,
+          econtOffice: isEcontOffice ? dto.econtOffice ?? null : null,
           notes: dto.notes ?? null,
         })
         .returning();

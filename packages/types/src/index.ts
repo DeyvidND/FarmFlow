@@ -5,6 +5,9 @@ import type {
   products,
   farmers,
   subcategories,
+  productMedia,
+  farmerMedia,
+  subcategoryMedia,
   deliverySlots,
   orders,
   orderItems,
@@ -27,6 +30,15 @@ export type NewFarmer = InferInsertModel<typeof farmers>;
 
 export type Subcategory = InferSelectModel<typeof subcategories>;
 export type NewSubcategory = InferInsertModel<typeof subcategories>;
+
+export type ProductMedia = InferSelectModel<typeof productMedia>;
+export type NewProductMedia = InferInsertModel<typeof productMedia>;
+
+export type FarmerMedia = InferSelectModel<typeof farmerMedia>;
+export type NewFarmerMedia = InferInsertModel<typeof farmerMedia>;
+
+export type SubcategoryMedia = InferSelectModel<typeof subcategoryMedia>;
+export type NewSubcategoryMedia = InferInsertModel<typeof subcategoryMedia>;
 
 export type DeliverySlot = InferSelectModel<typeof deliverySlots>;
 export type NewDeliverySlot = InferInsertModel<typeof deliverySlots>;
@@ -58,7 +70,11 @@ export type PublicArticle = Omit<Article, 'tenantId' | 'sentAt'> & {
 export type PublicProduct = Omit<
   Product,
   'tenantId' | 'stockQuantity' | 'stripeProductId' | 'stripePriceId'
->;
+> & {
+  // Ordered gallery (cover first). Falls back to [imageUrl] for legacy single-image
+  // items, or [] when the item has no photo. `imageUrl` stays the cover for back-compat.
+  images: string[];
+};
 /**
  * Tenant profile for the admin panel. `settings` + `stripeAccountId` are stripped,
  * but the delivery config (kept under `settings.delivery`) is surfaced as `delivery`
@@ -69,9 +85,10 @@ export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
   routing?: unknown;
 };
 
-/** Public storefront shapes — tenant_id stripped. */
-export type PublicFarmer = Omit<Farmer, 'tenantId'>;
-export type PublicSubcategory = Omit<Subcategory, 'tenantId'>;
+/** Public storefront shapes — tenant_id stripped. `images` = ordered gallery
+ *  (cover first), fallback [imageUrl] for legacy single-image rows, else []. */
+export type PublicFarmer = Omit<Farmer, 'tenantId'> & { images: string[] };
+export type PublicSubcategory = Omit<Subcategory, 'tenantId'> & { images: string[] };
 export type SafeUser = Omit<User, 'passwordHash'>;
 
 export type TenantRole = 'admin' | 'driver' | 'customer';

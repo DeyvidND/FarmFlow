@@ -4,10 +4,12 @@ import type {
   DashboardSummary,
   DeliveryConfig,
   Farmer,
+  MediaItem,
   Order,
   Product,
   ProductionSummary,
   RouteResult,
+  Shipment,
   Slot,
   Subcategory,
   TenantProfile,
@@ -107,6 +109,34 @@ export function uploadSubcategoryImage(id: string, file: File) {
   fd.append('image', file);
   return apiFetch<Subcategory>(`subcategories/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
 }
+
+// ---- Media galleries (products / farmers / subcategories) ----
+// All three resources share the same media endpoints + shape, so one generic set
+// of helpers covers them. The cover is whichever photo is at position 0.
+export type MediaResource = 'products' | 'farmers' | 'subcategories';
+
+export const listMedia = (resource: MediaResource, id: string) =>
+  apiFetch<MediaItem[]>(`${resource}/${id}/media`);
+
+export function addMedia(resource: MediaResource, id: string, file: File) {
+  const fd = new FormData();
+  fd.append('image', file);
+  return apiFetch<MediaItem>(`${resource}/${id}/media`, { method: 'POST', body: fd }, 'Неуспешно качване');
+}
+
+export const deleteMedia = (resource: MediaResource, id: string, mediaId: string) =>
+  apiFetch<{ id: string }>(`${resource}/${id}/media/${mediaId}`, { method: 'DELETE' }, 'Неуспешно изтриване');
+
+export const reorderMedia = (
+  resource: MediaResource,
+  id: string,
+  items: { id: string; position: number }[],
+) =>
+  apiFetch<MediaItem[]>(
+    `${resource}/${id}/media/reorder`,
+    { method: 'PATCH', ...json({ items }) },
+    'Неуспешно подреждане',
+  );
 
 // ---- Tenant toggles ----
 export const getTenant = () => apiFetch<TenantProfile>('tenants/me');
@@ -223,6 +253,54 @@ export const saveDelivery = (data: { deliveryEnabled: boolean; delivery: Deliver
     { method: 'PATCH', ...json(data) },
     'Неуспешно записване на настройките',
   );
+
+// ---- Econt (courier) ----
+export interface EcontConfigView {
+  env?: 'demo' | 'prod';
+  username?: string;
+  configured: boolean;
+  sender?: Record<string, unknown>;
+  nomenclature?: { lastSyncedAt?: string; cities?: number; offices?: number };
+}
+
+/** Raw shipment row (returned by create/refresh). */
+export interface ShipmentRecord {
+  id: string;
+  orderId: string;
+  econtShipmentNumber: string | null;
+  status: string;
+  labelPdfUrl: string | null;
+  courierPriceStotinki: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export const getEcontConfig = () => apiFetch<EcontConfigView>('econt/config');
+
+export const saveEcontCredentials = (data: { env?: 'demo' | 'prod'; username: string; password: string }) =>
+  apiFetch<{ configured: true; env: 'demo' | 'prod' }>(
+    'econt/credentials',
+    { method: 'POST', ...json(data) },
+    'Неуспешна връзка с Еконт — провери данните',
+  );
+
+export const syncEcontNomenclature = () =>
+  apiFetch<{ cities: number; offices: number }>(
+    'econt/nomenclature/sync',
+    { method: 'POST' },
+    'Неуспешно обновяване на номенклатурата',
+  );
+
+export const listShipments = () => apiFetch<Shipment[]>('econt/shipments');
+
+export const createShipment = (orderId: string) =>
+  apiFetch<ShipmentRecord>(`econt/shipments/${orderId}`, { method: 'POST' }, 'Неуспешно създаване на товарителница');
+
+export const refreshShipment = (id: string) =>
+  apiFetch<ShipmentRecord>(`econt/shipments/${id}/refresh`, { method: 'POST' }, 'Неуспешно обновяване на статуса');
+
+export const voidShipment = (id: string) =>
+  apiFetch<{ id: string }>(`econt/shipments/${id}`, { method: 'DELETE' }, 'Неуспешно анулиране');
 
 // ---- Newsletters ----
 export const listSubscribers = () =>

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."delivery_type" ADD VALUE 'econt_address';
