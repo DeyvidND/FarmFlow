@@ -24,7 +24,7 @@ export const orderStatusEnum = pgEnum('order_status', [
   'delivered',
   'cancelled',
 ]);
-export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', 'inactive']);
+export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', 'past_due', 'inactive']);
 // Delivery methods:
 //  - `address`       → the farm's own (local) delivery to a street address: slots,
 //                      route optimization, flat regional fee. Local only.
@@ -54,6 +54,13 @@ export const tenants = pgTable('tenants', {
   stripePayoutsEnabled: boolean('stripe_payouts_enabled').notNull().default(false),
   stripeDetailsSubmitted: boolean('stripe_details_submitted').notNull().default(false),
   stripeStatusUpdatedAt: timestamp('stripe_status_updated_at', { withTimezone: true }),
+  // --- Platform-side SaaS billing (the platform charges the farm; distinct from
+  // stripeAccountId, which is the farm's Connect account for customer orders). ---
+  premium: boolean('premium').notNull().default(false),
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  // Set on first failed payment; the suspend deadline (status flips to inactive after).
+  graceUntil: timestamp('grace_until', { withTimezone: true }),
   // Farm origin for delivery-route optimization (nullable until set).
   farmAddress: text('farm_address'),
   farmLat: numeric('farm_lat', { precision: 10, scale: 7 }),
@@ -358,6 +365,9 @@ export const emailPushes = pgTable('email_pushes', {
   subject: text('subject'),
   recipientCount: integer('recipient_count').notNull(),
   priceStotinki: integer('price_stotinki').notNull(),
+  // Stripe invoice-item id created when the push is billed (double-bill guard;
+  // null = not billed, e.g. premium farm or a billing error).
+  stripeInvoiceItemId: text('stripe_invoice_item_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
