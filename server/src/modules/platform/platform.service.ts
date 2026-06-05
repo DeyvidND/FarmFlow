@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { eq, sql, desc } from 'drizzle-orm';
+import { asc, eq, sql, desc } from 'drizzle-orm';
 import {
   type Database,
   tenants,
@@ -22,6 +22,8 @@ import {
 } from '@farmflow/db';
 import type { JwtPayload } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
+import { decodeCursor } from '../../common/pagination/cursor';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 
@@ -107,9 +109,14 @@ export class PlatformService {
     return { accessToken: this.jwt.sign(payload) };
   }
 
-  /** Every farm + order summary (count, last order). One grouped query. */
-  async listTenants(): Promise<PlatformTenantRow[]> {
-    const rows = await this.db
+  /** Every farm + order summary (count, last order). One grouped query, keyset-paginated. */
+  async listTenants(
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<PlatformTenantRow>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+
+    const base = this.db
       .select({
         id: tenants.id,
         name: tenants.name,
@@ -122,10 +129,16 @@ export class PlatformService {
         lastOrderAt: sql<Date | null>`max(${orders.createdAt})`,
       })
       .from(tenants)
-      .leftJoin(orders, eq(orders.tenantId, tenants.id))
+      .leftJoin(orders, eq(orders.tenantId, tenants.id));
+
+    const scoped = cur ? base.where(keysetAfter(tenants.createdAt, tenants.id, cur, 'asc')) : base;
+
+    const rows = (await scoped
       .groupBy(tenants.id)
-      .orderBy(tenants.createdAt);
-    return rows as PlatformTenantRow[];
+      .orderBy(asc(tenants.createdAt), asc(tenants.id))
+      .limit(lim + 1)) as PlatformTenantRow[];
+
+    return buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
   }
 
   /**

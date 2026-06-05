@@ -5,11 +5,13 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   UseGuards,
   ParseUUIDPipe,
   HttpCode,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 import { Throttle } from '@nestjs/throttler';
 import { PlatformService } from './platform.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
@@ -43,8 +45,10 @@ export class PlatformController {
   constructor(private readonly platform: PlatformService) {}
 
   @Get('tenants')
-  list() {
-    return this.platform.listTenants();
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  list(@Query() q: PaginationQueryDto) {
+    return this.platform.listTenants({ cursor: q.cursor, limit: q.limit });
   }
 
   /** Per-farm email-push usage + amount owed (manual collection). */

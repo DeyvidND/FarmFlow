@@ -9,6 +9,7 @@ import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewStatusDto } from './dto/update-review-status.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 
 /** Public: read published reviews, submit a new one (lands `pending`). */
 @ApiTags('public')
@@ -40,8 +41,14 @@ export class ReviewsController {
 
   @Get()
   @ApiQuery({ name: 'status', required: false, enum: ['pending', 'published', 'hidden'] })
-  list(@CurrentTenant() tenantId: string, @Query('status') status?: string) {
-    return this.reviews.listForTenant(tenantId, status);
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  list(
+    @CurrentTenant() tenantId: string,
+    @Query() q: PaginationQueryDto,
+    @Query('status') status?: string,
+  ) {
+    return this.reviews.listForTenant(tenantId, { status, cursor: q.cursor, limit: q.limit });
   }
 
   @Patch(':id/status')

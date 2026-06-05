@@ -1,9 +1,23 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { type Database, products, productMedia, tenants } from '@farmflow/db';
 import type { Product, ProductMedia, PublicProduct } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
+import { decodeCursor } from '../../common/pagination/cursor';
+
+/** Lean product shape for cross-page consumers (farmer/section counts, low-stock
+ *  notifications) that need every product but not the heavy columns. */
+export interface ProductOption {
+  id: string;
+  name: string;
+  weight: string | null;
+  isActive: boolean | null;
+  stockQuantity: number | null;
+  farmerId: string | null;
+  subcategoryId: string | null;
+}
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { StorageService } from '../storage/storage.service';
@@ -20,13 +34,50 @@ export class ProductsService {
     private readonly cache: CatalogCacheService,
   ) {}
 
-  /** All products for the tenant (active + inactive), newest first. */
-  findAll(tenantId: string): Promise<Product[]> {
-    return this.db
+  /** Admin list: tenant-scoped, oldest first, keyset-paginated. `total` is included
+   *  only on the first page (no cursor) so the UI can show the full count. */
+  async findAll(
+    tenantId: string,
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<Product>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    const conds = [eq(products.tenantId, tenantId)];
+    if (cur) conds.push(keysetAfter(products.createdAt, products.id, cur, 'asc'));
+
+    const rows = await this.db
       .select()
       .from(products)
+      .where(and(...conds))
+      .orderBy(asc(products.createdAt), asc(products.id))
+      .limit(lim + 1);
+
+    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    if (!cur) {
+      const [{ total }] = await this.db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(products)
+        .where(eq(products.tenantId, tenantId));
+      page.total = total;
+    }
+    return page;
+  }
+
+  /** Lean full list for cross-page consumers (no pagination — ids + a few fields). */
+  listOptions(tenantId: string): Promise<ProductOption[]> {
+    return this.db
+      .select({
+        id: products.id,
+        name: products.name,
+        weight: products.weight,
+        isActive: products.isActive,
+        stockQuantity: products.stockQuantity,
+        farmerId: products.farmerId,
+        subcategoryId: products.subcategoryId,
+      })
+      .from(products)
       .where(eq(products.tenantId, tenantId))
-      .orderBy(products.createdAt);
+      .orderBy(asc(products.createdAt));
   }
 
   async findOne(id: string, tenantId: string): Promise<Product> {

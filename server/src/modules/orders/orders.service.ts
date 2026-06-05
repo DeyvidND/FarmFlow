@@ -5,7 +5,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, ilike, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray, ne, sql } from 'drizzle-orm';
 import {
   type Database,
   orders,
@@ -17,6 +17,8 @@ import {
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday, bgDate } from '../../common/time/bg-time';
+import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
+import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
@@ -30,13 +32,6 @@ const orderWithSlot = {
   slotFrom: deliverySlots.timeFrom,
   slotTo: deliverySlots.timeTo,
 };
-
-interface OrderFilters {
-  date?: string;
-  status?: string;
-  deliveryType?: string;
-  search?: string;
-}
 
 export interface ProductionItem {
   productName: string;
@@ -74,8 +69,17 @@ export class OrdersService {
     private readonly maps: MapsService,
   ) {}
 
-  /** Admin list: tenant-scoped, filterable, newest first, items batched (no N+1). */
-  async findAll(tenantId: string, filters: OrderFilters = {}): Promise<OrderWithItems[]> {
+  /**
+   * Admin list: tenant-scoped, newest first, keyset-paginated, items batched
+   * (no N+1). Status/search filtering is client-side over accumulated pages, so
+   * the server only paginates (no per-request filters here).
+   */
+  async findAll(
+    tenantId: string,
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<OrderWithItems>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
     const conds = [eq(orders.tenantId, tenantId)];
 
     // Subscription gating: an inactive tenant only sees the last 7 days of orders.
@@ -88,27 +92,25 @@ export class OrdersService {
       conds.push(sql`${orders.createdAt} >= now() - interval '7 days'`);
     }
 
-    if (filters.status) {
-      conds.push(eq(orders.status, filters.status as NonNullable<OrderRow['status']>));
-    }
-    if (filters.deliveryType) {
-      conds.push(eq(orders.deliveryType, filters.deliveryType as OrderRow['deliveryType']));
-    }
-    if (filters.date) conds.push(sql`${bgDate(orders.createdAt)} = ${filters.date}`);
-    if (filters.search) {
-      const q = `%${filters.search}%`;
-      const searchCond = or(ilike(orders.customerName, q), sql`${orders.id}::text ilike ${q}`);
-      if (searchCond) conds.push(searchCond);
-    }
+    if (cur) conds.push(keysetAfter(orders.createdAt, orders.id, cur, 'desc'));
 
     const rows = await this.db
       .select(orderWithSlot)
       .from(orders)
       .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
       .where(and(...conds)!)
-      .orderBy(desc(orders.createdAt));
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(lim + 1);
 
-    return this.attachItems(rows);
+    const hasMore = rows.length > lim;
+    const pageRows = hasMore ? rows.slice(0, lim) : rows;
+    const items = await this.attachItems(pageRows);
+    const last = pageRows[pageRows.length - 1];
+    return {
+      items,
+      nextCursor:
+        hasMore && last ? encodeCursor({ createdAt: last.createdAt!, id: last.id }) : null,
+    };
   }
 
   async findOne(id: string, tenantId: string): Promise<OrderWithItems> {

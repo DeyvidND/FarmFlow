@@ -1,16 +1,17 @@
 import {
   Controller, Get, Post, Patch, Delete,
-  Param, Body, UseGuards,
+  Param, Body, Query, UseGuards,
   UploadedFile, UseInterceptors,
   ParseFilePipe, FileTypeValidator, MaxFileSizeValidator,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody, ApiQuery } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import {
   UploadImageDto,
@@ -26,8 +27,16 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  findAll(@CurrentTenant() tenantId: string) {
-    return this.productsService.findAll(tenantId);
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  findAll(@CurrentTenant() tenantId: string, @Query() q: PaginationQueryDto) {
+    return this.productsService.findAll(tenantId, { cursor: q.cursor, limit: q.limit });
+  }
+
+  // Literal route — must precede `:id` so "options" isn't captured as a product id.
+  @Get('options')
+  listOptions(@CurrentTenant() tenantId: string) {
+    return this.productsService.listOptions(tenantId);
   }
 
   @Get(':id')

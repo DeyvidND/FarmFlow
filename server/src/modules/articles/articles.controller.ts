@@ -1,10 +1,11 @@
 import {
   Controller, Get, Post, Patch, Delete,
-  Param, Body, UseGuards,
+  Param, Body, Query, UseGuards,
   UploadedFile, UseInterceptors,
   ParseFilePipe, FileTypeValidator, MaxFileSizeValidator,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody, ApiQuery } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ArticlesService } from './articles.service';
 import { CreateArticleDto } from './dto/create-article.dto';
@@ -31,8 +32,10 @@ export class ArticlesController {
   constructor(private readonly articlesService: ArticlesService) {}
 
   @Get()
-  findAll(@CurrentTenant() tenantId: string) {
-    return this.articlesService.findAll(tenantId);
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  findAll(@CurrentTenant() tenantId: string, @Query() q: PaginationQueryDto) {
+    return this.articlesService.findAll(tenantId, { cursor: q.cursor, limit: q.limit });
   }
 
   @Get(':id')

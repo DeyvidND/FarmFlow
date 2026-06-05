@@ -7,6 +7,8 @@ import {
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { type Database, tenants, products, reviews } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
+import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewStatusDto } from './dto/update-review-status.dto';
@@ -120,14 +122,26 @@ export class ReviewsService {
 
   /* ------------------------------ admin (tenant-scoped) ----------------------------- */
 
-  listForTenant(tenantId: string, status?: string) {
+  async listForTenant(
+    tenantId: string,
+    opts: { status?: string; cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<typeof reviews.$inferSelect>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
     const conds = [eq(reviews.tenantId, tenantId)];
-    if (status) conds.push(eq(reviews.status, status as 'pending' | 'published' | 'hidden'));
-    return this.db
+    if (opts.status) {
+      conds.push(eq(reviews.status, opts.status as 'pending' | 'published' | 'hidden'));
+    }
+    if (cur) conds.push(keysetAfter(reviews.createdAt, reviews.id, cur, 'desc'));
+
+    const rows = await this.db
       .select()
       .from(reviews)
       .where(and(...conds))
-      .orderBy(desc(reviews.createdAt));
+      .orderBy(desc(reviews.createdAt), desc(reviews.id))
+      .limit(lim + 1);
+
+    return buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
   }
 
   async setStatus(id: string, tenantId: string, dto: UpdateReviewStatusDto) {
