@@ -167,6 +167,14 @@ export interface EcontSender {
 
 export interface EcontConfig {
   env: 'demo' | 'prod';
+  /**
+   * How the farm fulfils Econt orders:
+   *  - `off`    — Econt not offered.
+   *  - `manual` — offered at a flat fee; the farm ships each order itself (no API).
+   *  - `auto`   — live Econt API (price + waybill + tracking).
+   * Optional for back-compat; absent + `configured` is treated as `auto`.
+   */
+  mode?: 'off' | 'manual' | 'auto';
   /** True once credentials have been saved. The raw password is never stored/returned. */
   configured: boolean;
   username?: string;

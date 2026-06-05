@@ -12,6 +12,7 @@ import {
   econtFallbackFee,
   applyFreeThreshold,
   freeThresholdStotinki,
+  econtMode,
   type DeliveryConfig,
 } from './delivery-pricing';
 
@@ -132,11 +133,12 @@ export class CheckoutService {
       return localFeeStotinki(cfg, subtotal);
     }
 
-    // Econt (office or door) — prefer the live courier quote; fall back to the
-    // configured fee. The global free-over threshold then applies on top.
+    // Econt (office or door). Automatic mode prefers the live courier quote;
+    // manual mode (farm ships itself) always uses the configured flat fee — no
+    // API call. The global free-over threshold then applies on top.
     const door = method === 'econt_address';
     let fee: number;
-    if (order.tenantId) {
+    if (econtMode(cfg) === 'auto' && order.tenantId) {
       const live = await this.econt.estimateShipping(
         order.tenantId,
         order,

@@ -30,6 +30,22 @@ export interface DeliveryConfig {
     pickup?: MethodConfig;
   };
   pricing?: { freeThresholdStotinki?: number };
+  econt?: { mode?: EcontMode; configured?: boolean };
+}
+
+/**
+ * How a farm fulfils Econt orders:
+ *  - `off`    — Econt not offered.
+ *  - `manual` — offered at a flat fee; the farm ships each order itself (no API).
+ *  - `auto`   — the live Econt API integration (price + waybill + tracking).
+ */
+export type EcontMode = 'off' | 'manual' | 'auto';
+
+/** Resolve the Econt mode, migrating legacy `configured: true` (pre-mode) to `auto`. */
+export function econtMode(cfg: DeliveryConfig | null | undefined): EcontMode {
+  const e = cfg?.econt;
+  if (e?.mode) return e.mode;
+  return e?.configured ? 'auto' : 'off';
 }
 
 /** Legacy hardcoded amounts — the fallback when a tenant has no saved config. */

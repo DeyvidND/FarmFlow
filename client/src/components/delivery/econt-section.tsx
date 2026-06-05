@@ -40,6 +40,7 @@ export function EcontConnectionSection({
   toast: Toast;
 }) {
   const e = cfg.econt;
+  const mode = e.mode ?? (e.configured ? 'auto' : 'off');
   const [check, setCheck] = React.useState<'idle' | 'loading' | 'ok' | 'fail'>('idle');
   const [pwChanging, setPwChanging] = React.useState(!e.configured);
   const [pw, setPw] = React.useState('');
@@ -131,6 +132,37 @@ export function EcontConnectionSection({
       }
     >
       <div className="flex flex-col gap-[18px]">
+        {/* mode — how the farm fulfils Econt orders */}
+        <div>
+          <h3 className={subHeadCls}>Как ще изпращаш с Еконт?</h3>
+          <p className={subDescCls}>
+            <b>Ръчно</b> — клиентът избира Еконт, ти носиш пратките сам и всяка сутрин получаваш
+            списък по имейл. <b>Автоматично</b> — свързваш Еконт акаунт и системата прави
+            товарителниците вместо теб.
+          </p>
+          <Segmented
+            value={mode}
+            onChange={(v) => mut((d) => (d.econt.mode = v))}
+            options={[
+              { value: 'off', label: 'Изключено' },
+              { value: 'manual', label: 'Ръчно' },
+              { value: 'auto', label: 'Автоматично' },
+            ]}
+          />
+          {mode === 'manual' && (
+            <div className="mt-2.5 rounded-[10px] border border-ff-green-100 bg-ff-green-50 px-3.5 py-3 text-[13px] text-ff-ink-2">
+              <b>Ръчен режим.</b> Не е нужно да свързваш акаунт по-долу. Задай цената на Еконт в
+              „Методи на доставка“ и включи методите — пратките тръгват от теб, а всяка сутрин
+              получаваш списък какво да изпратиш.
+            </div>
+          )}
+          {mode === 'off' && (
+            <p className={cn(subDescCls, 'mt-2')}>Еконт няма да се показва на клиентите.</p>
+          )}
+        </div>
+
+        {mode === 'auto' && (
+        <>
         {/* optional — a farm that delivers on its own never needs this */}
         <div className="flex items-start gap-2.5 rounded-[10px] border border-ff-border-2 bg-ff-surface-2 px-3.5 py-3 text-[13px] text-ff-ink-2">
           <span className="mt-px shrink-0 rounded-full bg-ff-badge-bg px-2 py-0.5 text-[11px] font-extrabold text-ff-badge-ink">
@@ -424,6 +456,8 @@ export function EcontConnectionSection({
             <RefreshCw size={16} /> Обнови градове и офиси
           </Button>
         </div>
+        </>
+        )}
       </div>
 
       {help && (

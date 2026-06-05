@@ -11,9 +11,19 @@ interface DigestOrder {
   deliveryType: string;
   customerName: string | null;
   deliveryAddress: string | null;
+  deliveryCity: string | null;
   econtOffice: string | null;
   slotFrom: string | null;
   slotTo: string | null;
+}
+
+/** Where an Econt order goes — office (office method) or door (city + street). */
+function econtDestination(o: DigestOrder): string {
+  if (o.deliveryType === 'econt_address') {
+    const parts = [o.deliveryCity, o.deliveryAddress].filter(Boolean).join(', ');
+    return `до адрес: ${parts || '—'}`;
+  }
+  return `офис: ${o.econtOffice ?? '—'}`;
 }
 
 export interface DigestSummary {
@@ -67,7 +77,7 @@ function renderHtml(date: string, addressOrders: DigestOrder[], econtOrders: Dig
       (o) => `
         <tr>
           <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.customerName ?? '—')}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.econtOffice ?? '—')}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(econtDestination(o))}</td>
         </tr>`,
     )
     .join('');
@@ -91,12 +101,12 @@ function renderHtml(date: string, addressOrders: DigestOrder[], econtOrders: Dig
   const econtSection =
     econtOrders.length > 0
       ? `
-      <h2 style="font-size:16px;color:#333;margin:24px 0 8px">Еконт офис (${econtOrders.length})</h2>
+      <h2 style="font-size:16px;color:#333;margin:24px 0 8px">Еконт — за изпращане (${econtOrders.length})</h2>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
         <thead>
           <tr style="background:#f5f5f5">
             <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #ddd">Клиент</th>
-            <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #ddd">Офис</th>
+            <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #ddd">Дестинация</th>
           </tr>
         </thead>
         <tbody>${econtRows}</tbody>
@@ -138,9 +148,9 @@ function renderText(date: string, addressOrders: DigestOrder[], econtOrders: Dig
   }
 
   if (econtOrders.length > 0) {
-    lines.push(`Еконт (${econtOrders.length}):`);
+    lines.push(`Еконт — за изпращане (${econtOrders.length}):`);
     for (const o of econtOrders) {
-      lines.push(`  • ${o.customerName ?? '—'} — ${o.econtOffice ?? '—'}`);
+      lines.push(`  • ${o.customerName ?? '—'} — ${econtDestination(o)}`);
     }
     lines.push('');
   }
@@ -168,6 +178,7 @@ export class DigestService {
         deliveryType: orders.deliveryType,
         customerName: orders.customerName,
         deliveryAddress: orders.deliveryAddress,
+        deliveryCity: orders.deliveryCity,
         econtOffice: orders.econtOffice,
         slotFrom: deliverySlots.timeFrom,
         slotTo: deliverySlots.timeTo,
@@ -186,7 +197,9 @@ export class DigestService {
     if (rows.length === 0) return null;
 
     const addressOrders = rows.filter((r) => r.deliveryType === 'address');
-    const econtOrders = rows.filter((r) => r.deliveryType === 'econt');
+    const econtOrders = rows.filter(
+      (r) => r.deliveryType === 'econt' || r.deliveryType === 'econt_address',
+    );
     const distinctCustomers = new Set(
       rows.map((o) => o.customerName?.trim().toLowerCase()),
     ).size;

@@ -5,8 +5,10 @@ import { type Database, tenants } from '@farmflow/db';
 import { REDIS_TOKEN } from '../redis/redis.constants';
 import {
   buildPublicDelivery,
+  econtMode,
   type PublicDelivery,
   type DeliveryConfig,
+  type EcontMode,
 } from '../../modules/orders/delivery-pricing';
 
 /**
@@ -24,9 +26,13 @@ export interface TenantMeta {
   deliveryEnabled: boolean;
   multiFarmer: boolean;
   multiSubcat: boolean;
-  // Whether the farm has connected Econt — lets the storefront gate the Econt
-  // delivery options so customers aren't offered an unfulfillable method.
+  // Whether the farm offers Econt at all (manual or automatic) — gates the Econt
+  // delivery radios on the storefront.
   econtEnabled: boolean;
+  // Which Econt mode: 'off' | 'manual' (free-text office, flat fee, ship-it-yourself)
+  // | 'auto' (live API office picker + price). The storefront uses the API office
+  // picker only in 'auto'.
+  econtMode: EcontMode;
   // Read-only delivery pricing (free-over threshold + per-method fees) so the
   // storefront displays the farm's configured fees instead of hardcoded numbers.
   delivery: PublicDelivery;
@@ -104,9 +110,11 @@ export class PublicCacheService {
       row.settings as { delivery?: DeliveryConfig & { econt?: { configured?: boolean } } } | null
     )?.delivery;
     const { settings: _settings, ...rest } = row;
+    const mode = econtMode(delivery);
     const meta: TenantMeta = {
       ...rest,
-      econtEnabled: !!delivery?.econt?.configured,
+      econtEnabled: mode !== 'off',
+      econtMode: mode,
       delivery: buildPublicDelivery(delivery),
     };
 
