@@ -711,3 +711,26 @@ LIMIT 51;
 - **`total` only on page 1** — cursored requests skip the `count(*)`; the client keeps the page-1 total.
 - **Reviews** has no admin UI; Task 8 is backend-only (endpoint ready for a future moderation page).
 - **farmers/subcategories/email-billing** intentionally remain full-load (small, ordered/aggregate).
+
+---
+
+## Audit results (Phase E — executed 2026-06-05)
+
+**Query side (EXPLAIN ANALYZE, 5000 synthetic rows):**
+- Initial `(tenant_id, created_at)` index + OR-expansion predicate → still a **Sort node**
+  and wrong-index picks (reads all tenant rows). Two fixes applied:
+  1. Migration **0025**: rebuilt products/orders/newsletter/reviews indexes as
+     `(tenant_id, created_at, id)` (id tiebreaker); added `articles_tenant_created_idx`
+     and `tenants_created_idx` (neither existed).
+  2. `keysetAfter` rewritten to **row-value** `(${createdCol}, ${idCol}) </> (${c}, ${i})`
+     (was OR-expansion) — Postgres turns this into an index range Cond.
+- Final plans: `Index Scan ... Index Cond: ... ROW(created_at, id) > ROW(...)`, **no Sort,
+  no Seq Scan, no OFFSET**, LIMIT reads exactly 51 rows. (Gotcha: `ANALYZE` after bulk
+  insert — stale stats otherwise make the planner skip the index on synthetic data.)
+
+**Client side (code-structural verification):**
+- No `useEffect` in any list client; the list api-fn appears only as the hook's `fetchMore`.
+- Filtering/search = `items.filter(...)` over React state → **zero network requests on filter**.
+- Load-more appends `[...prev, ...page.items]` → prior rows never refetched.
+
+**Regression:** server build clean, 62/62 jest pass; client + admin `tsc --noEmit` clean.
