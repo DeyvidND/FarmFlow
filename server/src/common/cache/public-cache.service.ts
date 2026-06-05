@@ -3,6 +3,11 @@ import Redis from 'ioredis';
 import { eq } from 'drizzle-orm';
 import { type Database, tenants } from '@farmflow/db';
 import { REDIS_TOKEN } from '../redis/redis.constants';
+import {
+  buildPublicDelivery,
+  type PublicDelivery,
+  type DeliveryConfig,
+} from '../../modules/orders/delivery-pricing';
 
 /**
  * Lean tenant identity + storefront toggles, cached per slug. Doubles as the
@@ -22,6 +27,9 @@ export interface TenantMeta {
   // Whether the farm has connected Econt — lets the storefront gate the Econt
   // delivery options so customers aren't offered an unfulfillable method.
   econtEnabled: boolean;
+  // Read-only delivery pricing (free-over threshold + per-method fees) so the
+  // storefront displays the farm's configured fees instead of hardcoded numbers.
+  delivery: PublicDelivery;
 }
 
 /**
@@ -90,12 +98,17 @@ export class PublicCacheService {
       .limit(1);
     if (!row) throw new NotFoundException('Фермата не е намерена');
 
-    // Derive the Econt flag, then drop `settings` (secrets) before caching/returning.
-    const econt = (
-      (row.settings as { delivery?: { econt?: { configured?: boolean } } } | null)?.delivery?.econt
-    );
+    // Derive the Econt flag + public delivery pricing, then drop `settings`
+    // (secrets) before caching/returning.
+    const delivery = (
+      row.settings as { delivery?: DeliveryConfig & { econt?: { configured?: boolean } } } | null
+    )?.delivery;
     const { settings: _settings, ...rest } = row;
-    const meta: TenantMeta = { ...rest, econtEnabled: !!econt?.configured };
+    const meta: TenantMeta = {
+      ...rest,
+      econtEnabled: !!delivery?.econt?.configured,
+      delivery: buildPublicDelivery(delivery),
+    };
 
     await this.set(key, meta);
     return meta;

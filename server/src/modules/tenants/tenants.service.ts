@@ -5,6 +5,7 @@ import type { PublicTenant, Tenant } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
+import { type PublicDelivery } from '../orders/delivery-pricing';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 
 /** Lean storefront profile shape returned by `GET /public/:slug` (no secrets). */
@@ -17,6 +18,7 @@ export interface PublicStorefront {
   multiFarmer: boolean;
   multiSubcat: boolean;
   econtEnabled: boolean;
+  delivery: PublicDelivery;
 }
 
 @Injectable()

@@ -66,11 +66,14 @@ No new admin UI.
    `settings` to it, or read it where shipping is computed). Apply safe fallbacks — read
    `settings.delivery.methods.{key}.pricing` and `settings.delivery.pricing.freeThresholdStotinki`,
    defaulting to the current constants when absent.
-2. Compute the per-method base fee:
+2. Compute the per-method **base fee** (no free-over here — that's the global threshold in
+   step 3): `methodBaseFee(pricing, fallback)`:
+   - `free` → 0 · `flat` → `feeStotinki` · `freeOver` / `byWeight` / unset → `feeStotinki ?? fallback`
+     (the per-method `freeOverStotinki` is ignored at checkout — see Deferred)
    - `pickup` → 0
-   - `address` (`ownSlots`): `free` → 0 · `flat` → `feeStotinki` · `freeOver` → `subtotal >= freeOverStotinki ? 0 : feeStotinki` (default when no config: `flat 490`)
+   - `address` (`ownSlots`): `methodBaseFee(ownSlots.pricing, 490)`
    - `econt` / `econt_address`: live Econt `estimateShipping` (unchanged); if it returns
-     null, use the method's configured `feeStotinki` (fallback to current 350 / 590).
+     null, `methodBaseFee(econt*.pricing, 350 / 590)`.
 3. Apply the global threshold last to every method (including Econt): default
    `freeThresholdStotinki = 4000`; if it is `> 0` and `subtotal >= freeThresholdStotinki`
    → return 0.
@@ -82,25 +85,24 @@ today's values — no dependency on the client `DEFAULT_DELIVERY`.
 
 ## Public API changes
 
-Extend the storefront meta exposed by `/public/:slug/bootstrap` (and the tenant meta used by
-the storefront) with a read-only `delivery` block, derived from `settings.delivery`, secrets
-already stripped:
+Extend the storefront meta (`TenantMeta` in `public-cache.service.ts`, surfaced by
+`/public/:slug` and `/public/:slug/bootstrap`'s `storefront` block) with a read-only,
+minimal `delivery` block derived from `settings.delivery` — just the numbers the storefront
+needs to display, secrets already stripped:
 
 ```ts
 delivery: {
-  freeThresholdStotinki: number | null,   // null = no free-over rule
-  methods: {
-    pickup?:       { enabled: boolean, label: string },                 // fee always 0
-    address?:      { enabled: boolean, label: string, feeStotinki: number, freeOverStotinki: number | null },
-    econt?:        { enabled: boolean, label: string, feeStotinki: number, live: true },   // "от {fee}"
-    econtAddress?: { enabled: boolean, label: string, feeStotinki: number, live: true },
-  }
+  freeThresholdStotinki: number,      // 0 = no free-over rule
+  addressFeeStotinki: number,         // local self-delivery (ownSlots) base fee
+  econtFeeStotinki: number,           // Econt office — shown as "от {fee}" (real charge is live)
+  econtAddressFeeStotinki: number,    // Econt door  — "от {fee}"
 }
 ```
 
-`enabled` mirrors `settings.delivery.methods.{key}.enabled`. Fees are the configured/fallback
-amounts. This block is cached + invalidated with the rest of the tenant cache (delivery save
-already busts the tenant cache).
+Built by `buildPublicDelivery(cfg)` (reused from the pricing module). It is part of the cached
+`TenantMeta`, so a delivery save (which already busts `tenant:{slug}`) refreshes it. Method
+enable/disable gating stays as today (`deliveryEnabled`, `econtEnabled`); this block is
+pricing-only.
 
 ## Storefront changes (`fermerski-pazar-chaika`)
 
@@ -124,9 +126,11 @@ already busts the tenant cache).
 
 ## Testing
 
-- Unit: `methodFee(pricing, subtotal, fallback)` for free / flat / freeOver / missing; and the
-  global-threshold override (subtotal at/below/above threshold) per method.
-- Unit: `address` pricing honors config (e.g. `free` → 0, `flat 600` → 600, `freeOver 3000/500`).
+- Unit: `methodBaseFee(pricing, fallback)` for free → 0, flat → fee, freeOver/byWeight/unset →
+  `feeStotinki ?? fallback`.
+- Unit: global-threshold override — `applyFreeThreshold(fee, subtotal, threshold)` returns 0 when
+  `threshold > 0 && subtotal >= threshold`, else `fee`; and 0-threshold disables free delivery.
+- Unit: `address` honors config (`free` → 0, `flat 600` → 600, unset → 490).
 - Regression: a tenant with no `settings.delivery` produces (pickup 0; local 490, free over
   40; econt live/350, free over 40; econt_address live/590, free over 40). Note Econt is now
   free over 40 — the intended consequence of the global threshold (decision 4).

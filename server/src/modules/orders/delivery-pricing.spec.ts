@@ -1,0 +1,106 @@
+import {
+  methodBaseFee,
+  freeThresholdStotinki,
+  applyFreeThreshold,
+  localFeeStotinki,
+  econtFallbackFee,
+  buildPublicDelivery,
+  DELIVERY_DEFAULTS,
+  type DeliveryConfig,
+} from './delivery-pricing';
+
+describe('delivery-pricing', () => {
+  describe('methodBaseFee', () => {
+    it('returns the fallback when pricing is missing or has no type', () => {
+      expect(methodBaseFee(undefined, 490)).toBe(490);
+      expect(methodBaseFee({}, 490)).toBe(490);
+    });
+    it('free → 0', () => {
+      expect(methodBaseFee({ type: 'free' }, 490)).toBe(0);
+    });
+    it('flat → feeStotinki (or fallback when unset)', () => {
+      expect(methodBaseFee({ type: 'flat', feeStotinki: 600 }, 490)).toBe(600);
+      expect(methodBaseFee({ type: 'flat' }, 490)).toBe(490);
+    });
+    it('freeOver/byWeight are treated as flat (per-method free-over ignored)', () => {
+      expect(methodBaseFee({ type: 'freeOver', feeStotinki: 700, freeOverStotinki: 3000 }, 490)).toBe(700);
+      expect(methodBaseFee({ type: 'byWeight', feeStotinki: 800 }, 490)).toBe(800);
+    });
+  });
+
+  describe('freeThresholdStotinki', () => {
+    it('defaults to 4000 when unset', () => {
+      expect(freeThresholdStotinki(null)).toBe(4000);
+      expect(freeThresholdStotinki({})).toBe(4000);
+    });
+    it('honors an explicit value, including 0 (disables free delivery)', () => {
+      expect(freeThresholdStotinki({ pricing: { freeThresholdStotinki: 3000 } })).toBe(3000);
+      expect(freeThresholdStotinki({ pricing: { freeThresholdStotinki: 0 } })).toBe(0);
+    });
+  });
+
+  describe('applyFreeThreshold', () => {
+    it('zeroes the fee at or above the threshold', () => {
+      expect(applyFreeThreshold(490, 4000, 4000)).toBe(0);
+      expect(applyFreeThreshold(490, 5000, 4000)).toBe(0);
+    });
+    it('keeps the fee below the threshold', () => {
+      expect(applyFreeThreshold(490, 3999, 4000)).toBe(490);
+    });
+    it('threshold 0 never makes delivery free', () => {
+      expect(applyFreeThreshold(490, 999999, 0)).toBe(490);
+    });
+  });
+
+  describe('localFeeStotinki', () => {
+    it('unconfigured tenant: 490, free over 40', () => {
+      expect(localFeeStotinki(null, 1000)).toBe(490);
+      expect(localFeeStotinki(null, 4000)).toBe(0);
+    });
+    it('free self-delivery → always 0', () => {
+      const cfg: DeliveryConfig = { methods: { ownSlots: { pricing: { type: 'free' } } } };
+      expect(localFeeStotinki(cfg, 100)).toBe(0);
+    });
+    it('flat self-delivery + custom threshold', () => {
+      const cfg: DeliveryConfig = {
+        methods: { ownSlots: { pricing: { type: 'flat', feeStotinki: 600 } } },
+        pricing: { freeThresholdStotinki: 3000 },
+      };
+      expect(localFeeStotinki(cfg, 2999)).toBe(600);
+      expect(localFeeStotinki(cfg, 3000)).toBe(0);
+    });
+  });
+
+  describe('econtFallbackFee', () => {
+    it('defaults to 350 (office) / 590 (door)', () => {
+      expect(econtFallbackFee(null, false)).toBe(350);
+      expect(econtFallbackFee(null, true)).toBe(590);
+    });
+    it('uses the configured flat fee', () => {
+      const cfg: DeliveryConfig = {
+        methods: { econtOffice: { pricing: { type: 'flat', feeStotinki: 400 } } },
+      };
+      expect(econtFallbackFee(cfg, false)).toBe(400);
+    });
+  });
+
+  describe('buildPublicDelivery', () => {
+    it('unconfigured tenant → legacy defaults', () => {
+      expect(buildPublicDelivery(null)).toEqual({
+        freeThresholdStotinki: DELIVERY_DEFAULTS.freeThresholdStotinki,
+        addressFeeStotinki: DELIVERY_DEFAULTS.addressFeeStotinki,
+        econtFeeStotinki: DELIVERY_DEFAULTS.econtFeeStotinki,
+        econtAddressFeeStotinki: DELIVERY_DEFAULTS.econtAddressFeeStotinki,
+      });
+    });
+    it('reflects configured local-free + threshold', () => {
+      const cfg: DeliveryConfig = {
+        methods: { ownSlots: { pricing: { type: 'free' } } },
+        pricing: { freeThresholdStotinki: 3000 },
+      };
+      const pub = buildPublicDelivery(cfg);
+      expect(pub.addressFeeStotinki).toBe(0);
+      expect(pub.freeThresholdStotinki).toBe(3000);
+    });
+  });
+});

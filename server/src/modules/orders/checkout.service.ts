@@ -7,13 +7,13 @@ import { OrdersService } from './orders.service';
 import { StripeService, type CheckoutLine } from '../stripe/stripe.service';
 import { EcontService } from '../econt/econt.service';
 import { CreateOrderDto } from './dto/create-order.dto';
-
-// Shipping rule (mirrors the storefront `lib/shipping.ts`): free over the
-// threshold, otherwise a flat fee per delivery method.
-const FREE_SHIPPING_THRESHOLD_STOTINKI = 4000;
-const SHIPPING_ADDRESS_STOTINKI = 490; // local farm delivery (flat, regional)
-const SHIPPING_ECONT_STOTINKI = 350; // Econt → office, fallback when no live quote
-const SHIPPING_ECONT_ADDRESS_STOTINKI = 590; // Econt → door, fallback when no live quote
+import {
+  localFeeStotinki,
+  econtFallbackFee,
+  applyFreeThreshold,
+  freeThresholdStotinki,
+  type DeliveryConfig,
+} from './delivery-pricing';
 
 export interface CheckoutResult {
   orderId: string;
@@ -123,22 +123,40 @@ export class CheckoutService {
     const method = order.deliveryType ?? 'address';
     // Market pickup — the customer collects at the stand, no delivery, no fee.
     if (method === 'pickup') return 0;
-    // Local farm delivery — flat regional fee, free over the threshold (the farm
-    // absorbs its own local delivery cost on big baskets).
+
+    // Per-tenant delivery config (settings.delivery). Absent → legacy defaults.
+    const cfg = order.tenantId ? await this.loadDelivery(order.tenantId) : null;
+
+    // Local self-delivery — config base fee (free / flat) + global free-over threshold.
     if (method === 'address') {
-      return subtotal >= FREE_SHIPPING_THRESHOLD_STOTINKI ? 0 : SHIPPING_ADDRESS_STOTINKI;
+      return localFeeStotinki(cfg, subtotal);
     }
 
-    // Econt (office or door) — always priced (a national courier charge is real;
-    // no free-over-threshold). Prefer a live quote; fall back per method.
+    // Econt (office or door) — prefer the live courier quote; fall back to the
+    // configured fee. The global free-over threshold then applies on top.
+    const door = method === 'econt_address';
+    let fee: number;
     if (order.tenantId) {
       const live = await this.econt.estimateShipping(
         order.tenantId,
         order,
         order.items.map((i) => ({ name: i.productName, qty: i.quantity })),
       );
-      if (live != null) return live;
+      fee = live ?? econtFallbackFee(cfg, door);
+    } else {
+      fee = econtFallbackFee(cfg, door);
     }
-    return method === 'econt_address' ? SHIPPING_ECONT_ADDRESS_STOTINKI : SHIPPING_ECONT_STOTINKI;
+    return applyFreeThreshold(fee, subtotal, freeThresholdStotinki(cfg));
+  }
+
+  /** Load the tenant's `settings.delivery` config (null when unset → legacy defaults). */
+  private async loadDelivery(tenantId: string): Promise<DeliveryConfig | null> {
+    const [row] = await this.db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const s = row?.settings as { delivery?: DeliveryConfig } | null;
+    return s?.delivery ?? null;
   }
 }
