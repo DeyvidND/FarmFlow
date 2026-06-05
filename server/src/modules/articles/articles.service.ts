@@ -7,6 +7,8 @@ import {
 import { randomUUID } from 'crypto';
 import { and, eq, inArray, asc, desc, sql } from 'drizzle-orm';
 import { type Database, articles, articleMedia, tenants } from '@farmflow/db';
+import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
+import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
 import type {
   Article,
   ArticleMedia,
@@ -34,13 +36,31 @@ export class ArticlesService {
 
   // ---- Admin reads (own articles, all statuses) ----
 
-  async findAll(tenantId: string): Promise<ArticleWithMedia[]> {
+  async findAll(
+    tenantId: string,
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<ArticleWithMedia>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    const conds = [eq(articles.tenantId, tenantId)];
+    if (cur) conds.push(keysetAfter(articles.createdAt, articles.id, cur, 'desc'));
+
     const rows = await this.db
       .select()
       .from(articles)
-      .where(eq(articles.tenantId, tenantId))
-      .orderBy(desc(articles.createdAt));
-    return this.attachMedia(rows);
+      .where(and(...conds))
+      .orderBy(desc(articles.createdAt), desc(articles.id))
+      .limit(lim + 1);
+
+    const hasMore = rows.length > lim;
+    const pageRows = hasMore ? rows.slice(0, lim) : rows;
+    const items = await this.attachMedia(pageRows);
+    const last = pageRows[pageRows.length - 1];
+    return {
+      items,
+      nextCursor:
+        hasMore && last ? encodeCursor({ createdAt: last.createdAt!, id: last.id }) : null,
+    };
   }
 
   async findOne(id: string, tenantId: string): Promise<ArticleWithMedia> {
@@ -243,18 +263,21 @@ export class ArticlesService {
     await this.findOne(id, tenantId);
 
     // Scope each update by article + tenant so foreign media ids are no-ops.
-    for (const it of dto.items) {
-      await this.db
-        .update(articleMedia)
-        .set({ position: it.position })
-        .where(
-          and(
-            eq(articleMedia.id, it.id),
-            eq(articleMedia.articleId, id),
-            eq(articleMedia.tenantId, tenantId),
-          ),
-        );
-    }
+    // One transaction so a mid-loop failure can't leave a half-applied order.
+    await this.db.transaction(async (tx) => {
+      for (const it of dto.items) {
+        await tx
+          .update(articleMedia)
+          .set({ position: it.position })
+          .where(
+            and(
+              eq(articleMedia.id, it.id),
+              eq(articleMedia.articleId, id),
+              eq(articleMedia.tenantId, tenantId),
+            ),
+          );
+      }
+    });
     await this.cache.invalidate(tenantId);
 
     return this.db

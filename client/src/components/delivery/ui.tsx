@@ -5,9 +5,11 @@
  * the design prototype into the real FarmFlow Tailwind/token stack.
  */
 import * as React from 'react';
-import { Info, X, Check, Plus, Minus } from 'lucide-react';
+import { Info, X, Check, Plus, Minus, Search, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { listEcontCities } from '@/lib/api-client';
+import type { EcontCity } from '@/lib/types';
 
 /** Field input + label class strings (the project's settings-form convention). */
 export const fieldCls =
@@ -237,6 +239,132 @@ export function LvInput({
 
 export function Divider() {
   return <div className="h-px bg-ff-border-2" />;
+}
+
+/** Expandable group for advanced/optional settings (collapsed by default). */
+export function Collapsible({
+  title,
+  hint,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  return (
+    <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-ff-surface"
+      >
+        <div>
+          <div className="text-[13.5px] font-extrabold text-ff-ink">{title}</div>
+          {hint && <div className="mt-px text-[12px] text-ff-muted">{hint}</div>}
+        </div>
+        <ChevronDown
+          size={18}
+          className={cn('shrink-0 text-ff-muted transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      {open && <div className="border-t border-ff-border-2 bg-ff-surface px-4 py-4">{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * Town autocomplete backed by live Econt nomenclature. Used by the sender setup
+ * and the office map. When `disabled` (e.g. Econt not connected yet) it shows
+ * `notReadyHint` instead of searching.
+ */
+export function CityAutocomplete({
+  value,
+  placeholder = 'Търси населено място…',
+  disabled,
+  notReadyHint,
+  onPick,
+}: {
+  value: string;
+  placeholder?: string;
+  disabled?: boolean;
+  notReadyHint?: string;
+  onPick: (c: EcontCity) => void;
+}) {
+  const [q, setQ] = React.useState(value);
+  const [open, setOpen] = React.useState(false);
+  const [list, setList] = React.useState<EcontCity[]>([]);
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => setQ(value), [value]);
+
+  React.useEffect(() => {
+    if (!open || disabled) return;
+    let active = true;
+    setLoading(true);
+    const t = window.setTimeout(() => {
+      listEcontCities(q)
+        .then((r) => active && setList(r))
+        .catch(() => active && setList([]))
+        .finally(() => active && setLoading(false));
+    }, 220);
+    return () => {
+      active = false;
+      window.clearTimeout(t);
+    };
+  }, [q, open, disabled]);
+
+  return (
+    <div className="relative">
+      <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ff-muted" />
+      <input
+        value={q}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 160)}
+        className={cn(fieldCls, 'pl-9 disabled:cursor-not-allowed disabled:opacity-60')}
+      />
+      {open && !disabled && (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-[240px] overflow-y-auto rounded-[9px] border border-ff-border bg-ff-surface shadow-ff-md">
+          {loading ? (
+            <div className="px-3.5 py-3 text-[12.5px] text-ff-muted">Търсене…</div>
+          ) : list.length === 0 ? (
+            <div className="px-3.5 py-3 text-[12.5px] text-ff-muted">
+              Няма населени места{q ? ` за „${q}“` : ''}.
+            </div>
+          ) : (
+            list.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onMouseDown={() => {
+                  onPick(c);
+                  setQ(c.name);
+                  setOpen(false);
+                }}
+                className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left hover:bg-ff-green-50"
+              >
+                <span className="text-[14px] font-semibold text-ff-ink">{c.name}</span>
+                {c.postCode && <span className="ff-fig text-[12px] text-ff-muted">{c.postCode}</span>}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+      {open && disabled && notReadyHint && (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 rounded-[9px] border border-ff-border bg-ff-surface px-3.5 py-3 text-[12.5px] text-ff-muted shadow-ff-md">
+          {notReadyHint}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---- Reusable help / explanation modal ----

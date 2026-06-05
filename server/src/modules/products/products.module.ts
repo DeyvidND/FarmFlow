@@ -7,5 +7,6 @@ import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
   imports: [CatalogCacheModule],
   controllers: [ProductsController, PublicProductsController],
   providers: [ProductsService],
+  exports: [ProductsService],
 })
 export class ProductsModule {}

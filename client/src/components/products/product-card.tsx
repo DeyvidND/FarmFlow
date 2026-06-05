@@ -1,66 +1,39 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { Pencil, Check, Trash2, Link2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { useRef } from 'react';
+import { Pencil, Trash2, Link2 } from 'lucide-react';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ProductThumb } from './product-thumb';
 import { moneyFromStotinki } from '@/lib/utils';
 import { stockMeta } from '@/lib/products';
 import type { Product } from '@/lib/types';
 
-const editInput =
-  'rounded-sm border border-ff-border bg-ff-surface-2 px-[11px] py-2 text-[14.5px] font-bold text-ff-ink outline-none focus:border-ff-green-500';
-
 interface Props {
   product: Product;
   index: number;
-  editing: boolean;
   busy?: boolean;
-  onStartEdit: () => void;
-  onCancel: () => void;
-  onSave: (priceStotinki: number, stockQuantity: number) => void;
   onToggle: (on: boolean) => void;
   onUpload: (file: File) => void;
   onDelete: () => void;
+  /** Opens the full product editor modal (price, stock, photos, links). */
+  onEdit: () => void;
   /** Shown when the farmer/subcategory toggles are on. */
   farmerLabel?: string | null;
   subcatLabel?: string | null;
-  /** Opens the full product dialog (relink + full edit); only when linking is enabled. */
-  onEditFull?: () => void;
 }
 
 export function ProductCard({
   product,
   index,
-  editing,
   busy,
-  onStartEdit,
-  onCancel,
-  onSave,
   onToggle,
   onUpload,
   onDelete,
+  onEdit,
   farmerLabel,
   subcatLabel,
-  onEditFull,
 }: Props) {
-  const [price, setPrice] = useState('');
-  const [stock, setStock] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
-
-  function start() {
-    setPrice((product.priceStotinki / 100).toFixed(2).replace('.', ','));
-    setStock(product.stockQuantity == null ? '' : String(product.stockQuantity));
-    onStartEdit();
-  }
-
-  function submit() {
-    const p = Math.round((parseFloat(price.replace(',', '.')) || 0) * 100);
-    const s = parseInt(stock, 10);
-    onSave(p, Number.isNaN(s) ? 0 : s);
-  }
-
   const sm = stockMeta(product.stockQuantity);
 
   return (
@@ -106,77 +79,36 @@ export function ProductCard({
         </div>
       )}
 
-      {editing ? (
-        <div className="mt-[13px] flex flex-col gap-[9px]">
-          <label className="flex flex-col gap-1 text-[11.5px] font-bold text-ff-muted">
-            Цена (€)
-            <input
-              autoFocus
-              inputMode="decimal"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              className={editInput}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-[11.5px] font-bold text-ff-muted">
-            Наличност (бр.)
-            <input
-              inputMode="numeric"
-              value={stock}
-              onChange={(e) => setStock(e.target.value)}
-              className={editInput}
-            />
-          </label>
-          <div className="mt-0.5 flex gap-2">
-            <Button variant="primary" disabled={busy} onClick={submit} className="flex-1 rounded-sm px-2.5 py-2 text-[13.5px]">
-              <Check size={16} /> Запази
-            </Button>
-            <Button variant="ghost" disabled={busy} onClick={onCancel} className="rounded-sm px-3 py-2 text-[13.5px]">
-              Отказ
-            </Button>
-            <Button
-              variant="danger"
-              disabled={busy}
-              onClick={onDelete}
-              aria-label="Изтрий"
-              className="rounded-sm px-3 py-2 text-[13.5px]"
-            >
-              <Trash2 size={16} />
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="mt-3.5 flex items-baseline justify-between">
-            <span className="ff-fig text-[22px] font-extrabold tracking-[-0.02em]">
-              {moneyFromStotinki(product.priceStotinki)}
-            </span>
-          </div>
-          <div className="mt-2 flex items-center gap-1.5">
-            <span className="h-[7px] w-[7px] rounded-full" style={{ background: sm.color }} />
-            <span className="text-[12.5px] font-bold" style={{ color: sm.color }}>
-              {sm.label}
-            </span>
-          </div>
-          <div className="mt-3 flex gap-2">
-            <button
-              onClick={start}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-[9px] border border-ff-border bg-ff-surface-2 px-2 py-2 text-[13px] font-bold text-ff-ink-2 transition-colors hover:bg-ff-green-50 hover:text-ff-ink"
-            >
-              <Pencil size={15} /> Редактирай
-            </button>
-            {onEditFull && (
-              <button
-                onClick={onEditFull}
-                title="Свържи / пълна редакция"
-                className="flex items-center justify-center gap-1.5 rounded-[9px] border border-ff-border bg-ff-surface-2 px-3 py-2 text-[13px] font-bold text-ff-ink-2 transition-colors hover:bg-ff-green-50 hover:text-ff-ink"
-              >
-                <Link2 size={15} /> Свържи
-              </button>
-            )}
-          </div>
-        </>
-      )}
+      <div className="mt-3.5 flex items-baseline justify-between">
+        <span className="ff-fig text-[22px] font-extrabold tracking-[-0.02em]">
+          {moneyFromStotinki(product.priceStotinki)}
+        </span>
+      </div>
+      <div className="mt-2 flex items-center gap-1.5">
+        <span className="h-[7px] w-[7px] rounded-full" style={{ background: sm.color }} />
+        <span className="text-[12.5px] font-bold" style={{ color: sm.color }}>
+          {sm.label}
+        </span>
+      </div>
+
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={onEdit}
+          disabled={busy}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-[9px] border border-ff-border bg-ff-surface-2 px-2 py-2 text-[13px] font-bold text-ff-ink-2 transition-colors hover:bg-ff-green-50 hover:text-ff-ink disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Pencil size={15} /> Редактирай
+        </button>
+        <button
+          onClick={onDelete}
+          disabled={busy}
+          aria-label="Изтрий"
+          title="Изтрий"
+          className="grid place-items-center rounded-[9px] border border-ff-border bg-ff-surface-2 px-3 py-2 text-ff-red transition-colors hover:bg-ff-surface disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Trash2 size={15} />
+        </button>
+      </div>
     </div>
   );
 }

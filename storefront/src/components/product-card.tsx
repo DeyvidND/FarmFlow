@@ -8,6 +8,7 @@
  */
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import type { PublicProduct, PublicFarmer } from '@/lib/api';
 import { money } from '@/lib/api';
 import { useCart } from '@/lib/cart';
@@ -43,12 +44,15 @@ export function ProductCard({
   };
 
   const thumbInner = product.imageUrl ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
+    // next/image for lazy-loading + automatic optimization. Intrinsic width/height
+    // set the aspect hint; CSS (width/height 100% + cover) keeps the template's
+    // fixed-aspect `.ph` box, so no layout shift vs the original <img>.
+    <Image
       src={product.imageUrl}
       alt={product.name}
-      loading="lazy"
-      decoding="async"
+      width={600}
+      height={600}
+      sizes="(max-width: 640px) 50vw, 320px"
       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
     />
   ) : (

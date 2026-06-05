@@ -1,45 +1,47 @@
-'use client';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { API_BASE, SESSION_COOKIE } from '@/lib/session';
+import { AdminShell } from '@/components/layout/admin-shell';
 
-import { Toaster } from 'sonner';
-import { Sidebar } from '@/components/layout/sidebar';
-import { Topbar } from '@/components/layout/topbar';
-import { useUiStore } from '@/stores/ui-store';
+// Reads the session cookie + validates it against the API on every load.
+export const dynamic = 'force-dynamic';
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const drawerOpen = useUiStore((s) => s.drawerOpen);
-  const closeDrawer = useUiStore((s) => s.closeDrawer);
+/**
+ * Server-side auth gate for the whole admin panel.
+ *
+ * The middleware only checks that the `ff_session` cookie *exists*; it can't tell
+ * whether the JWT is still good. A token can be present but invalid — expired, or
+ * (in dev) pointing at a tenant that was wiped by a re-seed. That left the user
+ * stuck in an empty, half-broken panel (no data, demo map, disabled buttons).
+ *
+ * Here we verify the token against the API (`/tenants/me`). If it's missing or the
+ * API rejects it, we clear the stale cookie and send the user to /login instead of
+ * rendering an empty panel.
+ */
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  const token = cookies().get(SESSION_COOKIE)?.value;
+  if (!token) redirect('/login');
+
+  const res = await fetch(`${API_BASE}/tenants/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  }).catch(() => null);
+
+  // Invalid / expired / orphaned session → wipe the cookie and force a fresh login.
+  if (!res || !res.ok) {
+    redirect('/api/session/logout?reason=expired');
+  }
+
+  // The profile carries the subscription status + farm name; pass them down so the
+  // sidebar can flag subscription-gated screens and the topbar can show the name
+  // without a second round-trip.
+  const me = await res.json().catch(() => null);
+  if (!me) redirect('/api/session/logout?reason=expired');
+  const subscriptionActive = me.subscriptionStatus !== 'inactive';
 
   return (
-    <div className="flex h-full overflow-hidden">
-      <Sidebar />
-
-      {drawerOpen && (
-        <div
-          onClick={closeDrawer}
-          className="fixed inset-0 z-[49] animate-ff-fade bg-[rgba(30,28,15,0.4)] lg:hidden"
-        />
-      )}
-
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Topbar />
-        <main className="ff-main flex-1 overflow-y-auto px-8 pb-10 pt-8 max-sm:px-4 max-sm:pb-8 max-sm:pt-4">
-          <div className="mx-auto max-w-[1200px]">{children}</div>
-        </main>
-      </div>
-
-      <Toaster
-        position="bottom-right"
-        toastOptions={{
-          style: {
-            fontFamily: 'var(--font-commissioner)',
-            borderRadius: '12px',
-            border: '1px solid var(--ff-border)',
-            background: 'var(--ff-surface)',
-            color: 'var(--ff-ink)',
-            fontWeight: 600,
-          },
-        }}
-      />
-    </div>
+    <AdminShell subscriptionActive={subscriptionActive} tenantName={me.name ?? undefined}>
+      {children}
+    </AdminShell>
   );
 }

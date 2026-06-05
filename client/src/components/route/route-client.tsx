@@ -102,6 +102,9 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
   const { stops, origin, end, orderMode } = route;
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
   const [showHelp, setShowHelp] = useState(false);
+  // Remaining legs of a long (>9-waypoint) route — opened one-by-one on click so
+  // each is a real user gesture (a burst of window.open() gets popup-blocked).
+  const [extraLegs, setExtraLegs] = useState<string[]>([]);
 
   const dist = fmtDist(route.totalDistanceM);
   const dur = fmtDur(route.totalDurationS);
@@ -120,6 +123,8 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
     );
   const setEnd = (mode: RouteEndMode) => go({ end: mode });
   const setOrder = (mode: RouteOrderMode) => go({ order: mode });
+  const setDate = (date: string) =>
+    router.push(`/route?date=${date}&end=${end.mode}&order=${orderMode}`);
 
   const orderHint = ORDER_OPTIONS.find((o) => o.mode === orderMode)?.hint ?? '';
   const endHint = END_OPTIONS.find((o) => o.mode === end.mode)?.hint ?? '';
@@ -130,10 +135,14 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
       toast.error('Няма спирки за маршрут');
       return;
     }
-    urls.forEach((u) => window.open(u, '_blank', 'noopener'));
+    // Open the first leg now (this click is the user gesture); queue the rest as
+    // buttons so the browser doesn't block a burst of pop-ups.
+    window.open(urls[0], '_blank', 'noopener');
     if (urls.length > 1) {
-      toast.success(`Дълъг маршрут — отворен в ${urls.length} части в Google Maps`);
+      setExtraLegs(urls.slice(1));
+      toast.info(`Дълъг маршрут — ${urls.length} отсечки. Отвори всяка с бутоните долу.`);
     } else {
+      setExtraLegs([]);
       toast.success(navigate ? 'Навигацията се отваря в Google Maps' : 'Маршрутът се отваря в Google Maps');
     }
   };
@@ -188,11 +197,20 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm">
+          <label className="relative flex cursor-pointer items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2">
             <CalendarDays size={17} />
             <span className="capitalize">{dateLabel}</span>
             <ChevronDown size={16} className="text-ff-muted" />
-          </div>
+            <input
+              type="date"
+              value={route.date}
+              aria-label="Избери дата за маршрута"
+              onChange={(e) => {
+                if (e.target.value) setDate(e.target.value);
+              }}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            />
+          </label>
           <button
             onClick={() => setShowHelp((v) => !v)}
             title="Какво правят бутоните?"
@@ -208,6 +226,24 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
         {orderHint} {endHint}
       </p>
 
+      {/* long route: open each remaining leg one-by-one (avoids popup blocking) */}
+      {extraLegs.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
+          <span className="text-[12.5px] font-bold text-ff-amber-600">
+            Дълъг маршрут — отвори следващите отсечки:
+          </span>
+          {extraLegs.map((u, i) => (
+            <button
+              key={u}
+              onClick={() => window.open(u, '_blank', 'noopener')}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12.5px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2"
+            >
+              <Navigation size={13} /> Отсечка {i + 2}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* expandable explainer — for farmers who aren't used to the tech */}
       {showHelp && (
         <div className="mb-4 rounded-xl border border-ff-border bg-ff-surface-2 p-4 text-[13px] leading-relaxed text-ff-ink-2 shadow-ff-sm">
@@ -221,7 +257,9 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
             </li>
             <li>
               <b>Към дома / Едностранно / По избор</b> — къде свършваш след последната доставка: при
-              базата, при последния клиент, или на друг адрес (задава се в Настройки).
+              базата, при последния клиент, или на друг адрес. Изборът тук важи{' '}
+              <b>само за този преглед</b>; стойността по подразбиране се задава в{' '}
+              <b>Настройки → Локация и маршрут</b>.
             </li>
             <li>
               <b>Google Maps</b> — отваря целия маршрут в Google Maps, за да го видиш на картата.

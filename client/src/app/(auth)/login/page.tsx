@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { AuthShell, AuthField, firstMessage } from '@/components/auth/auth-shell';
 import { Button } from '@/components/ui/button';
 
@@ -11,6 +12,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  // Show a hint when we bounced the user here (expired session, or after a reset).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('reason') === 'expired') {
+      setNotice('Сесията изтече. Влез отново, за да продължиш.');
+    } else if (params.get('reset') === '1') {
+      setNotice('Паролата е сменена. Влез с новата парола.');
+    }
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,6 +53,12 @@ export default function LoginPage() {
       <h1 className="mb-1 text-[20px] font-extrabold">Влез в профила си</h1>
       <p className="mb-[22px] text-[13.5px] text-ff-muted">Продължи към управлението на фермата.</p>
 
+      {notice && (
+        <p className="mb-4 rounded-[10px] border border-ff-amber-soft bg-ff-amber-soft/40 px-3.5 py-2.5 text-[13px] font-semibold text-ff-amber-600">
+          {notice}
+        </p>
+      )}
+
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <AuthField
           label="Имейл"
@@ -62,13 +80,12 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
           />
           <div className="mt-[7px] text-right">
-            <a
-              href="#"
-              onClick={(e) => e.preventDefault()}
+            <Link
+              href="/forgot-password"
               className="text-[12.5px] font-semibold text-ff-green-700 no-underline"
             >
               Забравена парола?
-            </a>
+            </Link>
           </div>
         </div>
 

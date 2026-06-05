@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { MediaManager } from '@/components/media/media-manager';
 import { ApiError } from '@/lib/api-client';
 import type { Farmer, Product, Subcategory } from '@/lib/types';
 
@@ -23,6 +24,7 @@ export function ProductDialog({
   multiSubcat,
   onClose,
   onSubmit,
+  onCoverChange,
 }: {
   open: boolean;
   product?: Product | null;
@@ -32,6 +34,8 @@ export function ProductDialog({
   multiSubcat: boolean;
   onClose: () => void;
   onSubmit: (data: Partial<Product>) => Promise<void>;
+  /** Edit mode only: fired when the gallery cover (photo 0) changes. */
+  onCoverChange?: (url: string | null) => void;
 }) {
   const isEdit = !!product;
   const [name, setName] = useState(product?.name ?? '');
@@ -69,7 +73,9 @@ export function ProductDialog({
         weight: weight.trim() || undefined,
         category: category.trim() || undefined,
         tint,
-        stockQuantity: stock === '' ? undefined : parseInt(stock, 10) || 0,
+        // Empty = unlimited stock → send null explicitly (the column defaults to 0
+        // = out of stock, which would contradict the "неограничено" placeholder).
+        stockQuantity: stock === '' ? null : parseInt(stock, 10) || 0,
         ...(isEdit ? {} : { isActive: true }),
         ...(multiFarmer ? { farmerId: farmerId || null } : {}),
         ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
@@ -96,9 +102,13 @@ export function ProductDialog({
         </div>
 
         <form onSubmit={submit} className="flex flex-col gap-3">
+          {isEdit && product && (
+            <MediaManager resource="products" ownerId={product.id} onCoverChange={onCoverChange} />
+          )}
+
           <label className={labelCls}>
             Име
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ягоди" className={field} autoFocus />
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ягоди" className={field} autoFocus={!isEdit} />
           </label>
 
           <div className="grid grid-cols-2 gap-3">
@@ -120,6 +130,7 @@ export function ProductDialog({
             <label className={labelCls}>
               Наличност (бр.)
               <input value={stock} onChange={(e) => setStock(e.target.value)} inputMode="numeric" placeholder="неогранич." className={field} />
+              <span className="text-[10.5px] font-semibold text-ff-muted-2">празно = без лимит</span>
             </label>
           </div>
 

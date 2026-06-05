@@ -1,3 +1,22 @@
+/** Keyset-paginated list envelope returned by admin list endpoints. */
+export interface Paginated<T> {
+  items: T[];
+  nextCursor: string | null;
+  total?: number;
+}
+
+/** Lean product shape from GET /products/options (cross-page counts/notifs). */
+export interface ProductOption {
+  id: string;
+  name: string;
+  weight: string | null;
+  tint: string | null;
+  isActive: boolean | null;
+  stockQuantity: number | null;
+  farmerId: string | null;
+  subcategoryId: string | null;
+}
+
 /** Product as returned by the API (GET /products). */
 export interface Product {
   id: string;
@@ -38,6 +57,14 @@ export interface Subcategory {
   imageUrl: string | null;
   position: number;
   createdAt: string;
+}
+
+/** One gallery photo (admin GET /{products|farmers|subcategories}/:id/media).
+ *  The cover is whichever photo sits at position 0. */
+export interface MediaItem {
+  id: string;
+  url: string;
+  position: number;
 }
 
 /** Subset of the tenant profile the panels read (GET /tenants/me). */
@@ -169,6 +196,24 @@ export interface EcontOffice {
   dist?: string;
 }
 
+/** A settlement from Econt's live nomenclature (admin city autocomplete). */
+export interface EcontCity {
+  id: number;
+  name: string;
+  postCode: string | null;
+}
+
+/** A live Econt office for the admin picker + map (with coordinates + hours). */
+export interface EcontOfficeLive {
+  code: string;
+  name: string;
+  city: string | null;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  hours: string | null;
+}
+
 export type ShipmentStatus = 'pending' | 'created' | 'shipped' | 'delivered' | 'returned';
 
 export interface ShipmentEvent {
@@ -187,6 +232,8 @@ export interface Shipment {
   trackingNumber?: string;
   priceStotinki?: number;
   history?: ShipmentEvent[];
+  /** The Econt shipment row id (present once a waybill exists) — for void/refresh. */
+  shipmentId?: string;
 }
 
 export type ArticleStatus = 'draft' | 'published';
@@ -309,15 +356,24 @@ export interface ProductionSummary {
   items: ProductionItem[];
 }
 
+/** How an order was paid, derived server-side from Stripe state. */
+export type PaymentStatus = 'paid' | 'pending_online' | 'cash';
+
 /** Order as returned by GET /orders (with items + joined slot times). */
 export interface Order {
   id: string;
+  /** Human-friendly per-tenant number (#1, #2, …); null on legacy rows. */
+  orderNumber: number | null;
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
   status: 'pending' | 'confirmed' | 'delivered' | 'cancelled';
+  /** Paid online (card) / started online but unpaid / cash on delivery. */
+  paymentStatus: PaymentStatus;
+  /** ISO timestamp the online (Stripe) payment was captured, else null. */
+  paidAt: string | null;
   totalStotinki: number;
-  deliveryType: 'address' | 'econt';
+  deliveryType: 'address' | 'econt' | 'econt_address';
   deliveryAddress: string | null;
   econtOffice: string | null;
   notes: string | null;

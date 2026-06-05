@@ -4,11 +4,17 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { type Database, tenants, products, reviews } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
+import { decodeCursor } from '../../common/pagination/cursor';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewStatusDto } from './dto/update-review-status.dto';
+
+/** Cap on reviews returned to the storefront; count/average still cover all. */
+const PUBLIC_REVIEWS_LIMIT = 60;
 
 export interface PublicReview {
   id: string;
@@ -27,7 +33,10 @@ export interface ReviewSummary {
 
 @Injectable()
 export class ReviewsService {
-  constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
+  constructor(
+    @Inject(DB_TOKEN) private readonly db: Database,
+    private readonly publicCache: PublicCacheService,
+  ) {}
 
   private async resolveTenantId(slug: string): Promise<string> {
     const [tenant] = await this.db
@@ -41,7 +50,25 @@ export class ReviewsService {
 
   /** Public: published reviews + average rating + count. */
   async findPublic(slug: string): Promise<ReviewSummary> {
-    const tenantId = await this.resolveTenantId(slug);
+    const tenant = await this.publicCache.resolveTenant(this.db, slug);
+
+    const key = publicCacheKeys.reviews(tenant.id);
+    const cached = await this.publicCache.get<ReviewSummary>(key);
+    if (cached) return cached;
+
+    const published = and(eq(reviews.tenantId, tenant.id), eq(reviews.status, 'published'));
+
+    // Count + average over ALL published reviews via SQL, so capping the returned
+    // list below never skews the headline figures.
+    const [agg] = await this.db
+      .select({
+        count: sql<number>`count(*)::int`,
+        average: sql<number>`coalesce(round(avg(${reviews.rating}), 1), 0)::float`,
+      })
+      .from(reviews)
+      .where(published);
+
+    // Bounded list: the storefront shows the most recent reviews, not thousands.
     const rows = await this.db
       .select({
         id: reviews.id,
@@ -52,22 +79,20 @@ export class ReviewsService {
         createdAt: reviews.createdAt,
       })
       .from(reviews)
-      .where(and(eq(reviews.tenantId, tenantId), eq(reviews.status, 'published')))
-      .orderBy(desc(reviews.createdAt));
+      .where(published)
+      .orderBy(desc(reviews.createdAt))
+      .limit(PUBLIC_REVIEWS_LIMIT);
 
-    const count = rows.length;
-    const average = count
-      ? Math.round((rows.reduce((s, r) => s + r.rating, 0) / count) * 10) / 10
-      : 0;
-
-    return {
-      average,
-      count,
+    const summary: ReviewSummary = {
+      average: agg?.average ?? 0,
+      count: agg?.count ?? 0,
       reviews: rows.map((r) => ({
         ...r,
         createdAt: r.createdAt ? r.createdAt.toISOString() : null,
       })),
     };
+    await this.publicCache.set(key, summary);
+    return summary;
   }
 
   /** Public submission → stored as `pending` for moderation. */
@@ -97,14 +122,26 @@ export class ReviewsService {
 
   /* ------------------------------ admin (tenant-scoped) ----------------------------- */
 
-  listForTenant(tenantId: string, status?: string) {
+  async listForTenant(
+    tenantId: string,
+    opts: { status?: string; cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<typeof reviews.$inferSelect>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
     const conds = [eq(reviews.tenantId, tenantId)];
-    if (status) conds.push(eq(reviews.status, status as 'pending' | 'published' | 'hidden'));
-    return this.db
+    if (opts.status) {
+      conds.push(eq(reviews.status, opts.status as 'pending' | 'published' | 'hidden'));
+    }
+    if (cur) conds.push(keysetAfter(reviews.createdAt, reviews.id, cur, 'desc'));
+
+    const rows = await this.db
       .select()
       .from(reviews)
       .where(and(...conds))
-      .orderBy(desc(reviews.createdAt));
+      .orderBy(desc(reviews.createdAt), desc(reviews.id))
+      .limit(lim + 1);
+
+    return buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
   }
 
   async setStatus(id: string, tenantId: string, dto: UpdateReviewStatusDto) {
@@ -114,6 +151,8 @@ export class ReviewsService {
       .where(and(eq(reviews.id, id), eq(reviews.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Ревюто не е намерено');
+    // Publishing/hiding changes the public list + average.
+    await this.publicCache.del(publicCacheKeys.reviews(tenantId));
     return row;
   }
 }

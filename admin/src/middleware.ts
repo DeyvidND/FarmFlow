@@ -6,7 +6,9 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const hasSession = Boolean(req.cookies.get(SESSION_COOKIE)?.value);
   const isAuthPage = pathname === '/login';
-  const isProtected = pathname === '/tenants' || pathname.startsWith('/tenants/');
+  const isProtected = ['/tenants', '/email-billing', '/stripe', '/settings'].some(
+    (p) => pathname === p || pathname.startsWith(p + '/'),
+  );
 
   if (!hasSession && isProtected) {
     const url = req.nextUrl.clone();
@@ -22,5 +24,12 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/tenants/:path*', '/login'],
+  matcher: [
+    '/tenants/:path*',
+    '/email-billing/:path*',
+    '/stripe/:path*',
+    '/stripe',
+    '/settings/:path*',
+    '/login',
+  ],
 };

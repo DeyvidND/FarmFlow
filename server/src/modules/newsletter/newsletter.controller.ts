@@ -4,25 +4,33 @@ import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { NewsletterService } from './newsletter.service';
 import { BroadcastDto } from './dto/broadcast.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 
 @ApiTags('newsletter')
 @Controller()
 export class NewsletterController {
   constructor(private readonly newsletterService: NewsletterService) {}
 
-  /** List all subscribers for the current tenant (active + unsubscribed). */
+  /** Paginated subscribers for the current tenant (active + unsubscribed). */
   @Get('subscribers')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  getSubscribers(@CurrentTenant() tenantId: string) {
-    return this.newsletterService.getSubscribers(tenantId);
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  getSubscribers(@CurrentTenant() tenantId: string, @Query() q: PaginationQueryDto) {
+    return this.newsletterService.getSubscribers(tenantId, { cursor: q.cursor, limit: q.limit });
   }
 
-  /** Send a broadcast to all active subscribers. */
+  /**
+   * Send a broadcast to all active subscribers. Requires an active (non-suspended)
+   * subscription — each push is a billable €2 invoice item, so a suspended farm
+   * must not be able to send. `past_due` (within grace) is still allowed.
+   */
   @Post('broadcast')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ActiveSubscriptionGuard)
   broadcast(@CurrentTenant() tenantId: string, @Body() dto: BroadcastDto) {
     return this.newsletterService.broadcast(tenantId, dto);
   }

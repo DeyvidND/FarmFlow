@@ -1,14 +1,19 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import { type Database, newsletterSubscribers } from '@farmflow/db';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { type Database, newsletterSubscribers, emailPushes } from '@farmflow/db';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
+import { SuppressionService } from '../../common/email/suppression.service';
+import { BillingService } from '../billing/billing.service';
 import { BroadcastDto } from './dto/broadcast.dto';
+import { clampLimit, keysetAfter, buildPage } from '../../common/pagination/keyset';
+import { decodeCursor } from '../../common/pagination/cursor';
 
 export interface SubscribersResult {
-  subscribers: { id: string; email: string; createdAt: Date | null }[];
+  items: { id: string; email: string; createdAt: Date | null }[];
+  nextCursor: string | null;
   activeCount: number;
   unsubscribedCount: number;
 }
@@ -40,47 +45,95 @@ export class NewsletterService {
     private readonly email: EmailService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly suppression: SuppressionService,
+    private readonly billing: BillingService,
   ) {
     this.apiBaseUrl =
       config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3001';
   }
 
-  async getSubscribers(tenantId: string): Promise<SubscribersResult> {
+  async getSubscribers(
+    tenantId: string,
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<SubscribersResult> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    const conds = [eq(newsletterSubscribers.tenantId, tenantId)];
+    if (cur) conds.push(keysetAfter(newsletterSubscribers.createdAt, newsletterSubscribers.id, cur, 'asc'));
+
     const rows = await this.db
-      .select()
+      .select({
+        id: newsletterSubscribers.id,
+        email: newsletterSubscribers.email,
+        createdAt: newsletterSubscribers.createdAt,
+      })
       .from(newsletterSubscribers)
-      .where(eq(newsletterSubscribers.tenantId, tenantId))
-      .orderBy(newsletterSubscribers.createdAt);
+      .where(and(...conds))
+      .orderBy(asc(newsletterSubscribers.createdAt), asc(newsletterSubscribers.id))
+      .limit(lim + 1);
 
-    const activeCount = rows.filter((r) => r.unsubscribedAt == null).length;
-    const unsubscribedCount = rows.length - activeCount;
+    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
 
-    return {
-      subscribers: rows.map((r) => ({
-        id: r.id,
-        email: r.email,
-        createdAt: r.createdAt,
-      })),
-      activeCount,
-      unsubscribedCount,
-    };
+    // Headline counts cover ALL rows (not just the page), so they come from SQL.
+    // Computed once on the first page; cursored pages reuse the client's copy.
+    // `.limit(1)` is a harmless no-op on a single-row aggregate (keeps the unit mock simple).
+    let activeCount = 0;
+    let unsubscribedCount = 0;
+    if (!cur) {
+      const [c] = await this.db
+        .select({
+          active: sql<number>`count(*) filter (where ${newsletterSubscribers.unsubscribedAt} is null)::int`,
+          unsub: sql<number>`count(*) filter (where ${newsletterSubscribers.unsubscribedAt} is not null)::int`,
+        })
+        .from(newsletterSubscribers)
+        .where(eq(newsletterSubscribers.tenantId, tenantId))
+        .limit(1);
+      activeCount = c?.active ?? 0;
+      unsubscribedCount = c?.unsub ?? 0;
+    }
+
+    return { items: page.items, nextCursor: page.nextCursor, activeCount, unsubscribedCount };
   }
 
-  async broadcast(tenantId: string, dto: BroadcastDto): Promise<{ sent: number }> {
-    const rows = await this.db
-      .select()
+  async broadcast(
+    tenantId: string,
+    dto: BroadcastDto,
+  ): Promise<{ sent: number; recipients: number }> {
+    // Guard the flat per-push price: a huge list on a flat fee loses money and
+    // strains the shared domain. Reject over the cap rather than silently truncate.
+    const maxRecipients = this.config.get<number>('EMAIL_PUSH_MAX_RECIPIENTS') ?? 5000;
+
+    // Filter unsubscribed in SQL (index-backed) and pull only the columns the
+    // send needs. Cap the fetch at maxRecipients+1 so an oversized list never
+    // loads the whole table into memory — the +1 row is enough to detect "over cap".
+    const active = await this.db
+      .select({ id: newsletterSubscribers.id, email: newsletterSubscribers.email })
       .from(newsletterSubscribers)
-      .where(eq(newsletterSubscribers.tenantId, tenantId))
-      .orderBy(newsletterSubscribers.createdAt);
+      .where(
+        and(
+          eq(newsletterSubscribers.tenantId, tenantId),
+          isNull(newsletterSubscribers.unsubscribedAt),
+        ),
+      )
+      .orderBy(newsletterSubscribers.createdAt)
+      .limit(maxRecipients + 1);
 
-    const active = rows.filter((r) => r.unsubscribedAt == null);
+    if (active.length > maxRecipients) {
+      throw new BadRequestException(
+        `Списъкът е твърде голям за едно изпращане (${active.length} получателя, лимит ${maxRecipients}). Раздели изпращането.`,
+      );
+    }
+
+    // Drop suppressed addresses (hard bounces / complaints) to protect the domain.
+    const suppressed = await this.suppression.filterSuppressed(active.map((a) => a.email));
+    const recipients = active.filter((a) => !suppressed.has(a.email.trim().toLowerCase()));
+
     let sent = 0;
-
-    for (const subscriber of active) {
+    for (const subscriber of recipients) {
       try {
         const token = this.jwt.sign(
           { sub: subscriber.id, typ: 'unsub' },
-          { expiresIn: '3650d' },
+          { secret: this.unsubSecret(), expiresIn: '3650d' },
         );
         const unsubscribeUrl = `${this.apiBaseUrl}/unsubscribe?token=${encodeURIComponent(token)}`;
         const html = this.renderBroadcastHtml(dto.subject, dto.body, unsubscribeUrl);
@@ -91,6 +144,7 @@ export class NewsletterService {
           subject: dto.subject,
           html,
           text,
+          stream: 'bulk', // newsletters ride the bulk reputation lane
         });
         sent++;
       } catch (err) {
@@ -100,13 +154,33 @@ export class NewsletterService {
       }
     }
 
-    return { sent };
+    // Usage ledger: one row per push, valued at the per-push price, then billed
+    // to the farm's Stripe subscription as a €2 invoice item (premium → free).
+    const priceStotinki = this.config.get<number>('EMAIL_PUSH_PRICE_STOTINKI') ?? 200;
+    if (recipients.length > 0) {
+      try {
+        const [push] = await this.db
+          .insert(emailPushes)
+          .values({ tenantId, subject: dto.subject, recipientCount: recipients.length, priceStotinki })
+          .returning({ id: emailPushes.id });
+        await this.billing.billPush(push.id);
+      } catch (err) {
+        this.logger.error(
+          `[newsletter] push-record/bill failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return { sent, recipients: recipients.length };
   }
 
   async unsubscribe(token: string): Promise<UnsubscribeResult> {
     let payload: { sub?: string; typ?: string };
     try {
-      payload = this.jwt.verify(token) as { sub?: string; typ?: string };
+      payload = this.jwt.verify(token, { secret: this.unsubSecret() }) as {
+        sub?: string;
+        typ?: string;
+      };
     } catch {
       return { success: false };
     }
@@ -137,6 +211,15 @@ export class NewsletterService {
       .returning();
 
     return { success: true };
+  }
+
+  /**
+   * Unsubscribe tokens use a SEPARATE derived secret so a token emailed to every
+   * subscriber can never validate against the main JWT_SECRET (i.e. never be
+   * replayed as an auth/session token). Mirrors AuthService.resetSecret().
+   */
+  private unsubSecret(): string {
+    return `${this.config.getOrThrow<string>('JWT_SECRET')}::unsub`;
   }
 
   private renderBroadcastHtml(subject: string, body: string, unsubscribeUrl: string): string {

@@ -1,12 +1,18 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { MulterModule } from '@nestjs/platform-express';
+import type Redis from 'ioredis';
 import { MustChangePasswordGuard } from './common/guards/must-change-password.guard';
 import { envValidationSchema } from './config/env.validation';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { DrizzleModule } from './common/drizzle/drizzle.module';
 import { RedisModule } from './common/redis/redis.module';
+import { REDIS_TOKEN } from './common/redis/redis.constants';
+import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
+import { throttlerTracker } from './common/throttler/throttler.tracker';
 import { EmailModule } from './common/email/email.module';
 import { MapsModule } from './common/maps/maps.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
@@ -22,11 +28,15 @@ import { RoutingModule } from './modules/routing/routing.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { StripeModule } from './modules/stripe/stripe.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { IntakeModule } from './modules/intake/intake.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CatalogCacheModule } from './modules/catalog-cache/catalog-cache.module';
+import { PublicCacheModule } from './common/cache/public-cache.module';
+import { PublicBootstrapModule } from './modules/public-bootstrap/public-bootstrap.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { ArticlesModule } from './modules/articles/articles.module';
+import { EcontModule } from './modules/econt/econt.module';
 import { DigestModule } from './modules/digest/digest.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
 
@@ -38,6 +48,46 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
       validationSchema: envValidationSchema,
     }),
     ScheduleModule.forRoot(),
+    // Distributed rate limiting backed by the shared Redis (REDIS_URL is required),
+    // so limits hold across instances and survive restarts. A generous global
+    // backstop; abuse-prone routes tighten it via @Throttle, and signature-verified
+    // webhooks opt out via @SkipThrottle. Requests are keyed on the JWT principal
+    // when authenticated (the panels proxy through a BFF, so IP-keying would
+    // collapse all users into one bucket) and on client IP otherwise. Cached public
+    // catalog GETs are skipped — the storefront SSRs them from a single IP, and
+    // volumetric DDoS there is an edge/CDN concern (see docs/SECURITY.md).
+    ThrottlerModule.forRootAsync({
+      inject: [REDIS_TOKEN, ConfigService],
+      useFactory: (redis: Redis, config: ConfigService) => {
+        const disabled = config.get<string>('RATE_LIMIT_DISABLED') === 'true';
+        return {
+          throttlers: [
+            {
+              name: 'default',
+              ttl: config.get<number>('RATE_LIMIT_TTL_MS', 60_000),
+              limit: config.get<number>('RATE_LIMIT_DEFAULT', 300),
+            },
+          ],
+          storage: new RedisThrottlerStorage(redis),
+          getTracker: (req) => throttlerTracker(req as any),
+          skipIf: (ctx) => {
+            if (disabled) return true;
+            const req = ctx.switchToHttp().getRequest();
+            // Cached, anonymous catalog reads SSR'd from one IP — don't throttle.
+            return req.method === 'GET' && typeof req.path === 'string' && req.path.startsWith('/public/');
+          },
+        };
+      },
+    }),
+    // Cap multipart upload size + count globally. Inline `FileInterceptor('image')`
+    // calls inherit these limits (none of them override), so a single oversized
+    // upload can't exhaust memory/disk.
+    MulterModule.register({
+      limits: {
+        fileSize: Number(process.env.MAX_UPLOAD_MB ?? 8) * 1024 * 1024,
+        files: 1,
+      },
+    }),
     DrizzleModule,
     RedisModule,
     EmailModule,
@@ -54,16 +104,26 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
     DashboardModule,
     PlatformModule,
     StripeModule,
+    BillingModule,
     IntakeModule,
     ReviewsModule,
     CatalogCacheModule,
+    PublicCacheModule,
     StorageModule,
     ArticlesModule,
+    EcontModule,
     DigestModule,
     NewsletterModule,
+    // After the feature modules it composes (Tenants/Products/Farmers/Subcategories).
+    PublicBootstrapModule,
   ],
   controllers: [AppController],
   providers: [
+    // First global guard: reject floods before any auth/DB work runs.
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,

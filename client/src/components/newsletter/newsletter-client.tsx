@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { Mail, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ApiError, sendBroadcast } from '@/lib/api-client';
+import { ApiError, listSubscribers, sendBroadcast, type Subscriber } from '@/lib/api-client';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
+import type { Paginated } from '@/lib/types';
 
 const field =
   'rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500 w-full';
@@ -17,18 +19,16 @@ function shortDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('bg-BG', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-interface Subscriber {
-  id: string;
-  email: string;
-  createdAt: string | null;
-}
-
 interface Props {
-  subscribers: Subscriber[];
+  initial: Paginated<Subscriber>;
   activeCount: number;
 }
 
-export function NewsletterClient({ subscribers, activeCount }: Props) {
+export function NewsletterClient({ initial, activeCount }: Props) {
+  const { items: subscribers, loadMore, hasMore, loading } = usePaginatedList<Subscriber>(
+    initial,
+    listSubscribers,
+  );
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [fieldErr, setFieldErr] = useState('');
@@ -129,6 +129,18 @@ export function NewsletterClient({ subscribers, activeCount }: Props) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {hasMore && (
+        <div className="mt-5 flex justify-center">
+          <button
+            onClick={loadMore}
+            disabled={loading}
+            className="rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
+          >
+            {loading ? 'Зареждане…' : 'Зареди още'}
+          </button>
         </div>
       )}
 

@@ -3,11 +3,17 @@ import type {
   ArticleMedia,
   DashboardSummary,
   DeliveryConfig,
+  EcontCity,
+  EcontOfficeLive,
   Farmer,
+  MediaItem,
   Order,
+  Paginated,
   Product,
+  ProductOption,
   ProductionSummary,
   RouteResult,
+  Shipment,
   Slot,
   Subcategory,
   TenantProfile,
@@ -55,7 +61,19 @@ const json = (data: unknown): RequestInit => ({
   body: JSON.stringify(data),
 });
 
-export const listProducts = () => apiFetch<Product[]>('products');
+/** Build a `?cursor=&limit=` query string for paginated list fetches. */
+const qs = (cursor?: string, limit?: number) => {
+  const p = new URLSearchParams();
+  if (cursor) p.set('cursor', cursor);
+  if (limit) p.set('limit', String(limit));
+  const s = p.toString();
+  return s ? `?${s}` : '';
+};
+
+export const listProducts = (cursor?: string) =>
+  apiFetch<Paginated<Product>>(`products${qs(cursor)}`);
+
+export const listProductOptions = () => apiFetch<ProductOption[]>('products/options');
 
 export const createProduct = (data: Partial<Product>) =>
   apiFetch<Product>('products', { method: 'POST', ...json(data) }, 'Неуспешно създаване');
@@ -108,6 +126,34 @@ export function uploadSubcategoryImage(id: string, file: File) {
   return apiFetch<Subcategory>(`subcategories/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
 }
 
+// ---- Media galleries (products / farmers / subcategories) ----
+// All three resources share the same media endpoints + shape, so one generic set
+// of helpers covers them. The cover is whichever photo is at position 0.
+export type MediaResource = 'products' | 'farmers' | 'subcategories';
+
+export const listMedia = (resource: MediaResource, id: string) =>
+  apiFetch<MediaItem[]>(`${resource}/${id}/media`);
+
+export function addMedia(resource: MediaResource, id: string, file: File) {
+  const fd = new FormData();
+  fd.append('image', file);
+  return apiFetch<MediaItem>(`${resource}/${id}/media`, { method: 'POST', body: fd }, 'Неуспешно качване');
+}
+
+export const deleteMedia = (resource: MediaResource, id: string, mediaId: string) =>
+  apiFetch<{ id: string }>(`${resource}/${id}/media/${mediaId}`, { method: 'DELETE' }, 'Неуспешно изтриване');
+
+export const reorderMedia = (
+  resource: MediaResource,
+  id: string,
+  items: { id: string; position: number }[],
+) =>
+  apiFetch<MediaItem[]>(
+    `${resource}/${id}/media/reorder`,
+    { method: 'PATCH', ...json({ items }) },
+    'Неуспешно подреждане',
+  );
+
 // ---- Tenant toggles ----
 export const getTenant = () => apiFetch<TenantProfile>('tenants/me');
 
@@ -121,7 +167,8 @@ export const updateTenant = (data: {
 }) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
 // ---- Articles ----
-export const listArticles = () => apiFetch<Article[]>('articles');
+export const listArticles = (cursor?: string) =>
+  apiFetch<Paginated<Article>>(`articles${qs(cursor)}`);
 
 export const getArticle = (id: string) => apiFetch<Article>(`articles/${id}`);
 
@@ -187,7 +234,8 @@ export const deleteSlot = (id: string) =>
   apiFetch<{ id: string }>(`slots/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
 
 // ---- Orders ----
-export const listOrders = () => apiFetch<Order[]>('orders');
+export const listOrders = (cursor?: string) =>
+  apiFetch<Paginated<Order>>(`orders${qs(cursor)}`);
 
 export const updateOrderStatus = (id: string, status: string) =>
   apiFetch<Order>(`orders/${id}/status`, { method: 'PATCH', ...json({ status }) }, 'Неуспешна промяна на статуса');
@@ -208,6 +256,67 @@ export const getRoute = (date?: string) =>
 export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);
 
+// ---- Stripe (payments / Connect) ----
+export interface StripeSummary {
+  /** Stripe is configured on the server (secret key present). */
+  enabled: boolean;
+  connected: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  /** Stripe balance, minor units (EUR cents). */
+  availableStotinki: number;
+  pendingStotinki: number;
+  nextPayout: { amountStotinki: number; arrivalDate: string } | null;
+  /** Platform commission in basis points (100 = 1%). */
+  feeBps: number;
+}
+
+export const getStripeSummary = () => apiFetch<StripeSummary>('stripe/connect/summary');
+
+/** Mint an Account Session client secret for the embedded Connect components. */
+export const createStripeAccountSession = () =>
+  apiFetch<{ clientSecret: string }>(
+    'stripe/connect/account-session',
+    { method: 'POST' },
+    'Неуспешна връзка със Stripe',
+  );
+
+// ---- SaaS billing (the platform's subscription charged to the farm) ----
+export interface BillingSummary {
+  /** STRIPE_SECRET_KEY + billing price id both present on the server. */
+  enabled: boolean;
+  plan: 'standard' | 'premium';
+  status: 'active' | 'past_due' | 'inactive';
+  graceUntil: string | null;
+  hasCard: boolean;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  basePriceStotinki: number;
+  emailPriceStotinki: number;
+  pushesThisCycle: number;
+  estimatedNextStotinki: number;
+  invoices: { amountStotinki: number; status: string; date: string; url: string | null }[];
+}
+
+export const getBillingSummary = () => apiFetch<BillingSummary>('billing/summary');
+
+/** Start the hosted Checkout (subscription mode) — caller redirects to the URL. */
+export const startBillingCheckout = () =>
+  apiFetch<{ url: string | null }>(
+    'billing/checkout',
+    { method: 'POST' },
+    'Неуспешно стартиране на плащане',
+  );
+
+/** Open the Stripe Billing Portal — caller redirects to the URL. */
+export const openBillingPortal = () =>
+  apiFetch<{ url: string }>(
+    'billing/portal',
+    { method: 'POST' },
+    'Неуспешно отваряне на портала',
+  );
+
 // ---- Tenant ----
 export const setDeliveryEnabled = (enabled: boolean) =>
   apiFetch<{ deliveryEnabled: boolean }>(
@@ -224,9 +333,73 @@ export const saveDelivery = (data: { deliveryEnabled: boolean; delivery: Deliver
     'Неуспешно записване на настройките',
   );
 
+// ---- Econt (courier) ----
+export interface EcontConfigView {
+  env?: 'demo' | 'prod';
+  username?: string;
+  configured: boolean;
+  sender?: Record<string, unknown>;
+  nomenclature?: { lastSyncedAt?: string; cities?: number; offices?: number };
+}
+
+/** Raw shipment row (returned by create/refresh). */
+export interface ShipmentRecord {
+  id: string;
+  orderId: string;
+  econtShipmentNumber: string | null;
+  status: string;
+  labelPdfUrl: string | null;
+  courierPriceStotinki: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export const getEcontConfig = () => apiFetch<EcontConfigView>('econt/config');
+
+export const saveEcontCredentials = (data: { env?: 'demo' | 'prod'; username: string; password: string }) =>
+  apiFetch<{ configured: true; env: 'demo' | 'prod' }>(
+    'econt/credentials',
+    { method: 'POST', ...json(data) },
+    'Неуспешна връзка с Еконт — провери данните',
+  );
+
+export const syncEcontNomenclature = () =>
+  apiFetch<{ cities: number; offices: number }>(
+    'econt/nomenclature/sync',
+    { method: 'POST' },
+    'Неуспешно обновяване на номенклатурата',
+  );
+
+/** Live Econt city autocomplete (requires a connected Econt account). */
+export const listEcontCities = (q?: string) =>
+  apiFetch<EcontCity[]>(`econt/cities${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+
+/** Live Econt offices for one city — sender picker + office map. */
+export const listEcontOffices = (cityId: number) =>
+  apiFetch<EcontOfficeLive[]>(`econt/offices?cityId=${cityId}`);
+
+export const listShipments = () => apiFetch<Shipment[]>('econt/shipments');
+
+export const createShipment = (orderId: string) =>
+  apiFetch<ShipmentRecord>(`econt/shipments/${orderId}`, { method: 'POST' }, 'Неуспешно създаване на товарителница');
+
+export const refreshShipment = (id: string) =>
+  apiFetch<ShipmentRecord>(`econt/shipments/${id}/refresh`, { method: 'POST' }, 'Неуспешно обновяване на статуса');
+
+export const voidShipment = (id: string) =>
+  apiFetch<{ id: string }>(`econt/shipments/${id}`, { method: 'DELETE' }, 'Неуспешно анулиране');
+
 // ---- Newsletters ----
-export const listSubscribers = () =>
-  apiFetch<{ subscribers: { id: string; email: string; createdAt: string | null }[]; activeCount: number; unsubscribedCount: number }>('subscribers');
+export interface Subscriber {
+  id: string;
+  email: string;
+  createdAt: string | null;
+}
+
+export const listSubscribers = (cursor?: string) =>
+  apiFetch<Paginated<Subscriber> & { activeCount: number; unsubscribedCount: number }>(
+    `subscribers${qs(cursor)}`,
+  );
 
 export const sendBroadcast = (data: { subject: string; body: string }) =>
   apiFetch<{ sent: number }>('broadcast', { method: 'POST', ...json(data) }, 'Неуспешно изпращане');

@@ -5,9 +5,11 @@ import { Search, MapPin, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, timeFromIso, type OrderStatus } from '@/lib/utils';
 import { StatusBadge } from '@/components/status-badge';
+import { PaymentBadge } from './payment-badge';
 import { OrderPanel } from './order-panel';
-import { ApiError, updateOrderStatus } from '@/lib/api-client';
-import type { Order } from '@/lib/types';
+import { ApiError, listOrders, updateOrderStatus } from '@/lib/api-client';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
+import type { Order, Paginated } from '@/lib/types';
 
 const FILTERS: [string, string][] = [
   ['all', 'Всички'],
@@ -17,9 +19,14 @@ const FILTERS: [string, string][] = [
   ['cancelled', 'Отказани'],
 ];
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
+/** Human order ref — the per-tenant number, falling back to a short id for legacy rows. */
+const orderNo = (o: Order) => (o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(0, 8)}`);
 
-export function OrdersClient({ initial }: { initial: Order[] }) {
-  const [orders, setOrders] = useState<Order[]>(initial);
+export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
+  const { items: orders, setItems: setOrders, loadMore, hasMore, loading } = usePaginatedList<Order>(
+    initial,
+    listOrders,
+  );
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -34,13 +41,25 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
   );
   const active = orders.find((o) => o.id === activeId) ?? null;
 
+  async function revertStatus(id: string, to: OrderStatus) {
+    setOrders((p) => p.map((x) => (x.id === id ? { ...x, status: to } : x))); // optimistic
+    try {
+      await updateOrderStatus(id, to);
+      toast.success('Върнато');
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  }
+
   async function onAction(o: Order, status: OrderStatus) {
     setBusy(true);
     const prev = o.status;
     setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status } : x)));
     try {
       await updateOrderStatus(o.id, status);
-      toast.success('Статусът е обновен');
+      toast.success('Статусът е обновен', {
+        action: { label: 'Отмени', onClick: () => void revertStatus(o.id, prev) },
+      });
       setActiveId(null);
     } catch (e) {
       setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status: prev } : x)));
@@ -52,9 +71,9 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
 
   const itemsSummary = (o: Order) => o.items.map((i) => `${i.productName} × ${i.quantity}`).join(', ');
   const deliveryCell = (o: Order) =>
-    o.deliveryType === 'econt' ? (
+    o.deliveryType === 'econt' || o.deliveryType === 'econt_address' ? (
       <span className="inline-flex items-center gap-1.5 font-semibold text-ff-amber-600">
-        <Package size={15} /> Еконт
+        <Package size={15} /> {o.deliveryType === 'econt_address' ? 'Еконт адрес' : 'Еконт офис'}
       </span>
     ) : (
       <span className="inline-flex items-center gap-1.5 font-semibold text-ff-green-700">
@@ -117,7 +136,7 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
               >
                 <td className="px-5 py-3.5 align-top">
                   <div className="text-[13.5px] font-bold text-ff-muted">{timeFromIso(o.createdAt)}</div>
-                  <div className="text-xs text-ff-muted-2">#{o.id.slice(0, 8)}</div>
+                  <div className="text-xs text-ff-muted-2">{orderNo(o)}</div>
                 </td>
                 <td className="px-5 py-3.5 align-top text-[14.5px] font-bold">{o.customerName}</td>
                 <td className="max-w-[280px] truncate px-5 py-3.5 align-top text-[13.5px] text-ff-ink-2">
@@ -125,7 +144,10 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
                 </td>
                 <td className="px-5 py-3.5 align-top text-[13px]">{deliveryCell(o)}</td>
                 <td className="px-5 py-3.5 align-top">
-                  <StatusBadge status={o.status} size="sm" />
+                  <div className="flex flex-col items-start gap-1.5">
+                    <StatusBadge status={o.status} size="sm" />
+                    <PaymentBadge status={o.paymentStatus} size="sm" />
+                  </div>
                 </td>
                 <td className="ff-fig px-5 py-3.5 text-right align-top text-[14.5px] font-extrabold">
                   {moneyFromStotinki(o.totalStotinki)}
@@ -147,10 +169,13 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
                 <div>
                   <div className="text-[15.5px] font-extrabold">{o.customerName}</div>
                   <div className="mt-px text-[12.5px] text-ff-muted">
-                    {timeFromIso(o.createdAt)} · #{o.id.slice(0, 8)}
+                    {timeFromIso(o.createdAt)} · {orderNo(o)}
                   </div>
                 </div>
-                <StatusBadge status={o.status} size="sm" />
+                <div className="flex flex-col items-end gap-1.5">
+                  <StatusBadge status={o.status} size="sm" />
+                  <PaymentBadge status={o.paymentStatus} size="sm" />
+                </div>
               </div>
               <div className="text-[13.5px] leading-[1.4] text-ff-ink-2">{itemsSummary(o)}</div>
               <div className="flex items-center justify-between border-t border-ff-border-2 pt-2.5 text-[13px]">
@@ -163,6 +188,18 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
 
         {filtered.length === 0 && <p className="px-5 py-12 text-center text-sm text-ff-muted">Няма поръчки за този филтър.</p>}
       </div>
+
+      {hasMore && (
+        <div className="mt-5 flex justify-center">
+          <button
+            onClick={loadMore}
+            disabled={loading}
+            className="rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
+          >
+            {loading ? 'Зареждане…' : 'Зареди още'}
+          </button>
+        </div>
+      )}
 
       {active && (
         <OrderPanel order={active} busy={busy} onClose={() => setActiveId(null)} onAction={(s) => onAction(active, s)} />

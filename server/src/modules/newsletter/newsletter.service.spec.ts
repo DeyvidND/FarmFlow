@@ -5,6 +5,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { NewsletterService } from './newsletter.service';
 import { EmailService } from '../../common/email/email.service';
+import { SuppressionService } from '../../common/email/suppression.service';
+import { BillingService } from '../billing/billing.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
 // ── Mock DB builder ─────────────────────────────────────────────────────────
@@ -16,10 +18,12 @@ function makeDb() {
     limit: jest.fn().mockResolvedValue([]),
     insert: jest.fn().mockReturnThis(),
     values: jest.fn().mockReturnThis(),
-    returning: jest.fn().mockResolvedValue([]),
+    returning: jest.fn().mockResolvedValue([{ id: 'push-1' }]),
     update: jest.fn().mockReturnThis(),
     set: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockResolvedValue([]),
+    // Chainable: both broadcast (orderBy→limit) and getSubscribers (orderBy→limit)
+    // terminate in `.limit`, which resolves the rows.
+    orderBy: jest.fn().mockReturnThis(),
   };
 }
 
@@ -37,6 +41,7 @@ function makeJwtService() {
 function makeConfigService() {
   return {
     get: jest.fn().mockReturnValue(undefined),
+    getOrThrow: jest.fn().mockReturnValue('test-jwt-secret'),
   };
 }
 
@@ -61,6 +66,11 @@ describe('NewsletterService', () => {
         { provide: EmailService, useValue: emailService },
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: makeConfigService() },
+        {
+          provide: SuppressionService,
+          useValue: { filterSuppressed: jest.fn().mockResolvedValue(new Set()), isSuppressed: jest.fn().mockResolvedValue(false), suppress: jest.fn() },
+        },
+        { provide: BillingService, useValue: { billPush: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -72,39 +82,25 @@ describe('NewsletterService', () => {
   // ── getSubscribers ──────────────────────────────────────────────────────
 
   describe('getSubscribers', () => {
+    // The list query terminates in `.limit(lim+1)`; the counts query terminates
+    // in `.limit(1)`. So `db.limit` is called twice on the first page: rows, then counts.
     it("returns only the calling tenant subscribers, not another tenant's", async () => {
-      const mySubscriber = {
-        id: 'sub-1',
-        email: 'a@test.bg',
-        createdAt: new Date('2026-01-01'),
-        unsubscribedAt: null,
-        tenantId: TENANT_ID,
-      };
-      // Simulate that DB returns only this tenant's subscribers
-      db.orderBy.mockResolvedValue([mySubscriber]);
+      const mySubscriber = { id: 'sub-1', email: 'a@test.bg', createdAt: new Date('2026-01-01') };
+      db.limit
+        .mockResolvedValueOnce([mySubscriber]) // page rows
+        .mockResolvedValueOnce([{ active: 1, unsub: 0 }]); // SQL counts
 
       const result = await service.getSubscribers(TENANT_ID);
 
-      expect(result.subscribers).toHaveLength(1);
-      expect(result.subscribers[0].email).toBe('a@test.bg');
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].email).toBe('a@test.bg');
+      expect(result.nextCursor).toBeNull();
     });
 
-    it('correctly counts active vs unsubscribed', async () => {
-      const active = {
-        id: 'sub-1',
-        email: 'a@test.bg',
-        createdAt: new Date('2026-01-01'),
-        unsubscribedAt: null,
-        tenantId: TENANT_ID,
-      };
-      const unsubscribed = {
-        id: 'sub-2',
-        email: 'b@test.bg',
-        createdAt: new Date('2026-01-02'),
-        unsubscribedAt: new Date('2026-03-01'),
-        tenantId: TENANT_ID,
-      };
-      db.orderBy.mockResolvedValue([active, unsubscribed]);
+    it('counts active vs unsubscribed from the SQL aggregate (not the page)', async () => {
+      db.limit
+        .mockResolvedValueOnce([{ id: 'sub-1', email: 'a@test.bg', createdAt: new Date('2026-01-01') }])
+        .mockResolvedValueOnce([{ active: 1, unsub: 1 }]);
 
       const result = await service.getSubscribers(TENANT_ID);
 
@@ -124,14 +120,9 @@ describe('NewsletterService', () => {
         unsubscribedAt: null,
         tenantId: TENANT_ID,
       };
-      const unsubscribed = {
-        id: 'sub-2',
-        email: 'gone@test.bg',
-        createdAt: new Date(),
-        unsubscribedAt: new Date(),
-        tenantId: TENANT_ID,
-      };
-      db.orderBy.mockResolvedValue([active, unsubscribed]);
+      // The unsubscribed filter is applied in SQL (WHERE unsubscribed_at IS NULL),
+      // so the query returns active rows only.
+      db.limit.mockResolvedValue([active]);
 
       const result = await service.broadcast(TENANT_ID, {
         subject: 'Новини',
@@ -151,7 +142,7 @@ describe('NewsletterService', () => {
         { id: 'sub-2', email: 'b@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
         { id: 'sub-3', email: 'c@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
       ];
-      db.orderBy.mockResolvedValue(activeList);
+      db.limit.mockResolvedValue(activeList);
 
       const result = await service.broadcast(TENANT_ID, { subject: 'Test', body: 'Body' });
 
@@ -166,7 +157,7 @@ describe('NewsletterService', () => {
         unsubscribedAt: null,
         tenantId: TENANT_ID,
       };
-      db.orderBy.mockResolvedValue([active]);
+      db.limit.mockResolvedValue([active]);
 
       await service.broadcast(TENANT_ID, { subject: 'Test', body: 'Здравей!' });
 
@@ -180,7 +171,7 @@ describe('NewsletterService', () => {
         { id: 'sub-1', email: 'a@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
         { id: 'sub-2', email: 'b@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
       ];
-      db.orderBy.mockResolvedValue(activeList);
+      db.limit.mockResolvedValue(activeList);
 
       emailService.sendMail
         .mockRejectedValueOnce(new Error('SMTP error'))
@@ -264,7 +255,7 @@ describe('NewsletterService', () => {
   describe('broadcast excludes unsubscribed after an unsubscribe call', () => {
     it('an unsubscribed subscriber is not in the active list passed to broadcast', async () => {
       // Simulate DB already filtering: broadcast's query returns only active
-      db.orderBy.mockResolvedValue([
+      db.limit.mockResolvedValue([
         { id: 'sub-1', email: 'active@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
       ]);
 

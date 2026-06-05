@@ -1,16 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Check, Image as ImageIcon } from 'lucide-react';
+import { X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { SectionPhoto } from './section-photo';
-import {
-  ApiError,
-  createSubcategory,
-  updateSubcategory,
-  uploadSubcategoryImage,
-} from '@/lib/api-client';
+import { MediaManager } from '@/components/media/media-manager';
+import { ApiError, createSubcategory, updateSubcategory } from '@/lib/api-client';
 import type { Subcategory } from '@/lib/types';
 
 const TINTS = ['#4C8A54', '#B23B5E', '#D08B26', '#5B5BA8', '#A11E2E', '#3B3B57'];
@@ -53,19 +49,11 @@ export function SubcategoryPanel({
     }
   }
 
-  async function onPickImage(file: File) {
-    if (isNew) {
-      toast.error('Първо запази секцията, после качи снимка');
-      return;
-    }
-    try {
-      const updated = await uploadSubcategoryImage(subcat.id!, file);
-      setImageUrl(updated.imageUrl);
-      onSaved(updated);
-      toast.success('Снимката е качена');
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'Грешка');
-    }
+  // Keep the section preview + the sections list card in sync as the gallery cover
+  // (photo 0) changes — without a full reload.
+  function onCoverChange(url: string | null) {
+    setImageUrl(url);
+    if (subcat.id) onSaved({ ...(subcat as Subcategory), imageUrl: url });
   }
 
   return (
@@ -90,16 +78,12 @@ export function SubcategoryPanel({
           <div>
             <div className="mb-1.5 text-[12.5px] font-bold text-ff-ink-2">Снимка на секцията</div>
             <SectionPhoto tint={tint} imageUrl={imageUrl} height={130} />
-            {!isNew && (
-              <label className="mt-2 inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-1.5 text-[13px] font-bold text-ff-ink-2">
-                <ImageIcon size={15} /> Качи снимка
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => e.target.files?.[0] && onPickImage(e.target.files[0])}
-                />
-              </label>
+            {isNew ? (
+              <p className="mt-2 text-[12.5px] text-ff-muted-2">Първо запази секцията, после добави снимки.</p>
+            ) : (
+              <div className="mt-3">
+                <MediaManager resource="subcategories" ownerId={subcat.id!} onCoverChange={onCoverChange} />
+              </div>
             )}
           </div>
 

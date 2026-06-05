@@ -4,12 +4,14 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 
 @ApiTags('orders')
 @ApiBearerAuth()
@@ -19,18 +21,10 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
-  @ApiQuery({ name: 'date', required: false })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'deliveryType', required: false })
-  @ApiQuery({ name: 'search', required: false })
-  findAll(
-    @CurrentTenant() tenantId: string,
-    @Query('date') date?: string,
-    @Query('status') status?: string,
-    @Query('deliveryType') deliveryType?: string,
-    @Query('search') search?: string,
-  ) {
-    return this.ordersService.findAll(tenantId, { date, status, deliveryType, search });
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  findAll(@CurrentTenant() tenantId: string, @Query() q: PaginationQueryDto) {
+    return this.ordersService.findAll(tenantId, { cursor: q.cursor, limit: q.limit });
   }
 
   // Declared before `:id` routes so the literal segment wins.
@@ -68,6 +62,8 @@ export class OrdersController {
 export class PublicOrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  // Anonymous order creation — 15/min/IP (matches public checkout).
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   @Post()
   create(@Param('slug') slug: string, @Body() dto: CreateOrderDto) {
     return this.ordersService.create(slug, dto);

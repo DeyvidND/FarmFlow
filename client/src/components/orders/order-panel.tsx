@@ -1,8 +1,11 @@
 'use client';
 
-import { X, Phone, MapPin, Package, CalendarClock, Check, Truck } from 'lucide-react';
+import { useState } from 'react';
+import { X, Phone, MapPin, Package, CalendarClock, Check, Truck, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusBadge } from '@/components/status-badge';
+import { PaymentBadge } from './payment-badge';
 import { moneyFromStotinki, hhmm, timeFromIso, type OrderStatus } from '@/lib/utils';
 import type { Order } from '@/lib/types';
 
@@ -17,10 +20,25 @@ export function OrderPanel({
   onClose: () => void;
   onAction: (status: OrderStatus) => void;
 }) {
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const slotLabel = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '—';
+  const paymentValue =
+    order.paymentStatus === 'paid'
+      ? order.paidAt
+        ? `Платена с карта · ${timeFromIso(order.paidAt)}`
+        : 'Платена с карта'
+      : order.paymentStatus === 'pending_online'
+        ? 'Чака онлайн плащане'
+        : 'Наложен платеж / при доставка';
+  const isEcont = order.deliveryType === 'econt' || order.deliveryType === 'econt_address';
   const deliveryVal =
     order.deliveryType === 'econt' ? order.econtOffice ?? 'Еконт офис' : order.deliveryAddress ?? '—';
-  const deliveryLabel = order.deliveryType === 'econt' ? 'Еконт офис' : 'Адрес за доставка';
+  const deliveryLabel =
+    order.deliveryType === 'econt'
+      ? 'Еконт — до офис'
+      : order.deliveryType === 'econt_address'
+        ? 'Еконт — до адрес'
+        : 'Адрес за доставка';
 
   return (
     <>
@@ -28,7 +46,9 @@ export function OrderPanel({
       <aside className="animate-ff-slide-in fixed right-0 top-0 z-[41] flex h-full w-[460px] max-w-[94vw] flex-col bg-ff-surface shadow-ff-lg max-[680px]:w-full max-[680px]:max-w-full">
         <div className="flex items-center justify-between border-b border-ff-border-2 px-6 py-[18px]">
           <div>
-            <div className="mb-0.5 text-[12.5px] font-bold text-ff-muted">ПОРЪЧКА #{order.id.slice(0, 8)}</div>
+            <div className="mb-0.5 text-[12.5px] font-bold text-ff-muted">
+              ПОРЪЧКА {order.orderNumber != null ? `#${order.orderNumber}` : `#${order.id.slice(0, 8)}`}
+            </div>
             <h2 className="text-[22px] font-extrabold tracking-[-0.015em]">{order.customerName ?? 'Клиент'}</h2>
           </div>
           <button onClick={onClose} aria-label="Затвори" className="grid h-10 w-10 place-items-center rounded-[11px] border border-ff-border bg-ff-surface-2 text-ff-ink-2">
@@ -37,19 +57,21 @@ export function OrderPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="mb-5 flex items-center gap-2.5">
+          <div className="mb-5 flex flex-wrap items-center gap-2.5">
             <StatusBadge status={order.status} size="md" />
+            <PaymentBadge status={order.paymentStatus} size="md" />
             <span className="text-[13px] text-ff-muted">· приета в {timeFromIso(order.createdAt)}</span>
           </div>
 
           <div className="mb-[22px] flex flex-col gap-2.5">
             <InfoRow icon={<Phone size={18} />} label="Телефон" value={order.customerPhone ?? '—'} />
             <InfoRow
-              icon={order.deliveryType === 'econt' ? <Package size={18} /> : <MapPin size={18} />}
+              icon={isEcont ? <Package size={18} /> : <MapPin size={18} />}
               label={deliveryLabel}
               value={deliveryVal}
             />
             <InfoRow icon={<CalendarClock size={18} />} label="Слот за доставка" value={slotLabel} />
+            <InfoRow icon={<CreditCard size={18} />} label="Плащане" value={paymentValue} />
           </div>
 
           {order.notes && (
@@ -91,12 +113,38 @@ export function OrderPanel({
             </Button>
           )}
           {order.status !== 'cancelled' && order.status !== 'delivered' && (
-            <Button variant="danger" disabled={busy} onClick={() => onAction('cancelled')} className="w-full rounded-sm">
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={() => setConfirmingCancel(true)}
+              className="w-full rounded-sm"
+            >
               <X size={18} /> Откажи
             </Button>
           )}
         </div>
       </aside>
+
+      {confirmingCancel && (
+        <ConfirmDialog
+          tone="danger"
+          title="Отказване на поръчката?"
+          message={
+            <>
+              Поръчката на <b>{order.customerName ?? 'клиента'}</b> ще бъде отказана. Това освобождава
+              слота, ако има резервиран. Действието може да се върне ръчно после.
+            </>
+          }
+          confirmLabel="Откажи поръчката"
+          cancelLabel="Назад"
+          busy={busy}
+          onCancel={() => setConfirmingCancel(false)}
+          onConfirm={() => {
+            setConfirmingCancel(false);
+            onAction('cancelled');
+          }}
+        />
+      )}
     </>
   );
 }

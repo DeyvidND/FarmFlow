@@ -4,16 +4,19 @@ import { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ProductCard } from './product-card';
 import { ProductDialog } from './product-dialog';
 import {
   ApiError,
+  addMedia,
   createProduct,
   deleteProduct,
+  listProducts,
   updateProduct,
-  uploadProductImage,
 } from '@/lib/api-client';
-import type { Farmer, Product, Subcategory } from '@/lib/types';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
+import type { Farmer, Paginated, Product, Subcategory } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -24,20 +27,24 @@ export function ProductsClient({
   multiFarmer = false,
   multiSubcat = false,
 }: {
-  initial: Product[];
+  initial: Paginated<Product>;
   farmers?: Farmer[];
   subcats?: Subcategory[];
   multiFarmer?: boolean;
   multiSubcat?: boolean;
 }) {
-  const [products, setProducts] = useState<Product[]>(initial);
-  const [editId, setEditId] = useState<string | null>(null);
+  const { items: products, setItems: setProducts, loadMore, hasMore, loading } = usePaginatedList<Product>(
+    initial,
+    listProducts,
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [fullEdit, setFullEdit] = useState<Product | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
 
   const activeCount = products.filter((p) => p.isActive).length;
-  const linkEnabled = multiFarmer || multiSubcat;
+  // `total` (full count) comes from the first page; fall back to the loaded count.
+  const totalCount = initial.total ?? products.length;
   const farmerName = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
   const subcatName = useMemo(() => new Map(subcats.map((s) => [s.id, s.name])), [subcats]);
 
@@ -55,28 +62,13 @@ export function ProductsClient({
     }
   }
 
-  async function onSave(p: Product, priceStotinki: number, stockQuantity: number) {
-    const prev = { priceStotinki: p.priceStotinki, stockQuantity: p.stockQuantity };
-    patchLocal(p.id, { priceStotinki, stockQuantity }); // optimistic
-    setEditId(null);
-    setBusyId(p.id);
-    try {
-      const updated = await updateProduct(p.id, { priceStotinki, stockQuantity });
-      patchLocal(p.id, updated);
-      toast.success('Продуктът е обновен');
-    } catch (e) {
-      patchLocal(p.id, prev); // rollback
-      toast.error(errMsg(e));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function onUpload(p: Product, file: File) {
     setBusyId(p.id);
     try {
-      const updated = await uploadProductImage(p.id, file);
-      patchLocal(p.id, { imageUrl: updated.imageUrl });
+      // Quick-add from the card routes through the gallery; the cover only changes
+      // when the product had none (the server keeps imageUrl synced to photo 0).
+      const item = await addMedia('products', p.id, file);
+      patchLocal(p.id, { imageUrl: p.imageUrl ?? item.url });
       toast.success('Снимката е качена');
     } catch (e) {
       toast.error(errMsg(e));
@@ -85,14 +77,13 @@ export function ProductsClient({
     }
   }
 
-  async function onDelete(p: Product) {
-    if (!window.confirm(`Изтриване на „${p.name}“?`)) return;
+  async function doDelete(p: Product) {
+    setConfirmDelete(null);
     setBusyId(p.id);
     try {
       await deleteProduct(p.id);
       setProducts((prev) => prev.filter((x) => x.id !== p.id));
-      setEditId(null);
-      toast.success('Продуктът е изтрит');
+      toast.success('Продуктът е скрит');
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -117,7 +108,7 @@ export function ProductsClient({
     <div className="animate-ff-fade-up">
       <div className="mb-[18px] flex items-center justify-between">
         <p className="text-sm text-ff-muted">
-          {activeCount} активни · {products.length} общо
+          {activeCount} активни · {totalCount} общо
         </p>
         <Button variant="primary" onClick={() => setCreateOpen(true)} className="rounded-sm">
           <Plus size={18} /> Добави продукт
@@ -133,42 +124,70 @@ export function ProductsClient({
               key={p.id}
               product={p}
               index={i}
-              editing={editId === p.id}
               busy={busyId === p.id}
-              onStartEdit={() => setEditId(p.id)}
-              onCancel={() => setEditId(null)}
-              onSave={(price, stock) => onSave(p, price, stock)}
               onToggle={(on) => onToggle(p, on)}
               onUpload={(f) => onUpload(p, f)}
-              onDelete={() => onDelete(p)}
+              onDelete={() => setConfirmDelete(p)}
+              onEdit={() => setFullEdit(p)}
               farmerLabel={multiFarmer ? (p.farmerId ? farmerName.get(p.farmerId) ?? null : null) : undefined}
               subcatLabel={multiSubcat ? (p.subcategoryId ? subcatName.get(p.subcategoryId) ?? null : null) : undefined}
-              onEditFull={linkEnabled ? () => setFullEdit(p) : undefined}
             />
           ))}
         </div>
       )}
 
-      <ProductDialog
-        open={createOpen}
-        farmers={farmers}
-        subcats={subcats}
-        multiFarmer={multiFarmer}
-        multiSubcat={multiSubcat}
-        onClose={() => setCreateOpen(false)}
-        onSubmit={onCreate}
-      />
+      {hasMore && (
+        <div className="mt-5 flex justify-center">
+          <button
+            onClick={loadMore}
+            disabled={loading}
+            className="rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
+          >
+            {loading ? 'Зареждане…' : 'Зареди още'}
+          </button>
+        </div>
+      )}
 
-      <ProductDialog
-        open={!!fullEdit}
-        product={fullEdit}
-        farmers={farmers}
-        subcats={subcats}
-        multiFarmer={multiFarmer}
-        multiSubcat={multiSubcat}
-        onClose={() => setFullEdit(null)}
-        onSubmit={onFullUpdate}
-      />
+      {/* Mount only while open so the dialog's state initializers read fresh props.
+          The edit dialog is keyed by product id so switching products re-seeds it. */}
+      {createOpen && (
+        <ProductDialog
+          open
+          farmers={farmers}
+          subcats={subcats}
+          multiFarmer={multiFarmer}
+          multiSubcat={multiSubcat}
+          onClose={() => setCreateOpen(false)}
+          onSubmit={onCreate}
+        />
+      )}
+
+      {fullEdit && (
+        <ProductDialog
+          key={fullEdit.id}
+          open
+          product={fullEdit}
+          farmers={farmers}
+          subcats={subcats}
+          multiFarmer={multiFarmer}
+          multiSubcat={multiSubcat}
+          onClose={() => setFullEdit(null)}
+          onSubmit={onFullUpdate}
+          onCoverChange={(url) => patchLocal(fullEdit.id, { imageUrl: url })}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          tone="danger"
+          title={`Изтриване на „${confirmDelete.name}“?`}
+          message="Продуктът ще се скрие от магазина, но името му остава запазено. Можеш да го върнеш по-късно, като го активираш отново — не създавай дубликат."
+          confirmLabel="Изтрий"
+          busy={busyId === confirmDelete.id}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => doDelete(confirmDelete)}
+        />
+      )}
     </div>
   );
 }

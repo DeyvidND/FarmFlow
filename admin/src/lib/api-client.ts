@@ -29,16 +29,90 @@ async function apiFetch<T>(path: string, init?: RequestInit, fallbackErr = 'Въ
   return res.json() as Promise<T>;
 }
 
+/** Keyset-paginated list envelope returned by admin list endpoints. */
+export interface Paginated<T> {
+  items: T[];
+  nextCursor: string | null;
+  total?: number;
+}
+
 export interface PlatformTenant {
   id: string;
   name: string;
   slug: string;
   email: string | null;
   phone: string | null;
-  subscriptionStatus: 'active' | 'inactive';
+  subscriptionStatus: 'active' | 'past_due' | 'inactive';
+  premium: boolean;
+  graceUntil: string | null;
   createdAt: string | null;
   orderCount: number;
   lastOrderAt: string | null;
+}
+
+/** Next page of tenants for "load more" (client-side, via the BFF proxy). */
+export const listTenants = (cursor?: string) =>
+  apiFetch<Paginated<PlatformTenant>>(
+    `platform/tenants${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+  );
+
+export interface PlatformTenantDetail {
+  id: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  phone: string | null;
+  subscriptionStatus: 'active' | 'past_due' | 'inactive';
+  premium: boolean;
+  graceUntil: string | null;
+  createdAt: string | null;
+  deliveryEnabled: boolean;
+  multiFarmer: boolean;
+  multiSubcat: boolean;
+  econtConfigured: boolean;
+  stripeConnected: boolean;
+  orders: {
+    total: number;
+    pending: number;
+    confirmed: number;
+    delivered: number;
+    cancelled: number;
+    revenueStotinki: number;
+    lastOrderAt: string | null;
+  };
+  products: { total: number; active: number };
+  subscribers: { active: number; unsubscribed: number };
+  reviews: { total: number; avgRating: number };
+  emailUsage: { pushCount: number; owedStotinki: number; lastPushAt: string | null };
+  recentOrders: {
+    id: string;
+    customerName: string | null;
+    totalStotinki: number;
+    status: string | null;
+    createdAt: string | null;
+  }[];
+}
+
+export interface PlatformEmailBilling {
+  tenantId: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  pushCount: number;
+  totalStotinki: number;
+  lastPushAt: string | null;
+}
+
+/** Per-farm Stripe Connect status for the oversight table. */
+export interface PlatformStripeAccount {
+  tenantId: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  statusUpdatedAt: string | null;
 }
 
 export const setTenantStatus = (id: string, status: 'active' | 'inactive') =>
@@ -50,6 +124,18 @@ export const setTenantStatus = (id: string, status: 'active' | 'inactive') =>
       body: JSON.stringify({ status }),
     },
     'Неуспешна промяна на статуса',
+  );
+
+/** Toggle a farm's premium (free) billing plan. */
+export const setTenantPremium = (id: string, premium: boolean) =>
+  apiFetch<{ id: string; premium: boolean }>(
+    `platform/tenants/${id}/premium`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ premium }),
+    },
+    'Неуспешна промяна на плана',
   );
 
 export const createTenant = (data: {

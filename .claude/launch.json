@@ -4,8 +4,9 @@
     {
       "name": "web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@farmflow/web", "exec", "next", "start", "-p", "3005"],
-      "port": 3005
+      "runtimeArgs": ["--filter", "@farmflow/web", "exec", "next", "start", "-p", "3000"],
+      "port": 3000,
+      "autoPort": false
     },
     {
       "name": "storefront",

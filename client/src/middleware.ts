@@ -5,6 +5,7 @@ import { SESSION_COOKIE } from '@/lib/session';
 const PROTECTED = [
   '/dashboard',
   '/orders',
+  '/payments',
   '/production',
   '/products',
   '/farmers',
@@ -31,29 +32,55 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
+/**
+ * Fast, edge-side token check (no signature verification — the API is the real
+ * authority, re-checked server-side in the admin layout). Catches the cheap cases:
+ * a missing, malformed, or expired cookie should never count as a session.
+ */
+function tokenStatus(token: string | undefined): 'none' | 'invalid' | 'valid' {
+  if (!token) return 'none';
+  const payload = decodeJwtPayload(token);
+  if (!payload) return 'invalid';
+  const exp = typeof payload.exp === 'number' ? payload.exp : null;
+  if (exp !== null && exp * 1000 <= Date.now()) return 'invalid';
+  return 'valid';
+}
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const token = req.cookies.get(SESSION_COOKIE)?.value;
-  const hasSession = Boolean(token);
+  const status = tokenStatus(token);
   const isAuthPage = AUTH_PAGES.includes(pathname);
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
+  // Stale/malformed/expired token → treat as logged-out AND wipe the cookie so it
+  // can't keep slipping the user into an empty, broken panel.
+  if (status === 'invalid') {
+    const url = req.nextUrl.clone();
+    url.pathname = '/login';
+    const res = isProtected ? NextResponse.redirect(url) : NextResponse.next();
+    res.cookies.delete(SESSION_COOKIE);
+    return res;
+  }
+
+  const authed = status === 'valid';
+
   // No session on a protected admin page → send to login.
-  if (!hasSession && isProtected) {
+  if (!authed && isProtected) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
   // Already signed in but on login → skip to the dashboard.
-  if (hasSession && isAuthPage) {
+  if (authed && isAuthPage) {
     const url = req.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);
   }
 
   // Forced password change: redirect to /settings unless already there or calling API.
-  if (hasSession && token) {
+  if (authed && token) {
     const isApiPath = pathname.startsWith('/api/') || pathname.startsWith('/bff/');
     const isSettingsPath = pathname === '/settings' || pathname.startsWith('/settings/');
     if (!isApiPath && !isSettingsPath) {
@@ -73,6 +100,8 @@ export const config = {
   matcher: [
     '/dashboard/:path*',
     '/orders/:path*',
+    '/payments/:path*',
+    '/payments',
     '/production/:path*',
     '/products/:path*',
     '/farmers/:path*',

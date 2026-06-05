@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.0",
+    "@stripe/connect-js": "^3.4.5",
+    "@stripe/react-connect-js": "^3.4.3",
     "@vis.gl/react-google-maps": "^1.8.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",

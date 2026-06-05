@@ -5,24 +5,41 @@ import type { Slot } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-// Seeded demo week (25–31 May 2026).
-const WEEK = [
-  '2026-05-25',
-  '2026-05-26',
-  '2026-05-27',
-  '2026-05-28',
-  '2026-05-29',
-  '2026-05-30',
-  '2026-05-31',
-];
+/** Today's date in Bulgaria local time (YYYY-MM-DD), matching the API's day grouping. */
+function bgToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Sofia',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
 
-async function load(): Promise<{ slots: Slot[]; delivery: boolean }> {
+/** Add `n` days to an ISO date string (UTC-stable, no TZ drift). */
+function isoAddDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The 7 dates (Mon→Sun) of the week containing today, plus today itself. */
+function currentWeek(): { days: string[]; today: string } {
+  const today = bgToday();
+  const dow = new Date(`${today}T00:00:00Z`).getUTCDay(); // 0=Sun … 6=Sat
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  const monday = isoAddDays(today, mondayOffset);
+  return { days: Array.from({ length: 7 }, (_, i) => isoAddDays(monday, i)), today };
+}
+
+async function load(
+  week: string[],
+): Promise<{ slots: Slot[]; delivery: boolean }> {
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return { slots: [], delivery: false };
   const headers = { Authorization: `Bearer ${token}` };
 
   const [sRes, tRes] = await Promise.all([
-    fetch(`${API_BASE}/slots?from=${WEEK[0]}&to=${WEEK[6]}`, { headers, cache: 'no-store' }),
+    fetch(`${API_BASE}/slots?from=${week[0]}&to=${week[6]}`, { headers, cache: 'no-store' }),
     fetch(`${API_BASE}/tenants/me`, { headers, cache: 'no-store' }),
   ]);
 
@@ -32,6 +49,7 @@ async function load(): Promise<{ slots: Slot[]; delivery: boolean }> {
 }
 
 export default async function SlotsPage() {
-  const { slots, delivery } = await load();
-  return <SlotsClient initialSlots={slots} days={WEEK} deliveryEnabled={delivery} />;
+  const { days, today } = currentWeek();
+  const { slots, delivery } = await load(days);
+  return <SlotsClient initialSlots={slots} days={days} today={today} deliveryEnabled={delivery} />;
 }

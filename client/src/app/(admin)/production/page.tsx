@@ -26,5 +26,6 @@ export default async function ProductionPage({
   const date = searchParams.date ?? new Date().toISOString().slice(0, 10);
   const summary = await getProduction(date);
   const dateLabel = bgDateLabel(new Date(`${date}T00:00:00`)).replace(' г.', '');
-  return <PrepList summary={summary} dateLabel={dateLabel} />;
+  // key by date → fresh tick state when the farmer switches days
+  return <PrepList key={date} summary={summary} dateLabel={dateLabel} date={date} />;
 }

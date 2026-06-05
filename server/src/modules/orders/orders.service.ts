@@ -5,7 +5,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, ilike, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray, ne, sql } from 'drizzle-orm';
 import {
   type Database,
   orders,
@@ -17,6 +17,8 @@ import {
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday, bgDate } from '../../common/time/bg-time';
+import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
+import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
@@ -31,11 +33,27 @@ const orderWithSlot = {
   slotTo: deliverySlots.timeTo,
 };
 
-interface OrderFilters {
-  date?: string;
-  status?: string;
-  deliveryType?: string;
-  search?: string;
+export type PaymentStatus = 'paid' | 'pending_online' | 'cash';
+
+/** Admin-facing order shape: raw Stripe ids dropped, payment state derived. */
+export type SerializedOrder = Omit<
+  OrderWithItems,
+  'stripeCheckoutSessionId' | 'stripePaymentIntentId' | 'tenantId'
+> & { paymentStatus: PaymentStatus };
+
+/**
+ * Map a raw order row to the admin API shape: derive a coarse `paymentStatus`
+ * the farmer UI can badge, and drop the raw Stripe identifiers (the client never
+ * needs the intent/session ids). `paidAt` flows through (JSON → ISO string).
+ */
+export function serializeOrder(o: OrderWithItems): SerializedOrder {
+  const { stripeCheckoutSessionId, stripePaymentIntentId, tenantId, ...rest } = o;
+  const paymentStatus: PaymentStatus = o.paidAt
+    ? 'paid'
+    : stripeCheckoutSessionId
+      ? 'pending_online'
+      : 'cash';
+  return { ...rest, paymentStatus };
 }
 
 export interface ProductionItem {
@@ -54,11 +72,12 @@ export interface ProductionSummary {
  *  no phone/email/tenant ids; keyed by the order's (unguessable) UUID. */
 export interface PublicOrderSummary {
   id: string;
+  orderNumber: number | null;
   status: string;
   paidAt: string | null;
   totalStotinki: number;
   customerName: string | null;
-  deliveryType: 'address' | 'econt';
+  deliveryType: 'address' | 'econt' | 'econt_address';
   deliveryAddress: string | null;
   econtOffice: string | null;
   slot: { date: string; startTime: string; endTime: string } | null;
@@ -73,8 +92,17 @@ export class OrdersService {
     private readonly maps: MapsService,
   ) {}
 
-  /** Admin list: tenant-scoped, filterable, newest first, items batched (no N+1). */
-  async findAll(tenantId: string, filters: OrderFilters = {}): Promise<OrderWithItems[]> {
+  /**
+   * Admin list: tenant-scoped, newest first, keyset-paginated, items batched
+   * (no N+1). Status/search filtering is client-side over accumulated pages, so
+   * the server only paginates (no per-request filters here).
+   */
+  async findAll(
+    tenantId: string,
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<SerializedOrder>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
     const conds = [eq(orders.tenantId, tenantId)];
 
     // Subscription gating: an inactive tenant only sees the last 7 days of orders.
@@ -87,30 +115,28 @@ export class OrdersService {
       conds.push(sql`${orders.createdAt} >= now() - interval '7 days'`);
     }
 
-    if (filters.status) {
-      conds.push(eq(orders.status, filters.status as NonNullable<OrderRow['status']>));
-    }
-    if (filters.deliveryType) {
-      conds.push(eq(orders.deliveryType, filters.deliveryType as OrderRow['deliveryType']));
-    }
-    if (filters.date) conds.push(sql`${bgDate(orders.createdAt)} = ${filters.date}`);
-    if (filters.search) {
-      const q = `%${filters.search}%`;
-      const searchCond = or(ilike(orders.customerName, q), sql`${orders.id}::text ilike ${q}`);
-      if (searchCond) conds.push(searchCond);
-    }
+    if (cur) conds.push(keysetAfter(orders.createdAt, orders.id, cur, 'desc'));
 
     const rows = await this.db
       .select(orderWithSlot)
       .from(orders)
       .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
       .where(and(...conds)!)
-      .orderBy(desc(orders.createdAt));
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(lim + 1);
 
-    return this.attachItems(rows);
+    const hasMore = rows.length > lim;
+    const pageRows = hasMore ? rows.slice(0, lim) : rows;
+    const items = (await this.attachItems(pageRows)).map(serializeOrder);
+    const last = pageRows[pageRows.length - 1];
+    return {
+      items,
+      nextCursor:
+        hasMore && last ? encodeCursor({ createdAt: last.createdAt!, id: last.id }) : null,
+    };
   }
 
-  async findOne(id: string, tenantId: string): Promise<OrderWithItems> {
+  async findOne(id: string, tenantId: string): Promise<SerializedOrder> {
     const [row] = await this.db
       .select(orderWithSlot)
       .from(orders)
@@ -119,7 +145,7 @@ export class OrdersService {
       .limit(1);
     if (!row) throw new NotFoundException('Поръчката не е намерена');
     const [withItems] = await this.attachItems([row]);
-    return withItems;
+    return serializeOrder(withItems);
   }
 
   /** Cancelling frees slot capacity automatically (booked is computed from non-cancelled orders). */
@@ -192,7 +218,12 @@ export class OrdersService {
    * (double-booking impossible), compute the total, create the pending order.
    */
   async create(slug: string, dto: CreateOrderDto): Promise<OrderWithItems> {
-    const isEcont = dto.deliveryType === 'econt';
+    // Three delivery methods: local farm delivery (slots + route + coords),
+    // Econt → office, Econt → home address. Only local delivery consumes a slot
+    // and is geocoded for the farm's route; the Econt methods are courier-shipped.
+    const method = dto.deliveryType ?? 'address';
+    const isLocal = method === 'address';
+    const isEcontOffice = method === 'econt';
 
     // Resolve the tenant (+ farm coords) up front so geocoding can run outside
     // the transaction (no network call while holding row locks).
@@ -208,7 +239,7 @@ export class OrdersService {
     // ("ул. Шипка 5") resolves near the farm, not in Sofia. No-op when maps off.
     let lat = dto.deliveryLat ?? null;
     let lng = dto.deliveryLng ?? null;
-    if (!isEcont && lat == null && dto.deliveryAddress) {
+    if (isLocal && lat == null && dto.deliveryAddress) {
       const fLat = tenant.farmLat == null ? null : Number(tenant.farmLat);
       const fLng = tenant.farmLng == null ? null : Number(tenant.farmLng);
       const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
@@ -232,7 +263,9 @@ export class OrdersService {
         if (!p || !p.isActive) throw new BadRequestException('Невалиден или неактивен продукт');
       }
 
-      const slotId = dto.slotId ?? null;
+      // Only local farm delivery uses a slot; Econt orders are courier-shipped
+      // and never count against the farm's delivery capacity.
+      const slotId = isLocal ? dto.slotId ?? null : null;
       let slotFrom: string | null = null;
       let slotTo: string | null = null;
       if (slotId) {
@@ -266,21 +299,34 @@ export class OrdersService {
         };
       });
 
+      // Next per-tenant order number (#1, #2, …). The advisory lock serializes
+      // concurrent intakes for this tenant so two orders can't claim the same
+      // number; it's released when the transaction commits/rolls back.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenant.id}, 0))`);
+      const [{ nextNumber }] = await tx
+        .select({ nextNumber: sql<number>`coalesce(max(${orders.orderNumber}), 0) + 1` })
+        .from(orders)
+        .where(eq(orders.tenantId, tenant.id));
+
       const [order] = await tx
         .insert(orders)
         .values({
           tenantId: tenant.id,
+          orderNumber: nextNumber,
           customerName: dto.customerName,
           customerPhone: dto.customerPhone,
           customerEmail: dto.customerEmail,
           slotId,
           status: 'pending',
           totalStotinki: total,
-          deliveryType: dto.deliveryType ?? 'address',
-          deliveryAddress: isEcont ? null : dto.deliveryAddress ?? null,
-          deliveryLat: isEcont || lat == null ? null : String(lat),
-          deliveryLng: isEcont || lng == null ? null : String(lng),
-          econtOffice: isEcont ? dto.econtOffice ?? null : null,
+          deliveryType: method,
+          // Address stored for local + Econt-to-address; only Econt-office omits it.
+          deliveryAddress: isEcontOffice ? null : dto.deliveryAddress ?? null,
+          deliveryCity: isEcontOffice ? null : dto.deliveryCity ?? null,
+          // Coords are for the farm's own route — local delivery only.
+          deliveryLat: isLocal && lat != null ? String(lat) : null,
+          deliveryLng: isLocal && lng != null ? String(lng) : null,
+          econtOffice: isEcontOffice ? dto.econtOffice ?? null : null,
           notes: dto.notes ?? null,
         })
         .returning();
@@ -327,6 +373,7 @@ export class OrdersService {
     const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
     return {
       id: row.id,
+      orderNumber: row.orderNumber,
       status: row.status ?? 'pending',
       paidAt: row.paidAt ? row.paidAt.toISOString() : null,
       totalStotinki: row.totalStotinki,

@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Check, Image as ImageIcon } from 'lucide-react';
+import { X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar } from './avatar';
-import { ApiError, createFarmer, updateFarmer, uploadFarmerImage } from '@/lib/api-client';
+import { MediaManager } from '@/components/media/media-manager';
+import { ApiError, createFarmer, updateFarmer } from '@/lib/api-client';
 import type { Farmer } from '@/lib/types';
 
 const TINTS = ['#2C5530', '#B23B5E', '#D08B26', '#5B5BA8', '#A11E2E', '#3B7D52'];
@@ -58,19 +59,11 @@ export function FarmerPanel({
     }
   }
 
-  async function onPickImage(file: File) {
-    if (isNew) {
-      toast.error('Първо запази фермера, после качи снимка');
-      return;
-    }
-    try {
-      const updated = await uploadFarmerImage(farmer.id!, file);
-      setImageUrl(updated.imageUrl);
-      onSaved(updated);
-      toast.success('Снимката е качена');
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'Грешка');
-    }
+  // Keep the avatar preview + the farmers list card in sync as the gallery cover
+  // (photo 0) changes — without a full reload.
+  function onCoverChange(url: string | null) {
+    setImageUrl(url);
+    if (farmer.id) onSaved({ ...(farmer as Farmer), imageUrl: url });
   }
 
   return (
@@ -100,16 +93,10 @@ export function FarmerPanel({
             </div>
           </div>
 
-          {!isNew && (
-            <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-1.5 text-[13px] font-bold text-ff-ink-2">
-              <ImageIcon size={15} /> Качи снимка
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => e.target.files?.[0] && onPickImage(e.target.files[0])}
-              />
-            </label>
+          {isNew ? (
+            <p className="text-[12.5px] text-ff-muted-2">Първо запази фермера, после добави снимки.</p>
+          ) : (
+            <MediaManager resource="farmers" ownerId={farmer.id!} onCoverChange={onCoverChange} />
           )}
 
           <label className={labelCls}>

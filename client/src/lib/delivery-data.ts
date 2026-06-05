@@ -64,16 +64,16 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
     packagingFeeStotinki: 0,
   },
   econt: {
-    env: 'demo',
+    env: 'prod',
     configured: false,
     username: '',
     sender: {
       name: 'Ферма Петрови ЕООД',
       phone: '+359 88 412 0001',
-      cityId: 41,
+      cityId: 7, // Econt's live nomenclature id for Варна
       cityName: 'Варна',
       mode: 'office',
-      officeCode: '1010',
+      officeCode: undefined,
       address: '',
     },
     defaultPackage: { weightKg: 1.5, dimensions: '30×20×15', contents: 'Хранителни продукти' },
