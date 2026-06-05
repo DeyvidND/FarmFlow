@@ -59,4 +59,12 @@ export const envValidationSchema = Joi.object({
   // Public origin of THIS API — used to build links the API itself serves
   // (e.g. the newsletter unsubscribe page). Defaults to the dev API port.
   API_PUBLIC_URL: Joi.string().default('http://localhost:3001'),
+  // --- Platform SaaS billing (the platform charges farms via a Stripe subscription). ---
+  // Recurring €30/mo Price id created once on the PLATFORM Stripe account. Empty
+  // → billing disabled (checkout returns a clear error), like the rest of Stripe.
+  STRIPE_BILLING_PRICE_ID: Joi.string().optional().allow(''),
+  // Display/estimate only (the real charge is the Stripe price above). €30.00.
+  BILLING_BASE_PRICE_STOTINKI: Joi.number().default(3000),
+  // Days a farm keeps full access after a failed payment before auto-suspend.
+  BILLING_GRACE_DAYS: Joi.number().default(7),
 });
