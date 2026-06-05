@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Search, AlertTriangle, Plus, Copy, Check, RefreshCw, ChevronRight } from 'lucide-react';
+import { Search, AlertTriangle, Plus, Copy, Check, RefreshCw, ChevronRight, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn, dmy } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import {
   ApiError,
   setTenantStatus,
+  setTenantPremium,
   createTenant,
   listTenants,
   type PlatformTenant,
@@ -36,7 +37,24 @@ function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean
   );
 }
 
-function StatusBadge({ active }: { active: boolean }) {
+/** Whole days from now until an ISO date (min 0). */
+function daysUntil(iso: string | null): number {
+  if (!iso) return 0;
+  return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000));
+}
+
+function StatusBadge({ t }: { t: PlatformTenant }) {
+  const s = t.subscriptionStatus;
+  if (s === 'past_due') {
+    const d = daysUntil(t.graceUntil);
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-ff-amber-softer px-2.5 py-1 text-[12.5px] font-bold text-ff-amber-600">
+        <span className="h-[7px] w-[7px] rounded-full bg-ff-amber-600" />
+        Просрочен{d ? ` · ${d}д` : ''}
+      </span>
+    );
+  }
+  const active = s === 'active';
   return (
     <span
       className={cn(
@@ -46,6 +64,18 @@ function StatusBadge({ active }: { active: boolean }) {
     >
       <span className={cn('h-[7px] w-[7px] rounded-full', active ? 'bg-ff-green-500' : 'bg-ff-red')} />
       {active ? 'Активен' : 'Спрян'}
+    </span>
+  );
+}
+
+function PlanBadge({ premium }: { premium: boolean }) {
+  return premium ? (
+    <span className="inline-flex items-center gap-1 rounded-full bg-ff-green-50 px-2.5 py-1 text-[12px] font-bold text-ff-green-700">
+      <Sparkles size={12} /> Премиум
+    </span>
+  ) : (
+    <span className="inline-flex items-center rounded-full bg-ff-surface-2 px-2.5 py-1 text-[12px] font-bold text-ff-ink-2">
+      Стандартен
     </span>
   );
 }
@@ -112,6 +142,8 @@ function AddFarmerDialog({ onClose, onCreated }: AddFarmerDialogProps) {
         email: res.email,
         phone: phone.trim() || null,
         subscriptionStatus: 'active',
+        premium: false,
+        graceUntil: null,
         createdAt: new Date().toISOString(),
         orderCount: 0,
         lastOrderAt: null,
@@ -277,6 +309,21 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
     else apply(t, 'active');
   }
 
+  async function applyPremium(t: PlatformTenant, premium: boolean) {
+    setBusyId(t.id);
+    const prev = t.premium;
+    setTenants((p) => p.map((x) => (x.id === t.id ? { ...x, premium } : x)));
+    try {
+      await setTenantPremium(t.id, premium);
+      toast.success(premium ? `${t.name}: премиум (безплатно)` : `${t.name}: стандартен план`);
+    } catch (e) {
+      setTenants((p) => p.map((x) => (x.id === t.id ? { ...x, premium: prev } : x)));
+      toast.error(errMsg(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   function onCreated(t: PlatformTenant) {
     setTenants((p) => [t, ...p]);
   }
@@ -319,7 +366,7 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
         <table className="w-full border-collapse max-[760px]:hidden">
           <thead>
             <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-              {['Ферма', 'Имейл', 'Телефон', 'Поръчки', 'Последна поръчка', 'Статус', 'Действие'].map((h) => (
+              {['Ферма', 'Имейл', 'Поръчки', 'План', 'Статус', 'Достъп'].map((h) => (
                 <th key={h} className="px-5 py-3.5 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
                   {h}
                 </th>
@@ -340,15 +387,19 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
                   <div className="text-xs text-ff-muted-2">/{t.slug}</div>
                 </td>
                 <td className="px-5 py-3.5 text-[13.5px] text-ff-ink-2">{t.email ?? '—'}</td>
-                <td className="px-5 py-3.5 text-[13.5px] text-ff-ink-2">{t.phone ?? '—'}</td>
                 <td className="ff-fig px-5 py-3.5 text-[14px] font-bold">{t.orderCount}</td>
-                <td className="px-5 py-3.5 text-[13.5px] text-ff-ink-2">{dmy(t.lastOrderAt)}</td>
                 <td className="px-5 py-3.5">
-                  <StatusBadge active={t.subscriptionStatus === 'active'} />
+                  <div className="flex items-center gap-2.5">
+                    <PlanBadge premium={t.premium} />
+                    <Toggle on={t.premium} disabled={busyId === t.id} onChange={(v) => applyPremium(t, v)} />
+                  </div>
+                </td>
+                <td className="px-5 py-3.5">
+                  <StatusBadge t={t} />
                 </td>
                 <td className="px-5 py-3.5">
                   <Toggle
-                    on={t.subscriptionStatus === 'active'}
+                    on={t.subscriptionStatus !== 'inactive'}
                     disabled={busyId === t.id}
                     onChange={(next) => onToggle(t, next)}
                   />
@@ -373,17 +424,21 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
                   </Link>
                   <div className="text-[12.5px] text-ff-muted">{t.email ?? '—'}</div>
                 </div>
-                <StatusBadge active={t.subscriptionStatus === 'active'} />
+                <StatusBadge t={t} />
               </div>
-              <div className="flex items-center justify-between text-[12.5px] text-ff-muted">
-                <span>
-                  {t.orderCount} поръчки · {dmy(t.lastOrderAt)}
-                </span>
-                <Toggle
-                  on={t.subscriptionStatus === 'active'}
-                  disabled={busyId === t.id}
-                  onChange={(next) => onToggle(t, next)}
-                />
+              <div className="flex items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2">
+                  <PlanBadge premium={t.premium} />
+                  <Toggle on={t.premium} disabled={busyId === t.id} onChange={(v) => applyPremium(t, v)} />
+                </div>
+                <div className="flex items-center gap-2 text-[12px] text-ff-muted">
+                  Достъп
+                  <Toggle
+                    on={t.subscriptionStatus !== 'inactive'}
+                    disabled={busyId === t.id}
+                    onChange={(next) => onToggle(t, next)}
+                  />
+                </div>
               </div>
             </div>
           ))}

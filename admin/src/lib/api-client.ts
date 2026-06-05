@@ -42,7 +42,9 @@ export interface PlatformTenant {
   slug: string;
   email: string | null;
   phone: string | null;
-  subscriptionStatus: 'active' | 'inactive';
+  subscriptionStatus: 'active' | 'past_due' | 'inactive';
+  premium: boolean;
+  graceUntil: string | null;
   createdAt: string | null;
   orderCount: number;
   lastOrderAt: string | null;
@@ -60,7 +62,9 @@ export interface PlatformTenantDetail {
   slug: string;
   email: string | null;
   phone: string | null;
-  subscriptionStatus: 'active' | 'inactive';
+  subscriptionStatus: 'active' | 'past_due' | 'inactive';
+  premium: boolean;
+  graceUntil: string | null;
   createdAt: string | null;
   deliveryEnabled: boolean;
   multiFarmer: boolean;
@@ -120,6 +124,18 @@ export const setTenantStatus = (id: string, status: 'active' | 'inactive') =>
       body: JSON.stringify({ status }),
     },
     'Неуспешна промяна на статуса',
+  );
+
+/** Toggle a farm's premium (free) billing plan. */
+export const setTenantPremium = (id: string, premium: boolean) =>
+  apiFetch<{ id: string; premium: boolean }>(
+    `platform/tenants/${id}/premium`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ premium }),
+    },
+    'Неуспешна промяна на плана',
   );
 
 export const createTenant = (data: {

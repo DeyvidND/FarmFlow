@@ -24,7 +24,7 @@ export function EmailBillingClient({ initial }: { initial: PlatformEmailBilling[
         <div>
           <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Имейл сметки</h1>
           <p className="mt-0.5 text-[13.5px] text-ff-muted">
-            Колко дължи всяка ферма за изпратени бюлетини. Плащанията събираш ти, ръчно.
+            Бюлетините се таксуват автоматично през Stripe (2 € на изпращане) към абонамента на фермата.
           </p>
         </div>
         <div className="relative w-[280px] max-[560px]:w-full">
