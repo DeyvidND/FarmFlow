@@ -30,7 +30,7 @@ Open **http://localhost:3002** → sign in with your platform admin email + pass
 <details>
 <summary><b>A2. The farms list ("Фермери")</b></summary>
 
-You land on the farms table — every farm, its email/phone, order count, last order, **status** (Активен / Спрян), and an enable/disable toggle.
+You land on the farms table — every farm, its email, order count, **План** (Стандартен / Премиум, with a toggle), **status** (Активен / **Просрочен · N дни** / Спрян), and an access toggle. "Просрочен" means a subscription payment failed and the farm is in its grace window before auto-suspend (see A6).
 
 ![Super-admin farms list + disable dialog](images/guide-sa-disable.png)
 
@@ -55,14 +55,27 @@ Click **Създай**. The farm + its owner login are created instantly.
 </details>
 
 <details>
-<summary><b>A4. Disable / re-enable a farm (e.g. unpaid)</b></summary>
+<summary><b>A4. Disable / re-enable a farm (manual override)</b></summary>
 
-Flip the farm's **toggle** in the Действие column. Disabling asks for confirmation ("Спиране на достъпа", screenshot in A2):
+Flip the farm's **Достъп toggle**. Disabling asks for confirmation ("Спиране на достъпа", screenshot in A2):
 
-- The farmer **can still log in**, but **route, production, and slot creation are blocked**, and history is limited to 7 days.
+- The farmer **can still log in**, but **route, production, slot creation, and newsletter sending are blocked**, and history is limited to 7 days.
 - **Their online store keeps working** (customers can still browse/order).
 
-Re-enabling is immediate (no confirmation).
+Re-enabling is immediate (no confirmation). This is a **manual override** — billing normally drives the status automatically (A6), but you can suspend or restore any farm by hand.
+
+</details>
+
+<details>
+<summary><b>A6. Billing & premium</b></summary>
+
+Farms are billed automatically through Stripe: **30 € / month** + **2 € per newsletter broadcast** they send. You don't collect anything by hand.
+
+- **План column** — toggle a farm to **Премиум** to make its subscription **free** (no monthly fee, no per-email fee); it stays active forever without a card. Toggle back to **Стандартен** to bill it normally.
+- **Status** — driven by Stripe: a successful charge keeps it **Активен**; a failed charge moves it to **Просрочен** with a visible countdown (default **7 days**) and emails the farmer; if still unpaid when the countdown ends, it auto-suspends to **Спрян** (same effect as A4).
+- **„Имейл сметки"** page — the per-farm tally of newsletter pushes (now collected automatically via Stripe, not by hand).
+
+**Setup (one-time, to go live):** set `STRIPE_SECRET_KEY`, create the 30 €/mo price (`node server/scripts/create-billing-price.mjs`) → put the id in `STRIPE_BILLING_PRICE_ID`, set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, and register a Stripe webhook for `invoice.*`, `customer.subscription.*`, and `checkout.session.completed`. Until then billing is dormant (no charges) and farms run free.
 
 </details>
 
@@ -90,7 +103,7 @@ The farmer logs in at **http://localhost:3005**.
 
 Every screen shares the same frame: a **left sidebar** with the farm's logo, the full nav, a live **"Сезон активен"** status card, and **Настройки / Изход** pinned to the bottom; a **top bar** with the current page title, a notifications bell, and the farm's avatar. The main area is where the work happens.
 
-The sidebar nav, top to bottom: **Табло · Поръчки · Производство · Продукти · Фермери · Подкатегории · Слотове · Доставка · Маршрут · Статии · Имейл клиенти**. Tabs marked **🔒 needs active subscription** are blocked (by you, via A4) when the farm is disabled. The **Поръчки** item also shows a badge with the count of pending orders.
+The sidebar nav, top to bottom: **Табло · Поръчки · Производство · Продукти · Фермери · Подкатегории · Слотове · Доставка · Маршрут · Плащания · Статии · Имейл клиенти**. Tabs marked **🔒 needs active subscription** are blocked (by you, via A4, or automatically when a subscription lapses) when the farm is disabled. The **Поръчки** item also shows a badge with the count of pending orders.
 
 </details>
 
@@ -276,7 +289,26 @@ Reach the customers who subscribed to the farm's newsletter. The header shows th
 
 ![Имейл клиенти — newsletter broadcast](images/guide-newsletters.png)
 
-**Ново съобщение** composes a broadcast: a **Тема** (subject) and **Съобщение** (body), then **Изпрати**. A confirmation step shows the recipient count before anything goes out, and a toast reports how many emails were sent. (Empty state: "Все още няма абонати.")
+**Ново съобщение** composes a broadcast: a **Тема** (subject) and **Съобщение** (body), then **Изпрати**. A confirmation step shows the recipient count before anything goes out, and a toast reports how many emails were sent. (Empty state: "Все още няма абонати.") **Each broadcast costs 2 €**, added to the farm's monthly subscription bill (see B13a) — unless the farm is **Премиум** (free). Sending is blocked while the subscription is suspended.
+
+</details>
+
+<details>
+<summary><b>B13a. Плащания (Payments & subscription)</b></summary>
+
+Two things live here:
+
+**Абонамент (subscription)** — the farm's plan for using FarmFlow:
+
+- **Стандартен** — **30 € / месец** + **2 € на изпратен бюлетин**, billed automatically.
+- **Add a card** with **Добави карта** (a secure Stripe checkout). After that the card is charged each month; **Управление на плащането** opens the Stripe portal to update the card or see invoices.
+- A status badge shows **Активен**, **Просрочен** (a payment failed — a countdown shows how many days before the shop is paused; just update the card), or **Спрян**.
+- **Премиум** farms see **„Премиум — безплатно"** and are never charged.
+- A green nudge appears on the **Табло** until a card is added.
+
+**Приемане на плащания с карта (storefront orders)** — connect Stripe so customers can pay online; the money goes straight to the farm's bank account. **FarmFlow takes 0 % of orders** — the farm keeps everything (minus Stripe's own processing fee).
+
+> Both are dormant until the operator configures Stripe (A6). With no Stripe keys, the page shows a "not activated" state and nothing is charged.
 
 </details>
 
