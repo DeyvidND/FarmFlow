@@ -373,7 +373,7 @@ export interface Order {
   /** ISO timestamp the online (Stripe) payment was captured, else null. */
   paidAt: string | null;
   totalStotinki: number;
-  deliveryType: 'address' | 'econt' | 'econt_address';
+  deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address';
   deliveryAddress: string | null;
   econtOffice: string | null;
   notes: string | null;

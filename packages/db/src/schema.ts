@@ -28,9 +28,10 @@ export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', '
 // Delivery methods:
 //  - `address`       → the farm's own (local) delivery to a street address: slots,
 //                      route optimization, flat regional fee. Local only.
+//  - `pickup`        → customer collects at the market; no delivery, no fee, no slot.
 //  - `econt`         → Econt courier to an office (nationwide; live-priced).
 //  - `econt_address` → Econt courier to a home address / door (nationwide; live-priced).
-export const deliveryTypeEnum = pgEnum('delivery_type', ['address', 'econt', 'econt_address']);
+export const deliveryTypeEnum = pgEnum('delivery_type', ['pickup', 'address', 'econt', 'econt_address']);
 
 export const tenants = pgTable('tenants', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),

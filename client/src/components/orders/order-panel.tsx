@@ -32,13 +32,19 @@ export function OrderPanel({
         : 'Наложен платеж / при доставка';
   const isEcont = order.deliveryType === 'econt' || order.deliveryType === 'econt_address';
   const deliveryVal =
-    order.deliveryType === 'econt' ? order.econtOffice ?? 'Еконт офис' : order.deliveryAddress ?? '—';
+    order.deliveryType === 'econt'
+      ? order.econtOffice ?? 'Еконт офис'
+      : order.deliveryType === 'pickup'
+        ? 'Чайка, Варна'
+        : order.deliveryAddress ?? '—';
   const deliveryLabel =
     order.deliveryType === 'econt'
       ? 'Еконт — до офис'
       : order.deliveryType === 'econt_address'
         ? 'Еконт — до адрес'
-        : 'Адрес за доставка';
+        : order.deliveryType === 'pickup'
+          ? 'Вземане от пазара'
+          : 'Адрес за доставка';
 
   return (
     <>

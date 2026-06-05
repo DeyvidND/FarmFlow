@@ -77,7 +77,7 @@ export interface PublicOrderSummary {
   paidAt: string | null;
   totalStotinki: number;
   customerName: string | null;
-  deliveryType: 'address' | 'econt' | 'econt_address';
+  deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address';
   deliveryAddress: string | null;
   econtOffice: string | null;
   slot: { date: string; startTime: string; endTime: string } | null;

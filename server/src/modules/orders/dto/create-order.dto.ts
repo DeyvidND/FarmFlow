@@ -45,15 +45,16 @@ export class CreateOrderDto {
   @IsUUID()
   slotId?: string;
 
-  @ApiPropertyOptional({ enum: ['address', 'econt', 'econt_address'], default: 'address' })
+  @ApiPropertyOptional({ enum: ['pickup', 'address', 'econt', 'econt_address'], default: 'address' })
   @IsOptional()
-  @IsEnum(['address', 'econt', 'econt_address'])
-  deliveryType?: 'address' | 'econt' | 'econt_address';
+  @IsEnum(['pickup', 'address', 'econt', 'econt_address'])
+  deliveryType?: 'pickup' | 'address' | 'econt' | 'econt_address';
 
-  // Required for any address-based method: local farm delivery (`address`) or
-  // Econt door delivery (`econt_address`). Only `econt` (office) omits it.
-  @ApiPropertyOptional({ description: 'Street address (required unless delivery_type=econt)' })
-  @ValidateIf((o) => (o.deliveryType ?? 'address') !== 'econt')
+  // Required only for the address-based methods: local farm delivery (`address`)
+  // or Econt door delivery (`econt_address`). Market `pickup` and Econt office
+  // (`econt`) carry no street address.
+  @ApiPropertyOptional({ description: 'Street address (required for address / econt_address)' })
+  @ValidateIf((o) => (o.deliveryType ?? 'address') === 'address' || o.deliveryType === 'econt_address')
   @IsString()
   @IsNotEmpty({ message: 'Адресът за доставка е задължителен' })
   deliveryAddress?: string;

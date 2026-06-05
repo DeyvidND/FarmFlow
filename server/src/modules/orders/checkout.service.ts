@@ -110,7 +110,7 @@ export class CheckoutService {
   private async shippingStotinki(
     order: {
       tenantId: string | null;
-      deliveryType: 'address' | 'econt' | 'econt_address' | null;
+      deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address' | null;
       customerName: string | null;
       customerPhone: string | null;
       econtOffice: string | null;
@@ -121,6 +121,8 @@ export class CheckoutService {
     subtotal: number,
   ): Promise<number> {
     const method = order.deliveryType ?? 'address';
+    // Market pickup — the customer collects at the stand, no delivery, no fee.
+    if (method === 'pickup') return 0;
     // Local farm delivery — flat regional fee, free over the threshold (the farm
     // absorbs its own local delivery cost on big baskets).
     if (method === 'address') {

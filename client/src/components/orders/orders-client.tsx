@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, MapPin, Package } from 'lucide-react';
+import { Search, MapPin, Package, Store } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, timeFromIso, type OrderStatus } from '@/lib/utils';
 import { StatusBadge } from '@/components/status-badge';
@@ -74,6 +74,10 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
     o.deliveryType === 'econt' || o.deliveryType === 'econt_address' ? (
       <span className="inline-flex items-center gap-1.5 font-semibold text-ff-amber-600">
         <Package size={15} /> {o.deliveryType === 'econt_address' ? 'Еконт адрес' : 'Еконт офис'}
+      </span>
+    ) : o.deliveryType === 'pickup' ? (
+      <span className="inline-flex items-center gap-1.5 font-semibold text-ff-ink-2">
+        <Store size={15} /> Пазар
       </span>
     ) : (
       <span className="inline-flex items-center gap-1.5 font-semibold text-ff-green-700">
