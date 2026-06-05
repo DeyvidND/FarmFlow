@@ -177,6 +177,24 @@ export interface EcontOffice {
   dist?: string;
 }
 
+/** A settlement from Econt's live nomenclature (admin city autocomplete). */
+export interface EcontCity {
+  id: number;
+  name: string;
+  postCode: string | null;
+}
+
+/** A live Econt office for the admin picker + map (with coordinates + hours). */
+export interface EcontOfficeLive {
+  code: string;
+  name: string;
+  city: string | null;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  hours: string | null;
+}
+
 export type ShipmentStatus = 'pending' | 'created' | 'shipped' | 'delivered' | 'returned';
 
 export interface ShipmentEvent {
@@ -322,6 +340,8 @@ export interface ProductionSummary {
 /** Order as returned by GET /orders (with items + joined slot times). */
 export interface Order {
   id: string;
+  /** Human-friendly per-tenant number (#1, #2, …); null on legacy rows. */
+  orderNumber: number | null;
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;

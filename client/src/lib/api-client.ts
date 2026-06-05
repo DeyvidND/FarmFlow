@@ -3,6 +3,8 @@ import type {
   ArticleMedia,
   DashboardSummary,
   DeliveryConfig,
+  EcontCity,
+  EcontOfficeLive,
   Farmer,
   MediaItem,
   Order,
@@ -290,6 +292,14 @@ export const syncEcontNomenclature = () =>
     { method: 'POST' },
     'Неуспешно обновяване на номенклатурата',
   );
+
+/** Live Econt city autocomplete (requires a connected Econt account). */
+export const listEcontCities = (q?: string) =>
+  apiFetch<EcontCity[]>(`econt/cities${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+
+/** Live Econt offices for one city — sender picker + office map. */
+export const listEcontOffices = (cityId: number) =>
+  apiFetch<EcontOfficeLive[]>(`econt/offices?cityId=${cityId}`);
 
 export const listShipments = () => apiFetch<Shipment[]>('econt/shipments');
 

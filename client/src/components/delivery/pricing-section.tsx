@@ -3,7 +3,7 @@
 import { Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { DeliveryConfig } from '@/lib/types';
-import { DSection, DLabel, Segmented, LvInput, fieldCls } from './ui';
+import { DSection, DLabel, Segmented, LvInput, Collapsible, fieldCls } from './ui';
 
 type Mut = (fn: (d: DeliveryConfig) => void) => void;
 
@@ -17,38 +17,42 @@ export function PricingSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut }) 
   const p = cfg.pricing;
   return (
     <DSection
-      title="Ценообразуване"
-      helper="Цени в € (EUR). Цените се изчисляват без ДДС; ДДС се добавя при поръчка."
+      title="Правила за цена (по желание)"
+      helper="Цени в € (EUR), без ДДС. Обикновено цените на методите горе стигат — отвори това само за по-специални правила."
       info={
         <>
-          Тук решаваш <b>колко струва доставката</b> за клиента. Можеш да я направиш безплатна над
-          определена сума, с фиксирана цена, различна според теглото на пратката, или различна за
-          различни градове.
+          Цената на всеки начин на доставка се задава горе, в „Методи на доставка“. Тук са{' '}
+          <b>общи правила</b>: праг за безплатна доставка, обща такса за опаковка и таблица за цена
+          според теглото (ползва се, когато метод е на „Според теглото“).
         </>
       }
     >
+      <Collapsible
+        title="Покажи правилата за цена"
+        hint="Праг за безплатна доставка, цена според теглото или по град."
+      >
       <div className="flex flex-col gap-[18px]">
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
           <LvInput
-            label="Праг за безплатна доставка (0 = изкл.)"
+            label="Праг за безплатна доставка"
             value={p.freeThresholdStotinki}
             onChange={(v) => mut((d) => (d.pricing.freeThresholdStotinki = v))}
           />
           <LvInput
-            label="Опаковъчна такса (опц.)"
+            label="Такса за опаковка"
             value={p.packagingFeeStotinki ?? 0}
             onChange={(v) => mut((d) => (d.pricing.packagingFeeStotinki = v))}
           />
         </div>
 
-        <DLabel label="Модел на цената">
+        <DLabel label="Как се смята цената">
           <Segmented
             value={p.model}
             onChange={(v) => mut((d) => (d.pricing.model = v))}
             options={[
-              { value: 'flat', label: 'Фиксиран' },
-              { value: 'byWeight', label: 'По тегло' },
-              { value: 'byZone', label: 'По зона' },
+              { value: 'flat', label: 'Една цена' },
+              { value: 'byWeight', label: 'Според теглото' },
+              { value: 'byZone', label: 'Различни градове' },
             ]}
           />
         </DLabel>
@@ -66,6 +70,7 @@ export function PricingSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut }) 
         {p.model === 'byWeight' && <TierTable cfg={cfg} mut={mut} />}
         {p.model === 'byZone' && <ZoneTable cfg={cfg} mut={mut} />}
       </div>
+      </Collapsible>
     </DSection>
   );
 }

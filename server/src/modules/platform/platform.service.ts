@@ -8,8 +8,18 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { eq, sql } from 'drizzle-orm';
-import { type Database, tenants, users, orders, platformAdmins } from '@farmflow/db';
+import { eq, sql, desc } from 'drizzle-orm';
+import {
+  type Database,
+  tenants,
+  users,
+  orders,
+  platformAdmins,
+  emailPushes,
+  products,
+  newsletterSubscribers,
+  reviews,
+} from '@farmflow/db';
 import type { JwtPayload } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { CreateTenantDto } from './dto/create-tenant.dto';
@@ -25,6 +35,53 @@ export interface PlatformTenantRow {
   createdAt: Date | null;
   orderCount: number;
   lastOrderAt: Date | null;
+}
+
+/** Per-farm email-push usage → what the farm owes the platform (collected manually). */
+export interface PlatformEmailBillingRow {
+  tenantId: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  pushCount: number;
+  totalStotinki: number;
+  lastPushAt: Date | null;
+}
+
+/** Full per-farm snapshot for the super-admin detail view. */
+export interface PlatformTenantDetail {
+  id: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  phone: string | null;
+  subscriptionStatus: 'active' | 'inactive';
+  createdAt: Date | null;
+  deliveryEnabled: boolean;
+  multiFarmer: boolean;
+  multiSubcat: boolean;
+  econtConfigured: boolean;
+  stripeConnected: boolean;
+  orders: {
+    total: number;
+    pending: number;
+    confirmed: number;
+    delivered: number;
+    cancelled: number;
+    revenueStotinki: number;
+    lastOrderAt: Date | null;
+  };
+  products: { total: number; active: number };
+  subscribers: { active: number; unsubscribed: number };
+  reviews: { total: number; avgRating: number };
+  emailUsage: { pushCount: number; owedStotinki: number; lastPushAt: Date | null };
+  recentOrders: {
+    id: string;
+    customerName: string | null;
+    totalStotinki: number;
+    status: string | null;
+    createdAt: Date | null;
+  }[];
 }
 
 @Injectable()
@@ -69,6 +126,118 @@ export class PlatformService {
       .groupBy(tenants.id)
       .orderBy(tenants.createdAt);
     return rows as PlatformTenantRow[];
+  }
+
+  /**
+   * Email-push usage per farm — how much each owes the platform for newsletter
+   * pushes. The platform owner collects payment manually; this is just the ledger.
+   * Only farms with at least one push are returned, highest owed first.
+   */
+  async emailBilling(): Promise<PlatformEmailBillingRow[]> {
+    const rows = await this.db
+      .select({
+        tenantId: tenants.id,
+        name: tenants.name,
+        slug: tenants.slug,
+        email: tenants.email,
+        pushCount: sql<number>`count(${emailPushes.id})::int`,
+        totalStotinki: sql<number>`coalesce(sum(${emailPushes.priceStotinki}), 0)::int`,
+        lastPushAt: sql<Date | null>`max(${emailPushes.createdAt})`,
+      })
+      .from(tenants)
+      .innerJoin(emailPushes, eq(emailPushes.tenantId, tenants.id))
+      .groupBy(tenants.id)
+      .orderBy(sql`sum(${emailPushes.priceStotinki}) desc`);
+    return rows as PlatformEmailBillingRow[];
+  }
+
+  /** Full snapshot of one farm (stats + recent orders) for the detail view. */
+  async tenantDetail(id: string): Promise<PlatformTenantDetail> {
+    const [t] = await this.db.select().from(tenants).where(eq(tenants.id, id)).limit(1);
+    if (!t) throw new NotFoundException('Фермата не е намерена');
+
+    const [o] = await this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        pending: sql<number>`count(*) filter (where ${orders.status} = 'pending')::int`,
+        confirmed: sql<number>`count(*) filter (where ${orders.status} = 'confirmed')::int`,
+        delivered: sql<number>`count(*) filter (where ${orders.status} = 'delivered')::int`,
+        cancelled: sql<number>`count(*) filter (where ${orders.status} = 'cancelled')::int`,
+        revenueStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.status} <> 'cancelled'), 0)::int`,
+        lastOrderAt: sql<Date | null>`max(${orders.createdAt})`,
+      })
+      .from(orders)
+      .where(eq(orders.tenantId, id));
+
+    const [p] = await this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        active: sql<number>`count(*) filter (where ${products.isActive})::int`,
+      })
+      .from(products)
+      .where(eq(products.tenantId, id));
+
+    const [s] = await this.db
+      .select({
+        active: sql<number>`count(*) filter (where ${newsletterSubscribers.unsubscribedAt} is null)::int`,
+        unsubscribed: sql<number>`count(*) filter (where ${newsletterSubscribers.unsubscribedAt} is not null)::int`,
+      })
+      .from(newsletterSubscribers)
+      .where(eq(newsletterSubscribers.tenantId, id));
+
+    const [r] = await this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        avgRating: sql<number>`coalesce(round(avg(${reviews.rating}), 1), 0)::float`,
+      })
+      .from(reviews)
+      .where(eq(reviews.tenantId, id));
+
+    const [e] = await this.db
+      .select({
+        pushCount: sql<number>`count(*)::int`,
+        owedStotinki: sql<number>`coalesce(sum(${emailPushes.priceStotinki}), 0)::int`,
+        lastPushAt: sql<Date | null>`max(${emailPushes.createdAt})`,
+      })
+      .from(emailPushes)
+      .where(eq(emailPushes.tenantId, id));
+
+    const recentOrders = await this.db
+      .select({
+        id: orders.id,
+        customerName: orders.customerName,
+        totalStotinki: orders.totalStotinki,
+        status: orders.status,
+        createdAt: orders.createdAt,
+      })
+      .from(orders)
+      .where(eq(orders.tenantId, id))
+      .orderBy(desc(orders.createdAt))
+      .limit(8);
+
+    const settings = (t.settings as Record<string, any> | null) ?? {};
+    const econtConfigured = !!settings?.delivery?.econt?.configured;
+
+    return {
+      id: t.id,
+      name: t.name,
+      slug: t.slug,
+      email: t.email,
+      phone: t.phone,
+      subscriptionStatus: t.subscriptionStatus,
+      createdAt: t.createdAt,
+      deliveryEnabled: t.deliveryEnabled,
+      multiFarmer: t.multiFarmer,
+      multiSubcat: t.multiSubcat,
+      econtConfigured,
+      stripeConnected: !!t.stripeAccountId,
+      orders: o,
+      products: p,
+      subscribers: s,
+      reviews: r,
+      emailUsage: e,
+      recentOrders,
+    };
   }
 
   /** Toggle a farm's subscription (active/inactive). */

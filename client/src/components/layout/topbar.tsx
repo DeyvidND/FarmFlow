@@ -1,10 +1,69 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Menu, Bell } from 'lucide-react';
 import { cn, bgDateLabel } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
+import { getDashboard, listProducts } from '@/lib/api-client';
+
+/** One notification derived from live data (pending orders, full slots, low stock). */
+interface Notif {
+  id: string;
+  title: string;
+  meta: string;
+  amber?: boolean;
+}
+
+const hhmm = (t: string) => t.slice(0, 5);
+
+/** Build the notification feed from the dashboard summary + product stock. */
+async function loadNotifs(): Promise<Notif[]> {
+  const [dash, products] = await Promise.all([
+    getDashboard().catch(() => null),
+    listProducts().catch(() => null),
+  ]);
+  const list: Notif[] = [];
+
+  if (dash) {
+    if (dash.pendingCount > 0) {
+      list.push({
+        id: 'pending',
+        amber: true,
+        title:
+          dash.pendingCount === 1
+            ? '1 нова поръчка чака потвърждение'
+            : `${dash.pendingCount} нови поръчки чакат потвърждение`,
+        meta: 'Поръчки',
+      });
+    }
+    for (const s of dash.slots) {
+      if (s.maxOrders > 0 && s.booked >= s.maxOrders) {
+        list.push({
+          id: `slot-${s.id}`,
+          title: `Слот ${hhmm(s.timeFrom)} – ${hhmm(s.timeTo)} е запълнен`,
+          meta: 'Слотове',
+        });
+      }
+    }
+  }
+
+  if (products) {
+    for (const p of products) {
+      if (!p.isActive || p.stockQuantity === null || p.stockQuantity > 6) continue;
+      const name = [p.name, p.weight].filter(Boolean).join(' ');
+      const out = p.stockQuantity === 0;
+      list.push({
+        id: `stock-${p.id}`,
+        amber: out,
+        title: out ? `Изчерпан: ${name}` : `Ниска наличност: ${name} (${p.stockQuantity} бр.)`,
+        meta: 'Наличност',
+      });
+    }
+  }
+
+  return list.slice(0, 8);
+}
 
 /** First letters of up to two words, e.g. "Ферма Петрови" → "ФП". */
 function toInitials(name: string): string {
@@ -24,6 +83,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/route': 'Маршрут за днес',
   '/articles': 'Статии',
   '/newsletters': 'Имейл клиенти',
+  '/help': 'Документация',
 };
 
 function titleFor(pathname: string): string {
@@ -33,14 +93,25 @@ function titleFor(pathname: string): string {
 
 interface TopbarProps {
   tenantName?: string;
-  pendingCount?: number;
 }
 
-export function Topbar({ tenantName, pendingCount = 0 }: TopbarProps) {
+export function Topbar({ tenantName }: TopbarProps) {
   const pathname = usePathname();
   const openDrawer = useUiStore((s) => s.openDrawer);
   const [notifOpen, setNotifOpen] = useState(false);
   const [tenant, setTenant] = useState(tenantName ?? '');
+  const [notifs, setNotifs] = useState<Notif[]>([]);
+
+  const refreshNotifs = useCallback(() => {
+    loadNotifs()
+      .then(setNotifs)
+      .catch(() => {});
+  }, []);
+
+  // Load once on mount, then refresh each time the panel opens so the feed is live.
+  useEffect(() => {
+    refreshNotifs();
+  }, [refreshNotifs]);
 
   useEffect(() => {
     if (tenantName) return;
@@ -81,12 +152,15 @@ export function Topbar({ tenantName, pendingCount = 0 }: TopbarProps) {
 
         <div className="relative">
           <button
-            onClick={() => setNotifOpen((v) => !v)}
+            onClick={() => {
+              setNotifOpen((v) => !v);
+              if (!notifOpen) refreshNotifs();
+            }}
             className="grid h-11 w-11 place-items-center rounded-xl border border-ff-border bg-ff-surface text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2"
             aria-label="Известия"
           >
             <Bell size={21} />
-            {pendingCount > 0 && (
+            {notifs.length > 0 && (
               <span className="absolute right-[9px] top-2 h-[9px] w-[9px] rounded-full border-2 border-ff-surface bg-ff-amber" />
             )}
           </button>
@@ -95,9 +169,13 @@ export function Topbar({ tenantName, pendingCount = 0 }: TopbarProps) {
               <div className="fixed inset-0 z-30" onClick={() => setNotifOpen(false)} />
               <div className="absolute right-0 top-[52px] z-[31] w-80 animate-ff-pop rounded-2xl border border-ff-border bg-ff-surface p-2 shadow-ff-lg">
                 <div className="px-2.5 pb-2.5 pt-2 text-[13px] font-bold text-ff-muted">Известия</div>
-                <NotifRow amber title={`${pendingCount} нови поръчки чакат потвърждение`} time="преди 5 мин" />
-                <NotifRow title="Слот 09:00 – 10:00 е запълнен" time="преди 40 мин" />
-                <NotifRow title="Ниска наличност: Малини 500 г (6 бр.)" time="преди 1 ч" />
+                {notifs.length === 0 ? (
+                  <div className="px-2.5 pb-3 pt-1 text-[13.5px] text-ff-muted">Няма нови известия.</div>
+                ) : (
+                  notifs.map((n) => (
+                    <NotifRow key={n.id} amber={n.amber} title={n.title} time={n.meta} />
+                  ))
+                )}
               </div>
             </>
           )}

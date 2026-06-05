@@ -184,18 +184,21 @@ export class FarmersService {
   ): Promise<FarmerMedia[]> {
     await this.findOne(id, tenantId);
 
-    for (const it of dto.items) {
-      await this.db
-        .update(farmerMedia)
-        .set({ position: it.position })
-        .where(
-          and(
-            eq(farmerMedia.id, it.id),
-            eq(farmerMedia.farmerId, id),
-            eq(farmerMedia.tenantId, tenantId),
-          ),
-        );
-    }
+    // One transaction so a mid-loop failure can't leave a half-applied order.
+    await this.db.transaction(async (tx) => {
+      for (const it of dto.items) {
+        await tx
+          .update(farmerMedia)
+          .set({ position: it.position })
+          .where(
+            and(
+              eq(farmerMedia.id, it.id),
+              eq(farmerMedia.farmerId, id),
+              eq(farmerMedia.tenantId, tenantId),
+            ),
+          );
+      }
+    });
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));

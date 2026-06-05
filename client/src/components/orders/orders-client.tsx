@@ -17,6 +17,8 @@ const FILTERS: [string, string][] = [
   ['cancelled', 'Отказани'],
 ];
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
+/** Human order ref — the per-tenant number, falling back to a short id for legacy rows. */
+const orderNo = (o: Order) => (o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(0, 8)}`);
 
 export function OrdersClient({ initial }: { initial: Order[] }) {
   const [orders, setOrders] = useState<Order[]>(initial);
@@ -34,13 +36,25 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
   );
   const active = orders.find((o) => o.id === activeId) ?? null;
 
+  async function revertStatus(id: string, to: OrderStatus) {
+    setOrders((p) => p.map((x) => (x.id === id ? { ...x, status: to } : x))); // optimistic
+    try {
+      await updateOrderStatus(id, to);
+      toast.success('Върнато');
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  }
+
   async function onAction(o: Order, status: OrderStatus) {
     setBusy(true);
     const prev = o.status;
     setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status } : x)));
     try {
       await updateOrderStatus(o.id, status);
-      toast.success('Статусът е обновен');
+      toast.success('Статусът е обновен', {
+        action: { label: 'Отмени', onClick: () => void revertStatus(o.id, prev) },
+      });
       setActiveId(null);
     } catch (e) {
       setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status: prev } : x)));
@@ -117,7 +131,7 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
               >
                 <td className="px-5 py-3.5 align-top">
                   <div className="text-[13.5px] font-bold text-ff-muted">{timeFromIso(o.createdAt)}</div>
-                  <div className="text-xs text-ff-muted-2">#{o.id.slice(0, 8)}</div>
+                  <div className="text-xs text-ff-muted-2">{orderNo(o)}</div>
                 </td>
                 <td className="px-5 py-3.5 align-top text-[14.5px] font-bold">{o.customerName}</td>
                 <td className="max-w-[280px] truncate px-5 py-3.5 align-top text-[13.5px] text-ff-ink-2">
@@ -147,7 +161,7 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
                 <div>
                   <div className="text-[15.5px] font-extrabold">{o.customerName}</div>
                   <div className="mt-px text-[12.5px] text-ff-muted">
-                    {timeFromIso(o.createdAt)} · #{o.id.slice(0, 8)}
+                    {timeFromIso(o.createdAt)} · {orderNo(o)}
                   </div>
                 </div>
                 <StatusBadge status={o.status} size="sm" />

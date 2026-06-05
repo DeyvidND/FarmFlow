@@ -9,6 +9,7 @@ import {
   HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { StripeService } from './stripe.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -20,6 +21,9 @@ export class StripeController {
   constructor(private readonly stripeService: StripeService) {}
 
   // Stripe → server (signed, raw body). Always 200 once verified+handled.
+  // Signature-verified + idempotent, so it must not be rate-limited (would drop
+  // legitimate Stripe retry bursts).
+  @SkipThrottle()
   @Post('webhook')
   @HttpCode(200)
   handleWebhook(

@@ -105,57 +105,89 @@ export const products = pgTable(
   },
   (t) => ({
     tenantSlugUnique: uniqueIndex('products_tenant_slug_unique').on(t.tenantId, t.slug),
+    // Admin list + public catalog both filter by tenant and sort by createdAt.
+    tenantCreatedIdx: index('products_tenant_created_idx').on(t.tenantId, t.createdAt),
   }),
 );
 
-export const deliverySlots = pgTable('delivery_slots', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  date: date('date').notNull(),
-  timeFrom: time('time_from').notNull(),
-  timeTo: time('time_to').notNull(),
-  maxOrders: integer('max_orders').notNull(),
-  currentOrders: integer('current_orders').default(0),
-  isActive: boolean('is_active').default(true),
-});
+export const deliverySlots = pgTable(
+  'delivery_slots',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    date: date('date').notNull(),
+    timeFrom: time('time_from').notNull(),
+    timeTo: time('time_to').notNull(),
+    maxOrders: integer('max_orders').notNull(),
+    currentOrders: integer('current_orders').default(0),
+    isActive: boolean('is_active').default(true),
+  },
+  // Slot lists + dashboard summary filter by tenant, usually over a date window.
+  (t) => ({
+    tenantDateIdx: index('delivery_slots_tenant_date_idx').on(t.tenantId, t.date),
+  }),
+);
 
-export const orders = pgTable('orders', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  // Guest checkout: customer has no account; identity is snapshotted here.
-  customerId: uuid('customer_id').references(() => users.id),
-  customerName: text('customer_name'),
-  customerPhone: text('customer_phone'),
-  customerEmail: text('customer_email'),
-  slotId: uuid('slot_id').references(() => deliverySlots.id),
-  status: orderStatusEnum('status').default('pending'),
-  totalStotinki: integer('total_stotinki').notNull(),
-  deliveryType: deliveryTypeEnum('delivery_type').notNull().default('address'),
-  deliveryAddress: text('delivery_address'),
-  // Settlement for Econt door delivery (the structured city Econt needs to route
-  // a waybill to an address). NULL for office/local delivery.
-  deliveryCity: text('delivery_city'),
-  econtOffice: text('econt_office'),
-  deliveryLat: numeric('delivery_lat', { precision: 10, scale: 7 }),
-  deliveryLng: numeric('delivery_lng', { precision: 10, scale: 7 }),
-  notes: text('notes'),
-  // Stripe payment linkage (set by the checkout + webhook flow). `paidAt` is the
-  // paid marker — status flips to `confirmed` on a successful payment (no extra
-  // enum value); these stay NULL for cash / no-Stripe orders.
-  stripeCheckoutSessionId: text('stripe_checkout_session_id'),
-  stripePaymentIntentId: text('stripe_payment_intent_id'),
-  paidAt: timestamp('paid_at', { withTimezone: true }),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const orders = pgTable(
+  'orders',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    // Guest checkout: customer has no account; identity is snapshotted here.
+    customerId: uuid('customer_id').references(() => users.id),
+    customerName: text('customer_name'),
+    customerPhone: text('customer_phone'),
+    customerEmail: text('customer_email'),
+    slotId: uuid('slot_id').references(() => deliverySlots.id),
+    status: orderStatusEnum('status').default('pending'),
+    // Human-friendly per-tenant order number (#1, #2, …) shown to the farmer and
+    // customer. Assigned on create; NULL only on legacy rows until backfilled.
+    orderNumber: integer('order_number'),
+    totalStotinki: integer('total_stotinki').notNull(),
+    deliveryType: deliveryTypeEnum('delivery_type').notNull().default('address'),
+    deliveryAddress: text('delivery_address'),
+    // Settlement for Econt door delivery (the structured city Econt needs to route
+    // a waybill to an address). NULL for office/local delivery.
+    deliveryCity: text('delivery_city'),
+    econtOffice: text('econt_office'),
+    deliveryLat: numeric('delivery_lat', { precision: 10, scale: 7 }),
+    deliveryLng: numeric('delivery_lng', { precision: 10, scale: 7 }),
+    notes: text('notes'),
+    // Stripe payment linkage (set by the checkout + webhook flow). `paidAt` is the
+    // paid marker — status flips to `confirmed` on a successful payment (no extra
+    // enum value); these stay NULL for cash / no-Stripe orders.
+    stripeCheckoutSessionId: text('stripe_checkout_session_id'),
+    stripePaymentIntentId: text('stripe_payment_intent_id'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    // Admin list + dashboard: tenant-scoped, newest-first (btree scans either way).
+    tenantCreatedIdx: index('orders_tenant_created_idx').on(t.tenantId, t.createdAt),
+    // Status aggregates (pending/confirmed counts, bulk confirm).
+    tenantStatusIdx: index('orders_tenant_status_idx').on(t.tenantId, t.status),
+    // Slot-capacity check + admin list leftJoin on slot.
+    slotIdx: index('orders_slot_idx').on(t.slotId),
+    // One sequence of order numbers per tenant (NULLs allowed for legacy rows).
+    tenantNumberUnique: uniqueIndex('orders_tenant_number_unique').on(t.tenantId, t.orderNumber),
+  }),
+);
 
-export const orderItems = pgTable('order_items', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  orderId: uuid('order_id').references(() => orders.id),
-  productId: uuid('product_id').references(() => products.id),
-  productName: text('product_name'),
-  quantity: integer('quantity').notNull(),
-  priceStotinki: integer('price_stotinki').notNull(),
-});
+export const orderItems = pgTable(
+  'order_items',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    orderId: uuid('order_id').references(() => orders.id),
+    productId: uuid('product_id').references(() => products.id),
+    productName: text('product_name'),
+    quantity: integer('quantity').notNull(),
+    priceStotinki: integer('price_stotinki').notNull(),
+  },
+  // Production prep-list join + per-order item batch load.
+  (t) => ({
+    orderIdx: index('order_items_order_idx').on(t.orderId),
+  }),
+);
 
 // Stripe webhook idempotency ledger. Every handled event id is recorded so a
 // redelivered webhook (Stripe retries on non-2xx / network blips) is a no-op.
@@ -187,6 +219,8 @@ export const shipments = pgTable(
   },
   (t) => ({
     orderUnique: uniqueIndex('shipments_order_unique').on(t.orderId),
+    // Tenant-scoped shipment list + scoped delete.
+    tenantIdx: index('shipments_tenant_idx').on(t.tenantId),
   }),
 );
 
@@ -270,12 +304,44 @@ export const articleMedia = pgTable(
 );
 
 // Email-ready scaffold (Phase 2). Created now, empty, no send logic.
-export const newsletterSubscribers = pgTable('newsletter_subscribers', {
+export const newsletterSubscribers = pgTable(
+  'newsletter_subscribers',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    email: text('email').notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+    unsubscribedAt: timestamp('unsubscribed_at'),
+  },
+  // Subscriber list + broadcast filter by tenant, sort by createdAt.
+  (t) => ({
+    tenantCreatedIdx: index('newsletter_subscribers_tenant_created_idx').on(
+      t.tenantId,
+      t.createdAt,
+    ),
+  }),
+);
+
+// Global do-not-send list. Populated from SES bounce/complaint webhooks (and
+// manual adds). Checked before every send to protect the shared sending domain's
+// reputation — a hard bounce or spam complaint must never be mailed again.
+export const emailSuppressions = pgTable('email_suppressions', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  email: text('email').notNull().unique(),
+  reason: text('reason').notNull(), // 'bounce' | 'complaint' | 'manual'
+  detail: text('detail'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Billing ledger of broadcast "pushes" — the unit the farmer is charged for
+// (flat price per push, regardless of recipient count). One row per broadcast.
+export const emailPushes = pgTable('email_pushes', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
   tenantId: uuid('tenant_id').references(() => tenants.id),
-  email: text('email').notNull(),
+  subject: text('subject'),
+  recipientCount: integer('recipient_count').notNull(),
+  priceStotinki: integer('price_stotinki').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
-  unsubscribedAt: timestamp('unsubscribed_at'),
 });
 
 // Storefront contact-form submissions (public intake). Read in the admin panel
@@ -295,44 +361,77 @@ export const reviewStatusEnum = pgEnum('review_status', ['pending', 'published',
 // Customer reviews. Public submissions land as `pending` (moderated in the admin
 // panel); only `published` rows are served to the storefront. `productId` null =
 // a site-wide review; set = a review tied to one product.
-export const reviews = pgTable('reviews', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  productId: uuid('product_id').references(() => products.id),
-  authorName: text('author_name').notNull(),
-  authorLocation: text('author_location'),
-  rating: integer('rating').notNull(), // 1–5
-  body: text('body').notNull(),
-  status: reviewStatusEnum('status').notNull().default('pending'),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const reviews = pgTable(
+  'reviews',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    productId: uuid('product_id').references(() => products.id),
+    authorName: text('author_name').notNull(),
+    authorLocation: text('author_location'),
+    rating: integer('rating').notNull(), // 1–5
+    body: text('body').notNull(),
+    status: reviewStatusEnum('status').notNull().default('pending'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  // Public API + admin moderation both filter (tenant, status) and sort by createdAt.
+  (t) => ({
+    tenantStatusCreatedIdx: index('reviews_tenant_status_created_idx').on(
+      t.tenantId,
+      t.status,
+      t.createdAt,
+    ),
+  }),
+);
 
 // Producers behind one storefront (multi-farmer mode). A product may link to one.
-export const farmers = pgTable('farmers', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  name: text('name').notNull(),
-  role: text('role'),
-  bio: text('bio'),
-  phone: text('phone'),
-  since: text('since'),
-  tint: text('tint'),
-  imageUrl: text('image_url'),
-  position: integer('position').notNull().default(0),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const farmers = pgTable(
+  'farmers',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    name: text('name').notNull(),
+    role: text('role'),
+    bio: text('bio'),
+    phone: text('phone'),
+    since: text('since'),
+    tint: text('tint'),
+    imageUrl: text('image_url'),
+    position: integer('position').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  // Admin + storefront lists filter by tenant, sort by (position, createdAt).
+  (t) => ({
+    tenantPositionIdx: index('farmers_tenant_position_idx').on(
+      t.tenantId,
+      t.position,
+      t.createdAt,
+    ),
+  }),
+);
 
 // Optional product grouping into photographed storefront sections.
-export const subcategories = pgTable('subcategories', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  name: text('name').notNull(),
-  description: text('description'),
-  tint: text('tint'),
-  imageUrl: text('image_url'),
-  position: integer('position').notNull().default(0),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const subcategories = pgTable(
+  'subcategories',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    name: text('name').notNull(),
+    description: text('description'),
+    tint: text('tint'),
+    imageUrl: text('image_url'),
+    position: integer('position').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  // Admin + storefront lists filter by tenant, sort by (position, createdAt).
+  (t) => ({
+    tenantPositionIdx: index('subcategories_tenant_position_idx').on(
+      t.tenantId,
+      t.position,
+      t.createdAt,
+    ),
+  }),
+);
 
 // Ordered image galleries (image-only) for catalog entities. One row per photo;
 // `position` orders the gallery and position 0 is the cover (mirrored into the

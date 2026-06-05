@@ -5,15 +5,22 @@ import { Info, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Button } from '@/components/ui/button';
-import { BG_CITIES, ECONT_OFFICES, ECONT_HELP } from '@/lib/delivery-data';
-import { saveEcontCredentials, syncEcontNomenclature, ApiError } from '@/lib/api-client';
-import type { DeliveryConfig } from '@/lib/types';
+import { ECONT_HELP } from '@/lib/delivery-data';
+import {
+  saveEcontCredentials,
+  syncEcontNomenclature,
+  listEcontOffices,
+  ApiError,
+} from '@/lib/api-client';
+import type { DeliveryConfig, EcontOfficeLive } from '@/lib/types';
 import {
   DSection,
   DLabel,
   Segmented,
   DBadge,
   Divider,
+  Collapsible,
+  CityAutocomplete,
   HelpModal,
   fieldCls,
   subHeadCls,
@@ -36,9 +43,27 @@ export function EcontConnectionSection({
   const [check, setCheck] = React.useState<'idle' | 'loading' | 'ok' | 'fail'>('idle');
   const [pwChanging, setPwChanging] = React.useState(!e.configured);
   const [pw, setPw] = React.useState('');
-  const [cityQ, setCityQ] = React.useState(e.sender.cityName);
-  const [cityOpen, setCityOpen] = React.useState(false);
   const [help, setHelp] = React.useState(false);
+
+  // Live offices for the sender's town (loaded once Econt is connected).
+  const [senderOffices, setSenderOffices] = React.useState<EcontOfficeLive[]>([]);
+  const [loadingOffices, setLoadingOffices] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!e.configured || !e.sender.cityId) {
+      setSenderOffices([]);
+      return;
+    }
+    let active = true;
+    setLoadingOffices(true);
+    listEcontOffices(e.sender.cityId)
+      .then((r) => active && setSenderOffices(r))
+      .catch(() => active && setSenderOffices([]))
+      .finally(() => active && setLoadingOffices(false));
+    return () => {
+      active = false;
+    };
+  }, [e.configured, e.sender.cityId]);
 
   const runCheck = async () => {
     // Already connected and not changing the password — nothing to re-validate
@@ -92,88 +117,106 @@ export function EcontConnectionSection({
     </div>
   );
 
-  const cities = BG_CITIES.filter((c) => c.name.toLowerCase().includes(cityQ.toLowerCase()));
-  const senderOffices = ECONT_OFFICES.filter((o) => o.cityName === e.sender.cityName);
-
   return (
     <DSection
-      title="Еконт интеграция"
-      helper="Свържи акаунта си в Еконт, за да създаваш товарителници и да изчисляваш цени автоматично."
+      title="Еконт (куриерска доставка)"
+      helper="Свържи акаунта си в Еконт веднъж — после печаташ товарителници и смяташ цени направо оттук."
       action={headerActions}
       info={
         <>
-          Свързваш акаунта си в <b>Еконт</b> (куриера), за да печаташ товарителници направо оттук — без
-          да влизаш в сайта на Еконт. Не знаеш откъде да започнеш? Натисни „Обяснения“ горе вдясно.
+          <b>Еконт</b> е куриерът. Стъпките са прости: <b>1)</b> свържи акаунта си,{' '}
+          <b>2)</b> попълни кой е подателят (фермата), <b>3)</b> включи методите „До офис“ / „До адрес“
+          в секция „Методи на доставка“. Не знаеш откъде да започнеш? Натисни „Обяснения“.
         </>
       }
     >
       <div className="flex flex-col gap-[18px]">
-        {/* credentials */}
-        <div className="grid items-end gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-          <DLabel label="Среда">
-            <Segmented
-              value={e.env}
-              onChange={(v) => mut((d) => (d.econt.env = v))}
-              options={[
-                { value: 'demo', label: 'Тест' },
-                { value: 'prod', label: 'Реален' },
-              ]}
-            />
-          </DLabel>
-          <DLabel label="API потребител">
-            <input
-              value={e.username ?? ''}
-              placeholder="потребителско име"
-              onChange={(ev) => mut((d) => (d.econt.username = ev.target.value))}
-              className={fieldCls}
-            />
-          </DLabel>
-          <DLabel label="API парола">
-            {e.configured && !pwChanging ? (
-              <div className="flex items-center gap-2.5">
-                <span className={cn(fieldCls, 'flex flex-1 items-center text-ff-muted')}>
-                  •••••••• (запазена)
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setPwChanging(true);
-                    setPw('');
-                  }}
-                >
-                  Смени
-                </Button>
-              </div>
-            ) : (
+        {/* optional — a farm that delivers on its own never needs this */}
+        <div className="flex items-start gap-2.5 rounded-[10px] border border-ff-border-2 bg-ff-surface-2 px-3.5 py-3 text-[13px] text-ff-ink-2">
+          <span className="mt-px shrink-0 rounded-full bg-ff-badge-bg px-2 py-0.5 text-[11px] font-extrabold text-ff-badge-ink">
+            по желание
+          </span>
+          <span>
+            Това е само ако искаш доставка <b>с куриер</b>. Доставяш само сам или клиентът идва да
+            си вземе поръчката? Спокойно прескочи Еконт.
+          </span>
+        </div>
+
+        {/* 1 — credentials */}
+        <div>
+          <h3 className={subHeadCls}>1. Свържи акаунта си в Еконт</h3>
+          <p className={subDescCls}>
+            Въведи потребителя и паролата, които Еконт ти е дал за онлайн заявки. Намираш ги в
+            профила си на econt.com или в договора — нямаш ли ги, обади се на Еконт.
+          </p>
+          <div className="grid items-end gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+            <DLabel label="Потребител за Еконт" hint="От профила ти в Еконт.">
               <input
-                type="password"
-                value={pw}
-                placeholder="••••••••"
-                onChange={(ev) => setPw(ev.target.value)}
+                value={e.username ?? ''}
+                placeholder="напр. ime_firma"
+                onChange={(ev) => mut((d) => (d.econt.username = ev.target.value))}
                 className={fieldCls}
               />
+            </DLabel>
+            <DLabel label="Парола за Еконт">
+              {e.configured && !pwChanging ? (
+                <div className="flex items-center gap-2.5">
+                  <span className={cn(fieldCls, 'flex flex-1 items-center text-ff-muted')}>
+                    •••••••• (запазена)
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setPwChanging(true);
+                      setPw('');
+                    }}
+                  >
+                    Смени
+                  </Button>
+                </div>
+              ) : (
+                <input
+                  type="password"
+                  value={pw}
+                  placeholder="••••••••"
+                  onChange={(ev) => setPw(ev.target.value)}
+                  className={fieldCls}
+                />
+              )}
+            </DLabel>
+          </div>
+          <div className="mt-3.5 max-w-[260px]">
+            <DLabel label="Вид акаунт" hint="„Реален“ за истински пратки.">
+              <Segmented
+                value={e.env}
+                onChange={(v) => mut((d) => (d.econt.env = v))}
+                options={[
+                  { value: 'prod', label: 'Реален' },
+                  { value: 'demo', label: 'Тест' },
+                ]}
+              />
+            </DLabel>
+          </div>
+          <div className="mt-3.5 flex items-center">
+            <Button variant="outline" size="sm" onClick={runCheck} disabled={check === 'loading'}>
+              {check === 'loading' ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              {check === 'loading' ? 'Проверка…' : 'Провери връзката'}
+            </Button>
+            {check === 'ok' && (
+              <span className="ml-3 text-[13px] font-bold text-ff-green-700">Връзката е успешна</span>
             )}
-          </DLabel>
-        </div>
-        <div className="flex items-center">
-          <Button variant="outline" size="sm" onClick={runCheck} disabled={check === 'loading'}>
-            {check === 'loading' ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-            {check === 'loading' ? 'Проверка…' : 'Провери връзката'}
-          </Button>
-          {check === 'ok' && (
-            <span className="ml-3 text-[13px] font-bold text-ff-green-700">Връзката е успешна</span>
-          )}
-          {check === 'fail' && <span className="ml-3 text-[13px] font-bold text-ff-red">Невалидни данни</span>}
+            {check === 'fail' && <span className="ml-3 text-[13px] font-bold text-ff-red">Невалидни данни</span>}
+          </div>
         </div>
 
         <Divider />
 
-        {/* sender profile */}
+        {/* 2 — sender profile */}
         <div>
-          <h3 className={subHeadCls}>Профил на подател</h3>
+          <h3 className={subHeadCls}>2. Профил на подател (фермата)</h3>
           <p className={subDescCls}>
-            Данните на фермата ти — оттук тръгват пратките. Попълват се автоматично в товарителницата.
+            Оттук тръгват пратките. Попълва се автоматично във всяка товарителница.
           </p>
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
             <DLabel label="Име на подател">
@@ -190,40 +233,19 @@ export function EcontConnectionSection({
                 className={fieldCls}
               />
             </DLabel>
-            <DLabel label="Град" hint="Търси по име на населено място.">
-              <div className="relative">
-                <input
-                  value={cityQ}
-                  onChange={(ev) => {
-                    setCityQ(ev.target.value);
-                    setCityOpen(true);
-                  }}
-                  onFocus={() => setCityOpen(true)}
-                  onBlur={() => window.setTimeout(() => setCityOpen(false), 150)}
-                  className={fieldCls}
-                />
-                {cityOpen && cities.length > 0 && (
-                  <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-[220px] overflow-y-auto rounded-[9px] border border-ff-border bg-ff-surface shadow-ff-md">
-                    {cities.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onMouseDown={() => {
-                          mut((d) => {
-                            d.econt.sender.cityId = c.id;
-                            d.econt.sender.cityName = c.name;
-                          });
-                          setCityQ(c.name);
-                          setCityOpen(false);
-                        }}
-                        className="block w-full px-3.5 py-2.5 text-left text-[14px] font-semibold text-ff-ink hover:bg-ff-green-50"
-                      >
-                        {c.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <DLabel label="Град" hint="На живо от Еконт.">
+              <CityAutocomplete
+                value={e.sender.cityName}
+                disabled={!e.configured}
+                notReadyHint="Първо свържи Еконт акаунта по-горе."
+                onPick={(c) =>
+                  mut((d) => {
+                    d.econt.sender.cityId = c.id;
+                    d.econt.sender.cityName = c.name;
+                    d.econt.sender.officeCode = undefined; // belonged to the old town
+                  })
+                }
+              />
             </DLabel>
           </div>
 
@@ -241,18 +263,33 @@ export function EcontConnectionSection({
             <div className="mt-3 max-w-[460px]">
               {e.sender.mode === 'office' ? (
                 <DLabel label="Офис на подаване">
-                  <select
-                    value={e.sender.officeCode ?? ''}
-                    onChange={(ev) => mut((d) => (d.econt.sender.officeCode = ev.target.value))}
-                    className={cn(fieldCls, 'cursor-pointer appearance-none')}
-                  >
-                    {senderOffices.length === 0 && <option>Няма офиси за този град</option>}
-                    {senderOffices.map((o) => (
-                      <option key={o.code} value={o.code}>
-                        {o.name} — {o.address}
+                  {!e.configured ? (
+                    <div className={cn(fieldCls, 'flex items-center text-ff-muted')}>
+                      Свържи Еконт, за да избереш офис
+                    </div>
+                  ) : loadingOffices ? (
+                    <div className={cn(fieldCls, 'flex items-center text-ff-muted')}>Зареждане…</div>
+                  ) : senderOffices.length === 0 ? (
+                    <div className={cn(fieldCls, 'flex items-center text-ff-muted')}>
+                      Няма офиси в „{e.sender.cityName}“
+                    </div>
+                  ) : (
+                    <select
+                      value={e.sender.officeCode ?? ''}
+                      onChange={(ev) => mut((d) => (d.econt.sender.officeCode = ev.target.value))}
+                      className={cn(fieldCls, 'cursor-pointer appearance-none')}
+                    >
+                      <option value="" disabled>
+                        Избери офис…
                       </option>
-                    ))}
-                  </select>
+                      {senderOffices.map((o) => (
+                        <option key={o.code} value={o.code}>
+                          {o.name}
+                          {o.address ? ` — ${o.address}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </DLabel>
               ) : (
                 <DLabel label="Адрес на подаване">
@@ -270,28 +307,18 @@ export function EcontConnectionSection({
 
         <Divider />
 
-        {/* default package */}
+        {/* 3 — default package + COD */}
         <div>
-          <h3 className={subHeadCls}>Пакет по подразбиране</h3>
-          <p className={subDescCls}>
-            Стандартните тегло и размери на пратките ти. Спестява попълване при всяка поръчка.
-          </p>
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
-            <DLabel label="Тегло (кг)">
+          <h3 className={subHeadCls}>3. Пакет и плащане</h3>
+          <p className={subDescCls}>Стандартното тегло на пратките ти и дали клиентът плаща при доставка.</p>
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+            <DLabel label="Тегло по подразбиране (кг)">
               <input
                 value={e.defaultPackage.weightKg}
                 inputMode="decimal"
                 onChange={(ev) =>
                   mut((d) => (d.econt.defaultPackage.weightKg = parseFloat(ev.target.value) || 0))
                 }
-                className={fieldCls}
-              />
-            </DLabel>
-            <DLabel label="Размери Д×Ш×В (см, опц.)">
-              <input
-                value={e.defaultPackage.dimensions ?? ''}
-                placeholder="30×20×15"
-                onChange={(ev) => mut((d) => (d.econt.defaultPackage.dimensions = ev.target.value))}
                 className={fieldCls}
               />
             </DLabel>
@@ -303,63 +330,74 @@ export function EcontConnectionSection({
               />
             </DLabel>
           </div>
-        </div>
 
-        <Divider />
-
-        {/* COD + label */}
-        <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
-          <div>
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <div className="text-[14px] font-bold text-ff-ink">Наложен платеж (COD)</div>
-                <div className="mt-px text-[12px] text-ff-muted">Клиентът плаща при доставка.</div>
-              </div>
+          <div className="mt-3.5 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-ff-border bg-ff-surface-2 px-3.5 py-3">
+            <div>
+              <div className="text-[14px] font-bold text-ff-ink">Наложен платеж</div>
+              <div className="mt-px text-[12px] text-ff-muted">Клиентът плаща в момента на доставката.</div>
+            </div>
+            <div className="flex items-center gap-4">
+              {e.cod.enabled && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[12.5px] font-bold text-ff-ink-2">Таксата плаща:</span>
+                  <Segmented
+                    value={e.cod.feePayer}
+                    onChange={(v) => mut((d) => (d.econt.cod.feePayer = v))}
+                    options={[
+                      { value: 'customer', label: 'Клиент' },
+                      { value: 'farm', label: 'Ферма' },
+                    ]}
+                  />
+                </div>
+              )}
               <ToggleSwitch checked={e.cod.enabled} onChange={(v) => mut((d) => (d.econt.cod.enabled = v))} />
             </div>
-            {e.cod.enabled && (
-              <DLabel label="Кой плаща таксата за наложен платеж">
-                <Segmented
-                  value={e.cod.feePayer}
-                  onChange={(v) => mut((d) => (d.econt.cod.feePayer = v))}
-                  options={[
-                    { value: 'customer', label: 'Клиент' },
-                    { value: 'farm', label: 'Ферма' },
-                  ]}
-                />
-              </DLabel>
-            )}
           </div>
-          <div>
+        </div>
+
+        {/* advanced — grouped, collapsed by default */}
+        <Collapsible
+          title="Разширени настройки"
+          hint="Размер на товарителницата, размери на пакета, авто-създаване. Стандартните стойности работят за повечето ферми."
+        >
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+            <DLabel label="Размери Д×Ш×В (см, опц.)">
+              <input
+                value={e.defaultPackage.dimensions ?? ''}
+                placeholder="30×20×15"
+                onChange={(ev) => mut((d) => (d.econt.defaultPackage.dimensions = ev.target.value))}
+                className={fieldCls}
+              />
+            </DLabel>
             <DLabel label="Размер на товарителницата">
               <Segmented
                 value={e.label.paper}
                 onChange={(v) => mut((d) => (d.econt.label.paper = v))}
                 options={[
                   { value: 'A4', label: 'A4' },
-                  { value: 'A6', label: 'A6' },
+                  { value: 'A6', label: 'A6 (етикет)' },
                 ]}
               />
             </DLabel>
-            <div className="mt-3.5 flex items-center justify-between">
-              <div>
-                <div className="text-[14px] font-bold text-ff-ink">Авто-товарителница</div>
-                <div className="mt-px text-[12px] text-ff-muted">Създавай при платена поръчка.</div>
-              </div>
-              <ToggleSwitch
-                checked={e.label.autoCreate}
-                onChange={(v) => mut((d) => (d.econt.label.autoCreate = v))}
-              />
-            </div>
           </div>
-        </div>
+          <div className="mt-3.5 flex items-center justify-between rounded-[10px] border border-ff-border bg-ff-surface-2 px-3.5 py-3">
+            <div>
+              <div className="text-[14px] font-bold text-ff-ink">Авто-товарителница</div>
+              <div className="mt-px text-[12px] text-ff-muted">Създавай автоматично при платена поръчка.</div>
+            </div>
+            <ToggleSwitch
+              checked={e.label.autoCreate}
+              onChange={(v) => mut((d) => (d.econt.label.autoCreate = v))}
+            />
+          </div>
+        </Collapsible>
 
         <Divider />
 
         {/* nomenclature */}
         <div className="flex flex-wrap items-center justify-between gap-3.5">
           <div>
-            <div className="text-[14px] font-bold text-ff-ink">Номенклатури (градове и офиси)</div>
+            <div className="text-[14px] font-bold text-ff-ink">Градове и офиси</div>
             <div className="mt-0.5 text-[12.5px] text-ff-muted">
               Последна синхронизация: {e.nomenclature.lastSyncedAt} ·{' '}
               <span className="ff-fig">{e.nomenclature.cities.toLocaleString('bg')}</span> населени места ·{' '}

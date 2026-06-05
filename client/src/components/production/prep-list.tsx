@@ -1,19 +1,54 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { CalendarDays, ChevronDown, Check, ShoppingBasket, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ProductionSummary } from '@/lib/types';
 
-/** Daily prep list. Data from GET /orders/production; tick state is local UI only. */
-export function PrepList({ summary, dateLabel }: { summary: ProductionSummary; dateLabel: string }) {
+const plural = (n: number) => (n === 1 ? 'бройка' : 'бройки');
+
+const prepKey = (date: string) => `ff-prep-${date}`;
+
+/** Daily prep list. Data from GET /orders/production; tick state is persisted to
+ *  localStorage per date so a refresh / phone-sleep mid-harvest keeps your place.
+ *  Progress is measured in бройки (units) everywhere so the numbers never clash. */
+export function PrepList({
+  summary,
+  dateLabel,
+  date,
+}: {
+  summary: ProductionSummary;
+  dateLabel: string;
+  date: string;
+}) {
+  const router = useRouter();
   const { items, confirmedOrders } = summary;
   const [done, setDone] = useState<Record<string, boolean>>({});
 
-  const doneCount = items.filter((r) => done[r.productName]).length;
-  const allDone = items.length > 0 && doneCount === items.length;
+  // Hydrate ticks for the shown date (runs after mount → no SSR hydration clash).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(prepKey(date));
+      setDone(raw ? (JSON.parse(raw) as Record<string, boolean>) : {});
+    } catch {
+      setDone({});
+    }
+  }, [date]);
+
   const totalQty = items.reduce((s, r) => s + r.totalQty, 0);
-  const toggle = (name: string) => setDone((d) => ({ ...d, [name]: !d[name] }));
+  const doneQty = items.filter((r) => done[r.productName]).reduce((s, r) => s + r.totalQty, 0);
+  const allDone = totalQty > 0 && doneQty === totalQty;
+  const toggle = (name: string) =>
+    setDone((d) => {
+      const next = { ...d, [name]: !d[name] };
+      try {
+        localStorage.setItem(prepKey(date), JSON.stringify(next));
+      } catch {
+        /* private mode / quota — ticks still work for this session */
+      }
+      return next;
+    });
 
   return (
     <div className="animate-ff-fade-up">
@@ -22,13 +57,24 @@ export function PrepList({ summary, dateLabel }: { summary: ProductionSummary; d
         <p className="text-[15px] font-semibold text-ff-ink-2">
           <strong className="font-extrabold text-ff-ink">{confirmedOrders}</strong> потвърдени поръчки
           <span className="mx-2 text-ff-muted-2">·</span>
-          <strong className="font-extrabold text-ff-ink">{items.length}</strong> продукта за приготвяне
+          <strong className="font-extrabold text-ff-ink">{totalQty}</strong> {plural(totalQty)} за приготвяне
         </p>
-        <div className="flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm">
+        <label className="relative flex cursor-pointer items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2">
           <CalendarDays size={17} />
           <span className="capitalize">{dateLabel}</span>
           <ChevronDown size={16} className="text-ff-muted" />
-        </div>
+          <input
+            type="date"
+            value={date}
+            aria-label="Избери дата"
+            onChange={(e) => {
+              if (!e.target.value) return;
+              router.push(`/production?date=${e.target.value}`);
+              router.refresh();
+            }}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+        </label>
       </div>
 
       <div className="grid grid-cols-[1fr_300px] items-start gap-4 max-[900px]:grid-cols-1">
@@ -37,7 +83,7 @@ export function PrepList({ summary, dateLabel }: { summary: ProductionSummary; d
           <div className="flex items-center justify-between border-b border-ff-border-2 px-[22px] pb-[15px] pt-[18px]">
             <h2 className="text-[17px] font-extrabold">За приготвяне днес</h2>
             <span className={cn('text-[13px] font-bold', allDone ? 'text-ff-green-700' : 'text-ff-muted')}>
-              {doneCount}/{items.length} готови
+              {doneQty}/{totalQty} готови
             </span>
           </div>
 
@@ -109,8 +155,8 @@ export function PrepList({ summary, dateLabel }: { summary: ProductionSummary; d
           <div className="rounded-xl border border-ff-border border-t-[3px] border-t-ff-green-600 bg-ff-surface p-5 shadow-ff-sm">
             <div className="mb-3 text-[13.5px] font-bold text-ff-muted">Напредък</div>
             <div className="flex items-baseline gap-2">
-              <span className="ff-fig text-[40px] font-extrabold tracking-[-0.03em] text-ff-ink">{doneCount}</span>
-              <span className="text-[18px] font-bold text-ff-muted-2">/ {items.length}</span>
+              <span className="ff-fig text-[40px] font-extrabold tracking-[-0.03em] text-ff-ink">{doneQty}</span>
+              <span className="text-[18px] font-bold text-ff-muted-2">/ {totalQty}</span>
             </div>
             <div className="mt-3.5 h-[9px] overflow-hidden rounded-full bg-ff-border-2">
               <div
@@ -118,7 +164,7 @@ export function PrepList({ summary, dateLabel }: { summary: ProductionSummary; d
                   'h-full rounded-full transition-[width] duration-300',
                   allDone ? 'bg-ff-green-600' : 'bg-ff-green-500',
                 )}
-                style={{ width: `${items.length ? (doneCount / items.length) * 100 : 0}%` }}
+                style={{ width: `${totalQty ? (doneQty / totalQty) * 100 : 0}%` }}
               />
             </div>
             <div
@@ -129,7 +175,7 @@ export function PrepList({ summary, dateLabel }: { summary: ProductionSummary; d
             >
               {allDone
                 ? 'Всичко е приготвено — готов за доставка! 🌿'
-                : `Общо ${totalQty} бройки за приготвяне.`}
+                : `Остават ${totalQty - doneQty} от ${totalQty} ${plural(totalQty)}.`}
             </div>
           </div>
 

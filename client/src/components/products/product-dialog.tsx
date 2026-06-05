@@ -73,7 +73,9 @@ export function ProductDialog({
         weight: weight.trim() || undefined,
         category: category.trim() || undefined,
         tint,
-        stockQuantity: stock === '' ? undefined : parseInt(stock, 10) || 0,
+        // Empty = unlimited stock → send null explicitly (the column defaults to 0
+        // = out of stock, which would contradict the "неограничено" placeholder).
+        stockQuantity: stock === '' ? null : parseInt(stock, 10) || 0,
         ...(isEdit ? {} : { isActive: true }),
         ...(multiFarmer ? { farmerId: farmerId || null } : {}),
         ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
@@ -128,6 +130,7 @@ export function ProductDialog({
             <label className={labelCls}>
               Наличност (бр.)
               <input value={stock} onChange={(e) => setStock(e.target.value)} inputMode="numeric" placeholder="неогранич." className={field} />
+              <span className="text-[10.5px] font-semibold text-ff-muted-2">празно = без лимит</span>
             </label>
           </div>
 

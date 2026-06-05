@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { NewsletterService } from './newsletter.service';
 import { EmailService } from '../../common/email/email.service';
+import { SuppressionService } from '../../common/email/suppression.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
 // ── Mock DB builder ─────────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ function makeJwtService() {
 function makeConfigService() {
   return {
     get: jest.fn().mockReturnValue(undefined),
+    getOrThrow: jest.fn().mockReturnValue('test-jwt-secret'),
   };
 }
 
@@ -61,6 +63,10 @@ describe('NewsletterService', () => {
         { provide: EmailService, useValue: emailService },
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: makeConfigService() },
+        {
+          provide: SuppressionService,
+          useValue: { filterSuppressed: jest.fn().mockResolvedValue(new Set()), isSuppressed: jest.fn().mockResolvedValue(false), suppress: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -124,14 +130,9 @@ describe('NewsletterService', () => {
         unsubscribedAt: null,
         tenantId: TENANT_ID,
       };
-      const unsubscribed = {
-        id: 'sub-2',
-        email: 'gone@test.bg',
-        createdAt: new Date(),
-        unsubscribedAt: new Date(),
-        tenantId: TENANT_ID,
-      };
-      db.orderBy.mockResolvedValue([active, unsubscribed]);
+      // The unsubscribed filter is applied in SQL (WHERE unsubscribed_at IS NULL),
+      // so the query returns active rows only.
+      db.orderBy.mockResolvedValue([active]);
 
       const result = await service.broadcast(TENANT_ID, {
         subject: 'Новини',

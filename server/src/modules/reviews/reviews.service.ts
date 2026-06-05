@@ -4,12 +4,15 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { type Database, tenants, products, reviews } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewStatusDto } from './dto/update-review-status.dto';
+
+/** Cap on reviews returned to the storefront; count/average still cover all. */
+const PUBLIC_REVIEWS_LIMIT = 60;
 
 export interface PublicReview {
   id: string;
@@ -51,6 +54,19 @@ export class ReviewsService {
     const cached = await this.publicCache.get<ReviewSummary>(key);
     if (cached) return cached;
 
+    const published = and(eq(reviews.tenantId, tenant.id), eq(reviews.status, 'published'));
+
+    // Count + average over ALL published reviews via SQL, so capping the returned
+    // list below never skews the headline figures.
+    const [agg] = await this.db
+      .select({
+        count: sql<number>`count(*)::int`,
+        average: sql<number>`coalesce(round(avg(${reviews.rating}), 1), 0)::float`,
+      })
+      .from(reviews)
+      .where(published);
+
+    // Bounded list: the storefront shows the most recent reviews, not thousands.
     const rows = await this.db
       .select({
         id: reviews.id,
@@ -61,17 +77,13 @@ export class ReviewsService {
         createdAt: reviews.createdAt,
       })
       .from(reviews)
-      .where(and(eq(reviews.tenantId, tenant.id), eq(reviews.status, 'published')))
-      .orderBy(desc(reviews.createdAt));
-
-    const count = rows.length;
-    const average = count
-      ? Math.round((rows.reduce((s, r) => s + r.rating, 0) / count) * 10) / 10
-      : 0;
+      .where(published)
+      .orderBy(desc(reviews.createdAt))
+      .limit(PUBLIC_REVIEWS_LIMIT);
 
     const summary: ReviewSummary = {
-      average,
-      count,
+      average: agg?.average ?? 0,
+      count: agg?.count ?? 0,
       reviews: rows.map((r) => ({
         ...r,
         createdAt: r.createdAt ? r.createdAt.toISOString() : null,

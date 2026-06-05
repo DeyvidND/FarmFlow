@@ -243,18 +243,21 @@ export class ArticlesService {
     await this.findOne(id, tenantId);
 
     // Scope each update by article + tenant so foreign media ids are no-ops.
-    for (const it of dto.items) {
-      await this.db
-        .update(articleMedia)
-        .set({ position: it.position })
-        .where(
-          and(
-            eq(articleMedia.id, it.id),
-            eq(articleMedia.articleId, id),
-            eq(articleMedia.tenantId, tenantId),
-          ),
-        );
-    }
+    // One transaction so a mid-loop failure can't leave a half-applied order.
+    await this.db.transaction(async (tx) => {
+      for (const it of dto.items) {
+        await tx
+          .update(articleMedia)
+          .set({ position: it.position })
+          .where(
+            and(
+              eq(articleMedia.id, it.id),
+              eq(articleMedia.articleId, id),
+              eq(articleMedia.tenantId, tenantId),
+            ),
+          );
+      }
+    });
     await this.cache.invalidate(tenantId);
 
     return this.db

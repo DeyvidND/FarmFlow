@@ -36,6 +36,69 @@ interface ResolvedCreds {
   password: string;
 }
 
+/** A city for the admin sender/office-picker autocomplete. */
+export interface EcontCityView {
+  id: number;
+  name: string;
+  postCode: string | null;
+}
+
+/** An office shaped for the admin picker + map (includes coordinates + hours). */
+export interface EcontOfficeView {
+  code: string;
+  name: string;
+  city: string | null;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  hours: string | null;
+}
+
+/** Coerce Econt's string|number coordinate into a finite number or null. */
+function toCoord(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) : NaN;
+  return Number.isFinite(n) && n !== 0 ? n : null;
+}
+
+// Econt returns office business hours as epoch-ms numbers (and HH:mm:ss strings in
+// some responses); normalize both to a local "HH:MM" in Bulgarian time.
+const HOURS_FMT = new Intl.DateTimeFormat('bg-BG', {
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'Europe/Sofia',
+  hour12: false,
+});
+function fmtTime(v: unknown): string | null {
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+    try {
+      return HOURS_FMT.format(new Date(v));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof v === 'string' && v.length >= 5) return v.slice(0, 5);
+  return null;
+}
+function formatHours(from: unknown, to: unknown): string | null {
+  const f = fmtTime(from);
+  const t = fmtTime(to);
+  return f && t ? `${f}–${t}` : null;
+}
+
+/** Map a raw Econt office onto the slim admin view (coords + working hours). */
+function slimOfficeView(o: any): EcontOfficeView {
+  const loc = o?.address?.location ?? {};
+  return {
+    code: o?.code,
+    name: o?.name,
+    city: o?.address?.city?.name ?? null,
+    address: (o?.address?.fullAddress ?? '').trim() || null,
+    lat: toCoord(loc.latitude),
+    lng: toCoord(loc.longitude),
+    hours: formatHours(o?.normalBusinessHoursFrom, o?.normalBusinessHoursTo),
+  };
+}
+
 /**
  * Econt courier integration. Talks to Econt's JSON API (demo or prod) with the
  * farm's own Basic-auth credentials, stored encrypted in
@@ -228,6 +291,45 @@ export class EcontService {
     return list.filter((o) => (o.city ?? '').toLowerCase().includes(q)).slice(0, 200);
   }
 
+  /**
+   * City autocomplete for the admin delivery setup. The full settlement list
+   * (~5.6k rows) is fetched once from Econt and cached; subsequent queries are
+   * filtered in-memory (prefix matches first). Requires Econt credentials.
+   */
+  async searchCities(tenantId: string, q?: string): Promise<EcontCityView[]> {
+    const { tenant } = await this.loadStored(tenantId);
+    const key = `econt:cities:${tenant.slug}`;
+    let list = await this.cache.get<EcontCityView[]>(key);
+    if (!list) {
+      const cities = await this.getCities(tenantId);
+      list = cities.map((c: any) => ({ id: c.id, name: c.name, postCode: c.postCode ?? null }));
+      await this.cache.set(key, list, NOMENCLATURE_TTL);
+    }
+    const query = (q ?? '').trim().toLowerCase();
+    if (!query) return list.slice(0, 20);
+    const starts: EcontCityView[] = [];
+    const contains: EcontCityView[] = [];
+    for (const c of list) {
+      const n = c.name.toLowerCase();
+      if (n.startsWith(query)) starts.push(c);
+      else if (n.includes(query)) contains.push(c);
+    }
+    return [...starts, ...contains].slice(0, 20);
+  }
+
+  /** Offices in one city (with coordinates + hours) for the admin picker/map. */
+  async getOfficesForCity(tenantId: string, cityId: number): Promise<EcontOfficeView[]> {
+    if (!cityId) return [];
+    const { tenant } = await this.loadStored(tenantId);
+    const key = `econt:officesByCity:${tenant.slug}:${cityId}`;
+    const cached = await this.cache.get<EcontOfficeView[]>(key);
+    if (cached) return cached;
+    const offices = await this.getOffices(tenantId, cityId);
+    const slim = offices.map(slimOfficeView).filter((o) => o.code && o.name);
+    await this.cache.set(key, slim, NOMENCLATURE_TTL);
+    return slim;
+  }
+
   /* ------------------------------- shipments ------------------------------- */
 
   private async orderForShipment(tenantId: string, orderId: string) {
@@ -249,11 +351,16 @@ export class EcontService {
 
   /**
    * Build the Econt `label` payload from an order + the farm's sender profile.
-   * Routes to an office (`receiverOfficeCode`) or a home address
-   * (`receiverAddress`) depending on the order's delivery method.
+   *
+   * Shapes validated live against Econt's API (demo): `senderClient`/`receiverClient`
+   * are `{name, phones[]}`; a legal-entity sender is REJECTED without `senderAgent`
+   * (authorized person); the hand-in/drop-off points are `senderOfficeCode`/
+   * `senderAddress` and `receiverOfficeCode`/`receiverAddress` at the label level.
+   * A door address must be structured `{city:{name}, other:"street, №"}` — a bare
+   * `fullAddress` errors `ExInvalidCity`. COD rides on `services.cdAmount`.
    */
   private buildLabel(
-    sender: Record<string, unknown> | undefined,
+    econt: EcontStored,
     order: {
       customerName: string | null;
       customerPhone: string | null;
@@ -261,16 +368,23 @@ export class EcontService {
       econtOffice: string | null;
       deliveryAddress?: string | null;
       deliveryCity?: string | null;
+      totalStotinki?: number | null;
     },
     items: { name: string | null; qty: number }[],
-    pkg: { weightKg?: number; contents?: string } | undefined,
   ): Record<string, unknown> {
+    const sender = (econt.sender ?? {}) as Record<string, any>;
+    const senderName: string = sender.name || 'Подател';
+    const senderPhone: string = sender.phone || '';
+    const pkg = econt.defaultPackage;
     const contents =
       pkg?.contents ||
       items.map((i) => `${i.name} x${i.qty}`).join(', ').slice(0, 100) ||
       'Хранителни продукти';
-    const base: Record<string, unknown> = {
-      senderClient: sender ?? {},
+
+    const label: Record<string, unknown> = {
+      senderClient: { name: senderName, phones: [senderPhone] },
+      // Authorized person — mandatory for a legal entity, else Econt returns 517.
+      senderAgent: { name: senderName, phones: [senderPhone] },
       receiverClient: {
         name: order.customerName ?? 'Клиент',
         phones: [order.customerPhone ?? ''],
@@ -280,16 +394,34 @@ export class EcontService {
       weight: pkg?.weightKg ?? 1,
       shipmentDescription: contents,
     };
-    if (order.deliveryType === 'econt_address') {
-      // Door delivery. Pass the settlement structured (Econt routes by city) plus
-      // the street as free text; Econt geocodes the rest.
-      const receiverAddress: Record<string, unknown> = {
-        fullAddress: order.deliveryAddress ?? '',
-      };
-      if (order.deliveryCity) receiverAddress.city = { name: order.deliveryCity };
-      return { ...base, receiverAddress };
+
+    // Where the parcel is handed in: a sender office, or the farm's own address.
+    if (sender.mode === 'address') {
+      label.senderAddress = { city: { name: sender.cityName ?? '' }, other: sender.address ?? '' };
+    } else {
+      label.senderOfficeCode = sender.officeCode ?? undefined;
     }
-    return { ...base, receiverOfficeCode: order.econtOffice ?? undefined };
+
+    // Where it goes: a receiver office, or the customer's door.
+    if (order.deliveryType === 'econt_address') {
+      label.receiverAddress = {
+        city: { name: order.deliveryCity ?? '' },
+        other: order.deliveryAddress ?? '',
+      };
+    } else {
+      label.receiverOfficeCode = order.econtOffice ?? undefined;
+    }
+
+    // Cash on delivery: collect the order total from the customer (app currency = EUR).
+    if (econt.cod?.enabled && order.totalStotinki) {
+      label.services = {
+        cdAmount: Math.round(order.totalStotinki) / 100,
+        cdType: 'get',
+        cdCurrency: 'EUR',
+      };
+    }
+
+    return label;
   }
 
   /** Price-only estimate (Econt `mode:calculate`). Returns stotinki, or null on any failure. */
@@ -302,13 +434,14 @@ export class EcontService {
       econtOffice: string | null;
       deliveryAddress?: string | null;
       deliveryCity?: string | null;
+      totalStotinki?: number | null;
     },
     items: { name: string | null; qty: number }[],
   ): Promise<number | null> {
     try {
       const { econt } = await this.loadStored(tenantId);
       if (!econt.configured) return null;
-      const label = this.buildLabel(econt.sender, order, items, econt.defaultPackage);
+      const label = this.buildLabel(econt, order, items);
       // Short timeout: this runs inline during checkout, so prefer the flat-fee
       // fallback over making the customer wait on a slow courier API.
       const data = await this.callTenant(
@@ -330,7 +463,7 @@ export class EcontService {
   async createLabel(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
     const { econt } = await this.loadStored(tenantId);
     const { order, items } = await this.orderForShipment(tenantId, orderId);
-    const label = this.buildLabel(econt.sender, order, items, econt.defaultPackage);
+    const label = this.buildLabel(econt, order, items);
     const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
       label,
       mode: 'create',

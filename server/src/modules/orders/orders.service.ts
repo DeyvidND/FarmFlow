@@ -54,6 +54,7 @@ export interface ProductionSummary {
  *  no phone/email/tenant ids; keyed by the order's (unguessable) UUID. */
 export interface PublicOrderSummary {
   id: string;
+  orderNumber: number | null;
   status: string;
   paidAt: string | null;
   totalStotinki: number;
@@ -273,10 +274,20 @@ export class OrdersService {
         };
       });
 
+      // Next per-tenant order number (#1, #2, …). The advisory lock serializes
+      // concurrent intakes for this tenant so two orders can't claim the same
+      // number; it's released when the transaction commits/rolls back.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenant.id}, 0))`);
+      const [{ nextNumber }] = await tx
+        .select({ nextNumber: sql<number>`coalesce(max(${orders.orderNumber}), 0) + 1` })
+        .from(orders)
+        .where(eq(orders.tenantId, tenant.id));
+
       const [order] = await tx
         .insert(orders)
         .values({
           tenantId: tenant.id,
+          orderNumber: nextNumber,
           customerName: dto.customerName,
           customerPhone: dto.customerPhone,
           customerEmail: dto.customerEmail,
@@ -337,6 +348,7 @@ export class OrdersService {
     const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
     return {
       id: row.id,
+      orderNumber: row.orderNumber,
       status: row.status ?? 'pending',
       paidAt: row.paidAt ? row.paidAt.toISOString() : null,
       totalStotinki: row.totalStotinki,

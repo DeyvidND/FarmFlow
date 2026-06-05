@@ -7,7 +7,7 @@ import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Button } from '@/components/ui/button';
 import { WEEKDAYS } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
-import { DSection, DLabel, Stepper, fieldCls } from './ui';
+import { DSection, DLabel, Stepper, Collapsible, fieldCls } from './ui';
 
 type Mut = (fn: (d: DeliveryConfig) => void) => void;
 
@@ -44,9 +44,8 @@ export function ScheduleSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut })
       helper="Кога приемаш и обработваш поръчки за доставка."
       info={
         <>
-          Тук казваш <b>в кои дни работиш</b> с доставки. „Час на прекъсване“ значи: ако клиент поръча
-          след този час, поръчката тръгва на следващия работен ден. Блокирай дати, в които почиваш
-          (празници, отпуска).
+          Тук казваш <b>в кои дни работиш</b> с доставки и колко поръчки поемаш на ден. Ако клиент
+          поръча след часа, който зададеш, поръчката тръгва на следващия работен ден.
         </>
       }
     >
@@ -74,8 +73,11 @@ export function ScheduleSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut })
           </div>
         </DLabel>
 
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
-          <DLabel label="Час на прекъсване (cutoff)" hint="Поръчки след този час тръгват на следващия ден.">
+        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+          <DLabel
+            label="До колко часа приемаш поръчки за днес"
+            hint="След този час поръчките тръгват за следващия работен ден."
+          >
             <input
               type="time"
               value={s.cutoffTime}
@@ -83,57 +85,66 @@ export function ScheduleSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut })
               className={fieldCls}
             />
           </DLabel>
-          <DLabel label="Срок за обработка (дни)">
-            <Stepper value={s.leadDays} onChange={(v) => mut((d) => (d.schedule.leadDays = v))} min={0} max={14} />
-          </DLabel>
           <DLabel label="Макс. поръчки на ден">
             <Stepper value={s.maxPerDay} onChange={(v) => mut((d) => (d.schedule.maxPerDay = v))} min={1} max={500} />
           </DLabel>
-          <div className="flex items-center justify-between px-0.5">
-            <div>
-              <div className="text-[13.5px] font-bold text-ff-ink">Доставка в същия ден</div>
-              <div className="mt-0.5 text-[12px] text-ff-muted">Преди cutoff часа</div>
-            </div>
-            <ToggleSwitch checked={s.sameDay} onChange={(v) => mut((d) => (d.schedule.sameDay = v))} />
-          </div>
         </div>
 
-        <DLabel label="Блокирани дати" hint="Дни, в които не се доставя (напр. празници).">
-          <div className="flex flex-wrap items-center gap-2">
-            {s.blackout.length === 0 && (
-              <span className="text-[13px] text-ff-muted">Няма блокирани дати.</span>
-            )}
-            {s.blackout.map((iso) => (
-              <span
-                key={iso}
-                className="inline-flex items-center gap-1.5 rounded-full border border-ff-border bg-ff-surface-2 py-1.5 pl-3 pr-2 text-[13px] font-bold text-ff-ink-2"
-              >
-                {fmtDate(iso)}
-                <button
-                  type="button"
-                  onClick={() =>
-                    mut((d) => (d.schedule.blackout = d.schedule.blackout.filter((x) => x !== iso)))
-                  }
-                  aria-label="Премахни"
-                  className="grid h-5 w-5 place-items-center rounded-full bg-ff-border-2 text-ff-muted hover:text-ff-red"
-                >
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
-            <span className="inline-flex items-center gap-1.5">
-              <input
-                type="date"
-                value={newDate}
-                onChange={(e) => setNewDate(e.target.value)}
-                className={cn(fieldCls, 'w-auto px-2.5 py-1.5')}
-              />
-              <Button variant="soft" size="sm" onClick={addBlackout}>
-                <Plus size={15} /> Добави
-              </Button>
-            </span>
+        <Collapsible
+          title="Още настройки (по желание)"
+          hint="Срок за обработка, доставка в същия ден и почивни дати."
+        >
+          <div className="flex flex-col gap-[18px]">
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+              <DLabel label="Срок за обработка (дни)">
+                <Stepper value={s.leadDays} onChange={(v) => mut((d) => (d.schedule.leadDays = v))} min={0} max={14} />
+              </DLabel>
+              <div className="flex items-center justify-between px-0.5">
+                <div>
+                  <div className="text-[13.5px] font-bold text-ff-ink">Доставка в същия ден</div>
+                  <div className="mt-0.5 text-[12px] text-ff-muted">Само ако клиентът поръча преди часа горе.</div>
+                </div>
+                <ToggleSwitch checked={s.sameDay} onChange={(v) => mut((d) => (d.schedule.sameDay = v))} />
+              </div>
+            </div>
+            <DLabel label="Почивни дати" hint="Дни, в които не доставяш (празници, отпуска).">
+              <div className="flex flex-wrap items-center gap-2">
+                {s.blackout.length === 0 && (
+                  <span className="text-[13px] text-ff-muted">Няма добавени почивни дати.</span>
+                )}
+                {s.blackout.map((iso) => (
+                  <span
+                    key={iso}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-ff-border bg-ff-surface-2 py-1.5 pl-3 pr-2 text-[13px] font-bold text-ff-ink-2"
+                  >
+                    {fmtDate(iso)}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        mut((d) => (d.schedule.blackout = d.schedule.blackout.filter((x) => x !== iso)))
+                      }
+                      aria-label="Премахни"
+                      className="grid h-5 w-5 place-items-center rounded-full bg-ff-border-2 text-ff-muted hover:text-ff-red"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+                <span className="inline-flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    value={newDate}
+                    onChange={(e) => setNewDate(e.target.value)}
+                    className={cn(fieldCls, 'w-auto px-2.5 py-1.5')}
+                  />
+                  <Button variant="soft" size="sm" onClick={addBlackout}>
+                    <Plus size={15} /> Добави
+                  </Button>
+                </span>
+              </div>
+            </DLabel>
           </div>
-        </DLabel>
+        </Collapsible>
       </div>
     </DSection>
   );

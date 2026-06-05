@@ -191,18 +191,21 @@ export class SubcategoriesService {
   ): Promise<SubcategoryMedia[]> {
     await this.findOne(id, tenantId);
 
-    for (const it of dto.items) {
-      await this.db
-        .update(subcategoryMedia)
-        .set({ position: it.position })
-        .where(
-          and(
-            eq(subcategoryMedia.id, it.id),
-            eq(subcategoryMedia.subcategoryId, id),
-            eq(subcategoryMedia.tenantId, tenantId),
-          ),
-        );
-    }
+    // One transaction so a mid-loop failure can't leave a half-applied order.
+    await this.db.transaction(async (tx) => {
+      for (const it of dto.items) {
+        await tx
+          .update(subcategoryMedia)
+          .set({ position: it.position })
+          .where(
+            and(
+              eq(subcategoryMedia.id, it.id),
+              eq(subcategoryMedia.subcategoryId, id),
+              eq(subcategoryMedia.tenantId, tenantId),
+            ),
+          );
+      }
+    });
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.subcategories(tenantId));

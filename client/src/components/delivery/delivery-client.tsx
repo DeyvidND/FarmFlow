@@ -118,6 +118,26 @@ export function DeliveryClient({
         </div>
       )}
 
+      {!locked && (
+        <div className="rounded-[14px] border border-ff-green-100 bg-ff-green-50 px-5 py-4">
+          <div className="text-[12.5px] font-extrabold uppercase tracking-[0.03em] text-ff-green-800">
+            Три прости стъпки
+          </div>
+          <ol className="mt-2 flex flex-col gap-1.5 text-[13.5px] text-ff-ink-2">
+            <li>
+              <b>1.</b> Избери как клиентите получават поръчките си — секция „Методи на доставка“.
+            </li>
+            <li>
+              <b>2.</b> Задай цена на всеки избран начин (натисни върху метода).
+            </li>
+            <li>
+              <b>3.</b> <span className="font-semibold text-ff-muted">По желание:</span> свържи Еконт,
+              само ако искаш доставка с куриер.
+            </li>
+          </ol>
+        </div>
+      )}
+
       <div className={cn('flex flex-col gap-4', locked && 'pointer-events-none opacity-50')}>
         <MethodsSection
           cfg={cfg}
@@ -129,7 +149,7 @@ export function DeliveryClient({
         <ScheduleSection cfg={cfg} mut={mut} />
         <PricingSection cfg={cfg} mut={mut} />
         <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />
-        <OfficePickerPreview />
+        <OfficePickerPreview configured={econtReady} />
         <ShipmentsTable toast={toastAdapter} />
       </div>
 

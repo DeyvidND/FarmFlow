@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ProductCard } from './product-card';
 import { ProductDialog } from './product-dialog';
 import {
@@ -31,10 +32,10 @@ export function ProductsClient({
   multiSubcat?: boolean;
 }) {
   const [products, setProducts] = useState<Product[]>(initial);
-  const [editId, setEditId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [fullEdit, setFullEdit] = useState<Product | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
 
   const activeCount = products.filter((p) => p.isActive).length;
   const farmerName = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
@@ -54,23 +55,6 @@ export function ProductsClient({
     }
   }
 
-  async function onSave(p: Product, priceStotinki: number, stockQuantity: number) {
-    const prev = { priceStotinki: p.priceStotinki, stockQuantity: p.stockQuantity };
-    patchLocal(p.id, { priceStotinki, stockQuantity }); // optimistic
-    setEditId(null);
-    setBusyId(p.id);
-    try {
-      const updated = await updateProduct(p.id, { priceStotinki, stockQuantity });
-      patchLocal(p.id, updated);
-      toast.success('Продуктът е обновен');
-    } catch (e) {
-      patchLocal(p.id, prev); // rollback
-      toast.error(errMsg(e));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function onUpload(p: Product, file: File) {
     setBusyId(p.id);
     try {
@@ -86,14 +70,13 @@ export function ProductsClient({
     }
   }
 
-  async function onDelete(p: Product) {
-    if (!window.confirm(`Изтриване на „${p.name}“?`)) return;
+  async function doDelete(p: Product) {
+    setConfirmDelete(null);
     setBusyId(p.id);
     try {
       await deleteProduct(p.id);
       setProducts((prev) => prev.filter((x) => x.id !== p.id));
-      setEditId(null);
-      toast.success('Продуктът е изтрит');
+      toast.success('Продуктът е скрит');
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -134,43 +117,58 @@ export function ProductsClient({
               key={p.id}
               product={p}
               index={i}
-              editing={editId === p.id}
               busy={busyId === p.id}
-              onStartEdit={() => setEditId(p.id)}
-              onCancel={() => setEditId(null)}
-              onSave={(price, stock) => onSave(p, price, stock)}
               onToggle={(on) => onToggle(p, on)}
               onUpload={(f) => onUpload(p, f)}
-              onDelete={() => onDelete(p)}
+              onDelete={() => setConfirmDelete(p)}
+              onEdit={() => setFullEdit(p)}
               farmerLabel={multiFarmer ? (p.farmerId ? farmerName.get(p.farmerId) ?? null : null) : undefined}
               subcatLabel={multiSubcat ? (p.subcategoryId ? subcatName.get(p.subcategoryId) ?? null : null) : undefined}
-              onEditFull={() => setFullEdit(p)}
             />
           ))}
         </div>
       )}
 
-      <ProductDialog
-        open={createOpen}
-        farmers={farmers}
-        subcats={subcats}
-        multiFarmer={multiFarmer}
-        multiSubcat={multiSubcat}
-        onClose={() => setCreateOpen(false)}
-        onSubmit={onCreate}
-      />
+      {/* Mount only while open so the dialog's state initializers read fresh props.
+          The edit dialog is keyed by product id so switching products re-seeds it. */}
+      {createOpen && (
+        <ProductDialog
+          open
+          farmers={farmers}
+          subcats={subcats}
+          multiFarmer={multiFarmer}
+          multiSubcat={multiSubcat}
+          onClose={() => setCreateOpen(false)}
+          onSubmit={onCreate}
+        />
+      )}
 
-      <ProductDialog
-        open={!!fullEdit}
-        product={fullEdit}
-        farmers={farmers}
-        subcats={subcats}
-        multiFarmer={multiFarmer}
-        multiSubcat={multiSubcat}
-        onClose={() => setFullEdit(null)}
-        onSubmit={onFullUpdate}
-        onCoverChange={(url) => fullEdit && patchLocal(fullEdit.id, { imageUrl: url })}
-      />
+      {fullEdit && (
+        <ProductDialog
+          key={fullEdit.id}
+          open
+          product={fullEdit}
+          farmers={farmers}
+          subcats={subcats}
+          multiFarmer={multiFarmer}
+          multiSubcat={multiSubcat}
+          onClose={() => setFullEdit(null)}
+          onSubmit={onFullUpdate}
+          onCoverChange={(url) => patchLocal(fullEdit.id, { imageUrl: url })}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          tone="danger"
+          title={`Изтриване на „${confirmDelete.name}“?`}
+          message="Продуктът ще се скрие от магазина, но името му остава запазено. Можеш да го върнеш по-късно, като го активираш отново — не създавай дубликат."
+          confirmLabel="Изтрий"
+          busy={busyId === confirmDelete.id}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => doDelete(confirmDelete)}
+        />
+      )}
     </div>
   );
 }

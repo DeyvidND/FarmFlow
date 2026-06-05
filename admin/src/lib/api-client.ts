@@ -41,6 +41,51 @@ export interface PlatformTenant {
   lastOrderAt: string | null;
 }
 
+export interface PlatformTenantDetail {
+  id: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  phone: string | null;
+  subscriptionStatus: 'active' | 'inactive';
+  createdAt: string | null;
+  deliveryEnabled: boolean;
+  multiFarmer: boolean;
+  multiSubcat: boolean;
+  econtConfigured: boolean;
+  stripeConnected: boolean;
+  orders: {
+    total: number;
+    pending: number;
+    confirmed: number;
+    delivered: number;
+    cancelled: number;
+    revenueStotinki: number;
+    lastOrderAt: string | null;
+  };
+  products: { total: number; active: number };
+  subscribers: { active: number; unsubscribed: number };
+  reviews: { total: number; avgRating: number };
+  emailUsage: { pushCount: number; owedStotinki: number; lastPushAt: string | null };
+  recentOrders: {
+    id: string;
+    customerName: string | null;
+    totalStotinki: number;
+    status: string | null;
+    createdAt: string | null;
+  }[];
+}
+
+export interface PlatformEmailBilling {
+  tenantId: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  pushCount: number;
+  totalStotinki: number;
+  lastPushAt: string | null;
+}
+
 export const setTenantStatus = (id: string, status: 'active' | 'inactive') =>
   apiFetch<{ id: string; subscriptionStatus: string }>(
     `platform/tenants/${id}/status`,

@@ -3,6 +3,7 @@ import {
   Param, Body, Query, UseGuards, HttpCode, ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { ReviewsService } from './reviews.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewStatusDto } from './dto/update-review-status.dto';
@@ -20,6 +21,8 @@ export class PublicReviewsController {
     return this.reviews.findPublic(slug);
   }
 
+  // Anti-spam: 8 review submissions / minute / IP.
+  @Throttle({ default: { limit: 8, ttl: 60_000 } })
   @Post()
   @HttpCode(201)
   create(@Param('slug') slug: string, @Body() dto: CreateReviewDto) {

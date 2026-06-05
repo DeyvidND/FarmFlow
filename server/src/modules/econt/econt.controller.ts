@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { EcontService } from './econt.service';
 import { EcontCredentialsDto } from './dto/econt-credentials.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -41,6 +42,18 @@ export class EcontController {
     return this.econt.syncNomenclature(tenantId);
   }
 
+  /** City autocomplete for the sender / office-picker setup. */
+  @Get('cities')
+  cities(@CurrentTenant() tenantId: string, @Query('q') q?: string) {
+    return this.econt.searchCities(tenantId, q);
+  }
+
+  /** Offices (with coordinates) for one city — sender picker + office map. */
+  @Get('offices')
+  offices(@CurrentTenant() tenantId: string, @Query('cityId') cityId?: string) {
+    return this.econt.getOfficesForCity(tenantId, cityId ? Number(cityId) : 0);
+  }
+
   @Get('shipments')
   list(@CurrentTenant() tenantId: string) {
     return this.econt.listShipments(tenantId);
@@ -69,6 +82,8 @@ export class EcontController {
 export class PublicEcontController {
   constructor(private readonly econt: EcontService) {}
 
+  // Each call may hit the live Econt API — cap anonymous lookups. 30/min/IP.
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Get('offices')
   offices(@Param('slug') slug: string, @Query('city') city?: string) {
     return this.econt.getPublicOffices(slug, city);

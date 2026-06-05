@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, AlertTriangle, Plus, Copy, Check, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { Search, AlertTriangle, Plus, Copy, Check, RefreshCw, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, dmy } from '@/lib/utils';
 import { ApiError, setTenantStatus, createTenant, type PlatformTenant } from '@/lib/api-client';
@@ -318,7 +319,13 @@ export function TenantsClient({ initial }: { initial: PlatformTenant[] }) {
             {filtered.map((t) => (
               <tr key={t.id} className="border-b border-ff-border-2 last:border-0">
                 <td className="px-5 py-3.5">
-                  <div className="text-[14.5px] font-bold">{t.name}</div>
+                  <Link
+                    href={`/tenants/${t.id}`}
+                    className="inline-flex items-center gap-1 text-[14.5px] font-bold text-ff-ink no-underline hover:text-ff-green-700 hover:underline"
+                  >
+                    {t.name}
+                    <ChevronRight size={15} className="text-ff-muted-2" />
+                  </Link>
                   <div className="text-xs text-ff-muted-2">/{t.slug}</div>
                 </td>
                 <td className="px-5 py-3.5 text-[13.5px] text-ff-ink-2">{t.email ?? '—'}</td>
@@ -346,7 +353,13 @@ export function TenantsClient({ initial }: { initial: PlatformTenant[] }) {
             <div key={t.id} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
               <div className="flex items-start justify-between gap-2.5">
                 <div className="min-w-0">
-                  <div className="text-[15.5px] font-extrabold">{t.name}</div>
+                  <Link
+                    href={`/tenants/${t.id}`}
+                    className="inline-flex items-center gap-1 text-[15.5px] font-extrabold text-ff-ink no-underline hover:text-ff-green-700"
+                  >
+                    {t.name}
+                    <ChevronRight size={16} className="text-ff-muted-2" />
+                  </Link>
                   <div className="text-[12.5px] text-ff-muted">{t.email ?? '—'}</div>
                 </div>
                 <StatusBadge active={t.subscriptionStatus === 'active'} />

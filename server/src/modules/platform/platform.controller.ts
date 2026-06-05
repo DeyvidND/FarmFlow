@@ -10,6 +10,7 @@ import {
   HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { PlatformService } from './platform.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
@@ -25,6 +26,8 @@ import type { RequestUser } from '@farmflow/types';
 export class PlatformAuthController {
   constructor(private readonly platform: PlatformService) {}
 
+  // Brute-force guard on the most privileged login in the system.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
   login(@Body() dto: PlatformLoginDto) {
     return this.platform.login(dto.email, dto.password);
@@ -44,6 +47,18 @@ export class PlatformController {
     return this.platform.listTenants();
   }
 
+  /** Per-farm email-push usage + amount owed (manual collection). */
+  @Get('email-billing')
+  emailBilling() {
+    return this.platform.emailBilling();
+  }
+
+  /** Full snapshot of one farm for the detail view. */
+  @Get('tenants/:id')
+  tenantDetail(@Param('id', ParseUUIDPipe) id: string) {
+    return this.platform.tenantDetail(id);
+  }
+
   @Post('tenants')
   @HttpCode(201)
   createTenant(@Body() dto: CreateTenantDto) {
@@ -55,6 +70,7 @@ export class PlatformController {
     return this.platform.setStatus(id, dto.status);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('change-password')
   @HttpCode(204)
   platformChangePassword(@CurrentUser() user: RequestUser, @Body() dto: ChangePasswordDto) {

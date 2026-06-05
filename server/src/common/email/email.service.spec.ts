@@ -4,6 +4,10 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { EmailService } from './email.service';
+import { SuppressionService } from './suppression.service';
+
+const makeSuppression = () =>
+  ({ isSuppressed: jest.fn().mockResolvedValue(false), filterSuppressed: jest.fn().mockResolvedValue(new Set()), suppress: jest.fn() }) as unknown as SuppressionService;
 
 // Top-level mock: hoisted before imports by Jest; makes createTransport writable.
 jest.mock('nodemailer', () => ({
@@ -41,6 +45,7 @@ describe('EmailService — dev preview transport (no SMTP_HOST)', () => {
           provide: ConfigService,
           useValue: makeConfigService({ MAIL_PREVIEW_DIR: previewDir }),
         },
+        { provide: SuppressionService, useValue: makeSuppression() },
       ],
     }).compile();
 
@@ -95,6 +100,7 @@ describe('EmailService — SMTP transport (SMTP_HOST set)', () => {
             SMTP_PASS: 'secret',
           }),
         },
+        { provide: SuppressionService, useValue: makeSuppression() },
       ],
     }).compile();
 

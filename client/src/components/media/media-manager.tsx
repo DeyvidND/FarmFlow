@@ -141,6 +141,17 @@ export function MediaManager({
                 <GripVertical size={13} />
               </span>
               <div className="flex gap-1">
+                {i !== 0 && (
+                  <button
+                    type="button"
+                    onClick={() => move(i, 0)}
+                    aria-label="Направи корица"
+                    title="Направи корица"
+                    className="grid h-6 w-6 place-items-center rounded bg-white/85 text-ff-green-700 hover:bg-white"
+                  >
+                    <Star size={12} />
+                  </button>
+                )}
                 <MiniBtn disabled={i === 0} onClick={() => move(i, i - 1)} label="Нагоре">
                   ↑
                 </MiniBtn>

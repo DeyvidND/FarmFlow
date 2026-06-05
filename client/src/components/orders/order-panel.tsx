@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { X, Phone, MapPin, Package, CalendarClock, Check, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusBadge } from '@/components/status-badge';
 import { moneyFromStotinki, hhmm, timeFromIso, type OrderStatus } from '@/lib/utils';
 import type { Order } from '@/lib/types';
@@ -17,6 +19,7 @@ export function OrderPanel({
   onClose: () => void;
   onAction: (status: OrderStatus) => void;
 }) {
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const slotLabel = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '—';
   const isEcont = order.deliveryType === 'econt' || order.deliveryType === 'econt_address';
   const deliveryVal =
@@ -34,7 +37,9 @@ export function OrderPanel({
       <aside className="animate-ff-slide-in fixed right-0 top-0 z-[41] flex h-full w-[460px] max-w-[94vw] flex-col bg-ff-surface shadow-ff-lg max-[680px]:w-full max-[680px]:max-w-full">
         <div className="flex items-center justify-between border-b border-ff-border-2 px-6 py-[18px]">
           <div>
-            <div className="mb-0.5 text-[12.5px] font-bold text-ff-muted">ПОРЪЧКА #{order.id.slice(0, 8)}</div>
+            <div className="mb-0.5 text-[12.5px] font-bold text-ff-muted">
+              ПОРЪЧКА {order.orderNumber != null ? `#${order.orderNumber}` : `#${order.id.slice(0, 8)}`}
+            </div>
             <h2 className="text-[22px] font-extrabold tracking-[-0.015em]">{order.customerName ?? 'Клиент'}</h2>
           </div>
           <button onClick={onClose} aria-label="Затвори" className="grid h-10 w-10 place-items-center rounded-[11px] border border-ff-border bg-ff-surface-2 text-ff-ink-2">
@@ -97,12 +102,38 @@ export function OrderPanel({
             </Button>
           )}
           {order.status !== 'cancelled' && order.status !== 'delivered' && (
-            <Button variant="danger" disabled={busy} onClick={() => onAction('cancelled')} className="w-full rounded-sm">
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={() => setConfirmingCancel(true)}
+              className="w-full rounded-sm"
+            >
               <X size={18} /> Откажи
             </Button>
           )}
         </div>
       </aside>
+
+      {confirmingCancel && (
+        <ConfirmDialog
+          tone="danger"
+          title="Отказване на поръчката?"
+          message={
+            <>
+              Поръчката на <b>{order.customerName ?? 'клиента'}</b> ще бъде отказана. Това освобождава
+              слота, ако има резервиран. Действието може да се върне ръчно после.
+            </>
+          }
+          confirmLabel="Откажи поръчката"
+          cancelLabel="Назад"
+          busy={busy}
+          onCancel={() => setConfirmingCancel(false)}
+          onConfirm={() => {
+            setConfirmingCancel(false);
+            onAction('cancelled');
+          }}
+        />
+      )}
     </>
   );
 }

@@ -185,12 +185,17 @@ async function main() {
     { time: '05:33', customer: 'Десислава Райчева', phone: '+359 88 117 4408', items: [['Ягоди 500 г', 2], ['Малини 500 г', 1]], delivery: 'econt', address: 'Еконт офис — ул. Цар Освободител 109', note: '', status: 'confirmed', total: 2120, slot: '13:00' },
   ];
 
-  for (const o of DEMO_ORDERS) {
+  // Number them per tenant in creation order (earliest = #1) like live intake does.
+  const orderedDemo = [...DEMO_ORDERS].sort((a, b) => a.time.localeCompare(b.time));
+  let seq = 0;
+  for (const o of orderedDemo) {
+    seq++;
     const isEcont = o.delivery === 'econt';
     const [order] = await db
       .insert(orders)
       .values({
         tenantId: tenant.id,
+        orderNumber: seq,
         customerName: o.customer,
         customerPhone: o.phone,
         slotId: o.slot ? todaySlot.get(o.slot) ?? null : null,

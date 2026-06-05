@@ -1,10 +1,11 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import { type Database, newsletterSubscribers } from '@farmflow/db';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
+import { and, eq, isNull } from 'drizzle-orm';
+import { type Database, newsletterSubscribers, emailPushes } from '@farmflow/db';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
+import { SuppressionService } from '../../common/email/suppression.service';
 import { BroadcastDto } from './dto/broadcast.dto';
 
 export interface SubscribersResult {
@@ -40,6 +41,7 @@ export class NewsletterService {
     private readonly email: EmailService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly suppression: SuppressionService,
   ) {
     this.apiBaseUrl =
       config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3001';
@@ -66,21 +68,42 @@ export class NewsletterService {
     };
   }
 
-  async broadcast(tenantId: string, dto: BroadcastDto): Promise<{ sent: number }> {
-    const rows = await this.db
-      .select()
+  async broadcast(
+    tenantId: string,
+    dto: BroadcastDto,
+  ): Promise<{ sent: number; recipients: number }> {
+    // Filter unsubscribed in SQL (index-backed) and pull only the columns the
+    // send needs — never load the whole table into memory.
+    const active = await this.db
+      .select({ id: newsletterSubscribers.id, email: newsletterSubscribers.email })
       .from(newsletterSubscribers)
-      .where(eq(newsletterSubscribers.tenantId, tenantId))
+      .where(
+        and(
+          eq(newsletterSubscribers.tenantId, tenantId),
+          isNull(newsletterSubscribers.unsubscribedAt),
+        ),
+      )
       .orderBy(newsletterSubscribers.createdAt);
 
-    const active = rows.filter((r) => r.unsubscribedAt == null);
-    let sent = 0;
+    // Guard the flat per-push price: a huge list on a flat fee loses money and
+    // strains the shared domain. Reject over the cap rather than silently truncate.
+    const maxRecipients = this.config.get<number>('EMAIL_PUSH_MAX_RECIPIENTS') ?? 5000;
+    if (active.length > maxRecipients) {
+      throw new BadRequestException(
+        `Списъкът е твърде голям за едно изпращане (${active.length} получателя, лимит ${maxRecipients}). Раздели изпращането.`,
+      );
+    }
 
-    for (const subscriber of active) {
+    // Drop suppressed addresses (hard bounces / complaints) to protect the domain.
+    const suppressed = await this.suppression.filterSuppressed(active.map((a) => a.email));
+    const recipients = active.filter((a) => !suppressed.has(a.email.trim().toLowerCase()));
+
+    let sent = 0;
+    for (const subscriber of recipients) {
       try {
         const token = this.jwt.sign(
           { sub: subscriber.id, typ: 'unsub' },
-          { expiresIn: '3650d' },
+          { secret: this.unsubSecret(), expiresIn: '3650d' },
         );
         const unsubscribeUrl = `${this.apiBaseUrl}/unsubscribe?token=${encodeURIComponent(token)}`;
         const html = this.renderBroadcastHtml(dto.subject, dto.body, unsubscribeUrl);
@@ -91,6 +114,7 @@ export class NewsletterService {
           subject: dto.subject,
           html,
           text,
+          stream: 'bulk', // newsletters ride the bulk reputation lane
         });
         sent++;
       } catch (err) {
@@ -100,13 +124,32 @@ export class NewsletterService {
       }
     }
 
-    return { sent };
+    // Usage ledger: one row per push, valued at the per-push price. The platform
+    // owner reads the per-farm total in super-admin and collects payment manually
+    // (no automated charging here). Not surfaced to the farmer.
+    const priceStotinki = this.config.get<number>('EMAIL_PUSH_PRICE_STOTINKI') ?? 200;
+    if (recipients.length > 0) {
+      try {
+        await this.db
+          .insert(emailPushes)
+          .values({ tenantId, subject: dto.subject, recipientCount: recipients.length, priceStotinki });
+      } catch (err) {
+        this.logger.error(
+          `[newsletter] push-record failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return { sent, recipients: recipients.length };
   }
 
   async unsubscribe(token: string): Promise<UnsubscribeResult> {
     let payload: { sub?: string; typ?: string };
     try {
-      payload = this.jwt.verify(token) as { sub?: string; typ?: string };
+      payload = this.jwt.verify(token, { secret: this.unsubSecret() }) as {
+        sub?: string;
+        typ?: string;
+      };
     } catch {
       return { success: false };
     }
@@ -137,6 +180,15 @@ export class NewsletterService {
       .returning();
 
     return { success: true };
+  }
+
+  /**
+   * Unsubscribe tokens use a SEPARATE derived secret so a token emailed to every
+   * subscriber can never validate against the main JWT_SECRET (i.e. never be
+   * replayed as an auth/session token). Mirrors AuthService.resetSecret().
+   */
+  private unsubSecret(): string {
+    return `${this.config.getOrThrow<string>('JWT_SECRET')}::unsub`;
   }
 
   private renderBroadcastHtml(subject: string, body: string, unsubscribeUrl: string): string {

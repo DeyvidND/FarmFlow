@@ -8,6 +8,7 @@ import { cn, moneyFromStotinki, hhmm, type OrderStatus } from '@/lib/utils';
 import { StatCard } from './stat-card';
 import { OrdersFeed } from './orders-feed';
 import { OrderPanel } from '@/components/orders/order-panel';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ApiError, confirmPendingOrders, updateOrderStatus } from '@/lib/api-client';
 import type { DashboardSummary, Order } from '@/lib/types';
 
@@ -25,6 +26,7 @@ export function DashboardClient({
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingAll, setConfirmingAll] = useState(false);
 
   const feed = orders.filter((o) => o.createdAt.slice(0, 10) === summary.date);
   const pendingCount = feed.filter((o) => o.status === 'pending').length;
@@ -41,11 +43,16 @@ export function DashboardClient({
 
   const weekday = WEEKDAYS[new Date(`${summary.date}T00:00:00`).getDay()];
 
-  async function confirmAll() {
+  function confirmAll() {
     if (!pendingCount) {
       toast.info('Няма чакащи поръчки');
       return;
     }
+    setConfirmingAll(true);
+  }
+
+  async function doConfirmAll() {
+    setConfirmingAll(false);
     setBusy(true);
     try {
       const { confirmed } = await confirmPendingOrders(summary.date);
@@ -65,13 +72,26 @@ export function DashboardClient({
     }
   }
 
+  async function revertStatus(id: string, to: OrderStatus) {
+    setOrders((p) => p.map((x) => (x.id === id ? { ...x, status: to } : x))); // optimistic
+    try {
+      await updateOrderStatus(id, to);
+      toast.success('Върнато');
+      router.refresh();
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  }
+
   async function onAction(o: Order, status: OrderStatus) {
     setBusy(true);
     const prev = o.status;
     setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status } : x)));
     try {
       await updateOrderStatus(o.id, status);
-      toast.success('Статусът е обновен');
+      toast.success('Статусът е обновен', {
+        action: { label: 'Отмени', onClick: () => void revertStatus(o.id, prev) },
+      });
       setActiveId(null);
       router.refresh();
     } catch (e) {
@@ -186,6 +206,22 @@ export function DashboardClient({
           busy={busy}
           onClose={() => setActiveId(null)}
           onAction={(s) => onAction(active, s)}
+        />
+      )}
+
+      {confirmingAll && (
+        <ConfirmDialog
+          title="Потвърждаване на всички чакащи?"
+          message={
+            <>
+              <b>{pendingCount}</b>{' '}
+              {pendingCount === 1 ? 'поръчка ще бъде потвърдена' : 'поръчки ще бъдат потвърдени'} наведнъж.
+            </>
+          }
+          confirmLabel="Потвърди всички"
+          busy={busy}
+          onCancel={() => setConfirmingAll(false)}
+          onConfirm={doConfirmAll}
         />
       )}
     </div>

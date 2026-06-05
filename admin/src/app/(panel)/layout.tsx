@@ -1,9 +1,12 @@
 'use client';
 
 import { Toaster } from 'sonner';
-import { Leaf, LogOut, Settings } from 'lucide-react';
+import { Leaf, LogOut, Settings, Users, Mail } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+
+const NAV_LINK =
+  'inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2';
 
 export default function PanelLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -27,17 +30,17 @@ export default function PanelLayout({ children }: { children: React.ReactNode })
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            href="/settings"
-            className="inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2"
-          >
-            <Settings size={17} /> Настройки
+          <Link href="/tenants" className={NAV_LINK}>
+            <Users size={17} /> <span className="max-sm:hidden">Фермери</span>
           </Link>
-          <button
-            onClick={logout}
-            className="inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2"
-          >
-            <LogOut size={17} /> Изход
+          <Link href="/email-billing" className={NAV_LINK}>
+            <Mail size={17} /> <span className="max-sm:hidden">Имейл сметки</span>
+          </Link>
+          <Link href="/settings" className={NAV_LINK}>
+            <Settings size={17} /> <span className="max-sm:hidden">Настройки</span>
+          </Link>
+          <button onClick={logout} className={NAV_LINK}>
+            <LogOut size={17} /> <span className="max-sm:hidden">Изход</span>
           </button>
         </div>
       </header>

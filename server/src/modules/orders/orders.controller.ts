@@ -4,6 +4,7 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
@@ -68,6 +69,8 @@ export class OrdersController {
 export class PublicOrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  // Anonymous order creation — 15/min/IP (matches public checkout).
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   @Post()
   create(@Param('slug') slug: string, @Body() dto: CreateOrderDto) {
     return this.ordersService.create(slug, dto);

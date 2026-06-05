@@ -13,3 +13,8 @@ export function dmy(v: string | null): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`;
 }
+
+/** cents → "12,00 €" */
+export function eur(stotinki: number): string {
+  return `${(stotinki / 100).toFixed(2).replace('.', ',')} €`;
+}
