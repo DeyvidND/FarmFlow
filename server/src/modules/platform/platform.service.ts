@@ -33,7 +33,7 @@ export interface PlatformTenantRow {
   slug: string;
   email: string | null;
   phone: string | null;
-  subscriptionStatus: 'active' | 'inactive';
+  subscriptionStatus: 'active' | 'past_due' | 'inactive';
   createdAt: Date | null;
   orderCount: number;
   lastOrderAt: Date | null;
@@ -69,7 +69,7 @@ export interface PlatformTenantDetail {
   slug: string;
   email: string | null;
   phone: string | null;
-  subscriptionStatus: 'active' | 'inactive';
+  subscriptionStatus: 'active' | 'past_due' | 'inactive';
   createdAt: Date | null;
   deliveryEnabled: boolean;
   multiFarmer: boolean;

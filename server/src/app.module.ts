@@ -28,6 +28,7 @@ import { RoutingModule } from './modules/routing/routing.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { StripeModule } from './modules/stripe/stripe.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { IntakeModule } from './modules/intake/intake.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CatalogCacheModule } from './modules/catalog-cache/catalog-cache.module';
@@ -103,6 +104,7 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
     DashboardModule,
     PlatformModule,
     StripeModule,
+    BillingModule,
     IntakeModule,
     ReviewsModule,
     CatalogCacheModule,
