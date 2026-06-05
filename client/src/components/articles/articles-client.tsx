@@ -115,7 +115,7 @@ export function ArticlesClient({ initial }: { initial: Paginated<Article> }) {
                 tabIndex={0}
                 aria-label="Изтрий"
                 onClick={(e) => onDelete(a, e)}
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-ff-muted opacity-0 transition hover:bg-ff-red/10 hover:text-ff-red group-hover:opacity-100 disabled:opacity-50"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-ff-muted opacity-0 transition hover:bg-ff-red/10 hover:text-ff-red group-hover:opacity-100 [@media(hover:none)]:opacity-100 disabled:opacity-50"
               >
                 {busyId === a.id ? <Film size={16} className="animate-pulse" /> : <Trash2 size={16} />}
               </span>

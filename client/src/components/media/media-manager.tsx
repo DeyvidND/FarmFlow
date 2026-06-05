@@ -136,7 +136,7 @@ export function MediaManager({
               </span>
             )}
 
-            <div className="absolute inset-0 flex items-end justify-between gap-1 bg-gradient-to-t from-black/55 to-transparent p-1 opacity-0 transition group-hover:opacity-100">
+            <div className="absolute inset-0 flex items-end justify-between gap-1 bg-gradient-to-t from-black/55 to-transparent p-1 opacity-0 transition group-hover:opacity-100 [@media(hover:none)]:opacity-100">
               <span className="grid h-6 w-6 cursor-grab place-items-center rounded bg-white/85 text-ff-ink" title="Влачи за подреждане">
                 <GripVertical size={13} />
               </span>

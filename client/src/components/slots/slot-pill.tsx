@@ -15,7 +15,7 @@ export function SlotPill({ slot, onDelete, busy }: { slot: Slot; onDelete: () =>
         onClick={onDelete}
         disabled={busy}
         aria-label="Изтрий слот"
-        className="absolute right-1 top-1 hidden h-4 w-4 place-items-center rounded-full bg-white/70 text-ff-muted hover:text-ff-red group-hover:grid"
+        className="absolute right-1 top-1 hidden h-4 w-4 place-items-center rounded-full bg-white/70 text-ff-muted hover:text-ff-red group-hover:grid [@media(hover:none)]:grid"
       >
         <X size={11} />
       </button>
