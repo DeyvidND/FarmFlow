@@ -1,3 +1,22 @@
+/** Keyset-paginated list envelope returned by admin list endpoints. */
+export interface Paginated<T> {
+  items: T[];
+  nextCursor: string | null;
+  total?: number;
+}
+
+/** Lean product shape from GET /products/options (cross-page counts/notifs). */
+export interface ProductOption {
+  id: string;
+  name: string;
+  weight: string | null;
+  tint: string | null;
+  isActive: boolean | null;
+  stockQuantity: number | null;
+  farmerId: string | null;
+  subcategoryId: string | null;
+}
+
 /** Product as returned by the API (GET /products). */
 export interface Product {
   id: string;

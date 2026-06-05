@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ApiError, updateTenant } from '@/lib/api-client';
-import type { Subcategory, Product } from '@/lib/types';
+import type { Subcategory, ProductOption } from '@/lib/types';
 import { SectionPhoto } from './section-photo';
 import { SubcategoryPanel } from './subcategory-panel';
 
@@ -16,7 +16,7 @@ export function SubcategoriesClient({
   initialMultiSubcat,
 }: {
   initialSubcats: Subcategory[];
-  products: Product[];
+  products: ProductOption[];
   initialMultiSubcat: boolean;
 }) {
   const [subcats, setSubcats] = useState(initialSubcats);

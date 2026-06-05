@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ApiError, updateTenant } from '@/lib/api-client';
-import type { Farmer, Product } from '@/lib/types';
+import type { Farmer, ProductOption } from '@/lib/types';
 import { Avatar } from './avatar';
 import { FarmerPanel } from './farmer-panel';
 
@@ -16,7 +16,7 @@ export function FarmersClient({
   initialMultiFarmer,
 }: {
   initialFarmers: Farmer[];
-  products: Product[];
+  products: ProductOption[];
   initialMultiFarmer: boolean;
 }) {
   const [farmers, setFarmers] = useState(initialFarmers);

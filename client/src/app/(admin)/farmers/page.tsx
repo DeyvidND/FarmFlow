@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { FarmersClient } from '@/components/farmers/farmers-client';
-import type { Farmer, Product } from '@/lib/types';
+import type { Farmer, ProductOption } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +19,7 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
 export default async function FarmersPage() {
   const [farmers, products, tenant] = await Promise.all([
     fetchJson<Farmer[]>('farmers', []),
-    fetchJson<Product[]>('products', []),
+    fetchJson<ProductOption[]>('products/options', []),
     fetchJson<{ multiFarmer: boolean }>('tenants/me', { multiFarmer: false }),
   ]);
   return <FarmersClient initialFarmers={farmers} products={products} initialMultiFarmer={tenant.multiFarmer} />;

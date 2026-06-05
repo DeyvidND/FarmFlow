@@ -12,6 +12,7 @@ import { DrizzleModule } from './common/drizzle/drizzle.module';
 import { RedisModule } from './common/redis/redis.module';
 import { REDIS_TOKEN } from './common/redis/redis.constants';
 import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
+import { throttlerTracker } from './common/throttler/throttler.tracker';
 import { EmailModule } from './common/email/email.module';
 import { MapsModule } from './common/maps/maps.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
@@ -48,9 +49,12 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
     ScheduleModule.forRoot(),
     // Distributed rate limiting backed by the shared Redis (REDIS_URL is required),
     // so limits hold across instances and survive restarts. A generous global
-    // backstop (per client IP); abuse-prone routes tighten it via @Throttle, and
-    // signature-verified webhooks opt out via @SkipThrottle. Volumetric DDoS on the
-    // cached public catalog is an edge/CDN concern — see docs/SECURITY.md.
+    // backstop; abuse-prone routes tighten it via @Throttle, and signature-verified
+    // webhooks opt out via @SkipThrottle. Requests are keyed on the JWT principal
+    // when authenticated (the panels proxy through a BFF, so IP-keying would
+    // collapse all users into one bucket) and on client IP otherwise. Cached public
+    // catalog GETs are skipped — the storefront SSRs them from a single IP, and
+    // volumetric DDoS there is an edge/CDN concern (see docs/SECURITY.md).
     ThrottlerModule.forRootAsync({
       inject: [REDIS_TOKEN, ConfigService],
       useFactory: (redis: Redis, config: ConfigService) => {
@@ -64,7 +68,13 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
             },
           ],
           storage: new RedisThrottlerStorage(redis),
-          skipIf: () => disabled,
+          getTracker: (req) => throttlerTracker(req as any),
+          skipIf: (ctx) => {
+            if (disabled) return true;
+            const req = ctx.switchToHttp().getRequest();
+            // Cached, anonymous catalog reads SSR'd from one IP — don't throttle.
+            return req.method === 'GET' && typeof req.path === 'string' && req.path.startsWith('/public/');
+          },
         };
       },
     }),

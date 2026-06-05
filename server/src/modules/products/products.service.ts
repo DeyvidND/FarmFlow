@@ -13,6 +13,7 @@ export interface ProductOption {
   id: string;
   name: string;
   weight: string | null;
+  tint: string | null;
   isActive: boolean | null;
   stockQuantity: number | null;
   farmerId: string | null;
@@ -70,6 +71,7 @@ export class ProductsService {
         id: products.id,
         name: products.name,
         weight: products.weight,
+        tint: products.tint,
         isActive: products.isActive,
         stockQuantity: products.stockQuantity,
         farmerId: products.farmerId,

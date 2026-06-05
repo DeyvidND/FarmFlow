@@ -8,7 +8,9 @@ import type {
   Farmer,
   MediaItem,
   Order,
+  Paginated,
   Product,
+  ProductOption,
   ProductionSummary,
   RouteResult,
   Shipment,
@@ -59,7 +61,19 @@ const json = (data: unknown): RequestInit => ({
   body: JSON.stringify(data),
 });
 
-export const listProducts = () => apiFetch<Product[]>('products');
+/** Build a `?cursor=&limit=` query string for paginated list fetches. */
+const qs = (cursor?: string, limit?: number) => {
+  const p = new URLSearchParams();
+  if (cursor) p.set('cursor', cursor);
+  if (limit) p.set('limit', String(limit));
+  const s = p.toString();
+  return s ? `?${s}` : '';
+};
+
+export const listProducts = (cursor?: string) =>
+  apiFetch<Paginated<Product>>(`products${qs(cursor)}`);
+
+export const listProductOptions = () => apiFetch<ProductOption[]>('products/options');
 
 export const createProduct = (data: Partial<Product>) =>
   apiFetch<Product>('products', { method: 'POST', ...json(data) }, 'Неуспешно създаване');
@@ -153,7 +167,8 @@ export const updateTenant = (data: {
 }) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
 // ---- Articles ----
-export const listArticles = () => apiFetch<Article[]>('articles');
+export const listArticles = (cursor?: string) =>
+  apiFetch<Paginated<Article>>(`articles${qs(cursor)}`);
 
 export const getArticle = (id: string) => apiFetch<Article>(`articles/${id}`);
 
@@ -219,7 +234,8 @@ export const deleteSlot = (id: string) =>
   apiFetch<{ id: string }>(`slots/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
 
 // ---- Orders ----
-export const listOrders = () => apiFetch<Order[]>('orders');
+export const listOrders = (cursor?: string) =>
+  apiFetch<Paginated<Order>>(`orders${qs(cursor)}`);
 
 export const updateOrderStatus = (id: string, status: string) =>
   apiFetch<Order>(`orders/${id}/status`, { method: 'PATCH', ...json({ status }) }, 'Неуспешна промяна на статуса');
@@ -313,8 +329,16 @@ export const voidShipment = (id: string) =>
   apiFetch<{ id: string }>(`econt/shipments/${id}`, { method: 'DELETE' }, 'Неуспешно анулиране');
 
 // ---- Newsletters ----
-export const listSubscribers = () =>
-  apiFetch<{ subscribers: { id: string; email: string; createdAt: string | null }[]; activeCount: number; unsubscribedCount: number }>('subscribers');
+export interface Subscriber {
+  id: string;
+  email: string;
+  createdAt: string | null;
+}
+
+export const listSubscribers = (cursor?: string) =>
+  apiFetch<Paginated<Subscriber> & { activeCount: number; unsubscribedCount: number }>(
+    `subscribers${qs(cursor)}`,
+  );
 
 export const sendBroadcast = (data: { subject: string; body: string }) =>
   apiFetch<{ sent: number }>('broadcast', { method: 'POST', ...json(data) }, 'Неуспешно изпращане');

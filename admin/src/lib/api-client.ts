@@ -29,6 +29,13 @@ async function apiFetch<T>(path: string, init?: RequestInit, fallbackErr = 'Въ
   return res.json() as Promise<T>;
 }
 
+/** Keyset-paginated list envelope returned by admin list endpoints. */
+export interface Paginated<T> {
+  items: T[];
+  nextCursor: string | null;
+  total?: number;
+}
+
 export interface PlatformTenant {
   id: string;
   name: string;
@@ -40,6 +47,12 @@ export interface PlatformTenant {
   orderCount: number;
   lastOrderAt: string | null;
 }
+
+/** Next page of tenants for "load more" (client-side, via the BFF proxy). */
+export const listTenants = (cursor?: string) =>
+  apiFetch<Paginated<PlatformTenant>>(
+    `platform/tenants${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+  );
 
 export interface PlatformTenantDetail {
   id: string;

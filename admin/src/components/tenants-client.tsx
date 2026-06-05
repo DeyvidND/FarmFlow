@@ -5,7 +5,15 @@ import Link from 'next/link';
 import { Search, AlertTriangle, Plus, Copy, Check, RefreshCw, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, dmy } from '@/lib/utils';
-import { ApiError, setTenantStatus, createTenant, type PlatformTenant } from '@/lib/api-client';
+import {
+  ApiError,
+  setTenantStatus,
+  createTenant,
+  listTenants,
+  type PlatformTenant,
+  type Paginated,
+} from '@/lib/api-client';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -231,8 +239,11 @@ function AddFarmerDialog({ onClose, onCreated }: AddFarmerDialogProps) {
   );
 }
 
-export function TenantsClient({ initial }: { initial: PlatformTenant[] }) {
-  const [tenants, setTenants] = useState<PlatformTenant[]>(initial);
+export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> }) {
+  const { items: tenants, setItems: setTenants, loadMore, hasMore, loading } = usePaginatedList<PlatformTenant>(
+    initial,
+    listTenants,
+  );
   const [q, setQ] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState<PlatformTenant | null>(null);
@@ -380,6 +391,18 @@ export function TenantsClient({ initial }: { initial: PlatformTenant[] }) {
 
         {filtered.length === 0 && <p className="px-5 py-12 text-center text-sm text-ff-muted">Няма намерени ферми.</p>}
       </div>
+
+      {hasMore && (
+        <div className="mt-5 flex justify-center">
+          <button
+            onClick={loadMore}
+            disabled={loading}
+            className="rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
+          >
+            {loading ? 'Зареждане…' : 'Зареди още'}
+          </button>
+        </div>
+      )}
 
       {/* confirm disable dialog */}
       {confirmOff && (

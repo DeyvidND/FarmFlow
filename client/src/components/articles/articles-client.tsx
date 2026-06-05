@@ -6,8 +6,9 @@ import { Plus, Newspaper, Trash2, Image as ImageIcon, Film } from 'lucide-react'
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { ApiError, createArticle, deleteArticle } from '@/lib/api-client';
-import type { Article } from '@/lib/types';
+import { ApiError, createArticle, deleteArticle, listArticles } from '@/lib/api-client';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
+import type { Article, Paginated } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -31,9 +32,12 @@ export function ArticleStatusBadge({ status }: { status: Article['status'] }) {
   );
 }
 
-export function ArticlesClient({ initial }: { initial: Article[] }) {
+export function ArticlesClient({ initial }: { initial: Paginated<Article> }) {
   const router = useRouter();
-  const [articles, setArticles] = useState<Article[]>(initial);
+  const { items: articles, setItems: setArticles, loadMore, hasMore, loading } = usePaginatedList<Article>(
+    initial,
+    listArticles,
+  );
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -117,6 +121,18 @@ export function ArticlesClient({ initial }: { initial: Article[] }) {
               </span>
             </button>
           ))}
+        </div>
+      )}
+
+      {hasMore && (
+        <div className="mt-5 flex justify-center">
+          <button
+            onClick={loadMore}
+            disabled={loading}
+            className="rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
+          >
+            {loading ? 'Зареждане…' : 'Зареди още'}
+          </button>
         </div>
       )}
     </div>

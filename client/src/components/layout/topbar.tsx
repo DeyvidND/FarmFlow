@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Menu, Bell } from 'lucide-react';
 import { cn, bgDateLabel } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
-import { getDashboard, listProducts } from '@/lib/api-client';
+import { getDashboard, listProductOptions } from '@/lib/api-client';
 
 /** One notification derived from live data (pending orders, full slots, low stock). */
 interface Notif {
@@ -21,7 +21,7 @@ const hhmm = (t: string) => t.slice(0, 5);
 async function loadNotifs(): Promise<Notif[]> {
   const [dash, products] = await Promise.all([
     getDashboard().catch(() => null),
-    listProducts().catch(() => null),
+    listProductOptions().catch(() => null),
   ]);
   const list: Notif[] = [];
 

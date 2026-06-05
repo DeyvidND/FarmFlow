@@ -12,9 +12,11 @@ import {
   addMedia,
   createProduct,
   deleteProduct,
+  listProducts,
   updateProduct,
 } from '@/lib/api-client';
-import type { Farmer, Product, Subcategory } from '@/lib/types';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
+import type { Farmer, Paginated, Product, Subcategory } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -25,19 +27,24 @@ export function ProductsClient({
   multiFarmer = false,
   multiSubcat = false,
 }: {
-  initial: Product[];
+  initial: Paginated<Product>;
   farmers?: Farmer[];
   subcats?: Subcategory[];
   multiFarmer?: boolean;
   multiSubcat?: boolean;
 }) {
-  const [products, setProducts] = useState<Product[]>(initial);
+  const { items: products, setItems: setProducts, loadMore, hasMore, loading } = usePaginatedList<Product>(
+    initial,
+    listProducts,
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [fullEdit, setFullEdit] = useState<Product | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
 
   const activeCount = products.filter((p) => p.isActive).length;
+  // `total` (full count) comes from the first page; fall back to the loaded count.
+  const totalCount = initial.total ?? products.length;
   const farmerName = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
   const subcatName = useMemo(() => new Map(subcats.map((s) => [s.id, s.name])), [subcats]);
 
@@ -101,7 +108,7 @@ export function ProductsClient({
     <div className="animate-ff-fade-up">
       <div className="mb-[18px] flex items-center justify-between">
         <p className="text-sm text-ff-muted">
-          {activeCount} активни · {products.length} общо
+          {activeCount} активни · {totalCount} общо
         </p>
         <Button variant="primary" onClick={() => setCreateOpen(true)} className="rounded-sm">
           <Plus size={18} /> Добави продукт
@@ -126,6 +133,18 @@ export function ProductsClient({
               subcatLabel={multiSubcat ? (p.subcategoryId ? subcatName.get(p.subcategoryId) ?? null : null) : undefined}
             />
           ))}
+        </div>
+      )}
+
+      {hasMore && (
+        <div className="mt-5 flex justify-center">
+          <button
+            onClick={loadMore}
+            disabled={loading}
+            className="rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
+          >
+            {loading ? 'Зареждане…' : 'Зареди още'}
+          </button>
         </div>
       )}
 

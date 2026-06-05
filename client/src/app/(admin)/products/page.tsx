@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { ProductsClient } from '@/components/products/products-client';
-import type { Farmer, Product, Subcategory } from '@/lib/types';
+import type { Farmer, Paginated, Product, Subcategory } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +18,7 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
 
 export default async function ProductsPage() {
   const [products, farmers, subcats, tenant] = await Promise.all([
-    fetchJson<Product[]>('products', []),
+    fetchJson<Paginated<Product>>('products?limit=50', { items: [], nextCursor: null }),
     fetchJson<Farmer[]>('farmers', []),
     fetchJson<Subcategory[]>('subcategories', []),
     fetchJson<{ multiFarmer: boolean; multiSubcat: boolean }>('tenants/me', {

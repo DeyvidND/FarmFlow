@@ -6,8 +6,9 @@ import { toast } from 'sonner';
 import { cn, moneyFromStotinki, timeFromIso, type OrderStatus } from '@/lib/utils';
 import { StatusBadge } from '@/components/status-badge';
 import { OrderPanel } from './order-panel';
-import { ApiError, updateOrderStatus } from '@/lib/api-client';
-import type { Order } from '@/lib/types';
+import { ApiError, listOrders, updateOrderStatus } from '@/lib/api-client';
+import { usePaginatedList } from '@/hooks/use-paginated-list';
+import type { Order, Paginated } from '@/lib/types';
 
 const FILTERS: [string, string][] = [
   ['all', 'Всички'],
@@ -20,8 +21,11 @@ const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възни�
 /** Human order ref — the per-tenant number, falling back to a short id for legacy rows. */
 const orderNo = (o: Order) => (o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(0, 8)}`);
 
-export function OrdersClient({ initial }: { initial: Order[] }) {
-  const [orders, setOrders] = useState<Order[]>(initial);
+export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
+  const { items: orders, setItems: setOrders, loadMore, hasMore, loading } = usePaginatedList<Order>(
+    initial,
+    listOrders,
+  );
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -177,6 +181,18 @@ export function OrdersClient({ initial }: { initial: Order[] }) {
 
         {filtered.length === 0 && <p className="px-5 py-12 text-center text-sm text-ff-muted">Няма поръчки за този филтър.</p>}
       </div>
+
+      {hasMore && (
+        <div className="mt-5 flex justify-center">
+          <button
+            onClick={loadMore}
+            disabled={loading}
+            className="rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
+          >
+            {loading ? 'Зареждане…' : 'Зареди още'}
+          </button>
+        </div>
+      )}
 
       {active && (
         <OrderPanel order={active} busy={busy} onClose={() => setActiveId(null)} onAction={(s) => onAction(active, s)} />
