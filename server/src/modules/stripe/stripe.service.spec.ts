@@ -8,7 +8,8 @@ describe('StripeService (Stripe disabled)', () => {
     get: (key: string, def?: unknown) =>
       key === 'STRIPE_SECRET_KEY' || key === 'STRIPE_WEBHOOK_SECRET' ? '' : def,
   } as unknown as ConfigService;
-  const svc = new StripeService({} as never, config);
+  const billing = { handleBillingEvent: jest.fn() } as never;
+  const svc = new StripeService({} as never, config, billing);
 
   it('reports disabled when no secret key is set', () => {
     expect(svc.isEnabled()).toBe(false);

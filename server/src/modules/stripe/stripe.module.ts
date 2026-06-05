@@ -5,8 +5,10 @@ import {
   StripeCatalogController,
   StripeConnectController,
 } from './stripe.controller';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
+  imports: [BillingModule],
   controllers: [StripeController, StripeCatalogController, StripeConnectController],
   providers: [StripeService],
   exports: [StripeService],

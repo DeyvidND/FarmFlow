@@ -10,6 +10,7 @@ import { and, eq } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { type Database, products, orders, tenants, stripeEvents } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { BillingService } from '../billing/billing.service';
 
 // stripe@22 ships `export = StripeConstructor`, so the rich `Stripe.*` type
 // namespace isn't reachable through the default import under `moduleResolution:
@@ -81,6 +82,7 @@ export class StripeService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     config: ConfigService,
+    private readonly billing: BillingService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
@@ -456,18 +458,26 @@ export class StripeService {
     if (!fresh) return { received: true };
 
     switch (event.type) {
-      case 'checkout.session.completed':
+      case 'checkout.session.completed': {
+        const obj = event.data.object as {
+          mode?: string;
+          metadata?: Record<string, string> | null;
+          payment_intent?: string | { id: string } | null;
+        };
+        // SaaS subscription checkout (platform billing) — not an order payment.
+        if (obj.mode === 'subscription') {
+          await this.billing.handleBillingEvent(event);
+          break;
+        }
+        await this.markOrderPaid(obj.metadata?.orderId, this.idOf(obj.payment_intent));
+        break;
+      }
       case 'payment_intent.succeeded': {
         const obj = event.data.object as {
           id?: string;
           metadata?: Record<string, string> | null;
-          payment_intent?: string | { id: string } | null;
         };
-        const paymentIntentId =
-          event.type === 'payment_intent.succeeded'
-            ? obj.id ?? null
-            : this.idOf(obj.payment_intent);
-        await this.markOrderPaid(obj.metadata?.orderId, paymentIntentId);
+        await this.markOrderPaid(obj.metadata?.orderId, obj.id ?? null);
         break;
       }
       case 'charge.refunded': {
@@ -500,6 +510,12 @@ export class StripeService {
         );
         break;
       }
+      // Platform-side SaaS subscription billing — delegate to BillingService.
+      case 'invoice.paid':
+      case 'invoice.payment_failed':
+      case 'customer.subscription.deleted':
+        await this.billing.handleBillingEvent(event);
+        break;
     }
 
     return { received: true };
