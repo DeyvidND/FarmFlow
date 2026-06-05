@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle } from 'lucide-react';
+import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, hhmm, type OrderStatus } from '@/lib/utils';
 import { StatCard } from './stat-card';
@@ -18,9 +19,12 @@ const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възни�
 export function DashboardClient({
   summary,
   initialOrders,
+  nudgeCard = false,
 }: {
   summary: DashboardSummary;
   initialOrders: Order[];
+  /** Standard plan, billing live, no card yet — nudge them to add one. */
+  nudgeCard?: boolean;
 }) {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>(initialOrders);
@@ -112,6 +116,22 @@ export function DashboardClient({
             Виждаш само последните 7 дни поръчки. Поднови, за да възстановиш пълния достъп.
           </div>
         </div>
+      )}
+
+      {nudgeCard && summary.subscriptionActive && (
+        <Link
+          href="/payments"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-ff-green-100 bg-ff-green-50 px-4 py-3 no-underline transition-colors hover:bg-ff-green-100/60"
+        >
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-ff-green-100 text-ff-green-700">
+            <CreditCard size={18} />
+          </span>
+          <div className="flex-1 text-[13px] leading-[1.45] text-ff-ink-2">
+            <span className="font-bold text-ff-green-800">Добави карта за абонамента.</span>{' '}
+            За да продължи магазинът да работи без прекъсване, добави карта за плащане.
+          </div>
+          <span className="shrink-0 text-[12.5px] font-extrabold text-ff-green-700">Добави →</span>
+        </Link>
       )}
 
       {/* stat cards */}
