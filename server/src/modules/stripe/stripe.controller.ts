@@ -9,7 +9,7 @@ import {
   HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { StripeService } from './stripe.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -66,5 +66,18 @@ export class StripeConnectController {
   @Get('status')
   status(@CurrentTenant() tenantId: string) {
     return this.stripeService.accountStatus(tenantId);
+  }
+
+  /** Mint an Account Session client secret for the embedded Connect components. */
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Post('account-session')
+  accountSession(@CurrentTenant() tenantId: string) {
+    return this.stripeService.createAccountSession(tenantId);
+  }
+
+  /** Connection state + balance / next-payout summary for the Payments page. */
+  @Get('summary')
+  summary(@CurrentTenant() tenantId: string) {
+    return this.stripeService.connectSummary(tenantId);
   }
 }

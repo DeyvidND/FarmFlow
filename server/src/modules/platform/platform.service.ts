@@ -50,6 +50,18 @@ export interface PlatformEmailBillingRow {
   lastPushAt: Date | null;
 }
 
+/** Per-farm Stripe Connect status for the super-admin oversight table. */
+export interface PlatformStripeAccountRow {
+  tenantId: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  statusUpdatedAt: Date | null;
+}
+
 /** Full per-farm snapshot for the super-admin detail view. */
 export interface PlatformTenantDetail {
   id: string;
@@ -162,6 +174,29 @@ export class PlatformService {
       .groupBy(tenants.id)
       .orderBy(sql`sum(${emailPushes.priceStotinki}) desc`);
     return rows as PlatformEmailBillingRow[];
+  }
+
+  /**
+   * Per-farm Stripe Connect status (only farms that have started connecting —
+   * i.e. have a connected-account id). Reads the mirrored capability flags, so
+   * no Stripe calls; the `account.updated` webhook keeps them fresh.
+   */
+  async stripeAccounts(): Promise<PlatformStripeAccountRow[]> {
+    const rows = await this.db
+      .select({
+        tenantId: tenants.id,
+        name: tenants.name,
+        slug: tenants.slug,
+        email: tenants.email,
+        chargesEnabled: tenants.stripeChargesEnabled,
+        payoutsEnabled: tenants.stripePayoutsEnabled,
+        detailsSubmitted: tenants.stripeDetailsSubmitted,
+        statusUpdatedAt: tenants.stripeStatusUpdatedAt,
+      })
+      .from(tenants)
+      .where(sql`${tenants.stripeAccountId} is not null`)
+      .orderBy(asc(tenants.name));
+    return rows as PlatformStripeAccountRow[];
   }
 
   /** Full snapshot of one farm (stats + recent orders) for the detail view. */

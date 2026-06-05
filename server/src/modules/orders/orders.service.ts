@@ -33,6 +33,29 @@ const orderWithSlot = {
   slotTo: deliverySlots.timeTo,
 };
 
+export type PaymentStatus = 'paid' | 'pending_online' | 'cash';
+
+/** Admin-facing order shape: raw Stripe ids dropped, payment state derived. */
+export type SerializedOrder = Omit<
+  OrderWithItems,
+  'stripeCheckoutSessionId' | 'stripePaymentIntentId' | 'tenantId'
+> & { paymentStatus: PaymentStatus };
+
+/**
+ * Map a raw order row to the admin API shape: derive a coarse `paymentStatus`
+ * the farmer UI can badge, and drop the raw Stripe identifiers (the client never
+ * needs the intent/session ids). `paidAt` flows through (JSON → ISO string).
+ */
+export function serializeOrder(o: OrderWithItems): SerializedOrder {
+  const { stripeCheckoutSessionId, stripePaymentIntentId, tenantId, ...rest } = o;
+  const paymentStatus: PaymentStatus = o.paidAt
+    ? 'paid'
+    : stripeCheckoutSessionId
+      ? 'pending_online'
+      : 'cash';
+  return { ...rest, paymentStatus };
+}
+
 export interface ProductionItem {
   productName: string;
   totalQty: number;
@@ -77,7 +100,7 @@ export class OrdersService {
   async findAll(
     tenantId: string,
     opts: { cursor?: string; limit?: number } = {},
-  ): Promise<Paginated<OrderWithItems>> {
+  ): Promise<Paginated<SerializedOrder>> {
     const lim = clampLimit(opts.limit);
     const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
     const conds = [eq(orders.tenantId, tenantId)];
@@ -104,7 +127,7 @@ export class OrdersService {
 
     const hasMore = rows.length > lim;
     const pageRows = hasMore ? rows.slice(0, lim) : rows;
-    const items = await this.attachItems(pageRows);
+    const items = (await this.attachItems(pageRows)).map(serializeOrder);
     const last = pageRows[pageRows.length - 1];
     return {
       items,
@@ -113,7 +136,7 @@ export class OrdersService {
     };
   }
 
-  async findOne(id: string, tenantId: string): Promise<OrderWithItems> {
+  async findOne(id: string, tenantId: string): Promise<SerializedOrder> {
     const [row] = await this.db
       .select(orderWithSlot)
       .from(orders)
@@ -122,7 +145,7 @@ export class OrdersService {
       .limit(1);
     if (!row) throw new NotFoundException('Поръчката не е намерена');
     const [withItems] = await this.attachItems([row]);
-    return withItems;
+    return serializeOrder(withItems);
   }
 
   /** Cancelling frees slot capacity automatically (booked is computed from non-cancelled orders). */

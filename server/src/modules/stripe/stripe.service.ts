@@ -43,6 +43,23 @@ export interface CreateCheckoutParams {
   cancelUrl: string;
 }
 
+/** Summary for the farmer Payments page — connection state + balance/next payout. */
+export interface ConnectSummary {
+  /** Stripe is configured on the server (secret key present). */
+  enabled: boolean;
+  connected: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  /** Stripe balance, minor units (EUR cents). */
+  availableStotinki: number;
+  pendingStotinki: number;
+  /** Next scheduled payout to the farm's bank, if one is pending / in transit. */
+  nextPayout: { amountStotinki: number; arrivalDate: string } | null;
+  /** Platform commission in basis points — for the UI's transparency line. */
+  feeBps: number;
+}
+
 /**
  * Stripe Connect integration for the storefront. Every call targets the farm's
  * **connected account** (`stripeAccount: tenant.stripeAccountId`). The service
@@ -166,6 +183,102 @@ export class StripeService {
       payoutsEnabled: !!acct.payouts_enabled,
       detailsSubmitted: !!acct.details_submitted,
     };
+  }
+
+  /**
+   * Mint a Stripe **Account Session** so the admin can embed Stripe Connect
+   * components (onboarding, notification banner, payments, account management)
+   * directly inside FarmFlow. Creates the Express account on the first call.
+   */
+  async createAccountSession(tenantId: string): Promise<{ clientSecret: string }> {
+    const accountId = await this.ensureConnectedAccount(tenantId);
+    const session = await this.stripe.accountSessions.create({
+      account: accountId,
+      components: {
+        account_onboarding: { enabled: true },
+        notification_banner: { enabled: true },
+        payments: {
+          enabled: true,
+          features: { refund_management: true, dispute_management: true, capture_payments: true },
+        },
+        account_management: { enabled: true },
+      },
+    });
+    return { clientSecret: session.client_secret };
+  }
+
+  /**
+   * Connection state + a friendly balance / next-payout summary for the
+   * Payments page. Never throws: returns a safe disconnected summary when Stripe
+   * is disabled, the farm has no account, or any Stripe lookup fails — so the
+   * page can render every state from this one call.
+   */
+  async connectSummary(tenantId: string): Promise<ConnectSummary> {
+    const base: ConnectSummary = {
+      enabled: !!this.client,
+      connected: false,
+      chargesEnabled: false,
+      payoutsEnabled: false,
+      detailsSubmitted: false,
+      availableStotinki: 0,
+      pendingStotinki: 0,
+      nextPayout: null,
+      feeBps: this.feeBps,
+    };
+    if (!this.client) return base;
+
+    const [tenant] = await this.db
+      .select({ stripeAccountId: tenants.stripeAccountId })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const accountId = tenant?.stripeAccountId;
+    if (!accountId) return base;
+
+    try {
+      const acct = await this.client.accounts.retrieve(accountId);
+      base.connected = true;
+      base.chargesEnabled = !!acct.charges_enabled;
+      base.payoutsEnabled = !!acct.payouts_enabled;
+      base.detailsSubmitted = !!acct.details_submitted;
+    } catch (err) {
+      this.logger.warn(`Stripe account retrieve failed (${tenantId}): ${this.errText(err)}`);
+      return base;
+    }
+
+    // A fresh, not-yet-active account can reject balance/payout reads — guard.
+    if (!base.chargesEnabled) return base;
+
+    try {
+      const balance = await this.client.balance.retrieve({}, { stripeAccount: accountId });
+      base.availableStotinki = this.sumEur(balance.available);
+      base.pendingStotinki = this.sumEur(balance.pending);
+    } catch (err) {
+      this.logger.warn(`Stripe balance read failed (${tenantId}): ${this.errText(err)}`);
+    }
+
+    try {
+      const payouts = await this.client.payouts.list({ limit: 1 }, { stripeAccount: accountId });
+      const p = payouts.data[0];
+      if (p && (p.status === 'pending' || p.status === 'in_transit')) {
+        base.nextPayout = {
+          amountStotinki: p.amount,
+          arrivalDate: new Date(p.arrival_date * 1000).toISOString(),
+        };
+      }
+    } catch (err) {
+      this.logger.warn(`Stripe payout read failed (${tenantId}): ${this.errText(err)}`);
+    }
+
+    return base;
+  }
+
+  private sumEur(entries: { amount: number; currency: string }[]): number {
+    return entries.filter((e) => e.currency === 'eur').reduce((s, e) => s + e.amount, 0);
+  }
+
+  private errText(err: unknown): string {
+    return err instanceof Error ? err.message : 'unknown';
   }
 
   /* ------------------------------ catalog sync ----------------------------- */
@@ -374,9 +487,41 @@ export class StripeService {
         );
         break;
       }
+      case 'account.updated': {
+        // Connected-account capability change — mirror the flags onto the tenant
+        // so the super-admin oversight table stays fresh without polling Stripe.
+        await this.syncAccountStatus(
+          event.data.object as {
+            id?: string;
+            charges_enabled?: boolean;
+            payouts_enabled?: boolean;
+            details_submitted?: boolean;
+          },
+        );
+        break;
+      }
     }
 
     return { received: true };
+  }
+
+  /** Persist a connected account's capability flags onto its tenant row. */
+  private async syncAccountStatus(account: {
+    id?: string;
+    charges_enabled?: boolean;
+    payouts_enabled?: boolean;
+    details_submitted?: boolean;
+  }): Promise<void> {
+    if (!account.id) return;
+    await this.db
+      .update(tenants)
+      .set({
+        stripeChargesEnabled: !!account.charges_enabled,
+        stripePayoutsEnabled: !!account.payouts_enabled,
+        stripeDetailsSubmitted: !!account.details_submitted,
+        stripeStatusUpdatedAt: new Date(),
+      })
+      .where(eq(tenants.stripeAccountId, account.id));
   }
 
   private idOf(ref: string | { id: string } | null | undefined): string | null {

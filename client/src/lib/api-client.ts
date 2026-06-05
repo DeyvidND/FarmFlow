@@ -256,6 +256,32 @@ export const getRoute = (date?: string) =>
 export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);
 
+// ---- Stripe (payments / Connect) ----
+export interface StripeSummary {
+  /** Stripe is configured on the server (secret key present). */
+  enabled: boolean;
+  connected: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  /** Stripe balance, minor units (EUR cents). */
+  availableStotinki: number;
+  pendingStotinki: number;
+  nextPayout: { amountStotinki: number; arrivalDate: string } | null;
+  /** Platform commission in basis points (100 = 1%). */
+  feeBps: number;
+}
+
+export const getStripeSummary = () => apiFetch<StripeSummary>('stripe/connect/summary');
+
+/** Mint an Account Session client secret for the embedded Connect components. */
+export const createStripeAccountSession = () =>
+  apiFetch<{ clientSecret: string }>(
+    'stripe/connect/account-session',
+    { method: 'POST' },
+    'Неуспешна връзка със Stripe',
+  );
+
 // ---- Tenant ----
 export const setDeliveryEnabled = (enabled: boolean) =>
   apiFetch<{ deliveryEnabled: boolean }>(

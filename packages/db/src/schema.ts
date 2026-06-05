@@ -47,6 +47,13 @@ export const tenants = pgTable('tenants', {
   multiFarmer: boolean('multi_farmer').notNull().default(false),
   multiSubcat: boolean('multi_subcat').notNull().default(false),
   stripeAccountId: text('stripe_account_id'),
+  // Connected-account capability flags, mirrored from Stripe `account.updated`
+  // webhooks so the super-admin oversight table reads status without per-load
+  // Stripe calls. Default false until the farm onboards.
+  stripeChargesEnabled: boolean('stripe_charges_enabled').notNull().default(false),
+  stripePayoutsEnabled: boolean('stripe_payouts_enabled').notNull().default(false),
+  stripeDetailsSubmitted: boolean('stripe_details_submitted').notNull().default(false),
+  stripeStatusUpdatedAt: timestamp('stripe_status_updated_at', { withTimezone: true }),
   // Farm origin for delivery-route optimization (nullable until set).
   farmAddress: text('farm_address'),
   farmLat: numeric('farm_lat', { precision: 10, scale: 7 }),

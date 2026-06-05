@@ -6,7 +6,7 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const hasSession = Boolean(req.cookies.get(SESSION_COOKIE)?.value);
   const isAuthPage = pathname === '/login';
-  const isProtected = ['/tenants', '/email-billing', '/settings'].some(
+  const isProtected = ['/tenants', '/email-billing', '/stripe', '/settings'].some(
     (p) => pathname === p || pathname.startsWith(p + '/'),
   );
 
@@ -24,5 +24,12 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/tenants/:path*', '/email-billing/:path*', '/settings/:path*', '/login'],
+  matcher: [
+    '/tenants/:path*',
+    '/email-billing/:path*',
+    '/stripe/:path*',
+    '/stripe',
+    '/settings/:path*',
+    '/login',
+  ],
 };

@@ -57,6 +57,12 @@ export class PlatformController {
     return this.platform.emailBilling();
   }
 
+  /** Per-farm Stripe Connect status for the oversight table. */
+  @Get('stripe/accounts')
+  stripeAccounts() {
+    return this.platform.stripeAccounts();
+  }
+
   /** Full snapshot of one farm for the detail view. */
   @Get('tenants/:id')
   tenantDetail(@Param('id', ParseUUIDPipe) id: string) {

@@ -5,6 +5,7 @@ import { SESSION_COOKIE } from '@/lib/session';
 const PROTECTED = [
   '/dashboard',
   '/orders',
+  '/payments',
   '/production',
   '/products',
   '/farmers',
@@ -99,6 +100,8 @@ export const config = {
   matcher: [
     '/dashboard/:path*',
     '/orders/:path*',
+    '/payments/:path*',
+    '/payments',
     '/production/:path*',
     '/products/:path*',
     '/farmers/:path*',

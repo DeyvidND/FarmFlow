@@ -356,6 +356,9 @@ export interface ProductionSummary {
   items: ProductionItem[];
 }
 
+/** How an order was paid, derived server-side from Stripe state. */
+export type PaymentStatus = 'paid' | 'pending_online' | 'cash';
+
 /** Order as returned by GET /orders (with items + joined slot times). */
 export interface Order {
   id: string;
@@ -365,6 +368,10 @@ export interface Order {
   customerPhone: string | null;
   customerEmail: string | null;
   status: 'pending' | 'confirmed' | 'delivered' | 'cancelled';
+  /** Paid online (card) / started online but unpaid / cash on delivery. */
+  paymentStatus: PaymentStatus;
+  /** ISO timestamp the online (Stripe) payment was captured, else null. */
+  paidAt: string | null;
   totalStotinki: number;
   deliveryType: 'address' | 'econt' | 'econt_address';
   deliveryAddress: string | null;

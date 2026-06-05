@@ -99,6 +99,18 @@ export interface PlatformEmailBilling {
   lastPushAt: string | null;
 }
 
+/** Per-farm Stripe Connect status for the oversight table. */
+export interface PlatformStripeAccount {
+  tenantId: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  statusUpdatedAt: string | null;
+}
+
 export const setTenantStatus = (id: string, status: 'active' | 'inactive') =>
   apiFetch<{ id: string; subscriptionStatus: string }>(
     `platform/tenants/${id}/status`,

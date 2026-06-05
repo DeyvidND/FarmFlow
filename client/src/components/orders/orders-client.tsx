@@ -5,6 +5,7 @@ import { Search, MapPin, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, timeFromIso, type OrderStatus } from '@/lib/utils';
 import { StatusBadge } from '@/components/status-badge';
+import { PaymentBadge } from './payment-badge';
 import { OrderPanel } from './order-panel';
 import { ApiError, listOrders, updateOrderStatus } from '@/lib/api-client';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
@@ -143,7 +144,10 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
                 </td>
                 <td className="px-5 py-3.5 align-top text-[13px]">{deliveryCell(o)}</td>
                 <td className="px-5 py-3.5 align-top">
-                  <StatusBadge status={o.status} size="sm" />
+                  <div className="flex flex-col items-start gap-1.5">
+                    <StatusBadge status={o.status} size="sm" />
+                    <PaymentBadge status={o.paymentStatus} size="sm" />
+                  </div>
                 </td>
                 <td className="ff-fig px-5 py-3.5 text-right align-top text-[14.5px] font-extrabold">
                   {moneyFromStotinki(o.totalStotinki)}
@@ -168,7 +172,10 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
                     {timeFromIso(o.createdAt)} · {orderNo(o)}
                   </div>
                 </div>
-                <StatusBadge status={o.status} size="sm" />
+                <div className="flex flex-col items-end gap-1.5">
+                  <StatusBadge status={o.status} size="sm" />
+                  <PaymentBadge status={o.paymentStatus} size="sm" />
+                </div>
               </div>
               <div className="text-[13.5px] leading-[1.4] text-ff-ink-2">{itemsSummary(o)}</div>
               <div className="flex items-center justify-between border-t border-ff-border-2 pt-2.5 text-[13px]">

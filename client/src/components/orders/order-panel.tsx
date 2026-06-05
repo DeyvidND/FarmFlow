@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Phone, MapPin, Package, CalendarClock, Check, Truck } from 'lucide-react';
+import { X, Phone, MapPin, Package, CalendarClock, Check, Truck, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusBadge } from '@/components/status-badge';
+import { PaymentBadge } from './payment-badge';
 import { moneyFromStotinki, hhmm, timeFromIso, type OrderStatus } from '@/lib/utils';
 import type { Order } from '@/lib/types';
 
@@ -21,6 +22,14 @@ export function OrderPanel({
 }) {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const slotLabel = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '—';
+  const paymentValue =
+    order.paymentStatus === 'paid'
+      ? order.paidAt
+        ? `Платена с карта · ${timeFromIso(order.paidAt)}`
+        : 'Платена с карта'
+      : order.paymentStatus === 'pending_online'
+        ? 'Чака онлайн плащане'
+        : 'Наложен платеж / при доставка';
   const isEcont = order.deliveryType === 'econt' || order.deliveryType === 'econt_address';
   const deliveryVal =
     order.deliveryType === 'econt' ? order.econtOffice ?? 'Еконт офис' : order.deliveryAddress ?? '—';
@@ -48,8 +57,9 @@ export function OrderPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="mb-5 flex items-center gap-2.5">
+          <div className="mb-5 flex flex-wrap items-center gap-2.5">
             <StatusBadge status={order.status} size="md" />
+            <PaymentBadge status={order.paymentStatus} size="md" />
             <span className="text-[13px] text-ff-muted">· приета в {timeFromIso(order.createdAt)}</span>
           </div>
 
@@ -61,6 +71,7 @@ export function OrderPanel({
               value={deliveryVal}
             />
             <InfoRow icon={<CalendarClock size={18} />} label="Слот за доставка" value={slotLabel} />
+            <InfoRow icon={<CreditCard size={18} />} label="Плащане" value={paymentValue} />
           </div>
 
           {order.notes && (

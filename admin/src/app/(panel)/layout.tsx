@@ -1,7 +1,7 @@
 'use client';
 
 import { Toaster } from 'sonner';
-import { Leaf, LogOut, Settings, Users, Mail } from 'lucide-react';
+import { Leaf, LogOut, Settings, Users, Mail, CreditCard } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -35,6 +35,9 @@ export default function PanelLayout({ children }: { children: React.ReactNode })
           </Link>
           <Link href="/email-billing" className={NAV_LINK}>
             <Mail size={17} /> <span className="max-sm:hidden">Имейл сметки</span>
+          </Link>
+          <Link href="/stripe" className={NAV_LINK}>
+            <CreditCard size={17} /> <span className="max-sm:hidden">Stripe</span>
           </Link>
           <Link href="/settings" className={NAV_LINK}>
             <Settings size={17} /> <span className="max-sm:hidden">Настройки</span>
