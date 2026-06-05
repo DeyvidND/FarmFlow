@@ -35,17 +35,7 @@ export function SubscriptionCard({ summary }: { summary: BillingSummary }) {
     }
   }
 
-  // Platform billing isn't configured — say so plainly, don't pretend it's free.
-  if (!summary.enabled) {
-    return (
-      <Section>
-        <div className="text-[13.5px] text-ff-muted">
-          Абонаментът не е активиран от платформата.
-        </div>
-      </Section>
-    );
-  }
-
+  // Premium is free regardless of whether Stripe billing is live — check it first.
   if (summary.plan === 'premium') {
     return (
       <Section>
@@ -59,6 +49,17 @@ export function SubscriptionCard({ summary }: { summary: BillingSummary }) {
               Нямаш абонаментна такса. Бюлетините също са безплатни.
             </div>
           </div>
+        </div>
+      </Section>
+    );
+  }
+
+  // Platform billing isn't configured — say so plainly, don't pretend it's free.
+  if (!summary.enabled) {
+    return (
+      <Section>
+        <div className="text-[13.5px] text-ff-muted">
+          Абонаментът не е активиран от платформата.
         </div>
       </Section>
     );
