@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { SuppressionService } from '../../common/email/suppression.service';
+import { BillingService } from '../billing/billing.service';
 import { BroadcastDto } from './dto/broadcast.dto';
 import { clampLimit, keysetAfter, buildPage } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
@@ -45,6 +46,7 @@ export class NewsletterService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly suppression: SuppressionService,
+    private readonly billing: BillingService,
   ) {
     this.apiBaseUrl =
       config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3001';
@@ -152,18 +154,19 @@ export class NewsletterService {
       }
     }
 
-    // Usage ledger: one row per push, valued at the per-push price. The platform
-    // owner reads the per-farm total in super-admin and collects payment manually
-    // (no automated charging here). Not surfaced to the farmer.
+    // Usage ledger: one row per push, valued at the per-push price, then billed
+    // to the farm's Stripe subscription as a €2 invoice item (premium → free).
     const priceStotinki = this.config.get<number>('EMAIL_PUSH_PRICE_STOTINKI') ?? 200;
     if (recipients.length > 0) {
       try {
-        await this.db
+        const [push] = await this.db
           .insert(emailPushes)
-          .values({ tenantId, subject: dto.subject, recipientCount: recipients.length, priceStotinki });
+          .values({ tenantId, subject: dto.subject, recipientCount: recipients.length, priceStotinki })
+          .returning({ id: emailPushes.id });
+        await this.billing.billPush(push.id);
       } catch (err) {
         this.logger.error(
-          `[newsletter] push-record failed: ${err instanceof Error ? err.message : String(err)}`,
+          `[newsletter] push-record/bill failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }

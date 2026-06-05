@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { NewsletterService } from './newsletter.service';
 import { EmailService } from '../../common/email/email.service';
 import { SuppressionService } from '../../common/email/suppression.service';
+import { BillingService } from '../billing/billing.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
 // ── Mock DB builder ─────────────────────────────────────────────────────────
@@ -17,7 +18,7 @@ function makeDb() {
     limit: jest.fn().mockResolvedValue([]),
     insert: jest.fn().mockReturnThis(),
     values: jest.fn().mockReturnThis(),
-    returning: jest.fn().mockResolvedValue([]),
+    returning: jest.fn().mockResolvedValue([{ id: 'push-1' }]),
     update: jest.fn().mockReturnThis(),
     set: jest.fn().mockReturnThis(),
     // Chainable: both broadcast (orderBy→limit) and getSubscribers (orderBy→limit)
@@ -69,6 +70,7 @@ describe('NewsletterService', () => {
           provide: SuppressionService,
           useValue: { filterSuppressed: jest.fn().mockResolvedValue(new Set()), isSuppressed: jest.fn().mockResolvedValue(false), suppress: jest.fn() },
         },
+        { provide: BillingService, useValue: { billPush: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
