@@ -9,6 +9,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { asc, eq, sql, desc } from 'drizzle-orm';
+import { BillingService } from '../billing/billing.service';
 import {
   type Database,
   tenants,
@@ -34,6 +35,8 @@ export interface PlatformTenantRow {
   email: string | null;
   phone: string | null;
   subscriptionStatus: 'active' | 'past_due' | 'inactive';
+  premium: boolean;
+  graceUntil: Date | null;
   createdAt: Date | null;
   orderCount: number;
   lastOrderAt: Date | null;
@@ -70,6 +73,8 @@ export interface PlatformTenantDetail {
   email: string | null;
   phone: string | null;
   subscriptionStatus: 'active' | 'past_due' | 'inactive';
+  premium: boolean;
+  graceUntil: Date | null;
   createdAt: Date | null;
   deliveryEnabled: boolean;
   multiFarmer: boolean;
@@ -103,6 +108,7 @@ export class PlatformService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly jwt: JwtService,
+    private readonly billing: BillingService,
   ) {}
 
   /** Platform admin login → platform-typed JWT. */
@@ -136,6 +142,8 @@ export class PlatformService {
         email: tenants.email,
         phone: tenants.phone,
         subscriptionStatus: tenants.subscriptionStatus,
+        premium: tenants.premium,
+        graceUntil: tenants.graceUntil,
         createdAt: tenants.createdAt,
         orderCount: sql<number>`count(${orders.id})::int`,
         lastOrderAt: sql<Date | null>`max(${orders.createdAt})`,
@@ -273,6 +281,8 @@ export class PlatformService {
       email: t.email,
       phone: t.phone,
       subscriptionStatus: t.subscriptionStatus,
+      premium: t.premium,
+      graceUntil: t.graceUntil,
       createdAt: t.createdAt,
       deliveryEnabled: t.deliveryEnabled,
       multiFarmer: t.multiFarmer,
@@ -297,6 +307,12 @@ export class PlatformService {
       .returning({ id: tenants.id, subscriptionStatus: tenants.subscriptionStatus });
     if (!row) throw new NotFoundException('Фермата не е намерена');
     return row;
+  }
+
+  /** Toggle a farm's premium (free) plan — cancels any Stripe subscription. */
+  async setPremium(id: string, premium: boolean): Promise<{ id: string; premium: boolean }> {
+    await this.billing.setPremium(id, premium);
+    return { id, premium };
   }
 
   /** Onboard a new farm: tenant + owner user with mustChangePassword=true. */

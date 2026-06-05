@@ -16,6 +16,7 @@ import { Throttle } from '@nestjs/throttler';
 import { PlatformService } from './platform.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
+import { SetPremiumDto } from './dto/set-premium.dto';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
@@ -78,6 +79,12 @@ export class PlatformController {
   @Patch('tenants/:id/status')
   setStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTenantStatusDto) {
     return this.platform.setStatus(id, dto.status);
+  }
+
+  /** Toggle a farm's premium (free) billing plan. */
+  @Patch('tenants/:id/premium')
+  setPremium(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetPremiumDto) {
+    return this.platform.setPremium(id, dto.premium);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })

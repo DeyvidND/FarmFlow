@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { BillingService } from '../billing/billing.service';
 import { PlatformService } from './platform.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
@@ -47,6 +48,7 @@ describe('PlatformService', () => {
           provide: JwtService,
           useValue: { sign: jest.fn().mockReturnValue('platform-token') },
         },
+        { provide: BillingService, useValue: { setPremium: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
