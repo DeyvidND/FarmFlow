@@ -282,6 +282,41 @@ export const createStripeAccountSession = () =>
     'Неуспешна връзка със Stripe',
   );
 
+// ---- SaaS billing (the platform's subscription charged to the farm) ----
+export interface BillingSummary {
+  /** STRIPE_SECRET_KEY + billing price id both present on the server. */
+  enabled: boolean;
+  plan: 'standard' | 'premium';
+  status: 'active' | 'past_due' | 'inactive';
+  graceUntil: string | null;
+  hasCard: boolean;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  basePriceStotinki: number;
+  emailPriceStotinki: number;
+  pushesThisCycle: number;
+  estimatedNextStotinki: number;
+  invoices: { amountStotinki: number; status: string; date: string; url: string | null }[];
+}
+
+export const getBillingSummary = () => apiFetch<BillingSummary>('billing/summary');
+
+/** Start the hosted Checkout (subscription mode) — caller redirects to the URL. */
+export const startBillingCheckout = () =>
+  apiFetch<{ url: string | null }>(
+    'billing/checkout',
+    { method: 'POST' },
+    'Неуспешно стартиране на плащане',
+  );
+
+/** Open the Stripe Billing Portal — caller redirects to the URL. */
+export const openBillingPortal = () =>
+  apiFetch<{ url: string }>(
+    'billing/portal',
+    { method: 'POST' },
+    'Неуспешно отваряне на портала',
+  );
+
 // ---- Tenant ----
 export const setDeliveryEnabled = (enabled: boolean) =>
   apiFetch<{ deliveryEnabled: boolean }>(
