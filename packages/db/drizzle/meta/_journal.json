@@ -176,6 +176,13 @@
       "when": 1780610197528,
       "tag": "0024_bouncy_millenium_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1780637808585,
+      "tag": "0025_crazy_roughhouse",
+      "breakpoints": true
     }
   ]
 }

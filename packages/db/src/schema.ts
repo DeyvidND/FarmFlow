@@ -53,7 +53,10 @@ export const tenants = pgTable('tenants', {
   farmLng: numeric('farm_lng', { precision: 10, scale: 7 }),
   settings: jsonb('settings').default({}),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (t) => ({
+  // Super-admin tenant list keyset: createdAt ASC + id tiebreaker (fully index-served).
+  createdIdx: index('tenants_created_idx').on(t.createdAt, t.id),
+}));
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
@@ -105,8 +108,10 @@ export const products = pgTable(
   },
   (t) => ({
     tenantSlugUnique: uniqueIndex('products_tenant_slug_unique').on(t.tenantId, t.slug),
-    // Admin list + public catalog both filter by tenant and sort by createdAt.
-    tenantCreatedIdx: index('products_tenant_created_idx').on(t.tenantId, t.createdAt),
+    // Admin list + public catalog filter by tenant, sort by createdAt. `id` is the
+    // keyset tiebreaker — included so (created_at, id) ordering is fully index-served
+    // (no Sort node; LIMIT short-circuits the scan).
+    tenantCreatedIdx: index('products_tenant_created_idx').on(t.tenantId, t.createdAt, t.id),
   }),
 );
 
@@ -162,8 +167,9 @@ export const orders = pgTable(
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
-    // Admin list + dashboard: tenant-scoped, newest-first (btree scans either way).
-    tenantCreatedIdx: index('orders_tenant_created_idx').on(t.tenantId, t.createdAt),
+    // Admin list + dashboard: tenant-scoped, newest-first. `id` tiebreaker makes
+    // the (created_at, id) keyset order fully index-served (no Sort, LIMIT seeks).
+    tenantCreatedIdx: index('orders_tenant_created_idx').on(t.tenantId, t.createdAt, t.id),
     // Status aggregates (pending/confirmed counts, bulk confirm).
     tenantStatusIdx: index('orders_tenant_status_idx').on(t.tenantId, t.status),
     // Slot-capacity check + admin list leftJoin on slot.
@@ -280,6 +286,8 @@ export const articles = pgTable(
       t.status,
       t.publishedAt,
     ),
+    // Admin list keyset: tenant-scoped, createdAt DESC + id tiebreaker (fully index-served).
+    tenantCreatedIdx: index('articles_tenant_created_idx').on(t.tenantId, t.createdAt, t.id),
   }),
 );
 
@@ -313,11 +321,13 @@ export const newsletterSubscribers = pgTable(
     createdAt: timestamp('created_at').defaultNow(),
     unsubscribedAt: timestamp('unsubscribed_at'),
   },
-  // Subscriber list + broadcast filter by tenant, sort by createdAt.
+  // Subscriber list + broadcast filter by tenant, sort by createdAt. `id` tiebreaker
+  // makes the keyset (created_at, id) order fully index-served.
   (t) => ({
     tenantCreatedIdx: index('newsletter_subscribers_tenant_created_idx').on(
       t.tenantId,
       t.createdAt,
+      t.id,
     ),
   }),
 );
@@ -375,11 +385,14 @@ export const reviews = pgTable(
     createdAt: timestamp('created_at').defaultNow(),
   },
   // Public API + admin moderation both filter (tenant, status) and sort by createdAt.
+  // `id` tiebreaker → status-filtered keyset + the public "latest 60" list are fully
+  // index-served (no Sort).
   (t) => ({
     tenantStatusCreatedIdx: index('reviews_tenant_status_created_idx').on(
       t.tenantId,
       t.status,
       t.createdAt,
+      t.id,
     ),
   }),
 );

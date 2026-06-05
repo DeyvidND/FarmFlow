@@ -1,4 +1,4 @@
-import { and, or, eq, lt, gt, type SQL } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { encodeCursor, type CursorPos } from './cursor';
 
@@ -16,18 +16,21 @@ export function clampLimit(raw?: number): number {
   return Math.min(MAX_LIMIT, Math.max(1, Math.floor(raw)));
 }
 
-/** Strict keyset predicate: rows after `cursor`. DESC → (created,id) < (c,i); ASC → > . */
+/**
+ * Strict keyset predicate: rows after `cursor`. Uses a ROW-VALUE comparison
+ * `(created_at, id) < (c, i)` (not the OR expansion) — this is the form Postgres
+ * turns into a single index range scan on `(…, created_at, id)`, so the scan
+ * seeks straight to the cursor and stops at LIMIT (no Sort, no full read).
+ */
 export function keysetAfter(
   createdCol: PgColumn,
   idCol: PgColumn,
   cursor: CursorPos,
   dir: 'asc' | 'desc',
 ): SQL {
-  const cmp = dir === 'desc' ? lt : gt;
-  return or(
-    cmp(createdCol, cursor.createdAt),
-    and(eq(createdCol, cursor.createdAt), cmp(idCol, cursor.id)),
-  )!;
+  return dir === 'desc'
+    ? sql`(${createdCol}, ${idCol}) < (${cursor.createdAt}, ${cursor.id})`
+    : sql`(${createdCol}, ${idCol}) > (${cursor.createdAt}, ${cursor.id})`;
 }
 
 /** Turn `limit+1` rows into a page. `cursorOf` extracts the keyset position of a row. */
