@@ -11,3 +11,4 @@ export type Database = ReturnType<typeof createDb>;
 export * from './schema';
 export { schema };
 export { runMigrations } from './migrate';
+export { ensureSuperAdmin } from './bootstrap';

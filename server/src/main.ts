@@ -4,7 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { text } from 'express';
 import helmet from 'helmet';
-import { runMigrations } from '@farmflow/db';
+import { runMigrations, ensureSuperAdmin } from '@farmflow/db';
 import { AppModule } from './app.module';
 
 /**
@@ -31,6 +31,11 @@ async function bootstrap() {
   // with no manual step (the whole pipeline is github → dokploy). Idempotent;
   // throws (and aborts startup) if the DB is unreachable or a migration fails.
   await runMigrations();
+
+  // Seed the first platform super-admin from env if the DB has none yet (no-op
+  // otherwise). Lets a fresh deploy bootstrap a login with no manual step; the
+  // super-admin then onboards farms via the admin panel.
+  await ensureSuperAdmin();
 
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
