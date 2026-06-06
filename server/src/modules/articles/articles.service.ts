@@ -348,7 +348,7 @@ export class ArticlesService {
   }
 
   private async uniqueSlug(tenantId: string, base: string, excludeId?: string): Promise<string> {
-    const root = slugify(base);
+    const root = slugify(base) || 'article';
     let candidate = root;
     let n = 2;
     // Slugs are unique per tenant; bump a numeric suffix until free.

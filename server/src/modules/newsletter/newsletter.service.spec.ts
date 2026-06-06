@@ -52,11 +52,16 @@ describe('NewsletterService', () => {
   let db: ReturnType<typeof makeDb>;
   let emailService: ReturnType<typeof makeEmailService>;
   let jwtService: ReturnType<typeof makeJwtService>;
+  let billing: { billPush: jest.Mock; isBillable: jest.Mock };
 
   beforeEach(async () => {
     db = makeDb();
     emailService = makeEmailService();
     jwtService = makeJwtService();
+    billing = {
+      billPush: jest.fn().mockResolvedValue(undefined),
+      isBillable: jest.fn().mockResolvedValue(true),
+    };
     jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
@@ -70,7 +75,7 @@ describe('NewsletterService', () => {
           provide: SuppressionService,
           useValue: { filterSuppressed: jest.fn().mockResolvedValue(new Set()), isSuppressed: jest.fn().mockResolvedValue(false), suppress: jest.fn() },
         },
-        { provide: BillingService, useValue: { billPush: jest.fn().mockResolvedValue(undefined) } },
+        { provide: BillingService, useValue: billing },
       ],
     }).compile();
 
@@ -112,6 +117,15 @@ describe('NewsletterService', () => {
   // ── broadcast ──────────────────────────────────────────────────────────
 
   describe('broadcast', () => {
+    it('refuses to send when the farm is not billable (no Stripe customer)', async () => {
+      billing.isBillable.mockResolvedValueOnce(false);
+      await expect(
+        service.broadcast(TENANT_ID, { subject: 'Новини', body: 'Тяло' }),
+      ).rejects.toThrow('Настройте плащане');
+      expect(emailService.sendMail).not.toHaveBeenCalled();
+      expect(billing.billPush).not.toHaveBeenCalled();
+    });
+
     it('only sends to active subscribers (unsubscribedAt is null)', async () => {
       const active = {
         id: 'sub-1',

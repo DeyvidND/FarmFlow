@@ -22,6 +22,7 @@ import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination
 import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
@@ -91,6 +92,7 @@ export class OrdersService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly maps: MapsService,
+    private readonly orderEmail: OrderConfirmationService,
   ) {}
 
   /**
@@ -151,12 +153,23 @@ export class OrdersService {
 
   /** Cancelling frees slot capacity automatically (booked is computed from non-cancelled orders). */
   async updateStatus(id: string, tenantId: string, dto: UpdateOrderStatusDto): Promise<OrderRow> {
+    // Capture the prior status so we email the buyer only on the first
+    // transition into `confirmed` (re-confirming an already-confirmed order, or
+    // a Stripe order the webhook already confirmed, won't re-notify).
+    const [prev] = await this.db
+      .select({ status: orders.status })
+      .from(orders)
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+      .limit(1);
     const [row] = await this.db
       .update(orders)
       .set({ status: dto.status as OrderRow['status'] })
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Поръчката не е намерена');
+    if (dto.status === 'confirmed' && prev?.status !== 'confirmed') {
+      void this.orderEmail.sendForOrder(id);
+    }
     return row;
   }
 
@@ -210,6 +223,8 @@ export class OrdersService {
       .set({ status: 'confirmed' })
       .where(and(...conds))
       .returning({ id: orders.id });
+    // Each row was pending → confirmed (one-time), so notify each buyer once.
+    for (const r of rows) void this.orderEmail.sendForOrder(r.id);
     return { confirmed: rows.length };
   }
 

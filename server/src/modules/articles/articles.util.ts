@@ -5,7 +5,12 @@ const BG_TRANSLIT: Record<string, string> = {
   ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sht', ъ: 'a', ь: 'y', ю: 'yu', я: 'ya',
 };
 
-/** URL-safe slug from a (possibly Cyrillic) title. Never returns an empty string. */
+/**
+ * URL-safe slug from a (possibly Cyrillic) title. Returns an empty string when
+ * the input has no transliterable characters — callers supply their own neutral
+ * fallback (e.g. 'produkt', 'article') so each resource gets a sensible default
+ * instead of every module inheriting the same hardcoded word.
+ */
 export function slugify(input: string): string {
   const lower = (input ?? '').toLowerCase().trim();
   let out = '';
@@ -14,7 +19,7 @@ export function slugify(input: string): string {
     .normalize('NFKD')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return out || 'article';
+  return out;
 }
 
 export type ParsedEmbed = { type: 'youtube' | 'instagram'; embedId: string };

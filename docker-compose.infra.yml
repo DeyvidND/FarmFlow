@@ -1,0 +1,54 @@
+# Infrastructure — Postgres + Redis for FarmFlow production (Dokploy).
+#
+# Deploy as a SEPARATE Dokploy "Docker Compose" app. Nothing here builds in CI —
+# stock images, pulled + run on the VM. Data persists in NAMED VOLUMES on the VM.
+#
+# The app compose (docker-compose.prod.yml) reaches these by SERVICE NAME over
+# the shared external `dokploy-network`:
+#   DATABASE_URL=postgresql://farmflow:<POSTGRES_PASSWORD>@farmflow-postgres:5432/farmflow
+#   REDIS_URL=redis://farmflow-redis:6379
+#
+# Set POSTGRES_PASSWORD in this Dokploy app's Environment.
+# No host ports are published — only the other containers on dokploy-network can
+# reach the DB/cache. Reach Postgres for migrations via `docker exec` on the VM.
+#
+# ⚠️ BACK UP farmflow_pgdata — this is your ONLY copy of the data. Use Dokploy
+# volume backups (to R2/S3) or a `pg_dump` cron.
+
+services:
+  farmflow-postgres:
+    image: postgres:16
+    restart: unless-stopped
+    networks: [dokploy-network]
+    environment:
+      POSTGRES_DB: farmflow
+      POSTGRES_USER: farmflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the Dokploy env}
+    volumes:
+      - farmflow_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farmflow -d farmflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  farmflow-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: [dokploy-network]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - farmflow_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  dokploy-network:
+    external: true
+
+volumes:
+  farmflow_pgdata:
+  farmflow_redisdata:

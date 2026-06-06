@@ -92,6 +92,19 @@ export class BillingService {
     return t;
   }
 
+  /**
+   * Can this farm be charged for a paid action (e.g. a newsletter push)?
+   * Premium farms ride free; everyone else needs a Stripe customer so the €2
+   * invoice item has somewhere to land. When Stripe is disabled platform-wide
+   * there is no billing to enforce, so don't block the action. Callers gate
+   * paid sends on this so a send can never go out unbilled (see billPush).
+   */
+  async isBillable(tenantId: string): Promise<boolean> {
+    if (!this.isEnabled()) return true;
+    const t = await this.tenant(tenantId);
+    return t.premium || !!t.stripeCustomerId;
+  }
+
   private errText(err: unknown): string {
     return err instanceof Error ? err.message : 'unknown';
   }

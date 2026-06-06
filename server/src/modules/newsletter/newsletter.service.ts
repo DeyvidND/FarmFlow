@@ -99,6 +99,16 @@ export class NewsletterService {
     tenantId: string,
     dto: BroadcastDto,
   ): Promise<{ sent: number; recipients: number }> {
+    // Billability gate: a push costs €2, billed as a Stripe invoice item that
+    // needs a customer to land on. Without one (non-premium farm that never set
+    // up billing) the send would go out unbilled, so refuse it up front rather
+    // than email first and silently fail to charge.
+    if (!(await this.billing.isBillable(tenantId))) {
+      throw new BadRequestException(
+        'Настройте плащане (абонамент) преди да изпращате бюлетини.',
+      );
+    }
+
     // Guard the flat per-push price: a huge list on a flat fee loses money and
     // strains the shared domain. Reject over the cap rather than silently truncate.
     const maxRecipients = this.config.get<number>('EMAIL_PUSH_MAX_RECIPIENTS') ?? 5000;

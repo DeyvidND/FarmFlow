@@ -7,9 +7,10 @@ import {
 } from './stripe.controller';
 import { BillingModule } from '../billing/billing.module';
 import { EcontModule } from '../econt/econt.module';
+import { OrderEmailModule } from '../order-email/order-email.module';
 
 @Module({
-  imports: [BillingModule, EcontModule],
+  imports: [BillingModule, EcontModule, OrderEmailModule],
   controllers: [StripeController, StripeCatalogController, StripeConnectController],
   providers: [StripeService],
   exports: [StripeService],

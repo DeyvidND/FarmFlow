@@ -80,18 +80,13 @@ jobs:
     timeout-minutes: 5
     needs: [build]
     steps:
-      - name: Ping Dokploy redeploy webhooks
-        env:
-          DOKPLOY_API_WEBHOOK: ${{ secrets.DOKPLOY_API_WEBHOOK }}
-          DOKPLOY_WEB_WEBHOOK: ${{ secrets.DOKPLOY_WEB_WEBHOOK }}
-          DOKPLOY_ADMIN_WEBHOOK: ${{ secrets.DOKPLOY_ADMIN_WEBHOOK }}
-          DOKPLOY_STOREFRONT_WEBHOOK: ${{ secrets.DOKPLOY_STOREFRONT_WEBHOOK }}
+      - name: Ping Dokploy redeploy webhook
+        # The whole monorepo runs as ONE Dokploy "Docker Compose" app
+        # (docker-compose.prod.yml → api + web + admin + storefront). One app =
+        # one webhook. It pulls the freshly-built :latest images and restarts.
         run: |
-          for name in DOKPLOY_API_WEBHOOK DOKPLOY_WEB_WEBHOOK DOKPLOY_ADMIN_WEBHOOK DOKPLOY_STOREFRONT_WEBHOOK; do
-            url="${!name}"
-            if [ -n "$url" ]; then
-              curl -fsSL -X POST "$url" && echo "triggered $name"
-            else
-              echo "$name not set — skipping"
-            fi
-          done
+          if [ -n "${{ secrets.DOKPLOY_FARMFLOW_WEBHOOK }}" ]; then
+            curl -fsSL -X POST "${{ secrets.DOKPLOY_FARMFLOW_WEBHOOK }}" && echo "triggered farmflow redeploy"
+          else
+            echo "DOKPLOY_FARMFLOW_WEBHOOK not set — skipping (build + push still ran)"
+          fi

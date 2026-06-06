@@ -6,12 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { type Database, products, orders, tenants, stripeEvents } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { BillingService } from '../billing/billing.service';
 import { EcontService } from '../econt/econt.service';
+import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 
 // stripe@22 ships `export = StripeConstructor`, so the rich `Stripe.*` type
 // namespace isn't reachable through the default import under `moduleResolution:
@@ -85,6 +86,7 @@ export class StripeService {
     config: ConfigService,
     private readonly billing: BillingService,
     private readonly econt: EcontService,
+    private readonly orderEmail: OrderConfirmationService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
@@ -586,18 +588,25 @@ export class StripeService {
       this.logger.warn('Stripe webhook missing metadata.orderId — ignoring');
       return;
     }
-    await this.db
+    // Idempotent confirm: Stripe sends BOTH checkout.session.completed and
+    // payment_intent.succeeded for one payment, so guard on status — only the
+    // first transition returns a row, so the side effects fire exactly once.
+    const flipped = await this.db
       .update(orders)
       .set({
         status: 'confirmed',
         paidAt: new Date(),
         ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
       })
-      .where(eq(orders.id, orderId));
+      .where(and(eq(orders.id, orderId), ne(orders.status, 'confirmed')))
+      .returning({ id: orders.id });
+    if (!flipped.length) return; // already confirmed by the sibling event
 
-    // Fire-and-forget: auto-create the Econt waybill if the farm enabled it. Must
-    // never block or fail the webhook (the method swallows its own errors).
+    // Fire-and-forget: auto-create the Econt waybill if the farm enabled it +
+    // email the buyer their confirmation. Neither must block or fail the webhook
+    // (both swallow their own errors).
     void this.econt.autoCreateForOrder(orderId);
+    void this.orderEmail.sendForOrder(orderId);
   }
 
   /** A refunded charge cancels the order (frees the slot) and clears the paid mark. */

@@ -237,3 +237,37 @@ describe('BillingService premium + grace cron', () => {
     expect(db.returning).toHaveBeenCalled();
   });
 });
+
+describe('BillingService.isBillable', () => {
+  let db: any;
+  let svc: BillingService;
+
+  // Stripe is "enabled" only when a client AND a billing price id are present.
+  beforeEach(async () => {
+    db = makeDb();
+    svc = await build(db, cfg({ STRIPE_BILLING_PRICE_ID: 'price_1' }), makeEmail());
+  });
+
+  it('Stripe disabled (no client) → billable (no billing to enforce), no DB read', async () => {
+    expect(await svc.isBillable('t1')).toBe(true);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('enabled + premium farm → billable', async () => {
+    (svc as any).client = {};
+    db.limit.mockResolvedValueOnce([{ id: 't1', premium: true, stripeCustomerId: null }]);
+    expect(await svc.isBillable('t1')).toBe(true);
+  });
+
+  it('enabled + has Stripe customer → billable', async () => {
+    (svc as any).client = {};
+    db.limit.mockResolvedValueOnce([{ id: 't1', premium: false, stripeCustomerId: 'cus_1' }]);
+    expect(await svc.isBillable('t1')).toBe(true);
+  });
+
+  it('enabled + non-premium + no customer → NOT billable', async () => {
+    (svc as any).client = {};
+    db.limit.mockResolvedValueOnce([{ id: 't1', premium: false, stripeCustomerId: null }]);
+    expect(await svc.isBillable('t1')).toBe(false);
+  });
+});
