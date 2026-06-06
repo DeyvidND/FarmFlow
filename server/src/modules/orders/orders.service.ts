@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { and, desc, eq, getTableColumns, inArray, ne, sql } from 'drizzle-orm';
 import {
@@ -228,11 +229,22 @@ export class OrdersService {
     // Resolve the tenant (+ farm coords) up front so geocoding can run outside
     // the transaction (no network call while holding row locks).
     const [tenant] = await this.db
-      .select({ id: tenants.id, farmLat: tenants.farmLat, farmLng: tenants.farmLng })
+      .select({
+        id: tenants.id,
+        farmLat: tenants.farmLat,
+        farmLng: tenants.farmLng,
+        subscriptionStatus: tenants.subscriptionStatus,
+      })
       .from(tenants)
       .where(eq(tenants.slug, slug))
       .limit(1);
     if (!tenant) throw new NotFoundException('Фермата не е намерена');
+    // A farm with a lapsed subscription can't take new orders — mirrors the
+    // ActiveSubscriptionGuard on the admin side. Grace (`past_due`) still sells;
+    // only a fully `inactive` (grace-expired / cancelled) farm is blocked.
+    if (tenant.subscriptionStatus === 'inactive') {
+      throw new ForbiddenException('Магазинът временно не приема поръчки.');
+    }
 
     // Delivery coordinates: prefer the precise storefront pin; otherwise geocode
     // the typed address, biased to the farm's region so an ambiguous street
