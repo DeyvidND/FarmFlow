@@ -26,6 +26,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 
 export interface PlatformTenantRow {
@@ -313,6 +314,40 @@ export class PlatformService {
   async setPremium(id: string, premium: boolean): Promise<{ id: string; premium: boolean }> {
     await this.billing.setPremium(id, premium);
     return { id, premium };
+  }
+
+  /** Edit a farm's core profile + feature flags from the super-admin detail view.
+   *  Partial: only the keys present in the DTO are written. */
+  async updateTenant(id: string, dto: UpdateTenantDto): Promise<{ id: string }> {
+    const [existing] = await this.db
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(eq(tenants.id, id))
+      .limit(1);
+    if (!existing) throw new NotFoundException('Фермата не е намерена');
+
+    if (dto.slug !== undefined) {
+      const [clash] = await this.db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.slug, dto.slug))
+        .limit(1);
+      if (clash && clash.id !== id) throw new ConflictException('Този slug вече е зает');
+    }
+
+    const patch: Partial<typeof tenants.$inferInsert> = {};
+    if (dto.name !== undefined) patch.name = dto.name;
+    if (dto.slug !== undefined) patch.slug = dto.slug;
+    if (dto.email !== undefined) patch.email = dto.email;
+    if (dto.phone !== undefined) patch.phone = dto.phone;
+    if (dto.deliveryEnabled !== undefined) patch.deliveryEnabled = dto.deliveryEnabled;
+    if (dto.multiFarmer !== undefined) patch.multiFarmer = dto.multiFarmer;
+    if (dto.multiSubcat !== undefined) patch.multiSubcat = dto.multiSubcat;
+
+    if (Object.keys(patch).length > 0) {
+      await this.db.update(tenants).set(patch).where(eq(tenants.id, id));
+    }
+    return { id };
   }
 
   /** Onboard a new farm: tenant + owner user with mustChangePassword=true. */

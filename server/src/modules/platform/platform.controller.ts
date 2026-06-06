@@ -18,6 +18,7 @@ import { PlatformLoginDto } from './dto/platform-login.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import { SetPremiumDto } from './dto/set-premium.dto';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -74,6 +75,12 @@ export class PlatformController {
   @HttpCode(201)
   createTenant(@Body() dto: CreateTenantDto) {
     return this.platform.createTenant(dto);
+  }
+
+  /** Edit a farm's core profile + feature flags. */
+  @Patch('tenants/:id')
+  updateTenant(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTenantDto) {
+    return this.platform.updateTenant(id, dto);
   }
 
   @Patch('tenants/:id/status')
