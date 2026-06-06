@@ -22,6 +22,11 @@ WORKDIR /app
 COPY --from=build /app/deploy/node_modules ./node_modules
 COPY --from=build /app/deploy/package.json ./package.json
 COPY --from=build /app/server/dist ./dist
+# Drizzle SQL migrations run on boot (main.ts → runMigrations, using the
+# drizzle-orm migrator). Copy the migration folder next to the @farmflow/db
+# package so it resolves at runtime (the prod deploy bundle may omit non-dist
+# files). Must include drizzle/meta/_journal.json + the *.sql files.
+COPY --from=build /app/packages/db/drizzle ./node_modules/@farmflow/db/drizzle
 # The API listens on PORT (default 3000) and exposes GET /health for healthchecks.
 ENV PORT=3000
 EXPOSE 3000

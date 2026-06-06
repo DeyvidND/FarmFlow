@@ -4,6 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { text } from 'express';
 import helmet from 'helmet';
+import { runMigrations } from '@farmflow/db';
 import { AppModule } from './app.module';
 
 /**
@@ -26,6 +27,11 @@ function parseTrustProxy(value?: string): boolean | number | string {
 }
 
 async function bootstrap() {
+  // Apply any pending DB migrations on boot so every deploy self-heals the schema
+  // with no manual step (the whole pipeline is github → dokploy). Idempotent;
+  // throws (and aborts startup) if the DB is unreachable or a migration fails.
+  await runMigrations();
+
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   const config = app.get(ConfigService);
