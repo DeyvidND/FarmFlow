@@ -13,6 +13,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { SuppressionService } from './suppression.service';
+import { isAwsSnsUrl, verifySnsSignature } from './sns-signature';
 
 /**
  * Amazon SES bounce/complaint receiver (via SNS HTTP subscription). SNS posts JSON
@@ -20,8 +21,12 @@ import { SuppressionService } from './suppression.service';
  *
  * Two message types: a one-time `SubscriptionConfirmation` (we GET the SubscribeURL
  * to confirm), and `Notification` events carrying SES bounce/complaint data — those
- * recipients go on the suppression list. Optionally guarded by `?secret=` matching
- * `EMAIL_WEBHOOK_SECRET`.
+ * recipients go on the suppression list.
+ *
+ * The endpoint is public, so every message is cryptographically verified against
+ * AWS's signing certificate (see {@link verifySnsSignature}) before it is acted on.
+ * Verification can be disabled with `EMAIL_SNS_VERIFY=false` for local testing.
+ * An optional `?secret=` matching `EMAIL_WEBHOOK_SECRET` adds a cheap first gate.
  */
 @ApiTags('email')
 @Controller('email')
@@ -59,10 +64,26 @@ export class EmailWebhookController {
       return { ok: true };
     }
 
+    // Cryptographically verify the message actually came from AWS SNS before
+    // trusting any field in it. Forged events could suppress a victim's mail or
+    // (via SubscribeURL) trigger an SSRF. Off only when explicitly disabled.
+    if (this.config.get<string>('EMAIL_SNS_VERIFY') !== 'false') {
+      const valid = await verifySnsSignature(msg);
+      if (!valid) {
+        this.logger.warn('[email:webhook] rejected message with invalid SNS signature');
+        throw new ForbiddenException();
+      }
+    }
+
     const type = msg.Type ?? req.headers['x-amz-sns-message-type'];
 
     if (type === 'SubscriptionConfirmation' && typeof msg.SubscribeURL === 'string') {
-      // Confirm the SNS subscription by visiting the URL Amazon sent.
+      // Confirm the SNS subscription by visiting the URL Amazon sent. Even with
+      // a valid signature, re-check the host so we only ever GET an AWS SNS URL.
+      if (!isAwsSnsUrl(msg.SubscribeURL)) {
+        this.logger.warn('[email:webhook] refused non-SNS SubscribeURL');
+        return { ok: true };
+      }
       try {
         await fetch(msg.SubscribeURL);
         this.logger.log('[email:webhook] SNS subscription confirmed');

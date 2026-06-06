@@ -38,7 +38,7 @@ export class EmailService implements OnModuleInit {
     // `||` (not `??`) so a present-but-empty env var falls back to the default.
     // An empty `EMAIL_TRANSACTIONAL_FROM` would otherwise yield an empty From
     // header, which SES and most SMTP servers reject.
-    this.fallbackFrom = config.get<string>('SMTP_FROM') || 'FarmFlow <no-reply@farmflow.bg>';
+    this.fallbackFrom = config.get<string>('SMTP_FROM') || 'FarmFlow <no-reply@farmsteadflow.com>';
     this.txFrom = config.get<string>('EMAIL_TRANSACTIONAL_FROM') || this.fallbackFrom;
     this.bulkFrom = config.get<string>('EMAIL_BULK_FROM') || this.txFrom;
     this.txConfigSet = config.get<string>('SES_CONFIG_SET_TRANSACTIONAL') || undefined;

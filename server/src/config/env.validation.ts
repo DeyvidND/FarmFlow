@@ -52,6 +52,10 @@ export const envValidationSchema = Joi.object({
   SES_CONFIG_SET_BULK: Joi.string().optional().allow(''),
   // Shared secret guarding the SES/SNS bounce-complaint webhook (?secret=).
   EMAIL_WEBHOOK_SECRET: Joi.string().optional().allow(''),
+  // Verify the SNS message signature on the bounce/complaint webhook. Default
+  // 'true' (recommended for the public endpoint). Set 'false' only for local
+  // testing without real SNS-signed messages.
+  EMAIL_SNS_VERIFY: Joi.string().valid('true', 'false').default('true'),
   // Newsletter "push" billing + abuse cap.
   EMAIL_PUSH_MAX_RECIPIENTS: Joi.number().default(5000),
   EMAIL_PUSH_PRICE_STOTINKI: Joi.number().default(200),
