@@ -1,0 +1,17 @@
+# Keep build context small + never ship local/dev artifacts or secrets.
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+**/.mail-preview
+**/*.log
+.git
+.github
+.vscode
+.claude
+**/.env
+**/.env.*
+!**/.env.example
+docs
+*.md

@@ -1,0 +1,99 @@
+# Production composition for a single host (VPS). Managed Postgres + Redis are
+# recommended instead of the bundled containers below — if you use them, drop the
+# `postgres`/`redis` services and point DATABASE_URL/REDIS_URL at the managed
+# instances in .env.production.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# Run DB migrations once before/after first boot (NOT seed — seed is demo data):
+#   pnpm db:migrate            # with DATABASE_URL pointed at prod
+#
+# Front all services with a reverse proxy (Caddy / nginx / Cloudflare) that
+# terminates TLS and maps hostnames → service ports.
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: farmflow
+      POSTGRES_USER: farmflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U farmflow -d farmflow']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--save', '60', '1', '--appendonly', 'yes']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports:
+      - '3001:3000'
+
+  web:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Server-side rewrite target for /api/* (internal service DNS).
+      API_URL: http://api:3000
+    depends_on: [api]
+    ports:
+      - '3000:3000'
+
+  admin:
+    build:
+      context: .
+      dockerfile: admin/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_URL: http://api:3000
+    depends_on: [api]
+    ports:
+      - '3002:3002'
+
+  storefront:
+    build:
+      context: .
+      dockerfile: storefront/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Browser-facing API origin (public, CORS *). Set to the real API URL.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL}
+    depends_on: [api]
+    ports:
+      - '3003:3003'
+
+volumes:
+  postgres_data:
+  redis_data:

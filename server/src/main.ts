@@ -101,19 +101,23 @@ async function bootstrap() {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('FarmFlow API')
-    .setDescription('FarmFlow backend API')
-    .setVersion('0.1')
-    .addBearerAuth()
-    .build();
+  // Swagger only outside production — don't expose the API surface publicly.
+  const swaggerEnabled = process.env.NODE_ENV !== 'production';
+  if (swaggerEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('FarmFlow API')
+      .setDescription('FarmFlow backend API')
+      .setVersion('0.1')
+      .addBearerAuth()
+      .build();
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document);
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, document);
+  }
 
   await app.listen(port);
   console.log(`FarmFlow API running on http://localhost:${port}`);
-  console.log(`Swagger docs at http://localhost:${port}/docs`);
+  if (swaggerEnabled) console.log(`Swagger docs at http://localhost:${port}/docs`);
 }
 
 bootstrap();

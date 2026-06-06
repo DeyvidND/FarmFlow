@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+# Production image for the NestJS API (@farmflow/api).
+# Build from the repo ROOT: `docker build -f server/Dockerfile -t farmflow-api .`
+FROM node:20-alpine AS base
+ENV PNPM_HOME=/pnpm PATH="/pnpm:$PATH"
+RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+WORKDIR /app
+
+# ── Install + build the api and its workspace deps (@farmflow/db, @farmflow/types) ──
+FROM base AS build
+COPY . .
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+# `@farmflow/api...` builds the api plus its workspace dependencies in topo order.
+RUN pnpm --filter "@farmflow/api..." run build
+# Produce an isolated, prod-only deployment (bundles built workspace deps).
+RUN pnpm --filter @farmflow/api deploy --prod /app/deploy
+
+# ── Slim runtime image ──
+FROM base AS runner
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /app/deploy/node_modules ./node_modules
+COPY --from=build /app/deploy/package.json ./package.json
+COPY --from=build /app/server/dist ./dist
+# The API listens on PORT (default 3000) and exposes GET /health for healthchecks.
+ENV PORT=3000
+EXPOSE 3000
+USER node
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "dist/main.js"]
