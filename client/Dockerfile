@@ -8,6 +8,12 @@ WORKDIR /app
 
 FROM base AS build
 ENV NEXT_OUTPUT_STANDALONE=1
+# NEXT_PUBLIC_* are inlined into the bundle at build time (Vite), so they arrive
+# as build args from CI, not runtime env.
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=""
+ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY \
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 # Builds @farmflow/web plus its workspace deps in topo order.

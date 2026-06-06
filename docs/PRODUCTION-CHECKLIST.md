@@ -2,24 +2,30 @@
 
 Status legend: ☐ todo · ☑ done · ⚠️ gotcha
 
-The repo ships Dockerfiles for all four apps and a `docker-compose.prod.yml` for a
-single-host deploy. Next apps use `output: 'standalone'`; the API is a slim
-`node dist/main.js` image with a `/health` healthcheck. CI (`.github/workflows/ci.yml`)
-builds, lints, and tests on every push/PR to `main`.
+Deploy target: **one VM running Dokploy**. Flow = GitHub Actions builds the four
+app images and pushes them to **GHCR**; Dokploy **pulls** them (nothing compiles
+on the VM) and runs them behind **Traefik** (auto TLS). The marketing site stays
+on Vercel; the Пазар storefront is its own Dokploy app (separate repo).
 
-## 1. Hosting & infra
-- ☐ Pick a host. Options:
-  - **Single VPS** — `docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build`, front with Caddy/nginx/Cloudflare for TLS.
-  - **PaaS** (Railway / Render / Fly) — one service per Dockerfile (`server/`, `client/`, `admin/`, `storefront/`), context = repo root.
-  - **Next apps on Vercel** (optional) — the 3 Next apps can deploy to Vercel instead of Docker; keep the API containerized.
-- ☐ **Managed Postgres** (don't run the bundled `postgres` container for real data). Enable automated backups + connection pooling.
-- ☐ **Managed Redis** — ⚠️ the rate-limiter is Redis-backed; if Redis is down, auth/checkout routes 500. Make it HA.
-- ☐ Build images from repo root, e.g. `docker build -f server/Dockerfile -t farmflow-api .`
+Pieces in this repo:
+- Dockerfiles per app (`server/ client/ admin/ storefront`), built from repo root.
+- `.github/workflows/deploy.yml` — build + push to `ghcr.io/deyvidnd/farmflow-*`, then ping Dokploy redeploy webhooks.
+- `.github/workflows/ci.yml` — build/lint/test on push/PR.
+- `docker-compose.prod.yml` — Dokploy "Docker Compose" app: pulls the GHCR images, Traefik labels, `dokploy-network`.
+- `.env.production.example` — every runtime var + the build-time GitHub variables.
+
+## 1. Hosting & infra (Dokploy)
+- ☐ Create the **GitHub Actions variables** (build-time `NEXT_PUBLIC_*`) and **secrets** (Dokploy webhooks) listed at the bottom of `.env.production.example`. Push to `main` → images land in GHCR.
+- ☐ Dokploy: provision **managed Postgres** + **managed Redis** (Databases). ⚠️ Redis down = auth/checkout 500 (rate-limiter is Redis-backed).
+- ☐ Dokploy: create a **Docker Compose** app from this repo using `docker-compose.prod.yml`; paste env from `.env.production.example`; set `DATABASE_URL`/`REDIS_URL` to the managed instances.
+- ☐ GHCR images are **private** by default — give the VM/Dokploy a GHCR pull token (or make the packages public).
+- ☐ Create a **redeploy webhook** per app in Dokploy → put the URLs in the GitHub secrets so pushes auto-deploy.
+- ☐ Postgres: automated backups + tested restore.
 
 ## 2. DNS & TLS
 - ☐ `farmsteadflow.com` apex + `www` → marketing site (already on Vercel: `try.` subdomain).
 - ☐ App host(s): e.g. `app.farmsteadflow.com` (web), `admin.farmsteadflow.com`, `api.farmsteadflow.com`.
-- ☐ **Wildcard `*.farmsteadflow.com`** for per-tenant storefronts + TLS cert (wildcard).
+- ☐ **Wildcard `*.farmsteadflow.com`** for per-tenant storefronts. ⚠️ A wildcard TLS cert needs Traefik's **DNS-01 challenge** (a Cloudflare API token) — HTTP-01 cannot issue wildcards. Configure the `letsencrypt` resolver in Dokploy/Traefik with the Cloudflare token.
 - ☐ All behind HTTPS; HSTS via the proxy.
 
 ## 3. Environment / secrets (prod `.env`)

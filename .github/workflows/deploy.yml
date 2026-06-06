@@ -1,0 +1,97 @@
+name: Deploy to Production
+
+# Build all four app images and push them to GHCR, then ping Dokploy to pull +
+# redeploy. CI (build/lint/test) runs separately in ci.yml.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build & push (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: api
+            image: ghcr.io/deyvidnd/farmflow-api
+            dockerfile: server/Dockerfile
+            build_args: ''
+          - app: web
+            image: ghcr.io/deyvidnd/farmflow-web
+            dockerfile: client/Dockerfile
+            build_args: |
+              NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ vars.FF_MAPS_BROWSER_KEY }}
+              NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ vars.FF_STRIPE_PUBLISHABLE_KEY }}
+          - app: admin
+            image: ghcr.io/deyvidnd/farmflow-admin
+            dockerfile: admin/Dockerfile
+            build_args: ''
+          - app: storefront
+            image: ghcr.io/deyvidnd/farmflow-storefront
+            dockerfile: storefront/Dockerfile
+            build_args: |
+              NEXT_PUBLIC_API_URL=${{ vars.FF_PUBLIC_API_URL }}
+              NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ vars.FF_MAPS_BROWSER_KEY }}
+              NEXT_PUBLIC_SITE_URL=${{ vars.FF_STOREFRONT_SITE_URL }}
+              NEXT_PUBLIC_STOREFRONT_NAME=${{ vars.FF_STOREFRONT_NAME }}
+              NEXT_PUBLIC_STOREFRONT_EMAIL=${{ vars.FF_STOREFRONT_EMAIL }}
+              NEXT_PUBLIC_STOREFRONT_PHONE=${{ vars.FF_STOREFRONT_PHONE }}
+              NEXT_PUBLIC_STOREFRONT_SLUG=${{ vars.FF_STOREFRONT_SLUG }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.app }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ matrix.image }}:latest
+            ${{ matrix.image }}:${{ github.sha }}
+          build-args: ${{ matrix.build_args }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  deploy:
+    name: Trigger Dokploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [build]
+    steps:
+      - name: Ping Dokploy redeploy webhooks
+        env:
+          DOKPLOY_API_WEBHOOK: ${{ secrets.DOKPLOY_API_WEBHOOK }}
+          DOKPLOY_WEB_WEBHOOK: ${{ secrets.DOKPLOY_WEB_WEBHOOK }}
+          DOKPLOY_ADMIN_WEBHOOK: ${{ secrets.DOKPLOY_ADMIN_WEBHOOK }}
+          DOKPLOY_STOREFRONT_WEBHOOK: ${{ secrets.DOKPLOY_STOREFRONT_WEBHOOK }}
+        run: |
+          for name in DOKPLOY_API_WEBHOOK DOKPLOY_WEB_WEBHOOK DOKPLOY_ADMIN_WEBHOOK DOKPLOY_STOREFRONT_WEBHOOK; do
+            url="${!name}"
+            if [ -n "$url" ]; then
+              curl -fsSL -X POST "$url" && echo "triggered $name"
+            else
+              echo "$name not set — skipping"
+            fi
+          done
