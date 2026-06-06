@@ -29,7 +29,13 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   const config = app.get(ConfigService);
-  const corsOrigin = config.get<string>('CORS_ORIGIN', 'http://localhost:3000');
+  // Comma-separated allowlist so the dashboard, admin panel, and any other
+  // first-party origin can each call the API with credentials.
+  const corsOrigins = config
+    .get<string>('CORS_ORIGIN', 'http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
   const port = config.get<number>('PORT', 3000);
 
   // Correct client-IP attribution for the rate limiter behind a proxy/CDN.
@@ -58,7 +64,7 @@ async function bootstrap() {
     const isPublic = req.path.startsWith('/public/');
     if (isPublic) {
       res.header('Access-Control-Allow-Origin', '*');
-    } else if (origin && origin === corsOrigin) {
+    } else if (origin && corsOrigins.includes(origin)) {
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Credentials', 'true');
       res.header('Vary', 'Origin');

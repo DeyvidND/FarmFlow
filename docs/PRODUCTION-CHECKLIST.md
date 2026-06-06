@@ -34,7 +34,7 @@ Validated in `server/src/config/env.validation.ts`. Required/important:
 - ☐ `DATABASE_URL`, `REDIS_URL` → managed instances.
 - ☐ `JWT_SECRET` — long random, unique to prod.
 - ☐ `ENCRYPTION_KEY` — ⚠️ without it, Econt credentials can't be saved (courier disabled).
-- ☐ `CORS_ORIGIN` — real web/admin/storefront origins (comma-free single origin per current parser; verify multi-origin handling in `main.ts`).
+- ☐ `CORS_ORIGIN` — **comma-separated** allowlist of first-party origins (e.g. `https://app...,https://admin...`). Storefronts use the public `/public/*` CORS-open routes.
 - ☐ `TRUST_PROXY` — ⚠️ set to the number of proxy hops (e.g. `1` behind Cloudflare/nginx) or client-IP rate-limiting keys on the proxy IP.
 - ☐ `R2_*` (account, keys, bucket, public URL) for media.
 - ☐ `STOREFRONT_URL`, `PUBLIC_APP_URL`, `API_PUBLIC_URL`, `NEXT_PUBLIC_API_URL` → real URLs.
@@ -56,7 +56,11 @@ Validated in `server/src/config/env.validation.ts`. Required/important:
 - ☐ Live send test (reset email + a digest).
 
 ## 6. Database
-- ☐ Run migrations against prod: `pnpm db:migrate` (with prod `DATABASE_URL`).
+- ☐ **Run migrations BEFORE first traffic** — the images don't migrate on boot, and the API errors against an empty schema. `drizzle-kit migrate` (the 29 files in `packages/db/drizzle`) needs the repo + DB reach, so run from a machine that has both:
+  ```
+  DATABASE_URL=<managed-postgres-url> pnpm db:migrate
+  ```
+  Expose the Dokploy Postgres connection string for this (one command per deploy that changes the schema). Re-run after every deploy with new migrations.
 - ⚠️ **Do NOT `pnpm db:seed`** in prod — it's demo data and rotates tenant ids.
 - ☐ Confirm Euro switch (migration 0028) + pickup delivery type applied; spot-check prices.
 - ☐ Automated backups + a tested restore.
