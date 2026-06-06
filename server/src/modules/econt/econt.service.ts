@@ -24,10 +24,26 @@ interface EcontStored {
   passwordEnc?: string;
   configured?: boolean;
   sender?: Record<string, unknown>;
-  defaultPackage?: { weightKg?: number; contents?: string };
+  defaultPackage?: { weightKg?: number; contents?: string; dimensions?: string };
   cod?: { enabled?: boolean; feePayer?: 'customer' | 'farm' };
+  // Print-time PDF format only (A4/A6); not a createLabel API field. `autoCreate`
+  // makes a paid order auto-generate its waybill (see autoCreateForOrder).
+  label?: { paper?: string; autoCreate?: boolean };
   nomenclature?: { lastSyncedAt?: string; cities?: number; offices?: number };
   [k: string]: unknown;
+}
+
+/** Parse a free-text "LxWxH" dimension string into three positive numbers (cm). */
+function parseDimensions(raw: unknown): { l: number; w: number; h: number } | null {
+  if (typeof raw !== 'string') return null;
+  const nums = raw
+    .split(/[^\d.]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (nums.length < 3) return null;
+  return { l: nums[0], w: nums[1], h: nums[2] };
 }
 
 interface ResolvedCreds {
@@ -419,6 +435,25 @@ export class EcontService {
         cdType: 'get',
         cdCurrency: 'EUR',
       };
+      // Who covers the courier fee on a COD shipment (top-level ShippingLabel
+      // fields, per the Econt model): 'customer' → the receiver pays cash on
+      // delivery; 'farm' → the sender pays. Empty leaves Econt's per-agreement
+      // default.
+      if (econt.cod.feePayer === 'customer') {
+        label.paymentReceiverMethod = 'cash';
+      } else if (econt.cod.feePayer === 'farm') {
+        label.paymentSenderMethod = 'cash';
+      }
+    }
+
+    // Package dimensions in cm (top-level ShippingLabel fields). The farm stores
+    // a free-text "LxWxH"; only send when it cleanly parses into three positive
+    // numbers — partial/garbage dimensions make Econt reject the label.
+    const dims = parseDimensions(econt.defaultPackage?.dimensions);
+    if (dims) {
+      label.shipmentDimensionsL = dims.l;
+      label.shipmentDimensionsW = dims.w;
+      label.shipmentDimensionsH = dims.h;
     }
 
     return label;
