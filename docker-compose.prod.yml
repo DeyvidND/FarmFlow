@@ -101,28 +101,9 @@ services:
       - "traefik.http.services.ff-admin.loadbalancer.server.port=3002"
       - "traefik.docker.network=dokploy-network"
 
-  storefront:
-    image: ghcr.io/deyvidnd/farmflow-storefront:${IMAGE_TAG:-latest}
-    pull_policy: always
-    restart: unless-stopped
-    networks: [dokploy-network]
-    environment:
-      NODE_ENV: production
-      # Per-tenant slug resolution happens by hostname at runtime.
-      STOREFRONT_SLUG: ${STOREFRONT_SLUG:-}
-    depends_on: [api]
-    labels:
-      - "traefik.enable=true"
-      # Tenant storefronts live on the wildcard *.${ROOT_DOMAIN}. A wildcard TLS
-      # cert needs Traefik's DNS-01 challenge (Cloudflare token) — HTTP-01 can't
-      # issue wildcards. Configure that resolver in Dokploy/Traefik.
-      - "traefik.http.routers.ff-storefront.rule=HostRegexp(`{sub:[a-z0-9-]+}.${ROOT_DOMAIN}`)"
-      - "traefik.http.routers.ff-storefront.entrypoints=websecure"
-      - "traefik.http.routers.ff-storefront.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.ff-storefront.tls.domains[0].main=${ROOT_DOMAIN}"
-      - "traefik.http.routers.ff-storefront.tls.domains[0].sans=*.${ROOT_DOMAIN}"
-      - "traefik.http.services.ff-storefront.loadbalancer.server.port=3003"
-      - "traefik.docker.network=dokploy-network"
+# NOTE: the monorepo Next.js storefront is intentionally NOT deployed here. The
+# public shop is the separate Astro repo (fermerski-pazar-chaika) with its own
+# compose + build pipeline. This compose ships only api + web + admin.
 
 networks:
   dokploy-network:

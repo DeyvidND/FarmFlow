@@ -37,17 +37,10 @@ jobs:
             image: ghcr.io/deyvidnd/farmflow-admin
             dockerfile: admin/Dockerfile
             build_args: ''
-          - app: storefront
-            image: ghcr.io/deyvidnd/farmflow-storefront
-            dockerfile: storefront/Dockerfile
-            build_args: |
-              NEXT_PUBLIC_API_URL=${{ vars.FF_PUBLIC_API_URL }}
-              NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ vars.FF_MAPS_BROWSER_KEY }}
-              NEXT_PUBLIC_SITE_URL=${{ vars.FF_STOREFRONT_SITE_URL }}
-              NEXT_PUBLIC_STOREFRONT_NAME=${{ vars.FF_STOREFRONT_NAME }}
-              NEXT_PUBLIC_STOREFRONT_EMAIL=${{ vars.FF_STOREFRONT_EMAIL }}
-              NEXT_PUBLIC_STOREFRONT_PHONE=${{ vars.FF_STOREFRONT_PHONE }}
-              NEXT_PUBLIC_STOREFRONT_SLUG=${{ vars.FF_STOREFRONT_SLUG }}
+          # NOTE: the monorepo Next.js storefront is NOT deployed — the public
+          # shop is the separate Astro repo (fermerski-pazar-chaika), which has
+          # its own build → GHCR → Dokploy pipeline. The storefront/ workspace is
+          # kept for local dev only.
     steps:
       - uses: actions/checkout@v4
 
