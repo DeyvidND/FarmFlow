@@ -32,6 +32,9 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       CORS_ORIGIN: ${CORS_ORIGIN}
       TRUST_PROXY: ${TRUST_PROXY:-1}
+      # First-boot super-admin bootstrap (seeded once if platform_admins is empty).
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL}
       API_PUBLIC_URL: ${API_PUBLIC_URL}
       STOREFRONT_URL: ${STOREFRONT_URL}
