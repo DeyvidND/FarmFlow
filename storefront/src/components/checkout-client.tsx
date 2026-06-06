@@ -14,12 +14,18 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCart, selectSubtotal, useCartHydrated } from '@/lib/cart';
 import { money, createCheckout, resolveSlug, ApiError, type DeliveryType } from '@/lib/api';
-import { shippingFor } from '@/lib/shipping';
+import { shippingFor, type StorefrontDelivery } from '@/lib/shipping';
 import { SlotPicker } from '@/components/slot-picker';
 import { AddressFields } from '@/components/address-fields';
 import { toast } from '@/components/toast';
 
-export function CheckoutClient({ deliveryEnabled }: { deliveryEnabled: boolean }) {
+export function CheckoutClient({
+  deliveryEnabled,
+  delivery,
+}: {
+  deliveryEnabled: boolean;
+  delivery: StorefrontDelivery;
+}) {
   const router = useRouter();
   const slug = resolveSlug();
   const items = useCart((s) => s.items);
@@ -43,7 +49,7 @@ export function CheckoutClient({ deliveryEnabled }: { deliveryEnabled: boolean }
   const [submitting, setSubmitting] = useState(false);
 
   const isEcont = deliveryType === 'econt';
-  const shipping = shippingFor(subtotal, deliveryType);
+  const shipping = shippingFor(subtotal, deliveryType, delivery);
   const total = subtotal + shipping;
 
   const submit = async (e: FormEvent) => {

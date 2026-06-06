@@ -9,7 +9,7 @@
 import Link from 'next/link';
 import { useCart, selectSubtotal, useCartHydrated, type CartItem } from '@/lib/cart';
 import { money } from '@/lib/api';
-import { shippingFor, remainingForFreeShipping } from '@/lib/shipping';
+import { shippingFor, remainingForFreeShipping, DEFAULT_DELIVERY, type StorefrontDelivery } from '@/lib/shipping';
 import { QtyStepper } from './qty-stepper';
 import { Leaf } from './icons';
 
@@ -69,7 +69,7 @@ function LineItem({ item }: { item: CartItem }) {
   );
 }
 
-export function CartClient() {
+export function CartClient({ delivery = DEFAULT_DELIVERY }: { delivery?: StorefrontDelivery }) {
   const hydrated = useCartHydrated();
   const items = useCart((s) => s.items);
   const subtotal = useCart(selectSubtotal);
@@ -99,8 +99,8 @@ export function CartClient() {
     );
   }
 
-  const ship = shippingFor(subtotal);
-  const remaining = remainingForFreeShipping(subtotal);
+  const ship = shippingFor(subtotal, 'address', delivery);
+  const remaining = remainingForFreeShipping(subtotal, delivery);
 
   return (
     <div className="commerce-grid">

@@ -16,6 +16,7 @@ import type {
   PublicFarmer,
   PublicSubcategory,
 } from '@farmflow/types';
+import type { StorefrontDelivery } from './shipping';
 
 export type { PublicProduct, PublicArticle, PublicFarmer, PublicSubcategory };
 
@@ -179,6 +180,10 @@ export interface StorefrontProfile {
   deliveryEnabled: boolean;
   multiFarmer: boolean;
   multiSubcat: boolean;
+  econtEnabled: boolean;
+  econtMode: 'off' | 'manual' | 'auto';
+  /** Per-tenant delivery fees so the storefront total matches the charge. */
+  delivery: StorefrontDelivery;
 }
 
 export function getStorefront(slug: string): Promise<StorefrontProfile> {

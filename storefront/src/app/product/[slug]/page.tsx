@@ -14,6 +14,7 @@ import {
 import { categoryMeta } from '@/lib/categories';
 import { ProductBuy } from '@/components/product-buy';
 import { ProductCard } from '@/components/product-card';
+import { ProductGallery } from '@/components/product-gallery';
 import { Leaf } from '@/components/icons';
 
 type Props = {
@@ -84,37 +85,11 @@ export default async function ProductPage({ params, searchParams }: Props) {
 
       <section className="section--tight">
         <div className="wrap split" style={{ alignItems: 'flex-start' }}>
-          {/* gallery */}
-          <div>
-            <div className="ph ph--rounded" style={{ aspectRatio: '1' }}>
-              {product.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={product.imageUrl}
-                  alt={product.name}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-              ) : (
-                <span className="ph__label">{product.name}</span>
-              )}
-            </div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4,1fr)',
-                gap: 12,
-                marginTop: 12,
-              }}
-            >
-              {['изглед 1', 'изглед 2', 'в купа', 'растение'].map((label) => (
-                <div key={label} className="ph ph--square" style={{ aspectRatio: '1' }}>
-                  <span className="ph__label" style={{ fontSize: 10 }}>
-                    {label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* gallery — real ordered images (cover first), fallback to the cover */}
+          <ProductGallery
+            images={product.images?.length ? product.images : product.imageUrl ? [product.imageUrl] : []}
+            name={product.name}
+          />
 
           {/* info */}
           <div>
