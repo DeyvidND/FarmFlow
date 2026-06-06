@@ -13,6 +13,20 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@farmflow/storefront", "exec", "next", "start", "-p", "3003"],
       "port": 3003
+    },
+    {
+      "name": "advert",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "C:/Users/Lenovo/source/repos/farmflow-advertising-website",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "4330"
+      ],
+      "port": 4330
     }
   ]
 }
