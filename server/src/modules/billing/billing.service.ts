@@ -66,7 +66,11 @@ export class BillingService {
     this.basePrice = config.get<number>('BILLING_BASE_PRICE_STOTINKI', 3000);
     this.emailPrice = config.get<number>('EMAIL_PUSH_PRICE_STOTINKI', 200);
     this.graceDays = config.get<number>('BILLING_GRACE_DAYS', 7);
-    this.panelUrl = (config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000').replace(/\/+$/, '');
+    // CORS_ORIGIN may be a comma-separated allowlist — use the first (primary) origin.
+    this.panelUrl = (config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000')
+      .split(',')[0]
+      .trim()
+      .replace(/\/+$/, '');
     if (!this.client) {
       this.logger.warn('STRIPE_SECRET_KEY not set — SaaS billing disabled.');
     }
@@ -98,11 +102,15 @@ export class BillingService {
   async getOrCreateCustomer(tenantId: string): Promise<string> {
     const t = await this.tenant(tenantId);
     if (t.stripeCustomerId) return t.stripeCustomerId;
-    const customer = await this.stripe.customers.create({
-      email: t.email ?? undefined,
-      name: t.name,
-      metadata: { farmflowTenantId: t.id },
-    });
+    const customer = await this.stripe.customers.create(
+      {
+        email: t.email ?? undefined,
+        name: t.name,
+        metadata: { farmflowTenantId: t.id },
+      },
+      // One platform customer per tenant even if this call is retried.
+      { idempotencyKey: `ff_billing_customer_${tenantId}` },
+    );
     await this.db
       .update(tenants)
       .set({ stripeCustomerId: customer.id })

@@ -11,6 +11,7 @@ import Stripe from 'stripe';
 import { type Database, products, orders, tenants, stripeEvents } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { BillingService } from '../billing/billing.service';
+import { EcontService } from '../econt/econt.service';
 
 // stripe@22 ships `export = StripeConstructor`, so the rich `Stripe.*` type
 // namespace isn't reachable through the default import under `moduleResolution:
@@ -83,12 +84,18 @@ export class StripeService {
     @Inject(DB_TOKEN) private readonly db: Database,
     config: ConfigService,
     private readonly billing: BillingService,
+    private readonly econt: EcontService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
     this.feeBps = config.get<number>('STRIPE_PLATFORM_FEE_BPS', 0);
     this.connectCountry = config.get<string>('STRIPE_CONNECT_COUNTRY', 'BG');
-    this.panelUrl = (config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000').replace(/\/+$/, '');
+    // CORS_ORIGIN may be a comma-separated allowlist — the panel redirect base is
+    // the first (primary) origin.
+    this.panelUrl = (config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000')
+      .split(',')[0]
+      .trim()
+      .replace(/\/+$/, '');
     this.client = key ? new Stripe(key) : null;
     if (!this.client) {
       this.logger.warn(
@@ -133,17 +140,21 @@ export class StripeService {
     if (!tenant) throw new NotFoundException('Фермата не е намерена');
     if (tenant.stripeAccountId) return tenant.stripeAccountId;
 
-    const account = await this.stripe.accounts.create({
-      type: 'express',
-      country: this.connectCountry,
-      email: tenant.email ?? undefined,
-      business_profile: { name: tenant.name },
-      capabilities: {
-        card_payments: { requested: true },
-        transfers: { requested: true },
+    const account = await this.stripe.accounts.create(
+      {
+        type: 'express',
+        country: this.connectCountry,
+        email: tenant.email ?? undefined,
+        business_profile: { name: tenant.name },
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+        metadata: { farmflowTenantId: tenant.id },
       },
-      metadata: { farmflowTenantId: tenant.id },
-    });
+      // One account per tenant even if this call is retried before we persist.
+      { idempotencyKey: `ff_connect_${tenantId}` },
+    );
     await this.db
       .update(tenants)
       .set({ stripeAccountId: account.id })
@@ -376,7 +387,12 @@ export class StripeService {
   async createCheckoutSession(
     params: CreateCheckoutParams,
   ): Promise<{ checkoutSessionId: string; checkoutUrl: string | null }> {
-    const options: RequestOptions = { stripeAccount: params.stripeAccountId };
+    // Idempotent per order: a retried checkout for the same order returns the
+    // same session instead of creating a duplicate.
+    const options: RequestOptions = {
+      stripeAccount: params.stripeAccountId,
+      idempotencyKey: `ff_checkout_${params.orderId}`,
+    };
 
     const lineItems: SessionLineItem[] = params.lines.map((l) =>
       l.stripePriceId
@@ -482,12 +498,29 @@ export class StripeService {
       }
       case 'charge.refunded': {
         // The charge rarely carries our orderId; resolve via the stored payment
-        // intent. A refund cancels the order (which also frees its slot).
+        // intent. Only a FULL refund cancels the order (and frees its slot) — a
+        // partial refund leaves it `confirmed`, since the customer still received
+        // (and paid for) most of the order.
         const charge = event.data.object as {
           payment_intent?: string | { id: string } | null;
           metadata?: Record<string, string> | null;
+          amount?: number;
+          amount_refunded?: number;
+          refunded?: boolean;
         };
-        await this.markOrderRefunded(this.idOf(charge.payment_intent), charge.metadata?.orderId);
+        const fullyRefunded =
+          charge.refunded === true ||
+          (typeof charge.amount === 'number' &&
+            typeof charge.amount_refunded === 'number' &&
+            charge.amount > 0 &&
+            charge.amount_refunded >= charge.amount);
+        if (fullyRefunded) {
+          await this.markOrderRefunded(this.idOf(charge.payment_intent), charge.metadata?.orderId);
+        } else {
+          this.logger.log(
+            `Partial refund on order ${charge.metadata?.orderId ?? '?'} — order left confirmed`,
+          );
+        }
         break;
       }
       case 'payment_intent.payment_failed': {
@@ -561,6 +594,10 @@ export class StripeService {
         ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
       })
       .where(eq(orders.id, orderId));
+
+    // Fire-and-forget: auto-create the Econt waybill if the farm enabled it. Must
+    // never block or fail the webhook (the method swallows its own errors).
+    void this.econt.autoCreateForOrder(orderId);
   }
 
   /** A refunded charge cancels the order (frees the slot) and clears the paid mark. */

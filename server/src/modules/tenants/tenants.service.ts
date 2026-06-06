@@ -85,7 +85,12 @@ export class TenantsService {
       if (!cur) throw new NotFoundException('Фермата не е намерена');
       const existing = (cur.settings as Record<string, unknown> | null) ?? {};
       const nextSettings: Record<string, unknown> = { ...existing };
-      if (delivery !== undefined) nextSettings.delivery = sanitizeDelivery(delivery);
+      if (delivery !== undefined) {
+        // Carry the encrypted Econt password over from storage — the client no
+        // longer receives it (toPublicTenant strips it), so a plain
+        // delivery-settings save must not wipe it.
+        nextSettings.delivery = preserveEcontSecret(existing.delivery, sanitizeDelivery(delivery));
+      }
       if (routing !== undefined) {
         nextSettings.routing = await this.resolveRouting(existing.routing, routing);
       }
@@ -155,10 +160,49 @@ function sanitizeDelivery(delivery: Record<string, unknown>): Record<string, unk
   return delivery;
 }
 
+/** Carry the stored encrypted Econt password into an incoming delivery blob when
+ *  the client didn't send one — so a delivery-settings save doesn't erase creds
+ *  the client never sees. */
+function preserveEcontSecret(
+  existingDelivery: unknown,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const inc = incoming.econt;
+  if (!inc || typeof inc !== 'object' || Array.isArray(inc)) return incoming;
+  const incEcont = inc as Record<string, unknown>;
+  if (incEcont.passwordEnc) return incoming;
+  const prevEcont =
+    existingDelivery && typeof existingDelivery === 'object' && !Array.isArray(existingDelivery)
+      ? (existingDelivery as Record<string, unknown>).econt
+      : undefined;
+  const prevEnc =
+    prevEcont && typeof prevEcont === 'object' && !Array.isArray(prevEcont)
+      ? (prevEcont as Record<string, unknown>).passwordEnc
+      : undefined;
+  if (typeof prevEnc !== 'string' || !prevEnc) return incoming;
+  return { ...incoming, econt: { ...incEcont, passwordEnc: prevEnc } };
+}
+
+/** Remove Econt secrets (encrypted or plaintext) from a delivery blob before it
+ *  leaves the server. The AES-GCM ciphertext is useless without ENCRYPTION_KEY,
+ *  but the client never needs it. */
+function stripEcontSecrets(delivery: unknown): unknown {
+  if (!delivery || typeof delivery !== 'object' || Array.isArray(delivery)) return delivery ?? null;
+  const d = delivery as Record<string, unknown>;
+  const econt = d.econt;
+  if (!econt || typeof econt !== 'object' || Array.isArray(econt)) return delivery;
+  const { passwordEnc, password, apiPassword, pass, ...safeEcont } = econt as Record<string, unknown>;
+  void passwordEnc;
+  void password;
+  void apiPassword;
+  void pass;
+  return { ...d, econt: safeEcont };
+}
+
 /** Strip internal fields the client should never see, but surface the delivery
  *  config from `settings` so the admin panel can read its saved settings back. */
 function toPublicTenant(t: Tenant): PublicTenant {
   const { stripeAccountId, settings, ...rest } = t;
   const s = settings as Record<string, unknown> | null;
-  return { ...rest, delivery: s?.delivery ?? null, routing: s?.routing ?? null };
+  return { ...rest, delivery: stripEcontSecrets(s?.delivery) ?? null, routing: s?.routing ?? null };
 }

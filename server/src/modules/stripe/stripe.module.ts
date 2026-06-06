@@ -6,9 +6,10 @@ import {
   StripeConnectController,
 } from './stripe.controller';
 import { BillingModule } from '../billing/billing.module';
+import { EcontModule } from '../econt/econt.module';
 
 @Module({
-  imports: [BillingModule],
+  imports: [BillingModule, EcontModule],
   controllers: [StripeController, StripeCatalogController, StripeConnectController],
   providers: [StripeService],
   exports: [StripeService],

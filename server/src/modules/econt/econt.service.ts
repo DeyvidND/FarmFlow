@@ -459,6 +459,42 @@ export class EcontService {
     }
   }
 
+  /**
+   * Auto-create the Econt waybill for a freshly-paid order when the farm enabled
+   * the "create label on paid order" toggle (`econt.label.autoCreate`). Best-effort
+   * and non-throwing: it must never disrupt the payment webhook that triggers it,
+   * and it is idempotent (skips if a waybill already exists).
+   */
+  async autoCreateForOrder(orderId: string): Promise<void> {
+    try {
+      const [order] = await this.db
+        .select({ tenantId: orders.tenantId, deliveryType: orders.deliveryType })
+        .from(orders)
+        .where(eq(orders.id, orderId))
+        .limit(1);
+      if (!order || !order.tenantId) return;
+      if (order.deliveryType !== 'econt' && order.deliveryType !== 'econt_address') return;
+
+      const { econt } = await this.loadStored(order.tenantId);
+      const autoCreate = (econt.label as Record<string, unknown> | undefined)?.autoCreate;
+      if (!econt.configured || autoCreate !== true) return;
+
+      const [existing] = await this.db
+        .select({ number: shipments.econtShipmentNumber })
+        .from(shipments)
+        .where(eq(shipments.orderId, orderId))
+        .limit(1);
+      if (existing?.number) return; // already has a waybill
+
+      await this.createLabel(order.tenantId, orderId);
+      this.logger.log(`[econt] auto-created waybill for order ${orderId}`);
+    } catch (err) {
+      this.logger.warn(
+        `[econt] auto-create failed for order ${orderId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
   /** Create the Econt waybill (label) for an order and persist a shipment row. */
   async createLabel(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
     const { econt } = await this.loadStored(tenantId);
