@@ -16,6 +16,7 @@ import {
   Route as RouteIcon,
   Newspaper,
   Mail,
+  Image as ImageIcon,
   Leaf,
   Lock,
   LogOut,
@@ -78,6 +79,7 @@ export const NAV_GROUPS: NavGroup[] = [
     collapsible: true,
     items: [
       { href: '/articles', label: 'Статии', Icon: Newspaper, gated: true },
+      { href: '/site-media', label: 'Снимки на сайта', Icon: ImageIcon },
       { href: '/newsletters', label: 'Имейл клиенти', Icon: Mail },
     ],
   },

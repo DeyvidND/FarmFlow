@@ -1,12 +1,35 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import {
+  Injectable,
+  Inject,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { eq, sql } from 'drizzle-orm';
 import { type Database, tenants } from '@farmflow/db';
 import type { PublicTenant, Tenant } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
+import { StorageService } from '../storage/storage.service';
+import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { type PublicDelivery, type EcontMode } from '../orders/delivery-pricing';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
+import {
+  getMediaCatalog,
+  isValidSlot,
+  type MediaSlotDef,
+} from './media-slots.catalog';
+
+/** One stored site-media value. `key` is the R2 object key (for replace/delete);
+ *  only `url` is ever exposed publicly. */
+export interface MediaSlotValue {
+  url: string;
+  key: string;
+}
+
+/** Public site-media map: slot key → image url. */
+export type PublicMediaMap = Record<string, { url: string }>;
 
 /** Lean storefront profile shape returned by `GET /public/:slug` (no secrets). */
 export interface PublicStorefront {
@@ -20,6 +43,9 @@ export interface PublicStorefront {
   econtEnabled: boolean;
   econtMode: EcontMode;
   delivery: PublicDelivery;
+  // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
+  // catalog slot id. Empty/missing slot → the storefront renders its `.ph` mock.
+  media: PublicMediaMap;
 }
 
 @Injectable()
@@ -28,6 +54,7 @@ export class TenantsService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly maps: MapsService,
     private readonly publicCache: PublicCacheService,
+    private readonly storage: StorageService,
   ) {}
 
   async getMe(tenantId: string): Promise<PublicTenant> {
@@ -114,6 +141,112 @@ export class TenantsService {
     return toPublicTenant(row);
   }
 
+  // ---- Site media (editable storefront photos) ----
+
+  /** Catalog + current values for the admin editor. `key` is stripped from the
+   *  values — the admin only needs the public url. */
+  async getSiteMedia(
+    tenantId: string,
+  ): Promise<{ catalog: MediaSlotDef[]; values: PublicMediaMap }> {
+    const settings = await this.loadSettings(tenantId);
+    return {
+      catalog: getMediaCatalog(this.themeOf(settings)),
+      values: toPublicMedia(settings.media),
+    };
+  }
+
+  /** Upload (or replace) the photo for one slot. Validates the slot against the
+   *  tenant's catalog, stores under a tenant-scoped R2 key, drops any previous
+   *  object, and busts the public profile cache. */
+  async setSiteMedia(
+    tenantId: string,
+    slotKey: string,
+    file: Express.Multer.File,
+  ): Promise<{ slotKey: string; url: string }> {
+    const { slug, settings } = await this.loadTenantForMedia(tenantId);
+    if (!isValidSlot(this.themeOf(settings), slotKey)) {
+      throw new BadRequestException('Непознат слот за снимка');
+    }
+
+    const ext = PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin';
+    const key = `tenants/${tenantId}/site/${slotKey}/${randomUUID()}.${ext}`;
+    const { url } = await this.storage.upload(file.buffer, key, file.mimetype);
+
+    const prev = readMedia(settings)[slotKey];
+
+    // Atomic, race-safe merge: set ONLY settings.media[slotKey] in a single
+    // UPDATE that reads the row's own column, so a concurrent upload to another
+    // slot can't clobber this one (a JS read-modify-write of the whole blob
+    // would). The `|| jsonb_build_object('media', …)` ensures the `media` object
+    // exists before jsonb_set writes into it.
+    const value = JSON.stringify({ url, key });
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(
+          coalesce(${tenants.settings}, '{}'::jsonb)
+            || jsonb_build_object('media', coalesce(${tenants.settings} -> 'media', '{}'::jsonb)),
+          array['media', ${slotKey}],
+          ${value}::jsonb,
+          true
+        )`,
+      })
+      .where(eq(tenants.id, tenantId));
+
+    // Drop the replaced object after the new one + DB row are committed (best
+    // effort — a leaked object is harmless next to a broken live image).
+    if (prev?.key && prev.key !== key) {
+      await this.storage.delete(prev.key).catch(() => undefined);
+    }
+    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    return { slotKey, url };
+  }
+
+  /** Remove the photo for one slot (reverts to the storefront mock). Idempotent. */
+  async deleteSiteMedia(tenantId: string, slotKey: string): Promise<{ ok: true }> {
+    const { slug, settings } = await this.loadTenantForMedia(tenantId);
+    const prev = readMedia(settings)[slotKey];
+    if (!prev) return { ok: true };
+
+    // Atomic removal of just settings.media[slotKey] (race-safe vs sibling writes).
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`coalesce(${tenants.settings}, '{}'::jsonb) #- array['media', ${slotKey}]`,
+      })
+      .where(eq(tenants.id, tenantId));
+
+    if (prev.key) await this.storage.delete(prev.key).catch(() => undefined);
+    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    return { ok: true };
+  }
+
+  private async loadSettings(tenantId: string): Promise<Record<string, unknown>> {
+    const [row] = await this.db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!row) throw new NotFoundException('Фермата не е намерена');
+    return (row.settings as Record<string, unknown> | null) ?? {};
+  }
+
+  private async loadTenantForMedia(
+    tenantId: string,
+  ): Promise<{ slug: string; settings: Record<string, unknown> }> {
+    const [row] = await this.db
+      .select({ slug: tenants.slug, settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!row) throw new NotFoundException('Фермата не е намерена');
+    return { slug: row.slug, settings: (row.settings as Record<string, unknown> | null) ?? {} };
+  }
+
+  private themeOf(settings: Record<string, unknown>): string | undefined {
+    return typeof settings.siteTheme === 'string' ? settings.siteTheme : undefined;
+  }
+
   /**
    * Merge route-end config and geocode a custom end address into endLat/endLng.
    * Clears the coords when the address is removed.
@@ -197,6 +330,24 @@ function stripEcontSecrets(delivery: unknown): unknown {
   void apiPassword;
   void pass;
   return { ...d, econt: safeEcont };
+}
+
+/** Read the raw site-media map (slot key → { url, key }) from a settings blob. */
+function readMedia(settings: Record<string, unknown>): Record<string, MediaSlotValue> {
+  const m = settings.media;
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return {};
+  return m as Record<string, MediaSlotValue>;
+}
+
+/** Project the stored site-media map to its public shape (drop the R2 `key`). */
+export function toPublicMedia(media: unknown): PublicMediaMap {
+  if (!media || typeof media !== 'object' || Array.isArray(media)) return {};
+  const out: PublicMediaMap = {};
+  for (const [k, v] of Object.entries(media as Record<string, unknown>)) {
+    const url = (v as { url?: unknown } | null)?.url;
+    if (typeof url === 'string' && url) out[k] = { url };
+  }
+  return out;
 }
 
 /** Strip internal fields the client should never see, but surface the delivery

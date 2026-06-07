@@ -166,6 +166,41 @@ export const updateTenant = (data: {
   routing?: { endMode?: 'home' | 'last' | 'custom'; endAddress?: string | null };
 }) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
+// ---- Site media (editable storefront photos) ----
+/** One editable decorative slot on the storefront (catalog entry). */
+export interface SiteMediaSlotDef {
+  key: string;
+  label: string;
+  ratio: string;
+  page: string;
+  note?: string;
+  rounded?: boolean;
+}
+
+export interface SiteMediaResponse {
+  catalog: SiteMediaSlotDef[];
+  values: Record<string, { url: string }>;
+}
+
+export const getSiteMedia = () => apiFetch<SiteMediaResponse>('tenants/me/media');
+
+export function uploadSiteMedia(slotKey: string, file: File) {
+  const fd = new FormData();
+  fd.append('image', file);
+  return apiFetch<{ slotKey: string; url: string }>(
+    `tenants/me/media/${encodeURIComponent(slotKey)}`,
+    { method: 'POST', body: fd },
+    'Неуспешно качване',
+  );
+}
+
+export const deleteSiteMedia = (slotKey: string) =>
+  apiFetch<{ ok: true }>(
+    `tenants/me/media/${encodeURIComponent(slotKey)}`,
+    { method: 'DELETE' },
+    'Неуспешно изтриване',
+  );
+
 // ---- Articles ----
 export const listArticles = (cursor?: string) =>
   apiFetch<Paginated<Article>>(`articles${qs(cursor)}`);

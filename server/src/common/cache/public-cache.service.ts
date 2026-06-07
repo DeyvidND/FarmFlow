@@ -36,6 +36,9 @@ export interface TenantMeta {
   // Read-only delivery pricing (free-over threshold + per-method fees) so the
   // storefront displays the farm's configured fees instead of hardcoded numbers.
   delivery: PublicDelivery;
+  // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
+  // catalog slot id. Empty/missing → the storefront renders its `.ph` mock.
+  media: Record<string, { url: string }>;
 }
 
 /**
@@ -104,18 +107,27 @@ export class PublicCacheService {
       .limit(1);
     if (!row) throw new NotFoundException('Фермата не е намерена');
 
-    // Derive the Econt flag + public delivery pricing, then drop `settings`
-    // (secrets) before caching/returning.
-    const delivery = (
-      row.settings as { delivery?: DeliveryConfig & { econt?: { configured?: boolean } } } | null
-    )?.delivery;
+    // Derive the Econt flag + public delivery pricing + site-media map, then drop
+    // `settings` (secrets) before caching/returning.
+    const settingsObj = row.settings as
+      | {
+          delivery?: DeliveryConfig & { econt?: { configured?: boolean } };
+          media?: Record<string, { url?: unknown }>;
+        }
+      | null;
+    const delivery = settingsObj?.delivery;
     const { settings: _settings, ...rest } = row;
     const mode = econtMode(delivery);
+    const media: Record<string, { url: string }> = {};
+    for (const [k, v] of Object.entries(settingsObj?.media ?? {})) {
+      if (typeof v?.url === 'string' && v.url) media[k] = { url: v.url };
+    }
     const meta: TenantMeta = {
       ...rest,
       econtEnabled: mode !== 'off',
       econtMode: mode,
       delivery: buildPublicDelivery(delivery),
+      media,
     };
 
     await this.set(key, meta);
