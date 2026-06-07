@@ -20,21 +20,31 @@ const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възни�
  * Photo 0 is the cover (server keeps the owner's `imageUrl` synced to it); reorder
  * via drag or the ↑/↓ buttons, delete via the ✕. `onCoverChange` lets the parent
  * keep its own cover preview / list card in sync without a reload.
+ *
+ * `maxPhotos` caps how many images may be uploaded. When the cap is reached the
+ * "add" tile disappears. With `maxPhotos={1}` (farmer profile / subcategory icon)
+ * the gallery collapses to a single-image editor: no cover badge and no reorder
+ * controls, since order is meaningless with one photo.
  */
 export function MediaManager({
   resource,
   ownerId,
   onCoverChange,
+  maxPhotos,
 }: {
   resource: MediaResource;
   ownerId: string;
   onCoverChange?: (url: string | null) => void;
+  maxPhotos?: number;
 }) {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const dragIndex = useRef<number | null>(null);
+
+  const atCap = maxPhotos != null && items.length >= maxPhotos;
+  const reorderable = maxPhotos == null || maxPhotos > 1;
 
   useEffect(() => {
     let alive = true;
@@ -107,20 +117,20 @@ export function MediaManager({
   return (
     <div className="flex flex-col gap-2">
       <div className="text-[12.5px] font-bold text-ff-ink-2">
-        Снимки {loading ? '' : `(${items.length})`}
+        {maxPhotos === 1 ? 'Снимка' : 'Снимки'} {loading ? '' : `(${items.length})`}
       </div>
 
       <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2">
         {items.map((m, i) => (
           <div
             key={m.id}
-            draggable
+            draggable={reorderable}
             onDragStart={() => {
-              dragIndex.current = i;
+              if (reorderable) dragIndex.current = i;
             }}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => reorderable && e.preventDefault()}
             onDrop={() => {
-              if (dragIndex.current !== null) {
+              if (reorderable && dragIndex.current !== null) {
                 move(dragIndex.current, i);
                 dragIndex.current = null;
               }
@@ -130,18 +140,22 @@ export function MediaManager({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={m.url} alt="" className="h-full w-full object-cover" />
 
-            {i === 0 && (
+            {reorderable && i === 0 && (
               <span className="absolute left-1 top-1 inline-flex items-center gap-0.5 rounded bg-ff-green-600/90 px-1.5 py-0.5 text-[9.5px] font-bold text-white">
                 <Star size={9} fill="currentColor" /> Корица
               </span>
             )}
 
             <div className="absolute inset-0 flex items-end justify-between gap-1 bg-gradient-to-t from-black/55 to-transparent p-1 opacity-0 transition group-hover:opacity-100 [@media(hover:none)]:opacity-100">
-              <span className="grid h-6 w-6 cursor-grab place-items-center rounded bg-white/85 text-ff-ink" title="Влачи за подреждане">
-                <GripVertical size={13} />
-              </span>
+              {reorderable ? (
+                <span className="grid h-6 w-6 cursor-grab place-items-center rounded bg-white/85 text-ff-ink" title="Влачи за подреждане">
+                  <GripVertical size={13} />
+                </span>
+              ) : (
+                <span />
+              )}
               <div className="flex gap-1">
-                {i !== 0 && (
+                {reorderable && i !== 0 && (
                   <button
                     type="button"
                     onClick={() => move(i, 0)}
@@ -152,12 +166,16 @@ export function MediaManager({
                     <Star size={12} />
                   </button>
                 )}
-                <MiniBtn disabled={i === 0} onClick={() => move(i, i - 1)} label="Нагоре">
-                  ↑
-                </MiniBtn>
-                <MiniBtn disabled={i === items.length - 1} onClick={() => move(i, i + 1)} label="Надолу">
-                  ↓
-                </MiniBtn>
+                {reorderable && (
+                  <>
+                    <MiniBtn disabled={i === 0} onClick={() => move(i, i - 1)} label="Нагоре">
+                      ↑
+                    </MiniBtn>
+                    <MiniBtn disabled={i === items.length - 1} onClick={() => move(i, i + 1)} label="Надолу">
+                      ↓
+                    </MiniBtn>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => onDelete(m)}
@@ -171,16 +189,18 @@ export function MediaManager({
           </div>
         ))}
 
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={busy}
-          className="grid aspect-square place-items-center rounded-lg border border-dashed border-ff-border-2 bg-ff-surface-2 text-ff-muted transition hover:border-ff-green-500 hover:text-ff-ink disabled:opacity-50"
-        >
-          <span className="inline-flex flex-col items-center gap-1 text-[10.5px] font-semibold">
-            <ImagePlus size={18} /> {busy ? '…' : 'Добави'}
-          </span>
-        </button>
+        {!atCap && (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+            className="grid aspect-square place-items-center rounded-lg border border-dashed border-ff-border-2 bg-ff-surface-2 text-ff-muted transition hover:border-ff-green-500 hover:text-ff-ink disabled:opacity-50"
+          >
+            <span className="inline-flex flex-col items-center gap-1 text-[10.5px] font-semibold">
+              <ImagePlus size={18} /> {busy ? '…' : 'Добави'}
+            </span>
+          </button>
+        )}
       </div>
 
       <input

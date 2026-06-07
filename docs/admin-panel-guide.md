@@ -308,6 +308,17 @@ Two things live here:
 
 **Приемане на плащания с карта (storefront orders)** — connect Stripe so customers can pay online; the money goes straight to the farm's bank account. **FarmFlow takes 0 % of orders** — the farm keeps everything (minus Stripe's own processing fee).
 
+Connecting is via a **Standard** Stripe account — the farmer signs Stripe's terms directly, gets their own full Stripe Dashboard, and bears all liability (refunds, disputes, negative balance); the platform carries none of it. Because Standard accounts can't use Stripe's embedded components, the Плащания page is a **native FarmFlow dashboard** (status, balance, next payout, recent payments) with an **„Отвори Stripe"** button to the farmer's own dashboard for refunds/disputes.
+
+**Connect guide (shown in-app on the CTA + under Документация → „Как да свържа Stripe"):**
+
+1. Have ready: **лична карта, IBAN, телефон, имейл** (~5 min).
+2. **Плащания → „Свържи Stripe"** opens Stripe's secure hosted onboarding.
+3. Choose **физическо лице / фирма**, fill name + address + date of birth.
+4. Add the **IBAN** Stripe will pay out to; sometimes Stripe asks for an ID photo.
+5. Return to the panel — status flips to **„Свързано"** and card checkout goes live.
+6. Payouts land automatically (typically 2–7 days); refunds/disputes are handled in the farmer's own Stripe via **„Отвори Stripe"**.
+
 > Both are dormant until the operator configures Stripe (A6). With no Stripe keys, the page shows a "not activated" state and nothing is charged.
 
 </details>

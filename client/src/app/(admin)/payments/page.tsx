@@ -15,6 +15,7 @@ const DISCONNECTED: StripeSummary = {
   availableStotinki: 0,
   pendingStotinki: 0,
   nextPayout: null,
+  recentPayments: [],
   feeBps: 0,
 };
 
@@ -49,12 +50,10 @@ export default async function PaymentsPage() {
     getJson<StripeSummary>('stripe/connect/summary', DISCONNECTED),
     getJson<BillingSummary>('billing/summary', NO_BILLING),
   ]);
-  // Publishable keys are safe in the browser; empty = "not configured" state.
-  const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '';
   return (
     <div className="max-w-[820px]">
       <SubscriptionCard summary={billing} />
-      <PaymentsClient initial={summary} publishableKey={publishableKey} />
+      <PaymentsClient initial={summary} />
     </div>
   );
 }

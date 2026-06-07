@@ -5,8 +5,10 @@ import { API_BASE, extractApiMessage } from '@/lib/session';
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
 
-  // Forward the real client IP so the API rate-limits per user, not per BFF.
-  const fwd = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? undefined;
+  // Forward only the EDGE-set client IP (cf-connecting-ip): Cloudflare overwrites
+  // it, while inbound x-forwarded-for is attacker-controlled and could spoof the
+  // rate-limit bucket.
+  const fwd = req.headers.get('cf-connecting-ip') ?? undefined;
 
   const res = await fetch(`${API_BASE}/auth/reset-password`, {
     method: 'POST',

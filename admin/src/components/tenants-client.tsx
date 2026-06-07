@@ -82,8 +82,11 @@ function PlanBadge({ premium }: { premium: boolean }) {
 
 function generatePassword(): string {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+  // Use the CSPRNG, not Math.random() — this is a real account credential.
+  const rnd = new Uint32Array(14);
+  crypto.getRandomValues(rnd);
   let p = '';
-  for (let i = 0; i < 14; i++) p += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < rnd.length; i++) p += chars[rnd[i] % chars.length];
   return p;
 }
 

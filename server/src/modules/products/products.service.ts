@@ -1,7 +1,7 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { type Database, products, productMedia, tenants } from '@farmflow/db';
+import { type Database, products, productMedia, tenants, farmers, subcategories } from '@farmflow/db';
 import type { Product, ProductMedia, PublicProduct } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
@@ -92,7 +92,33 @@ export class ProductsService {
     return row;
   }
 
+  /** Reject a farmer/subcategory reference that belongs to another tenant. The
+   *  ids come straight from the client DTO; every other module validates such
+   *  cross-row references the same way (e.g. reviews → product). */
+  private async assertRefsInTenant(
+    tenantId: string,
+    dto: { farmerId?: string | null; subcategoryId?: string | null },
+  ): Promise<void> {
+    if (dto.farmerId) {
+      const [f] = await this.db
+        .select({ id: farmers.id })
+        .from(farmers)
+        .where(and(eq(farmers.id, dto.farmerId), eq(farmers.tenantId, tenantId)))
+        .limit(1);
+      if (!f) throw new BadRequestException('Невалиден фермер');
+    }
+    if (dto.subcategoryId) {
+      const [s] = await this.db
+        .select({ id: subcategories.id })
+        .from(subcategories)
+        .where(and(eq(subcategories.id, dto.subcategoryId), eq(subcategories.tenantId, tenantId)))
+        .limit(1);
+      if (!s) throw new BadRequestException('Невалидна подкатегория');
+    }
+  }
+
   async create(tenantId: string, dto: CreateProductDto): Promise<Product> {
+    await this.assertRefsInTenant(tenantId, dto);
     // Storefront product pages key off `slug`. The admin form doesn't collect
     // one, so derive a tenant-unique slug from the name (Cyrillic-aware).
     const slug = await this.uniqueSlug(tenantId, slugify(dto.name) || 'produkt');
@@ -121,6 +147,7 @@ export class ProductsService {
   }
 
   async update(id: string, tenantId: string, dto: UpdateProductDto): Promise<Product> {
+    await this.assertRefsInTenant(tenantId, dto);
     const [row] = await this.db
       .update(products)
       .set({ ...dto })

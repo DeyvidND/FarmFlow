@@ -5,9 +5,10 @@ import { API_BASE, SESSION_COOKIE, SESSION_MAX_AGE, extractApiMessage } from '@/
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
 
-  // Forward the real client IP so the API rate-limits login per user, not per
-  // BFF (all admin logins otherwise share this server's single IP).
-  const fwd = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? undefined;
+  // Forward the EDGE-set client IP so the API rate-limits login per real client,
+  // not per BFF. Only cf-connecting-ip is trusted: Cloudflare overwrites it, while
+  // the inbound x-forwarded-for is attacker-controlled and could spoof the bucket.
+  const fwd = req.headers.get('cf-connecting-ip') ?? undefined;
 
   const res = await fetch(`${API_BASE}/platform/auth/login`, {
     method: 'POST',

@@ -24,6 +24,7 @@ type SessionCreateParams = NonNullable<
   Parameters<StripeClient['checkout']['sessions']['create']>[0]
 >;
 type SessionLineItem = NonNullable<SessionCreateParams['line_items']>[number];
+type AccountCreateParams = NonNullable<Parameters<StripeClient['accounts']['create']>[0]>;
 
 /** One order line as snapshotted at intake — enough to build a Stripe line item. */
 export interface CheckoutLine {
@@ -59,6 +60,14 @@ export interface ConnectSummary {
   pendingStotinki: number;
   /** Next scheduled payout to the farm's bank, if one is pending / in transit. */
   nextPayout: { amountStotinki: number; arrivalDate: string } | null;
+  /** Most recent payments on the connected account — replaces the embedded payments widget. */
+  recentPayments: {
+    amountStotinki: number;
+    currency: string;
+    status: string;
+    created: string;
+    description: string | null;
+  }[];
   /** Platform commission in basis points — for the UI's transparency line. */
   feeBps: number;
 }
@@ -124,9 +133,18 @@ export class StripeService {
   /* --------------------------- connect onboarding -------------------------- */
 
   /**
-   * The tenant's connected-account id, creating an Express account on the first
-   * call and persisting it to `tenants.stripe_account_id`. Lets a farm self-serve
-   * connect Stripe instead of an operator pasting an `acct_…` id into the DB.
+   * The tenant's connected-account id, creating a **Standard** account on the
+   * first call and persisting it to `tenants.stripe_account_id`. Lets a farm
+   * self-serve connect Stripe instead of an operator pasting an `acct_…` id.
+   *
+   * Standard controller config (`losses.payments=stripe`, `fees.payer=account`,
+   * `stripe_dashboard.type=full`, `requirement_collection=stripe`): the FARMER
+   * signs Stripe's ToS directly, owns a full Stripe Dashboard, pays Stripe's
+   * processing fee, and bears ALL liability (refunds, disputes, negative
+   * balances). The platform carries none of it and (with `STRIPE_PLATFORM_FEE_BPS`
+   * left at 0) takes no cut. Trade-off vs Express: embedded Connect components
+   * aren't available for Standard, so the Payments page is a native FarmFlow
+   * dashboard that reads balance/payouts/charges over the Connect API instead.
    */
   async ensureConnectedAccount(tenantId: string): Promise<string> {
     const [tenant] = await this.db
@@ -142,18 +160,21 @@ export class StripeService {
     if (!tenant) throw new NotFoundException('Фермата не е намерена');
     if (tenant.stripeAccountId) return tenant.stripeAccountId;
 
-    const account = await this.stripe.accounts.create(
-      {
-        type: 'express',
-        country: this.connectCountry,
-        email: tenant.email ?? undefined,
-        business_profile: { name: tenant.name },
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-        },
-        metadata: { farmflowTenantId: tenant.id },
+    const params: AccountCreateParams = {
+      country: this.connectCountry,
+      email: tenant.email ?? undefined,
+      business_profile: { name: tenant.name },
+      // Standard account: connected account owns the relationship + all liability.
+      controller: {
+        losses: { payments: 'stripe' },
+        fees: { payer: 'account' },
+        stripe_dashboard: { type: 'full' },
+        requirement_collection: 'stripe',
       },
+      metadata: { farmflowTenantId: tenant.id },
+    };
+    const account = await this.stripe.accounts.create(
+      params,
       // One account per tenant even if this call is retried before we persist.
       { idempotencyKey: `ff_connect_${tenantId}` },
     );
@@ -170,8 +191,8 @@ export class StripeService {
     const link = await this.stripe.accountLinks.create({
       account: accountId,
       type: 'account_onboarding',
-      refresh_url: `${this.panelUrl}/settings?stripe=refresh`,
-      return_url: `${this.panelUrl}/settings?stripe=done`,
+      refresh_url: `${this.panelUrl}/payments?stripe=refresh`,
+      return_url: `${this.panelUrl}/payments?stripe=done`,
     });
     return { url: link.url };
   }
@@ -201,28 +222,6 @@ export class StripeService {
   }
 
   /**
-   * Mint a Stripe **Account Session** so the admin can embed Stripe Connect
-   * components (onboarding, notification banner, payments, account management)
-   * directly inside FarmFlow. Creates the Express account on the first call.
-   */
-  async createAccountSession(tenantId: string): Promise<{ clientSecret: string }> {
-    const accountId = await this.ensureConnectedAccount(tenantId);
-    const session = await this.stripe.accountSessions.create({
-      account: accountId,
-      components: {
-        account_onboarding: { enabled: true },
-        notification_banner: { enabled: true },
-        payments: {
-          enabled: true,
-          features: { refund_management: true, dispute_management: true, capture_payments: true },
-        },
-        account_management: { enabled: true },
-      },
-    });
-    return { clientSecret: session.client_secret };
-  }
-
-  /**
    * Connection state + a friendly balance / next-payout summary for the
    * Payments page. Never throws: returns a safe disconnected summary when Stripe
    * is disabled, the farm has no account, or any Stripe lookup fails — so the
@@ -238,6 +237,7 @@ export class StripeService {
       availableStotinki: 0,
       pendingStotinki: 0,
       nextPayout: null,
+      recentPayments: [],
       feeBps: this.feeBps,
     };
     if (!this.client) return base;
@@ -283,6 +283,19 @@ export class StripeService {
       }
     } catch (err) {
       this.logger.warn(`Stripe payout read failed (${tenantId}): ${this.errText(err)}`);
+    }
+
+    try {
+      const charges = await this.client.charges.list({ limit: 5 }, { stripeAccount: accountId });
+      base.recentPayments = charges.data.map((c) => ({
+        amountStotinki: c.amount,
+        currency: c.currency,
+        status: c.status,
+        created: new Date(c.created * 1000).toISOString(),
+        description: c.description ?? c.billing_details?.email ?? null,
+      }));
+    } catch (err) {
+      this.logger.warn(`Stripe charges read failed (${tenantId}): ${this.errText(err)}`);
     }
 
     return base;
@@ -475,27 +488,48 @@ export class StripeService {
       .returning({ id: stripeEvents.id });
     if (!fresh) return { received: true };
 
+    // Order charges are DIRECT charges on the farm's connected account, so order
+    // events arrive on a Connect endpoint carrying `event.account`. Every order
+    // mutation is authorized against the tenant that owns that account — a farm
+    // must not be able to confirm/cancel another tenant's order by emitting a
+    // (validly signed) event with a foreign orderId in metadata. Platform billing
+    // events have no `account` and are routed to BillingService instead.
+    const account = event.account ?? null;
+
     switch (event.type) {
       case 'checkout.session.completed': {
         const obj = event.data.object as {
           mode?: string;
           metadata?: Record<string, string> | null;
           payment_intent?: string | { id: string } | null;
+          amount_total?: number | null;
         };
         // SaaS subscription checkout (platform billing) — not an order payment.
         if (obj.mode === 'subscription') {
           await this.billing.handleBillingEvent(event);
           break;
         }
-        await this.markOrderPaid(obj.metadata?.orderId, this.idOf(obj.payment_intent));
+        await this.markOrderPaid(
+          obj.metadata?.orderId,
+          this.idOf(obj.payment_intent),
+          account,
+          obj.amount_total ?? null,
+        );
         break;
       }
       case 'payment_intent.succeeded': {
         const obj = event.data.object as {
           id?: string;
           metadata?: Record<string, string> | null;
+          amount_received?: number;
+          amount?: number;
         };
-        await this.markOrderPaid(obj.metadata?.orderId, obj.id ?? null);
+        await this.markOrderPaid(
+          obj.metadata?.orderId,
+          obj.id ?? null,
+          account,
+          obj.amount_received ?? obj.amount ?? null,
+        );
         break;
       }
       case 'charge.refunded': {
@@ -517,7 +551,11 @@ export class StripeService {
             charge.amount > 0 &&
             charge.amount_refunded >= charge.amount);
         if (fullyRefunded) {
-          await this.markOrderRefunded(this.idOf(charge.payment_intent), charge.metadata?.orderId);
+          await this.markOrderRefunded(
+            this.idOf(charge.payment_intent),
+            charge.metadata?.orderId,
+            account,
+          );
         } else {
           this.logger.log(
             `Partial refund on order ${charge.metadata?.orderId ?? '?'} — order left confirmed`,
@@ -580,12 +618,56 @@ export class StripeService {
     return typeof ref === 'string' ? ref : ref.id;
   }
 
+  /** Resolve the tenant that owns a connected Stripe account — the authorization
+   *  anchor for order webhooks. Returns null for the platform account / unknown. */
+  private async tenantIdForAccount(account: string | null): Promise<string | null> {
+    if (!account) return null;
+    const [t] = await this.db
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(eq(tenants.stripeAccountId, account))
+      .limit(1);
+    return t?.id ?? null;
+  }
+
   private async markOrderPaid(
     orderId: string | undefined,
     paymentIntentId: string | null,
+    account: string | null,
+    paidStotinki: number | null,
   ): Promise<void> {
     if (!orderId) {
       this.logger.warn('Stripe webhook missing metadata.orderId — ignoring');
+      return;
+    }
+    // Authorize against the originating connected account: the order must belong
+    // to the tenant that owns `event.account`. Blocks a farm from confirming
+    // another tenant's order via a foreign orderId in its own charge's metadata
+    // (the event is validly signed, so the signature check alone can't catch it).
+    const tenantId = await this.tenantIdForAccount(account);
+    if (!tenantId) {
+      this.logger.warn(
+        `Stripe order webhook for ${orderId} from unknown account ${account ?? '∅'} — ignoring`,
+      );
+      return;
+    }
+    const [order] = await this.db
+      .select({ id: orders.id, total: orders.totalStotinki })
+      .from(orders)
+      .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
+      .limit(1);
+    if (!order) {
+      this.logger.warn(
+        `Stripe order webhook: order ${orderId} not owned by account ${account}'s tenant — ignoring (cross-tenant spoof?)`,
+      );
+      return;
+    }
+    // Never confirm an under-payment: the amount actually collected must cover the
+    // order total (guards against a tampered/low-value charge being mapped here).
+    if (paidStotinki !== null && paidStotinki < order.total) {
+      this.logger.warn(
+        `Stripe paid ${paidStotinki} < order ${orderId} total ${order.total} — not confirming`,
+      );
       return;
     }
     // Idempotent confirm: Stripe sends BOTH checkout.session.completed and
@@ -598,7 +680,9 @@ export class StripeService {
         paidAt: new Date(),
         ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
       })
-      .where(and(eq(orders.id, orderId), ne(orders.status, 'confirmed')))
+      .where(
+        and(eq(orders.id, orderId), eq(orders.tenantId, tenantId), ne(orders.status, 'confirmed')),
+      )
       .returning({ id: orders.id });
     if (!flipped.length) return; // already confirmed by the sibling event
 
@@ -612,12 +696,20 @@ export class StripeService {
   /** A refunded charge cancels the order (frees the slot) and clears the paid mark. */
   private async markOrderRefunded(
     paymentIntentId: string | null,
-    orderId?: string,
+    orderId: string | undefined,
+    account: string | null,
   ): Promise<void> {
+    // Same connected-account authorization as markOrderPaid — every refund
+    // mutation is scoped to the tenant that owns the originating account.
+    const tenantId = await this.tenantIdForAccount(account);
+    if (!tenantId) {
+      this.logger.warn(`Stripe refund webhook from unknown account ${account ?? '∅'} — ignoring`);
+      return;
+    }
     const cond = orderId
-      ? eq(orders.id, orderId)
+      ? and(eq(orders.id, orderId), eq(orders.tenantId, tenantId))
       : paymentIntentId
-        ? eq(orders.stripePaymentIntentId, paymentIntentId)
+        ? and(eq(orders.stripePaymentIntentId, paymentIntentId), eq(orders.tenantId, tenantId))
         : null;
     if (!cond) {
       this.logger.warn('Stripe refund webhook with no order linkage — ignoring');

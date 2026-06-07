@@ -79,10 +79,10 @@ export function SubcategoryPanel({
             <div className="mb-1.5 text-[12.5px] font-bold text-ff-ink-2">Снимка на секцията</div>
             <SectionPhoto tint={tint} imageUrl={imageUrl} height={130} />
             {isNew ? (
-              <p className="mt-2 text-[12.5px] text-ff-muted-2">Първо запази секцията, после добави снимки.</p>
+              <p className="mt-2 text-[12.5px] text-ff-muted-2">Първо запази секцията, после добави снимка.</p>
             ) : (
               <div className="mt-3">
-                <MediaManager resource="subcategories" ownerId={subcat.id!} onCoverChange={onCoverChange} />
+                <MediaManager resource="subcategories" ownerId={subcat.id!} onCoverChange={onCoverChange} maxPhotos={1} />
               </div>
             )}
           </div>

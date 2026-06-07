@@ -94,9 +94,9 @@ export function FarmerPanel({
           </div>
 
           {isNew ? (
-            <p className="text-[12.5px] text-ff-muted-2">Първо запази фермера, после добави снимки.</p>
+            <p className="text-[12.5px] text-ff-muted-2">Първо запази фермера, после добави снимка.</p>
           ) : (
-            <MediaManager resource="farmers" ownerId={farmer.id!} onCoverChange={onCoverChange} />
+            <MediaManager resource="farmers" ownerId={farmer.id!} onCoverChange={onCoverChange} maxPhotos={1} />
           )}
 
           <label className={labelCls}>

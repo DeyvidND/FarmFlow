@@ -268,16 +268,27 @@ export interface StripeSummary {
   availableStotinki: number;
   pendingStotinki: number;
   nextPayout: { amountStotinki: number; arrivalDate: string } | null;
+  /** Most recent payments on the connected account (native dashboard table). */
+  recentPayments: {
+    amountStotinki: number;
+    currency: string;
+    status: string;
+    created: string;
+    description: string | null;
+  }[];
   /** Platform commission in basis points (100 = 1%). */
   feeBps: number;
 }
 
 export const getStripeSummary = () => apiFetch<StripeSummary>('stripe/connect/summary');
 
-/** Mint an Account Session client secret for the embedded Connect components. */
-export const createStripeAccountSession = () =>
-  apiFetch<{ clientSecret: string }>(
-    'stripe/connect/account-session',
+/**
+ * Create (if needed) the farm's Standard connected account and get a hosted
+ * Stripe onboarding URL — the caller redirects the browser to it.
+ */
+export const startStripeOnboarding = () =>
+  apiFetch<{ url: string }>(
+    'stripe/connect/onboard',
     { method: 'POST' },
     'Неуспешна връзка със Stripe',
   );
