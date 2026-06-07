@@ -44,7 +44,6 @@ export function ProductDialog({
   const [unit, setUnit] = useState(product?.unit ?? 'бр');
   const [weight, setWeight] = useState(product?.weight ?? '');
   const [category, setCategory] = useState(product?.category ?? '');
-  const [tint, setTint] = useState(product?.tint ?? '#4C8A54');
   const [farmerId, setFarmerId] = useState(product?.farmerId ?? farmers[0]?.id ?? '');
   const [subcatId, setSubcatId] = useState(product?.subcategoryId ?? subcats[0]?.id ?? '');
   const [err, setErr] = useState('');
@@ -72,7 +71,6 @@ export function ProductDialog({
         unit: unit.trim() || 'бр',
         weight: weight.trim() || undefined,
         category: category.trim() || undefined,
-        tint,
         // Empty = unlimited stock → send null explicitly (the column defaults to 0
         // = out of stock, which would contradict the "неограничено" placeholder).
         stockQuantity: stock === '' ? null : parseInt(stock, 10) || 0,
@@ -134,21 +132,10 @@ export function ProductDialog({
             </label>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className={labelCls}>
-              Единица
-              <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="бр" className={field} />
-            </label>
-            <label className={labelCls}>
-              Цвят
-              <input
-                type="color"
-                value={tint}
-                onChange={(e) => setTint(e.target.value)}
-                className="h-[42px] w-full cursor-pointer rounded-sm border border-ff-border bg-ff-surface-2 px-1"
-              />
-            </label>
-          </div>
+          <label className={labelCls}>
+            Единица
+            <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="бр" className={field} />
+          </label>
 
           {multiFarmer && farmers.length > 0 && (
             <label className={labelCls}>

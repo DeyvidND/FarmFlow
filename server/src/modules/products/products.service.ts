@@ -197,6 +197,32 @@ export class ProductsService {
     return row;
   }
 
+  /**
+   * Bulk-link products to a farmer and/or subcategory (the assign picker on the
+   * Фермери / Подкатегории pages). Tenant-scoped; `null` unlinks. Only the keys
+   * present in the DTO are written, so the two links are independent. One cache
+   * invalidation for the whole batch.
+   */
+  async assignProducts(
+    tenantId: string,
+    dto: { productIds: string[]; farmerId?: string | null; subcategoryId?: string | null },
+  ): Promise<{ updated: number }> {
+    if (!dto.productIds?.length) return { updated: 0 };
+    const set: Partial<typeof products.$inferInsert> = {};
+    if (dto.farmerId !== undefined) set.farmerId = dto.farmerId;
+    if (dto.subcategoryId !== undefined) set.subcategoryId = dto.subcategoryId;
+    if (Object.keys(set).length === 0) return { updated: 0 };
+
+    const rows = await this.db
+      .update(products)
+      .set(set)
+      .where(and(eq(products.tenantId, tenantId), inArray(products.id, dto.productIds)))
+      .returning({ id: products.id });
+
+    await this.cache.invalidate(tenantId);
+    return { updated: rows.length };
+  }
+
   // ---- Gallery (multi-image) ----
 
   /** Ordered gallery for a product (admin). 404 if missing / cross-tenant. */

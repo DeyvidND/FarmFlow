@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { Truck, AlertTriangle, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,7 @@ export function DeliveryClient({
   initialDelivery: DeliveryConfig | null;
   slotFreeCount: number;
 }) {
+  const router = useRouter();
   const base = React.useMemo(() => hydrateDelivery(initialDelivery), [initialDelivery]);
 
   const [savedEnabled, setSavedEnabled] = React.useState(initialEnabled);
@@ -60,6 +62,10 @@ export function DeliveryClient({
       await saveDelivery({ deliveryEnabled: enabled, delivery: cfg });
       setSavedEnabled(enabled);
       setSavedCfg(structuredClone(cfg));
+      // Invalidate the Next Router Cache so the gated screens (Слотове / Производство
+      // / Маршрут) reflect the new deliveryEnabled on next navigation — without a
+      // manual browser refresh.
+      router.refresh();
       toast.success('Настройките са запазени');
     } catch (e) {
       toast.error(errMsg(e));

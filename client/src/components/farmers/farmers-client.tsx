@@ -22,8 +22,15 @@ export function FarmersClient({
   const [farmers, setFarmers] = useState(initialFarmers);
   const [multi, setMulti] = useState(initialMultiFarmer);
   const [edit, setEdit] = useState<Partial<Farmer> | null>(null);
+  // Local copy so bulk product (re)links from the drawer update the chips live.
+  const [productList, setProductList] = useState(products);
 
-  const productsOf = (fid: string) => products.filter((p) => p.farmerId === fid);
+  const productsOf = (fid: string) => productList.filter((p) => p.farmerId === fid);
+
+  function onProductsChanged(updates: { id: string; farmerId: string | null }[]) {
+    const map = new Map(updates.map((u) => [u.id, u.farmerId]));
+    setProductList((prev) => prev.map((p) => (map.has(p.id) ? { ...p, farmerId: map.get(p.id)! } : p)));
+  }
 
   async function onToggle(v: boolean) {
     setMulti(v); // optimistic
@@ -139,7 +146,15 @@ export function FarmersClient({
         </>
       )}
 
-      {edit && <FarmerPanel farmer={edit} onClose={() => setEdit(null)} onSaved={onSaved} />}
+      {edit && (
+        <FarmerPanel
+          farmer={edit}
+          products={productList}
+          onClose={() => setEdit(null)}
+          onSaved={onSaved}
+          onProductsChanged={onProductsChanged}
+        />
+      )}
     </div>
   );
 }

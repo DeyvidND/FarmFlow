@@ -6,22 +6,27 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar } from './avatar';
 import { MediaManager } from '@/components/media/media-manager';
-import { ApiError, createFarmer, updateFarmer } from '@/lib/api-client';
-import type { Farmer } from '@/lib/types';
+import { ProductAssignPicker } from '@/components/products/product-assign-picker';
+import { ApiError, assignProducts, createFarmer, updateFarmer } from '@/lib/api-client';
+import type { Farmer, ProductOption } from '@/lib/types';
 
-const TINTS = ['#2C5530', '#B23B5E', '#D08B26', '#5B5BA8', '#A11E2E', '#3B7D52'];
 const field =
   'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
 export function FarmerPanel({
   farmer,
+  products = [],
   onClose,
   onSaved,
+  onProductsChanged,
 }: {
   farmer: Partial<Farmer>;
+  products?: ProductOption[];
   onClose: () => void;
   onSaved: (f: Farmer) => void;
+  /** Fired after bulk product (un)links so the list can refresh its chips. */
+  onProductsChanged?: (updates: { id: string; farmerId: string | null }[]) => void;
 }) {
   const isNew = !farmer.id;
   const [name, setName] = useState(farmer.name ?? '');
@@ -29,9 +34,14 @@ export function FarmerPanel({
   const [bio, setBio] = useState(farmer.bio ?? '');
   const [phone, setPhone] = useState(farmer.phone ?? '+359 ');
   const [since, setSince] = useState(farmer.since ?? '2026');
-  const [tint, setTint] = useState(farmer.tint ?? TINTS[0]);
+  // Tint is no longer editable (the color picker was removed); keep the stored
+  // value for the avatar / role-label fallback only.
+  const tint = farmer.tint ?? '#2C5530';
   const [imageUrl, setImageUrl] = useState(farmer.imageUrl ?? null);
   const [saving, setSaving] = useState(false);
+  const [checked, setChecked] = useState<Set<string>>(
+    () => new Set(products.filter((p) => farmer.id && p.farmerId === farmer.id).map((p) => p.id)),
+  );
 
   async function save() {
     if (!name.trim()) {
@@ -46,9 +56,24 @@ export function FarmerPanel({
         bio: bio.trim(),
         phone: phone.trim(),
         since: since.trim(),
-        tint,
       };
       const saved = isNew ? await createFarmer(data) : await updateFarmer(farmer.id!, data);
+      // Persist product links (existing farmer only — needs an id).
+      if (!isNew && farmer.id) {
+        const initial = new Set(products.filter((p) => p.farmerId === farmer.id).map((p) => p.id));
+        const addIds = [...checked].filter((id) => !initial.has(id));
+        const removeIds = [...initial].filter((id) => !checked.has(id));
+        const updates: { id: string; farmerId: string | null }[] = [];
+        if (addIds.length) {
+          await assignProducts({ productIds: addIds, farmerId: farmer.id });
+          updates.push(...addIds.map((id) => ({ id, farmerId: farmer.id! })));
+        }
+        if (removeIds.length) {
+          await assignProducts({ productIds: removeIds, farmerId: null });
+          updates.push(...removeIds.map((id) => ({ id, farmerId: null })));
+        }
+        if (updates.length) onProductsChanged?.(updates);
+      }
       toast.success(isNew ? 'Фермерът е добавен' : 'Фермерът е обновен');
       onSaved(saved);
       onClose();
@@ -58,6 +83,14 @@ export function FarmerPanel({
       setSaving(false);
     }
   }
+
+  const toggleProduct = (id: string, on: boolean) =>
+    setChecked((prev) => {
+      const n = new Set(prev);
+      if (on) n.add(id);
+      else n.delete(id);
+      return n;
+    });
 
   // Keep the avatar preview + the farmers list card in sync as the gallery cover
   // (photo 0) changes — without a full reload.
@@ -121,22 +154,15 @@ export function FarmerPanel({
               <input value={since} onChange={(e) => setSince(e.target.value)} className={field} />
             </label>
           </div>
-          <div className={labelCls}>
-            Цвят на профила
-            <div className="flex flex-wrap gap-2.5">
-              {TINTS.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setTint(t)}
-                  className="grid h-[34px] w-[34px] place-items-center rounded-full"
-                  style={{ background: t, boxShadow: tint === t ? `0 0 0 3px var(--ff-surface), 0 0 0 5px ${t}` : 'inset 0 0 0 1px rgba(0,0,0,0.1)' }}
-                >
-                  {tint === t && <Check size={16} strokeWidth={3} color="#fff" />}
-                </button>
-              ))}
-            </div>
-          </div>
+          {!isNew && farmer.id && products.length > 0 && (
+            <ProductAssignPicker
+              products={products}
+              checked={checked}
+              onToggle={toggleProduct}
+              ownerId={farmer.id}
+              field="farmerId"
+            />
+          )}
         </div>
 
         <div className="flex gap-2.5 border-t border-ff-border-2 px-6 pb-[22px] pt-4">

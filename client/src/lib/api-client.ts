@@ -84,6 +84,18 @@ export const updateProduct = (id: string, data: Partial<Product>) =>
 export const deleteProduct = (id: string) =>
   apiFetch<{ id: string }>(`products/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
 
+/** Bulk-link products to a farmer and/or subcategory (`null` unlinks). */
+export const assignProducts = (data: {
+  productIds: string[];
+  farmerId?: string | null;
+  subcategoryId?: string | null;
+}) =>
+  apiFetch<{ updated: number }>(
+    'products/assign',
+    { method: 'PATCH', ...json(data) },
+    'Неуспешно свързване',
+  );
+
 export function uploadProductImage(id: string, file: File) {
   const fd = new FormData();
   fd.append('image', file);

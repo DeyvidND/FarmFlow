@@ -22,8 +22,17 @@ export function SubcategoriesClient({
   const [subcats, setSubcats] = useState(initialSubcats);
   const [multi, setMulti] = useState(initialMultiSubcat);
   const [edit, setEdit] = useState<Partial<Subcategory> | null>(null);
+  // Local copy so bulk product (re)links from the drawer update the chips live.
+  const [productList, setProductList] = useState(products);
 
-  const productsOf = (sid: string) => products.filter((p) => p.subcategoryId === sid);
+  const productsOf = (sid: string) => productList.filter((p) => p.subcategoryId === sid);
+
+  function onProductsChanged(updates: { id: string; subcategoryId: string | null }[]) {
+    const map = new Map(updates.map((u) => [u.id, u.subcategoryId]));
+    setProductList((prev) =>
+      prev.map((p) => (map.has(p.id) ? { ...p, subcategoryId: map.get(p.id)! } : p)),
+    );
+  }
 
   async function onToggle(v: boolean) {
     setMulti(v); // optimistic
@@ -135,7 +144,15 @@ export function SubcategoriesClient({
         </>
       )}
 
-      {edit && <SubcategoryPanel subcat={edit} onClose={() => setEdit(null)} onSaved={onSaved} />}
+      {edit && (
+        <SubcategoryPanel
+          subcat={edit}
+          products={productList}
+          onClose={() => setEdit(null)}
+          onSaved={onSaved}
+          onProductsChanged={onProductsChanged}
+        />
+      )}
     </div>
   );
 }

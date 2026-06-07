@@ -129,12 +129,15 @@ export function Sidebar({
   const groupHasActive = (g: NavGroup) => g.items.some((i) => isActive(i.href));
   // A group is shown when it isn't collapsible, when it holds the active page, or
   // when the farmer has expanded it. Collapsible groups default to folded.
+  // Collapsible groups now default to OPEN — everything is visible on load and a
+  // farmer can still fold a group to shorten the list. (Folded-by-default hid
+  // items like „Фермери" behind a non-obvious dropdown.)
   const isGroupOpen = (g: NavGroup) =>
-    !g.collapsible || groupHasActive(g) || (openState[g.title] ?? false);
+    !g.collapsible || groupHasActive(g) || (openState[g.title] ?? true);
 
   function toggleGroup(title: string) {
     setOpenState((prev) => {
-      const next = { ...prev, [title]: !(prev[title] ?? false) };
+      const next = { ...prev, [title]: !(prev[title] ?? true) };
       try {
         localStorage.setItem(OPEN_STORAGE_KEY, JSON.stringify(next));
       } catch {

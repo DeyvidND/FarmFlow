@@ -9,6 +9,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { AssignProductsDto } from './dto/assign-products.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
@@ -47,6 +48,12 @@ export class ProductsController {
   @Post()
   create(@CurrentTenant() tenantId: string, @Body() dto: CreateProductDto) {
     return this.productsService.create(tenantId, dto);
+  }
+
+  // Literal route — must precede `:id` so "assign" isn't captured as a product id.
+  @Patch('assign')
+  assign(@CurrentTenant() tenantId: string, @Body() dto: AssignProductsDto) {
+    return this.productsService.assignProducts(tenantId, dto);
   }
 
   @Patch(':id')

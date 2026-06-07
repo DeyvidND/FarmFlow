@@ -94,7 +94,11 @@ export function ProductsClient({
   async function onCreate(data: Partial<Product>) {
     const created = await createProduct(data);
     setProducts((prev) => [created, ...prev]);
-    toast.success('Продуктът е създаден');
+    // Reopen the just-created product in the edit dialog so its photo gallery is
+    // available immediately — adding images is part of the creation flow.
+    setCreateOpen(false);
+    setFullEdit(created);
+    toast.success('Продуктът е създаден — добави снимки');
   }
 
   async function onFullUpdate(data: Partial<Product>) {
