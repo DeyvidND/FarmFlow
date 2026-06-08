@@ -16,7 +16,9 @@ import type {
 export const DEFAULT_DELIVERY: DeliveryConfig = {
   methods: {
     econtOffice: {
-      enabled: true,
+      // Default off — a new farm starts on self-delivery + pickup, never forced
+      // into Econt's courier accounting. Flip on from the Econt section.
+      enabled: false,
       label: 'До офис на Еконт',
       pricing: { type: 'flat', feeStotinki: 499 },
       etaText: '1–2 работни дни',
@@ -24,7 +26,7 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
       minOrderStotinki: 0,
     },
     econtAddress: {
-      enabled: true,
+      enabled: false,
       label: 'До адрес (Еконт до врата)',
       pricing: { type: 'freeOver', freeOverStotinki: 6000, feeStotinki: 690 },
       etaText: '1–2 работни дни',
@@ -32,12 +34,12 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
     },
     ownSlots: { enabled: true, label: 'Лична доставка (Варна)', pricing: { type: 'free' } },
     pickup: {
-      enabled: false,
+      enabled: true,
       label: 'Вземане от място',
       address: 'гр. Варна, ул. Цар Симеон 12 (двора на фермата)',
       hours: 'Пн–Сб, 09:00–18:00',
     },
-    order: ['econtOffice', 'econtAddress', 'ownSlots', 'pickup'],
+    order: ['ownSlots', 'pickup', 'econtOffice', 'econtAddress'],
   },
   schedule: {
     weekdays: [1, 2, 3, 4, 5, 6],
@@ -65,6 +67,7 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
   },
   econt: {
     env: 'prod',
+    mode: 'off',
     configured: false,
     username: '',
     sender: {

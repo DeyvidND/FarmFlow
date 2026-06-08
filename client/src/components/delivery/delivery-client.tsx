@@ -50,6 +50,9 @@ export function DeliveryClient({
   const enabledMethods = cfg.methods.order.filter((k) => cfg.methods[k].enabled);
   const noMethods = enabled && enabledMethods.length === 0;
   const econtReady = cfg.econt.configured;
+  // Mode 'off' hides the courier accounting (office preview + shipments table) so
+  // a self-delivery farm never sees Econt waybills.
+  const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
   const locked = !enabled;
 
   const save = async () => {
@@ -155,8 +158,8 @@ export function DeliveryClient({
         <ScheduleSection cfg={cfg} mut={mut} />
         <PricingSection cfg={cfg} mut={mut} />
         <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />
-        <OfficePickerPreview configured={econtReady} />
-        <ShipmentsTable toast={toastAdapter} />
+        {econtMode === 'auto' && <OfficePickerPreview configured={econtReady} />}
+        {econtMode === 'auto' && <ShipmentsTable toast={toastAdapter} />}
       </div>
 
       {/* sticky save bar */}

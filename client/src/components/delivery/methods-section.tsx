@@ -49,7 +49,12 @@ export function MethodsSection({
   slotFreeCount: number;
 }) {
   const [dragKey, setDragKey] = React.useState<DeliveryMethodKey | null>(null);
-  const order = cfg.methods.order;
+  // When Econt is off, its method rows are irrelevant clutter — hide them so a
+  // self-delivery farm only sees self-delivery + pickup.
+  const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
+  const order = cfg.methods.order.filter(
+    (k) => !(econtMode === 'off' && (k === 'econtOffice' || k === 'econtAddress')),
+  );
 
   const onDrop = (target: DeliveryMethodKey) => {
     if (!dragKey || dragKey === target) return;

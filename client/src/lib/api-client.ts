@@ -15,6 +15,7 @@ import type {
   RouteResult,
   Shipment,
   Slot,
+  SlotRule,
   Subcategory,
   TenantProfile,
 } from './types';
@@ -275,10 +276,22 @@ export const createSlot = (data: {
   timeFrom: string;
   timeTo: string;
   maxOrders: number;
+  customerNote?: string;
+  driverNote?: string;
 }) => apiFetch<Slot>('slots', { method: 'POST', ...json(data) }, 'Неуспешно създаване на слот');
+
+export const updateSlot = (
+  id: string,
+  data: { timeFrom?: string; timeTo?: string; maxOrders?: number; customerNote?: string; driverNote?: string },
+) => apiFetch<Slot>(`slots/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешна промяна на слот');
 
 export const deleteSlot = (id: string) =>
   apiFetch<{ id: string }>(`slots/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
+
+export const getSlotRule = () => apiFetch<SlotRule | null>('slots/rule');
+
+export const saveSlotRule = (rule: SlotRule) =>
+  apiFetch<SlotRule>('slots/rule', { method: 'PUT', ...json(rule) }, 'Неуспешно записване на правилото');
 
 // ---- Orders ----
 export const listOrders = (cursor?: string) =>

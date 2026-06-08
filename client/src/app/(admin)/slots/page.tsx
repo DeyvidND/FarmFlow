@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { SlotsClient } from '@/components/slots/slots-client';
-import type { Slot } from '@/lib/types';
+import type { Slot, SlotRule } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,23 +33,33 @@ function currentWeek(): { days: string[]; today: string } {
 
 async function load(
   week: string[],
-): Promise<{ slots: Slot[]; delivery: boolean }> {
+): Promise<{ slots: Slot[]; delivery: boolean; rule: SlotRule | null }> {
   const token = cookies().get(SESSION_COOKIE)?.value;
-  if (!token) return { slots: [], delivery: false };
+  if (!token) return { slots: [], delivery: false, rule: null };
   const headers = { Authorization: `Bearer ${token}` };
 
-  const [sRes, tRes] = await Promise.all([
+  const [sRes, tRes, rRes] = await Promise.all([
     fetch(`${API_BASE}/slots?from=${week[0]}&to=${week[6]}`, { headers, cache: 'no-store' }),
     fetch(`${API_BASE}/tenants/me`, { headers, cache: 'no-store' }),
+    fetch(`${API_BASE}/slots/rule`, { headers, cache: 'no-store' }),
   ]);
 
   const slots = sRes.ok ? await sRes.json() : [];
   const tenant = tRes.ok ? await tRes.json() : {};
-  return { slots, delivery: !!tenant.deliveryEnabled };
+  const rule = rRes.ok ? await rRes.json() : null;
+  return { slots, delivery: !!tenant.deliveryEnabled, rule };
 }
 
 export default async function SlotsPage() {
   const { days, today } = currentWeek();
-  const { slots, delivery } = await load(days);
-  return <SlotsClient initialSlots={slots} days={days} today={today} deliveryEnabled={delivery} />;
+  const { slots, delivery, rule } = await load(days);
+  return (
+    <SlotsClient
+      initialSlots={slots}
+      initialRule={rule}
+      days={days}
+      today={today}
+      deliveryEnabled={delivery}
+    />
+  );
 }

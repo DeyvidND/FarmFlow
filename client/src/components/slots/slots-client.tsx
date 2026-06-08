@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Plus, Info, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, bgWeekdayShort, ddmm } from '@/lib/utils';
@@ -9,26 +10,31 @@ import { Button } from '@/components/ui/button';
 import { HelpModal, InfoNote } from '@/components/delivery/ui';
 import { SLOTS_HELP } from '@/lib/delivery-data';
 import { SlotPill } from './slot-pill';
-import { AddSlotDialog } from './add-slot-dialog';
-import { ApiError, createSlot, deleteSlot } from '@/lib/api-client';
-import type { Slot } from '@/lib/types';
+import { AddSlotDialog, type SlotInput } from './add-slot-dialog';
+import { RecurrenceCard } from './recurrence-card';
+import { ApiError, createSlot, updateSlot, deleteSlot } from '@/lib/api-client';
+import type { Slot, SlotRule } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
 export function SlotsClient({
   initialSlots,
+  initialRule,
   days,
   today,
   deliveryEnabled,
 }: {
   initialSlots: Slot[];
+  initialRule: SlotRule | null;
   days: string[];
   /** Real current date (YYYY-MM-DD, Sofia) for the "ДНЕС" highlight. */
   today: string;
   deliveryEnabled: boolean;
 }) {
+  const router = useRouter();
   const [slots, setSlots] = useState<Slot[]>(initialSlots);
   const [addDate, setAddDate] = useState<string | null>(null);
+  const [editSlot, setEditSlot] = useState<Slot | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [help, setHelp] = useState(false);
 
@@ -40,10 +46,16 @@ export function SlotsClient({
   const byDay = (d: string) =>
     slots.filter((s) => s.date === d).sort((a, b) => a.timeFrom.localeCompare(b.timeFrom));
 
-  async function onAdd(data: { date: string; timeFrom: string; timeTo: string; maxOrders: number }) {
-    const created = await createSlot(data);
-    setSlots((prev) => [...prev, created]);
-    toast.success('Слотът е добавен');
+  async function onSubmit(data: SlotInput, editingId: string | null) {
+    if (editingId) {
+      const updated = await updateSlot(editingId, data);
+      setSlots((prev) => prev.map((s) => (s.id === editingId ? updated : s)));
+      toast.success('Слотът е обновен');
+    } else {
+      const created = await createSlot(data);
+      setSlots((prev) => [...prev, created]);
+      toast.success('Слотът е добавен');
+    }
   }
 
   async function onDelete(s: Slot) {
@@ -95,6 +107,10 @@ export function SlotsClient({
         свободен час при поръчка. За доставка с куриер виж „Доставка → Еконт“.
       </InfoNote>
 
+      <div className="mt-4">
+        <RecurrenceCard initial={initialRule} onSaved={() => router.refresh()} />
+      </div>
+
       {!delivery && (
         <div className="mb-4 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3 text-[13.5px] font-semibold text-ff-amber-600">
           Доставката е изключена — слотовете не се показват в онлайн магазина. Включи я от{' '}
@@ -132,7 +148,13 @@ export function SlotsClient({
               </div>
               <div className="flex min-h-[90px] flex-col gap-[7px] p-[9px]">
                 {byDay(d).map((s) => (
-                  <SlotPill key={s.id} slot={s} busy={busyId === s.id} onDelete={() => onDelete(s)} />
+                  <SlotPill
+                    key={s.id}
+                    slot={s}
+                    busy={busyId === s.id}
+                    onDelete={() => onDelete(s)}
+                    onEdit={() => setEditSlot(s)}
+                  />
                 ))}
                 <button
                   onClick={() => setAddDate(d)}
@@ -146,7 +168,15 @@ export function SlotsClient({
         })}
       </div>
 
-      <AddSlotDialog date={addDate} onClose={() => setAddDate(null)} onAdd={onAdd} />
+      <AddSlotDialog
+        date={editSlot ? null : addDate}
+        slot={editSlot}
+        onClose={() => {
+          setAddDate(null);
+          setEditSlot(null);
+        }}
+        onSubmit={onSubmit}
+      />
 
       {help && (
         <HelpModal

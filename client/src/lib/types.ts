@@ -285,6 +285,26 @@ export interface Slot {
   currentOrders: number | null;
   isActive: boolean;
   booked: number;
+  customerNote: string | null;
+  driverNote: string | null;
+  generated: boolean;
+}
+
+/** The single recurring self-delivery rule (settings.slotRule). */
+export interface SlotRule {
+  active: boolean;
+  repeat: 'weekdays' | 'interval';
+  weekdays: number[]; // 0=Sun..6=Sat
+  intervalDays: number;
+  anchorDate: string; // YYYY-MM-DD
+  timeFrom: string; // HH:MM
+  timeTo: string; // HH:MM
+  maxOrders: number;
+  customerNote?: string;
+  driverNote?: string;
+  horizonDays: number;
+  skipDates: string[];
+  lastMaterializedDate?: string;
 }
 
 export interface OrderItem {
