@@ -12,6 +12,7 @@ function makeDb() {
     from: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     limit: jest.fn().mockResolvedValue([]),
+    innerJoin: jest.fn().mockReturnThis(),
     leftJoin: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockResolvedValue([]),
   };
@@ -142,6 +143,41 @@ describe('DigestService', () => {
 
       expect(result!.html).toContain('10:00');
       expect(result!.html).toContain('12:00');
+    });
+  });
+
+  // ── buildFarmerDigest ─────────────────────────────────────────────────────
+  describe('buildFarmerDigest', () => {
+    it('returns null when the farmer has no items that day', async () => {
+      db.orderBy.mockResolvedValueOnce([]);
+      const result = await service.buildFarmerDigest(TENANT_ID, 'farmer-1', TODAY, 'Петър');
+      expect(result).toBeNull();
+    });
+
+    it('builds a prep summary + per-order items for the farmer', async () => {
+      db.orderBy.mockResolvedValueOnce([
+        { orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
+          deliveryCity: null, econtOffice: null, slotFrom: '10:00:00', slotTo: '12:00:00',
+          productName: 'Домати', quantity: 3 },
+        { orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
+          deliveryCity: null, econtOffice: null, slotFrom: '10:00:00', slotTo: '12:00:00',
+          productName: 'Краставици', quantity: 2 },
+        { orderId: 'o2', deliveryType: 'econt', customerName: 'Мария', deliveryAddress: null,
+          deliveryCity: null, econtOffice: 'Офис Пловдив', slotFrom: null, slotTo: null,
+          productName: 'Домати', quantity: 5 },
+      ]);
+
+      const result = await service.buildFarmerDigest(TENANT_ID, 'farmer-1', TODAY, 'Петър');
+
+      expect(result).not.toBeNull();
+      expect(result!.summary.totalOrders).toBe(2);
+      // prep summary: Домати 3+5 = 8, Краставици 2
+      expect(result!.html).toContain('Домати');
+      expect(result!.html).toContain('Краставици');
+      expect(result!.text).toContain('8'); // tomato total
+      // delivery breakdown shows customers + econt destination
+      expect(result!.html).toContain('Иван');
+      expect(result!.html).toContain('Офис Пловдив');
     });
   });
 

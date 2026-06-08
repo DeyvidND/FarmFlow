@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
-import { type Database, orders, deliverySlots, tenants } from '@farmflow/db';
+import { type Database, orders, orderItems, products, deliverySlots, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { bgToday, bgDate } from '../../common/time/bg-time';
@@ -15,6 +15,15 @@ interface DigestOrder {
   econtOffice: string | null;
   slotFrom: string | null;
   slotTo: string | null;
+}
+
+interface FarmerItem {
+  productName: string;
+  quantity: number;
+}
+
+interface FarmerOrder extends DigestOrder {
+  items: FarmerItem[];
 }
 
 /** Where an Econt order goes — office (office method) or door (city + street). */
@@ -158,6 +167,101 @@ function renderText(date: string, addressOrders: DigestOrder[], econtOrders: Dig
   return lines.join('\n');
 }
 
+function renderFarmerHtml(
+  date: string,
+  farmerName: string,
+  prep: FarmerItem[],
+  addressOrders: FarmerOrder[],
+  econtOrders: FarmerOrder[],
+): string {
+  const prepRows = prep
+    .map(
+      (p) => `
+        <tr>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(p.productName)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right"><strong>${p.quantity}</strong> бр</td>
+        </tr>`,
+    )
+    .join('');
+
+  const orderBlock = (o: FarmerOrder, dest: string): string => {
+    const itemLines = o.items
+      .map((it) => `<li>${escapeHtml(it.productName)} — <strong>${it.quantity}</strong> бр</li>`)
+      .join('');
+    return `
+      <div style="margin:0 0 12px;padding:10px 12px;border:1px solid #eee;border-radius:8px">
+        <div style="font-weight:bold">${escapeHtml(o.customerName ?? '—')}</div>
+        <div style="font-size:13px;color:#555">${escapeHtml(dest)}</div>
+        <ul style="margin:6px 0 0;padding-left:18px;font-size:14px">${itemLines}</ul>
+      </div>`;
+  };
+
+  const addressSection =
+    addressOrders.length > 0
+      ? `<h2 style="font-size:16px;color:#333;margin:24px 0 8px">Доставка до адрес (${addressOrders.length})</h2>` +
+        addressOrders
+          .map((o) => {
+            const slot = o.slotFrom && o.slotTo ? ` · ${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}` : '';
+            return orderBlock(o, `${o.deliveryAddress ?? '—'}${slot}`);
+          })
+          .join('')
+      : '';
+
+  const econtSection =
+    econtOrders.length > 0
+      ? `<h2 style="font-size:16px;color:#333;margin:24px 0 8px">Еконт — за изпращане (${econtOrders.length})</h2>` +
+        econtOrders.map((o) => orderBlock(o, econtDestination(o))).join('')
+      : '';
+
+  return `<!DOCTYPE html>
+<html lang="bg">
+<head><meta charset="UTF-8"><title>Твоите доставки за ${date}</title></head>
+<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333">
+  <h1 style="font-size:20px;color:#2d6a4f;border-bottom:2px solid #2d6a4f;padding-bottom:8px">
+    ${escapeHtml(farmerName)} — доставки за ${date}
+  </h1>
+  <h2 style="font-size:16px;color:#333;margin:20px 0 8px">За приготвяне</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:14px"><tbody>${prepRows}</tbody></table>
+  ${addressSection}
+  ${econtSection}
+  <p style="font-size:12px;color:#999;margin-top:32px">FarmFlow — автоматичен дайджест за фермер</p>
+</body>
+</html>`;
+}
+
+function renderFarmerText(
+  date: string,
+  farmerName: string,
+  prep: FarmerItem[],
+  addressOrders: FarmerOrder[],
+  econtOrders: FarmerOrder[],
+): string {
+  const lines: string[] = [`${farmerName} — доставки за ${date}`, '', 'За приготвяне:'];
+  for (const p of prep) lines.push(`  • ${p.productName} — ${p.quantity} бр`);
+  lines.push('');
+
+  if (addressOrders.length > 0) {
+    lines.push(`Доставка до адрес (${addressOrders.length}):`);
+    for (const o of addressOrders) {
+      const slot = o.slotFrom && o.slotTo ? ` [${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}]` : '';
+      lines.push(`  • ${o.customerName ?? '—'} — ${o.deliveryAddress ?? '—'}${slot}`);
+      for (const it of o.items) lines.push(`      - ${it.productName} × ${it.quantity}`);
+    }
+    lines.push('');
+  }
+
+  if (econtOrders.length > 0) {
+    lines.push(`Еконт — за изпращане (${econtOrders.length}):`);
+    for (const o of econtOrders) {
+      lines.push(`  • ${o.customerName ?? '—'} — ${econtDestination(o)}`);
+      for (const it of o.items) lines.push(`      - ${it.productName} × ${it.quantity}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
 @Injectable()
 export class DigestService {
   private readonly logger = new Logger(DigestService.name);
@@ -214,6 +318,98 @@ export class DigestService {
         selfDeliveryCount: addressOrders.length,
         econtCount: econtOrders.length,
         totalOrders: rows.length,
+        distinctCustomers,
+      },
+    };
+  }
+
+  /**
+   * Build a per-farmer digest: only orders containing this farmer's products,
+   * showing a prep summary + per-order breakdown of the farmer's own line items.
+   * Returns null when the farmer has no items on the date.
+   */
+  async buildFarmerDigest(
+    tenantId: string,
+    farmerId: string,
+    date: string,
+    farmerName = '',
+  ): Promise<DigestResult | null> {
+    const rows = await this.db
+      .select({
+        orderId: orders.id,
+        deliveryType: orders.deliveryType,
+        customerName: orders.customerName,
+        deliveryAddress: orders.deliveryAddress,
+        deliveryCity: orders.deliveryCity,
+        econtOffice: orders.econtOffice,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+        productName: orderItems.productName,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .innerJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(orders.status, 'confirmed'),
+          sql`${bgDate(orders.createdAt)} = ${date}`,
+          eq(products.farmerId, farmerId),
+        )!,
+      )
+      .orderBy(orders.createdAt);
+
+    if (rows.length === 0) return null;
+
+    // Group line items by order.
+    const byOrder = new Map<string, FarmerOrder>();
+    for (const r of rows) {
+      let o = byOrder.get(r.orderId);
+      if (!o) {
+        o = {
+          id: r.orderId,
+          deliveryType: r.deliveryType,
+          customerName: r.customerName,
+          deliveryAddress: r.deliveryAddress,
+          deliveryCity: r.deliveryCity,
+          econtOffice: r.econtOffice,
+          slotFrom: r.slotFrom,
+          slotTo: r.slotTo,
+          items: [],
+        };
+        byOrder.set(r.orderId, o);
+      }
+      o.items.push({ productName: r.productName ?? '—', quantity: r.quantity });
+    }
+    const orderList = [...byOrder.values()];
+    const addressOrders = orderList.filter((o) => o.deliveryType === 'address');
+    const econtOrders = orderList.filter(
+      (o) => o.deliveryType === 'econt' || o.deliveryType === 'econt_address',
+    );
+
+    // Prep summary: total qty per product across the day.
+    const prepMap = new Map<string, number>();
+    for (const r of rows) {
+      const name = r.productName ?? '—';
+      prepMap.set(name, (prepMap.get(name) ?? 0) + r.quantity);
+    }
+    const prep: FarmerItem[] = [...prepMap.entries()]
+      .map(([productName, quantity]) => ({ productName, quantity }))
+      .sort((a, b) => b.quantity - a.quantity);
+
+    const distinctCustomers = new Set(
+      orderList.map((o) => o.customerName?.trim().toLowerCase()),
+    ).size;
+
+    return {
+      html: renderFarmerHtml(date, farmerName, prep, addressOrders, econtOrders),
+      text: renderFarmerText(date, farmerName, prep, addressOrders, econtOrders),
+      summary: {
+        selfDeliveryCount: addressOrders.length,
+        econtCount: econtOrders.length,
+        totalOrders: orderList.length,
         distinctCustomers,
       },
     };
