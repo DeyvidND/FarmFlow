@@ -35,7 +35,10 @@ interface RouteMapProps {
 export function RouteMap({ stops, origin, end, activeId, onPick }: RouteMapProps) {
   const located = stops.filter((s) => s.lat != null && s.lng != null);
   const hasOrigin = origin.lat != null && origin.lng != null;
-  const canRenderReal = !!MAPS_KEY && (located.length > 0 || hasOrigin);
+  // A real map renders whenever we have a Maps key — even with zero stops it
+  // shows a genuine Google map (centred on the farm, or the country) instead of
+  // the styled placeholder. The demo only stands in for a missing key (local dev).
+  const canRenderReal = !!MAPS_KEY;
 
   // A distinct end marker only when the route ends somewhere other than home.
   const customEnd =
@@ -49,13 +52,15 @@ export function RouteMap({ stops, origin, end, activeId, onPick }: RouteMapProps
 
   const center = hasOrigin
     ? { lat: origin.lat as number, lng: origin.lng as number }
-    : { lat: located[0].lat as number, lng: located[0].lng as number };
+    : located.length > 0
+      ? { lat: located[0].lat as number, lng: located[0].lng as number }
+      : BG_CENTROID;
 
   return (
     <APIProvider apiKey={MAPS_KEY} language="bg" region="BG">
       <Map
         mapId={MAP_ID}
-        defaultCenter={center ?? BG_CENTROID}
+        defaultCenter={center}
         defaultZoom={11}
         gestureHandling="greedy"
         disableDefaultUI={false}
