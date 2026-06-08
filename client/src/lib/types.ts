@@ -193,6 +193,8 @@ export interface DeliveryConfig {
   schedule: DeliverySchedule;
   pricing: DeliveryPricing;
   econt: EcontConfig;
+  /** Customer-facing наложен платеж (COD) toggle. Absent → treated as enabled. */
+  cod?: { enabled: boolean };
 }
 
 /** Econt office nomenclature row (global, mock for now). */

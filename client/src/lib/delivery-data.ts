@@ -84,6 +84,7 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
     label: { paper: 'A6', autoCreate: true },
     nomenclature: { lastSyncedAt: 'никога', cities: 0, offices: 0 },
   },
+  cod: { enabled: true },
 };
 
 /** Deep-ish merge of a saved config over the defaults so missing/new keys are filled. */
@@ -109,6 +110,7 @@ export function hydrateDelivery(saved: DeliveryConfig | null | undefined): Deliv
       label: { ...d.econt.label, ...saved.econt?.label },
       nomenclature: { ...d.econt.nomenclature, ...saved.econt?.nomenclature },
     },
+    cod: { enabled: saved?.cod?.enabled ?? d.cod?.enabled ?? true },
   };
 }
 
