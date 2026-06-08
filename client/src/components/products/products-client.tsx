@@ -1,10 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { HelpModal } from '@/components/delivery/ui';
+import { PRODUCTS_HELP } from '@/lib/help-content';
 import { ProductCard } from './product-card';
 import { ProductDialog } from './product-dialog';
 import {
@@ -41,6 +43,7 @@ export function ProductsClient({
   const [createOpen, setCreateOpen] = useState(false);
   const [fullEdit, setFullEdit] = useState<Product | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
+  const [help, setHelp] = useState(false);
 
   const activeCount = products.filter((p) => p.isActive).length;
   // `total` (full count) comes from the first page; fall back to the loaded count.
@@ -114,9 +117,14 @@ export function ProductsClient({
         <p className="text-sm text-ff-muted">
           {activeCount} активни · {totalCount} общо
         </p>
-        <Button variant="primary" onClick={() => setCreateOpen(true)} className="rounded-sm">
-          <Plus size={18} /> Добави продукт
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
+            <Info size={16} /> Обяснения
+          </Button>
+          <Button variant="primary" onClick={() => setCreateOpen(true)} className="rounded-sm">
+            <Plus size={18} /> Добави продукт
+          </Button>
+        </div>
       </div>
 
       {products.length === 0 ? (
@@ -192,6 +200,8 @@ export function ProductsClient({
           onConfirm={() => doDelete(confirmDelete)}
         />
       )}
+
+      {help && <HelpModal {...PRODUCTS_HELP} onClose={() => setHelp(false)} />}
     </div>
   );
 }

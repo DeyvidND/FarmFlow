@@ -22,10 +22,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) redirect('/login');
 
-  const res = await fetch(`${API_BASE}/tenants/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store',
-  }).catch(() => null);
+  // Tenant profile (subscription + name) and the user's mustChangePassword flag in
+  // one round-trip pair — the latter drives the blocking first-login modal.
+  const [res, account] = await Promise.all([
+    fetch(`${API_BASE}/tenants/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    }).catch(() => null),
+    fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null),
+  ]);
 
   // Invalid / expired / orphaned session → wipe the cookie and force a fresh login.
   if (!res || !res.ok) {
@@ -38,9 +48,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const me = await res.json().catch(() => null);
   if (!me) redirect('/api/session/logout?reason=expired');
   const subscriptionActive = me.subscriptionStatus !== 'inactive';
+  const mustChangePassword = account?.mustChangePassword === true;
 
   return (
-    <AdminShell subscriptionActive={subscriptionActive} tenantName={me.name ?? undefined}>
+    <AdminShell
+      subscriptionActive={subscriptionActive}
+      tenantName={me.name ?? undefined}
+      mustChangePassword={mustChangePassword}
+    >
       {children}
     </AdminShell>
   );

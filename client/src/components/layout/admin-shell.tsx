@@ -3,6 +3,7 @@
 import { Toaster } from 'sonner';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
+import { ForcePasswordModal } from '@/components/auth/force-password-modal';
 import { useUiStore } from '@/stores/ui-store';
 
 /** Client chrome for the admin panel (sidebar + topbar + drawer + toasts).
@@ -11,10 +12,13 @@ export function AdminShell({
   children,
   subscriptionActive = true,
   tenantName,
+  mustChangePassword = false,
 }: {
   children: React.ReactNode;
   subscriptionActive?: boolean;
   tenantName?: string;
+  /** First login with the temporary password → block the panel with the modal. */
+  mustChangePassword?: boolean;
 }) {
   const drawerOpen = useUiStore((s) => s.drawerOpen);
   const closeDrawer = useUiStore((s) => s.closeDrawer);
@@ -36,6 +40,8 @@ export function AdminShell({
           <div className="mx-auto max-w-[1200px]">{children}</div>
         </main>
       </div>
+
+      {mustChangePassword && <ForcePasswordModal />}
 
       <Toaster
         position="bottom-right"

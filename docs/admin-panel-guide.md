@@ -16,6 +16,8 @@ Both talk to the same API (`http://localhost:3000`, Swagger at `/docs`). Each fa
 
 > **What's new in this guide.** The Farmer Admin (Part B) now covers the full **Доставка / Еконт** courier integration, the **Маршрут** Google-Maps route planner, **multi-photo galleries** on products / farmers / sections, rich-media **Статии** (video + YouTube/Instagram embeds), the **Имейл клиенти** broadcast tab, and the **location & routing** block in Настройки. Every farmer screen below is captured from the live panel.
 
+> **In-app help (for the farmers themselves).** Beyond this guide, the panel now hand-holds users directly: first login opens a **blocking, self-explaining password modal** (B1); every busy screen has an **„Обяснения"** button (top-right) that opens a short, plain-language help modal for *that* screen (Табло, Поръчки, Продукти, Слотове, Доставка/Еконт, Маршрут); and **Документация** inside the panel opens with a **„Първи стъпки"** quick-start. Keep those in sync when screens change — the in-app copy lives in `client/src/lib/help-content.ts`, `client/src/lib/delivery-data.ts`, and `client/src/app/(admin)/help/page.tsx`.
+
 ---
 
 # Part A — Super-Admin Panel (you, the operator)
@@ -108,13 +110,15 @@ The sidebar nav, top to bottom: **Табло · Поръчки · Произво
 </details>
 
 <details>
-<summary><b>B1. First login — forced password change</b></summary>
+<summary><b>B1. First login — forced password change (blocking modal)</b></summary>
 
-When you onboarded the farm you set a **temporary** password. On first login the farmer is automatically sent to **Настройки** and **cannot use the rest of the panel** until they set a new password.
+When you onboarded the farm you set a **temporary** password. On first login a **blocking modal** appears over the panel — it can't be dismissed (no X, no backdrop-close) and the rest of the panel stays locked behind it until a new password is set. (The server also enforces this: the `MustChangePasswordGuard` rejects every write while the temp password is in place, so the lock is real, not just visual.)
 
-![Settings — change password (and the Настройки sidebar item)](images/feat-04-tenant-settings.png)
+The modal **explains why** the change matters: the temporary password travelled by email or by hand, so other people may have seen it — a personal password only the farmer knows protects the orders, customers and farm data.
 
-They enter the temporary password as **Текуща парола**, choose a **Нова парола** (≥ 6 chars, must differ), confirm it, and click **Смени паролата**. After that the whole panel unlocks. They can change their password again anytime from the same **Настройки** page (see B13).
+They enter the temporary password as **Временна парола**, choose a **Нова парола** (≥ 6 chars, must differ), confirm it (an eye toggle reveals what they typed), and click **Запази новата парола**. The modal then flips to a clear **„Готово! Паролата е сменена."** confirmation; **Към таблото** unlocks the panel and drops them on the dashboard.
+
+> They can change their password again anytime from **Настройки** (see B13) — that screen now shows an inline green success message instead of redirecting away.
 
 </details>
 
@@ -330,7 +334,7 @@ Account and farm configuration, in two cards.
 
 ![Настройки — password + location & routing](images/guide-settings.png)
 
-**Смяна на парола** — change the password anytime: **Текуща парола**, **Нова парола** (≥ 6 chars, must differ), **Потвърди нова парола**, then **Смени паролата**. This is the same screen a farmer is forced through on first login (B1).
+**Смяна на парола** — change the password anytime: **Текуща парола**, **Нова парола** (≥ 6 chars, must differ), **Потвърди нова парола**, then **Смени паролата**. On success the card shows an inline green **„Паролата е сменена успешно"** confirmation and clears the fields (it no longer redirects away). The first-login forced change uses the dedicated modal instead (B1).
 
 **Локация и маршрут** — the farm's logistics base:
 
@@ -359,7 +363,9 @@ Everything a farmer creates here is served to their storefront through the publi
 | Onboard a farm | Super-admin (3002) → **Нова ферма** |
 | Disable/enable a farm | Super-admin (3002) → farm **toggle** |
 | Super-admin password | Super-admin (3002) → **Настройки** |
-| Farmer first-login password | Farmer (3005) → forced **Настройки** |
+| Farmer first-login password | Farmer (3005) → forced **modal** on first login |
+| Per-screen in-app help | Farmer (3005) → **„Обяснения"** button (top-right) |
+| Full in-app guide | Farmer (3005) → **Документация** (start at „Първи стъпки") |
 | Add product + photo gallery | Farmer (3005) → **Продукти → Снимки** |
 | Manage farmers / sections | Farmer (3005) → **Фермери / Подкатегории** |
 | Orders & statuses | Farmer (3005) → **Поръчки** |

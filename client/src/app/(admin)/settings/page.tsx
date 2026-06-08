@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { firstMessage } from '@/components/auth/auth-shell';
@@ -31,11 +32,11 @@ function Field({
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [mustChange, setMustChange] = useState(false);
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Home / depot + route-end settings.
@@ -45,12 +46,6 @@ export default function SettingsPage() {
   const [savingLoc, setSavingLoc] = useState(false);
 
   useEffect(() => {
-    fetch('/bff/auth/me')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.mustChangePassword) setMustChange(true);
-      })
-      .catch(() => {});
     getTenant()
       .then((t) => {
         setHome(t.farmAddress ?? '');
@@ -80,6 +75,7 @@ export default function SettingsPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setDone(false);
 
     if (next.length < 6) {
       setError('Новата парола трябва да е поне 6 символа');
@@ -102,8 +98,13 @@ export default function SettingsPage() {
         setError(firstMessage(data?.message) ?? 'Грешна текуща парола');
         return;
       }
+      // Stay on the page and surface a clear success state (the status moves from
+      // the form to a confirmation) instead of redirecting away silently.
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      setDone(true);
       toast.success('Паролата е сменена успешно');
-      router.push('/dashboard');
       router.refresh();
     } catch {
       setError('Възникна грешка. Опитай отново.');
@@ -117,14 +118,16 @@ export default function SettingsPage() {
       <h1 className="mb-1 text-[22px] font-extrabold tracking-[-0.01em]">Настройки</h1>
       <p className="mb-6 text-[13.5px] text-ff-muted">Управлявай настройките на профила си.</p>
 
-      {mustChange && (
-        <div className="mb-6 rounded-[10px] border border-ff-amber-soft bg-ff-amber-soft/40 px-4 py-3 text-[13.5px] font-semibold text-ff-amber-600">
-          Смени временната си парола, за да продължиш.
-        </div>
-      )}
-
       <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-sm">
         <h2 className="mb-4 text-[16px] font-extrabold">Смяна на парола</h2>
+
+        {done && (
+          <div className="mb-4 flex items-center gap-2.5 rounded-[10px] border border-ff-green-100 bg-ff-green-50 px-4 py-3 text-[13.5px] font-semibold text-ff-green-800">
+            <Check size={17} strokeWidth={2.6} className="shrink-0 text-ff-green-600" />
+            Паролата е сменена успешно. Следващия път влез с новата парола.
+          </div>
+        )}
+
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <Field
             label="Текуща парола"

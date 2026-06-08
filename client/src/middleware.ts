@@ -79,19 +79,9 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Forced password change: redirect to /settings unless already there or calling API.
-  if (authed && token) {
-    const isApiPath = pathname.startsWith('/api/') || pathname.startsWith('/bff/');
-    const isSettingsPath = pathname === '/settings' || pathname.startsWith('/settings/');
-    if (!isApiPath && !isSettingsPath) {
-      const payload = decodeJwtPayload(token);
-      if (payload?.mustChangePassword === true) {
-        const url = req.nextUrl.clone();
-        url.pathname = '/settings';
-        return NextResponse.redirect(url);
-      }
-    }
-  }
+  // Forced password change is handled by the blocking ForcePasswordModal (rendered
+  // in AdminShell on any admin page) plus the server-side MustChangePasswordGuard,
+  // so the user lands on the dashboard with the modal over it — no edge redirect.
 
   return NextResponse.next();
 }

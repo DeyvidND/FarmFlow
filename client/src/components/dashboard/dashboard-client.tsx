@@ -3,9 +3,12 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard } from 'lucide-react';
+import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, hhmm, type OrderStatus } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { HelpModal } from '@/components/delivery/ui';
+import { DASHBOARD_HELP } from '@/lib/help-content';
 import { StatCard } from './stat-card';
 import { OrdersFeed } from './orders-feed';
 import { OrderPanel } from '@/components/orders/order-panel';
@@ -31,6 +34,7 @@ export function DashboardClient({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmingAll, setConfirmingAll] = useState(false);
+  const [help, setHelp] = useState(false);
 
   const feed = orders.filter((o) => o.createdAt.slice(0, 10) === summary.date);
   const pendingCount = feed.filter((o) => o.status === 'pending').length;
@@ -108,6 +112,13 @@ export function DashboardClient({
 
   return (
     <div className="animate-ff-fade-up">
+      <div className="mb-[18px] flex items-center justify-between gap-3">
+        <p className="text-sm capitalize text-ff-muted">{weekday}</p>
+        <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
+          <Info size={16} /> Обяснения
+        </Button>
+      </div>
+
       {!summary.subscriptionActive && (
         <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3">
           <AlertTriangle size={18} className="mt-px shrink-0 text-ff-amber-600" />
@@ -244,6 +255,8 @@ export function DashboardClient({
           onConfirm={doConfirmAll}
         />
       )}
+
+      {help && <HelpModal {...DASHBOARD_HELP} onClose={() => setHelp(false)} />}
     </div>
   );
 }

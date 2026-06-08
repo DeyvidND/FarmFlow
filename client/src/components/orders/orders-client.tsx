@@ -1,9 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, MapPin, Package, Store } from 'lucide-react';
+import { Search, MapPin, Package, Store, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, timeFromIso, type OrderStatus } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { HelpModal } from '@/components/delivery/ui';
+import { ORDERS_HELP } from '@/lib/help-content';
 import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
 import { OrderPanel } from './order-panel';
@@ -31,6 +34,7 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
   const [filter, setFilter] = useState('all');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [help, setHelp] = useState(false);
 
   const filtered = orders.filter(
     (o) =>
@@ -114,6 +118,9 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
             </button>
           ))}
         </div>
+        <Button variant="ghost" size="sm" onClick={() => setHelp(true)} className="max-[680px]:w-full">
+          <Info size={16} /> Обяснения
+        </Button>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
@@ -208,6 +215,8 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
       {active && (
         <OrderPanel order={active} busy={busy} onClose={() => setActiveId(null)} onAction={(s) => onAction(active, s)} />
       )}
+
+      {help && <HelpModal {...ORDERS_HELP} onClose={() => setHelp(false)} />}
     </div>
   );
 }

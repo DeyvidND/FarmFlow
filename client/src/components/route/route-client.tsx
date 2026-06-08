@@ -247,13 +247,21 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
       {/* expandable explainer — for farmers who aren't used to the tech */}
       {showHelp && (
         <div className="mb-4 rounded-xl border border-ff-border bg-ff-surface-2 p-4 text-[13px] leading-relaxed text-ff-ink-2 shadow-ff-sm">
+          <h3 className="mb-1.5 text-[13.5px] font-extrabold text-ff-ink">Какво е този екран</h3>
+          <p className="mb-2.5">
+            Маршрутът подрежда <b>потвърдените</b> поръчки за доставка до адрес за избрания ден, за да
+            ги обиколиш бързо. Започва от базата ти (адресът от Настройки). Смени деня от бутона с
+            календара горе.
+          </p>
           <h3 className="mb-2 text-[13.5px] font-extrabold text-ff-ink">Какво прави всеки бутон</h3>
           <ul className="flex list-disc flex-col gap-1.5 pl-5">
             <li>
               <b>По часови слот</b> — реди доставките по час: първо 11:00, после 12:00, после 13:00.
+              Удобно, когато си обещал часове на клиентите.
             </li>
             <li>
               <b>Най-кратък път</b> — реди ги така, че да изминеш най-малко километри (без оглед на часа).
+              Удобно, когато искаш да спестиш гориво и време.
             </li>
             <li>
               <b>Към дома / Едностранно / По избор</b> — къде свършваш след последната доставка: при
@@ -266,6 +274,13 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
             </li>
             <li>
               <b>Старт</b> — пуска навигация „завой по завой“ в Google Maps на телефона.
+            </li>
+            <li>
+              При всяка спирка: <b>Карти</b> отваря само нея, <b>Обади</b> звъни на клиента.
+            </li>
+            <li>
+              Много спирки? Google пуска до 9 наведнъж — затова се появяват бутони{' '}
+              <b>Отсечка 2, 3…</b> за останалите.
             </li>
             <li>
               На картата: <b>★</b> = твоята база, <b>номерата</b> = редът на доставките, <b>⚑</b> =
