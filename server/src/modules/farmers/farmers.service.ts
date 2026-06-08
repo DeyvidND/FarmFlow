@@ -257,7 +257,7 @@ export class FarmersService {
       .where(eq(farmers.tenantId, tenant.id))
       .orderBy(asc(farmers.position), asc(farmers.createdAt));
     const mediaByFarmer = await this.mediaUrlsByFarmer(rows.map((r) => r.id));
-    const result: PublicFarmer[] = rows.map(({ tenantId: _tenantId, ...rest }) => {
+    const result: PublicFarmer[] = rows.map(({ tenantId: _tenantId, email: _email, ...rest }) => {
       const urls = mediaByFarmer.get(rest.id) ?? [];
       const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
       return { ...rest, images };
