@@ -154,6 +154,21 @@ describe('DigestService', () => {
       expect(result).toBeNull();
     });
 
+    it('renders pickup orders in their own section', async () => {
+      db.orderBy.mockResolvedValueOnce([
+        { orderId: 'o3', deliveryType: 'pickup', customerName: 'Георги', deliveryAddress: null,
+          deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null,
+          productName: 'Мед', quantity: 1 },
+      ]);
+      const result = await service.buildFarmerDigest(TENANT_ID, 'farmer-1', TODAY, 'Петър');
+      expect(result).not.toBeNull();
+      expect(result!.summary.totalOrders).toBe(1);
+      expect(result!.html).toContain('За вземане');
+      expect(result!.html).toContain('Георги');
+      expect(result!.html).toContain('Мед');
+      expect(result!.text).toContain('За вземане');
+    });
+
     it('builds a prep summary + per-order items for the farmer', async () => {
       db.orderBy.mockResolvedValueOnce([
         { orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',

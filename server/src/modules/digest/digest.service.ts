@@ -173,6 +173,7 @@ function renderFarmerHtml(
   prep: FarmerItem[],
   addressOrders: FarmerOrder[],
   econtOrders: FarmerOrder[],
+  pickupOrders: FarmerOrder[],
 ): string {
   const prepRows = prep
     .map(
@@ -195,6 +196,12 @@ function renderFarmerHtml(
         <ul style="margin:6px 0 0;padding-left:18px;font-size:14px">${itemLines}</ul>
       </div>`;
   };
+
+  const pickupSection =
+    pickupOrders.length > 0
+      ? `<h2 style="font-size:16px;color:#333;margin:24px 0 8px">За вземане (${pickupOrders.length})</h2>` +
+        pickupOrders.map((o) => orderBlock(o, 'За вземане на място')).join('')
+      : '';
 
   const addressSection =
     addressOrders.length > 0
@@ -222,6 +229,7 @@ function renderFarmerHtml(
   </h1>
   <h2 style="font-size:16px;color:#333;margin:20px 0 8px">За приготвяне</h2>
   <table style="width:100%;border-collapse:collapse;font-size:14px"><tbody>${prepRows}</tbody></table>
+  ${pickupSection}
   ${addressSection}
   ${econtSection}
   <p style="font-size:12px;color:#999;margin-top:32px">FarmFlow — автоматичен дайджест за фермер</p>
@@ -235,10 +243,20 @@ function renderFarmerText(
   prep: FarmerItem[],
   addressOrders: FarmerOrder[],
   econtOrders: FarmerOrder[],
+  pickupOrders: FarmerOrder[],
 ): string {
   const lines: string[] = [`${farmerName} — доставки за ${date}`, '', 'За приготвяне:'];
   for (const p of prep) lines.push(`  • ${p.productName} — ${p.quantity} бр`);
   lines.push('');
+
+  if (pickupOrders.length > 0) {
+    lines.push(`За вземане (${pickupOrders.length}):`);
+    for (const o of pickupOrders) {
+      lines.push(`  • ${o.customerName ?? '—'} — За вземане на място`);
+      for (const it of o.items) lines.push(`      - ${it.productName} × ${it.quantity}`);
+    }
+    lines.push('');
+  }
 
   if (addressOrders.length > 0) {
     lines.push(`Доставка до адрес (${addressOrders.length}):`);
@@ -388,6 +406,7 @@ export class DigestService {
     const econtOrders = orderList.filter(
       (o) => o.deliveryType === 'econt' || o.deliveryType === 'econt_address',
     );
+    const pickupOrders = orderList.filter((o) => o.deliveryType === 'pickup');
 
     // Prep summary: total qty per product across the day.
     const prepMap = new Map<string, number>();
@@ -404,8 +423,8 @@ export class DigestService {
     ).size;
 
     return {
-      html: renderFarmerHtml(date, farmerName, prep, addressOrders, econtOrders),
-      text: renderFarmerText(date, farmerName, prep, addressOrders, econtOrders),
+      html: renderFarmerHtml(date, farmerName, prep, addressOrders, econtOrders, pickupOrders),
+      text: renderFarmerText(date, farmerName, prep, addressOrders, econtOrders, pickupOrders),
       summary: {
         selfDeliveryCount: addressOrders.length,
         econtCount: econtOrders.length,
