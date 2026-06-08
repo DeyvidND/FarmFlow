@@ -33,6 +33,7 @@ export function FarmerPanel({
   const [role, setRole] = useState(farmer.role ?? '');
   const [bio, setBio] = useState(farmer.bio ?? '');
   const [phone, setPhone] = useState(farmer.phone ?? '+359 ');
+  const [email, setEmail] = useState(farmer.email ?? '');
   const [since, setSince] = useState(farmer.since ?? '2026');
   // Tint is no longer editable (the color picker was removed); keep the stored
   // value for the avatar / role-label fallback only.
@@ -55,6 +56,7 @@ export function FarmerPanel({
         role: role.trim(),
         bio: bio.trim(),
         phone: phone.trim(),
+        email: email.trim() || null,
         since: since.trim(),
       };
       const saved = isNew ? await createFarmer(data) : await updateFarmer(farmer.id!, data);
@@ -154,6 +156,16 @@ export function FarmerPanel({
               <input value={since} onChange={(e) => setSince(e.target.value)} className={field} />
             </label>
           </div>
+          <label className={labelCls}>
+            Имейл (за дневния списък с доставки)
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="напр. petar@ferma.bg"
+              className={field}
+            />
+          </label>
           {!isNew && farmer.id && products.length > 0 && (
             <ProductAssignPicker
               products={products}
