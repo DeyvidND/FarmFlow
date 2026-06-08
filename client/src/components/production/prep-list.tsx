@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarDays, ChevronDown, Check, ShoppingBasket, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -26,6 +26,28 @@ export function PrepList({
   const { items, confirmedOrders } = summary;
   const [done, setDone] = useState<Record<string, boolean>>({});
 
+  const [farmerFilter, setFarmerFilter] = useState<string>('all');
+
+  // Distinct farmers present in today's items (+ whether any item is unassigned).
+  const { farmerList, hasUnassigned } = useMemo(() => {
+    const m = new Map<string, string>();
+    let unassigned = false;
+    for (const it of items) {
+      if (it.farmerId && it.farmerName) m.set(it.farmerId, it.farmerName);
+      else unassigned = true;
+    }
+    return { farmerList: [...m.entries()], hasUnassigned: unassigned };
+  }, [items]);
+
+  const showFarmerFilter = summary.multiFarmer && (farmerList.length > 0 || hasUnassigned);
+
+  // Items after applying the farmer filter.
+  const shown = items.filter((it) => {
+    if (farmerFilter === 'all') return true;
+    if (farmerFilter === 'none') return !it.farmerId;
+    return it.farmerId === farmerFilter;
+  });
+
   // Hydrate ticks for the shown date (runs after mount → no SSR hydration clash).
   useEffect(() => {
     try {
@@ -36,8 +58,8 @@ export function PrepList({
     }
   }, [date]);
 
-  const totalQty = items.reduce((s, r) => s + r.totalQty, 0);
-  const doneQty = items.filter((r) => done[r.productName]).reduce((s, r) => s + r.totalQty, 0);
+  const totalQty = shown.reduce((s, r) => s + r.totalQty, 0);
+  const doneQty = shown.filter((r) => done[r.productName]).reduce((s, r) => s + r.totalQty, 0);
   const allDone = totalQty > 0 && doneQty === totalQty;
   const toggle = (name: string) =>
     setDone((d) => {
@@ -59,6 +81,22 @@ export function PrepList({
           <span className="mx-2 text-ff-muted-2">·</span>
           <strong className="font-extrabold text-ff-ink">{totalQty}</strong> {plural(totalQty)} за приготвяне
         </p>
+        {showFarmerFilter && (
+          <select
+            value={farmerFilter}
+            onChange={(e) => setFarmerFilter(e.target.value)}
+            aria-label="Филтър по фермер"
+            className="rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2"
+          >
+            <option value="all">Всички фермери</option>
+            {farmerList.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+            {hasUnassigned && <option value="none">Без фермер</option>}
+          </select>
+        )}
         <label className="relative flex cursor-pointer items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2">
           <CalendarDays size={17} />
           <span className="capitalize">{dateLabel}</span>
@@ -87,7 +125,7 @@ export function PrepList({
             </span>
           </div>
 
-          {items.map((r, i) => {
+          {shown.map((r, i) => {
             const isDone = !!done[r.productName];
             return (
               <button
@@ -95,7 +133,7 @@ export function PrepList({
                 onClick={() => toggle(r.productName)}
                 className={cn(
                   'grid w-full grid-cols-[auto_1fr_auto] items-center gap-[18px] px-[22px] py-5 text-left transition-colors hover:bg-ff-surface-2',
-                  i < items.length - 1 && 'border-b border-ff-border-2',
+                  i < shown.length - 1 && 'border-b border-ff-border-2',
                 )}
               >
                 {/* checkbox */}
@@ -139,7 +177,7 @@ export function PrepList({
             );
           })}
 
-          {items.length === 0 && (
+          {shown.length === 0 && (
             <div className="px-5 py-14 text-center text-ff-muted">
               <div className="mx-auto mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-ff-green-50 text-ff-green-600">
                 <ShoppingBasket size={28} />

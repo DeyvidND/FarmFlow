@@ -7,7 +7,7 @@ import type { ProductionSummary } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 
 async function getProduction(date: string): Promise<ProductionSummary> {
-  const empty: ProductionSummary = { date, confirmedOrders: 0, items: [] };
+  const empty: ProductionSummary = { date, confirmedOrders: 0, multiFarmer: false, items: [] };
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return empty;
   const res = await fetch(`${API_BASE}/orders/production?date=${date}`, {

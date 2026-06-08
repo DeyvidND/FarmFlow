@@ -376,12 +376,15 @@ export interface ProductionItem {
   productName: string;
   totalQty: number;
   orderCount: number;
+  farmerId: string | null;
+  farmerName: string | null;
 }
 
 /** Daily prep list (GET /orders/production?date=). */
 export interface ProductionSummary {
   date: string; // YYYY-MM-DD
   confirmedOrders: number;
+  multiFarmer: boolean;
   items: ProductionItem[];
 }
 
