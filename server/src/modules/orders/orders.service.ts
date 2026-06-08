@@ -14,6 +14,7 @@ import {
   products,
   deliverySlots,
   tenants,
+  farmers,
 } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
@@ -62,11 +63,14 @@ export interface ProductionItem {
   productName: string;
   totalQty: number;
   orderCount: number;
+  farmerId: string | null;
+  farmerName: string | null;
 }
 
 export interface ProductionSummary {
   date: string;
   confirmedOrders: number;
+  multiFarmer: boolean;
   items: ProductionItem[];
 }
 
@@ -191,11 +195,15 @@ export class OrdersService {
         productName: orderItems.productName,
         totalQty: sql<number>`sum(${orderItems.quantity})::int`,
         orderCount: sql<number>`count(distinct ${orderItems.orderId})::int`,
+        farmerId: products.farmerId,
+        farmerName: farmers.name,
       })
       .from(orderItems)
       .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .leftJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(farmers, eq(products.farmerId, farmers.id))
       .where(onDay)
-      .groupBy(orderItems.productName)
+      .groupBy(orderItems.productName, products.farmerId, farmers.name)
       .orderBy(sql`sum(${orderItems.quantity}) desc`, orderItems.productName);
 
     const [{ count }] = await this.db
@@ -203,13 +211,22 @@ export class OrdersService {
       .from(orders)
       .where(onDay);
 
+    const [tenant] = await this.db
+      .select({ multiFarmer: tenants.multiFarmer })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+
     return {
       date: day,
       confirmedOrders: count,
+      multiFarmer: tenant?.multiFarmer ?? false,
       items: rows.map((r) => ({
         productName: r.productName ?? '',
         totalQty: r.totalQty,
         orderCount: r.orderCount,
+        farmerId: r.farmerId ?? null,
+        farmerName: r.farmerName ?? null,
       })),
     };
   }
