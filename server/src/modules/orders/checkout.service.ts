@@ -61,8 +61,19 @@ export class CheckoutService {
       .where(eq(tenants.id, order.tenantId!))
       .limit(1);
 
-    // Cash / no-Stripe farm → order already created; client goes straight to confirmation.
-    if (!tenant || !this.stripe.isEnabledForAccount(tenant.stripeAccountId)) {
+    const wantsCod = dto.paymentMethod === 'cod';
+    const canCard = !!tenant && this.stripe.isEnabledForAccount(tenant.stripeAccountId);
+
+    // COD, or a farm that can't take cards → no Stripe session. Record the order
+    // as 'cod' (collected at delivery) so the farmer badge + digest are accurate,
+    // overriding an 'online' choice the farm can't actually honour.
+    if (wantsCod || !canCard) {
+      if (order.paymentMethod !== 'cod') {
+        await this.db
+          .update(orders)
+          .set({ paymentMethod: 'cod' })
+          .where(eq(orders.id, order.id));
+      }
       return { orderId: order.id, checkoutUrl: null };
     }
 
@@ -74,10 +85,11 @@ export class CheckoutService {
       priceStotinki: i.priceStotinki,
     }));
 
-    // 5. Checkout Session on the connected account.
+    // 5. Checkout Session on the connected account. Past the COD/no-card branch
+    //    `canCard` held, so `stripeAccountId` is a non-null connected account id.
     const base = this.config.get<string>('STOREFRONT_URL')?.trim() || 'http://localhost:3003';
     const session = await this.stripe.createCheckoutSession({
-      stripeAccountId: tenant.stripeAccountId,
+      stripeAccountId: tenant.stripeAccountId!,
       orderId: order.id,
       lines,
       shippingStotinki: shipping,

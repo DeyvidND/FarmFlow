@@ -6,6 +6,7 @@ import { REDIS_TOKEN } from '../redis/redis.constants';
 import {
   buildPublicDelivery,
   econtMode,
+  codEnabled,
   type PublicDelivery,
   type DeliveryConfig,
   type EcontMode,
@@ -33,6 +34,11 @@ export interface TenantMeta {
   // | 'auto' (live API office picker + price). The storefront uses the API office
   // picker only in 'auto'.
   econtMode: EcontMode;
+  // Whether наложен платеж (COD) is offered — gates the storefront's COD radio.
+  codEnabled: boolean;
+  // Internal: the farm's connected Stripe account id. Used to derive `stripeEnabled`
+  // in TenantsService, then stripped — never sent to the storefront.
+  stripeAccountId: string | null;
   // Read-only delivery pricing (free-over threshold + per-method fees) so the
   // storefront displays the farm's configured fees instead of hardcoded numbers.
   delivery: PublicDelivery;
@@ -101,6 +107,7 @@ export class PublicCacheService {
         multiFarmer: tenants.multiFarmer,
         multiSubcat: tenants.multiSubcat,
         settings: tenants.settings,
+        stripeAccountId: tenants.stripeAccountId,
       })
       .from(tenants)
       .where(eq(tenants.slug, slug))
@@ -126,6 +133,8 @@ export class PublicCacheService {
       ...rest,
       econtEnabled: mode !== 'off',
       econtMode: mode,
+      codEnabled: codEnabled(delivery),
+      stripeAccountId: row.stripeAccountId ?? null,
       delivery: buildPublicDelivery(delivery),
       media,
     };

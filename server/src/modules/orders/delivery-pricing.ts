@@ -31,6 +31,7 @@ export interface DeliveryConfig {
   };
   pricing?: { freeThresholdStotinki?: number };
   econt?: { mode?: EcontMode; configured?: boolean };
+  cod?: { enabled?: boolean };
 }
 
 /**
@@ -46,6 +47,14 @@ export function econtMode(cfg: DeliveryConfig | null | undefined): EcontMode {
   const e = cfg?.econt;
   if (e?.mode) return e.mode;
   return e?.configured ? 'auto' : 'off';
+}
+
+/**
+ * Whether the farm offers наложен платеж (cash on delivery) as a payment choice.
+ * Defaults to true — production runs cash-first, and an absent flag means "offer it".
+ */
+export function codEnabled(cfg: DeliveryConfig | null | undefined): boolean {
+  return cfg?.cod?.enabled ?? true;
 }
 
 /** Legacy hardcoded amounts — the fallback when a tenant has no saved config. */

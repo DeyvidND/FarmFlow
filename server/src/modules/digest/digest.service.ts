@@ -15,6 +15,8 @@ interface DigestOrder {
   econtOffice: string | null;
   slotFrom: string | null;
   slotTo: string | null;
+  paymentMethod: string;
+  totalStotinki: number;
 }
 
 interface FarmerItem {
@@ -33,6 +35,16 @@ function econtDestination(o: DigestOrder): string {
     return `до адрес: ${parts || '—'}`;
   }
   return `офис: ${o.econtOffice ?? '—'}`;
+}
+
+/** stotinki → "25,99 €" for digest amounts. */
+function eur(stotinki: number): string {
+  return (stotinki / 100).toFixed(2).replace('.', ',') + ' €';
+}
+
+/** Suffix shown on a customer line when they pay наложен платеж. */
+function codTag(o: DigestOrder): string {
+  return o.paymentMethod === 'cod' ? ` · наложен платеж — ${eur(o.totalStotinki)}` : '';
 }
 
 export interface DigestSummary {
@@ -79,7 +91,7 @@ function renderHtml(
         o.slotFrom && o.slotTo ? `${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}` : '—';
       return `
         <tr>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.customerName ?? '—')}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.customerName ?? '—')}${escapeHtml(codTag(o))}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee">${slot}</td>
         </tr>`;
     })
@@ -93,7 +105,7 @@ function renderHtml(
           : '—';
       return `
         <tr>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.customerName ?? '—')}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.customerName ?? '—')}${escapeHtml(codTag(o))}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.deliveryAddress ?? '—')}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee">${slot}</td>
         </tr>`;
@@ -104,7 +116,7 @@ function renderHtml(
     .map(
       (o) => `
         <tr>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.customerName ?? '—')}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.customerName ?? '—')}${escapeHtml(codTag(o))}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(econtDestination(o))}</td>
         </tr>`,
     )
@@ -192,7 +204,7 @@ function renderText(
     lines.push(`За вземане (${pickupOrders.length}):`);
     for (const o of pickupOrders) {
       const slot = o.slotFrom && o.slotTo ? ` [${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}]` : '';
-      lines.push(`  • ${o.customerName ?? '—'} — За вземане на място${slot}`);
+      lines.push(`  • ${o.customerName ?? '—'} — За вземане на място${slot}${codTag(o)}`);
     }
     lines.push('');
   }
@@ -201,7 +213,7 @@ function renderText(
     lines.push(`Доставка до адрес (${addressOrders.length}):`);
     for (const o of addressOrders) {
       const slot = o.slotFrom && o.slotTo ? ` [${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}]` : '';
-      lines.push(`  • ${o.customerName ?? '—'} — ${o.deliveryAddress ?? '—'}${slot}`);
+      lines.push(`  • ${o.customerName ?? '—'} — ${o.deliveryAddress ?? '—'}${slot}${codTag(o)}`);
     }
     lines.push('');
   }
@@ -209,7 +221,7 @@ function renderText(
   if (econtOrders.length > 0) {
     lines.push(`Еконт — за изпращане (${econtOrders.length}):`);
     for (const o of econtOrders) {
-      lines.push(`  • ${o.customerName ?? '—'} — ${econtDestination(o)}`);
+      lines.push(`  • ${o.customerName ?? '—'} — ${econtDestination(o)}${codTag(o)}`);
     }
     lines.push('');
   }
@@ -352,6 +364,8 @@ export class DigestService {
         deliveryAddress: orders.deliveryAddress,
         deliveryCity: orders.deliveryCity,
         econtOffice: orders.econtOffice,
+        paymentMethod: orders.paymentMethod,
+        totalStotinki: orders.totalStotinki,
         slotFrom: deliverySlots.timeFrom,
         slotTo: deliverySlots.timeTo,
       })
@@ -446,6 +460,11 @@ export class DigestService {
           econtOffice: r.econtOffice,
           slotFrom: r.slotFrom,
           slotTo: r.slotTo,
+          // Per-farmer digest doesn't show order-level COD totals; satisfy the
+          // shared DigestOrder shape with benign defaults (farmer renderers
+          // never call codTag).
+          paymentMethod: 'online',
+          totalStotinki: 0,
           items: [],
         };
         byOrder.set(r.orderId, o);

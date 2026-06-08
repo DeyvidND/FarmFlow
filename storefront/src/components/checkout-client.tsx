@@ -22,9 +22,13 @@ import { toast } from '@/components/toast';
 export function CheckoutClient({
   deliveryEnabled,
   delivery,
+  codEnabled,
+  stripeEnabled,
 }: {
   deliveryEnabled: boolean;
   delivery: StorefrontDelivery;
+  codEnabled: boolean;
+  stripeEnabled: boolean;
 }) {
   const router = useRouter();
   const slug = resolveSlug();
@@ -45,6 +49,12 @@ export function CheckoutClient({
   const [addressLat, setAddressLat] = useState<number | null>(null);
   const [addressLng, setAddressLng] = useState<number | null>(null);
   const [slotId, setSlotId] = useState<string | null>(null);
+  // Card only when the farm has Stripe; COD when offered. Default to card if
+  // available, else COD. At least one is always present (COD defaults on).
+  const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>(
+    stripeEnabled ? 'online' : 'cod',
+  );
+  const showPaymentChoice = stripeEnabled && codEnabled;
   const [hasSlots, setHasSlots] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -75,6 +85,7 @@ export function CheckoutClient({
         deliveryLat: isEcont ? undefined : addressLat ?? undefined,
         deliveryLng: isEcont ? undefined : addressLng ?? undefined,
         econtOffice: isEcont ? addressInput.trim() || undefined : undefined,
+        paymentMethod,
       });
       if (res.checkoutUrl) {
         // Stripe-hosted payment — leave the cart intact until the webhook confirms.
@@ -241,6 +252,47 @@ export function CheckoutClient({
                       }}
                     />
                   </div>
+                )}
+              </div>
+
+              {/* payment method */}
+              <div className="card" style={{ padding: 24, boxShadow: 'none' }}>
+                <h3 style={{ fontSize: 20, marginBottom: 16 }}>Начин на плащане</h3>
+                {showPaymentChoice ? (
+                  <div className="stack" style={{ gap: 12 }}>
+                    <label
+                      className={`radio-card${paymentMethod === 'online' ? ' is-active' : ''}`}
+                      onClick={() => setPaymentMethod('online')}
+                    >
+                      <span className="dot"></span>
+                      <span>
+                        <b>Карта (онлайн)</b>
+                        <br />
+                        <span className="muted" style={{ fontSize: 14 }}>
+                          Плащаш сигурно с карта сега
+                        </span>
+                      </span>
+                    </label>
+                    <label
+                      className={`radio-card${paymentMethod === 'cod' ? ' is-active' : ''}`}
+                      onClick={() => setPaymentMethod('cod')}
+                    >
+                      <span className="dot"></span>
+                      <span>
+                        <b>Наложен платеж</b>
+                        <br />
+                        <span className="muted" style={{ fontSize: 14 }}>
+                          Плащаш при получаване (напр. в офис на Еконт)
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                ) : (
+                  <p className="muted" style={{ fontSize: 14 }}>
+                    {paymentMethod === 'online'
+                      ? 'Плащане с карта (онлайн) при завършване на поръчката.'
+                      : 'Плащане при получаване (наложен платеж).'}
+                  </p>
                 )}
               </div>
 

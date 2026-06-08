@@ -32,6 +32,7 @@ export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', '
 //  - `econt`         → Econt courier to an office (nationwide; live-priced).
 //  - `econt_address` → Econt courier to a home address / door (nationwide; live-priced).
 export const deliveryTypeEnum = pgEnum('delivery_type', ['pickup', 'address', 'econt', 'econt_address']);
+export const paymentMethodEnum = pgEnum('payment_method', ['online', 'cod']);
 
 export const tenants = pgTable('tenants', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
@@ -200,6 +201,10 @@ export const orders = pgTable(
     stripeCheckoutSessionId: text('stripe_checkout_session_id'),
     stripePaymentIntentId: text('stripe_payment_intent_id'),
     paidAt: timestamp('paid_at', { withTimezone: true }),
+    // How the customer chose to pay: 'online' (Stripe card) or 'cod' (наложен
+    // платеж — collected at delivery/Econt office). Normalized at checkout to
+    // reflect reality: any order with no Stripe session is recorded as 'cod'.
+    paymentMethod: paymentMethodEnum('payment_method').notNull().default('online'),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({

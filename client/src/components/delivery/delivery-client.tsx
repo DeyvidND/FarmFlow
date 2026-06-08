@@ -13,6 +13,7 @@ import type { DeliveryConfig } from '@/lib/types';
 import { MethodsSection } from './methods-section';
 import { ScheduleSection } from './schedule-section';
 import { PricingSection } from './pricing-section';
+import { PaymentSection } from './payment-section';
 import { EcontConnectionSection } from './econt-section';
 import { OfficePickerPreview } from './office-picker-preview';
 import { ShipmentsTable } from './shipments-table';
@@ -157,6 +158,7 @@ export function DeliveryClient({
         />
         <ScheduleSection cfg={cfg} mut={mut} />
         <PricingSection cfg={cfg} mut={mut} />
+        <PaymentSection cfg={cfg} mut={mut} />
         <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />
         {econtMode === 'auto' && <OfficePickerPreview configured={econtReady} />}
         {econtMode === 'auto' && <ShipmentsTable toast={toastAdapter} />}
