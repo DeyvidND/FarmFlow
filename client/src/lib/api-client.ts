@@ -16,6 +16,7 @@ import type {
   Shipment,
   Slot,
   SlotRule,
+  SlotRuleInput,
   Subcategory,
   TenantProfile,
 } from './types';
@@ -290,7 +291,7 @@ export const deleteSlot = (id: string) =>
 
 export const getSlotRule = () => apiFetch<SlotRule | null>('slots/rule');
 
-export const saveSlotRule = (rule: SlotRule) =>
+export const saveSlotRule = (rule: SlotRuleInput) =>
   apiFetch<SlotRule>('slots/rule', { method: 'PUT', ...json(rule) }, 'Неуспешно записване на правилото');
 
 // ---- Orders ----

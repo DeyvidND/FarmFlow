@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -11,7 +12,20 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+export class SlotWindowDto {
+  @ApiProperty({ example: '10:00' }) @IsString() @Matches(/^\d{2}:\d{2}$/) timeFrom: string;
+
+  @ApiProperty({ example: '12:00' }) @IsString() @Matches(/^\d{2}:\d{2}$/) timeTo: string;
+
+  @ApiProperty({ example: 5 }) @IsInt() @Min(1) maxOrders: number;
+}
+
+export class SlotDayDto extends SlotWindowDto {
+  @ApiProperty({ example: 1, description: '0=Sun..6=Sat' }) @IsInt() @Min(0) @Max(6) dow: number;
+}
 
 export class SaveSlotRuleDto {
   @ApiProperty() @IsBoolean() active: boolean;
@@ -20,22 +34,20 @@ export class SaveSlotRuleDto {
   @IsIn(['weekdays', 'interval'])
   repeat: 'weekdays' | 'interval';
 
-  @ApiProperty({ example: [1, 3, 5] })
+  @ApiProperty({ type: [SlotDayDto] })
   @IsArray()
-  @IsInt({ each: true })
-  @Min(0, { each: true })
-  @Max(6, { each: true })
-  weekdays: number[];
+  @ValidateNested({ each: true })
+  @Type(() => SlotDayDto)
+  days: SlotDayDto[];
 
   @ApiProperty({ example: 3 }) @IsInt() @Min(1) intervalDays: number;
 
+  @ApiProperty({ type: SlotWindowDto })
+  @ValidateNested()
+  @Type(() => SlotWindowDto)
+  intervalWindow: SlotWindowDto;
+
   @ApiProperty({ example: '2026-06-08' }) @IsDateString() anchorDate: string;
-
-  @ApiProperty({ example: '10:00' }) @IsString() @Matches(/^\d{2}:\d{2}$/) timeFrom: string;
-
-  @ApiProperty({ example: '12:00' }) @IsString() @Matches(/^\d{2}:\d{2}$/) timeTo: string;
-
-  @ApiProperty({ example: 5 }) @IsInt() @Min(1) maxOrders: number;
 
   @ApiProperty({ example: 28 }) @IsInt() @Min(1) @Max(60) horizonDays: number;
 
