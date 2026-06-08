@@ -60,11 +60,30 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function renderHtml(date: string, addressOrders: DigestOrder[], econtOrders: DigestOrder[]): string {
-  const totalOrders = addressOrders.length + econtOrders.length;
+function renderHtml(
+  date: string,
+  pickupOrders: DigestOrder[],
+  addressOrders: DigestOrder[],
+  econtOrders: DigestOrder[],
+): string {
+  const totalOrders = pickupOrders.length + addressOrders.length + econtOrders.length;
   const distinctCustomers = new Set(
-    [...addressOrders, ...econtOrders].map((o) => o.customerName?.trim().toLowerCase()),
+    [...pickupOrders, ...addressOrders, ...econtOrders].map((o) =>
+      o.customerName?.trim().toLowerCase(),
+    ),
   ).size;
+
+  const pickupRows = pickupOrders
+    .map((o) => {
+      const slot =
+        o.slotFrom && o.slotTo ? `${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}` : '—';
+      return `
+        <tr>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee">${escapeHtml(o.customerName ?? '—')}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee">${slot}</td>
+        </tr>`;
+    })
+    .join('');
 
   const addressRows = addressOrders
     .map((o) => {
@@ -90,6 +109,21 @@ function renderHtml(date: string, addressOrders: DigestOrder[], econtOrders: Dig
         </tr>`,
     )
     .join('');
+
+  const pickupSection =
+    pickupOrders.length > 0
+      ? `
+      <h2 style="font-size:16px;color:#333;margin:24px 0 8px">За вземане (${pickupOrders.length})</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead>
+          <tr style="background:#f5f5f5">
+            <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #ddd">Клиент</th>
+            <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #ddd">Час</th>
+          </tr>
+        </thead>
+        <tbody>${pickupRows}</tbody>
+      </table>`
+      : '';
 
   const addressSection =
     addressOrders.length > 0
@@ -131,10 +165,12 @@ function renderHtml(date: string, addressOrders: DigestOrder[], econtOrders: Dig
   </h1>
   <p style="font-size:14px;color:#555">
     Общо поръчки: <strong>${totalOrders}</strong> &nbsp;|&nbsp;
+    За вземане: <strong>${pickupOrders.length}</strong> &nbsp;|&nbsp;
     До адрес: <strong>${addressOrders.length}</strong> &nbsp;|&nbsp;
     Еконт: <strong>${econtOrders.length}</strong> &nbsp;|&nbsp;
     Уникални клиенти: <strong>${distinctCustomers}</strong>
   </p>
+  ${pickupSection}
   ${addressSection}
   ${econtSection}
   <p style="font-size:12px;color:#999;margin-top:32px">FarmFlow — автоматичен дайджест</p>
@@ -142,10 +178,24 @@ function renderHtml(date: string, addressOrders: DigestOrder[], econtOrders: Dig
 </html>`;
 }
 
-function renderText(date: string, addressOrders: DigestOrder[], econtOrders: DigestOrder[]): string {
+function renderText(
+  date: string,
+  pickupOrders: DigestOrder[],
+  addressOrders: DigestOrder[],
+  econtOrders: DigestOrder[],
+): string {
   const lines: string[] = [`Доставки за ${date}`, ''];
-  lines.push(`Общо: ${addressOrders.length + econtOrders.length} поръчки`);
+  lines.push(`Общо: ${pickupOrders.length + addressOrders.length + econtOrders.length} поръчки`);
   lines.push('');
+
+  if (pickupOrders.length > 0) {
+    lines.push(`За вземане (${pickupOrders.length}):`);
+    for (const o of pickupOrders) {
+      const slot = o.slotFrom && o.slotTo ? ` [${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}]` : '';
+      lines.push(`  • ${o.customerName ?? '—'} — За вземане на място${slot}`);
+    }
+    lines.push('');
+  }
 
   if (addressOrders.length > 0) {
     lines.push(`Доставка до адрес (${addressOrders.length}):`);
@@ -318,6 +368,7 @@ export class DigestService {
 
     if (rows.length === 0) return null;
 
+    const pickupOrders = rows.filter((r) => r.deliveryType === 'pickup');
     const addressOrders = rows.filter((r) => r.deliveryType === 'address');
     const econtOrders = rows.filter(
       (r) => r.deliveryType === 'econt' || r.deliveryType === 'econt_address',
@@ -326,8 +377,8 @@ export class DigestService {
       rows.map((o) => o.customerName?.trim().toLowerCase()),
     ).size;
 
-    const html = renderHtml(date, addressOrders, econtOrders);
-    const text = renderText(date, addressOrders, econtOrders);
+    const html = renderHtml(date, pickupOrders, addressOrders, econtOrders);
+    const text = renderText(date, pickupOrders, addressOrders, econtOrders);
 
     return {
       html,

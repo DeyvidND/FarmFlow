@@ -144,6 +144,29 @@ describe('DigestService', () => {
       expect(result!.html).toContain('10:00');
       expect(result!.html).toContain('12:00');
     });
+
+    it('renders pickup orders in their own "За вземане" section', async () => {
+      const pickupOrder = {
+        id: 'ord-3',
+        deliveryType: 'pickup',
+        customerName: 'Георги Пейков',
+        deliveryAddress: null,
+        econtOffice: null,
+        slotFrom: '09:00:00',
+        slotTo: '11:00:00',
+      };
+      db.orderBy.mockResolvedValue([pickupOrder]);
+
+      const result = await service.buildDigest(TENANT_ID, TODAY);
+
+      expect(result).not.toBeNull();
+      expect(result!.summary.totalOrders).toBe(1);
+      expect(result!.html).toContain('За вземане');
+      expect(result!.html).toContain('Георги Пейков');
+      expect(result!.html).toContain('09:00');
+      expect(result!.text).toContain('За вземане');
+      expect(result!.text).toContain('Георги Пейков');
+    });
   });
 
   // ── buildFarmerDigest ─────────────────────────────────────────────────────
