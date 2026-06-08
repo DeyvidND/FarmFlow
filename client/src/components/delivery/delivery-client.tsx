@@ -11,7 +11,6 @@ import { ApiError, saveDelivery } from '@/lib/api-client';
 import { hydrateDelivery } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
 import { MethodsSection } from './methods-section';
-import { ScheduleSection } from './schedule-section';
 import { PricingSection } from './pricing-section';
 import { PaymentSection } from './payment-section';
 import { EcontConnectionSection } from './econt-section';
@@ -156,7 +155,6 @@ export function DeliveryClient({
           noMethods={noMethods}
           slotFreeCount={slotFreeCount}
         />
-        <ScheduleSection cfg={cfg} mut={mut} />
         <PricingSection cfg={cfg} mut={mut} />
         <PaymentSection cfg={cfg} mut={mut} />
         <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />
