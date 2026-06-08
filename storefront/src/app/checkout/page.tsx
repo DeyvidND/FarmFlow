@@ -20,6 +20,8 @@ export default async function CheckoutPage({
     <CheckoutClient
       deliveryEnabled={profile?.deliveryEnabled ?? true}
       delivery={profile?.delivery ?? DEFAULT_DELIVERY}
+      codEnabled={profile?.codEnabled ?? true}
+      stripeEnabled={profile?.stripeEnabled ?? false}
     />
   );
 }

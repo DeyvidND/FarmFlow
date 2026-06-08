@@ -72,6 +72,7 @@ export interface CreateOrderDto {
   deliveryLat?: number; // precise pin from the checkout map/autocomplete
   deliveryLng?: number;
   econtOffice?: string;
+  paymentMethod?: 'online' | 'cod';
   notes?: string;
 }
 
@@ -182,6 +183,10 @@ export interface StorefrontProfile {
   multiSubcat: boolean;
   econtEnabled: boolean;
   econtMode: 'off' | 'manual' | 'auto';
+  /** наложен платеж offered to customers. */
+  codEnabled: boolean;
+  /** Farm can take card payments (Stripe connected). */
+  stripeEnabled: boolean;
   /** Per-tenant delivery fees so the storefront total matches the charge. */
   delivery: StorefrontDelivery;
 }
