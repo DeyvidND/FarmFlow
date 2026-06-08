@@ -167,6 +167,27 @@ describe('DigestService', () => {
       expect(result!.text).toContain('За вземане');
       expect(result!.text).toContain('Георги Пейков');
     });
+
+    it('tags a cash-on-delivery order with наложен платеж + total', async () => {
+      const codOrder = {
+        id: 'ord-cod',
+        deliveryType: 'address',
+        customerName: 'Стоян Стоянов',
+        deliveryAddress: 'ул. Липа 7',
+        econtOffice: null,
+        slotFrom: null,
+        slotTo: null,
+        paymentMethod: 'cod',
+        totalStotinki: 2599,
+      };
+      db.orderBy.mockResolvedValue([codOrder]);
+
+      const result = await service.buildDigest(TENANT_ID, TODAY);
+
+      expect(result).not.toBeNull();
+      expect(result!.text).toContain('наложен платеж — 25,99 €');
+      expect(result!.html).toContain('наложен платеж — 25,99 €');
+    });
   });
 
   // ── buildFarmerDigest ─────────────────────────────────────────────────────
