@@ -1,11 +1,12 @@
 import {
-  Controller, Get, Post, Patch, Delete,
+  Controller, Get, Post, Put, Patch, Delete,
   Param, Query, Body, UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { SlotsService } from './slots.service';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { UpdateSlotDto } from './dto/update-slot.dto';
+import { SaveSlotRuleDto } from './dto/slot-rule.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -32,6 +33,18 @@ export class SlotsController {
   @UseGuards(ActiveSubscriptionGuard)
   create(@CurrentTenant() tenantId: string, @Body() dto: CreateSlotDto) {
     return this.slotsService.create(tenantId, dto);
+  }
+
+  // Declared before the ':id' routes so 'rule' is never parsed as a slot id.
+  @Get('rule')
+  getRule(@CurrentTenant() tenantId: string) {
+    return this.slotsService.getRule(tenantId);
+  }
+
+  @Put('rule')
+  @UseGuards(ActiveSubscriptionGuard)
+  saveRule(@CurrentTenant() tenantId: string, @Body() dto: SaveSlotRuleDto) {
+    return this.slotsService.saveRule(tenantId, dto);
   }
 
   @Patch(':id')

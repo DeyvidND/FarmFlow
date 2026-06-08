@@ -7,6 +7,7 @@ import {
   IsString,
   Matches,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -50,4 +51,22 @@ export class CreateSlotDto {
   @Min(0, { each: true })
   @Max(6, { each: true })
   weekdays?: number[];
+
+  @ApiPropertyOptional({
+    example: 'Ще се обадя преди доставка',
+    description: 'Shown to the customer in the storefront slot picker.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  customerNote?: string;
+
+  @ApiPropertyOptional({
+    example: 'Маршрут Чайка→Левски, тел. 0888…',
+    description: 'Private note for the driver — never exposed to the storefront.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  driverNote?: string;
 }
