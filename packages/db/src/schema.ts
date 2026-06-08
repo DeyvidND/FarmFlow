@@ -153,6 +153,15 @@ export const deliverySlots = pgTable(
     maxOrders: integer('max_orders').notNull(),
     currentOrders: integer('current_orders').default(0),
     isActive: boolean('is_active').default(true),
+    // Customer-facing note shown in the storefront slot picker (e.g. "ще се обадя
+    // преди доставка"). Safe to expose publicly.
+    customerNote: text('customer_note'),
+    // Private note for whoever drives the route (area, phone, order). Admin-only —
+    // never serialized to the storefront.
+    driverNote: text('driver_note'),
+    // True for rows created by the recurrence rule (vs. one-off manual slots). The
+    // generator only ever touches generated rows.
+    generated: boolean('generated').notNull().default(false),
   },
   // Slot lists + dashboard summary filter by tenant, usually over a date window.
   (t) => ({
