@@ -139,6 +139,27 @@ describe('normalizeRule', () => {
     ).toThrow();
   });
 
+  it('tolerates an invalid interval window in weekdays mode (inactive — falls back)', () => {
+    const r = normalizeRule({
+      ...base,
+      repeat: 'weekdays',
+      intervalWindow: { timeFrom: '10:00', timeTo: '09:00', maxOrders: 5 },
+    });
+    expect(r.intervalWindow).toEqual({ timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 });
+    expect(r.days.length).toBeGreaterThan(0);
+  });
+
+  it('tolerates invalid days in interval mode (inert — drops them, no throw)', () => {
+    const r = normalizeRule({
+      ...base,
+      repeat: 'interval',
+      days: [{ dow: 1, timeFrom: '12:00', timeTo: '10:00', maxOrders: 5 }],
+      intervalWindow: { timeFrom: '09:00', timeTo: '11:00', maxOrders: 2 },
+    });
+    expect(r.days).toEqual([]);
+    expect(r.intervalWindow).toMatchObject({ timeFrom: '09:00', timeTo: '11:00' });
+  });
+
   it('accepts + migrates a legacy rule', () => {
     const legacy = {
       active: true,

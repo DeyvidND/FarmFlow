@@ -134,6 +134,18 @@ function normalizeWindow(input: Partial<SlotWindow> | undefined, where: string):
   return { timeFrom, timeTo, maxOrders };
 }
 
+const DEFAULT_WINDOW: SlotWindow = { timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 };
+
+/** Like normalizeWindow but returns `fallback` instead of throwing — used for the
+ *  mode that isn't active, whose window is stored but isn't the user's choice. */
+function safeWindow(input: Partial<SlotWindow> | undefined, fallback: SlotWindow): SlotWindow {
+  try {
+    return normalizeWindow(input, '');
+  } catch {
+    return fallback;
+  }
+}
+
 const BG_WD = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
 /**
@@ -149,17 +161,33 @@ export function normalizeRule(input: Partial<SlotRule> & LegacyRule, prev?: Slot
   const anchorDate = migrated.anchorDate ?? '';
   if (!ISO.test(anchorDate)) throw new Error('Невалидна начална дата');
 
-  // Per-weekday windows: dedupe by dow (last wins), validate each.
+  const wantWeekdays = repeat === 'weekdays';
+
+  // Per-weekday windows: dedupe by dow (last wins). In weekdays mode each window
+  // is the user's active config and must be valid; in interval mode the days are
+  // inert, so drop any invalid one instead of failing the whole save.
   const byDow = new Map<number, SlotDay>();
   for (const d of migrated.days ?? []) {
     if (!Number.isInteger(d?.dow) || d.dow < 0 || d.dow > 6) continue;
-    const win = normalizeWindow(d, ` (${BG_WD[d.dow]})`);
-    byDow.set(d.dow, { dow: d.dow, ...win });
+    if (wantWeekdays) {
+      byDow.set(d.dow, { dow: d.dow, ...normalizeWindow(d, ` (${BG_WD[d.dow]})`) });
+    } else {
+      try {
+        byDow.set(d.dow, { dow: d.dow, ...normalizeWindow(d, '') });
+      } catch {
+        /* inert in interval mode — skip the invalid day rather than reject */
+      }
+    }
   }
   const days = [...byDow.values()].sort((a, b) => a.dow - b.dow);
-  const intervalWindow = normalizeWindow(migrated.intervalWindow, '');
 
-  if (repeat === 'weekdays' && days.length === 0) {
+  // Interval window: strict when interval is the active mode, tolerant otherwise
+  // (a stale/blank window for the inactive mode must not block a weekdays save).
+  const intervalWindow = wantWeekdays
+    ? safeWindow(migrated.intervalWindow, DEFAULT_WINDOW)
+    : normalizeWindow(migrated.intervalWindow, '');
+
+  if (wantWeekdays && days.length === 0) {
     throw new Error('Избери поне един ден от седмицата');
   }
 

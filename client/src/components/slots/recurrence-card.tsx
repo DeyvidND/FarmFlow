@@ -49,6 +49,11 @@ const DEFAULT_WIN: SlotWindow = { timeFrom: '10:00', timeTo: '12:00', maxOrders:
 const sameWin = (a: SlotWindow, b: SlotWindow) =>
   a.timeFrom === b.timeFrom && a.timeTo === b.timeTo && a.maxOrders === b.maxOrders;
 
+/** Sorted unique options that always include `v` — so an off-grid legacy time
+ *  (e.g. 09:45 from the old free time input) still shows instead of a blank select. */
+const withValue = (opts: string[], v: string) =>
+  opts.includes(v) ? opts : [...opts, v].sort();
+
 /** Start/end (24h selects, end is always after start) + capacity. */
 function WindowFields({ win, onChange }: { win: SlotWindow; onChange: (w: SlotWindow) => void }) {
   const setFrom = (timeFrom: string) => {
@@ -56,13 +61,14 @@ function WindowFields({ win, onChange }: { win: SlotWindow; onChange: (w: SlotWi
     const timeTo = win.timeTo > timeFrom ? win.timeTo : (TIMES.find((t) => t > timeFrom) ?? timeFrom);
     onChange({ ...win, timeFrom, timeTo });
   };
-  const endTimes = TIMES.filter((t) => t > win.timeFrom);
+  const startOpts = withValue(TIMES.slice(0, -1), win.timeFrom);
+  const endOpts = withValue(TIMES.filter((t) => t > win.timeFrom), win.timeTo);
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
       <label className={lbl}>
         Начало
         <select value={win.timeFrom} onChange={(e) => setFrom(e.target.value)} className={field}>
-          {TIMES.slice(0, -1).map((t) => (
+          {startOpts.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>
@@ -72,7 +78,7 @@ function WindowFields({ win, onChange }: { win: SlotWindow; onChange: (w: SlotWi
       <label className={lbl}>
         Край
         <select value={win.timeTo} onChange={(e) => onChange({ ...win, timeTo: e.target.value })} className={field}>
-          {endTimes.map((t) => (
+          {endOpts.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>
