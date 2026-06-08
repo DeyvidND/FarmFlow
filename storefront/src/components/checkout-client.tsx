@@ -222,7 +222,13 @@ export function CheckoutClient({
                         <b>Доставка до адрес</b>
                         <br />
                         <span className="muted" style={{ fontSize: 14 }}>
-                          Куриер до врата · 4,90 € · безплатна над 40 €
+                          {delivery.addressFeeStotinki > 0
+                            ? `Куриер до врата · ${money(delivery.addressFeeStotinki)}${
+                                delivery.freeThresholdStotinki > 0
+                                  ? ` · безплатна над ${money(delivery.freeThresholdStotinki)}`
+                                  : ''
+                              }`
+                            : 'Куриер до врата · безплатна'}
                         </span>
                       </span>
                     </label>
