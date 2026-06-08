@@ -93,4 +93,9 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ enum: ['online', 'cod'], default: 'online' })
+  @IsOptional()
+  @IsEnum(['online', 'cod'])
+  paymentMethod?: 'online' | 'cod';
 }
