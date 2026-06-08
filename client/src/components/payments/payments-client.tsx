@@ -44,14 +44,23 @@ export function PaymentsClient({ initial }: { initial: StripeSummary }) {
   const summary = initial; // server-fetched; a navigation back from Stripe re-renders with fresh props
   const [busy, setBusy] = useState(false);
 
-  /** Create/refresh the connected account and bounce to Stripe's hosted onboarding. */
+  /** Create/refresh the connected account and open Stripe's hosted onboarding in a new tab. */
   async function onboard() {
     setBusy(true);
+    // Open the tab synchronously inside the click gesture so the browser doesn't
+    // block it as a popup; the URL is filled once the async call returns. Detach
+    // opener for safety. If the popup is blocked (tab === null), fall back to a
+    // same-tab redirect.
+    const tab = window.open('about:blank', '_blank');
+    if (tab) tab.opener = null;
     try {
       const { url } = await startStripeOnboarding();
-      window.location.href = url;
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
     } catch {
+      tab?.close();
       toast.error('Неуспешна връзка със Stripe. Опитай пак.');
+    } finally {
       setBusy(false);
     }
   }
