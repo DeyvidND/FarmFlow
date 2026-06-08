@@ -73,6 +73,12 @@ export class R2StorageProvider extends StorageService {
         Key: key,
         Body: file,
         ContentType: contentType,
+        // Every key embeds a randomUUID, so a given URL's bytes never change —
+        // a replaced image gets a fresh URL (and the old object is deleted).
+        // That makes the object safely immutable: let the browser + Cloudflare
+        // cache it for a year. Invalidation is automatic (change ⇒ new URL),
+        // while the URL-bearing API payloads are busted in Redis on write.
+        CacheControl: 'public, max-age=31536000, immutable',
       }),
     );
     return { key, url: this.getPublicUrl(key) };
