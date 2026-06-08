@@ -439,7 +439,7 @@ export class DigestService {
    * and items for the date. Returns how many emails were sent. Per-farmer
    * try/catch so one failure does not abort the rest.
    */
-  private async sendFarmerDigests(tenantId: string, date: string): Promise<number> {
+  private async sendFarmerDigests(tenantId: string, date: string, testMode = false): Promise<number> {
     const farmerRows = await this.db
       .select({ id: farmers.id, name: farmers.name, email: farmers.email })
       .from(farmers)
@@ -454,7 +454,7 @@ export class DigestService {
         if (!digest) continue;
         await this.email.sendMail({
           to: f.email,
-          subject: 'Твоите доставки за днес — FarmFlow',
+          subject: `Твоите доставки за днес — FarmFlow${testMode ? ' (тест)' : ''}`,
           html: digest.html,
           text: digest.text,
         });
@@ -537,7 +537,7 @@ export class DigestService {
       .limit(1);
 
     const farmersSent = tenant?.multiFarmer
-      ? await this.sendFarmerDigests(tenantId, today)
+      ? await this.sendFarmerDigests(tenantId, today, true)
       : 0;
 
     if (!tenant?.email) {

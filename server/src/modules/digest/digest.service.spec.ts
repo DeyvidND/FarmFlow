@@ -282,4 +282,33 @@ describe('DigestService', () => {
       );
     });
   });
+
+  // ── sendTestDigest ────────────────────────────────────────────────────────
+  describe('sendTestDigest', () => {
+    it('returns no-email + farmersSent=0 when tenant has no email and multiFarmer is false', async () => {
+      db.limit.mockResolvedValueOnce([{ email: null, multiFarmer: false }]);
+
+      const result = await service.sendTestDigest(TENANT_ID);
+
+      expect(result).toEqual({ sent: false, reason: 'no-email', farmersSent: 0 });
+      expect(emailService.sendMail).not.toHaveBeenCalled();
+    });
+
+    it('sends farmer test digests (no owner email) and reports farmersSent', async () => {
+      db.limit.mockResolvedValueOnce([{ email: null, multiFarmer: true }]);
+      db.orderBy.mockResolvedValueOnce([{ id: 'f1', name: 'Петър', email: 'petar@ferma.bg' }]);
+      db.orderBy.mockResolvedValueOnce([
+        { orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
+          deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null,
+          productName: 'Домати', quantity: 2 },
+      ]);
+
+      const result = await service.sendTestDigest(TENANT_ID);
+
+      expect(result).toEqual({ sent: false, reason: 'no-email', farmersSent: 1 });
+      expect(emailService.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'petar@ferma.bg', subject: expect.stringContaining('(тест)') }),
+      );
+    });
+  });
 });
