@@ -14,6 +14,7 @@ import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-c
 import { StorageService } from '../storage/storage.service';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { type PublicDelivery, type EcontMode } from '../orders/delivery-pricing';
+import { StripeService } from '../stripe/stripe.service';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import {
   getMediaCatalog,
@@ -42,6 +43,8 @@ export interface PublicStorefront {
   multiSubcat: boolean;
   econtEnabled: boolean;
   econtMode: EcontMode;
+  codEnabled: boolean;
+  stripeEnabled: boolean;
   delivery: PublicDelivery;
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
   // catalog slot id. Empty/missing slot → the storefront renders its `.ph` mock.
@@ -55,6 +58,7 @@ export class TenantsService {
     private readonly maps: MapsService,
     private readonly publicCache: PublicCacheService,
     private readonly storage: StorageService,
+    private readonly stripe: StripeService,
   ) {}
 
   async getMe(tenantId: string): Promise<PublicTenant> {
@@ -75,9 +79,13 @@ export class TenantsService {
    */
   async findPublicProfileBySlug(slug: string): Promise<PublicStorefront> {
     // Reuses the shared, Redis-cached slug→tenant resolver. The cached meta IS
-    // the profile shape plus an internal `id` — strip it before returning.
-    const { id: _id, ...profile } = await this.publicCache.resolveTenant(this.db, slug);
-    return profile;
+    // the profile shape plus internal `id`/`stripeAccountId` — strip them, and
+    // derive the public `stripeEnabled` flag (same gate the checkout uses).
+    const { id: _id, stripeAccountId, ...profile } = await this.publicCache.resolveTenant(
+      this.db,
+      slug,
+    );
+    return { ...profile, stripeEnabled: this.stripe.isEnabledForAccount(stripeAccountId) };
   }
 
   async updateMe(tenantId: string, dto: UpdateTenantDto): Promise<PublicTenant> {
