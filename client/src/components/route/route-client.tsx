@@ -13,11 +13,13 @@ import {
   Clock,
   Route as RouteIcon,
   HelpCircle,
+  Settings,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { RouteResult, RouteStop, RouteEndMode, RouteOrderMode } from '@/lib/types';
 import { StopList } from './stop-list';
 import { RouteMap } from './route-map';
+import { LocationRouteCard } from './location-route-card';
 
 const cn = (...c: (string | false)[]) => c.filter(Boolean).join(' ');
 
@@ -102,6 +104,7 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
   const { stops, origin, end, orderMode } = route;
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
   const [showHelp, setShowHelp] = useState(false);
+  const [showLoc, setShowLoc] = useState(false);
   // Remaining legs of a long (>9-waypoint) route — opened one-by-one on click so
   // each is a real user gesture (a burst of window.open() gets popup-blocked).
   const [extraLegs, setExtraLegs] = useState<string[]>([]);
@@ -212,6 +215,18 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
             />
           </label>
           <button
+            onClick={() => setShowLoc((v) => !v)}
+            title="Адрес на базата и край на маршрута"
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-[13px] font-bold shadow-ff-sm transition',
+              showLoc
+                ? 'border-ff-green-500 bg-ff-green-100 text-ff-green-800'
+                : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+            )}
+          >
+            <Settings size={16} /> Локация
+          </button>
+          <button
             onClick={() => setShowHelp((v) => !v)}
             title="Какво правят бутоните?"
             className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
@@ -220,6 +235,13 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
           </button>
         </div>
       </div>
+
+      {/* base address + default route-end — edited right here (moved from Настройки) */}
+      {showLoc && (
+        <div className="mb-4 max-w-[520px]">
+          <LocationRouteCard onSaved={() => router.refresh()} />
+        </div>
+      )}
 
       {/* plain-language hint for the active choices */}
       <p className="mb-3 text-[12.5px] text-ff-muted">
@@ -250,11 +272,15 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
           <h3 className="mb-1.5 text-[13.5px] font-extrabold text-ff-ink">Какво е този екран</h3>
           <p className="mb-2.5">
             Маршрутът подрежда <b>потвърдените</b> поръчки за доставка до адрес за избрания ден, за да
-            ги обиколиш бързо. Започва от базата ти (адресът от Настройки). Смени деня от бутона с
-            календара горе.
+            ги обиколиш бързо. Започва от базата ти (адресът от бутона <b>Локация</b> горе). Смени деня
+            от бутона с календара горе.
           </p>
           <h3 className="mb-2 text-[13.5px] font-extrabold text-ff-ink">Какво прави всеки бутон</h3>
           <ul className="flex list-disc flex-col gap-1.5 pl-5">
+            <li>
+              <b>Локация</b> — задава адреса на базата (началото на маршрута) и края на маршрута по
+              подразбиране. Запазва се и важи за всички следващи дни.
+            </li>
             <li>
               <b>По часови слот</b> — реди доставките по час: първо 11:00, после 12:00, после 13:00.
               Удобно, когато си обещал часове на клиентите.
@@ -266,8 +292,8 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
             <li>
               <b>Към дома / Едностранно / По избор</b> — къде свършваш след последната доставка: при
               базата, при последния клиент, или на друг адрес. Изборът тук важи{' '}
-              <b>само за този преглед</b>; стойността по подразбиране се задава в{' '}
-              <b>Настройки → Локация и маршрут</b>.
+              <b>само за този преглед</b>; стойността по подразбиране се задава от бутона{' '}
+              <b>Локация</b> горе.
             </li>
             <li>
               <b>Google Maps</b> — отваря целия маршрут в Google Maps, за да го видиш на картата.

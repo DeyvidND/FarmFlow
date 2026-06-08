@@ -1,5 +1,8 @@
 import { Leaf } from 'lucide-react';
-import type { InputHTMLAttributes, ReactNode } from 'react';
+import type { ReactNode } from 'react';
+
+// Password fields gain a show/hide eye toggle via the shared TextField.
+export { TextField as AuthField } from '@/components/ui/text-field';
 
 function Logo({ size = 52 }: { size?: number }) {
   return (
@@ -33,21 +36,6 @@ export function AuthShell({ children, footer }: { children: ReactNode; footer?: 
         {footer && <div className="mt-5 text-center text-[12.5px] text-ff-muted-2">{footer}</div>}
       </div>
     </div>
-  );
-}
-
-export function AuthField({
-  label,
-  ...props
-}: { label: string } & InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[13px] font-bold text-ff-ink-2">{label}</span>
-      <input
-        className="rounded-sm border border-ff-border bg-ff-surface-2 px-3.5 py-3 text-[15px] text-ff-ink outline-none transition-colors placeholder:text-ff-muted-2 focus:border-ff-green-500"
-        {...props}
-      />
-    </label>
   );
 }
 
