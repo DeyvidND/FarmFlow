@@ -5,6 +5,7 @@ import {
   localFeeStotinki,
   econtFallbackFee,
   buildPublicDelivery,
+  codEnabled,
   DELIVERY_DEFAULTS,
   type DeliveryConfig,
 } from './delivery-pricing';
@@ -81,6 +82,19 @@ describe('delivery-pricing', () => {
         methods: { econtOffice: { pricing: { type: 'flat', feeStotinki: 400 } } },
       };
       expect(econtFallbackFee(cfg, false)).toBe(400);
+    });
+  });
+
+  describe('codEnabled', () => {
+    it('defaults to true when unset (cash-first farms)', () => {
+      expect(codEnabled(null)).toBe(true);
+      expect(codEnabled({})).toBe(true);
+      expect(codEnabled({ cod: {} })).toBe(true);
+    });
+
+    it('respects an explicit flag', () => {
+      expect(codEnabled({ cod: { enabled: false } })).toBe(false);
+      expect(codEnabled({ cod: { enabled: true } })).toBe(true);
     });
   });
 
