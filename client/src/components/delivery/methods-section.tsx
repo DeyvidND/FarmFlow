@@ -52,9 +52,14 @@ export function MethodsSection({
   // When Econt is off, its method rows are irrelevant clutter — hide them so a
   // self-delivery farm only sees self-delivery + pickup.
   const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
-  const order = cfg.methods.order.filter(
-    (k) => !(econtMode === 'off' && (k === 'econtOffice' || k === 'econtAddress')),
-  );
+  // Econt method visibility by mode: the office picker needs the live API, so it
+  // shows only in 'auto'. Manual Econt is address-only — the customer gives an
+  // address and the farm ships it by hand — so only the "до адрес" card shows.
+  const order = cfg.methods.order.filter((k) => {
+    if (k === 'econtOffice') return econtMode === 'auto';
+    if (k === 'econtAddress') return econtMode !== 'off';
+    return true;
+  });
 
   const onDrop = (target: DeliveryMethodKey) => {
     if (!dragKey || dragKey === target) return;

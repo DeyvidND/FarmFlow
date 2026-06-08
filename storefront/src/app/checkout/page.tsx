@@ -22,6 +22,7 @@ export default async function CheckoutPage({
       delivery={profile?.delivery ?? DEFAULT_DELIVERY}
       codEnabled={profile?.codEnabled ?? true}
       stripeEnabled={profile?.stripeEnabled ?? false}
+      econtMode={profile?.econtMode ?? 'off'}
     />
   );
 }

@@ -24,11 +24,13 @@ export function CheckoutClient({
   delivery,
   codEnabled,
   stripeEnabled,
+  econtMode,
 }: {
   deliveryEnabled: boolean;
   delivery: StorefrontDelivery;
   codEnabled: boolean;
   stripeEnabled: boolean;
+  econtMode: 'off' | 'manual' | 'auto';
 }) {
   const router = useRouter();
   const slug = resolveSlug();
@@ -59,7 +61,16 @@ export function CheckoutClient({
   const [submitting, setSubmitting] = useState(false);
 
   const isEcont = deliveryType === 'econt';
-  const shipping = shippingFor(subtotal, deliveryType, delivery);
+  // Manual Econt has no API office picker: the customer gives an address and the
+  // farm ships it by hand, so the order goes out as `econt_address`. Auto mode
+  // uses the office method (`econt`).
+  const manualEcont = econtMode === 'manual';
+  const sentDeliveryType: DeliveryType = isEcont
+    ? manualEcont
+      ? 'econt_address'
+      : 'econt'
+    : 'address';
+  const shipping = shippingFor(subtotal, sentDeliveryType, delivery);
   const total = subtotal + shipping;
 
   const submit = async (e: FormEvent) => {
@@ -80,11 +91,13 @@ export function CheckoutClient({
         customerPhone: phone.trim(),
         customerEmail: email.trim() || undefined,
         slotId: slotId ?? undefined,
-        deliveryType,
-        deliveryAddress: isEcont ? undefined : addressInput.trim() || undefined,
+        deliveryType: sentDeliveryType,
+        // Manual Econt + self-delivery carry an address; auto Econt carries an office.
+        deliveryAddress:
+          !isEcont || manualEcont ? addressInput.trim() || undefined : undefined,
         deliveryLat: isEcont ? undefined : addressLat ?? undefined,
         deliveryLng: isEcont ? undefined : addressLng ?? undefined,
-        econtOffice: isEcont ? addressInput.trim() || undefined : undefined,
+        econtOffice: isEcont && !manualEcont ? addressInput.trim() || undefined : undefined,
         paymentMethod,
       });
       if (res.checkoutUrl) {
@@ -220,24 +233,41 @@ export function CheckoutClient({
                   >
                     <span className="dot"></span>
                     <span>
-                      <b>Еконт офис</b>
+                      <b>{manualEcont ? 'Доставка с Еконт' : 'Еконт офис'}</b>
                       <br />
                       <span className="muted" style={{ fontSize: 14 }}>
-                        Вземане от офис на Еконт · 3,50 €
+                        {manualEcont
+                          ? `Еконт до твоя адрес · ${money(delivery.econtAddressFeeStotinki)}`
+                          : `Вземане от офис на Еконт · ${money(delivery.econtFeeStotinki)}`}
                       </span>
                     </span>
                   </label>
                 </div>
                 {isEcont ? (
-                  <div className="field" style={{ marginTop: 14 }}>
-                    <label>Избери офис на Еконт</label>
-                    <input
-                      className="input"
-                      placeholder="напр. Еконт Варна Център"
-                      value={addressInput}
-                      onChange={(e) => setAddressInput(e.target.value)}
-                    />
-                  </div>
+                  manualEcont ? (
+                    <div className="field" style={{ marginTop: 14 }}>
+                      <label>Адрес за доставка (град, улица, №)</label>
+                      <input
+                        className="input"
+                        placeholder="напр. Варна, ул. Иван Вазов 5"
+                        value={addressInput}
+                        onChange={(e) => setAddressInput(e.target.value)}
+                      />
+                      <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+                        Еконт доставя до най-близкия офис до твоя адрес.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="field" style={{ marginTop: 14 }}>
+                      <label>Избери офис на Еконт</label>
+                      <input
+                        className="input"
+                        placeholder="напр. Еконт Варна Център"
+                        value={addressInput}
+                        onChange={(e) => setAddressInput(e.target.value)}
+                      />
+                    </div>
+                  )
                 ) : (
                   <div style={{ marginTop: 14 }}>
                     <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>
