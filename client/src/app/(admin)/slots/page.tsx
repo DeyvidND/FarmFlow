@@ -31,6 +31,18 @@ function currentWeek(): { days: string[]; today: string } {
   return { days: Array.from({ length: 7 }, (_, i) => isoAddDays(monday, i)), today };
 }
 
+/**
+ * Parse a JSON response, tolerating an empty body. `/slots/rule` returns `null`
+ * for a tenant with no recurring rule, which Nest sends as a 200 with an empty
+ * body — calling `.json()` on that throws "Unexpected end of JSON input" and
+ * would crash the whole page render.
+ */
+async function readJson<T>(res: Response, fallback: T): Promise<T> {
+  if (!res.ok) return fallback;
+  const text = await res.text();
+  return text ? (JSON.parse(text) as T) : fallback;
+}
+
 async function load(
   week: string[],
 ): Promise<{ slots: Slot[]; delivery: boolean; rule: SlotRule | null }> {
@@ -44,9 +56,9 @@ async function load(
     fetch(`${API_BASE}/slots/rule`, { headers, cache: 'no-store' }),
   ]);
 
-  const slots = sRes.ok ? await sRes.json() : [];
-  const tenant = tRes.ok ? await tRes.json() : {};
-  const rule = rRes.ok ? await rRes.json() : null;
+  const slots = await readJson<Slot[]>(sRes, []);
+  const tenant = await readJson<{ deliveryEnabled?: boolean }>(tRes, {});
+  const rule = await readJson<SlotRule | null>(rRes, null);
   return { slots, delivery: !!tenant.deliveryEnabled, rule };
 }
 
