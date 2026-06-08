@@ -262,5 +262,24 @@ describe('DigestService', () => {
         expect.objectContaining({ to: 'farmer2@test.bg' }),
       );
     });
+
+    it('sends farmer digests for a multi-farmer tenant with no owner email', async () => {
+      // tenant query: multiFarmer on, no owner email
+      db.orderBy.mockResolvedValueOnce([{ id: TENANT_ID, email: null, multiFarmer: true }]);
+      // farmers-with-email query
+      db.orderBy.mockResolvedValueOnce([{ id: 'f1', name: 'Петър', email: 'petar@ferma.bg' }]);
+      // buildFarmerDigest items query
+      db.orderBy.mockResolvedValueOnce([
+        { orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
+          deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null,
+          productName: 'Домати', quantity: 3 },
+      ]);
+
+      await service.runDailyDigests();
+
+      expect(emailService.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'petar@ferma.bg' }),
+      );
+    });
   });
 });

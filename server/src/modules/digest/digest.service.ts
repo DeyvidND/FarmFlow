@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
-import { type Database, orders, orderItems, products, deliverySlots, tenants } from '@farmflow/db';
+import { and, eq, isNotNull, or, sql } from 'drizzle-orm';
+import { type Database, orders, orderItems, products, deliverySlots, tenants, farmers } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { bgToday, bgDate } from '../../common/time/bg-time';
@@ -435,6 +435,41 @@ export class DigestService {
   }
 
   /**
+   * Send a per-farmer digest to every farmer of the tenant that has an email
+   * and items for the date. Returns how many emails were sent. Per-farmer
+   * try/catch so one failure does not abort the rest.
+   */
+  private async sendFarmerDigests(tenantId: string, date: string): Promise<number> {
+    const farmerRows = await this.db
+      .select({ id: farmers.id, name: farmers.name, email: farmers.email })
+      .from(farmers)
+      .where(and(eq(farmers.tenantId, tenantId), isNotNull(farmers.email))!)
+      .orderBy(farmers.id);
+
+    let sent = 0;
+    for (const f of farmerRows) {
+      if (!f.email) continue;
+      try {
+        const digest = await this.buildFarmerDigest(tenantId, f.id, date, f.name);
+        if (!digest) continue;
+        await this.email.sendMail({
+          to: f.email,
+          subject: 'Твоите доставки за днес — FarmFlow',
+          html: digest.html,
+          text: digest.text,
+        });
+        sent++;
+        this.logger.log(`[digest] Farmer sent tenant=${tenantId} farmer=${f.id}`);
+      } catch (err) {
+        this.logger.error(
+          `[digest] Farmer failed tenant=${tenantId} farmer=${f.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return sent;
+  }
+
+  /**
    * Daily cron at 07:00 Europe/Sofia: send digests to all tenants that have
    * an email configured and confirmed orders for today.
    */
@@ -443,56 +478,75 @@ export class DigestService {
     const today = bgToday();
 
     const tenantRows = await this.db
-      .select({ id: tenants.id, email: tenants.email })
+      .select({ id: tenants.id, email: tenants.email, multiFarmer: tenants.multiFarmer })
       .from(tenants)
-      .where(isNotNull(tenants.email))
+      .where(or(isNotNull(tenants.email), eq(tenants.multiFarmer, true))!)
       .orderBy(tenants.id);
 
     for (const tenant of tenantRows) {
-      if (!tenant.email) continue;
-      try {
-        const digest = await this.buildDigest(tenant.id, today);
-        if (!digest) {
-          this.logger.log(`[digest] No orders for tenant=${tenant.id} on ${today} — skipping`);
-          continue;
+      // Owner digest (unchanged) — only when the tenant has an email.
+      if (tenant.email) {
+        try {
+          const digest = await this.buildDigest(tenant.id, today);
+          if (!digest) {
+            this.logger.log(`[digest] No orders for tenant=${tenant.id} on ${today} — skipping`);
+          } else {
+            await this.email.sendMail({
+              to: tenant.email,
+              subject: 'Доставки за днес — FarmFlow',
+              html: digest.html,
+              text: digest.text,
+            });
+            this.logger.log(
+              `[digest] Sent to tenant=${tenant.id} orders=${digest.summary.totalOrders}`,
+            );
+          }
+        } catch (err) {
+          this.logger.error(
+            `[digest] Failed for tenant=${tenant.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
-        await this.email.sendMail({
-          to: tenant.email,
-          subject: 'Доставки за днес — FarmFlow',
-          html: digest.html,
-          text: digest.text,
-        });
-        this.logger.log(
-          `[digest] Sent to tenant=${tenant.id} orders=${digest.summary.totalOrders}`,
-        );
-      } catch (err) {
-        this.logger.error(
-          `[digest] Failed for tenant=${tenant.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+      }
+
+      // Per-farmer digests — only in multi-farmer mode.
+      if (tenant.multiFarmer) {
+        try {
+          await this.sendFarmerDigests(tenant.id, today);
+        } catch (err) {
+          this.logger.error(
+            `[digest] Farmer batch failed tenant=${tenant.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     }
   }
 
   /**
-   * Used by POST /digest/test: build today's digest for the given tenant and
-   * send it to that tenant's email immediately. Returns { sent, reason? }.
+   * Used by POST /digest/test: build today's owner digest for the tenant and
+   * (in multi-farmer mode) the per-farmer digests, sending immediately.
    */
-  async sendTestDigest(tenantId: string): Promise<{ sent: boolean; reason?: string }> {
+  async sendTestDigest(
+    tenantId: string,
+  ): Promise<{ sent: boolean; reason?: string; farmersSent: number }> {
     const today = bgToday();
 
     const [tenant] = await this.db
-      .select({ email: tenants.email })
+      .select({ email: tenants.email, multiFarmer: tenants.multiFarmer })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
 
+    const farmersSent = tenant?.multiFarmer
+      ? await this.sendFarmerDigests(tenantId, today)
+      : 0;
+
     if (!tenant?.email) {
-      return { sent: false, reason: 'no-email' };
+      return { sent: false, reason: 'no-email', farmersSent };
     }
 
     const digest = await this.buildDigest(tenantId, today);
     if (!digest) {
-      return { sent: false, reason: 'no-orders' };
+      return { sent: false, reason: 'no-orders', farmersSent };
     }
 
     await this.email.sendMail({
@@ -502,6 +556,6 @@ export class DigestService {
       text: digest.text,
     });
 
-    return { sent: true };
+    return { sent: true, farmersSent };
   }
 }

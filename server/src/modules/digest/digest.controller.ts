@@ -13,7 +13,9 @@ export class DigestController {
 
   /** Trigger a digest email for today — for manual SMTP testing without waiting for the cron. */
   @Post('test')
-  testDigest(@CurrentTenant() tenantId: string): Promise<{ sent: boolean; reason?: string }> {
+  testDigest(
+    @CurrentTenant() tenantId: string,
+  ): Promise<{ sent: boolean; reason?: string; farmersSent: number }> {
     return this.digestService.sendTestDigest(tenantId);
   }
 }
