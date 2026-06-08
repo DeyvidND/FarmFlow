@@ -1,4 +1,4 @@
-import { getStorefront, resolveSlug } from '@/lib/api';
+import { getStorefront, resolveSlug, DEFAULT_METHODS } from '@/lib/api';
 import { DEFAULT_DELIVERY } from '@/lib/shipping';
 import { CheckoutClient } from '@/components/checkout-client';
 
@@ -23,6 +23,7 @@ export default async function CheckoutPage({
       codEnabled={profile?.codEnabled ?? true}
       stripeEnabled={profile?.stripeEnabled ?? false}
       econtMode={profile?.econtMode ?? 'off'}
+      methods={profile?.methods ?? DEFAULT_METHODS}
     />
   );
 }

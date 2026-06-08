@@ -13,7 +13,7 @@ import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { StorageService } from '../storage/storage.service';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
-import { type PublicDelivery, type EcontMode } from '../orders/delivery-pricing';
+import { type PublicDelivery, type PublicMethods, type EcontMode } from '../orders/delivery-pricing';
 import { StripeService } from '../stripe/stripe.service';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import {
@@ -46,6 +46,7 @@ export interface PublicStorefront {
   codEnabled: boolean;
   stripeEnabled: boolean;
   delivery: PublicDelivery;
+  methods: PublicMethods;
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
   // catalog slot id. Empty/missing slot → the storefront renders its `.ph` mock.
   media: PublicMediaMap;

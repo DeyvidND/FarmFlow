@@ -5,9 +5,11 @@ import { type Database, tenants } from '@farmflow/db';
 import { REDIS_TOKEN } from '../redis/redis.constants';
 import {
   buildPublicDelivery,
+  buildPublicMethods,
   econtMode,
   codEnabled,
   type PublicDelivery,
+  type PublicMethods,
   type DeliveryConfig,
   type EcontMode,
 } from '../../modules/orders/delivery-pricing';
@@ -42,6 +44,9 @@ export interface TenantMeta {
   // Read-only delivery pricing (free-over threshold + per-method fees) so the
   // storefront displays the farm's configured fees instead of hardcoded numbers.
   delivery: PublicDelivery;
+  // Which delivery methods are switched on — the storefront shows only these, so
+  // a disabled method (e.g. Econt 'до адрес' left off) never reaches a customer.
+  methods: PublicMethods;
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
   // catalog slot id. Empty/missing → the storefront renders its `.ph` mock.
   media: Record<string, { url: string }>;
@@ -136,6 +141,7 @@ export class PublicCacheService {
       codEnabled: codEnabled(delivery),
       stripeAccountId: row.stripeAccountId ?? null,
       delivery: buildPublicDelivery(delivery),
+      methods: buildPublicMethods(delivery),
       media,
     };
 
