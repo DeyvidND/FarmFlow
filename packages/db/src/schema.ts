@@ -457,6 +457,7 @@ export const farmers = pgTable(
     role: text('role'),
     bio: text('bio'),
     phone: text('phone'),
+    email: text('email'),
     since: text('since'),
     tint: text('tint'),
     imageUrl: text('image_url'),

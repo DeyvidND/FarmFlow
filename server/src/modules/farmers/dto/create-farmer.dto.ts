@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, IsUrl, Min } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsUrl, IsEmail, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateFarmerDto {
@@ -20,6 +20,11 @@ export class CreateFarmerDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @ApiPropertyOptional({ example: 'petar@ferma.bg' })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
   @ApiPropertyOptional({ example: '2014' })
   @IsOptional()
