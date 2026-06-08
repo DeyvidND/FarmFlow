@@ -371,6 +371,9 @@ export class OrdersService {
           deliveryLat: isLocal && lat != null ? String(lat) : null,
           deliveryLng: isLocal && lng != null ? String(lng) : null,
           econtOffice: isEcontOffice ? dto.econtOffice ?? null : null,
+          // Customer's payment choice; checkout may normalize 'online'→'cod'
+          // when the farm has no usable Stripe account.
+          paymentMethod: dto.paymentMethod ?? 'online',
           notes: dto.notes ?? null,
         })
         .returning();
