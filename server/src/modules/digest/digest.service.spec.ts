@@ -200,7 +200,7 @@ describe('DigestService', () => {
 
   describe('runDailyDigests', () => {
     it('sends an email when a tenant has a non-null email and has orders', async () => {
-      const tenantRow = { id: TENANT_ID, email: 'farmer@test.bg' };
+      const tenantRow = { id: TENANT_ID, email: 'farmer@test.bg', multiFarmer: false };
       // First call: get all tenants with email
       db.orderBy.mockResolvedValueOnce([tenantRow]);
       // Second call: buildDigest → orders query
@@ -223,7 +223,7 @@ describe('DigestService', () => {
     });
 
     it('does not send when digest returns null (no orders)', async () => {
-      const tenantRow = { id: TENANT_ID, email: 'farmer@test.bg' };
+      const tenantRow = { id: TENANT_ID, email: 'farmer@test.bg', multiFarmer: false };
       db.orderBy.mockResolvedValueOnce([tenantRow]);
       // buildDigest returns null (no orders)
       db.orderBy.mockResolvedValueOnce([]);
@@ -234,8 +234,8 @@ describe('DigestService', () => {
     });
 
     it('catches error for one tenant and continues to the next', async () => {
-      const tenant1 = { id: 'tenant-1', email: 'farmer1@test.bg' };
-      const tenant2 = { id: 'tenant-2', email: 'farmer2@test.bg' };
+      const tenant1 = { id: 'tenant-1', email: 'farmer1@test.bg', multiFarmer: false };
+      const tenant2 = { id: 'tenant-2', email: 'farmer2@test.bg', multiFarmer: false };
       db.orderBy.mockResolvedValueOnce([tenant1, tenant2]);
 
       // tenant1 buildDigest throws
