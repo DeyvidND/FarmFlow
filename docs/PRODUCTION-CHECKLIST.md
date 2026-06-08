@@ -41,18 +41,22 @@ Validated in `server/src/config/env.validation.ts`. Required/important:
 - ☐ Google Maps: browser + server keys (⚠️ restrict to prod domain/referrer + server IP; mind the `DEMO_MAP_ID` fallback).
 
 ## 4. Stripe → LIVE
-- ☐ Swap to **live** `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`.
+- ☐ Swap to **live** `STRIPE_SECRET_KEY`.
 - ☐ Live **Connect** onboarding (`STRIPE_CONNECT_COUNTRY`), live `STRIPE_PLATFORM_FEE_BPS`.
 - ☐ Live platform-billing `STRIPE_BILLING_PRICE_ID` (€30/mo price on the platform account).
-- ☐ Point the live Stripe webhook at `https://api.../<stripe-webhook-path>`; verify signature works in prod.
-- ☐ Test a live card end-to-end (order → pay → payout to connected account).
+- ⚠️ **TWO webhook endpoints are required** — Stripe delivers platform-account events and connected-account events through **separate** endpoints, each with its **own** signing secret. The API verifies an incoming event against *both* secrets, so point both endpoints at the same URL `https://api.../stripe/webhook`:
+  - **Account** endpoint ("Listen to events on your account") → set its secret as `STRIPE_WEBHOOK_SECRET`. Needed for SaaS billing: `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`, and subscription `checkout.session.completed`.
+  - **Connect** endpoint ("Listen to events on Connected accounts") → set its secret as `STRIPE_CONNECT_WEBHOOK_SECRET`. Needed for order payments: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `account.updated`, `account.application.deauthorized`. ⚠️ Without this endpoint, customers are charged but **orders never flip to `confirmed`** (stuck pending, no label/email).
+- ☐ Verify signatures work in prod for **both** endpoints (send a test event from each).
+- ☐ Test a live card end-to-end (order → pay → order `confirmed` → payout to connected account).
+- ☐ Confirm a connected account's **settlement currency** is EUR (the Payments balance card sums the account's `default_currency`; a BGN-settling account would otherwise read €0).
 
-## 5. Email (Amazon SES) — finish go-live
-- ☐ SES **production access** approved (out of sandbox).
-- ☐ Create **SMTP credentials** → set `SMTP_HOST=email-smtp.eu-central-1.amazonaws.com`, `SMTP_USER`, `SMTP_PASS`.
-- ☐ `EMAIL_TRANSACTIONAL_FROM`, `EMAIL_BULK_FROM` (`@farmsteadflow.com`), `SES_CONFIG_SET_*`.
-- ☐ `EMAIL_WEBHOOK_SECRET` + create the SNS HTTPS subscription → `/email/webhook?secret=...`. `EMAIL_SNS_VERIFY=true` (default; signatures verified).
-- ☑ DNS: DKIM + SPF (⚠️ merged with Cloudflare Email Routing) + DMARC verified.
+## 5. Email (Resend) — finish go-live
+- ☐ Add domain in Resend; **Verify** goes green.
+- ☐ Create an **API key** → set `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_USER=resend`, `SMTP_PASS=<re_... key>`.
+- ☐ `EMAIL_TRANSACTIONAL_FROM`, `EMAIL_BULK_FROM` (`@farmsteadflow.com`).
+- ☐ Add a Resend **webhook** (events `email.bounced` + `email.complained`) → `/email/webhook?secret=...`; set `RESEND_WEBHOOK_SECRET` (whsec_...) + `EMAIL_WEBHOOK_SECRET`. `EMAIL_WEBHOOK_VERIFY=true` (default; Svix signatures verified).
+- ☐ DNS (on the `send.` subdomain, separate from root Cloudflare Email Routing): MX + SPF + DKIM + DMARC verified.
 - ☐ Live send test (reset email + a digest).
 
 ## 6. Database
@@ -66,7 +70,7 @@ Validated in `server/src/config/env.validation.ts`. Required/important:
 - ☐ Automated backups + a tested restore.
 
 ## 7. Security
-- ☑ Helmet, CORS allowlist, Redis throttler, SNS signature verification.
+- ☑ Helmet, CORS allowlist, Redis throttler, Resend (Svix) webhook signature verification.
 - ☑ Swagger gated to non-production.
 - ☐ Run `security-review` on the diff before cut-over.
 - ☐ Verify no secrets committed; rotate any that ever were.

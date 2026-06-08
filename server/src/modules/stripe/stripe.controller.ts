@@ -34,20 +34,6 @@ export class StripeController {
   }
 }
 
-/** Tenant-scoped admin trigger to (re)sync the farm's products into its Stripe catalog. */
-@ApiTags('stripe')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
-@Controller('stripe/catalog')
-export class StripeCatalogController {
-  constructor(private readonly stripeService: StripeService) {}
-
-  @Post('sync')
-  sync(@CurrentTenant() tenantId: string) {
-    return this.stripeService.syncCatalog(tenantId);
-  }
-}
-
 /** Tenant-scoped Stripe Connect onboarding — self-serve account link + status. */
 @ApiTags('stripe')
 @ApiBearerAuth()

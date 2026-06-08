@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { and, eq, ne } from 'drizzle-orm';
 import Stripe from 'stripe';
-import { type Database, products, orders, tenants, stripeEvents } from '@farmflow/db';
+import { type Database, orders, tenants, stripeEvents } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { BillingService } from '../billing/billing.service';
 import { EcontService } from '../econt/econt.service';
@@ -31,8 +31,6 @@ export interface CheckoutLine {
   productName: string;
   quantity: number;
   priceStotinki: number;
-  /** Synced Stripe price id, if the catalog was synced; else inline price_data is used. */
-  stripePriceId?: string | null;
 }
 
 export interface CreateCheckoutParams {
@@ -85,7 +83,10 @@ export interface ConnectSummary {
 export class StripeService {
   private readonly logger = new Logger(StripeService.name);
   private readonly client: StripeClient | null;
+  /** Platform (account) endpoint secret — billing events. */
   private readonly webhookSecret: string;
+  /** Connect endpoint secret — connected-account order events. */
+  private readonly connectWebhookSecret: string;
   private readonly feeBps: number;
   private readonly connectCountry: string;
   private readonly panelUrl: string;
@@ -99,6 +100,7 @@ export class StripeService {
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
+    this.connectWebhookSecret = config.get<string>('STRIPE_CONNECT_WEBHOOK_SECRET')?.trim() ?? '';
     this.feeBps = config.get<number>('STRIPE_PLATFORM_FEE_BPS', 0);
     this.connectCountry = config.get<string>('STRIPE_CONNECT_COUNTRY', 'BG');
     // CORS_ORIGIN may be a comma-separated allowlist — the panel redirect base is
@@ -250,12 +252,17 @@ export class StripeService {
     const accountId = tenant?.stripeAccountId;
     if (!accountId) return base;
 
+    // The account's settlement currency — what its balance/payouts are held in
+    // (a BG account may settle in BGN, not EUR). Used to sum the right balance
+    // bucket instead of assuming 'eur'.
+    let settleCcy = 'eur';
     try {
       const acct = await this.client.accounts.retrieve(accountId);
       base.connected = true;
       base.chargesEnabled = !!acct.charges_enabled;
       base.payoutsEnabled = !!acct.payouts_enabled;
       base.detailsSubmitted = !!acct.details_submitted;
+      settleCcy = (acct.default_currency ?? 'eur').toLowerCase();
     } catch (err) {
       this.logger.warn(`Stripe account retrieve failed (${tenantId}): ${this.errText(err)}`);
       return base;
@@ -266,8 +273,8 @@ export class StripeService {
 
     try {
       const balance = await this.client.balance.retrieve({}, { stripeAccount: accountId });
-      base.availableStotinki = this.sumEur(balance.available);
-      base.pendingStotinki = this.sumEur(balance.pending);
+      base.availableStotinki = this.sumByCurrency(balance.available, settleCcy);
+      base.pendingStotinki = this.sumByCurrency(balance.pending, settleCcy);
     } catch (err) {
       this.logger.warn(`Stripe balance read failed (${tenantId}): ${this.errText(err)}`);
     }
@@ -301,99 +308,15 @@ export class StripeService {
     return base;
   }
 
-  private sumEur(entries: { amount: number; currency: string }[]): number {
-    return entries.filter((e) => e.currency === 'eur').reduce((s, e) => s + e.amount, 0);
+  private sumByCurrency(
+    entries: { amount: number; currency: string }[],
+    currency: string,
+  ): number {
+    return entries.filter((e) => e.currency === currency).reduce((s, e) => s + e.amount, 0);
   }
 
   private errText(err: unknown): string {
     return err instanceof Error ? err.message : 'unknown';
-  }
-
-  /* ------------------------------ catalog sync ----------------------------- */
-
-  /**
-   * Upsert the tenant's active products into its Stripe catalog (Product + Price
-   * on the connected account) and persist the resulting ids. Idempotent: a
-   * product is updated in place; a price (immutable in Stripe) is archived and
-   * recreated only when the amount/currency changed.
-   */
-  async syncCatalog(tenantId: string): Promise<{ synced: number }> {
-    const [tenant] = await this.db
-      .select({ id: tenants.id, stripeAccountId: tenants.stripeAccountId })
-      .from(tenants)
-      .where(eq(tenants.id, tenantId))
-      .limit(1);
-    if (!tenant) throw new NotFoundException('Фермата не е намерена');
-    if (!this.isEnabledForAccount(tenant.stripeAccountId)) {
-      throw new BadRequestException('Фермата няма свързан Stripe акаунт');
-    }
-    const options: RequestOptions = { stripeAccount: tenant.stripeAccountId };
-
-    const rows = await this.db
-      .select()
-      .from(products)
-      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
-
-    let synced = 0;
-    for (const p of rows) {
-      const ids = await this.upsertProductPrice(p, options);
-      if (ids.stripeProductId !== p.stripeProductId || ids.stripePriceId !== p.stripePriceId) {
-        await this.db.update(products).set(ids).where(eq(products.id, p.id));
-      }
-      synced++;
-    }
-    return { synced };
-  }
-
-  private async upsertProductPrice(
-    p: typeof products.$inferSelect,
-    options: RequestOptions,
-  ): Promise<{ stripeProductId: string; stripePriceId: string }> {
-    // Product — update in place, or (re)create if missing/never synced.
-    let productId: string | null = p.stripeProductId;
-    if (productId) {
-      try {
-        await this.stripe.products.update(
-          productId,
-          { name: p.name, active: true, metadata: { farmflowProductId: p.id } },
-          options,
-        );
-      } catch {
-        productId = null; // disappeared on Stripe — recreate below
-      }
-    }
-    if (!productId) {
-      const created = await this.stripe.products.create(
-        { name: p.name, metadata: { farmflowProductId: p.id } },
-        options,
-      );
-      productId = created.id;
-    }
-    const stripeProductId: string = productId;
-
-    // Price — immutable; recreate (archiving the old one) only when it changed.
-    let priceId: string | null = p.stripePriceId;
-    let needNewPrice = !priceId;
-    if (priceId) {
-      try {
-        const existing = await this.stripe.prices.retrieve(priceId, undefined, options);
-        if (existing.unit_amount !== p.priceStotinki || existing.currency !== 'eur') {
-          await this.stripe.prices.update(priceId, { active: false }, options);
-          needNewPrice = true;
-        }
-      } catch {
-        needNewPrice = true;
-      }
-    }
-    if (needNewPrice) {
-      const price = await this.stripe.prices.create(
-        { product: stripeProductId, unit_amount: p.priceStotinki, currency: 'eur' },
-        options,
-      );
-      priceId = price.id;
-    }
-
-    return { stripeProductId, stripePriceId: priceId as string };
   }
 
   /* ------------------------------- checkout -------------------------------- */
@@ -409,18 +332,17 @@ export class StripeService {
       idempotencyKey: `ff_checkout_${params.orderId}`,
     };
 
-    const lineItems: SessionLineItem[] = params.lines.map((l) =>
-      l.stripePriceId
-        ? { price: l.stripePriceId, quantity: l.quantity }
-        : {
-            quantity: l.quantity,
-            price_data: {
-              currency: 'eur',
-              unit_amount: l.priceStotinki,
-              product_data: { name: l.productName },
-            },
-          },
-    );
+    // Inline price_data straight from the intake snapshot — always reflects the
+    // exact amount the order was placed at (the snapshot also drives order.total
+    // and the under-payment guard, so the three can never diverge).
+    const lineItems: SessionLineItem[] = params.lines.map((l) => ({
+      quantity: l.quantity,
+      price_data: {
+        currency: 'eur',
+        unit_amount: l.priceStotinki,
+        product_data: { name: l.productName },
+      },
+    }));
 
     if (params.shippingStotinki > 0) {
       lineItems.push({
@@ -467,14 +389,27 @@ export class StripeService {
    */
   async handleWebhook(rawBody: Buffer, signature: string): Promise<{ received: boolean }> {
     if (!this.client) throw new BadRequestException('Stripe не е конфигуриран');
-    if (!this.webhookSecret) throw new BadRequestException('Stripe webhook secret липсва');
 
-    let event: ReturnType<StripeClient['webhooks']['constructEvent']>;
-    try {
-      event = this.client.webhooks.constructEvent(rawBody, signature, this.webhookSecret);
-    } catch (err) {
+    // Stripe sends platform-account events (billing) and connected-account events
+    // (orders) through two SEPARATE endpoints, each with its OWN signing secret.
+    // Both endpoints can point at this one URL, so verify against every configured
+    // secret and accept the event if any matches.
+    const secrets = [this.webhookSecret, this.connectWebhookSecret].filter(Boolean);
+    if (!secrets.length) throw new BadRequestException('Stripe webhook secret липсва');
+
+    let event: ReturnType<StripeClient['webhooks']['constructEvent']> | null = null;
+    let lastErr: unknown;
+    for (const secret of secrets) {
+      try {
+        event = this.client.webhooks.constructEvent(rawBody, signature, secret);
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (!event) {
       throw new BadRequestException(
-        `Невалиден webhook подпис: ${err instanceof Error ? err.message : 'unknown'}`,
+        `Невалиден webhook подпис: ${lastErr instanceof Error ? lastErr.message : 'unknown'}`,
       );
     }
 
@@ -583,6 +518,14 @@ export class StripeService {
         );
         break;
       }
+      case 'account.application.deauthorized': {
+        // The farm revoked FarmFlow's access from its own Stripe dashboard. The
+        // `data.object` is an Application, so the account is in `event.account`.
+        // Clear the link + cached flags so the Payments page falls back to the
+        // connect CTA and the farm can reconnect cleanly.
+        await this.clearConnectedAccount(account);
+        break;
+      }
       // Platform-side SaaS subscription billing — delegate to BillingService.
       case 'invoice.paid':
       case 'invoice.payment_failed':
@@ -611,6 +554,21 @@ export class StripeService {
         stripeStatusUpdatedAt: new Date(),
       })
       .where(eq(tenants.stripeAccountId, account.id));
+  }
+
+  /** Drop a connected account's link + cached flags when the farm deauthorizes us. */
+  private async clearConnectedAccount(account: string | null): Promise<void> {
+    if (!account) return;
+    await this.db
+      .update(tenants)
+      .set({
+        stripeAccountId: null,
+        stripeChargesEnabled: false,
+        stripePayoutsEnabled: false,
+        stripeDetailsSubmitted: false,
+        stripeStatusUpdatedAt: new Date(),
+      })
+      .where(eq(tenants.stripeAccountId, account));
   }
 
   private idOf(ref: string | { id: string } | null | undefined): string | null {

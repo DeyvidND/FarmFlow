@@ -5,14 +5,22 @@ export const envValidationSchema = Joi.object({
   REDIS_URL: Joi.string().required(),
   JWT_SECRET: Joi.string().required(),
   STRIPE_SECRET_KEY: Joi.string().optional().allow(''),
+  // Signing secret of the PLATFORM (account) webhook endpoint — verifies SaaS
+  // billing events (invoices / subscriptions) raised on the platform account.
   STRIPE_WEBHOOK_SECRET: Joi.string().optional().allow(''),
+  // Signing secret of the CONNECT webhook endpoint — verifies order events
+  // (direct charges / refunds / account.updated) raised on connected accounts.
+  // Stripe delivers platform-account and connected-account events through two
+  // SEPARATE endpoints with two SEPARATE secrets, so both must be configured for
+  // billing AND order payments to work; the webhook handler tries each secret.
+  STRIPE_CONNECT_WEBHOOK_SECRET: Joi.string().optional().allow(''),
   // Storefront origin for Stripe success/cancel redirect URLs.
   STOREFRONT_URL: Joi.string().default('http://localhost:3003'),
   // Platform commission on each storefront order, in basis points (100 = 1%).
   // 0 = no application fee (the farm keeps 100%). Applied as Stripe
   // `application_fee_amount` on the connected-account direct charge.
   STRIPE_PLATFORM_FEE_BPS: Joi.number().min(0).max(10000).default(0),
-  // Country for Express connected accounts created via the onboarding flow.
+  // Country for Standard connected accounts created via the onboarding flow.
   STRIPE_CONNECT_COUNTRY: Joi.string().default('BG'),
   R2_ACCOUNT_ID: Joi.string().optional().allow(''),
   R2_ACCESS_KEY_ID: Joi.string().optional().allow(''),
@@ -44,18 +52,20 @@ export const envValidationSchema = Joi.object({
   SMTP_PASS: Joi.string().optional().allow(''),
   SMTP_FROM: Joi.string().optional().allow(''),
   MAIL_PREVIEW_DIR: Joi.string().optional().allow(''),
-  // Separate from-addresses + SES configuration sets per reputation lane.
-  // Keep transactional (resets/digests) isolated from bulk (newsletters).
+  // Separate from-addresses per reputation lane. Keep transactional
+  // (resets/digests) isolated from bulk (newsletters) by sending each from its
+  // own address (and, if ever needed, a separate Resend sending domain).
   EMAIL_TRANSACTIONAL_FROM: Joi.string().optional().allow(''),
   EMAIL_BULK_FROM: Joi.string().optional().allow(''),
-  SES_CONFIG_SET_TRANSACTIONAL: Joi.string().optional().allow(''),
-  SES_CONFIG_SET_BULK: Joi.string().optional().allow(''),
-  // Shared secret guarding the SES/SNS bounce-complaint webhook (?secret=).
+  // Resend webhook signing secret (`whsec_...`, from the webhook's settings).
+  // Used to Svix-verify the public bounce/complaint webhook.
+  RESEND_WEBHOOK_SECRET: Joi.string().optional().allow(''),
+  // Shared secret guarding the bounce-complaint webhook (?secret=).
   EMAIL_WEBHOOK_SECRET: Joi.string().optional().allow(''),
-  // Verify the SNS message signature on the bounce/complaint webhook. Default
+  // Verify the Resend (Svix) signature on the bounce/complaint webhook. Default
   // 'true' (recommended for the public endpoint). Set 'false' only for local
-  // testing without real SNS-signed messages.
-  EMAIL_SNS_VERIFY: Joi.string().valid('true', 'false').default('true'),
+  // testing without real Resend-signed messages.
+  EMAIL_WEBHOOK_VERIFY: Joi.string().valid('true', 'false').default('true'),
   // Newsletter "push" billing + abuse cap.
   EMAIL_PUSH_MAX_RECIPIENTS: Joi.number().default(5000),
   EMAIL_PUSH_PRICE_STOTINKI: Joi.number().default(200),

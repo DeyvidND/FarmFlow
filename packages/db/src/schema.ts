@@ -71,6 +71,18 @@ export const tenants = pgTable('tenants', {
 }, (t) => ({
   // Super-admin tenant list keyset: createdAt ASC + id tiebreaker (fully index-served).
   createdIdx: index('tenants_created_idx').on(t.createdAt, t.id),
+  // Stripe webhooks resolve the tenant by connected-account / billing ids on every
+  // event. Partial (most tenants are NULL) → tiny index, equality lookup instead of
+  // a seq-scan per webhook. `stripeAccountId` is the hottest (every order webhook).
+  stripeAccountIdx: index('tenants_stripe_account_idx')
+    .on(t.stripeAccountId)
+    .where(sql`${t.stripeAccountId} is not null`),
+  stripeCustomerIdx: index('tenants_stripe_customer_idx')
+    .on(t.stripeCustomerId)
+    .where(sql`${t.stripeCustomerId} is not null`),
+  stripeSubscriptionIdx: index('tenants_stripe_subscription_idx')
+    .on(t.stripeSubscriptionId)
+    .where(sql`${t.stripeSubscriptionId} is not null`),
 }));
 
 export const users = pgTable('users', {
@@ -189,6 +201,11 @@ export const orders = pgTable(
     tenantStatusIdx: index('orders_tenant_status_idx').on(t.tenantId, t.status),
     // Slot-capacity check + admin list leftJoin on slot.
     slotIdx: index('orders_slot_idx').on(t.slotId),
+    // Refund webhook fallback: resolve the order by payment-intent when the event
+    // carries no orderId. Partial (NULL for cash orders) → no seq-scan per refund.
+    stripePaymentIntentIdx: index('orders_stripe_pi_idx')
+      .on(t.stripePaymentIntentId)
+      .where(sql`${t.stripePaymentIntentId} is not null`),
     // One sequence of order numbers per tenant (NULLs allowed for legacy rows).
     tenantNumberUnique: uniqueIndex('orders_tenant_number_unique').on(t.tenantId, t.orderNumber),
   }),
@@ -344,6 +361,9 @@ export const newsletterSubscribers = pgTable(
       t.createdAt,
       t.id,
     ),
+    // Idempotent-subscribe dedup lookup (tenant + email) — index-served instead of
+    // a tenant-prefix scan + heap email filter on every storefront sign-up.
+    tenantEmailIdx: index('newsletter_subscribers_tenant_email_idx').on(t.tenantId, t.email),
   }),
 );
 
@@ -370,7 +390,10 @@ export const emailPushes = pgTable('email_pushes', {
   // null = not billed, e.g. premium farm or a billing error).
   stripeInvoiceItemId: text('stripe_invoice_item_id'),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (t) => ({
+  // Super-admin email-billing aggregates join/filter by tenant.
+  tenantIdx: index('email_pushes_tenant_idx').on(t.tenantId),
+}));
 
 // Storefront contact-form submissions (public intake). Read in the admin panel
 // later; for now just persisted.

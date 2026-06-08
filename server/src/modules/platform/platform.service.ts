@@ -23,6 +23,7 @@ import {
 } from '@farmflow/db';
 import type { JwtPayload } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { CreateTenantDto } from './dto/create-tenant.dto';
@@ -110,6 +111,7 @@ export class PlatformService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly jwt: JwtService,
     private readonly billing: BillingService,
+    private readonly publicCache: PublicCacheService,
   ) {}
 
   /** Platform admin login → platform-typed JWT. */
@@ -213,7 +215,8 @@ export class PlatformService {
     const [t] = await this.db.select().from(tenants).where(eq(tenants.id, id)).limit(1);
     if (!t) throw new NotFoundException('Фермата не е намерена');
 
-    const [o] = await this.db
+    // All six aggregates below are independent of each other — run concurrently.
+    const oP = this.db
       .select({
         total: sql<number>`count(*)::int`,
         pending: sql<number>`count(*) filter (where ${orders.status} = 'pending')::int`,
@@ -226,7 +229,7 @@ export class PlatformService {
       .from(orders)
       .where(eq(orders.tenantId, id));
 
-    const [p] = await this.db
+    const pP = this.db
       .select({
         total: sql<number>`count(*)::int`,
         active: sql<number>`count(*) filter (where ${products.isActive})::int`,
@@ -234,7 +237,7 @@ export class PlatformService {
       .from(products)
       .where(eq(products.tenantId, id));
 
-    const [s] = await this.db
+    const sP = this.db
       .select({
         active: sql<number>`count(*) filter (where ${newsletterSubscribers.unsubscribedAt} is null)::int`,
         unsubscribed: sql<number>`count(*) filter (where ${newsletterSubscribers.unsubscribedAt} is not null)::int`,
@@ -242,7 +245,7 @@ export class PlatformService {
       .from(newsletterSubscribers)
       .where(eq(newsletterSubscribers.tenantId, id));
 
-    const [r] = await this.db
+    const rP = this.db
       .select({
         total: sql<number>`count(*)::int`,
         avgRating: sql<number>`coalesce(round(avg(${reviews.rating}), 1), 0)::float`,
@@ -250,7 +253,7 @@ export class PlatformService {
       .from(reviews)
       .where(eq(reviews.tenantId, id));
 
-    const [e] = await this.db
+    const eP = this.db
       .select({
         pushCount: sql<number>`count(*)::int`,
         owedStotinki: sql<number>`coalesce(sum(${emailPushes.priceStotinki}), 0)::int`,
@@ -259,7 +262,7 @@ export class PlatformService {
       .from(emailPushes)
       .where(eq(emailPushes.tenantId, id));
 
-    const recentOrders = await this.db
+    const recentOrdersP = this.db
       .select({
         id: orders.id,
         customerName: orders.customerName,
@@ -271,6 +274,15 @@ export class PlatformService {
       .where(eq(orders.tenantId, id))
       .orderBy(desc(orders.createdAt))
       .limit(8);
+
+    const [[o], [p], [s], [r], [e], recentOrders] = await Promise.all([
+      oP,
+      pP,
+      sP,
+      rP,
+      eP,
+      recentOrdersP,
+    ]);
 
     const settings = (t.settings as Record<string, any> | null) ?? {};
     const econtConfigured = !!settings?.delivery?.econt?.configured;
@@ -320,7 +332,7 @@ export class PlatformService {
    *  Partial: only the keys present in the DTO are written. */
   async updateTenant(id: string, dto: UpdateTenantDto): Promise<{ id: string }> {
     const [existing] = await this.db
-      .select({ id: tenants.id })
+      .select({ id: tenants.id, slug: tenants.slug })
       .from(tenants)
       .where(eq(tenants.id, id))
       .limit(1);
@@ -346,6 +358,20 @@ export class PlatformService {
 
     if (Object.keys(patch).length > 0) {
       await this.db.update(tenants).set(patch).where(eq(tenants.id, id));
+      // Bust the storefront caches — name/slug/email/phone + the delivery/
+      // multiFarmer/multiSubcat toggles all live in the cached public payloads.
+      // Mirror TenantsService.updateMe (which busts these on the tenant-side edit);
+      // a slug change must also clear the OLD slug key. Toggling multiFarmer/
+      // multiSubcat changes whether farmers/subcats return data or [].
+      const keys = [
+        publicCacheKeys.tenant(existing.slug),
+        publicCacheKeys.farmers(id),
+        publicCacheKeys.subcategories(id),
+      ];
+      if (dto.slug !== undefined && dto.slug !== existing.slug) {
+        keys.push(publicCacheKeys.tenant(dto.slug));
+      }
+      await this.publicCache.del(...keys);
     }
     return { id };
   }

@@ -13,20 +13,25 @@ import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { SuppressionService } from './suppression.service';
-import { isAwsSnsUrl, verifySnsSignature } from './sns-signature';
+import { verifyResendSignature } from './resend-signature';
 
 /**
- * Amazon SES bounce/complaint receiver (via SNS HTTP subscription). SNS posts JSON
- * as `text/plain`, so we read the raw body (main.ts sets `rawBody: true`).
+ * Resend bounce/complaint receiver (Svix-signed HTTP webhook).
  *
- * Two message types: a one-time `SubscriptionConfirmation` (we GET the SubscribeURL
- * to confirm), and `Notification` events carrying SES bounce/complaint data — those
- * recipients go on the suppression list.
+ * Resend POSTs events as JSON: { type: 'email.bounced' | 'email.complained' |
+ * ..., data: { to: [...], ... } }, signed via Svix (svix-id / svix-timestamp /
+ * svix-signature headers). main.ts captures the body as a raw string for this
+ * path — the signature is verified over that exact string.
  *
- * The endpoint is public, so every message is cryptographically verified against
- * AWS's signing certificate (see {@link verifySnsSignature}) before it is acted on.
- * Verification can be disabled with `EMAIL_SNS_VERIFY=false` for local testing.
- * An optional `?secret=` matching `EMAIL_WEBHOOK_SECRET` adds a cheap first gate.
+ * The endpoint is public, so every message is verified against the Resend
+ * webhook signing secret before it is acted on — forged bounce/complaint events
+ * could suppress a victim's mail. Verification can be disabled with
+ * `EMAIL_WEBHOOK_VERIFY=false` for local testing. An optional `?secret=` matching
+ * `EMAIL_WEBHOOK_SECRET` adds a cheap first gate.
+ *
+ * Bounces and complaints go on the suppression list and are skipped on all
+ * future sends. (Resend keeps its own server-side suppression too; this mirror
+ * lets the app skip them before dialing SMTP.)
  */
 @ApiTags('email')
 @Controller('email')
@@ -38,7 +43,7 @@ export class EmailWebhookController {
     private readonly config: ConfigService,
   ) {}
 
-  // Secret-guarded SNS receiver; SNS retries on non-2xx, so don't rate-limit it.
+  // Secret-guarded receiver; Resend/Svix retries on non-2xx, so don't rate-limit it.
   @SkipThrottle()
   @Post('webhook')
   @ApiExcludeEndpoint()
@@ -49,78 +54,64 @@ export class EmailWebhookController {
       throw new ForbiddenException();
     }
 
+    // The path text-parser puts the raw JSON string on req.body; fall back to
+    // rawBody / an already-parsed object just in case. The signature is verified
+    // over this exact string, so keep `raw` for both verify and parse.
+    const raw =
+      typeof req.body === 'string'
+        ? req.body
+        : req.rawBody?.toString('utf8') ??
+          (req.body && typeof req.body === 'object' ? JSON.stringify(req.body) : '{}');
+
+    // Cryptographically verify the message actually came from Resend before
+    // trusting any field. Off only when explicitly disabled (local testing).
+    if (this.config.get<string>('EMAIL_WEBHOOK_VERIFY') !== 'false') {
+      const signingSecret = this.config.get<string>('RESEND_WEBHOOK_SECRET') ?? '';
+      const valid = verifyResendSignature(
+        {
+          id: req.headers['svix-id'],
+          timestamp: req.headers['svix-timestamp'],
+          signature: req.headers['svix-signature'],
+        },
+        raw,
+        signingSecret,
+        Math.floor(Date.now() / 1000),
+      );
+      if (!valid) {
+        this.logger.warn('[email:webhook] rejected message with invalid Resend signature');
+        throw new ForbiddenException();
+      }
+    }
+
     let msg: Record<string, any>;
     try {
-      // SNS sends text/plain → the path text-parser puts the string on req.body;
-      // fall back to rawBody / an already-parsed object just in case.
-      const raw =
-        typeof req.body === 'string'
-          ? req.body
-          : req.rawBody?.toString('utf8') ??
-            (req.body && typeof req.body === 'object' ? JSON.stringify(req.body) : '{}');
       msg = JSON.parse(raw);
     } catch {
       this.logger.warn('[email:webhook] unparseable body');
       return { ok: true };
     }
 
-    // Cryptographically verify the message actually came from AWS SNS before
-    // trusting any field in it. Forged events could suppress a victim's mail or
-    // (via SubscribeURL) trigger an SSRF. Off only when explicitly disabled.
-    if (this.config.get<string>('EMAIL_SNS_VERIFY') !== 'false') {
-      const valid = await verifySnsSignature(msg);
-      if (!valid) {
-        this.logger.warn('[email:webhook] rejected message with invalid SNS signature');
-        throw new ForbiddenException();
-      }
-    }
-
-    const type = msg.Type ?? req.headers['x-amz-sns-message-type'];
-
-    if (type === 'SubscriptionConfirmation' && typeof msg.SubscribeURL === 'string') {
-      // Confirm the SNS subscription by visiting the URL Amazon sent. Even with
-      // a valid signature, re-check the host so we only ever GET an AWS SNS URL.
-      if (!isAwsSnsUrl(msg.SubscribeURL)) {
-        this.logger.warn('[email:webhook] refused non-SNS SubscribeURL');
-        return { ok: true };
-      }
-      try {
-        await fetch(msg.SubscribeURL);
-        this.logger.log('[email:webhook] SNS subscription confirmed');
-      } catch (err) {
-        this.logger.error(`[email:webhook] confirm failed: ${err instanceof Error ? err.message : err}`);
-      }
-      return { ok: true };
-    }
-
-    if (type === 'Notification') {
-      let inner: Record<string, any> = {};
-      try {
-        inner = typeof msg.Message === 'string' ? JSON.parse(msg.Message) : (msg.Message ?? {});
-      } catch {
-        inner = {};
-      }
-      await this.handleSesEvent(inner);
-    }
-
+    await this.handleEvent(msg);
     return { ok: true };
   }
 
-  /** Suppress recipients from an SES bounce (permanent only) or complaint event. */
-  private async handleSesEvent(e: Record<string, any>): Promise<void> {
-    const kind = e.notificationType ?? e.eventType; // raw SES vs config-set event
+  /** Suppress recipients from a Resend bounce or complaint event. */
+  private async handleEvent(msg: Record<string, any>): Promise<void> {
+    const type = msg.type;
+    const data = msg.data ?? {};
+    // `to` is an array of recipients; tolerate a bare string too.
+    const recipients: string[] = Array.isArray(data.to)
+      ? data.to.filter((r: unknown): r is string => typeof r === 'string')
+      : typeof data.to === 'string'
+        ? [data.to]
+        : [];
+    if (recipients.length === 0) return;
 
-    if (kind === 'Bounce' && e.bounce) {
-      // Only permanent (hard) bounces — transient ones may recover.
-      if (e.bounce.bounceType === 'Permanent') {
-        for (const r of e.bounce.bouncedRecipients ?? []) {
-          if (r.emailAddress) await this.suppression.suppress(r.emailAddress, 'bounce', r.diagnosticCode);
-        }
-      }
-    } else if (kind === 'Complaint' && e.complaint) {
-      for (const r of e.complaint.complainedRecipients ?? []) {
-        if (r.emailAddress) await this.suppression.suppress(r.emailAddress, 'complaint');
-      }
+    if (type === 'email.bounced') {
+      const detail = data.bounce?.message ?? data.bounce?.subType ?? data.bounce?.type ?? undefined;
+      for (const r of recipients) await this.suppression.suppress(r, 'bounce', detail);
+    } else if (type === 'email.complained') {
+      for (const r of recipients) await this.suppression.suppress(r, 'complaint');
     }
   }
 }

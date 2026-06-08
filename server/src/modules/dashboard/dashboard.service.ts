@@ -34,7 +34,8 @@ export class DashboardService {
   async summary(tenantId: string, date?: string): Promise<DashboardSummary> {
     const day = date ?? bgToday();
 
-    const [agg] = await this.db
+    // The four reads are independent — run them concurrently (one hot per-load path).
+    const aggP = this.db
       .select({
         orderCount: sql<number>`count(*)::int`,
         revenueStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.status} <> 'cancelled'), 0)::int`,
@@ -43,18 +44,18 @@ export class DashboardService {
       .from(orders)
       .where(and(eq(orders.tenantId, tenantId), sql`${bgDate(orders.createdAt)} = ${day}`));
 
-    const [{ yesterday }] = await this.db
+    const yesterdayP = this.db
       .select({ yesterday: sql<number>`count(*)::int` })
       .from(orders)
       .where(and(eq(orders.tenantId, tenantId), sql`${bgDate(orders.createdAt)} = ${day}::date - 1`));
 
-    const [tenant] = await this.db
+    const tenantP = this.db
       .select({ status: tenants.subscriptionStatus })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
 
-    const slotRows = await this.db
+    const slotRowsP = this.db
       .select({
         id: deliverySlots.id,
         timeFrom: deliverySlots.timeFrom,
@@ -78,6 +79,13 @@ export class DashboardService {
         deliverySlots.maxOrders,
       )
       .orderBy(deliverySlots.timeFrom);
+
+    const [[agg], [{ yesterday }], [tenant], slotRows] = await Promise.all([
+      aggP,
+      yesterdayP,
+      tenantP,
+      slotRowsP,
+    ]);
 
     const slots: DashboardSlot[] = slotRows.map((s) => ({
       id: s.id,

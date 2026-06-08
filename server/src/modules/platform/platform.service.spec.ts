@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { BillingService } from '../billing/billing.service';
 import { PlatformService } from './platform.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 
 // Mock argon2 at module level so native bindings are not called.
 jest.mock('argon2', () => ({
@@ -49,6 +50,7 @@ describe('PlatformService', () => {
           useValue: { sign: jest.fn().mockReturnValue('platform-token') },
         },
         { provide: BillingService, useValue: { setPremium: jest.fn().mockResolvedValue(undefined) } },
+        { provide: PublicCacheService, useValue: { del: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 

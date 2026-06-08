@@ -40,7 +40,7 @@ Audit + the controls implemented in the API. Scope here is the **NestJS backend*
 
 - **Skipped** (`@SkipThrottle`): `POST /stripe/webhook` and `POST /email/webhook` —
   both signature/secret-verified and idempotent; rate-limiting them would drop
-  legitimate Stripe/SNS retry bursts.
+  legitimate Stripe/Resend retry bursts.
 - **Kill switch:** `RATE_LIMIT_DISABLED=true`.
 
 ### Upload limits

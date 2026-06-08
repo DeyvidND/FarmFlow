@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, inArray } from 'drizzle-orm';
-import { type Database, products, orders, tenants } from '@farmflow/db';
+import { eq } from 'drizzle-orm';
+import { type Database, orders, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { OrdersService } from './orders.service';
 import { StripeService, type CheckoutLine } from '../stripe/stripe.service';
@@ -66,20 +66,12 @@ export class CheckoutService {
       return { orderId: order.id, checkoutUrl: null };
     }
 
-    // 4. Build line items, preferring synced Stripe prices (inline fallback otherwise).
-    const productIds = order.items.map((i) => i.productId).filter((id): id is string => !!id);
-    const prodRows = productIds.length
-      ? await this.db
-          .select({ id: products.id, stripePriceId: products.stripePriceId })
-          .from(products)
-          .where(and(eq(products.tenantId, order.tenantId!), inArray(products.id, productIds)))
-      : [];
-    const priceById = new Map(prodRows.map((p) => [p.id, p.stripePriceId]));
+    // 4. Build line items from the intake snapshot — the exact placed-at price
+    //    (which also drives order.total and the webhook under-payment guard).
     const lines: CheckoutLine[] = order.items.map((i) => ({
       productName: i.productName ?? '',
       quantity: i.quantity,
       priceStotinki: i.priceStotinki,
-      stripePriceId: i.productId ? priceById.get(i.productId) ?? null : null,
     }));
 
     // 5. Checkout Session on the connected account.

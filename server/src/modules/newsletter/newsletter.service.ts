@@ -155,6 +155,9 @@ export class NewsletterService {
           html,
           text,
           stream: 'bulk', // newsletters ride the bulk reputation lane
+          // Already filtered against the suppression list above (one batch query)
+          // — skip the redundant per-recipient lookup.
+          skipSuppressionCheck: true,
         });
         sent++;
       } catch (err) {

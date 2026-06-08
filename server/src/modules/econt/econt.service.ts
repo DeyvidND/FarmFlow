@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { and, eq, desc, inArray, ne } from 'drizzle-orm';
 import { type Database, tenants, orders, orderItems, shipments } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
-import { PublicCacheService } from '../../common/cache/public-cache.service';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
 
 const DEMO_BASE = 'https://demo.econt.com/ee/services';
@@ -179,7 +179,7 @@ export class EcontService {
       delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
     };
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
-    await this.cache.del(`tenant:${tenant.slug}`);
+    await this.cache.del(publicCacheKeys.tenant(tenant.slug));
     return { configured: true, env };
   }
 

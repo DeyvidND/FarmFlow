@@ -63,8 +63,9 @@ async function bootstrap() {
     }),
   );
 
-  // Amazon SNS posts notifications as `text/plain` JSON, which Nest's default
-  // parsers leave unparsed — capture the body as a string for the SES webhook.
+  // Capture the bounce/complaint webhook body as a raw string regardless of
+  // content-type. The raw string is needed to verify Resend's Svix signature
+  // (computed over the exact body) before we JSON.parse it.
   app.use('/email/webhook', text({ type: () => true }));
 
   // Path-aware CORS: `/public/*` storefront endpoints are world-readable (any

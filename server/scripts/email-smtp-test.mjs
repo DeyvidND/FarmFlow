@@ -1,6 +1,6 @@
 // Proves the nodemailer SMTP send path works end-to-end (the exact mechanism the
-// app uses with SES) — no custom domain needed. Uses Ethereal (a fake SMTP that
-// captures the message and returns a viewable preview URL).
+// app uses with Resend) — no custom domain needed. Uses Ethereal (a fake SMTP
+// that captures the message and returns a viewable preview URL).
 //
 // Usage (from server/): node scripts/email-smtp-test.mjs
 import nodemailer from 'nodemailer';
@@ -19,7 +19,6 @@ const info = await transport.sendMail({
   subject: 'FarmFlow — SMTP проба',
   html: '<h1 style="color:#2d6a4f">🌿 FarmFlow</h1><p>Изпращането по SMTP работи.</p>',
   text: 'Изпращането по SMTP работи.',
-  headers: { 'X-SES-CONFIGURATION-SET': 'farmflow-transactional' },
 });
 
 console.log('OK messageId :', info.messageId);

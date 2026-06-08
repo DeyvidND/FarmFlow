@@ -17,6 +17,13 @@ export interface SendMailOptions {
   text?: string;
   /** Defaults to 'transactional'. */
   stream?: EmailStream;
+  /**
+   * Skip the per-recipient suppression DB lookup. Set ONLY when the caller has
+   * already batch-filtered the recipient list against the suppression list (e.g.
+   * NewsletterService.broadcast) — avoids one SELECT per recipient on a large send.
+   * Transactional callers must leave this false so a suppressed address is honored.
+   */
+  skipSuppressionCheck?: boolean;
 }
 
 @Injectable()
@@ -26,8 +33,6 @@ export class EmailService implements OnModuleInit {
   private readonly fallbackFrom: string;
   private readonly txFrom: string;
   private readonly bulkFrom: string;
-  private readonly txConfigSet?: string;
-  private readonly bulkConfigSet?: string;
   private readonly previewDir: string;
   private readonly isDevMode: boolean;
 
@@ -41,8 +46,6 @@ export class EmailService implements OnModuleInit {
     this.fallbackFrom = config.get<string>('SMTP_FROM') || 'FarmFlow <no-reply@farmsteadflow.com>';
     this.txFrom = config.get<string>('EMAIL_TRANSACTIONAL_FROM') || this.fallbackFrom;
     this.bulkFrom = config.get<string>('EMAIL_BULK_FROM') || this.txFrom;
-    this.txConfigSet = config.get<string>('SES_CONFIG_SET_TRANSACTIONAL') || undefined;
-    this.bulkConfigSet = config.get<string>('SES_CONFIG_SET_BULK') || undefined;
     this.previewDir =
       config.get<string>('MAIL_PREVIEW_DIR') ?? path.join(process.cwd(), '.mail-preview');
     this.isDevMode = !config.get<string>('SMTP_HOST');
@@ -66,25 +69,25 @@ export class EmailService implements OnModuleInit {
     }
   }
 
-  /** Resolve the from-address + SES configuration-set for a stream. */
-  private streamConfig(stream: EmailStream): { from: string; configSet?: string } {
-    return stream === 'bulk'
-      ? { from: this.bulkFrom, configSet: this.bulkConfigSet }
-      : { from: this.txFrom, configSet: this.txConfigSet };
+  /** Resolve the from-address for a stream. */
+  private streamFrom(stream: EmailStream): string {
+    return stream === 'bulk' ? this.bulkFrom : this.txFrom;
   }
 
   async sendMail(options: SendMailOptions): Promise<void> {
     const stream: EmailStream = options.stream ?? 'transactional';
 
-    // Never mail a hard-bounced / complained address again.
-    if (await this.suppression.isSuppressed(options.to)) {
+    // Never mail a hard-bounced / complained address again. Skipped when the
+    // caller already batch-filtered against the suppression list (bulk broadcast).
+    if (!options.skipSuppressionCheck && (await this.suppression.isSuppressed(options.to))) {
       this.logger.warn(`[email] skipped suppressed recipient to=${options.to}`);
       return;
     }
 
-    const { from, configSet } = this.streamConfig(stream);
-    // SES routes events + reputation by config set; harmless header on other SMTPs.
-    const headers = configSet ? { 'X-SES-CONFIGURATION-SET': configSet } : undefined;
+    // Reputation lanes (transactional resets/digests vs bulk newsletters) are
+    // kept apart by from-address; if a hard split is ever needed, point the bulk
+    // lane at a separate Resend sending domain.
+    const from = this.streamFrom(stream);
 
     if (!this.isDevMode && this.transporter) {
       // Real SMTP — let errors propagate so callers can handle them.
@@ -94,7 +97,6 @@ export class EmailService implements OnModuleInit {
         subject: options.subject,
         html: options.html,
         text: options.text,
-        headers,
       });
       return;
     }
