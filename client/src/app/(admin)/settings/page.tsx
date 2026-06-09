@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
 import { firstMessage } from '@/components/auth/auth-shell';
+import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -59,10 +60,11 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="max-w-[480px]">
+    <div className="max-w-[640px]">
       <h1 className="mb-1 text-[22px] font-extrabold tracking-[-0.01em]">Настройки</h1>
       <p className="mb-6 text-[13.5px] text-ff-muted">Управлявай настройките на профила си.</p>
 
+      <div className="flex flex-col gap-6">
       <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-sm">
         <h2 className="mb-4 text-[16px] font-extrabold">Смяна на парола</h2>
 
@@ -113,6 +115,9 @@ export default function SettingsPage() {
             {loading ? 'Зареждане…' : 'Смени паролата'}
           </Button>
         </form>
+      </div>
+
+        <NavVisibilityCard />
       </div>
     </div>
   );

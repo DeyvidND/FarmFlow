@@ -98,6 +98,10 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),
   role: userRoleEnum('role').notNull(),
   mustChangePassword: boolean('must_change_password').notNull().default(false),
+  // Per-user sidebar customization: keys the farmer chose to hide from the side
+  // nav — item hrefs (e.g. "/orders") and whole-group keys ("group:Каталог").
+  // NULL/empty = show everything. Purely cosmetic; the routes stay reachable.
+  hiddenNav: jsonb('hidden_nav').$type<string[]>(),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

@@ -107,11 +107,12 @@ describe('AuthService', () => {
   // ── getMe ─────────────────────────────────────────────────────────────────
 
   describe('getMe', () => {
-    it('returns email, role and mustChangePassword for the given userId', async () => {
+    it('returns email, role, mustChangePassword and hiddenNav for the given userId', async () => {
       const userRow = {
         email: 'u@farm.bg',
         role: 'admin' as const,
         mustChangePassword: true,
+        hiddenNav: ['/orders', 'group:Каталог'],
       };
       db.limit.mockResolvedValueOnce([userRow]);
 
@@ -121,7 +122,44 @@ describe('AuthService', () => {
         email: 'u@farm.bg',
         role: 'admin',
         mustChangePassword: true,
+        hiddenNav: ['/orders', 'group:Каталог'],
       });
+    });
+
+    it('defaults hiddenNav to an empty array when the column is null', async () => {
+      db.limit.mockResolvedValueOnce([
+        { email: 'u@farm.bg', role: 'admin' as const, mustChangePassword: false, hiddenNav: null },
+      ]);
+
+      const result = await service.getMe(USER_ID);
+
+      expect(result.hiddenNav).toEqual([]);
+    });
+
+    it('throws UnauthorizedException when the user is gone', async () => {
+      db.limit.mockResolvedValueOnce([]);
+
+      await expect(service.getMe(USER_ID)).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  // ── updateHiddenNav ─────────────────────────────────────────────────────────
+
+  describe('updateHiddenNav', () => {
+    it('persists the hidden keys and returns them', async () => {
+      const hidden = ['/payments', 'group:Маркетинг'];
+      db.returning.mockResolvedValueOnce([{ hiddenNav: hidden }]);
+
+      const result = await service.updateHiddenNav(USER_ID, hidden);
+
+      expect(db.set).toHaveBeenCalledWith({ hiddenNav: hidden });
+      expect(result).toEqual({ hiddenNav: hidden });
+    });
+
+    it('throws UnauthorizedException when no row is updated', async () => {
+      db.returning.mockResolvedValueOnce([]);
+
+      await expect(service.updateHiddenNav(USER_ID, [])).rejects.toThrow(UnauthorizedException);
     });
   });
 

@@ -477,3 +477,22 @@ export const listSubscribers = (cursor?: string) =>
 
 export const sendBroadcast = (data: { subject: string; body: string }) =>
   apiFetch<{ sent: number }>('broadcast', { method: 'POST', ...json(data) }, 'Неуспешно изпращане');
+
+// ─── Account / side-nav preferences ────────────────────────────────────────────
+
+export interface AccountMe {
+  email: string;
+  role: string;
+  mustChangePassword: boolean;
+  /** Keys the user hid from the side nav — item hrefs + "group:<title>". */
+  hiddenNav: string[];
+}
+
+export const getMe = () => apiFetch<AccountMe>('auth/me');
+
+export const updateHiddenNav = (hidden: string[]) =>
+  apiFetch<{ hiddenNav: string[] }>(
+    'auth/me/nav',
+    { method: 'PATCH', ...json({ hidden }) },
+    'Неуспешно запазване',
+  );
