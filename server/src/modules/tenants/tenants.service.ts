@@ -13,9 +13,11 @@ import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { StorageService } from '../storage/storage.service';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
+import { sniffMime } from '../storage/magic-mime';
 import { type PublicDelivery, type PublicMethods, type EcontMode } from '../orders/delivery-pricing';
 import { StripeService } from '../stripe/stripe.service';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
+import { SiteContactDto } from './dto/site-contact.dto';
 import {
   getMediaCatalog,
   isValidSlot,
@@ -254,6 +256,120 @@ export class TenantsService {
     return { ok: true };
   }
 
+  // ---- Site contact + website icon ----
+
+  /** Current contact block + favicon url + theme color for the admin editor. */
+  async getSiteContact(tenantId: string): Promise<{
+    contact: PublicContact;
+    favicon: { url: string } | null;
+    themeColor: string | null;
+  }> {
+    const settings = await this.loadSettings(tenantId);
+    const brand = readBrand(settings);
+    const url = typeof brand.favicon?.url === 'string' ? brand.favicon.url : '';
+    return {
+      contact: buildPublicContact(settings.contact),
+      favicon: url ? { url } : null,
+      themeColor: typeof brand.themeColor === 'string' && brand.themeColor ? brand.themeColor : null,
+    };
+  }
+
+  /** Replace the whole settings.contact block, and set/clear brand.themeColor
+   *  when the field was sent. Both are atomic per-path writes (favicon untouched). */
+  async updateSiteContact(
+    tenantId: string,
+    dto: SiteContactDto,
+  ): Promise<{ contact: PublicContact; themeColor: string | null }> {
+    const { slug } = await this.loadTenantForMedia(tenantId);
+    const { contact, themeColor } = normalizeSiteContact(dto);
+
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(
+          coalesce(${tenants.settings}, '{}'::jsonb),
+          array['contact'],
+          ${JSON.stringify(contact)}::jsonb,
+          true
+        )`,
+      })
+      .where(eq(tenants.id, tenantId));
+
+    if (themeColor !== undefined) {
+      await this.db
+        .update(tenants)
+        .set({
+          settings: themeColor
+            ? sql`jsonb_set(
+                coalesce(${tenants.settings}, '{}'::jsonb)
+                  || jsonb_build_object('brand', coalesce(${tenants.settings} -> 'brand', '{}'::jsonb)),
+                array['brand', 'themeColor'],
+                ${JSON.stringify(themeColor)}::jsonb,
+                true
+              )`
+            : sql`coalesce(${tenants.settings}, '{}'::jsonb) #- array['brand', 'themeColor']`,
+        })
+        .where(eq(tenants.id, tenantId));
+    }
+
+    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    return { contact: buildPublicContact(contact), themeColor: themeColor ?? null };
+  }
+
+  /** Upload/replace the website icon. PNG or ICO only — verified by magic bytes
+   *  (the declared mime is spoofable). Stored at brand.favicon = { url, key }. */
+  async setFavicon(tenantId: string, file: Express.Multer.File): Promise<{ url: string }> {
+    const { slug, settings } = await this.loadTenantForMedia(tenantId);
+
+    const detected = sniffMime(file.buffer);
+    if (detected !== 'image/png' && detected !== 'image/x-icon') {
+      throw new BadRequestException('Иконата трябва да е PNG или ICO файл.');
+    }
+    const ext = detected === 'image/png' ? 'png' : 'ico';
+    const key = `tenants/${tenantId}/site/favicon/${randomUUID()}.${ext}`;
+    // Upload with the *detected* (canonical) content type, not the client header.
+    const { url } = await this.storage.upload(file.buffer, key, detected);
+
+    const prevKey = readBrand(settings).favicon?.key;
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(
+          coalesce(${tenants.settings}, '{}'::jsonb)
+            || jsonb_build_object('brand', coalesce(${tenants.settings} -> 'brand', '{}'::jsonb)),
+          array['brand', 'favicon'],
+          ${JSON.stringify({ url, key })}::jsonb,
+          true
+        )`,
+      })
+      .where(eq(tenants.id, tenantId));
+
+    if (typeof prevKey === 'string' && prevKey && prevKey !== key) {
+      await this.storage.delete(prevKey).catch(() => undefined);
+    }
+    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    return { url };
+  }
+
+  /** Remove the website icon (reverts to the storefront's static favicon). Idempotent. */
+  async deleteFavicon(tenantId: string): Promise<{ ok: true }> {
+    const { slug, settings } = await this.loadTenantForMedia(tenantId);
+    const prevKey = readBrand(settings).favicon?.key;
+
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`coalesce(${tenants.settings}, '{}'::jsonb) #- array['brand', 'favicon']`,
+      })
+      .where(eq(tenants.id, tenantId));
+
+    if (typeof prevKey === 'string' && prevKey) {
+      await this.storage.delete(prevKey).catch(() => undefined);
+    }
+    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    return { ok: true };
+  }
+
   private async loadSettings(tenantId: string): Promise<Record<string, unknown>> {
     const [row] = await this.db
       .select({ settings: tenants.settings })
@@ -370,6 +486,16 @@ function readMedia(settings: Record<string, unknown>): Record<string, MediaSlotV
   const m = settings.media;
   if (!m || typeof m !== 'object' || Array.isArray(m)) return {};
   return m as Record<string, MediaSlotValue>;
+}
+
+/** Read the raw settings.brand object (favicon + themeColor) from a settings blob. */
+function readBrand(settings: Record<string, unknown>): {
+  favicon?: { url?: unknown; key?: unknown };
+  themeColor?: unknown;
+} {
+  const b = settings.brand;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return {};
+  return b as { favicon?: { url?: unknown; key?: unknown }; themeColor?: unknown };
 }
 
 /** Project the stored site-media map to its public shape (drop the R2 `key`). */
