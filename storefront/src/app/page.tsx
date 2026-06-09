@@ -4,6 +4,7 @@ import {
   getProducts,
   getFarmers,
   getSubcategories,
+  getStorefront,
   resolveSlug,
   type PublicArticle,
   type PublicProduct,
@@ -29,14 +30,18 @@ import { Leaf, Truck, Heart } from '@/components/icons';
 export default async function HomePage() {
   const slug = resolveSlug();
 
-  const [products, posts, farmers, subcategories] = await Promise.all([
+  const [products, posts, farmers, subcategories, profile] = await Promise.all([
     getProducts(slug).catch(() => [] as PublicProduct[]),
     getArticles(slug)
       .then((a) => a.slice(0, 3))
       .catch(() => [] as PublicArticle[]),
     getFarmers(slug).catch(() => [] as PublicFarmer[]),
     getSubcategories(slug).catch(() => [] as PublicSubcategory[]),
+    getStorefront(slug).catch(() => null),
   ]);
+
+  // The blog teaser hides when the «Статии» section is switched off.
+  const articlesEnabled = profile?.articlesEnabled ?? true;
 
   const sellable = products.filter((p) => p.category !== 'bundle');
   const flagged = sellable.filter((p) => p.featured);
@@ -198,7 +203,7 @@ export default async function HomePage() {
       </section>
 
       {/* BLOG TEASER */}
-      {posts.length > 0 && (
+      {articlesEnabled && posts.length > 0 && (
         <section className="section--tight">
           <div className="wrap">
             <div className="section-head center" style={{ marginBottom: 30 }}>

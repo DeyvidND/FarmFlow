@@ -15,9 +15,17 @@ import { mainNav, SITE, isActiveHref } from '@/lib/site';
 import { useCart, selectCount } from '@/lib/cart';
 import { useHasMounted } from '@/lib/use-has-mounted';
 
-export function SiteHeader({ hasFarmers = false }: { hasFarmers?: boolean }) {
+export function SiteHeader({
+  hasFarmers = false,
+  articlesEnabled = true,
+  reviewsEnabled = true,
+}: {
+  hasFarmers?: boolean;
+  articlesEnabled?: boolean;
+  reviewsEnabled?: boolean;
+}) {
   const pathname = usePathname();
-  const nav = mainNav(hasFarmers);
+  const nav = mainNav(hasFarmers, { articlesEnabled, reviewsEnabled });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const mounted = useHasMounted();
   const count = useCart(selectCount);
@@ -106,6 +114,8 @@ export function SiteHeader({ hasFarmers = false }: { hasFarmers?: boolean }) {
         onClose={() => setDrawerOpen(false)}
         pathname={pathname}
         hasFarmers={hasFarmers}
+        articlesEnabled={articlesEnabled}
+        reviewsEnabled={reviewsEnabled}
       />
     </>
   );

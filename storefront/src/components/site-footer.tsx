@@ -4,12 +4,22 @@
  */
 import Link from 'next/link';
 import { Berry, Facebook, Instagram, TikTok } from './icons';
-import { SITE, telHref, footerShop, FOOTER_INFO } from '@/lib/site';
+import { SITE, telHref, footerShop, footerInfo } from '@/lib/site';
 import { NewsletterForm } from './newsletter-form';
 
-export function SiteFooter({ hasFarmers = false }: { hasFarmers?: boolean }) {
+export function SiteFooter({
+  hasFarmers = false,
+  articlesEnabled = true,
+  reviewsEnabled = true,
+}: {
+  hasFarmers?: boolean;
+  articlesEnabled?: boolean;
+  reviewsEnabled?: boolean;
+}) {
   const year = 2026;
-  const shop = footerShop(hasFarmers);
+  const flags = { articlesEnabled, reviewsEnabled };
+  const shop = footerShop(hasFarmers, flags);
+  const info = footerInfo(flags);
   return (
     <footer className="site-footer">
       <div className="wrap footer-grid">
@@ -57,7 +67,7 @@ export function SiteFooter({ hasFarmers = false }: { hasFarmers?: boolean }) {
         <div>
           <h4>Информация</h4>
           <div className="footer-links">
-            {FOOTER_INFO.map((l) => (
+            {info.map((l) => (
               <Link key={l.href} href={l.href}>
                 {l.label}
               </Link>

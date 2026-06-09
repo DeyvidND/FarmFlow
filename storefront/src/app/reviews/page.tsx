@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getReviews, resolveSlug, type ReviewSummary } from '@/lib/api';
+import { redirect } from 'next/navigation';
+import { getReviews, getStorefront, resolveSlug, type ReviewSummary } from '@/lib/api';
 import { Stars } from '@/components/stars';
 import { ReviewForm } from '@/components/review-form';
 
@@ -12,6 +13,11 @@ export default async function ReviewsPage({
   searchParams: { slug?: string };
 }) {
   const slug = resolveSlug(searchParams?.slug);
+
+  // The «Отзиви» section can be switched off by the farm — then this route 404s
+  // back home rather than showing an orphan page.
+  const profile = await getStorefront(slug).catch(() => null);
+  if (profile && profile.reviewsEnabled === false) redirect('/');
 
   let data: ReviewSummary = { average: 0, count: 0, reviews: [] };
   let failed = false;
