@@ -43,6 +43,16 @@ export class UpdateTenantDto {
   @IsBoolean()
   multiSubcat?: boolean;
 
+  @ApiPropertyOptional({ example: true, description: 'Show the articles section on the storefront' })
+  @IsOptional()
+  @IsBoolean()
+  articlesEnabled?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Show the reviews section on the storefront' })
+  @IsOptional()
+  @IsBoolean()
+  reviewsEnabled?: boolean;
+
   // Home / depot — the delivery route origin. If an address is given without
   // coords, the server geocodes it on save.
   @ApiPropertyOptional({ example: 'с. Звездица, общ. Варна' })

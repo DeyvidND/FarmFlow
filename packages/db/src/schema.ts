@@ -48,6 +48,11 @@ export const tenants = pgTable('tenants', {
   // field + storefront grouping/attribution activate. Default off.
   multiFarmer: boolean('multi_farmer').notNull().default(false),
   multiSubcat: boolean('multi_subcat').notNull().default(false),
+  // Storefront content sections, gated from the «Функции на магазина» panel. When
+  // off, the section is hidden on the storefront (and its admin nav link). Default
+  // on — preserves the historic always-visible behavior for existing farms.
+  articlesEnabled: boolean('articles_enabled').notNull().default(true),
+  reviewsEnabled: boolean('reviews_enabled').notNull().default(true),
   stripeAccountId: text('stripe_account_id'),
   // Connected-account capability flags, mirrored from Stripe `account.updated`
   // webhooks so the super-admin oversight table reads status without per-load

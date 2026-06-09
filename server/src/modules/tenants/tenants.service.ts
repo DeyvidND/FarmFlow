@@ -41,6 +41,8 @@ export interface PublicStorefront {
   deliveryEnabled: boolean;
   multiFarmer: boolean;
   multiSubcat: boolean;
+  articlesEnabled: boolean;
+  reviewsEnabled: boolean;
   econtEnabled: boolean;
   econtMode: EcontMode;
   codEnabled: boolean;

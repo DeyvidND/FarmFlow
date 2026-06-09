@@ -29,6 +29,9 @@ export interface TenantMeta {
   deliveryEnabled: boolean;
   multiFarmer: boolean;
   multiSubcat: boolean;
+  // Storefront content sections, gated from the «Функции на магазина» panel.
+  articlesEnabled: boolean;
+  reviewsEnabled: boolean;
   // Whether the farm offers Econt at all (manual or automatic) — gates the Econt
   // delivery radios on the storefront.
   econtEnabled: boolean;
@@ -111,6 +114,8 @@ export class PublicCacheService {
         deliveryEnabled: tenants.deliveryEnabled,
         multiFarmer: tenants.multiFarmer,
         multiSubcat: tenants.multiSubcat,
+        articlesEnabled: tenants.articlesEnabled,
+        reviewsEnabled: tenants.reviewsEnabled,
         settings: tenants.settings,
         stripeAccountId: tenants.stripeAccountId,
       })
