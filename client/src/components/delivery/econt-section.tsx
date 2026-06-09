@@ -142,10 +142,9 @@ export function EcontConnectionSection({
             товарителниците вместо теб.
           </p>
           <Segmented
-            value={mode}
+            value={mode === 'off' ? 'manual' : mode}
             onChange={(v) => mut((d) => (d.econt.mode = v))}
             options={[
-              { value: 'off', label: 'Изключено' },
               { value: 'manual', label: 'Ръчно' },
               { value: 'auto', label: 'Автоматично' },
             ]}
@@ -154,11 +153,8 @@ export function EcontConnectionSection({
             <div className="mt-2.5 rounded-[10px] border border-ff-green-100 bg-ff-green-50 px-3.5 py-3 text-[13px] text-ff-ink-2">
               <b>Ръчен режим.</b> Не е нужно да свързваш акаунт по-долу. Клиентът въвежда адреса си
               при поръчка; ти получаваш списък по имейл и пускаш пратката до адреса от най-близкия си
-              офис на Еконт. Включи метода „До адрес“ и задай цената му в „Методи на доставка“.
+              офис на Еконт. Цената на доставката се задава в „Настройки на методите“ горе.
             </div>
-          )}
-          {mode === 'off' && (
-            <p className={cn(subDescCls, 'mt-2')}>Еконт няма да се показва на клиентите.</p>
           )}
         </div>
 

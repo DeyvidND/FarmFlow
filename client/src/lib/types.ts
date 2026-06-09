@@ -74,6 +74,9 @@ export interface TenantProfile {
   name: string;
   multiFarmer: boolean;
   multiSubcat: boolean;
+  /** Storefront content sections, gated from the «Функции на магазина» panel. */
+  articlesEnabled: boolean;
+  reviewsEnabled: boolean;
   deliveryEnabled: boolean;
   /** Home / depot — the delivery route origin. */
   farmAddress: string | null;

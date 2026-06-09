@@ -12,11 +12,14 @@ export function AdminShell({
   children,
   subscriptionActive = true,
   tenantName,
+  articlesEnabled = true,
   mustChangePassword = false,
 }: {
   children: React.ReactNode;
   subscriptionActive?: boolean;
   tenantName?: string;
+  /** «Статии» feature flag — hides the Статии nav item when off. */
+  articlesEnabled?: boolean;
   /** First login with the temporary password → block the panel with the modal. */
   mustChangePassword?: boolean;
 }) {
@@ -25,7 +28,7 @@ export function AdminShell({
 
   return (
     <div className="flex h-full overflow-hidden">
-      <Sidebar subscriptionActive={subscriptionActive} />
+      <Sidebar subscriptionActive={subscriptionActive} articlesEnabled={articlesEnabled} />
 
       {drawerOpen && (
         <div
