@@ -73,9 +73,19 @@ export class AuthService {
     return this.sign(updated.id, updated.tenantId as string, updated.role, false);
   }
 
-  async getMe(userId: string): Promise<{ email: string; role: string; mustChangePassword: boolean }> {
+  async getMe(userId: string): Promise<{
+    email: string;
+    role: string;
+    mustChangePassword: boolean;
+    hiddenNav: string[];
+  }> {
     const [user] = await this.db
-      .select({ email: users.email, role: users.role, mustChangePassword: users.mustChangePassword })
+      .select({
+        email: users.email,
+        role: users.role,
+        mustChangePassword: users.mustChangePassword,
+        hiddenNav: users.hiddenNav,
+      })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
@@ -86,7 +96,21 @@ export class AuthService {
       email: user.email,
       role: user.role,
       mustChangePassword: user.mustChangePassword,
+      hiddenNav: user.hiddenNav ?? [],
     };
+  }
+
+  /** Save the user's hidden side-nav keys (cosmetic per-user preference). */
+  async updateHiddenNav(userId: string, hidden: string[]): Promise<{ hiddenNav: string[] }> {
+    const [updated] = await this.db
+      .update(users)
+      .set({ hiddenNav: hidden })
+      .where(eq(users.id, userId))
+      .returning({ hiddenNav: users.hiddenNav });
+
+    if (!updated) throw new UnauthorizedException();
+
+    return { hiddenNav: updated.hiddenNav ?? [] };
   }
 
   /**

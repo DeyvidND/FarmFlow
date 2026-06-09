@@ -30,66 +30,85 @@ import {
 import { cn } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
 
-interface NavItem {
+export interface NavItem {
   href: string;
   label: string;
   Icon: LucideIcon;
   /** Screen needs an active subscription — flagged with a lock when inactive. */
   gated?: boolean;
+  /** Plain-Bulgarian one-liner — shown in Settings so the farmer knows what the
+   *  screen is before deciding to hide it. */
+  desc?: string;
 }
 
-interface NavGroup {
+export interface NavGroup {
   title: string;
   items: NavItem[];
   /** Set-up-once groups fold away by default to keep the everyday list short. */
   collapsible?: boolean;
+  /** Short explanation of the section — shown in the Settings hide/show editor. */
+  desc?: string;
 }
 
-/** Home/overview — stands alone above the grouped sections. */
-const HOME: NavItem = { href: '/dashboard', label: 'Табло', Icon: LayoutDashboard };
+/** Stable key for hiding a whole section (stored in users.hiddenNav). */
+export const navGroupKey = (title: string) => `group:${title}`;
+
+/** Home/overview — stands alone above the grouped sections. Always visible
+ *  (the post-login landing page + a safe anchor), so it is never hideable. */
+export const HOME: NavItem = {
+  href: '/dashboard',
+  label: 'Табло',
+  Icon: LayoutDashboard,
+  desc: 'Начален преглед — обобщение на продажби и поръчки.',
+};
 
 // Grouped by intent — everyday work (sell · fulfil) stays open; set-up-once
 // groups (catalog · marketing) fold away so the list doesn't overwhelm.
 export const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Магазин',
+    desc: 'Основни настройки на магазина.',
     items: [
-      { href: '/setup', label: 'Доставка и плащане', Icon: SlidersHorizontal },
-      { href: '/features', label: 'Функции на магазина', Icon: ToggleRight },
+      { href: '/setup', label: 'Доставка и плащане', Icon: SlidersHorizontal, desc: 'Начини на доставка и плащане.' },
+      { href: '/features', label: 'Функции на магазина', Icon: ToggleRight, desc: 'Включи/изключи цели части от магазина.' },
     ],
   },
   {
     title: 'Продажби',
+    desc: 'Поръчки и приходи.',
     items: [
-      { href: '/orders', label: 'Поръчки', Icon: ClipboardList },
-      { href: '/payments', label: 'Плащания', Icon: CreditCard },
+      { href: '/orders', label: 'Поръчки', Icon: ClipboardList, desc: 'Входящи поръчки от клиенти.' },
+      { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите.' },
     ],
   },
   {
     title: 'Доставка',
+    desc: 'Подготовка и разнасяне на поръчките.',
     items: [
-      { href: '/production', label: 'Производство', Icon: ShoppingBasket, gated: true },
-      { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true },
-      { href: '/slots', label: 'Слотове', Icon: CalendarDays, gated: true },
-      { href: '/delivery', label: 'Доставка', Icon: Truck },
+      { href: '/production', label: 'Производство', Icon: ShoppingBasket, gated: true, desc: 'Дневен списък какво да приготвиш за доставките.' },
+      { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true, desc: 'Маршрут за разнасяне на поръчките.' },
+      { href: '/slots', label: 'Слотове', Icon: CalendarDays, gated: true, desc: 'Часове и дни за доставка, които клиентът избира.' },
+      { href: '/delivery', label: 'Доставка', Icon: Truck, desc: 'Настройки на куриер и зони на доставка.' },
     ],
   },
   {
     title: 'Каталог',
     collapsible: true,
+    desc: 'Продукти, фермери и раздели.',
     items: [
-      { href: '/products', label: 'Продукти', Icon: Package },
-      { href: '/farmers', label: 'Фермери', Icon: Users },
-      { href: '/subcategories', label: 'Подкатегории', Icon: Tags },
+      { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоят каталог с продукти и цени.' },
+      { href: '/farmers', label: 'Фермери', Icon: Users, desc: 'Производителите, чиято стока продаваш.' },
+      { href: '/subcategories', label: 'Подкатегории', Icon: Tags, desc: 'Раздели, в които групираш продуктите.' },
     ],
   },
   {
     title: 'Маркетинг',
     collapsible: true,
+    desc: 'Съдържание и комуникация с клиентите.',
     items: [
-      { href: '/articles', label: 'Статии', Icon: Newspaper, gated: true },
-      { href: '/site-media', label: 'Снимки на сайта', Icon: ImageIcon },
-      { href: '/newsletters', label: 'Имейл клиенти', Icon: Mail },
+      { href: '/articles', label: 'Статии', Icon: Newspaper, gated: true, desc: 'Блог/новини секция в магазина.' },
+      { href: '/site-media', label: 'Снимки на сайта', Icon: ImageIcon, desc: 'Снимки за началната страница и секциите.' },
+      { href: '/newsletters', label: 'Имейл клиенти', Icon: Mail, desc: 'Списък с имейли за бюлетин.' },
     ],
   },
 ];
@@ -114,11 +133,14 @@ export function Sidebar({
   pendingCount = 0,
   subscriptionActive = true,
   articlesEnabled = true,
+  hiddenNav = [],
 }: {
   pendingCount?: number;
   subscriptionActive?: boolean;
   /** «Статии» feature flag — hides the Статии nav item when the section is off. */
   articlesEnabled?: boolean;
+  /** Per-user hidden nav keys (item hrefs + group keys) from users.hiddenNav. */
+  hiddenNav?: string[];
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -138,9 +160,13 @@ export function Sidebar({
   }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
-  // Hide feature-gated items (e.g. Статии when the section is switched off).
+  // Keys the farmer chose to hide in Settings (item hrefs + "group:<title>").
+  const hidden = new Set(hiddenNav);
+  // Hide feature-gated items (e.g. Статии when off) AND user-hidden items.
   const visibleItems = (g: NavGroup) =>
-    g.items.filter((i) => (i.href === '/articles' ? articlesEnabled : true));
+    g.items.filter(
+      (i) => (i.href === '/articles' ? articlesEnabled : true) && !hidden.has(i.href),
+    );
   const groupHasActive = (g: NavGroup) => visibleItems(g).some((i) => isActive(i.href));
   // A group is shown when it isn't collapsible, when it holds the active page, or
   // when the farmer has expanded it. Collapsible groups default to folded.
@@ -227,6 +253,10 @@ export function Sidebar({
         <div className="flex flex-col gap-1">{renderItem(HOME)}</div>
 
         {NAV_GROUPS.map((group) => {
+          // Whole section hidden by the farmer, or every item in it hidden/off.
+          if (hidden.has(navGroupKey(group.title))) return null;
+          const items = visibleItems(group);
+          if (items.length === 0) return null;
           const open = isGroupOpen(group);
           return (
             <div key={group.title} className="flex flex-col gap-1">
@@ -248,7 +278,7 @@ export function Sidebar({
                   {group.title}
                 </div>
               )}
-              {open && visibleItems(group).map(renderItem)}
+              {open && items.map(renderItem)}
             </div>
           );
         })}

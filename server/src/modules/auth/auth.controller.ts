@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, UseGuards, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -6,6 +6,7 @@ import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateNavDto } from './dto/update-nav.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user-id.decorator';
 
@@ -56,5 +57,14 @@ export class AuthController {
   @HttpCode(200)
   getMe(@CurrentUserId() userId: string) {
     return this.authService.getMe(userId);
+  }
+
+  @ApiOperation({ summary: 'Save the current user’s hidden side-nav keys' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/nav')
+  @HttpCode(200)
+  updateNav(@CurrentUserId() userId: string, @Body() dto: UpdateNavDto) {
+    return this.authService.updateHiddenNav(userId, dto.hidden);
   }
 }
