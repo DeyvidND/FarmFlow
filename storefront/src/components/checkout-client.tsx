@@ -13,7 +13,14 @@ import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCart, selectSubtotal, useCartHydrated } from '@/lib/cart';
-import { money, createCheckout, resolveSlug, ApiError, type DeliveryType } from '@/lib/api';
+import {
+  money,
+  createCheckout,
+  resolveSlug,
+  ApiError,
+  type DeliveryType,
+  type DeliveryMethods,
+} from '@/lib/api';
 import { shippingFor, type StorefrontDelivery } from '@/lib/shipping';
 import { SlotPicker } from '@/components/slot-picker';
 import { AddressFields } from '@/components/address-fields';
@@ -24,12 +31,23 @@ export function CheckoutClient({
   delivery,
   codEnabled,
   stripeEnabled,
+  econtMode,
+  methods,
 }: {
   deliveryEnabled: boolean;
   delivery: StorefrontDelivery;
   codEnabled: boolean;
   stripeEnabled: boolean;
+  econtMode: 'off' | 'manual' | 'auto';
+  methods: DeliveryMethods;
 }) {
+  // Show a method only when the farm switched it on. Self-delivery needs the
+  // master toggle too; Econt's visible variant depends on the mode (office in
+  // auto, address in manual).
+  const showSelf = deliveryEnabled && methods.ownSlots;
+  const showEcont =
+    (econtMode === 'manual' && methods.econtAddress) ||
+    (econtMode === 'auto' && methods.econtOffice);
   const router = useRouter();
   const slug = resolveSlug();
   const items = useCart((s) => s.items);
@@ -40,9 +58,9 @@ export function CheckoutClient({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  // Personal delivery off → start on (and lock to) Еконт courier.
+  // Start on self-delivery when it's offered, else Econt.
   const [deliveryType, setDeliveryType] = useState<DeliveryType>(
-    deliveryEnabled ? 'address' : 'econt',
+    showSelf ? 'address' : 'econt',
   );
   const [addressInput, setAddressInput] = useState('');
   // Precise pin coordinates from the address autocomplete/map (address delivery only).
@@ -59,7 +77,16 @@ export function CheckoutClient({
   const [submitting, setSubmitting] = useState(false);
 
   const isEcont = deliveryType === 'econt';
-  const shipping = shippingFor(subtotal, deliveryType, delivery);
+  // Manual Econt has no API office picker: the customer gives an address and the
+  // farm ships it by hand, so the order goes out as `econt_address`. Auto mode
+  // uses the office method (`econt`).
+  const manualEcont = econtMode === 'manual';
+  const sentDeliveryType: DeliveryType = isEcont
+    ? manualEcont
+      ? 'econt_address'
+      : 'econt'
+    : 'address';
+  const shipping = shippingFor(subtotal, sentDeliveryType, delivery);
   const total = subtotal + shipping;
 
   const submit = async (e: FormEvent) => {
@@ -80,11 +107,13 @@ export function CheckoutClient({
         customerPhone: phone.trim(),
         customerEmail: email.trim() || undefined,
         slotId: slotId ?? undefined,
-        deliveryType,
-        deliveryAddress: isEcont ? undefined : addressInput.trim() || undefined,
+        deliveryType: sentDeliveryType,
+        // Manual Econt + self-delivery carry an address; auto Econt carries an office.
+        deliveryAddress:
+          !isEcont || manualEcont ? addressInput.trim() || undefined : undefined,
         deliveryLat: isEcont ? undefined : addressLat ?? undefined,
         deliveryLng: isEcont ? undefined : addressLng ?? undefined,
-        econtOffice: isEcont ? addressInput.trim() || undefined : undefined,
+        econtOffice: isEcont && !manualEcont ? addressInput.trim() || undefined : undefined,
         paymentMethod,
       });
       if (res.checkoutUrl) {
@@ -199,7 +228,7 @@ export function CheckoutClient({
                 <h3 style={{ fontSize: 20, marginBottom: 16 }}>Начин на доставка</h3>
                 <div className="stack" style={{ gap: 12 }}>
                   {/* Personal (address) delivery — only when the farm self-delivers. */}
-                  {deliveryEnabled && (
+                  {showSelf && (
                     <label
                       className={`radio-card${!isEcont ? ' is-active' : ''}`}
                       onClick={() => setDeliveryType('address')}
@@ -209,35 +238,65 @@ export function CheckoutClient({
                         <b>Доставка до адрес</b>
                         <br />
                         <span className="muted" style={{ fontSize: 14 }}>
-                          Куриер до врата · 4,90 € · безплатна над 40 €
+                          {delivery.addressFeeStotinki > 0
+                            ? `Куриер до врата · ${money(delivery.addressFeeStotinki)}${
+                                delivery.freeThresholdStotinki > 0
+                                  ? ` · безплатна над ${money(delivery.freeThresholdStotinki)}`
+                                  : ''
+                              }`
+                            : 'Куриер до врата · безплатна'}
                         </span>
                       </span>
                     </label>
                   )}
-                  <label
-                    className={`radio-card${isEcont ? ' is-active' : ''}`}
-                    onClick={() => setDeliveryType('econt')}
-                  >
-                    <span className="dot"></span>
-                    <span>
-                      <b>Еконт офис</b>
-                      <br />
-                      <span className="muted" style={{ fontSize: 14 }}>
-                        Вземане от офис на Еконт · 3,50 €
+                  {showEcont && (
+                    <label
+                      className={`radio-card${isEcont ? ' is-active' : ''}`}
+                      onClick={() => setDeliveryType('econt')}
+                    >
+                      <span className="dot"></span>
+                      <span>
+                        <b>{manualEcont ? 'Доставка с Еконт' : 'Еконт офис'}</b>
+                        <br />
+                        <span className="muted" style={{ fontSize: 14 }}>
+                          {manualEcont
+                            ? `Еконт до твоя адрес · ${money(delivery.econtAddressFeeStotinki)}`
+                            : `Вземане от офис на Еконт · ${money(delivery.econtFeeStotinki)}`}
+                        </span>
                       </span>
-                    </span>
-                  </label>
+                    </label>
+                  )}
+                  {!showSelf && !showEcont && (
+                    <p className="muted" style={{ fontSize: 14 }}>
+                      Фермата не предлага доставка в момента. Свържи се с нас за уговорка.
+                    </p>
+                  )}
                 </div>
                 {isEcont ? (
-                  <div className="field" style={{ marginTop: 14 }}>
-                    <label>Избери офис на Еконт</label>
-                    <input
-                      className="input"
-                      placeholder="напр. Еконт Варна Център"
-                      value={addressInput}
-                      onChange={(e) => setAddressInput(e.target.value)}
-                    />
-                  </div>
+                  manualEcont ? (
+                    <div className="field" style={{ marginTop: 14 }}>
+                      <label>Адрес за доставка (град, улица, №)</label>
+                      <input
+                        className="input"
+                        placeholder="напр. Варна, ул. Иван Вазов 5"
+                        value={addressInput}
+                        onChange={(e) => setAddressInput(e.target.value)}
+                      />
+                      <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+                        Еконт доставя до най-близкия офис до твоя адрес.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="field" style={{ marginTop: 14 }}>
+                      <label>Избери офис на Еконт</label>
+                      <input
+                        className="input"
+                        placeholder="напр. Еконт Варна Център"
+                        value={addressInput}
+                        onChange={(e) => setAddressInput(e.target.value)}
+                      />
+                    </div>
+                  )
                 ) : (
                   <div style={{ marginTop: 14 }}>
                     <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>
@@ -297,7 +356,7 @@ export function CheckoutClient({
               </div>
 
               {/* delivery slot — only for personal delivery, when the farm offers slots */}
-              {deliveryEnabled && !isEcont && hasSlots !== false && (
+              {showSelf && !isEcont && hasSlots !== false && (
                 <div className="card" style={{ padding: 24, boxShadow: 'none' }}>
                   <h3 style={{ fontSize: 20, marginBottom: 6 }}>Часови слот за доставка</h3>
                   <p className="muted" style={{ fontSize: 14, marginBottom: 16 }}>

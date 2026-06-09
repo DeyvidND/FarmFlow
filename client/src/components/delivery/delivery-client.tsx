@@ -2,21 +2,14 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Truck, AlertTriangle, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Button } from '@/components/ui/button';
 import { ApiError, saveDelivery } from '@/lib/api-client';
 import { hydrateDelivery } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
-import { MethodsSection } from './methods-section';
-import { ScheduleSection } from './schedule-section';
-import { PricingSection } from './pricing-section';
-import { PaymentSection } from './payment-section';
-import { EcontConnectionSection } from './econt-section';
-import { OfficePickerPreview } from './office-picker-preview';
-import { ShipmentsTable } from './shipments-table';
+import { DeliveryPanel, type StripeStatus } from './delivery-panel';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 const toastAdapter = { success: toast.success, info: toast.info, error: toast.error };
@@ -25,14 +18,18 @@ export function DeliveryClient({
   initialEnabled,
   initialDelivery,
   slotFreeCount,
+  stripe,
 }: {
   initialEnabled: boolean;
   initialDelivery: DeliveryConfig | null;
   slotFreeCount: number;
+  stripe: StripeStatus;
 }) {
   const router = useRouter();
   const base = React.useMemo(() => hydrateDelivery(initialDelivery), [initialDelivery]);
 
+  // `enabled` is the tenant's `deliveryEnabled` flag — now owned by the
+  // self-delivery card (storefront gates personal delivery on it).
   const [savedEnabled, setSavedEnabled] = React.useState(initialEnabled);
   const [enabled, setEnabled] = React.useState(initialEnabled);
   const [savedCfg, setSavedCfg] = React.useState<DeliveryConfig>(() => structuredClone(base));
@@ -48,17 +45,15 @@ export function DeliveryClient({
 
   const dirty = enabled !== savedEnabled || JSON.stringify(cfg) !== JSON.stringify(savedCfg);
 
-  const enabledMethods = cfg.methods.order.filter((k) => cfg.methods[k].enabled);
-  const noMethods = enabled && enabledMethods.length === 0;
-  const econtReady = cfg.econt.configured;
-  // Mode 'off' hides the courier accounting (office preview + shipments table) so
-  // a self-delivery farm never sees Econt waybills.
-  const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
-  const locked = !enabled;
+  // At least one way to receive an order must be on (pickup / self-delivery /
+  // courier). Payment choice is independent.
+  const econtOn = (cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off')) !== 'off';
+  const noWayToOrder =
+    !cfg.methods.pickup.enabled && !(enabled && cfg.methods.ownSlots.enabled) && !econtOn;
 
   const save = async () => {
-    if (noMethods) {
-      toast.info('Активирай поне един метод на доставка');
+    if (noWayToOrder) {
+      toast.info('Активирай поне един начин на доставка (вземане, лична доставка или куриер)');
       return;
     }
     setSaving(true);
@@ -86,83 +81,23 @@ export function DeliveryClient({
   return (
     <div className={cn('animate-ff-fade-up flex flex-col gap-4', dirty && 'pb-20')}>
       <div className="mb-1">
-        <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">Доставка</h1>
-        <p className="mt-0.5 text-[14px] text-ff-ink-2">Настрой как клиентите получават поръчките си.</p>
+        <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">
+          Доставка и плащане
+        </h1>
+        <p className="mt-0.5 text-[14px] text-ff-ink-2">
+          Включи начините, по които клиентите плащат и получават поръчките си.
+        </p>
       </div>
 
-      {/* master toggle banner */}
-      <div
-        className={cn(
-          'flex flex-wrap items-center gap-4 rounded-[14px] border p-5 shadow-ff-sm',
-          enabled ? 'border-ff-green-100 bg-ff-green-50' : 'border-ff-border bg-ff-surface',
-        )}
-      >
-        <span
-          className={cn(
-            'grid h-11 w-11 shrink-0 place-items-center rounded-xl',
-            enabled ? 'bg-ff-green-100 text-ff-green-700' : 'bg-ff-surface-2 text-ff-muted',
-          )}
-        >
-          <Truck size={23} />
-        </span>
-        <div className="min-w-[220px] flex-1">
-          <div className="text-[15.5px] font-extrabold text-ff-ink">Доставка активна</div>
-          <div className="mt-0.5 max-w-[560px] text-[13px] leading-snug text-ff-ink-2">
-            Когато е изключена, клиентите не виждат опции за доставка в магазина.
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2.5">
-          <span
-            className={cn('text-[13px] font-bold', enabled ? 'text-ff-green-700' : 'text-ff-muted')}
-          >
-            {enabled ? 'Включено' : 'Изключено'}
-          </span>
-          <ToggleSwitch checked={enabled} onChange={setEnabled} />
-        </div>
-      </div>
-
-      {locked && (
-        <div className="flex items-center gap-2.5 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3 text-[13.5px] font-bold text-ff-amber-600">
-          <AlertTriangle size={18} /> Доставката е изключена — клиентите не виждат опции за доставка в
-          магазина.
-        </div>
-      )}
-
-      {!locked && (
-        <div className="rounded-[14px] border border-ff-green-100 bg-ff-green-50 px-5 py-4">
-          <div className="text-[12.5px] font-extrabold uppercase tracking-[0.03em] text-ff-green-800">
-            Три прости стъпки
-          </div>
-          <ol className="mt-2 flex flex-col gap-1.5 text-[13.5px] text-ff-ink-2">
-            <li>
-              <b>1.</b> Избери как клиентите получават поръчките си — секция „Методи на доставка“.
-            </li>
-            <li>
-              <b>2.</b> Задай цена на всеки избран начин (натисни върху метода).
-            </li>
-            <li>
-              <b>3.</b> <span className="font-semibold text-ff-muted">По желание:</span> свържи Еконт,
-              само ако искаш доставка с куриер.
-            </li>
-          </ol>
-        </div>
-      )}
-
-      <div className={cn('flex flex-col gap-4', locked && 'pointer-events-none opacity-50')}>
-        <MethodsSection
-          cfg={cfg}
-          mut={mut}
-          econtReady={econtReady}
-          noMethods={noMethods}
-          slotFreeCount={slotFreeCount}
-        />
-        <ScheduleSection cfg={cfg} mut={mut} />
-        <PricingSection cfg={cfg} mut={mut} />
-        <PaymentSection cfg={cfg} mut={mut} />
-        <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />
-        {econtMode === 'auto' && <OfficePickerPreview configured={econtReady} />}
-        {econtMode === 'auto' && <ShipmentsTable toast={toastAdapter} />}
-      </div>
+      <DeliveryPanel
+        cfg={cfg}
+        mut={mut}
+        deliveryEnabled={enabled}
+        setDeliveryEnabled={setEnabled}
+        slotFreeCount={slotFreeCount}
+        stripe={stripe}
+        toast={toastAdapter}
+      />
 
       {/* sticky save bar */}
       {dirty && (

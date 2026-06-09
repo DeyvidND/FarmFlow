@@ -53,7 +53,7 @@ export interface PublicSlot {
   remaining: number;
 }
 
-export type DeliveryType = 'address' | 'econt';
+export type DeliveryType = 'address' | 'econt' | 'econt_address';
 
 export interface OrderItemInput {
   productId: string;
@@ -189,7 +189,25 @@ export interface StorefrontProfile {
   stripeEnabled: boolean;
   /** Per-tenant delivery fees so the storefront total matches the charge. */
   delivery: StorefrontDelivery;
+  /** Which delivery methods are switched on — show only these. */
+  methods: DeliveryMethods;
 }
+
+/** Per-method on/off flags from the farm's config. */
+export interface DeliveryMethods {
+  ownSlots: boolean;
+  pickup: boolean;
+  econtOffice: boolean;
+  econtAddress: boolean;
+}
+
+/** Fallback when the profile can't be read: self + pickup on, Econt off. */
+export const DEFAULT_METHODS: DeliveryMethods = {
+  ownSlots: true,
+  pickup: true,
+  econtOffice: false,
+  econtAddress: false,
+};
 
 export function getStorefront(slug: string): Promise<StorefrontProfile> {
   return request<StorefrontProfile>(`/public/${slug}`, {

@@ -116,3 +116,23 @@ export function buildPublicDelivery(cfg: DeliveryConfig | null | undefined): Pub
     econtAddressFeeStotinki: econtFallbackFee(cfg, true),
   };
 }
+
+/** Which delivery methods the farm has switched on — the storefront shows only
+ *  these, so a disabled method never reaches a customer. ownSlots/pickup default
+ *  on; the Econt methods default off (a farm opts into the courier). */
+export interface PublicMethods {
+  ownSlots: boolean;
+  pickup: boolean;
+  econtOffice: boolean;
+  econtAddress: boolean;
+}
+
+export function buildPublicMethods(cfg: DeliveryConfig | null | undefined): PublicMethods {
+  const m = cfg?.methods;
+  return {
+    ownSlots: m?.ownSlots?.enabled ?? true,
+    pickup: m?.pickup?.enabled ?? true,
+    econtOffice: m?.econtOffice?.enabled ?? false,
+    econtAddress: m?.econtAddress?.enabled ?? false,
+  };
+}

@@ -37,11 +37,13 @@ export const SHIPPING_FEE_STOTINKI = SHIPPING_FEE_ADDRESS_STOTINKI;
  */
 export function shippingFor(
   subtotalStotinki: number,
-  deliveryType: 'address' | 'econt' = 'address',
+  deliveryType: 'address' | 'econt' | 'econt_address' = 'address',
   delivery: StorefrontDelivery = DEFAULT_DELIVERY,
 ): number {
   if (subtotalStotinki >= delivery.freeThresholdStotinki) return 0;
-  return deliveryType === 'econt' ? delivery.econtFeeStotinki : delivery.addressFeeStotinki;
+  if (deliveryType === 'econt') return delivery.econtFeeStotinki;
+  if (deliveryType === 'econt_address') return delivery.econtAddressFeeStotinki;
+  return delivery.addressFeeStotinki;
 }
 
 /** Stotinki still needed to reach free shipping (0 once reached). */
