@@ -18,17 +18,21 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
     econtOffice: {
       // Default off — a new farm starts on self-delivery + pickup, never forced
       // into Econt's courier accounting. Flip on from the Econt section.
+      // Fee MUST mirror the server `DELIVERY_DEFAULTS.econtFeeStotinki` (350) so a
+      // first save (which persists this hydrated config) can't silently change the
+      // fee a never-configured tenant was already being charged.
       enabled: false,
       label: 'До офис на Еконт',
-      pricing: { type: 'flat', feeStotinki: 499 },
+      pricing: { type: 'flat', feeStotinki: 350 },
       etaText: '1–2 работни дни',
       payer: 'customer',
       minOrderStotinki: 0,
     },
     econtAddress: {
+      // Fee mirrors the server `DELIVERY_DEFAULTS.econtAddressFeeStotinki` (590).
       enabled: false,
       label: 'До адрес (Еконт до врата)',
-      pricing: { type: 'freeOver', freeOverStotinki: 6000, feeStotinki: 690 },
+      pricing: { type: 'flat', feeStotinki: 590 },
       etaText: '1–2 работни дни',
       payer: 'customer',
     },
@@ -50,7 +54,12 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
     blackout: ['2026-06-01', '2026-09-06', '2026-09-22'],
   },
   pricing: {
-    freeThresholdStotinki: 6000,
+    // Mirrors the server `DELIVERY_DEFAULTS.freeThresholdStotinki` (4000) — the
+    // only global pricing value the server actually reads — so a first save is
+    // idempotent. (ownSlots stays free by design: it's the customer-friendly
+    // default the admin visibly shows; the server's 490 fallback only ever
+    // applied to a never-saved tenant.)
+    freeThresholdStotinki: 4000,
     model: 'byWeight',
     flatFeeStotinki: 499,
     weightTiers: [
