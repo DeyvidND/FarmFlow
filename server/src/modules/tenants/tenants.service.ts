@@ -5,8 +5,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { eq, sql } from 'drizzle-orm';
-import { type Database, tenants } from '@farmflow/db';
+import { and, eq, sql } from 'drizzle-orm';
+import { type Database, tenants, products } from '@farmflow/db';
 import type { PublicTenant, Tenant } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
@@ -21,6 +21,11 @@ import {
   isValidSlot,
   type MediaSlotDef,
 } from './media-slots.catalog';
+import {
+  buildPublicContact,
+  normalizeSiteContact,
+  type PublicContact,
+} from './site-contact';
 
 /** One stored site-media value. `key` is the R2 object key (for replace/delete);
  *  only `url` is ever exposed publicly. */
@@ -52,6 +57,13 @@ export interface PublicStorefront {
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
   // catalog slot id. Empty/missing slot → the storefront renders its `.ph` mock.
   media: PublicMediaMap;
+  // Editable contact block (settings.contact). Empty/missing → nulls; the
+  // storefront falls back to its own static copy.
+  contact: PublicContact;
+  // Tenant website icon (settings.brand.favicon.url) and browser theme color
+  // (settings.brand.themeColor). Null → storefront defaults.
+  faviconUrl: string | null;
+  themeColor: string | null;
 }
 
 @Injectable()
@@ -95,6 +107,16 @@ export class TenantsService {
     // `delivery` and `routing` aren't columns — they merge into `settings` jsonb.
     const { delivery, routing, farmAddress, farmLat, farmLng, ...flat } = dto;
     const set: Record<string, unknown> = { ...flat };
+
+    // A manually-featured «Продукт на седмицата» must belong to this tenant.
+    if (dto.productOfWeekId) {
+      const [p] = await this.db
+        .select({ id: products.id })
+        .from(products)
+        .where(and(eq(products.id, dto.productOfWeekId), eq(products.tenantId, tenantId)))
+        .limit(1);
+      if (!p) throw new BadRequestException('Продуктът не е намерен');
+    }
 
     // Home / depot. Prefer explicit pin coords; else geocode the typed address.
     if (farmAddress !== undefined) {
