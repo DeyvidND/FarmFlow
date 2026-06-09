@@ -1,5 +1,9 @@
-import { IsString, IsOptional, IsInt, IsUrl, IsEmail, Min } from 'class-validator';
+import {
+  IsString, IsOptional, IsInt, IsUrl, IsEmail, Min, ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
 
 export class CreateFarmerDto {
   @ApiProperty()
@@ -40,6 +44,14 @@ export class CreateFarmerDto {
   @IsOptional()
   @IsUrl()
   imageUrl?: string;
+
+  // Cover framing (focal point + zoom). `null` clears it back to centered. The
+  // service spreads this straight into the row, so the jsonb column follows it.
+  @ApiPropertyOptional({ type: CoverCropDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CoverCropDto)
+  coverCrop?: CoverCropDto | null;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -471,6 +471,9 @@ export const farmers = pgTable(
     since: text('since'),
     tint: text('tint'),
     imageUrl: text('image_url'),
+    // How the cover image is framed in storefront cards: focal point (x/y, 0..1)
+    // + zoom (1..3). NULL = legacy behavior (centered, no zoom). See CoverCrop.
+    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number }>(),
     position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
   },
@@ -494,6 +497,9 @@ export const subcategories = pgTable(
     description: text('description'),
     tint: text('tint'),
     imageUrl: text('image_url'),
+    // How the cover image is framed in the storefront section banner: focal point
+    // (x/y, 0..1) + zoom (1..3). NULL = legacy behavior (centered, no zoom).
+    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number }>(),
     position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
   },

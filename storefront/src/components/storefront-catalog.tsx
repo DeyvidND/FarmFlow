@@ -7,6 +7,7 @@
  * threaded into each card when multi-farmer mode is on (farmers non-empty).
  */
 import type { PublicProduct, PublicFarmer, PublicSubcategory } from '@/lib/api';
+import { coverCropStyle } from '@/lib/cover-crop';
 import { CatalogClient } from './catalog-client';
 import { ProductCard } from './product-card';
 
@@ -55,12 +56,16 @@ export function StorefrontCatalog({
       {sections.map(({ subcat, items }) => (
         <section key={subcat.id} id={subcat.id} style={{ scrollMarginTop: 120 }}>
           {subcat.imageUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={subcat.imageUrl}
-              alt={subcat.name}
-              style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 14, marginBottom: 16 }}
-            />
+            <div
+              style={{ height: 160, borderRadius: 14, marginBottom: 16, overflow: 'hidden' }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={subcat.imageUrl}
+                alt={subcat.name}
+                style={{ width: '100%', height: '100%', ...coverCropStyle(subcat.coverCrop) }}
+              />
+            </div>
           )}
           <div className="section-head" style={{ textAlign: 'left', marginBottom: 16 }}>
             <h2 style={{ borderLeft: `4px solid ${subcat.tint ?? '#4C8A54'}`, paddingLeft: 12 }}>{subcat.name}</h2>

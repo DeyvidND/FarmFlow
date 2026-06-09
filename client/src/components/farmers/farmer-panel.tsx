@@ -6,9 +6,10 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar } from './avatar';
 import { MediaManager } from '@/components/media/media-manager';
+import { CoverCropEditor } from '@/components/media/cover-crop-editor';
 import { ProductAssignPicker } from '@/components/products/product-assign-picker';
 import { ApiError, assignProducts, createFarmer, updateFarmer } from '@/lib/api-client';
-import type { Farmer, ProductOption } from '@/lib/types';
+import type { Farmer, ProductOption, CoverCrop } from '@/lib/types';
 
 const field =
   'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
@@ -39,6 +40,7 @@ export function FarmerPanel({
   // value for the avatar / role-label fallback only.
   const tint = farmer.tint ?? '#2C5530';
   const [imageUrl, setImageUrl] = useState(farmer.imageUrl ?? null);
+  const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(farmer.coverCrop ?? null);
   const [saving, setSaving] = useState(false);
   const [checked, setChecked] = useState<Set<string>>(
     () => new Set(products.filter((p) => farmer.id && p.farmerId === farmer.id).map((p) => p.id)),
@@ -58,6 +60,7 @@ export function FarmerPanel({
         phone: phone.trim(),
         email: email.trim() || null,
         since: since.trim(),
+        coverCrop,
       };
       const saved = isNew ? await createFarmer(data) : await updateFarmer(farmer.id!, data);
       // Persist product links (existing farmer only — needs an id).
@@ -98,7 +101,9 @@ export function FarmerPanel({
   // (photo 0) changes — without a full reload.
   function onCoverChange(url: string | null) {
     setImageUrl(url);
-    if (farmer.id) onSaved({ ...(farmer as Farmer), imageUrl: url });
+    // A different cover image invalidates the saved framing — back to centered.
+    setCoverCrop(null);
+    if (farmer.id) onSaved({ ...(farmer as Farmer), imageUrl: url, coverCrop: null });
   }
 
   return (
@@ -132,6 +137,10 @@ export function FarmerPanel({
             <p className="text-[12.5px] text-ff-muted-2">Първо запази фермера, после добави снимка.</p>
           ) : (
             <MediaManager resource="farmers" ownerId={farmer.id!} onCoverChange={onCoverChange} maxPhotos={1} />
+          )}
+
+          {!isNew && imageUrl && (
+            <CoverCropEditor imageUrl={imageUrl} value={coverCrop} aspect={3 / 2} onChange={setCoverCrop} />
           )}
 
           <label className={labelCls}>

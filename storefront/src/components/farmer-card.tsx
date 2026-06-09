@@ -7,6 +7,7 @@
 import Link from 'next/link';
 import type { PublicFarmer } from '@/lib/api';
 import { farmerEyebrow } from '@/lib/farmers';
+import { coverCropStyle } from '@/lib/cover-crop';
 
 export function FarmerCard({
   farmer,
@@ -30,7 +31,7 @@ export function FarmerCard({
             alt={farmer.name}
             loading="lazy"
             decoding="async"
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            style={{ width: '100%', height: '100%', ...coverCropStyle(farmer.coverCrop) }}
           />
         ) : (
           <span className="ph__label">{farmer.name}</span>
