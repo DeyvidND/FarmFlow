@@ -86,10 +86,12 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Multi-farmer farms surface a "Фермери" nav item; single-producer farms don't.
-  const hasFarmers = await getStorefront(resolveSlug())
-    .then((p) => p.multiFarmer)
-    .catch(() => false);
+  // Chrome flags: multi-farmer surfaces the "Фермери" nav item; articles/reviews
+  // gate the «Влог»/«Отзиви» nav items (and their sections). Missing → on.
+  const profile = await getStorefront(resolveSlug()).catch(() => null);
+  const hasFarmers = profile?.multiFarmer ?? false;
+  const articlesEnabled = profile?.articlesEnabled ?? true;
+  const reviewsEnabled = profile?.reviewsEnabled ?? true;
 
   return (
     <html lang="bg" data-theme={DEFAULT_THEME} className={fontVars} suppressHydrationWarning>
@@ -99,9 +101,17 @@ export default async function RootLayout({
       </head>
       <body>
         <ThemeBar />
-        <SiteHeader hasFarmers={hasFarmers} />
+        <SiteHeader
+          hasFarmers={hasFarmers}
+          articlesEnabled={articlesEnabled}
+          reviewsEnabled={reviewsEnabled}
+        />
         {children}
-        <SiteFooter hasFarmers={hasFarmers} />
+        <SiteFooter
+          hasFarmers={hasFarmers}
+          articlesEnabled={articlesEnabled}
+          reviewsEnabled={reviewsEnabled}
+        />
         <Toaster />
         <StoreHydrator />
       </body>

@@ -36,6 +36,14 @@ export interface Product {
   createdAt: string;
 }
 
+/** How a cover image is framed on the storefront: focal point (x/y, 0..1) + zoom
+ *  (1..3). null = centered, no zoom. Mirrors @farmflow/types CoverCrop. */
+export interface CoverCrop {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
 export interface Farmer {
   id: string;
   name: string;
@@ -46,6 +54,7 @@ export interface Farmer {
   since: string | null;
   tint: string | null;
   imageUrl: string | null;
+  coverCrop: CoverCrop | null;
   position: number;
   createdAt: string;
 }
@@ -56,6 +65,7 @@ export interface Subcategory {
   description: string | null;
   tint: string | null;
   imageUrl: string | null;
+  coverCrop: CoverCrop | null;
   position: number;
   createdAt: string;
 }
@@ -74,6 +84,9 @@ export interface TenantProfile {
   name: string;
   multiFarmer: boolean;
   multiSubcat: boolean;
+  /** Storefront content sections, gated from the «Функции на магазина» panel. */
+  articlesEnabled: boolean;
+  reviewsEnabled: boolean;
   deliveryEnabled: boolean;
   /** Home / depot — the delivery route origin. */
   farmAddress: string | null;

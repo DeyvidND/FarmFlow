@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import {
   getArticle,
   getArticles,
+  getStorefront,
   resolveSlug,
   ApiError,
   type PublicArticle,
@@ -127,6 +128,10 @@ export default async function ArticlePage({
   searchParams: { slug?: string };
 }) {
   const farmSlug = resolveSlug(searchParams?.slug);
+
+  // Articles section switched off → no public article pages.
+  const profile = await getStorefront(farmSlug).catch(() => null);
+  if (profile && profile.articlesEnabled === false) redirect('/');
 
   let article: PublicArticle;
   try {

@@ -54,6 +54,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <AdminShell
       subscriptionActive={subscriptionActive}
       tenantName={me.name ?? undefined}
+      articlesEnabled={me.articlesEnabled ?? true}
       mustChangePassword={mustChangePassword}
     >
       {children}

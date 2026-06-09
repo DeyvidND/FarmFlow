@@ -28,6 +28,13 @@ export type NewProduct = InferInsertModel<typeof products>;
 export type Farmer = InferSelectModel<typeof farmers>;
 export type NewFarmer = InferInsertModel<typeof farmers>;
 
+/**
+ * How a catalog cover image is framed in the storefront. `x`/`y` are the focal
+ * point as fractions (0..1) of the source image; `zoom` magnifies (1..3). Stored
+ * on `farmers.coverCrop` / `subcategories.coverCrop`; NULL = centered, no zoom.
+ */
+export type CoverCrop = { x: number; y: number; zoom: number };
+
 export type Subcategory = InferSelectModel<typeof subcategories>;
 export type NewSubcategory = InferInsertModel<typeof subcategories>;
 

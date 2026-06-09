@@ -15,13 +15,17 @@ export function MobileDrawer({
   onClose,
   pathname,
   hasFarmers = false,
+  articlesEnabled = true,
+  reviewsEnabled = true,
 }: {
   open: boolean;
   onClose: () => void;
   pathname: string;
   hasFarmers?: boolean;
+  articlesEnabled?: boolean;
+  reviewsEnabled?: boolean;
 }) {
-  const nav = mainNav(hasFarmers);
+  const nav = mainNav(hasFarmers, { articlesEnabled, reviewsEnabled });
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();

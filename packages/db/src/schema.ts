@@ -48,6 +48,11 @@ export const tenants = pgTable('tenants', {
   // field + storefront grouping/attribution activate. Default off.
   multiFarmer: boolean('multi_farmer').notNull().default(false),
   multiSubcat: boolean('multi_subcat').notNull().default(false),
+  // Storefront content sections, gated from the «Функции на магазина» panel. When
+  // off, the section is hidden on the storefront (and its admin nav link). Default
+  // on — preserves the historic always-visible behavior for existing farms.
+  articlesEnabled: boolean('articles_enabled').notNull().default(true),
+  reviewsEnabled: boolean('reviews_enabled').notNull().default(true),
   stripeAccountId: text('stripe_account_id'),
   // Connected-account capability flags, mirrored from Stripe `account.updated`
   // webhooks so the super-admin oversight table reads status without per-load
@@ -466,6 +471,9 @@ export const farmers = pgTable(
     since: text('since'),
     tint: text('tint'),
     imageUrl: text('image_url'),
+    // How the cover image is framed in storefront cards: focal point (x/y, 0..1)
+    // + zoom (1..3). NULL = legacy behavior (centered, no zoom). See CoverCrop.
+    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number }>(),
     position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
   },
@@ -489,6 +497,9 @@ export const subcategories = pgTable(
     description: text('description'),
     tint: text('tint'),
     imageUrl: text('image_url'),
+    // How the cover image is framed in the storefront section banner: focal point
+    // (x/y, 0..1) + zoom (1..3). NULL = legacy behavior (centered, no zoom).
+    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number }>(),
     position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
   },

@@ -181,6 +181,9 @@ export interface StorefrontProfile {
   deliveryEnabled: boolean;
   multiFarmer: boolean;
   multiSubcat: boolean;
+  /** Storefront content sections — hide them when off. Absent (older API) → on. */
+  articlesEnabled?: boolean;
+  reviewsEnabled?: boolean;
   econtEnabled: boolean;
   econtMode: 'off' | 'manual' | 'auto';
   /** наложен платеж offered to customers. */

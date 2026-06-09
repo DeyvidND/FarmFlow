@@ -174,6 +174,9 @@ export const getTenant = () => apiFetch<TenantProfile>('tenants/me');
 export const updateTenant = (data: {
   multiFarmer?: boolean;
   multiSubcat?: boolean;
+  articlesEnabled?: boolean;
+  reviewsEnabled?: boolean;
+  deliveryEnabled?: boolean;
   farmAddress?: string;
   farmLat?: number;
   farmLng?: number;

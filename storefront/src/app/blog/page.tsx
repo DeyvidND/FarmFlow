@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getArticles, resolveSlug, type PublicArticle } from '@/lib/api';
+import { redirect } from 'next/navigation';
+import { getArticles, getStorefront, resolveSlug, type PublicArticle } from '@/lib/api';
 import { formatDate, readingTime } from '@/lib/format';
 import { BlogGrid } from '@/components/blog-grid';
 
@@ -12,6 +13,11 @@ export default async function BlogPage({
   searchParams: { slug?: string };
 }) {
   const slug = resolveSlug(searchParams?.slug);
+
+  // The «Статии» section can be switched off by the farm — then this route 404s
+  // back home rather than showing an orphan page.
+  const profile = await getStorefront(slug).catch(() => null);
+  if (profile && profile.articlesEnabled === false) redirect('/');
 
   let posts: PublicArticle[] = [];
   let failed = false;

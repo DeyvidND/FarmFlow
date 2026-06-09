@@ -21,6 +21,8 @@ import {
   Lock,
   LogOut,
   Settings,
+  SlidersHorizontal,
+  ToggleRight,
   BookOpen,
   ChevronDown,
   type LucideIcon,
@@ -49,6 +51,13 @@ const HOME: NavItem = { href: '/dashboard', label: 'Табло', Icon: LayoutDas
 // Grouped by intent — everyday work (sell · fulfil) stays open; set-up-once
 // groups (catalog · marketing) fold away so the list doesn't overwhelm.
 export const NAV_GROUPS: NavGroup[] = [
+  {
+    title: 'Магазин',
+    items: [
+      { href: '/setup', label: 'Доставка и плащане', Icon: SlidersHorizontal },
+      { href: '/features', label: 'Функции на магазина', Icon: ToggleRight },
+    ],
+  },
   {
     title: 'Продажби',
     items: [
@@ -104,9 +113,12 @@ function Logo({ size = 38 }: { size?: number }) {
 export function Sidebar({
   pendingCount = 0,
   subscriptionActive = true,
+  articlesEnabled = true,
 }: {
   pendingCount?: number;
   subscriptionActive?: boolean;
+  /** «Статии» feature flag — hides the Статии nav item when the section is off. */
+  articlesEnabled?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -126,7 +138,10 @@ export function Sidebar({
   }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
-  const groupHasActive = (g: NavGroup) => g.items.some((i) => isActive(i.href));
+  // Hide feature-gated items (e.g. Статии when the section is switched off).
+  const visibleItems = (g: NavGroup) =>
+    g.items.filter((i) => (i.href === '/articles' ? articlesEnabled : true));
+  const groupHasActive = (g: NavGroup) => visibleItems(g).some((i) => isActive(i.href));
   // A group is shown when it isn't collapsible, when it holds the active page, or
   // when the farmer has expanded it. Collapsible groups default to folded.
   // Collapsible groups now default to OPEN — everything is visible on load and a
@@ -233,7 +248,7 @@ export function Sidebar({
                   {group.title}
                 </div>
               )}
-              {open && group.items.map(renderItem)}
+              {open && visibleItems(group).map(renderItem)}
             </div>
           );
         })}

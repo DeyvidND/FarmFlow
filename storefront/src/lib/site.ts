@@ -43,17 +43,34 @@ export const NAV: ReadonlyArray<NavItem> = [
 
 const FARMERS_NAV: NavItem = { label: 'Фермери', href: '/farmers' };
 
+/** Storefront-section feature flags that gate nav items. Absent → shown. */
+export interface NavFlags {
+  articlesEnabled?: boolean;
+  reviewsEnabled?: boolean;
+}
+
+/** Drop the blog/reviews items when their section is switched off. */
+function applyFlags(items: ReadonlyArray<NavItem>, flags?: NavFlags): NavItem[] {
+  return items.filter((n) => {
+    if (n.href === '/blog' && flags?.articlesEnabled === false) return false;
+    if (n.href === '/reviews' && flags?.reviewsEnabled === false) return false;
+    return true;
+  });
+}
+
 /**
  * Primary nav with the "Фермери" item spliced in after "Продукти" when the farm
  * runs multi-farmer mode (`hasFarmers`). Single-producer farms keep the base nav,
- * so the link never points at an empty page.
+ * so the link never points at an empty page. Blog/reviews items drop out when
+ * their storefront section is switched off.
  */
-export function mainNav(hasFarmers: boolean): ReadonlyArray<NavItem> {
-  if (!hasFarmers) return NAV;
-  const i = NAV.findIndex((n) => n.href === '/products');
+export function mainNav(hasFarmers: boolean, flags?: NavFlags): ReadonlyArray<NavItem> {
   const out = [...NAV];
-  out.splice(i + 1, 0, FARMERS_NAV);
-  return out;
+  if (hasFarmers) {
+    const i = out.findIndex((n) => n.href === '/products');
+    out.splice(i + 1, 0, FARMERS_NAV);
+  }
+  return applyFlags(out, flags);
 }
 
 /** Footer "Магазин" column. */
@@ -65,18 +82,23 @@ export const FOOTER_SHOP: ReadonlyArray<NavItem> = [
 ];
 
 /** Footer "Магазин" column with "Фермери" added when multi-farmer mode is on. */
-export function footerShop(hasFarmers: boolean): ReadonlyArray<NavItem> {
-  if (!hasFarmers) return FOOTER_SHOP;
-  return [FOOTER_SHOP[0], FARMERS_NAV, ...FOOTER_SHOP.slice(1)];
+export function footerShop(hasFarmers: boolean, flags?: NavFlags): ReadonlyArray<NavItem> {
+  const base = hasFarmers ? [FOOTER_SHOP[0], FARMERS_NAV, ...FOOTER_SHOP.slice(1)] : [...FOOTER_SHOP];
+  return applyFlags(base, flags);
 }
 
-/** Footer "Информация" column. */
+/** Footer "Информация" column (raw). Use `footerInfo()` to apply feature flags. */
 export const FOOTER_INFO: ReadonlyArray<{ label: string; href: string }> = [
   { label: 'За нас', href: '/about' },
   { label: 'Влог', href: '/blog' },
   { label: 'ЧЗВ', href: '/faq' },
   { label: 'Контакти', href: '/contact' },
 ];
+
+/** Footer "Информация" column with the blog item dropped when articles are off. */
+export function footerInfo(flags?: NavFlags): ReadonlyArray<NavItem> {
+  return applyFlags(FOOTER_INFO, flags);
+}
 
 /**
  * Is `href` the active route? `/` matches exactly; everything else matches on

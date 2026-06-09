@@ -6,9 +6,13 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { SectionPhoto } from './section-photo';
 import { MediaManager } from '@/components/media/media-manager';
+import { CoverCropEditor } from '@/components/media/cover-crop-editor';
 import { ProductAssignPicker } from '@/components/products/product-assign-picker';
 import { ApiError, assignProducts, createSubcategory, updateSubcategory } from '@/lib/api-client';
-import type { Subcategory, ProductOption } from '@/lib/types';
+import type { Subcategory, ProductOption, CoverCrop } from '@/lib/types';
+
+// Storefront section banner is full content width (max 1200, minus padding) × 160px.
+const SECTION_BANNER_ASPECT = 1152 / 160;
 
 const field =
   'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
@@ -35,6 +39,7 @@ export function SubcategoryPanel({
   // the section-photo gradient fallback only.
   const tint = subcat.tint ?? '#4C8A54';
   const [imageUrl, setImageUrl] = useState(subcat.imageUrl ?? null);
+  const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(subcat.coverCrop ?? null);
   const [saving, setSaving] = useState(false);
   const [checked, setChecked] = useState<Set<string>>(
     () => new Set(products.filter((p) => subcat.id && p.subcategoryId === subcat.id).map((p) => p.id)),
@@ -47,7 +52,7 @@ export function SubcategoryPanel({
     }
     setSaving(true);
     try {
-      const data = { name: name.trim(), description: description.trim() };
+      const data = { name: name.trim(), description: description.trim(), coverCrop };
       const saved = isNew ? await createSubcategory(data) : await updateSubcategory(subcat.id!, data);
       // Persist product links (existing subcategory only — needs an id).
       if (!isNew && subcat.id) {
@@ -87,7 +92,9 @@ export function SubcategoryPanel({
   // (photo 0) changes — without a full reload.
   function onCoverChange(url: string | null) {
     setImageUrl(url);
-    if (subcat.id) onSaved({ ...(subcat as Subcategory), imageUrl: url });
+    // A different cover image invalidates the saved framing — back to centered.
+    setCoverCrop(null);
+    if (subcat.id) onSaved({ ...(subcat as Subcategory), imageUrl: url, coverCrop: null });
   }
 
   return (
@@ -115,8 +122,16 @@ export function SubcategoryPanel({
             {isNew ? (
               <p className="mt-2 text-[12.5px] text-ff-muted-2">Първо запази секцията, после добави снимка.</p>
             ) : (
-              <div className="mt-3">
+              <div className="mt-3 flex flex-col gap-3">
                 <MediaManager resource="subcategories" ownerId={subcat.id!} onCoverChange={onCoverChange} maxPhotos={1} />
+                {imageUrl && (
+                  <CoverCropEditor
+                    imageUrl={imageUrl}
+                    value={coverCrop}
+                    aspect={SECTION_BANNER_ASPECT}
+                    onChange={setCoverCrop}
+                  />
+                )}
               </div>
             )}
           </div>

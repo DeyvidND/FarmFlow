@@ -1,5 +1,9 @@
-import { IsString, IsOptional, IsInt, IsUrl, Min } from 'class-validator';
+import {
+  IsString, IsOptional, IsInt, IsUrl, Min, ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
 
 export class CreateSubcategoryDto {
   @ApiProperty()
@@ -20,6 +24,13 @@ export class CreateSubcategoryDto {
   @IsOptional()
   @IsUrl()
   imageUrl?: string;
+
+  // Cover framing (focal point + zoom). `null` clears it back to centered.
+  @ApiPropertyOptional({ type: CoverCropDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CoverCropDto)
+  coverCrop?: CoverCropDto | null;
 
   @ApiPropertyOptional()
   @IsOptional()

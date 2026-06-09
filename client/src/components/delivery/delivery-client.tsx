@@ -2,36 +2,45 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Check } from 'lucide-react';
+import Link from 'next/link';
+import { Check, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ApiError, saveDelivery } from '@/lib/api-client';
 import { hydrateDelivery } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
-import { DeliveryPanel, type StripeStatus } from './delivery-panel';
+import { MethodsSection } from './methods-section';
+import { PricingSection } from './pricing-section';
+import { EcontConnectionSection } from './econt-section';
+import { OfficePickerPreview } from './office-picker-preview';
+import { ShipmentsTable } from './shipments-table';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 const toastAdapter = { success: toast.success, info: toast.info, error: toast.error };
 
+/**
+ * Доставка — **configuration only**. The on/off switches (which methods + COD are
+ * offered, whether the courier is on) live in the «Доставка и плащане» panel
+ * (`/setup`); this page sets up the details of the methods that are switched on:
+ * prices, the Econt connection/sender/package, the office map and shipments. The
+ * tenant's `deliveryEnabled` flag is carried through unchanged on save.
+ */
 export function DeliveryClient({
   initialEnabled,
   initialDelivery,
   slotFreeCount,
-  stripe,
 }: {
   initialEnabled: boolean;
   initialDelivery: DeliveryConfig | null;
   slotFreeCount: number;
-  stripe: StripeStatus;
 }) {
   const router = useRouter();
   const base = React.useMemo(() => hydrateDelivery(initialDelivery), [initialDelivery]);
 
-  // `enabled` is the tenant's `deliveryEnabled` flag — now owned by the
-  // self-delivery card (storefront gates personal delivery on it).
-  const [savedEnabled, setSavedEnabled] = React.useState(initialEnabled);
-  const [enabled, setEnabled] = React.useState(initialEnabled);
+  // deliveryEnabled is owned by the panel — keep it as loaded and send it back
+  // unchanged so a config save here never flips it.
+  const [enabled] = React.useState(initialEnabled);
   const [savedCfg, setSavedCfg] = React.useState<DeliveryConfig>(() => structuredClone(base));
   const [cfg, setCfg] = React.useState<DeliveryConfig>(() => structuredClone(base));
   const [saving, setSaving] = React.useState(false);
@@ -43,27 +52,16 @@ export function DeliveryClient({
       return d;
     });
 
-  const dirty = enabled !== savedEnabled || JSON.stringify(cfg) !== JSON.stringify(savedCfg);
+  const dirty = JSON.stringify(cfg) !== JSON.stringify(savedCfg);
 
-  // At least one way to receive an order must be on (pickup / self-delivery /
-  // courier). Payment choice is independent.
-  const econtOn = (cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off')) !== 'off';
-  const noWayToOrder =
-    !cfg.methods.pickup.enabled && !(enabled && cfg.methods.ownSlots.enabled) && !econtOn;
+  const econtReady = cfg.econt.configured;
+  const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
 
   const save = async () => {
-    if (noWayToOrder) {
-      toast.info('Активирай поне един начин на доставка (вземане, лична доставка или куриер)');
-      return;
-    }
     setSaving(true);
     try {
       await saveDelivery({ deliveryEnabled: enabled, delivery: cfg });
-      setSavedEnabled(enabled);
       setSavedCfg(structuredClone(cfg));
-      // Invalidate the Next Router Cache so the gated screens (Слотове / Производство
-      // / Маршрут) reflect the new deliveryEnabled on next navigation — without a
-      // manual browser refresh.
       router.refresh();
       toast.success('Настройките са запазени');
     } catch (e) {
@@ -73,31 +71,39 @@ export function DeliveryClient({
     }
   };
 
-  const discard = () => {
-    setEnabled(savedEnabled);
-    setCfg(structuredClone(savedCfg));
-  };
+  const discard = () => setCfg(structuredClone(savedCfg));
 
   return (
     <div className={cn('animate-ff-fade-up flex flex-col gap-4', dirty && 'pb-20')}>
       <div className="mb-1">
-        <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">
-          Доставка и плащане
-        </h1>
+        <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">Доставка</h1>
         <p className="mt-0.5 text-[14px] text-ff-ink-2">
-          Включи начините, по които клиентите плащат и получават поръчките си.
+          Настрой детайлите на методите за доставка, които предлагаш.
         </p>
       </div>
 
-      <DeliveryPanel
-        cfg={cfg}
-        mut={mut}
-        deliveryEnabled={enabled}
-        setDeliveryEnabled={setEnabled}
-        slotFreeCount={slotFreeCount}
-        stripe={stripe}
-        toast={toastAdapter}
-      />
+      {/* The on/off lives in the panel — point there. */}
+      <Link
+        href="/setup"
+        className="flex items-center gap-3 rounded-[14px] border border-ff-border bg-ff-surface-2 px-4 py-3 transition-colors hover:border-ff-green-100 hover:bg-ff-green-50"
+      >
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
+          <SlidersHorizontal size={18} />
+        </span>
+        <div className="min-w-0 flex-1 text-[13px] leading-snug text-ff-ink-2">
+          Кои методи и плащания се предлагат се избира от <b className="text-ff-ink">«Доставка и плащане»</b>.
+          Тук задаваш само настройките им.
+        </div>
+        <span className="shrink-0 text-[13px] font-bold text-ff-green-700">Към панела →</span>
+      </Link>
+
+      <div className="flex flex-col gap-4">
+        <MethodsSection cfg={cfg} mut={mut} slotFreeCount={slotFreeCount} />
+        <PricingSection cfg={cfg} mut={mut} />
+        {econtMode !== 'off' && <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />}
+        {econtMode === 'auto' && <OfficePickerPreview configured={econtReady} />}
+        {econtMode === 'auto' && <ShipmentsTable toast={toastAdapter} />}
+      </div>
 
       {/* sticky save bar */}
       {dirty && (

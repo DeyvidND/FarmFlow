@@ -11,6 +11,7 @@ import {
   type PublicSubcategory,
 } from '@/lib/api';
 import { farmerEyebrow, farmerSections, farmerYears } from '@/lib/farmers';
+import { coverCropStyle } from '@/lib/cover-crop';
 import { ProductCard } from '@/components/product-card';
 
 const anchorOf = (subcat: PublicSubcategory | null) => (subcat ? subcat.id : 'other');
@@ -88,7 +89,7 @@ export default async function FarmerPage({
                 <img
                   src={farmer.imageUrl}
                   alt={farmer.name}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  style={{ width: '100%', height: '100%', ...coverCropStyle(farmer.coverCrop) }}
                 />
               ) : (
                 <span className="ph__label">{farmer.name}</span>
