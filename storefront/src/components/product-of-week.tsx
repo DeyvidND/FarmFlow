@@ -2,6 +2,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import type { PublicProduct } from '@/lib/api';
 import { money } from '@/lib/api';
+import { coverCropStyle } from '@/lib/cover-crop';
 
 /**
  * «Продукт на седмицата» home highlight — a prominent banner for the featured
@@ -28,7 +29,7 @@ export function ProductOfWeekHighlight({
                 width={720}
                 height={540}
                 sizes="(max-width: 860px) 100vw, 480px"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                style={{ width: '100%', height: '100%', ...coverCropStyle(product.coverCrop) }}
               />
             ) : (
               <span className="ph__label">{product.name}</span>

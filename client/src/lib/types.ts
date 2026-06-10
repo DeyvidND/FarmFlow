@@ -45,6 +45,8 @@ export interface Product {
   stockQuantity: number | null;
   isActive: boolean;
   imageUrl: string | null;
+  /** Cover framing for the storefront card; null = centered, no zoom. */
+  coverCrop: CoverCrop | null;
   farmerId: string | null;
   subcategoryId: string | null;
   /** Storefront display order (farmer-controlled). Lower = earlier. */

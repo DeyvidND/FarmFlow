@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MediaManager } from '@/components/media/media-manager';
+import { CoverCropEditor } from '@/components/media/cover-crop-editor';
 import { ApiError } from '@/lib/api-client';
-import type { Farmer, Product, Subcategory } from '@/lib/types';
+import type { CoverCrop, Farmer, Product, Subcategory } from '@/lib/types';
 
 const field =
   'rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
@@ -46,10 +47,20 @@ export function ProductDialog({
   const [category, setCategory] = useState(product?.category ?? '');
   const [farmerId, setFarmerId] = useState(product?.farmerId ?? farmers[0]?.id ?? '');
   const [subcatId, setSubcatId] = useState(product?.subcategoryId ?? subcats[0]?.id ?? '');
+  const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? null);
+  const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(product?.coverCrop ?? null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (!open) return null;
+
+  // The gallery cover changed (photo 0 added/removed/reordered). Sync the local
+  // preview and invalidate the saved framing — a new photo needs re-framing.
+  function onCover(url: string | null) {
+    setImageUrl(url);
+    setCoverCrop(null);
+    onCoverChange?.(url);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -74,7 +85,7 @@ export function ProductDialog({
         // Empty = unlimited stock → send null explicitly (the column defaults to 0
         // = out of stock, which would contradict the "неограничено" placeholder).
         stockQuantity: stock === '' ? null : parseInt(stock, 10) || 0,
-        ...(isEdit ? {} : { isActive: true }),
+        ...(isEdit ? { coverCrop } : { isActive: true }),
         ...(multiFarmer ? { farmerId: farmerId || null } : {}),
         ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
       });
@@ -101,7 +112,11 @@ export function ProductDialog({
 
         <form onSubmit={submit} className="flex flex-col gap-3">
           {isEdit && product && (
-            <MediaManager resource="products" ownerId={product.id} onCoverChange={onCoverChange} />
+            <MediaManager resource="products" ownerId={product.id} onCoverChange={onCover} />
+          )}
+
+          {isEdit && imageUrl && (
+            <CoverCropEditor imageUrl={imageUrl} value={coverCrop} aspect={4 / 3} onChange={setCoverCrop} />
           )}
 
           <label className={labelCls}>
