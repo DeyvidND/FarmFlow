@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
   ToggleRight,
   BookOpen,
+  Contact,
   ChevronDown,
   type LucideIcon,
 } from 'lucide-react';
@@ -108,6 +109,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/articles', label: 'Статии', Icon: Newspaper, gated: true, desc: 'Блог/новини секция в магазина.' },
       { href: '/site-media', label: 'Снимки на сайта', Icon: ImageIcon, desc: 'Снимки за началната страница и секциите.' },
+      { href: '/contacts', label: 'Контакти', Icon: Contact, desc: 'Контактна информация, социални мрежи, локация и иконка на сайта.' },
       { href: '/newsletters', label: 'Имейл клиенти', Icon: Mail, desc: 'Списък с имейли за бюлетин.' },
     ],
   },
