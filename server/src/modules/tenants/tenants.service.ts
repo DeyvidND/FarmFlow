@@ -283,34 +283,28 @@ export class TenantsService {
     const { slug } = await this.loadTenantForMedia(tenantId);
     const { contact, themeColor } = normalizeSiteContact(dto);
 
-    await this.db
-      .update(tenants)
-      .set({
-        settings: sql`jsonb_set(
-          coalesce(${tenants.settings}, '{}'::jsonb),
-          array['contact'],
-          ${JSON.stringify(contact)}::jsonb,
-          true
-        )`,
-      })
-      .where(eq(tenants.id, tenantId));
-
-    if (themeColor !== undefined) {
-      await this.db
-        .update(tenants)
-        .set({
-          settings: themeColor
-            ? sql`jsonb_set(
-                coalesce(${tenants.settings}, '{}'::jsonb)
+    // Build the settings expression so the contact + themeColor write lands in a
+    // single atomic UPDATE (a crash can't persist one without the other).
+    const settingsExpr =
+      themeColor === undefined
+        ? // field not sent → leave brand.themeColor untouched, write only contact
+          sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['contact'], ${JSON.stringify(contact)}::jsonb, true)`
+        : themeColor
+          ? // non-empty string → set it, preserving brand.favicon
+            sql`jsonb_set(
+                jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['contact'], ${JSON.stringify(contact)}::jsonb, true)
                   || jsonb_build_object('brand', coalesce(${tenants.settings} -> 'brand', '{}'::jsonb)),
                 array['brand', 'themeColor'],
                 ${JSON.stringify(themeColor)}::jsonb,
                 true
               )`
-            : sql`coalesce(${tenants.settings}, '{}'::jsonb) #- array['brand', 'themeColor']`,
-        })
-        .where(eq(tenants.id, tenantId));
-    }
+          : // '' or null → write contact then clear the themeColor key
+            sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['contact'], ${JSON.stringify(contact)}::jsonb, true) #- array['brand', 'themeColor']`;
+
+    await this.db
+      .update(tenants)
+      .set({ settings: settingsExpr })
+      .where(eq(tenants.id, tenantId));
 
     await this.publicCache.del(publicCacheKeys.tenant(slug));
     return { contact: buildPublicContact(contact), themeColor: themeColor ?? null };
