@@ -5,6 +5,20 @@ export interface Paginated<T> {
   total?: number;
 }
 
+export type ReviewStatus = 'pending' | 'published' | 'hidden';
+
+/** Admin view of a review (GET /reviews). */
+export interface AdminReview {
+  id: string;
+  authorName: string;
+  authorLocation: string | null;
+  rating: number;
+  body: string;
+  status: ReviewStatus;
+  productId: string | null;
+  createdAt: string;
+}
+
 /** Lean product shape from GET /products/options (cross-page counts/notifs). */
 export interface ProductOption {
   id: string;
@@ -158,22 +172,8 @@ export interface DeliverySchedule {
   blackout: string[]; // ISO dates
 }
 
-export interface WeightTier {
-  uptoKg: number;
-  feeStotinki: number;
-}
-export interface DeliveryZone {
-  region: string;
-  feeStotinki: number;
-}
-
 export interface DeliveryPricing {
   freeThresholdStotinki: number;
-  model: 'flat' | 'byWeight' | 'byZone';
-  flatFeeStotinki?: number;
-  weightTiers?: WeightTier[];
-  zones?: DeliveryZone[];
-  packagingFeeStotinki?: number;
 }
 
 export interface EcontSender {
