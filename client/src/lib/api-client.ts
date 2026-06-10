@@ -1,4 +1,5 @@
 import type {
+  AdminReview,
   Article,
   ArticleMedia,
   DashboardSummary,
@@ -12,6 +13,7 @@ import type {
   Product,
   ProductOption,
   ProductionSummary,
+  ReviewStatus,
   RouteResult,
   Shipment,
   Slot,
@@ -245,6 +247,7 @@ export interface SiteContactResponse {
     address: string | null;
     hours: string | null;
     tagline: string | null;
+    email: string | null;
     social: SocialLink[];
     mapLat: string | null;
     mapLng: string | null;
@@ -259,6 +262,7 @@ export const updateSiteContact = (data: {
   address: string;
   hours: string;
   tagline: string;
+  email: string;
   social: SocialLink[];
   mapLat: string;
   mapLng: string;
@@ -562,3 +566,16 @@ export const updateHiddenNav = (hidden: string[]) =>
     { method: 'PATCH', ...json({ hidden }) },
     'Неуспешно запазване',
   );
+
+// ─── Reviews ────────────────────────────────────────────────────────────────────
+
+export const listReviews = (status?: ReviewStatus, cursor?: string) => {
+  const p = new URLSearchParams();
+  if (status) p.set('status', status);
+  if (cursor) p.set('cursor', cursor);
+  const q = p.toString();
+  return apiFetch<Paginated<AdminReview>>(`reviews${q ? `?${q}` : ''}`);
+};
+
+export const setReviewStatus = (id: string, status: ReviewStatus) =>
+  apiFetch<AdminReview>(`reviews/${id}/status`, { method: 'PATCH', ...json({ status }) }, 'Неуспешна промяна');
