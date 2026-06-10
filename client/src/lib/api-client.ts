@@ -103,6 +103,19 @@ export function uploadProductImage(id: string, file: File) {
   return apiFetch<Product>(`products/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
 }
 
+/** One `{ id, position }` pair for a catalog reorder. */
+export type ReorderItem = { id: string; position: number };
+
+/** Persist a new display order for products / farmers / subcategories. */
+export const reorderProducts = (items: ReorderItem[]) =>
+  apiFetch<{ ok: true }>('products/reorder', { method: 'PATCH', ...json({ items }) }, 'Неуспешно подреждане');
+
+export const reorderFarmers = (items: ReorderItem[]) =>
+  apiFetch<{ ok: true }>('farmers/reorder', { method: 'PATCH', ...json({ items }) }, 'Неуспешно подреждане');
+
+export const reorderSubcategories = (items: ReorderItem[]) =>
+  apiFetch<{ ok: true }>('subcategories/reorder', { method: 'PATCH', ...json({ items }) }, 'Неуспешно подреждане');
+
 // ---- Farmers ----
 export const listFarmers = () => apiFetch<Farmer[]>('farmers');
 
@@ -176,6 +189,10 @@ export const updateTenant = (data: {
   articlesEnabled?: boolean;
   reviewsEnabled?: boolean;
   deliveryEnabled?: boolean;
+  productOfWeekEnabled?: boolean;
+  productOfWeekMode?: 'manual' | 'auto';
+  productOfWeekId?: string | null;
+  productOfWeekNote?: string | null;
   farmAddress?: string;
   farmLat?: number;
   farmLng?: number;
@@ -216,6 +233,64 @@ export const deleteSiteMedia = (slotKey: string) =>
     { method: 'DELETE' },
     'Неуспешно изтриване',
   );
+
+// ---- Site contact + website icon ----
+export interface SocialLink {
+  label: string;
+  url: string;
+}
+
+export interface SiteContact {
+  address: string;
+  hours: string;
+  tagline: string;
+  social: SocialLink[];
+  mapLat: string;
+  mapLng: string;
+}
+
+export interface SiteContactResponse {
+  contact: {
+    address: string | null;
+    hours: string | null;
+    tagline: string | null;
+    social: SocialLink[];
+    mapLat: string | null;
+    mapLng: string | null;
+  };
+  favicon: { url: string } | null;
+  themeColor: string | null;
+}
+
+export const getSiteContact = () => apiFetch<SiteContactResponse>('tenants/me/site-contact');
+
+export const updateSiteContact = (data: {
+  address: string;
+  hours: string;
+  tagline: string;
+  social: SocialLink[];
+  mapLat: string;
+  mapLng: string;
+  themeColor: string;
+}) =>
+  apiFetch<{ contact: SiteContactResponse['contact']; themeColor: string | null }>(
+    'tenants/me/site-contact',
+    { method: 'PATCH', ...json(data) },
+    'Неуспешно записване',
+  );
+
+export function uploadFavicon(file: File) {
+  const fd = new FormData();
+  fd.append('image', file);
+  return apiFetch<{ url: string }>(
+    'tenants/me/favicon',
+    { method: 'POST', body: fd },
+    'Неуспешно качване',
+  );
+}
+
+export const deleteFavicon = () =>
+  apiFetch<{ ok: true }>('tenants/me/favicon', { method: 'DELETE' }, 'Неуспешно изтриване');
 
 // ---- Articles ----
 export const listArticles = (cursor?: string) =>
