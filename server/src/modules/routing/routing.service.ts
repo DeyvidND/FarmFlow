@@ -127,7 +127,10 @@ export class RoutingService {
           eq(orders.tenantId, tenantId),
           eq(orders.status, 'confirmed'),
           eq(orders.deliveryType, 'address'),
-          sql`${bgDate(orders.createdAt)} = ${day}`,
+          // The route is "stops to DELIVER on this date" — key off the chosen
+          // delivery slot's date, not when the order was placed. Orders with no
+          // slot fall back to creation date so they still surface somewhere.
+          sql`coalesce(${deliverySlots.date}::text, ${bgDate(orders.createdAt)}) = ${day}`,
         )!,
       )
       .orderBy(orders.createdAt);

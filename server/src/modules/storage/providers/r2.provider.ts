@@ -6,6 +6,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { StorageService } from '../storage.service';
+import { assertContentMatchesMime } from '../magic-mime';
 
 @Injectable()
 export class R2StorageProvider extends StorageService {
@@ -63,6 +64,11 @@ export class R2StorageProvider extends StorageService {
     key: string,
     contentType: string,
   ): Promise<{ key: string; url: string }> {
+    // The bytes must really be the declared media type — the route's
+    // FileTypeValidator only checks the spoofable Content-Type header. This blocks
+    // storing arbitrary content under an image MIME on the public bucket.
+    assertContentMatchesMime(file, contentType);
+
     if (this.stubMode || !this.client) {
       this.logger.warn(`[stub] upload skipped for key=${key}`);
       return { key, url: this.getPublicUrl(key) };

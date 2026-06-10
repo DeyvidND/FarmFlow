@@ -505,6 +505,14 @@ export class StripeService {
         );
         break;
       }
+      case 'checkout.session.expired': {
+        // The hosted Checkout window lapsed unpaid. Cancel the still-pending order
+        // so its reserved delivery slot is freed (capacity counts non-cancelled
+        // orders) — otherwise an abandoned card checkout soft-locks a low-cap slot.
+        const obj = event.data.object as { metadata?: Record<string, string> | null };
+        await this.cancelExpiredCheckout(obj.metadata?.orderId, account);
+        break;
+      }
       case 'account.updated': {
         // Connected-account capability change — mirror the flags onto the tenant
         // so the super-admin oversight table stays fresh without polling Stripe.
@@ -674,5 +682,30 @@ export class StripeService {
       return;
     }
     await this.db.update(orders).set({ status: 'cancelled', paidAt: null }).where(cond);
+  }
+
+  /** Cancel an order whose Stripe Checkout session expired unpaid — frees its slot.
+   *  No-op unless the order is still `pending`, so a paid/confirmed order (e.g. a
+   *  late `expired` after a race) is never cancelled. Tenant-scoped by account. */
+  private async cancelExpiredCheckout(
+    orderId: string | undefined,
+    account: string | null,
+  ): Promise<void> {
+    if (!orderId) return;
+    const tenantId = await this.tenantIdForAccount(account);
+    if (!tenantId) {
+      this.logger.warn(`Stripe session.expired from unknown account ${account ?? '∅'} — ignoring`);
+      return;
+    }
+    const cancelled = await this.db
+      .update(orders)
+      .set({ status: 'cancelled' })
+      .where(
+        and(eq(orders.id, orderId), eq(orders.tenantId, tenantId), eq(orders.status, 'pending')),
+      )
+      .returning({ id: orders.id });
+    if (cancelled.length) {
+      this.logger.log(`[stripe] order ${orderId} cancelled (checkout session expired) — slot freed`);
+    }
   }
 }

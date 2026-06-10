@@ -79,12 +79,14 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
         };
       },
     }),
-    // Cap multipart upload size + count globally. Inline `FileInterceptor('image')`
-    // calls inherit these limits (none of them override), so a single oversized
-    // upload can't exhaust memory/disk.
+    // Cap multipart upload size + count globally. Multer enforces this at the
+    // stream level BEFORE the per-route MaxFileSizeValidator runs, so the global
+    // ceiling must be >= the largest route limit (article video = 50 MB) or those
+    // uploads are truncated/rejected before their own validator is reached. The
+    // tighter per-route image limit (5 MB) still applies via the route validators.
     MulterModule.register({
       limits: {
-        fileSize: Number(process.env.MAX_UPLOAD_MB ?? 8) * 1024 * 1024,
+        fileSize: Number(process.env.MAX_UPLOAD_MB ?? 50) * 1024 * 1024,
         files: 1,
       },
     }),

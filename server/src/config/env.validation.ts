@@ -3,7 +3,16 @@ import * as Joi from 'joi';
 export const envValidationSchema = Joi.object({
   DATABASE_URL: Joi.string().required(),
   REDIS_URL: Joi.string().required(),
-  JWT_SECRET: Joi.string().required(),
+  // Min 32 chars so a weak/short secret can't ship — it signs every auth token
+  // and is the base for the derived password-reset / unsubscribe secrets.
+  JWT_SECRET: Joi.string().min(32).required(),
+  // Only consumed by the empty-DB super-admin bootstrap (packages/db/bootstrap).
+  // Declared here so a typo fails validation loudly instead of silently skipping
+  // the seed. Optional — an already-seeded DB doesn't need them.
+  // `tlds:false` → validate email SHAPE only, not the TLD against the IANA list,
+  // so dev/internal admin addresses (e.g. admin@local.test) aren't rejected.
+  SUPER_ADMIN_EMAIL: Joi.string().email({ tlds: false }).optional().allow(''),
+  SUPER_ADMIN_PASSWORD: Joi.string().optional().allow(''),
   STRIPE_SECRET_KEY: Joi.string().optional().allow(''),
   // Signing secret of the PLATFORM (account) webhook endpoint — verifies SaaS
   // billing events (invoices / subscriptions) raised on the platform account.
@@ -43,8 +52,10 @@ export const envValidationSchema = Joi.object({
   // Express `trust proxy` for correct client-IP keying. Set to the number of
   // proxy hops in front of the API in production (e.g. 1 behind nginx/Cloudflare).
   TRUST_PROXY: Joi.string().optional().allow(''),
-  // Max multipart upload size in MB (per file; 1 file/request).
-  MAX_UPLOAD_MB: Joi.number().default(8),
+  // Max multipart upload size in MB (per file; 1 file/request). Must be >= the
+  // largest per-route limit (article video = 50 MB), since multer caps the stream
+  // before the route validator runs.
+  MAX_UPLOAD_MB: Joi.number().default(50),
   // Email / SMTP (all optional — app boots without them)
   SMTP_HOST: Joi.string().optional().allow(''),
   SMTP_PORT: Joi.number().default(587),

@@ -26,7 +26,7 @@ describe('EcontService.buildLabel', () => {
         defaultPackage: { weightKg: 2, contents: 'зеленчуци', dimensions: '20x15x10' },
         cod: { enabled: true, feePayer: 'customer' },
       },
-      { customerName: 'Иван', customerPhone: '0899', deliveryType: 'econt', econtOffice: '5678', totalStotinki: 2400 },
+      { customerName: 'Иван', customerPhone: '0899', deliveryType: 'econt', econtOffice: '5678', totalStotinki: 2400, paymentMethod: 'cod' },
     );
 
     expect(label.receiverOfficeCode).toBe('5678');
@@ -53,6 +53,7 @@ describe('EcontService.buildLabel', () => {
         deliveryCity: 'София',
         deliveryAddress: 'ул. Шипка 5',
         totalStotinki: 5000,
+        paymentMethod: 'cod',
       },
     );
 
@@ -62,15 +63,30 @@ describe('EcontService.buildLabel', () => {
     expect(label.shipmentDimensionsL).toBeUndefined();
   });
 
-  it('no COD → no services and no payment method override even if feePayer is set', () => {
+  it('online order → no COD even when the farm has a COD/feePayer config', () => {
     const label = build(
-      { sender, defaultPackage: { weightKg: 1 }, cod: { enabled: false, feePayer: 'customer' } },
-      { customerName: 'Петър', customerPhone: '0866', deliveryType: 'econt', econtOffice: '9999', totalStotinki: 3000 },
+      { sender, defaultPackage: { weightKg: 1 }, cod: { enabled: true, feePayer: 'customer' } },
+      {
+        customerName: 'Петър', customerPhone: '0866', deliveryType: 'econt',
+        econtOffice: '9999', totalStotinki: 3000, paymentMethod: 'online',
+      },
     );
 
     expect(label.services).toBeUndefined();
     expect(label.paymentReceiverMethod).toBeUndefined();
     expect(label.paymentSenderMethod).toBeUndefined();
+  });
+
+  it('COD order already paid online → no second collection at the door', () => {
+    const label = build(
+      { sender, defaultPackage: { weightKg: 1 }, cod: { enabled: true, feePayer: 'customer' } },
+      {
+        customerName: 'Анна', customerPhone: '0855', deliveryType: 'econt', econtOffice: '7777',
+        totalStotinki: 4000, paymentMethod: 'cod', paidAt: new Date(),
+      },
+    );
+
+    expect(label.services).toBeUndefined();
   });
 
   it('parses comma/space/slash separated dimensions', () => {

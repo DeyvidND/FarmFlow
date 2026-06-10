@@ -11,6 +11,7 @@ import { UpdateFarmerDto } from './dto/update-farmer.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
+import { ReorderDto } from '../../common/dto/reorder.dto';
 import {
   UploadImageDto, PRODUCT_IMAGE_MIME_REGEX, PRODUCT_IMAGE_MAX_BYTES,
 } from '../storage/dto/upload-image.dto';
@@ -35,6 +36,12 @@ export class FarmersController {
   @Post()
   create(@CurrentTenant() tenantId: string, @Body() dto: CreateFarmerDto) {
     return this.farmersService.create(tenantId, dto);
+  }
+
+  // Literal route — must precede `:id` so "reorder" isn't captured as a farmer id.
+  @Patch('reorder')
+  reorder(@CurrentTenant() tenantId: string, @Body() dto: ReorderDto) {
+    return this.farmersService.reorder(tenantId, dto);
   }
 
   @Patch(':id')

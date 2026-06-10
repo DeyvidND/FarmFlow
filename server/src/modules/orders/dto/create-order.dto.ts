@@ -60,10 +60,13 @@ export class CreateOrderDto {
   deliveryAddress?: string;
 
   // Settlement (city/village) for Econt door delivery — the structured city Econt
-  // needs to route a waybill. Recommended for delivery_type=econt_address.
-  @ApiPropertyOptional({ description: 'City/settlement (Econt door delivery)' })
-  @IsOptional()
+  // needs to route a waybill. REQUIRED for delivery_type=econt_address (a door
+  // label without a structured city is rejected by Econt as ExInvalidCity), so
+  // fail fast at checkout rather than after the customer has already ordered.
+  @ApiPropertyOptional({ description: 'City/settlement (required for Econt door delivery)' })
+  @ValidateIf((o) => o.deliveryType === 'econt_address')
   @IsString()
+  @IsNotEmpty({ message: 'Населеното място е задължително за доставка до адрес с Еконт' })
   deliveryCity?: string;
 
   // Precise delivery coordinates from the storefront map/autocomplete. Optional:

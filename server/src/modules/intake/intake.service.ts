@@ -1,5 +1,5 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import {
   type Database,
   tenants,
@@ -28,25 +28,20 @@ export class IntakeService {
     return tenant.id;
   }
 
-  /** Idempotent subscribe — a repeated email for the same farm is a no-op. */
+  /** Idempotent subscribe — a repeated email for the same farm is a no-op.
+   *  Race-safe: the unique (tenant, email) index + `onConflictDoNothing` means two
+   *  concurrent sign-ups can't both slip past a select-then-insert check and create
+   *  duplicate rows (which would inflate the active count + double-bill broadcasts). */
   async subscribe(slug: string, dto: NewsletterDto): Promise<{ ok: true }> {
     const tenantId = await this.resolveTenantId(slug);
     const email = dto.email.trim().toLowerCase();
 
-    const [existing] = await this.db
-      .select({ id: newsletterSubscribers.id })
-      .from(newsletterSubscribers)
-      .where(
-        and(
-          eq(newsletterSubscribers.tenantId, tenantId),
-          eq(newsletterSubscribers.email, email),
-        ),
-      )
-      .limit(1);
-
-    if (!existing) {
-      await this.db.insert(newsletterSubscribers).values({ tenantId, email });
-    }
+    await this.db
+      .insert(newsletterSubscribers)
+      .values({ tenantId, email })
+      .onConflictDoNothing({
+        target: [newsletterSubscribers.tenantId, newsletterSubscribers.email],
+      });
     return { ok: true };
   }
 

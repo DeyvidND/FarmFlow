@@ -22,6 +22,9 @@ export interface CheckoutResult {
   checkoutUrl: string | null;
 }
 
+/** The full order row + items as returned by OrdersService.create. */
+type PlacedOrder = Awaited<ReturnType<OrdersService['create']>>;
+
 /**
  * Storefront checkout orchestration. Reuses the row-locked order-intake
  * transaction (so over-capacity still yields a 409), folds shipping into the
@@ -39,11 +42,17 @@ export class CheckoutService {
     private readonly config: ConfigService,
   ) {}
 
-  async create(slug: string, dto: CreateOrderDto): Promise<CheckoutResult> {
-    // 1. Order intake — snapshot, row-lock the slot, 409 on overflow, status pending.
+  /**
+   * Create the order and fold the delivery fee into its total. Shared by the
+   * Stripe checkout path and the bare `POST /public/:slug/orders` path, so the
+   * recorded total ALWAYS includes shipping (never just the subtotal).
+   */
+  private async createAndFold(
+    slug: string,
+    dto: CreateOrderDto,
+  ): Promise<{ order: PlacedOrder; subtotal: number; shipping: number; grandTotal: number }> {
+    // Order intake — snapshot, row-lock the slot, 409 on overflow, status pending.
     const order = await this.ordersService.create(slug, dto);
-
-    // 2. Fold shipping into the order total so the admin record matches the charge.
     const subtotal = order.items.reduce((sum, i) => sum + i.priceStotinki * i.quantity, 0);
     const shipping = await this.shippingStotinki(order, subtotal);
     const grandTotal = subtotal + shipping;
@@ -52,9 +61,26 @@ export class CheckoutService {
         .update(orders)
         .set({ totalStotinki: grandTotal })
         .where(eq(orders.id, order.id));
+      order.totalStotinki = grandTotal;
     }
+    return { order, subtotal, shipping, grandTotal };
+  }
 
-    // 3. Resolve the farm's connected account.
+  /**
+   * Place an order via the bare public endpoint — shipping folded into the total,
+   * but no Stripe session (that endpoint never returned a checkout URL). Returns
+   * the full order so the storefront can render the confirmation page.
+   */
+  async placeOrder(slug: string, dto: CreateOrderDto): Promise<PlacedOrder> {
+    const { order } = await this.createAndFold(slug, dto);
+    return order;
+  }
+
+  async create(slug: string, dto: CreateOrderDto): Promise<CheckoutResult> {
+    // 1. Order intake + shipping folded into the total.
+    const { order, shipping, grandTotal } = await this.createAndFold(slug, dto);
+
+    // 2. Resolve the farm's connected account.
     const [tenant] = await this.db
       .select({ stripeAccountId: tenants.stripeAccountId })
       .from(tenants)

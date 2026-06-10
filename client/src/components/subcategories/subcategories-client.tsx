@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, Pencil, Link2, Tags } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Plus, Pencil, Link2, Tags, ArrowUpDown, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
-import { ApiError, updateTenant } from '@/lib/api-client';
+import { ApiError, reorderSubcategories, updateTenant } from '@/lib/api-client';
+import { ReorderableList } from '@/components/reorderable-list';
 import type { Subcategory, ProductOption } from '@/lib/types';
 import { SectionPhoto } from './section-photo';
 import { SubcategoryPanel } from './subcategory-panel';
@@ -22,10 +23,29 @@ export function SubcategoriesClient({
   const [subcats, setSubcats] = useState(initialSubcats);
   const [multi, setMulti] = useState(initialMultiSubcat);
   const [edit, setEdit] = useState<Partial<Subcategory> | null>(null);
+  const [reorderMode, setReorderMode] = useState(false);
   // Local copy so bulk product (re)links from the drawer update the chips live.
   const [productList, setProductList] = useState(products);
 
   const productsOf = (sid: string) => productList.filter((p) => p.subcategoryId === sid);
+
+  // Sections render + reorder in storefront order (position, then age).
+  const ordered = useMemo(
+    () => [...subcats].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)),
+    [subcats],
+  );
+
+  async function onReorder(orderedIds: string[]) {
+    const posById = new Map(orderedIds.map((id, i) => [id, i]));
+    const prev = subcats;
+    setSubcats((list) => list.map((s) => (posById.has(s.id) ? { ...s, position: posById.get(s.id)! } : s))); // optimistic
+    try {
+      await reorderSubcategories(orderedIds.map((id, i) => ({ id, position: i })));
+    } catch (e) {
+      setSubcats(prev); // rollback
+      toast.error(e instanceof ApiError ? e.message : 'Грешка');
+    }
+  }
 
   function onProductsChanged(updates: { id: string; subcategoryId: string | null }[]) {
     const map = new Map(updates.map((u) => [u.id, u.subcategoryId]));
@@ -93,12 +113,43 @@ export function SubcategoriesClient({
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-ff-muted">{subcats.length} подкатегории · показват се като секции в магазина</p>
-            <Button variant="primary" onClick={() => setEdit({})} className="rounded-sm">
-              <Plus size={18} /> Добави подкатегория
-            </Button>
+            <div className="flex items-center gap-2">
+              {subcats.length > 1 && (
+                <Button
+                  variant={reorderMode ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setReorderMode((v) => !v)}
+                  title="Подреди реда на секциите в сайта"
+                >
+                  {reorderMode ? <Check size={16} /> : <ArrowUpDown size={16} />}
+                  {reorderMode ? 'Готово' : 'Подреди'}
+                </Button>
+              )}
+              {!reorderMode && (
+                <Button variant="primary" onClick={() => setEdit({})} className="rounded-sm">
+                  <Plus size={18} /> Добави подкатегория
+                </Button>
+              )}
+            </div>
           </div>
+          {reorderMode ? (
+            <ReorderableList
+              items={ordered}
+              getId={(s) => s.id}
+              onReorder={onReorder}
+              renderItem={(s) => (
+                <div className="flex items-center gap-2.5">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.tint ?? '#4C8A54' }} />
+                  <div className="min-w-0">
+                    <div className="truncate text-[14.5px] font-bold">{s.name}</div>
+                    {s.description && <div className="truncate text-[12px] text-ff-muted">{s.description}</div>}
+                  </div>
+                </div>
+              )}
+            />
+          ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(330px,1fr))] gap-4">
-            {subcats.map((s) => {
+            {ordered.map((s) => {
               const prods = productsOf(s.id);
               return (
                 <div key={s.id} className="flex flex-col overflow-hidden rounded-[var(--ff-radius)] border border-ff-border bg-ff-surface shadow-ff-sm">
@@ -141,6 +192,7 @@ export function SubcategoriesClient({
               );
             })}
           </div>
+          )}
         </>
       )}
 

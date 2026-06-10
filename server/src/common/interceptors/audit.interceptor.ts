@@ -32,7 +32,12 @@ export class AuditInterceptor implements NestInterceptor {
           .insert(auditLogs)
           .values({
             tenantId: user.tenantId ?? null,
+            // Tenant users → user_id; platform (super-admin) → admin_id. They live
+            // in different tables with different FKs, so keep them in separate
+            // columns (writing an adminId into user_id violates the users FK and
+            // the row would be silently dropped by the catch below).
             userId: user.userId ?? null,
+            adminId: user.adminId ?? null,
             action: req.method,
             path: req.originalUrl ?? req.url,
             statusCode: res.statusCode ?? null,

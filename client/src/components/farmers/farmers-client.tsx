@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, Pencil, Link2, Users } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Plus, Pencil, Link2, Users, ArrowUpDown, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
-import { ApiError, updateTenant } from '@/lib/api-client';
+import { ApiError, reorderFarmers, updateTenant } from '@/lib/api-client';
+import { ReorderableList } from '@/components/reorderable-list';
 import type { Farmer, ProductOption } from '@/lib/types';
 import { Avatar } from './avatar';
 import { FarmerPanel } from './farmer-panel';
@@ -22,10 +23,29 @@ export function FarmersClient({
   const [farmers, setFarmers] = useState(initialFarmers);
   const [multi, setMulti] = useState(initialMultiFarmer);
   const [edit, setEdit] = useState<Partial<Farmer> | null>(null);
+  const [reorderMode, setReorderMode] = useState(false);
   // Local copy so bulk product (re)links from the drawer update the chips live.
   const [productList, setProductList] = useState(products);
 
   const productsOf = (fid: string) => productList.filter((p) => p.farmerId === fid);
+
+  // Cards render + reorder in storefront order (position, then age).
+  const ordered = useMemo(
+    () => [...farmers].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)),
+    [farmers],
+  );
+
+  async function onReorder(orderedIds: string[]) {
+    const posById = new Map(orderedIds.map((id, i) => [id, i]));
+    const prev = farmers;
+    setFarmers((list) => list.map((f) => (posById.has(f.id) ? { ...f, position: posById.get(f.id)! } : f))); // optimistic
+    try {
+      await reorderFarmers(orderedIds.map((id, i) => ({ id, position: i })));
+    } catch (e) {
+      setFarmers(prev); // rollback
+      toast.error(e instanceof ApiError ? e.message : 'Грешка');
+    }
+  }
 
   function onProductsChanged(updates: { id: string; farmerId: string | null }[]) {
     const map = new Map(updates.map((u) => [u.id, u.farmerId]));
@@ -91,12 +111,43 @@ export function FarmersClient({
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-ff-muted">{farmers.length} фермери · продуктите им се показват в общия магазин</p>
-            <Button variant="primary" onClick={() => setEdit({})} className="rounded-sm">
-              <Plus size={18} /> Добави фермер
-            </Button>
+            <div className="flex items-center gap-2">
+              {farmers.length > 1 && (
+                <Button
+                  variant={reorderMode ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setReorderMode((v) => !v)}
+                  title="Подреди реда на фермерите в сайта"
+                >
+                  {reorderMode ? <Check size={16} /> : <ArrowUpDown size={16} />}
+                  {reorderMode ? 'Готово' : 'Подреди'}
+                </Button>
+              )}
+              {!reorderMode && (
+                <Button variant="primary" onClick={() => setEdit({})} className="rounded-sm">
+                  <Plus size={18} /> Добави фермер
+                </Button>
+              )}
+            </div>
           </div>
+          {reorderMode ? (
+            <ReorderableList
+              items={ordered}
+              getId={(f) => f.id}
+              onReorder={onReorder}
+              renderItem={(f) => (
+                <div className="flex items-center gap-2.5">
+                  <Avatar name={f.name} tint={f.tint} imageUrl={f.imageUrl} size={34} />
+                  <div className="min-w-0">
+                    <div className="truncate text-[14.5px] font-bold">{f.name}</div>
+                    {f.role && <div className="truncate text-[12px] text-ff-muted">{f.role}</div>}
+                  </div>
+                </div>
+              )}
+            />
+          ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(330px,1fr))] gap-4">
-            {farmers.map((f) => {
+            {ordered.map((f) => {
               const prods = productsOf(f.id);
               return (
                 <div key={f.id} className="flex flex-col overflow-hidden rounded-[var(--ff-radius)] border border-ff-border bg-ff-surface shadow-ff-sm">
@@ -143,6 +194,7 @@ export function FarmersClient({
               );
             })}
           </div>
+          )}
         </>
       )}
 

@@ -27,6 +27,20 @@
         "4330"
       ],
       "port": 4330
+    },
+    {
+      "name": "chaika",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "C:/Users/Lenovo/source/repos/fermerski-pazar-chaika",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "4331"
+      ],
+      "port": 4331
     }
   ]
 }

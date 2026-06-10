@@ -12,6 +12,7 @@ import {
   numeric,
   index,
   uniqueIndex,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -53,6 +54,13 @@ export const tenants = pgTable('tenants', {
   // on — preserves the historic always-visible behavior for existing farms.
   articlesEnabled: boolean('articles_enabled').notNull().default(true),
   reviewsEnabled: boolean('reviews_enabled').notNull().default(true),
+  // Optional «Продукт на седмицата» storefront highlight. `enabled` is the gate;
+  // mode 'manual' features `productOfWeekId` (one product), mode 'auto' resolves a
+  // weekly ISO-week rotation server-side (no cron). `note` = optional blurb.
+  productOfWeekEnabled: boolean('product_of_week_enabled').notNull().default(false),
+  productOfWeekMode: text('product_of_week_mode').notNull().default('manual'),
+  productOfWeekId: uuid('product_of_week_id').references((): AnyPgColumn => products.id),
+  productOfWeekNote: text('product_of_week_note'),
   stripeAccountId: text('stripe_account_id'),
   // Connected-account capability flags, mirrored from Stripe `account.updated`
   // webhooks so the super-admin oversight table reads status without per-load
@@ -141,6 +149,10 @@ export const products = pgTable(
     bundleItems: jsonb('bundle_items').$type<string[]>(),
     compareAtPriceStotinki: integer('compare_at_price_stotinki'),
     featured: boolean('featured').notNull().default(false),
+    // Farmer-controlled storefront display order. A single global position per
+    // tenant; per-category sections sort by the same field, filtered. Backfilled
+    // from createdAt on migration so existing order is preserved.
+    position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
@@ -149,6 +161,19 @@ export const products = pgTable(
     // keyset tiebreaker — included so (created_at, id) ordering is fully index-served
     // (no Sort node; LIMIT short-circuits the scan).
     tenantCreatedIdx: index('products_tenant_created_idx').on(t.tenantId, t.createdAt, t.id),
+    // Storefront/admin display order: filter by tenant, sort by (position, createdAt,
+    // id). Mirrors the farmers/subcategories position index — fully index-served.
+    tenantPositionIdx: index('products_tenant_position_idx').on(
+      t.tenantId,
+      t.position,
+      t.createdAt,
+      t.id,
+    ),
+    // Serve the per-farmer / per-subcategory reads (digest join, grouping) and
+    // make `ON DELETE SET NULL` on a farmer/subcategory delete an index lookup
+    // instead of a seq scan over products.
+    farmerIdx: index('products_farmer_idx').on(t.farmerId),
+    subcategoryIdx: index('products_subcategory_idx').on(t.subcategoryId),
   }),
 );
 
@@ -298,6 +323,10 @@ export const auditLogs = pgTable('audit_logs', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
   tenantId: uuid('tenant_id').references(() => tenants.id),
   userId: uuid('user_id').references(() => users.id),
+  // Super-admin (platform) actor — mutually exclusive with userId. Separate FK
+  // because a platform admin is NOT a row in `users`; writing its id into user_id
+  // would violate that FK and silently drop the audit row.
+  adminId: uuid('admin_id').references(() => platformAdmins.id),
   action: text('action').notNull(), // HTTP method
   path: text('path').notNull(), // request path
   statusCode: integer('status_code'),
@@ -352,7 +381,7 @@ export const articleMedia = pgTable(
   'article_media',
   {
     id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-    articleId: uuid('article_id').references(() => articles.id),
+    articleId: uuid('article_id').references(() => articles.id, { onDelete: 'cascade' }),
     // Denormalized for tenant-scoped queries / deletes without a join.
     tenantId: uuid('tenant_id').references(() => tenants.id),
     type: articleMediaTypeEnum('type').notNull(),
@@ -384,9 +413,10 @@ export const newsletterSubscribers = pgTable(
       t.createdAt,
       t.id,
     ),
-    // Idempotent-subscribe dedup lookup (tenant + email) — index-served instead of
-    // a tenant-prefix scan + heap email filter on every storefront sign-up.
-    tenantEmailIdx: index('newsletter_subscribers_tenant_email_idx').on(t.tenantId, t.email),
+    // UNIQUE (tenant + email): backs `onConflictDoNothing` so concurrent sign-ups
+    // can't race past a select-then-insert check and create duplicate rows (which
+    // would inflate the active count + double-bill broadcasts).
+    tenantEmailUnique: uniqueIndex('newsletter_subscribers_tenant_email_idx').on(t.tenantId, t.email),
   }),
 );
 
@@ -420,15 +450,22 @@ export const emailPushes = pgTable('email_pushes', {
 
 // Storefront contact-form submissions (public intake). Read in the admin panel
 // later; for now just persisted.
-export const contactMessages = pgTable('contact_messages', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  name: text('name').notNull(),
-  email: text('email').notNull(),
-  phone: text('phone'),
-  message: text('message').notNull(),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const contactMessages = pgTable(
+  'contact_messages',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    phone: text('phone'),
+    message: text('message').notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  // The admin inbox lists a tenant's messages newest-first — index-serve it.
+  (t) => ({
+    tenantCreatedIdx: index('contact_messages_tenant_created_idx').on(t.tenantId, t.createdAt),
+  }),
+);
 
 export const reviewStatusEnum = pgEnum('review_status', ['pending', 'published', 'hidden']);
 

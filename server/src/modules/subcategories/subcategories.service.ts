@@ -10,6 +10,7 @@ import { StorageService } from '../storage/storage.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
+import { ReorderDto } from '../../common/dto/reorder.dto';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 
 @Injectable()
@@ -28,6 +29,22 @@ export class SubcategoriesService {
       .from(subcategories)
       .where(eq(subcategories.tenantId, tenantId))
       .orderBy(asc(subcategories.position), asc(subcategories.createdAt));
+  }
+
+  /** Persist a new display order for the tenant's subcategories. Tenant-scoped,
+   *  one transaction; busts the catalog + public subcategories caches. */
+  async reorder(tenantId: string, dto: ReorderDto): Promise<{ ok: true }> {
+    await this.db.transaction(async (tx) => {
+      for (const it of dto.items) {
+        await tx
+          .update(subcategories)
+          .set({ position: it.position })
+          .where(and(eq(subcategories.id, it.id), eq(subcategories.tenantId, tenantId)));
+      }
+    });
+    await this.cache.invalidate(tenantId);
+    await this.publicCache.del(publicCacheKeys.subcategories(tenantId));
+    return { ok: true };
   }
 
   async findOne(id: string, tenantId: string): Promise<Subcategory> {
