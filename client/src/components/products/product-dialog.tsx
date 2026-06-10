@@ -116,7 +116,20 @@ export function ProductDialog({
           )}
 
           {isEdit && imageUrl && (
-            <CoverCropEditor imageUrl={imageUrl} value={coverCrop} aspect={4 / 3} onChange={setCoverCrop} />
+            // The storefront theme (visitor-chosen) sets the product-card aspect:
+            // Природа 4:3, Свежо 1:1, Класик 4:5. Let the farmer preview the framing
+            // in each so the focal point looks right whichever theme a visitor picks.
+            <CoverCropEditor
+              imageUrl={imageUrl}
+              value={coverCrop}
+              aspect={4 / 3}
+              aspects={[
+                { label: 'Природа', value: 4 / 3 },
+                { label: 'Свежо', value: 1 },
+                { label: 'Класик', value: 4 / 5 },
+              ]}
+              onChange={setCoverCrop}
+            />
           )}
 
           <label className={labelCls}>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Move, RotateCcw, ZoomIn } from 'lucide-react';
 import type { CoverCrop } from '@/lib/types';
 import { coverCropStyle, clamp, DEFAULT_CROP, ZOOM_MIN, ZOOM_MAX } from '@/lib/cover-crop';
@@ -19,15 +19,27 @@ export function CoverCropEditor({
   imageUrl,
   value,
   aspect,
+  aspects,
   onChange,
 }: {
   imageUrl: string;
   value: CoverCrop | null;
   /** Frame aspect ratio (width / height) — match the storefront card. */
   aspect: number;
+  /**
+   * Optional preview-aspect choices. When the same image renders at several
+   * aspects live (e.g. a product card whose box differs per visitor-selected
+   * storefront theme), pass them here to show a segmented toggle so the farmer
+   * can check the framing in each. `aspect` is the default. The crop value
+   * (focal point + zoom) is aspect-independent, so switching only re-frames the
+   * preview — it never mutates the saved crop.
+   */
+  aspects?: { label: string; value: number }[];
   onChange: (next: CoverCrop) => void;
 }) {
   const crop = value ?? DEFAULT_CROP;
+  // Which aspect the preview frame uses; defaults to the canonical `aspect`.
+  const [previewAspect, setPreviewAspect] = useState(aspect);
   // Latest crop for the pointer handlers (closures can lag behind fast moves).
   const cropRef = useRef(crop);
   cropRef.current = crop;
@@ -89,6 +101,29 @@ export function CoverCropEditor({
         </button>
       </div>
 
+      {aspects && aspects.length > 1 && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11.5px] font-semibold text-ff-muted-2">Изглед:</span>
+          <div className="inline-flex overflow-hidden rounded-lg border border-ff-border">
+            {aspects.map((a) => {
+              const active = Math.abs(a.value - previewAspect) < 1e-6;
+              return (
+                <button
+                  key={a.label}
+                  type="button"
+                  onClick={() => setPreviewAspect(a.value)}
+                  className={`px-2 py-1 text-[11.5px] font-bold ${
+                    active ? 'bg-ff-green-600 text-white' : 'bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2'
+                  }`}
+                >
+                  {a.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div
         ref={frameRef}
         onPointerDown={onPointerDown}
@@ -96,7 +131,7 @@ export function CoverCropEditor({
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         className="relative w-full cursor-grab overflow-hidden rounded-lg border border-ff-border bg-ff-surface-2 active:cursor-grabbing"
-        style={{ aspectRatio: String(aspect), touchAction: 'none' }}
+        style={{ aspectRatio: String(previewAspect), touchAction: 'none' }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
