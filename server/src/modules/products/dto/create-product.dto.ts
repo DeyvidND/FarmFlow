@@ -1,5 +1,9 @@
-import { IsString, IsInt, IsOptional, IsBoolean, IsUrl, IsUUID, Min, ValidateIf } from 'class-validator';
+import {
+  IsString, IsInt, IsOptional, IsBoolean, IsUrl, IsUUID, Min, ValidateIf, ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
 
 export class CreateProductDto {
   @ApiProperty()
@@ -50,6 +54,15 @@ export class CreateProductDto {
   @IsOptional()
   @IsUrl()
   imageUrl?: string;
+
+  // Cover framing (focal point + zoom) for the storefront card. `null` clears it
+  // back to centered. The service spreads this straight into the row, so the jsonb
+  // column follows it.
+  @ApiPropertyOptional({ type: CoverCropDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CoverCropDto)
+  coverCrop?: CoverCropDto | null;
 
   @ApiPropertyOptional({ description: 'Linked farmer (multi-producer mode); null to unlink' })
   @IsOptional()

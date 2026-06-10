@@ -11,6 +11,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import type { PublicProduct, PublicFarmer } from '@/lib/api';
 import { money } from '@/lib/api';
+import { coverCropStyle } from '@/lib/cover-crop';
 import { useCart } from '@/lib/cart';
 import { toast } from './toast';
 import { QtyStepper } from './qty-stepper';
@@ -53,7 +54,7 @@ export function ProductCard({
       width={600}
       height={600}
       sizes="(max-width: 640px) 50vw, 320px"
-      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      style={{ width: '100%', height: '100%', ...coverCropStyle(product.coverCrop) }}
     />
   ) : (
     <span className="ph__label">{product.name}</span>

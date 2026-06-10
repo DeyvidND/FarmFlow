@@ -281,6 +281,13 @@
       "when": 1781097086717,
       "tag": "0039_yellow_pestilence",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1781127780494,
+      "tag": "0040_left_rafael_vega",
+      "breakpoints": true
     }
   ]
 }
