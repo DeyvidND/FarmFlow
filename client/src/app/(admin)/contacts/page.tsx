@@ -125,8 +125,10 @@ export default function ContactsPage() {
     return <p className="max-w-[900px] text-[14px] text-ff-muted">Зареждане…</p>;
   }
 
-  const lat = form.mapLat ? Number(form.mapLat) : null;
-  const lng = form.mapLng ? Number(form.mapLng) : null;
+  const latNum = Number(form.mapLat);
+  const lngNum = Number(form.mapLng);
+  const lat = form.mapLat && Number.isFinite(latNum) ? latNum : null;
+  const lng = form.mapLng && Number.isFinite(lngNum) ? lngNum : null;
 
   const card = 'rounded-2xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm';
   const label = 'mb-1 block text-[13px] font-bold text-ff-ink';

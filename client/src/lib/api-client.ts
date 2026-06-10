@@ -240,15 +240,6 @@ export interface SocialLink {
   url: string;
 }
 
-export interface SiteContact {
-  address: string;
-  hours: string;
-  tagline: string;
-  social: SocialLink[];
-  mapLat: string;
-  mapLng: string;
-}
-
 export interface SiteContactResponse {
   contact: {
     address: string | null;
