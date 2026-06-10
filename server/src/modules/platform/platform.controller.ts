@@ -46,6 +46,12 @@ export class PlatformAuthController {
 export class PlatformController {
   constructor(private readonly platform: PlatformService) {}
 
+  /** Current super-admin identity — backs the panel's server-side auth gate. */
+  @Get('me')
+  me(@CurrentUser() user: RequestUser) {
+    return this.platform.me((user as { type: 'platform'; adminId: string }).adminId);
+  }
+
   @Get('tenants')
   @ApiQuery({ name: 'cursor', required: false })
   @ApiQuery({ name: 'limit', required: false })
@@ -96,7 +102,7 @@ export class PlatformController {
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('change-password')
-  @HttpCode(204)
+  @HttpCode(200)
   platformChangePassword(@CurrentUser() user: RequestUser, @Body() dto: ChangePasswordDto) {
     const adminId = (user as { type: 'platform'; adminId: string }).adminId;
     return this.platform.platformChangePassword(adminId, dto);

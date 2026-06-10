@@ -18,6 +18,9 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('token');
     setToken(t && t.length > 10 ? t : null);
+    // Strip the token from the address bar so it doesn't linger in browser
+    // history or server access logs once we've captured it in state.
+    if (t) window.history.replaceState(null, '', window.location.pathname);
   }, []);
 
   async function onSubmit(e: React.FormEvent) {

@@ -6,6 +6,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { MulterModule } from '@nestjs/platform-express';
 import type Redis from 'ioredis';
 import { MustChangePasswordGuard } from './common/guards/must-change-password.guard';
+import { TenantRolesGuard } from './common/guards/tenant-roles.guard';
 import { envValidationSchema } from './config/env.validation';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { DrizzleModule } from './common/drizzle/drizzle.module';
@@ -137,6 +138,12 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
     {
       provide: APP_GUARD,
       useClass: MustChangePasswordGuard,
+    },
+    {
+      // Default-deny role enforcement for tenant tokens (admin-only unless a
+      // @Roles decorator opens the route). No-op today; future-proofs driver/customer.
+      provide: APP_GUARD,
+      useClass: TenantRolesGuard,
     },
   ],
 })

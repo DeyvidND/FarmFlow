@@ -142,7 +142,7 @@ export function ArticlesClient({ initial }: { initial: Paginated<Article> }) {
 function Cover({ url }: { url: string | null }) {
   if (url) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={url} alt="" className="h-14 w-20 shrink-0 rounded-lg border border-ff-border object-cover" />;
+    return <img src={url} alt="" loading="lazy" decoding="async" className="h-14 w-20 shrink-0 rounded-lg border border-ff-border object-cover" />;
   }
   return (
     <div className="grid h-14 w-20 shrink-0 place-items-center rounded-lg border border-ff-border-2 bg-ff-surface-2 text-ff-muted-2">

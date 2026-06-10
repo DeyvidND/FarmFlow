@@ -4,7 +4,7 @@ import { TenantsService } from '../tenants/tenants.service';
 import { ProductsService } from '../products/products.service';
 import { FarmersService } from '../farmers/farmers.service';
 import { SubcategoriesService } from '../subcategories/subcategories.service';
-import { resolveProductOfWeek, type ProductOfWeekConfig } from './product-of-week';
+import { resolveProductOfWeek } from './product-of-week';
 
 /**
  * One-shot storefront bootstrap: profile + catalog + farmers + sections in a
@@ -35,11 +35,7 @@ export class PublicBootstrapController {
     ]);
     // Resolve the optional «Продукт на седмицата» highlight from the tenant config
     // against the (already active, ordered) public catalog.
-    const productOfWeek = resolveProductOfWeek(
-      storefront as unknown as ProductOfWeekConfig,
-      products,
-      new Date(),
-    );
+    const productOfWeek = resolveProductOfWeek(storefront, products, new Date());
     return { storefront, products, farmers, subcategories, productOfWeek };
   }
 }

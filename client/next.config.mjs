@@ -12,11 +12,25 @@ const nextConfig = {
   // unchanged. `outputFileTracingRoot` points at the monorepo root for tracing.
   output: process.env.NEXT_OUTPUT_STANDALONE === '1' ? 'standalone' : undefined,
   outputFileTracingRoot: join(__dirname, '..'),
-  async rewrites() {
+  // Security headers on every response. X-Frame-Options + CSP frame-ancestors
+  // block clickjacking of the authenticated panel; nosniff/Referrer-Policy/HSTS
+  // are defense-in-depth. (A full content-CSP is intentionally omitted — it would
+  // need per-feature allowlists for Stripe Connect + Google Maps; frame-ancestors
+  // is the high-value, zero-breakage subset.)
+  async headers() {
     return [
       {
-        source: '/api/:path*',
-        destination: `${process.env.API_URL ?? 'http://localhost:3001'}/:path*`,
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains; preload',
+          },
+        ],
       },
     ];
   },

@@ -91,6 +91,10 @@ const config: Config = {
           from: { transform: 'translateX(100%)' },
           to: { transform: 'translateX(0)' },
         },
+        'ff-slide-in-right': {
+          from: { opacity: '0', transform: 'translateX(24px)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
         'ff-pop': {
           '0%': { transform: 'scale(0.96)', opacity: '0' },
           '100%': { transform: 'scale(1)', opacity: '1' },
@@ -101,6 +105,7 @@ const config: Config = {
         'ff-fade-up': 'ff-fade-up .3s ease',
         'ff-fade': 'ff-fade .2s ease',
         'ff-slide-in': 'ff-slide-in .26s cubic-bezier(.32,.72,0,1)',
+        'ff-slide-in-right': 'ff-slide-in-right .26s cubic-bezier(.32,.72,0,1)',
         'ff-pop': 'ff-pop .18s ease',
         'ff-pulse': 'ff-pulse 1.6s ease-in-out infinite',
       },

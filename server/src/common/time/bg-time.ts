@@ -21,7 +21,60 @@ export function bgToday(): string {
   }).format(new Date());
 }
 
-/** SQL fragment: a UTC-stored timestamp column reduced to its BG-local date. */
+/** SQL fragment: a UTC-stored timestamp column reduced to its BG-local date.
+ *  Prefer {@link bgDayBounds} for "orders on day X" filters — the `::date` cast
+ *  here is non-sargable (defeats the `(tenant_id, created_at, id)` index and
+ *  forces a full scan). Keep using this only where a range can't express the
+ *  predicate (e.g. the routing `coalesce(slot_date, bgDate(created))`). */
 export function bgDate(col: PgColumn | SQL): SQL {
   return sql`(${col} AT TIME ZONE 'UTC' AT TIME ZONE ${BG_TZ})::date`;
+}
+
+/** Offset (ms) of Europe/Sofia at a given instant: (wall-clock as-UTC) − instant.
+ *  +2h in winter, +3h in summer (DST). */
+function bgOffsetMs(instant: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BG_TZ,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(instant);
+  const f: Record<string, string> = {};
+  for (const p of parts) f[p.type] = p.value;
+  const asUtc = Date.UTC(+f.year, +f.month - 1, +f.day, +f.hour, +f.minute, +f.second);
+  return asUtc - instant.getTime();
+}
+
+/** The UTC instant of 00:00 Europe/Sofia on the given BG calendar date. DST never
+ *  switches at midnight in Bulgaria (it's at 03:00/04:00), so the single-step
+ *  offset resolution is exact for midnight. */
+function bgMidnightUtc(day: string): Date {
+  const [y, m, d] = day.split('-').map(Number);
+  const guess = Date.UTC(y, m - 1, d, 0, 0, 0);
+  return new Date(guess - bgOffsetMs(new Date(guess)));
+}
+
+/** The BG calendar date `n` days after `day` (date-only arithmetic, tz-safe). */
+export function bgAddDays(day: string, n: number): string {
+  const [y, m, d] = day.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d) + n * 86_400_000);
+  const mm = String(t.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(t.getUTCDate()).padStart(2, '0');
+  return `${t.getUTCFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * UTC instant bounds `[from, to)` for one BG-local calendar day. `created_at` is
+ * stored as UTC, so `created_at >= from AND created_at < to` selects exactly the
+ * orders placed on that BG day — and is served by the `(tenant_id, created_at, id)`
+ * index (a range scan) instead of the full-table `::date` cast. `date` defaults
+ * to today (BG). `to` is the next BG midnight (handles 23h/25h DST days correctly).
+ */
+export function bgDayBounds(date?: string): { from: Date; to: Date } {
+  const day = date ?? bgToday();
+  return { from: bgMidnightUtc(day), to: bgMidnightUtc(bgAddDays(day, 1)) };
 }

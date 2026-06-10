@@ -179,7 +179,17 @@ export class EcontService {
       delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
     };
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
-    await this.cache.del(publicCacheKeys.tenant(tenant.slug));
+    // Bust the tenant profile (econtMode/econtEnabled) AND the nomenclature caches:
+    // switching demo↔prod (or to a different account) makes the previously cached
+    // office/city lists wrong — a stale demo office code can fail prod label
+    // creation. The storefront picker (`offices`) + admin city autocomplete
+    // (`cities`) repopulate on next read. (Per-city office lists are admin-only and
+    // ride their 24h TTL.)
+    await this.cache.del(
+      publicCacheKeys.tenant(tenant.slug),
+      `econt:offices:${tenant.slug}`,
+      `econt:cities:${tenant.slug}`,
+    );
     return { configured: true, env };
   }
 
@@ -284,24 +294,28 @@ export class EcontService {
 
   /** Storefront-facing office list for a slug (cached; live fallback). */
   async getPublicOffices(slug: string, city?: string): Promise<any[]> {
-    const cached = (await this.cache.get<any[]>(`econt:offices:${slug}`)) ?? [];
-    const list = cached.length
-      ? cached
-      : await (async () => {
-          const [t] = await this.db
-            .select({ id: tenants.id })
-            .from(tenants)
-            .where(eq(tenants.slug, slug))
-            .limit(1);
-          if (!t) throw new NotFoundException('Фермата не е намерена');
-          const offices = await this.getOffices(t.id);
-          return offices.map((o: any) => ({
-            code: o.code,
-            name: o.name,
-            city: o.address?.city?.name ?? null,
-            address: o.address?.fullAddress ?? null,
-          }));
-        })();
+    const key = `econt:offices:${slug}`;
+    const cached = (await this.cache.get<any[]>(key)) ?? [];
+    let list = cached;
+    if (!list.length) {
+      const [t] = await this.db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.slug, slug))
+        .limit(1);
+      if (!t) throw new NotFoundException('Фермата не е намерена');
+      const offices = await this.getOffices(t.id);
+      list = offices.map((o: any) => ({
+        code: o.code,
+        name: o.name,
+        city: o.address?.city?.name ?? null,
+        address: o.address?.fullAddress ?? null,
+      }));
+      // Backfill the cache: without this the full-country Econt fetch above ran on
+      // EVERY storefront office-picker request once the 24h TTL lapsed (or before
+      // the farm ever pressed Sync) — multi-second + stampede risk on checkout.
+      if (list.length) await this.cache.set(key, list, NOMENCLATURE_TTL);
+    }
     if (!city) return list.slice(0, 200);
     const q = city.toLowerCase();
     return list.filter((o) => (o.city ?? '').toLowerCase().includes(q)).slice(0, 200);

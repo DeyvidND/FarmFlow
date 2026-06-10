@@ -19,6 +19,7 @@ type Form = {
   address: string;
   hours: string;
   tagline: string;
+  email: string;
   social: SocialLink[];
   mapLat: string;
   mapLng: string;
@@ -26,7 +27,7 @@ type Form = {
 };
 
 const EMPTY: Form = {
-  address: '', hours: '', tagline: '', social: [], mapLat: '', mapLng: '', themeColor: '',
+  address: '', hours: '', tagline: '', email: '', social: [], mapLat: '', mapLng: '', themeColor: '',
 };
 
 export default function ContactsPage() {
@@ -44,6 +45,7 @@ export default function ContactsPage() {
           address: res.contact.address ?? '',
           hours: res.contact.hours ?? '',
           tagline: res.contact.tagline ?? '',
+          email: res.contact.email ?? '',
           social: res.contact.social ?? [],
           mapLat: res.contact.mapLat ?? '',
           mapLng: res.contact.mapLng ?? '',
@@ -81,6 +83,7 @@ export default function ContactsPage() {
         address: form.address,
         hours: form.hours,
         tagline: form.tagline,
+        email: form.email,
         // Drop rows without a url — the API rejects non-url social links.
         social: form.social.filter((s) => s.url.trim()),
         mapLat: form.mapLat,
@@ -165,6 +168,16 @@ export default function ContactsPage() {
               <textarea className={`${input} min-h-[80px]`} value={form.tagline}
                 onChange={(e) => set('tagline', e.target.value)}
                 placeholder="Местни стопани на едно място — пазарувай на живо или поръчай онлайн." />
+            </div>
+            <div>
+              <label className={label}>Имейл за контакт</label>
+              <input
+                type="email"
+                className={input}
+                value={form.email}
+                onChange={(e) => set('email', e.target.value)}
+                placeholder="hello@example.com"
+              />
             </div>
           </div>
         </section>

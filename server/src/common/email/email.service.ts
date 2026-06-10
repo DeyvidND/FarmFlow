@@ -62,6 +62,12 @@ export class EmailService implements OnModuleInit {
         port,
         secure: port === 465,
         auth: user ? { user, pass } : undefined,
+        // Reuse a small pool of SMTP connections instead of a fresh TLS+AUTH
+        // handshake per message. Newsletter broadcasts and the per-farmer daily
+        // digest loop send many in a burst; pooling cuts the cron's wall-clock.
+        pool: true,
+        maxConnections: 3,
+        maxMessages: 100,
       });
       this.logger.log(`Email: SMTP transport → ${host}:${port}`);
     } else {

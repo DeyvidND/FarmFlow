@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus, Pencil, Link2, Tags, ArrowUpDown, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ export function SubcategoriesClient({
   const [multi, setMulti] = useState(initialMultiSubcat);
   const [edit, setEdit] = useState<Partial<Subcategory> | null>(null);
   const [reorderMode, setReorderMode] = useState(false);
+  const reorderDirty = useRef(false);
   // Local copy so bulk product (re)links from the drawer update the chips live.
   const [productList, setProductList] = useState(products);
 
@@ -35,14 +36,20 @@ export function SubcategoriesClient({
     [subcats],
   );
 
-  async function onReorder(orderedIds: string[]) {
+  // Local-only per move; persist once on leaving reorder mode (see persistReorder)
+  // instead of a full-list PATCH per arrow click.
+  function onReorder(orderedIds: string[]) {
     const posById = new Map(orderedIds.map((id, i) => [id, i]));
-    const prev = subcats;
-    setSubcats((list) => list.map((s) => (posById.has(s.id) ? { ...s, position: posById.get(s.id)! } : s))); // optimistic
+    setSubcats((list) => list.map((s) => (posById.has(s.id) ? { ...s, position: posById.get(s.id)! } : s)));
+    reorderDirty.current = true;
+  }
+
+  async function persistReorder() {
+    if (!reorderDirty.current) return;
+    reorderDirty.current = false;
     try {
-      await reorderSubcategories(orderedIds.map((id, i) => ({ id, position: i })));
+      await reorderSubcategories(ordered.map((s, i) => ({ id: s.id, position: i })));
     } catch (e) {
-      setSubcats(prev); // rollback
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
     }
   }
@@ -118,7 +125,10 @@ export function SubcategoriesClient({
                 <Button
                   variant={reorderMode ? 'primary' : 'ghost'}
                   size="sm"
-                  onClick={() => setReorderMode((v) => !v)}
+                  onClick={() => {
+                    if (reorderMode) void persistReorder(); // leaving → save once
+                    setReorderMode((v) => !v);
+                  }}
                   title="Подреди реда на секциите в сайта"
                 >
                   {reorderMode ? <Check size={16} /> : <ArrowUpDown size={16} />}

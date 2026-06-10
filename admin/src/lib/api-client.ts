@@ -154,13 +154,19 @@ export const createTenant = (data: {
     'Неуспешно създаване на ферма',
   );
 
-export const changePassword = (data: { currentPassword: string; newPassword: string }) =>
-  apiFetch<void>(
-    'platform/change-password',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(data),
-    },
-    'Неуспешна смяна на паролата',
-  );
+/**
+ * Change the super-admin password. Goes through the session route handler (NOT
+ * the BFF) because the API bumps tokenVersion on change — the route re-sets the
+ * cookie with the fresh token so the session survives the rotation.
+ */
+export const changePassword = async (data: { currentPassword: string; newPassword: string }) => {
+  const res = await fetch('/api/session/change-password', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, firstApiMessage(body, 'Неуспешна смяна на паролата'));
+  }
+};

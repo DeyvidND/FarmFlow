@@ -364,6 +364,7 @@ export interface RouteStop {
   id: string;
   customer: string | null;
   phone: string | null;
+  email: string | null;
   address: string | null;
   lat: number | null;
   lng: number | null;

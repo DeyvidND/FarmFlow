@@ -106,6 +106,10 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),
   role: userRoleEnum('role').notNull(),
   mustChangePassword: boolean('must_change_password').notNull().default(false),
+  // Monotonic session epoch. Embedded in the JWT (`tv`) and checked on every
+  // authenticated request; bumped on password change/reset so previously issued
+  // tokens stop validating (logout-everywhere / revoke-on-reset).
+  tokenVersion: integer('token_version').notNull().default(0),
   // Per-user sidebar customization: keys the farmer chose to hide from the side
   // nav — item hrefs (e.g. "/orders") and whole-group keys ("group:Каталог").
   // NULL/empty = show everything. Purely cosmetic; the routes stay reachable.
@@ -315,6 +319,11 @@ export const platformAdmins = pgTable('platform_admins', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
+  // Forces a password change on first login — set true on the env-bootstrapped
+  // super-admin so the seed/initial password can't persist indefinitely.
+  mustChangePassword: boolean('must_change_password').notNull().default(false),
+  // Session epoch (see users.tokenVersion) — revokes platform tokens on change.
+  tokenVersion: integer('token_version').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

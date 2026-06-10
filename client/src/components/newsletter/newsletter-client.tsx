@@ -22,9 +22,10 @@ function shortDate(iso: string | null): string {
 interface Props {
   initial: Paginated<Subscriber>;
   activeCount: number;
+  total: number;
 }
 
-export function NewsletterClient({ initial, activeCount }: Props) {
+export function NewsletterClient({ initial, activeCount, total }: Props) {
   const { items: subscribers, loadMore, hasMore, loading } = usePaginatedList<Subscriber>(
     initial,
     listSubscribers,
@@ -101,7 +102,12 @@ export function NewsletterClient({ initial, activeCount }: Props) {
       </div>
 
       {/* Subscribers table */}
-      <h2 className="mb-3 text-[16px] font-extrabold">Абонати</h2>
+      <h2 className="mb-1 text-[16px] font-extrabold">Абонати</h2>
+      {total > 0 && (
+        <p className="text-sm text-ff-ink-2 mb-3">
+          Показани {subscribers.length} от {total} абоната
+        </p>
+      )}
       {subscribers.length === 0 ? (
         <div className="mt-10 flex flex-col items-center gap-3 text-center">
           <Users size={40} className="text-ff-muted-2" />
@@ -133,7 +139,7 @@ export function NewsletterClient({ initial, activeCount }: Props) {
       )}
 
       {hasMore && (
-        <div className="mt-5 flex justify-center">
+        <div className="mt-5 flex flex-col items-center gap-2">
           <button
             onClick={loadMore}
             disabled={loading}
@@ -141,7 +147,11 @@ export function NewsletterClient({ initial, activeCount }: Props) {
           >
             {loading ? 'Зареждане…' : 'Зареди още'}
           </button>
+          <p className="text-[12px] text-ff-muted">{subscribers.length} / {total}</p>
         </div>
+      )}
+      {!hasMore && total > 0 && (
+        <p className="text-sm text-center text-ff-ink-2 py-4">Всички {total} абоната са заредени.</p>
       )}
 
       {/* Confirm dialog */}

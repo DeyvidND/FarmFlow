@@ -11,6 +11,7 @@ export interface PublicContact {
   address: string | null;
   hours: string | null;
   tagline: string | null;
+  email: string | null;
   social: PublicSocialLink[];
   mapLat: string | null;
   mapLng: string | null;
@@ -41,6 +42,7 @@ export function buildPublicContact(raw: unknown): PublicContact {
     address: str(c.address),
     hours: str(c.hours),
     tagline: str(c.tagline),
+    email: str(c.email),
     social,
     mapLat: str(c.mapLat),
     mapLng: str(c.mapLng),
@@ -62,6 +64,7 @@ export function normalizeSiteContact(dto: SiteContactDto): {
     address: trim(dto.address),
     hours: trim(dto.hours),
     tagline: trim(dto.tagline),
+    email: trim(dto.email),
     social,
     mapLat: trim(dto.mapLat),
     mapLng: trim(dto.mapLng),

@@ -9,6 +9,13 @@
       "autoPort": false
     },
     {
+      "name": "web-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@farmflow/web", "exec", "next", "dev", "-p", "3000"],
+      "port": 3000,
+      "autoPort": false
+    },
+    {
       "name": "storefront",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@farmflow/storefront", "exec", "next", "start", "-p", "3003"],

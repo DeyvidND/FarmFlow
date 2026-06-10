@@ -117,18 +117,22 @@ describe('PlatformService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('updates the hash and returns void when current password is correct', async () => {
+    it('returns a fresh token (revoking old sessions) when current password is correct', async () => {
       db.limit.mockResolvedValueOnce([adminRow]);
       (argon2.verify as jest.Mock).mockResolvedValueOnce(true);
       (argon2.hash as jest.Mock).mockResolvedValueOnce('new-hash');
-      db.returning.mockResolvedValueOnce([{ id: ADMIN_ID }]);
+      db.returning.mockResolvedValueOnce([{ id: ADMIN_ID, tokenVersion: 1 }]);
 
       const result = await service.platformChangePassword(ADMIN_ID, {
         currentPassword: 'correct',
         newPassword: 'newPass1',
       });
 
-      expect(result).toBeUndefined();
+      expect(result).toEqual({ accessToken: 'platform-token' });
+      // mustChangePassword must be cleared + tokenVersion bumped on the update.
+      expect(db.set).toHaveBeenCalledWith(
+        expect.objectContaining({ passwordHash: 'new-hash', mustChangePassword: false }),
+      );
     });
   });
 });

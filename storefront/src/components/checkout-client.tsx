@@ -48,6 +48,7 @@ export function CheckoutClient({
   const showEcont =
     (econtMode === 'manual' && methods.econtAddress) ||
     (econtMode === 'auto' && methods.econtOffice);
+  const showPickup = methods.pickup;
   const router = useRouter();
   const slug = resolveSlug();
   const items = useCart((s) => s.items);
@@ -58,9 +59,9 @@ export function CheckoutClient({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  // Start on self-delivery when it's offered, else Econt.
+  // Start on self-delivery when it's offered, else Econt, else pickup.
   const [deliveryType, setDeliveryType] = useState<DeliveryType>(
-    showSelf ? 'address' : 'econt',
+    showSelf ? 'address' : showEcont ? 'econt' : showPickup ? 'pickup' : 'address',
   );
   const [addressInput, setAddressInput] = useState('');
   // Structured settlement for Econt door (econt_address) — the courier needs a
@@ -80,15 +81,16 @@ export function CheckoutClient({
   const [submitting, setSubmitting] = useState(false);
 
   const isEcont = deliveryType === 'econt';
+  const isPickup = deliveryType === 'pickup';
   // Manual Econt has no API office picker: the customer gives an address and the
   // farm ships it by hand, so the order goes out as `econt_address`. Auto mode
   // uses the office method (`econt`).
   const manualEcont = econtMode === 'manual';
-  const sentDeliveryType: DeliveryType = isEcont
-    ? manualEcont
-      ? 'econt_address'
-      : 'econt'
-    : 'address';
+  const sentDeliveryType: DeliveryType = isPickup
+    ? 'pickup'
+    : isEcont
+      ? (manualEcont ? 'econt_address' : 'econt')
+      : 'address';
   const shipping = shippingFor(subtotal, sentDeliveryType, delivery);
   const total = subtotal + shipping;
 
@@ -113,15 +115,16 @@ export function CheckoutClient({
         customerName: name.trim(),
         customerPhone: phone.trim(),
         customerEmail: email.trim() || undefined,
-        slotId: slotId ?? undefined,
+        slotId: isPickup ? undefined : (slotId ?? undefined),
         deliveryType: sentDeliveryType,
         // Manual Econt + self-delivery carry an address; auto Econt carries an office.
-        deliveryAddress:
-          !isEcont || manualEcont ? addressInput.trim() || undefined : undefined,
+        deliveryAddress: isPickup
+          ? undefined
+          : (!isEcont || manualEcont ? addressInput.trim() || undefined : undefined),
         deliveryCity:
           sentDeliveryType === 'econt_address' ? cityInput.trim() || undefined : undefined,
-        deliveryLat: isEcont ? undefined : addressLat ?? undefined,
-        deliveryLng: isEcont ? undefined : addressLng ?? undefined,
+        deliveryLat: isPickup || isEcont ? undefined : addressLat ?? undefined,
+        deliveryLng: isPickup || isEcont ? undefined : addressLng ?? undefined,
         econtOffice: isEcont && !manualEcont ? addressInput.trim() || undefined : undefined,
         paymentMethod,
       });
@@ -239,7 +242,7 @@ export function CheckoutClient({
                   {/* Personal (address) delivery — only when the farm self-delivers. */}
                   {showSelf && (
                     <label
-                      className={`radio-card${!isEcont ? ' is-active' : ''}`}
+                      className={`radio-card${deliveryType === 'address' ? ' is-active' : ''}`}
                       onClick={() => setDeliveryType('address')}
                     >
                       <span className="dot"></span>
@@ -275,7 +278,22 @@ export function CheckoutClient({
                       </span>
                     </label>
                   )}
-                  {!showSelf && !showEcont && (
+                  {showPickup && (
+                    <label
+                      className={`radio-card${deliveryType === 'pickup' ? ' is-active' : ''}`}
+                      onClick={() => setDeliveryType('pickup')}
+                    >
+                      <span className="dot"></span>
+                      <span>
+                        <b>Вземане от място</b>
+                        <br />
+                        <span className="muted" style={{ fontSize: 14 }}>
+                          Вземаш поръчката от фермата · безплатно
+                        </span>
+                      </span>
+                    </label>
+                  )}
+                  {!showSelf && !showEcont && !showPickup && (
                     <p className="muted" style={{ fontSize: 14 }}>
                       Фермата не предлага доставка в момента. Свържи се с нас за уговорка.
                     </p>
@@ -318,19 +336,21 @@ export function CheckoutClient({
                     </div>
                   )
                 ) : (
-                  <div style={{ marginTop: 14 }}>
-                    <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>
-                      Адрес за доставка
-                    </label>
-                    <AddressFields
-                      onChange={(text) => {
-                        setAddressInput(text);
-                        // Structured text → server geocodes (region+town disambiguate).
-                        setAddressLat(null);
-                        setAddressLng(null);
-                      }}
-                    />
-                  </div>
+                  !isPickup && (
+                    <div style={{ marginTop: 14 }}>
+                      <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>
+                        Адрес за доставка
+                      </label>
+                      <AddressFields
+                        onChange={(text) => {
+                          setAddressInput(text);
+                          // Structured text → server geocodes (region+town disambiguate).
+                          setAddressLat(null);
+                          setAddressLng(null);
+                        }}
+                      />
+                    </div>
+                  )
                 )}
               </div>
 
@@ -376,7 +396,7 @@ export function CheckoutClient({
               </div>
 
               {/* delivery slot — only for personal delivery, when the farm offers slots */}
-              {showSelf && !isEcont && hasSlots !== false && (
+              {showSelf && !isEcont && !isPickup && hasSlots !== false && (
                 <div className="card" style={{ padding: 24, boxShadow: 'none' }}>
                   <h3 style={{ fontSize: 20, marginBottom: 6 }}>Часови слот за доставка</h3>
                   <p className="muted" style={{ fontSize: 14, marginBottom: 16 }}>

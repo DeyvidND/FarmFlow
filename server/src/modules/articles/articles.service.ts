@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, eq, inArray, asc, desc, sql } from 'drizzle-orm';
-import { type Database, articles, articleMedia, tenants } from '@farmflow/db';
+import { type Database, articles, articleMedia } from '@farmflow/db';
 import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
 import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
 import type {
@@ -18,12 +18,14 @@ import type {
 } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { StorageService } from '../storage/storage.service';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ArticlesCacheService } from './articles-cache.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { EmbedMediaDto } from './dto/embed-media.dto';
 import { ReorderMediaDto } from './dto/reorder-media.dto';
 import { ARTICLE_MEDIA_EXT_BY_MIME, articleMediaTypeForMime } from './dto/upload-media.dto';
+import { optimizeImage } from '../storage/image.util';
 import { slugify, parseEmbed } from './articles.util';
 
 @Injectable()
@@ -32,6 +34,7 @@ export class ArticlesService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly storage: StorageService,
     private readonly cache: ArticlesCacheService,
+    private readonly publicCache: PublicCacheService,
   ) {}
 
   // ---- Admin reads (own articles, all statuses) ----
@@ -143,7 +146,7 @@ export class ArticlesService {
   ): Promise<ArticleWithMedia> {
     const article = await this.findOne(id, tenantId);
 
-    const url = await this.store(tenantId, file);
+    const url = await this.store(tenantId, id, 'cover', file);
     if (article.coverImageUrl) await this.deleteObject(article.coverImageUrl);
 
     const [row] = await this.db
@@ -163,7 +166,7 @@ export class ArticlesService {
   ): Promise<ArticleMedia> {
     await this.findOne(id, tenantId); // scope check
 
-    const url = await this.store(tenantId, file);
+    const url = await this.store(tenantId, id, 'media', file);
     const position = await this.nextPosition(id);
     const [row] = await this.db
       .insert(articleMedia)
@@ -371,21 +374,27 @@ export class ArticlesService {
     return (row?.max ?? -1) + 1;
   }
 
-  private async store(tenantId: string, file: Express.Multer.File): Promise<string> {
-    const ext = ARTICLE_MEDIA_EXT_BY_MIME[file.mimetype] ?? 'bin';
-    const key = `tenants/${tenantId}/articles/${randomUUID()}.${ext}`;
-    const { url } = await this.storage.upload(file.buffer, key, file.mimetype);
+  private async store(
+    tenantId: string,
+    articleId: string,
+    kind: 'cover' | 'media',
+    file: Express.Multer.File,
+  ): Promise<string> {
+    // Images get downscaled+re-encoded; video (article media) passes through.
+    const img = await optimizeImage(
+      file.buffer,
+      file.mimetype,
+      ARTICLE_MEDIA_EXT_BY_MIME[file.mimetype] ?? 'bin',
+    );
+    const key = `tenants/${tenantId}/articles/${articleId}/${kind}/${randomUUID()}.${img.ext}`;
+    const { url } = await this.storage.upload(img.buffer, key, img.contentType);
     return url;
   }
 
   private async tenantBySlug(slug: string): Promise<{ id: string }> {
-    const [tenant] = await this.db
-      .select({ id: tenants.id })
-      .from(tenants)
-      .where(eq(tenants.slug, slug))
-      .limit(1);
-    if (!tenant) throw new NotFoundException('Фермата не е намерена');
-    return tenant;
+    // Shared Redis slug→tenant resolver (same key the other public reads use) so a
+    // warm storefront render does no Postgres tenant lookup for articles either.
+    return this.publicCache.resolveTenant(this.db, slug);
   }
 
   /** Best-effort removal of a stored object given its public URL. */

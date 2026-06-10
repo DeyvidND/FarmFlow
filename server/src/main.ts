@@ -4,6 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { text } from 'express';
 import helmet from 'helmet';
+import compression from 'compression';
 import { runMigrations, ensureSuperAdmin } from '@farmflow/db';
 import { AppModule } from './app.module';
 
@@ -63,6 +64,13 @@ async function bootstrap() {
     }),
   );
 
+  // Gzip/brotli response bodies. In production the API sits behind a Cloudflare
+  // Tunnel on a home-server uplink; cloudflared does NOT compress the origin→edge
+  // leg, so without this every catalog/bootstrap/article JSON crosses the tunnel
+  // raw. Cuts JSON payloads ~80-90%. Express's weak ETag still works (computed on
+  // the compressed representation), so conditional 304s are unaffected.
+  app.use(compression());
+
   // Capture the bounce/complaint webhook body as a raw string regardless of
   // content-type. The raw string is needed to verify Resend's Svix signature
   // (computed over the exact body) before we JSON.parse it.
@@ -93,11 +101,17 @@ async function bootstrap() {
     if (isPublic) {
       if (req.method === 'GET') {
         const isSlots = req.path.endsWith('/slots');
+        // A single order summary (/public/:slug/orders/:id) is per-customer PII +
+        // live payment status — must never sit in a shared cache, even though it's
+        // a public (token-less) GET. Carve it out the same way slots are.
+        const isOrderSummary = /\/orders\/[^/]+$/.test(req.path);
         res.header(
           'Cache-Control',
-          isSlots
-            ? 'public, max-age=0, s-maxage=10, stale-while-revalidate=30'
-            : 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+          isOrderSummary
+            ? 'no-store'
+            : isSlots
+              ? 'public, max-age=0, s-maxage=10, stale-while-revalidate=30'
+              : 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
         );
       } else {
         res.header('Cache-Control', 'no-store');

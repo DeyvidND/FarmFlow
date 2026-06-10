@@ -174,14 +174,22 @@ export class MapsService {
   }
 
   /**
-   * Optimize a delivery loop: van leaves `origin`, visits every stop, returns to
-   * `origin`. Returns total distance/time plus the optimized visit order.
-   * Returns `null` when disabled, when there are no stops, or on any error.
+   * Optimize a delivery route: van leaves `origin`, visits every stop in the
+   * order the optimizer picks, then finishes at `destination`. With no
+   * `destination` it loops back to `origin` (round trip) — Google's
+   * computeRoutes can't optimize an open path, so a one-way route with no fixed
+   * end is best approximated as a loop. Returns total distance/time plus the
+   * optimized visit order. Returns `null` when disabled, when there are no
+   * stops, or on any error.
    */
-  async route(origin: LatLng, stops: LatLng[]): Promise<RoutePlan | null> {
+  async route(origin: LatLng, stops: LatLng[], destination?: LatLng): Promise<RoutePlan | null> {
     if (!this.enabled || !stops.length) return null;
 
-    const key = this.routeKey('route', [origin, ...stops]);
+    const dest = destination ?? origin;
+    // The destination is part of the optimized solution (Google reorders stops
+    // for THIS origin→dest), so it must be in the cache key — otherwise a "home"
+    // loop and a "custom end" route over the same stops would collide.
+    const key = this.routeKey('route', [origin, ...stops, dest]);
     const cached = await this.cachedGet<RoutePlan>(key);
     if (cached) return cached;
 
@@ -190,7 +198,7 @@ export class MapsService {
     });
     const body = {
       origin: waypoint(origin),
-      destination: waypoint(origin),
+      destination: waypoint(dest),
       intermediates: stops.map(waypoint),
       travelMode: 'DRIVE',
       optimizeWaypointOrder: true,

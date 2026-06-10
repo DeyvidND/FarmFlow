@@ -104,8 +104,11 @@ export class OrderConfirmationService {
         .where(eq(orderItems.orderId, orderId));
       const items = await this.withImages(rawItems);
 
+      // Strip CR/LF from the tenant-controlled farm name before it enters the
+      // email subject — defense-in-depth against header injection.
+      const safeFarmName = farmName.replace(/[\r\n]+/g, ' ').trim();
       const subject =
-        `Поръчка №${order.orderNumber ?? ''} е потвърдена — ${farmName}`.trim();
+        `Поръчка №${order.orderNumber ?? ''} е потвърдена — ${safeFarmName}`.trim();
 
       await this.email.sendMail({
         to,

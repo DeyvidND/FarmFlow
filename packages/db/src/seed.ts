@@ -14,6 +14,12 @@ const PLATFORM_EMAIL = 'admin@farmflow.bg';
 const PLATFORM_PASSWORD = 'admin1234';
 
 async function main() {
+  // Hard stop: this script TRUNCATEs every table and inserts trivially-guessable
+  // demo credentials. It must never run against a production database.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to seed: NODE_ENV=production (this wipes data + seeds weak demo logins)');
+  }
+
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is not set');
 
@@ -28,6 +34,8 @@ async function main() {
   await db.insert(platformAdmins).values({
     email: PLATFORM_EMAIL,
     passwordHash: await argon2.hash(PLATFORM_PASSWORD),
+    // Even in demos, force a rotation so a seeded login can't become a soft backdoor.
+    mustChangePassword: true,
   });
 
   const [tenant] = await db
@@ -302,7 +310,9 @@ async function main() {
   ]);
 
   console.log(`Seed complete — tenant "Ферма Петрови" + ${productRows.length} products + ${slotRows.length} slots + ${DEMO_ORDERS.length} orders + 3 articles + 6 reviews`);
-  console.log(`  login: ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
+  // Never print passwords — they leak into terminal scrollback + CI logs. The demo
+  // credentials live in the repo docs for whoever needs them.
+  console.log(`  owner login: ${OWNER_EMAIL} · platform login: ${PLATFORM_EMAIL} (passwords in docs)`);
   process.exit(0);
 }
 

@@ -53,7 +53,7 @@ function ReviewCard({
         <Stars value={review.rating} />
         <span className="shrink-0 text-[11px] text-ff-muted">{date}</span>
       </div>
-      <p className="text-[14px] leading-relaxed text-ff-ink">„{review.body}"</p>
+      <p className="text-[14px] leading-relaxed text-ff-ink">„{review.body}&quot;</p>
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <span className="text-[13px] font-bold text-ff-ink">{review.authorName}</span>

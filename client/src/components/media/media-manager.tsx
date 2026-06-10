@@ -138,7 +138,7 @@ export function MediaManager({
             className="group relative aspect-square overflow-hidden rounded-lg border border-ff-border bg-ff-surface-2"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={m.url} alt="" className="h-full w-full object-cover" />
+            <img src={m.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
 
             {reorderable && i === 0 && (
               <span className="absolute left-1 top-1 inline-flex items-center gap-0.5 rounded bg-ff-green-600/90 px-1.5 py-0.5 text-[9.5px] font-bold text-white">

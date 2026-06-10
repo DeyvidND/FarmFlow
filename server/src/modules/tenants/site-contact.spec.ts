@@ -3,10 +3,10 @@ import { buildPublicContact, normalizeSiteContact } from './site-contact';
 describe('buildPublicContact', () => {
   it('returns all-null / empty for garbage input', () => {
     expect(buildPublicContact(null)).toEqual({
-      address: null, hours: null, tagline: null, social: [], mapLat: null, mapLng: null,
+      address: null, hours: null, tagline: null, email: null, social: [], mapLat: null, mapLng: null,
     });
     expect(buildPublicContact('nope')).toEqual({
-      address: null, hours: null, tagline: null, social: [], mapLat: null, mapLng: null,
+      address: null, hours: null, tagline: null, email: null, social: [], mapLat: null, mapLng: null,
     });
   });
 

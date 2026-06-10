@@ -37,6 +37,8 @@ export function Avatar({
       <img
         src={imageUrl}
         alt={name}
+        loading="lazy"
+        decoding="async"
         className="shrink-0 rounded-full object-cover"
         style={{ width: size, height: size }}
       />

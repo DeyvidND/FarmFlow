@@ -440,7 +440,9 @@ export class StripeService {
           amount_total?: number | null;
         };
         // SaaS subscription checkout (platform billing) — not an order payment.
-        if (obj.mode === 'subscription') {
+        // Platform events carry NO `account`; requiring that closes any chance of a
+        // connected account spoofing a billing event to flip another tenant's plan.
+        if (obj.mode === 'subscription' && account === null) {
           await this.billing.handleBillingEvent(event);
           break;
         }
@@ -535,10 +537,12 @@ export class StripeService {
         break;
       }
       // Platform-side SaaS subscription billing — delegate to BillingService.
+      // Only honour these from the platform account (no `event.account`); a
+      // connected account must not be able to drive another tenant's billing.
       case 'invoice.paid':
       case 'invoice.payment_failed':
       case 'customer.subscription.deleted':
-        await this.billing.handleBillingEvent(event);
+        if (account === null) await this.billing.handleBillingEvent(event);
         break;
     }
 

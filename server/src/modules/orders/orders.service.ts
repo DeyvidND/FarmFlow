@@ -6,7 +6,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, inArray, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, inArray, lt, ne, sql } from 'drizzle-orm';
 import {
   type Database,
   orders,
@@ -18,7 +18,7 @@ import {
 } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
-import { bgToday, bgDate } from '../../common/time/bg-time';
+import { bgToday, bgDayBounds } from '../../common/time/bg-time';
 import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
 import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -86,7 +86,6 @@ export interface PublicOrderSummary {
   totalStotinki: number;
   customerName: string | null;
   deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address';
-  deliveryAddress: string | null;
   econtOffice: string | null;
   slot: { date: string; startTime: string; endTime: string } | null;
   items: { name: string; quantity: number; priceStotinki: number }[];
@@ -223,38 +222,42 @@ export class OrdersService {
    */
   async production(tenantId: string, date?: string): Promise<ProductionSummary> {
     const day = date ?? bgToday();
+    // Index-served day window (replaces the non-sargable `::date` cast).
+    const { from, to } = bgDayBounds(day);
     const onDay = and(
       eq(orders.tenantId, tenantId),
       eq(orders.status, 'confirmed'),
-      sql`${bgDate(orders.createdAt)} = ${day}`,
+      gte(orders.createdAt, from),
+      lt(orders.createdAt, to),
     )!;
 
-    const rows = await this.db
-      .select({
-        productName: orderItems.productName,
-        totalQty: sql<number>`sum(${orderItems.quantity})::int`,
-        orderCount: sql<number>`count(distinct ${orderItems.orderId})::int`,
-        farmerId: products.farmerId,
-        farmerName: farmers.name,
-      })
-      .from(orderItems)
-      .innerJoin(orders, eq(orderItems.orderId, orders.id))
-      .leftJoin(products, eq(orderItems.productId, products.id))
-      .leftJoin(farmers, eq(products.farmerId, farmers.id))
-      .where(onDay)
-      .groupBy(orderItems.productName, products.farmerId, farmers.name)
-      .orderBy(sql`sum(${orderItems.quantity}) desc`, orderItems.productName);
-
-    const [{ count }] = await this.db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(orders)
-      .where(onDay);
-
-    const [tenant] = await this.db
-      .select({ multiFarmer: tenants.multiFarmer })
-      .from(tenants)
-      .where(eq(tenants.id, tenantId))
-      .limit(1);
+    // The three reads are independent — run concurrently (one admin page load).
+    const [rows, [{ count }], [tenant]] = await Promise.all([
+      this.db
+        .select({
+          productName: orderItems.productName,
+          totalQty: sql<number>`sum(${orderItems.quantity})::int`,
+          orderCount: sql<number>`count(distinct ${orderItems.orderId})::int`,
+          farmerId: products.farmerId,
+          farmerName: farmers.name,
+        })
+        .from(orderItems)
+        .innerJoin(orders, eq(orderItems.orderId, orders.id))
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .leftJoin(farmers, eq(products.farmerId, farmers.id))
+        .where(onDay)
+        .groupBy(orderItems.productName, products.farmerId, farmers.name)
+        .orderBy(sql`sum(${orderItems.quantity}) desc`, orderItems.productName),
+      this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(orders)
+        .where(onDay),
+      this.db
+        .select({ multiFarmer: tenants.multiFarmer })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1),
+    ]);
 
     return {
       date: day,
@@ -273,19 +276,44 @@ export class OrdersService {
   /** Bulk confirm all pending orders (optionally for a single day). */
   async confirmPending(tenantId: string, date?: string): Promise<{ confirmed: number }> {
     const conds = [eq(orders.tenantId, tenantId), eq(orders.status, 'pending')];
-    if (date) conds.push(sql`${bgDate(orders.createdAt)} = ${date}`);
+    if (date) {
+      const { from, to } = bgDayBounds(date);
+      conds.push(gte(orders.createdAt, from), lt(orders.createdAt, to));
+    }
     const rows = await this.db
       .update(orders)
       .set({ status: 'confirmed' })
       .where(and(...conds))
       .returning({ id: orders.id });
-    // Each row was pending → confirmed (one-time), so notify each buyer once and
-    // (for Econt orders on an auto-create farm) generate the waybill.
-    for (const r of rows) {
-      void this.orderEmail.sendForOrder(r.id);
-      void this.econt.autoCreateForOrder(r.id);
-    }
+    // Each row was pending → confirmed (one-time): notify each buyer + (for Econt
+    // orders on an auto-create farm) generate the waybill. Drained with a small
+    // concurrency cap (detached) so a large bulk confirm doesn't open N SMTP/Econt
+    // connections at once.
+    void this.drainConfirmEffects(rows.map((r) => r.id));
     return { confirmed: rows.length };
+  }
+
+  /** Run per-order post-confirm side effects with bounded concurrency. Detached
+   *  and best-effort: a single failure must not abort the rest. */
+  private async drainConfirmEffects(ids: string[]): Promise<void> {
+    const CONCURRENCY = 4;
+    let i = 0;
+    const worker = async () => {
+      while (i < ids.length) {
+        const id = ids[i++];
+        try {
+          await this.orderEmail.sendForOrder(id);
+        } catch {
+          /* email is best-effort */
+        }
+        try {
+          await this.econt.autoCreateForOrder(id);
+        } catch {
+          /* waybill is best-effort */
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
   }
 
   /**
@@ -480,7 +508,9 @@ export class OrdersService {
       totalStotinki: row.totalStotinki,
       customerName: row.customerName,
       deliveryType: row.deliveryType,
-      deliveryAddress: row.deliveryAddress,
+      // Note: deliveryAddress is intentionally NOT returned — the customer already
+      // knows their own address, and the recap is reachable by anyone holding the
+      // order UUID (it can leak via history/Referer). Don't echo PII we don't need.
       econtOffice: row.econtOffice,
       slot: row.slotFrom
         ? { date: row.slotDate!, startTime: hhmm(row.slotFrom), endTime: hhmm(row.slotTo) }

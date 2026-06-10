@@ -76,7 +76,8 @@ services:
     networks: [dokploy-network]
     environment:
       NODE_ENV: production
-      # Server-side /api/* rewrite target — internal service DNS, no public hop.
+      # Backend base for the web app's server-side fetches (BFF proxy + session
+      # route handlers) — internal service DNS, no public hop.
       API_URL: http://api:3000
     depends_on: [api]
     labels:

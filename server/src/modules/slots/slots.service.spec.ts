@@ -25,7 +25,7 @@ function fakeDb(existingDates: string[], inserted: Record<string, unknown>[]) {
 describe('SlotsService.materializeRule', () => {
   it('inserts only the missing dates as generated slots', async () => {
     const inserted: Record<string, unknown>[] = [];
-    const svc = new SlotsService(fakeDb(['2026-06-08'], inserted));
+    const svc = new SlotsService(fakeDb(['2026-06-08'], inserted), {} as never);
     jest.spyOn(svc, 'getRule').mockResolvedValue({
       active: true,
       repeat: 'interval',

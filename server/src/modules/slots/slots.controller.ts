@@ -69,7 +69,16 @@ export class PublicSlotsController {
 
   @Get()
   @ApiQuery({ name: 'date', required: false, example: '2026-05-30' })
-  findPublic(@Param('slug') slug: string, @Query('date') date?: string) {
-    return this.slotsService.findPublicBySlug(slug, date);
+  @ApiQuery({ name: 'from', required: false, example: '2026-05-25' })
+  @ApiQuery({ name: 'to', required: false, example: '2026-05-31' })
+  findPublic(
+    @Param('slug') slug: string,
+    @Query('date') date?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    // `date` = legacy single-day; `from`/`to` = one ranged request for the whole
+    // picker window (replaces the storefront's one-fetch-per-day fan-out).
+    return this.slotsService.findPublicBySlug(slug, { date, from, to });
   }
 }
