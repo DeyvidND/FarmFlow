@@ -313,22 +313,35 @@ export interface Slot {
   generated: boolean;
 }
 
+/** One delivery window: hours + capacity. */
+export interface SlotWindow {
+  timeFrom: string; // HH:MM
+  timeTo: string; // HH:MM
+  maxOrders: number;
+}
+
+/** A window bound to a weekday (0=Sun..6=Sat). */
+export interface SlotDay extends SlotWindow {
+  dow: number;
+}
+
 /** The single recurring self-delivery rule (settings.slotRule). */
 export interface SlotRule {
   active: boolean;
   repeat: 'weekdays' | 'interval';
-  weekdays: number[]; // 0=Sun..6=Sat
+  days: SlotDay[]; // weekdays mode — one window per picked weekday
   intervalDays: number;
+  intervalWindow: SlotWindow; // interval mode — single window
   anchorDate: string; // YYYY-MM-DD
-  timeFrom: string; // HH:MM
-  timeTo: string; // HH:MM
-  maxOrders: number;
   customerNote?: string;
   driverNote?: string;
   horizonDays: number;
   skipDates: string[];
   lastMaterializedDate?: string;
 }
+
+/** What the admin form sends to PUT /slots/rule — server owns skipDates + lastMaterializedDate. */
+export type SlotRuleInput = Omit<SlotRule, 'skipDates' | 'lastMaterializedDate'>;
 
 export interface OrderItem {
   id: string;

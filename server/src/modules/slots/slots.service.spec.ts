@@ -29,12 +29,10 @@ describe('SlotsService.materializeRule', () => {
     jest.spyOn(svc, 'getRule').mockResolvedValue({
       active: true,
       repeat: 'interval',
-      weekdays: [],
+      days: [],
       intervalDays: 3,
+      intervalWindow: { timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 },
       anchorDate: '2026-06-08',
-      timeFrom: '10:00',
-      timeTo: '12:00',
-      maxOrders: 5,
       horizonDays: 9,
       skipDates: [],
     });

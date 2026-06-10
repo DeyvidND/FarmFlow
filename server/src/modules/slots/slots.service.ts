@@ -11,7 +11,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { UpdateSlotDto } from './dto/update-slot.dto';
-import { SlotRule, slotRuleDates, normalizeRule } from './slot-rule';
+import { SlotRule, slotRuleSlots, normalizeRule, migrateRule } from './slot-rule';
 
 /** A delivery slot plus its live `booked` count (non-cancelled orders). */
 type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
@@ -201,7 +201,7 @@ export class SlotsService {
       .where(eq(tenants.id, tenantId))
       .limit(1);
     const r = (row?.settings as Record<string, unknown> | null)?.slotRule;
-    return (r as SlotRule) ?? null;
+    return r ? migrateRule(r as Partial<SlotRule>) : null;
   }
 
   /**
@@ -256,8 +256,8 @@ export class SlotsService {
     // load (via findAll); the short-circuit saves a query per load. saveRule passes
     // force=true (it just deleted future generated slots and must recreate them).
     if (!force && rule.lastMaterializedDate === today) return 0;
-    const dates = slotRuleDates(rule, today);
-    if (!dates.length) return 0;
+    const wanted = slotRuleSlots(rule, today);
+    if (!wanted.length) return 0;
 
     const existing = await this.db
       .select({ date: deliverySlots.date })
@@ -266,20 +266,20 @@ export class SlotsService {
         and(
           eq(deliverySlots.tenantId, tenantId),
           eq(deliverySlots.generated, true),
-          gte(deliverySlots.date, dates[0]),
-          lte(deliverySlots.date, dates[dates.length - 1]),
+          gte(deliverySlots.date, wanted[0].date),
+          lte(deliverySlots.date, wanted[wanted.length - 1].date),
         ),
       );
     const have = new Set(existing.map((r) => r.date));
-    const missing = dates.filter((d) => !have.has(d));
+    const missing = wanted.filter((w) => !have.has(w.date));
     if (missing.length) {
       await this.db.insert(deliverySlots).values(
-        missing.map((date) => ({
+        missing.map((w) => ({
           tenantId,
-          date,
-          timeFrom: rule.timeFrom,
-          timeTo: rule.timeTo,
-          maxOrders: rule.maxOrders,
+          date: w.date,
+          timeFrom: w.timeFrom,
+          timeTo: w.timeTo,
+          maxOrders: w.maxOrders,
           generated: true,
           customerNote: rule.customerNote ?? null,
           driverNote: rule.driverNote ?? null,
