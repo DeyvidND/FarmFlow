@@ -33,6 +33,8 @@ export interface Product {
   imageUrl: string | null;
   farmerId: string | null;
   subcategoryId: string | null;
+  /** Storefront display order (farmer-controlled). Lower = earlier. */
+  position: number;
   createdAt: string;
 }
 
@@ -88,6 +90,11 @@ export interface TenantProfile {
   articlesEnabled: boolean;
   reviewsEnabled: boolean;
   deliveryEnabled: boolean;
+  /** «Продукт на седмицата» highlight config. */
+  productOfWeekEnabled: boolean;
+  productOfWeekMode: 'manual' | 'auto';
+  productOfWeekId: string | null;
+  productOfWeekNote: string | null;
   /** Home / depot — the delivery route origin. */
   farmAddress: string | null;
   farmLat: string | null;

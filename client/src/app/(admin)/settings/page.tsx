@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
 import { firstMessage } from '@/components/auth/auth-shell';
 import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
+import { ProductOfWeekCard } from '@/components/settings/product-of-week-card';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -116,6 +117,8 @@ export default function SettingsPage() {
           </Button>
         </form>
       </div>
+
+        <ProductOfWeekCard />
 
         <NavVisibilityCard />
       </div>

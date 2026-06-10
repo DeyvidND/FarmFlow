@@ -69,6 +69,7 @@ export interface CreateOrderDto {
   slotId?: string; // uuid
   deliveryType?: DeliveryType;
   deliveryAddress?: string;
+  deliveryCity?: string; // structured settlement — required for Econt door (econt_address)
   deliveryLat?: number; // precise pin from the checkout map/autocomplete
   deliveryLng?: number;
   econtOffice?: string;
@@ -184,6 +185,11 @@ export interface StorefrontProfile {
   /** Storefront content sections — hide them when off. Absent (older API) → on. */
   articlesEnabled?: boolean;
   reviewsEnabled?: boolean;
+  /** «Продукт на седмицата» highlight config (resolved client-side from products). */
+  productOfWeekEnabled?: boolean;
+  productOfWeekMode?: 'manual' | 'auto';
+  productOfWeekId?: string | null;
+  productOfWeekNote?: string | null;
   econtEnabled: boolean;
   econtMode: 'off' | 'manual' | 'auto';
   /** наложен платеж offered to customers. */

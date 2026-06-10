@@ -24,6 +24,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { StorageService } from '../storage/storage.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
+import { ReorderDto } from '../../common/dto/reorder.dto';
 import { slugify } from '../articles/articles.util';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 
@@ -79,7 +80,25 @@ export class ProductsService {
       })
       .from(products)
       .where(eq(products.tenantId, tenantId))
-      .orderBy(asc(products.createdAt));
+      .orderBy(asc(products.position), asc(products.createdAt));
+  }
+
+  /** Persist a new catalog display order. Each item's `position` is set
+   *  tenant-scoped in one transaction (a mid-loop failure can't leave a
+   *  half-applied order); the public catalog cache is busted. Used for both
+   *  global and per-category reordering — the client computes the position
+   *  values (full 0..N-1 sequence for global, slot-preserving for per-category). */
+  async reorder(tenantId: string, dto: ReorderDto): Promise<{ ok: true }> {
+    await this.db.transaction(async (tx) => {
+      for (const it of dto.items) {
+        await tx
+          .update(products)
+          .set({ position: it.position })
+          .where(and(eq(products.id, it.id), eq(products.tenantId, tenantId)));
+      }
+    });
+    await this.cache.invalidate(tenantId);
+    return { ok: true };
   }
 
   async findOne(id: string, tenantId: string): Promise<Product> {
@@ -208,6 +227,10 @@ export class ProductsService {
     dto: { productIds: string[]; farmerId?: string | null; subcategoryId?: string | null },
   ): Promise<{ updated: number }> {
     if (!dto.productIds?.length) return { updated: 0 };
+    // Same cross-tenant guard as create/update: a tenant must not be able to link
+    // its products to another tenant's farmer/subcategory (the bulk path is no
+    // exception — the DB single-column FK only proves the row exists, not tenancy).
+    await this.assertRefsInTenant(tenantId, dto);
     const set: Partial<typeof products.$inferInsert> = {};
     if (dto.farmerId !== undefined) set.farmerId = dto.farmerId;
     if (dto.subcategoryId !== undefined) set.subcategoryId = dto.subcategoryId;
@@ -382,7 +405,7 @@ export class ProductsService {
       .select()
       .from(products)
       .where(and(eq(products.tenantId, tenant.id), eq(products.isActive, true)))
-      .orderBy(products.createdAt);
+      .orderBy(asc(products.position), asc(products.createdAt), asc(products.id));
 
     const mediaByProduct = await this.mediaUrlsByProduct(rows.map((r) => r.id));
     const result = rows.map((p) => toPublicProduct(p, mediaByProduct.get(p.id) ?? []));

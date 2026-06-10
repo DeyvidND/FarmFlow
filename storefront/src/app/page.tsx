@@ -20,6 +20,8 @@ import {
 import { NewsletterForm } from '@/components/newsletter-form';
 import { HomeListing } from '@/components/home-listing';
 import { FarmerCard } from '@/components/farmer-card';
+import { ProductOfWeekHighlight } from '@/components/product-of-week';
+import { resolveProductOfWeek } from '@/lib/product-of-week';
 import { Leaf, Truck, Heart } from '@/components/icons';
 
 /**
@@ -46,6 +48,9 @@ export default async function HomePage() {
   const sellable = products.filter((p) => p.category !== 'bundle');
   const flagged = sellable.filter((p) => p.featured);
   const featured = (flagged.length > 0 ? flagged : sellable).slice(0, 4);
+
+  // «Продукт на седмицата» — optional home highlight (manual pick or weekly auto).
+  const potw = resolveProductOfWeek(profile, sellable, new Date());
 
   // Subsection cards for the home listing toggle (only sections with products).
   const categories = [...subcategories]
@@ -104,6 +109,9 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* PRODUCT OF THE WEEK · optional highlight */}
+      {potw && <ProductOfWeekHighlight product={potw} note={profile?.productOfWeekNote} />}
 
       {/* FEATURED LISTING · products / subsections (toggleable home layout) */}
       {featured.length > 0 && <HomeListing featured={featured} categories={categories} />}

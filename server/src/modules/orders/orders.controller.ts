@@ -6,6 +6,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { OrdersService } from './orders.service';
+import { CheckoutService } from './checkout.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -60,13 +61,18 @@ export class OrdersController {
 @ApiTags('public')
 @Controller('public/:slug/orders')
 export class PublicOrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly checkout: CheckoutService,
+  ) {}
 
-  // Anonymous order creation — 15/min/IP (matches public checkout).
+  // Anonymous order creation — 15/min/IP (matches public checkout). Routed through
+  // CheckoutService so the delivery fee is folded into the total (same as
+  // /checkout); this endpoint just doesn't open a Stripe session.
   @Throttle({ default: { limit: 15, ttl: 60_000 } })
   @Post()
   create(@Param('slug') slug: string, @Body() dto: CreateOrderDto) {
-    return this.ordersService.create(slug, dto);
+    return this.checkout.placeOrder(slug, dto);
   }
 
   // Public order recap for the confirmation page (UUID + slug gated).

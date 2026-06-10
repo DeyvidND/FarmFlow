@@ -1,13 +1,16 @@
 import {
   IsBoolean,
   IsEmail,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -52,6 +55,30 @@ export class UpdateTenantDto {
   @IsOptional()
   @IsBoolean()
   reviewsEnabled?: boolean;
+
+  @ApiPropertyOptional({ example: false, description: 'Show the «Продукт на седмицата» highlight' })
+  @IsOptional()
+  @IsBoolean()
+  productOfWeekEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['manual', 'auto'],
+    description: 'manual = pick a product; auto = weekly ISO-week rotation',
+  })
+  @IsOptional()
+  @IsIn(['manual', 'auto'])
+  productOfWeekMode?: 'manual' | 'auto';
+
+  @ApiPropertyOptional({ description: 'Featured product id (manual mode); null to clear' })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsUUID()
+  productOfWeekId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Optional blurb shown with the featured product' })
+  @IsOptional()
+  @IsString()
+  productOfWeekNote?: string | null;
 
   // Home / depot — the delivery route origin. If an address is given without
   // coords, the server geocodes it on save.

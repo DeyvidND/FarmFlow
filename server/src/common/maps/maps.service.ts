@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
+import { PublicCacheService } from '../cache/public-cache.service';
 
 export interface LatLng {
   lat: number;
@@ -24,6 +26,15 @@ const ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
 const TIMEOUT_MS = 8000;
 /** Backstop: reject a geocode this far from the delivery region (gross error). */
 const MAX_BIAS_DISTANCE_KM = 120;
+/**
+ * Cache Routes API results for a week. A route is a pure function of its
+ * coordinates, so the same stop-set always yields the same answer — and the key
+ * is a hash of the coords, so adding/removing/moving a stop produces a different
+ * key (cache miss → recompute). This collapses the cost of the `/route` page's
+ * refreshes and order/end-mode toggles to a single billed call per unique
+ * stop-set, with zero quality loss. Road-network drift over a week is negligible.
+ */
+const ROUTE_CACHE_TTL = 7 * 24 * 60 * 60;
 
 /** Straight-line distance (km) between two points. */
 function distKm(a: LatLng, b: LatLng): number {
@@ -51,13 +62,44 @@ export class MapsService {
   private readonly apiKey: string;
   readonly enabled: boolean;
 
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly cache: PublicCacheService,
+  ) {
     this.apiKey = config.get<string>('GOOGLE_MAPS_API_KEY')?.trim() ?? '';
     this.enabled = this.apiKey.length > 0;
     if (!this.enabled) {
       this.logger.warn(
         'GOOGLE_MAPS_API_KEY not set — geocoding/routing disabled (stub mode).',
       );
+    }
+  }
+
+  /** Stable cache key for a Routes API call — a hash of the (rounded) coords in
+   *  order. Identical stop-sets collapse to one key; any change misses. */
+  private routeKey(prefix: string, coords: LatLng[]): string {
+    const sig = coords.map((c) => `${c.lat.toFixed(6)},${c.lng.toFixed(6)}`).join('|');
+    return `maps:${prefix}:${createHash('sha1').update(sig).digest('hex')}`;
+  }
+
+  /** Cache read that degrades to a miss on a Redis fault (never throws) — a cache
+   *  outage must not turn the /route page into a 500; it just recomputes live. */
+  private async cachedGet<T>(key: string): Promise<T | null> {
+    try {
+      return await this.cache.get<T>(key);
+    } catch (err) {
+      this.logger.warn(`route cache get failed (recomputing): ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /** Cache write that never throws — a Redis fault must not discard an already
+   *  computed (billed) route. */
+  private async cachedSet(key: string, value: unknown): Promise<void> {
+    try {
+      await this.cache.set(key, value, ROUTE_CACHE_TTL);
+    } catch (err) {
+      this.logger.warn(`route cache set failed: ${(err as Error).message}`);
     }
   }
 
@@ -139,6 +181,10 @@ export class MapsService {
   async route(origin: LatLng, stops: LatLng[]): Promise<RoutePlan | null> {
     if (!this.enabled || !stops.length) return null;
 
+    const key = this.routeKey('route', [origin, ...stops]);
+    const cached = await this.cachedGet<RoutePlan>(key);
+    if (cached) return cached;
+
     const waypoint = (p: LatLng) => ({
       location: { latLng: { latitude: p.lat, longitude: p.lng } },
     });
@@ -180,7 +226,9 @@ export class MapsService {
         raw.every((i: unknown) => Number.isInteger(i) && (i as number) >= 0 && (i as number) < stops.length) &&
         new Set(raw).size === stops.length;
       const order: number[] = isPermutation ? raw : identity;
-      return { distanceM, durationS, order };
+      const plan: RoutePlan = { distanceM, durationS, order };
+      await this.cachedSet(key, plan);
+      return plan;
     } catch (err) {
       this.logger.warn(`Routes error: ${(err as Error).message}`);
       return null;
@@ -196,6 +244,11 @@ export class MapsService {
    */
   async routeFixed(points: LatLng[]): Promise<{ distanceM: number; durationS: number } | null> {
     if (!this.enabled || points.length < 2) return null;
+
+    const key = this.routeKey('routefixed', points);
+    const cached = await this.cachedGet<{ distanceM: number; durationS: number }>(key);
+    if (cached) return cached;
+
     const wp = (p: LatLng) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
     const body = {
       origin: wp(points[0]),
@@ -217,7 +270,9 @@ export class MapsService {
       if (!r) return null;
       const distanceM = typeof r.distanceMeters === 'number' ? r.distanceMeters : 0;
       const durationS = parseInt(String(r.duration ?? '0'), 10) || 0;
-      return { distanceM, durationS };
+      const out = { distanceM, durationS };
+      await this.cachedSet(key, out);
+      return out;
     } catch (err) {
       this.logger.warn(`routeFixed error: ${(err as Error).message}`);
       return null;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import { Pencil, Trash2, Link2 } from 'lucide-react';
+import { Pencil, Trash2, Link2, Star } from 'lucide-react';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ProductThumb } from './product-thumb';
 import { moneyFromStotinki } from '@/lib/utils';
@@ -20,6 +20,10 @@ interface Props {
   /** Shown when the farmer/subcategory toggles are on. */
   farmerLabel?: string | null;
   subcatLabel?: string | null;
+  /** «Продукт на седмицата» star — shown only when the highlight is on (manual mode). */
+  showStar?: boolean;
+  featured?: boolean;
+  onToggleFeatured?: () => void;
 }
 
 export function ProductCard({
@@ -32,15 +36,35 @@ export function ProductCard({
   onEdit,
   farmerLabel,
   subcatLabel,
+  showStar,
+  featured,
+  onToggleFeatured,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const sm = stockMeta(product.stockQuantity);
 
   return (
     <div
-      className="flex flex-col rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm transition-opacity"
+      className="relative flex flex-col rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm transition-opacity"
       style={{ opacity: product.isActive ? 1 : 0.62, animation: `ff-fade-up .35s ease ${index * 0.03}s both` }}
     >
+      {showStar && (
+        <button
+          type="button"
+          onClick={onToggleFeatured}
+          disabled={busy}
+          aria-pressed={featured}
+          aria-label={featured ? 'Премахни от продукт на седмицата' : 'Направи продукт на седмицата'}
+          title={featured ? 'Продукт на седмицата' : 'Направи продукт на седмицата'}
+          className={`absolute left-2.5 top-2.5 z-10 grid h-8 w-8 place-items-center rounded-full border shadow-ff-sm transition-colors disabled:opacity-50 ${
+            featured
+              ? 'border-ff-amber bg-ff-amber text-white'
+              : 'border-ff-border bg-ff-surface/90 text-ff-muted hover:text-ff-amber'
+          }`}
+        >
+          <Star size={16} fill={featured ? 'currentColor' : 'none'} />
+        </button>
+      )}
       <input
         ref={fileRef}
         type="file"

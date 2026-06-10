@@ -13,7 +13,11 @@ import {
   UploadImageDto,
   PRODUCT_IMAGE_MIME_REGEX,
   PRODUCT_IMAGE_MAX_BYTES,
+  FaviconUploadDto,
+  FAVICON_MIME_REGEX,
+  FAVICON_MAX_BYTES,
 } from '../storage/dto/upload-image.dto';
+import { SiteContactDto } from './dto/site-contact.dto';
 
 @ApiTags('tenants')
 @ApiBearerAuth()
@@ -67,6 +71,46 @@ export class TenantsController {
   @Delete('me/media/:slotKey')
   deleteMedia(@CurrentTenant() tenantId: string, @Param('slotKey') slotKey: string) {
     return this.tenantsService.deleteSiteMedia(tenantId, slotKey);
+  }
+
+  // ---- Site contact + website icon ----
+
+  @ApiOperation({ summary: 'Contact block + favicon + theme color' })
+  @Get('me/site-contact')
+  getSiteContact(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.getSiteContact(tenantId);
+  }
+
+  @ApiOperation({ summary: 'Update contact block + theme color' })
+  @Patch('me/site-contact')
+  updateSiteContact(@CurrentTenant() tenantId: string, @Body() dto: SiteContactDto) {
+    return this.tenantsService.updateSiteContact(tenantId, dto);
+  }
+
+  @ApiOperation({ summary: 'Upload/replace the website icon (PNG or ICO)' })
+  @Post('me/favicon')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: FaviconUploadDto })
+  @UseInterceptors(FileInterceptor('image'))
+  uploadFavicon(
+    @CurrentTenant() tenantId: string,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new FileTypeValidator({ fileType: FAVICON_MIME_REGEX }),
+          new MaxFileSizeValidator({ maxSize: FAVICON_MAX_BYTES }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    return this.tenantsService.setFavicon(tenantId, file);
+  }
+
+  @ApiOperation({ summary: 'Remove the website icon' })
+  @Delete('me/favicon')
+  deleteFavicon(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.deleteFavicon(tenantId);
   }
 }
 

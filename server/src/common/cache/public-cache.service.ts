@@ -13,6 +13,7 @@ import {
   type DeliveryConfig,
   type EcontMode,
 } from '../../modules/orders/delivery-pricing';
+import { buildPublicContact, type PublicContact } from '../../modules/tenants/site-contact';
 
 /**
  * Lean tenant identity + storefront toggles, cached per slug. Doubles as the
@@ -32,6 +33,12 @@ export interface TenantMeta {
   // Storefront content sections, gated from the «Функции на магазина» panel.
   articlesEnabled: boolean;
   reviewsEnabled: boolean;
+  // «Продукт на седмицата» highlight config. The bootstrap resolver turns these
+  // into the featured product (manual pick or weekly ISO-week rotation).
+  productOfWeekEnabled: boolean;
+  productOfWeekMode: string;
+  productOfWeekId: string | null;
+  productOfWeekNote: string | null;
   // Whether the farm offers Econt at all (manual or automatic) — gates the Econt
   // delivery radios on the storefront.
   econtEnabled: boolean;
@@ -53,6 +60,11 @@ export interface TenantMeta {
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
   // catalog slot id. Empty/missing → the storefront renders its `.ph` mock.
   media: Record<string, { url: string }>;
+  // Editable contact block + website icon + theme color (settings.contact /
+  // settings.brand). Derived here so a warm storefront render needs no extra read.
+  contact: PublicContact;
+  faviconUrl: string | null;
+  themeColor: string | null;
 }
 
 /**
@@ -116,6 +128,10 @@ export class PublicCacheService {
         multiSubcat: tenants.multiSubcat,
         articlesEnabled: tenants.articlesEnabled,
         reviewsEnabled: tenants.reviewsEnabled,
+        productOfWeekEnabled: tenants.productOfWeekEnabled,
+        productOfWeekMode: tenants.productOfWeekMode,
+        productOfWeekId: tenants.productOfWeekId,
+        productOfWeekNote: tenants.productOfWeekNote,
         settings: tenants.settings,
         stripeAccountId: tenants.stripeAccountId,
       })
@@ -130,6 +146,8 @@ export class PublicCacheService {
       | {
           delivery?: DeliveryConfig & { econt?: { configured?: boolean } };
           media?: Record<string, { url?: unknown }>;
+          contact?: unknown;
+          brand?: { favicon?: { url?: unknown }; themeColor?: unknown };
         }
       | null;
     const delivery = settingsObj?.delivery;
@@ -139,6 +157,11 @@ export class PublicCacheService {
     for (const [k, v] of Object.entries(settingsObj?.media ?? {})) {
       if (typeof v?.url === 'string' && v.url) media[k] = { url: v.url };
     }
+    const brand = settingsObj?.brand;
+    const faviconUrl =
+      typeof brand?.favicon?.url === 'string' && brand.favicon.url ? brand.favicon.url : null;
+    const themeColor =
+      typeof brand?.themeColor === 'string' && brand.themeColor ? brand.themeColor : null;
     const meta: TenantMeta = {
       ...rest,
       econtEnabled: mode !== 'off',
@@ -148,6 +171,9 @@ export class PublicCacheService {
       delivery: buildPublicDelivery(delivery),
       methods: buildPublicMethods(delivery),
       media,
+      contact: buildPublicContact(settingsObj?.contact),
+      faviconUrl,
+      themeColor,
     };
 
     await this.set(key, meta);

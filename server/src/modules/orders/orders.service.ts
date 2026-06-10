@@ -24,6 +24,8 @@ import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
+import { EcontService } from '../econt/econt.service';
+import { buildPublicMethods, codEnabled, type DeliveryConfig } from './delivery-pricing';
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
@@ -97,7 +99,40 @@ export class OrdersService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly maps: MapsService,
     private readonly orderEmail: OrderConfirmationService,
+    private readonly econt: EcontService,
   ) {}
+
+  /**
+   * Reject a delivery/payment method the farm has switched off. The storefront
+   * already hides disabled methods; this is the server-side backstop so a crafted
+   * request can't place an order through a method the farm doesn't offer (which
+   * would otherwise record the order + charge a default fallback fee).
+   */
+  private assertMethodAllowed(
+    settings: unknown,
+    deliveryEnabled: boolean,
+    method: 'pickup' | 'address' | 'econt' | 'econt_address',
+    paymentMethod: 'online' | 'cod',
+  ): void {
+    const cfg = (settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
+    const methods = buildPublicMethods(cfg);
+    const allowed: Record<string, boolean> = {
+      pickup: methods.pickup,
+      // Self-delivery availability is the SAME signal the storefront gates on:
+      // `deliveryEnabled` (the slot picker master switch) AND the ownSlots method
+      // flag. A farm with deliveryEnabled=false offers no local delivery even if
+      // ownSlots defaults on.
+      address: deliveryEnabled && methods.ownSlots,
+      econt: methods.econtOffice,
+      econt_address: methods.econtAddress,
+    };
+    if (!allowed[method]) {
+      throw new BadRequestException('Избраният начин на доставка не е наличен.');
+    }
+    if (paymentMethod === 'cod' && !codEnabled(cfg)) {
+      throw new BadRequestException('Плащането с наложен платеж не е налично.');
+    }
+  }
 
   /**
    * Admin list: tenant-scoped, newest first, keyset-paginated, items batched
@@ -173,6 +208,10 @@ export class OrdersService {
     if (!row) throw new NotFoundException('Поръчката не е намерена');
     if (dto.status === 'confirmed' && prev?.status !== 'confirmed') {
       void this.orderEmail.sendForOrder(id);
+      // Self-gating + idempotent: only fires for Econt orders on a farm with
+      // auto-create enabled. Covers COD/cash Econt orders, which never reach the
+      // Stripe paid-webhook (its only other trigger).
+      void this.econt.autoCreateForOrder(id);
     }
     return row;
   }
@@ -240,8 +279,12 @@ export class OrdersService {
       .set({ status: 'confirmed' })
       .where(and(...conds))
       .returning({ id: orders.id });
-    // Each row was pending → confirmed (one-time), so notify each buyer once.
-    for (const r of rows) void this.orderEmail.sendForOrder(r.id);
+    // Each row was pending → confirmed (one-time), so notify each buyer once and
+    // (for Econt orders on an auto-create farm) generate the waybill.
+    for (const r of rows) {
+      void this.orderEmail.sendForOrder(r.id);
+      void this.econt.autoCreateForOrder(r.id);
+    }
     return { confirmed: rows.length };
   }
 
@@ -266,11 +309,22 @@ export class OrdersService {
         farmLat: tenants.farmLat,
         farmLng: tenants.farmLng,
         subscriptionStatus: tenants.subscriptionStatus,
+        settings: tenants.settings,
+        deliveryEnabled: tenants.deliveryEnabled,
       })
       .from(tenants)
       .where(eq(tenants.slug, slug))
       .limit(1);
     if (!tenant) throw new NotFoundException('Фермата не е намерена');
+
+    // Server-side backstop: the chosen delivery + payment methods must actually
+    // be enabled for this farm (the storefront only hides them client-side).
+    this.assertMethodAllowed(
+      tenant.settings,
+      tenant.deliveryEnabled,
+      method,
+      dto.paymentMethod ?? 'online',
+    );
     // A farm with a lapsed subscription can't take new orders — mirrors the
     // ActiveSubscriptionGuard on the admin side. Grace (`past_due`) still sells;
     // only a fully `inactive` (grace-expired / cancelled) farm is blocked.

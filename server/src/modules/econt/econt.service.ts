@@ -385,6 +385,8 @@ export class EcontService {
       deliveryAddress?: string | null;
       deliveryCity?: string | null;
       totalStotinki?: number | null;
+      paymentMethod?: string | null;
+      paidAt?: Date | string | null;
     },
     items: { name: string | null; qty: number }[],
   ): Record<string, unknown> {
@@ -429,7 +431,12 @@ export class EcontService {
     }
 
     // Cash on delivery: collect the order total from the customer (app currency = EUR).
-    if (econt.cod?.enabled && order.totalStotinki) {
+    // Keyed on the ORDER's own payment choice (наложен платеж), NOT a tenant flag —
+    // and never on an order already paid online (Stripe), so a paid Econt order
+    // can't be charged a second time at the door. The tenant `econt.cod` block
+    // still supplies who pays the courier fee (feePayer).
+    const collectCod = order.paymentMethod === 'cod' && !order.paidAt;
+    if (collectCod && order.totalStotinki) {
       label.services = {
         cdAmount: Math.round(order.totalStotinki) / 100,
         cdType: 'get',
@@ -439,9 +446,9 @@ export class EcontService {
       // fields, per the Econt model): 'customer' → the receiver pays cash on
       // delivery; 'farm' → the sender pays. Empty leaves Econt's per-agreement
       // default.
-      if (econt.cod.feePayer === 'customer') {
+      if (econt.cod?.feePayer === 'customer') {
         label.paymentReceiverMethod = 'cash';
-      } else if (econt.cod.feePayer === 'farm') {
+      } else if (econt.cod?.feePayer === 'farm') {
         label.paymentSenderMethod = 'cash';
       }
     }

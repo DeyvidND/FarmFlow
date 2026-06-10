@@ -10,6 +10,7 @@ import { StorageService } from '../storage/storage.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
+import { ReorderDto } from '../../common/dto/reorder.dto';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 
 @Injectable()
@@ -28,6 +29,22 @@ export class FarmersService {
       .from(farmers)
       .where(eq(farmers.tenantId, tenantId))
       .orderBy(asc(farmers.position), asc(farmers.createdAt));
+  }
+
+  /** Persist a new display order for the tenant's farmers. Tenant-scoped, one
+   *  transaction; busts the catalog + public farmers caches. */
+  async reorder(tenantId: string, dto: ReorderDto): Promise<{ ok: true }> {
+    await this.db.transaction(async (tx) => {
+      for (const it of dto.items) {
+        await tx
+          .update(farmers)
+          .set({ position: it.position })
+          .where(and(eq(farmers.id, it.id), eq(farmers.tenantId, tenantId)));
+      }
+    });
+    await this.cache.invalidate(tenantId);
+    await this.publicCache.del(publicCacheKeys.farmers(tenantId));
+    return { ok: true };
   }
 
   async findOne(id: string, tenantId: string): Promise<Farmer> {

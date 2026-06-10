@@ -202,3 +202,68 @@ describe('StripeService webhook — verifies against either configured secret', 
     expect(calls.update).toBe(1); // order confirmed
   });
 });
+
+// Regression: an abandoned card checkout (session expires unpaid) must cancel the
+// still-pending order so its reserved slot is freed — scoped to the account's tenant.
+describe('StripeService webhook — checkout.session.expired frees the slot', () => {
+  const config = {
+    get: (key: string, def?: unknown) =>
+      key === 'STRIPE_WEBHOOK_SECRET' ? 'whsec_test' : key === 'STRIPE_SECRET_KEY' ? '' : def,
+  } as unknown as ConfigService;
+
+  function build(tenantResult: unknown[]) {
+    const calls = { update: 0 };
+    const db = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoNothing: () => ({ returning: () => Promise.resolve([{ id: 'evt_x' }]) }),
+        }),
+      }),
+      select: () => {
+        let table: unknown;
+        const c: Record<string, unknown> = {
+          from: (t: unknown) => {
+            table = t;
+            return c;
+          },
+          where: () => c,
+          limit: () => Promise.resolve(table === tenants ? tenantResult : []),
+        };
+        return c;
+      },
+      update: () => {
+        calls.update++;
+        return {
+          set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 'o' }]) }) }),
+        };
+      },
+    };
+    const svc = new StripeService(
+      db as never,
+      config,
+      { handleBillingEvent: jest.fn() } as never,
+      { autoCreateForOrder: jest.fn() } as never,
+      { sendForOrder: jest.fn() } as never,
+    );
+    const event = {
+      id: 'evt_x',
+      type: 'checkout.session.expired',
+      account: 'acct_farm',
+      data: { object: { id: 'cs_1', metadata: { orderId: 'order-1' } } },
+    };
+    (svc as unknown as { client: unknown }).client = { webhooks: { constructEvent: () => event } };
+    return { svc, calls };
+  }
+
+  it('cancels the pending order when the account resolves to a tenant', async () => {
+    const { svc, calls } = build([{ id: 'tenant-A' }]);
+    await svc.handleWebhook(Buffer.from('{}'), 'sig');
+    expect(calls.update).toBe(1);
+  });
+
+  it('ignores an expired event from an unknown account (no tenant)', async () => {
+    const { svc, calls } = build([]);
+    await svc.handleWebhook(Buffer.from('{}'), 'sig');
+    expect(calls.update).toBe(0);
+  });
+});

@@ -63,6 +63,9 @@ export function CheckoutClient({
     showSelf ? 'address' : 'econt',
   );
   const [addressInput, setAddressInput] = useState('');
+  // Structured settlement for Econt door (econt_address) — the courier needs a
+  // city to route the waybill; the server requires it for door delivery.
+  const [cityInput, setCityInput] = useState('');
   // Precise pin coordinates from the address autocomplete/map (address delivery only).
   const [addressLat, setAddressLat] = useState<number | null>(null);
   const [addressLng, setAddressLng] = useState<number | null>(null);
@@ -99,6 +102,10 @@ export function CheckoutClient({
       toast('Моля, попълни име и телефон');
       return;
     }
+    if (sentDeliveryType === 'econt_address' && !cityInput.trim()) {
+      toast('Моля, попълни град за доставка с Еконт');
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await createCheckout(slug, {
@@ -111,6 +118,8 @@ export function CheckoutClient({
         // Manual Econt + self-delivery carry an address; auto Econt carries an office.
         deliveryAddress:
           !isEcont || manualEcont ? addressInput.trim() || undefined : undefined,
+        deliveryCity:
+          sentDeliveryType === 'econt_address' ? cityInput.trim() || undefined : undefined,
         deliveryLat: isEcont ? undefined : addressLat ?? undefined,
         deliveryLng: isEcont ? undefined : addressLng ?? undefined,
         econtOffice: isEcont && !manualEcont ? addressInput.trim() || undefined : undefined,
@@ -274,17 +283,28 @@ export function CheckoutClient({
                 </div>
                 {isEcont ? (
                   manualEcont ? (
-                    <div className="field" style={{ marginTop: 14 }}>
-                      <label>Адрес за доставка (град, улица, №)</label>
-                      <input
-                        className="input"
-                        placeholder="напр. Варна, ул. Иван Вазов 5"
-                        value={addressInput}
-                        onChange={(e) => setAddressInput(e.target.value)}
-                      />
-                      <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-                        Еконт доставя до най-близкия офис до твоя адрес.
-                      </p>
+                    <div style={{ marginTop: 14 }}>
+                      <div className="field">
+                        <label>Град / населено място</label>
+                        <input
+                          className="input"
+                          placeholder="напр. Варна"
+                          value={cityInput}
+                          onChange={(e) => setCityInput(e.target.value)}
+                        />
+                      </div>
+                      <div className="field" style={{ marginTop: 10 }}>
+                        <label>Адрес (улица, №)</label>
+                        <input
+                          className="input"
+                          placeholder="ул. Иван Вазов 5"
+                          value={addressInput}
+                          onChange={(e) => setAddressInput(e.target.value)}
+                        />
+                        <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+                          Еконт доставя до най-близкия офис до твоя адрес.
+                        </p>
+                      </div>
                     </div>
                   ) : (
                     <div className="field" style={{ marginTop: 14 }}>

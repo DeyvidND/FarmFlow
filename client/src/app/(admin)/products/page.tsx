@@ -21,10 +21,13 @@ export default async function ProductsPage() {
     fetchJson<Paginated<Product>>('products?limit=50', { items: [], nextCursor: null }),
     fetchJson<Farmer[]>('farmers', []),
     fetchJson<Subcategory[]>('subcategories', []),
-    fetchJson<{ multiFarmer: boolean; multiSubcat: boolean }>('tenants/me', {
-      multiFarmer: false,
-      multiSubcat: false,
-    }),
+    fetchJson<{
+      multiFarmer: boolean;
+      multiSubcat: boolean;
+      productOfWeekEnabled?: boolean;
+      productOfWeekMode?: 'manual' | 'auto';
+      productOfWeekId?: string | null;
+    }>('tenants/me', { multiFarmer: false, multiSubcat: false }),
   ]);
   return (
     <ProductsClient
@@ -33,6 +36,9 @@ export default async function ProductsPage() {
       subcats={subcats}
       multiFarmer={tenant.multiFarmer}
       multiSubcat={tenant.multiSubcat}
+      potwEnabled={tenant.productOfWeekEnabled ?? false}
+      potwMode={tenant.productOfWeekMode ?? 'manual'}
+      featuredId={tenant.productOfWeekId ?? null}
     />
   );
 }

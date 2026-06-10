@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
+import { ReorderDto } from '../../common/dto/reorder.dto';
 import {
   UploadImageDto,
   PRODUCT_IMAGE_MIME_REGEX,
@@ -54,6 +55,12 @@ export class ProductsController {
   @Patch('assign')
   assign(@CurrentTenant() tenantId: string, @Body() dto: AssignProductsDto) {
     return this.productsService.assignProducts(tenantId, dto);
+  }
+
+  // Literal route — must precede `:id` so "reorder" isn't captured as a product id.
+  @Patch('reorder')
+  reorder(@CurrentTenant() tenantId: string, @Body() dto: ReorderDto) {
+    return this.productsService.reorder(tenantId, dto);
   }
 
   @Patch(':id')

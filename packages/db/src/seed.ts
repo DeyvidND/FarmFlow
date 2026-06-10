@@ -75,7 +75,7 @@ async function main() {
   // `slug` = storefront URL key (unique per tenant), transliterated from the name.
   // farmerId/subcategoryId follow data.js: fruits → Петър/Сезонни плодове,
   // processed → Мария/Зимнина, honey → Стоян/Пчелни продукти.
-  const productRows = await db.insert(products).values([
+  const productSeed = [
     { tenantId: tenant.id, name: 'Ягоди', slug: 'yagodi', priceStotinki: 650, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#D94A4A', stockQuantity: 24, isActive: true, farmerId: farmerRows[0].id, subcategoryId: subcatRows[0].id },
     { tenantId: tenant.id, name: 'Боровинки', slug: 'borovinki', priceStotinki: 790, unit: 'бр', weight: '250 г', category: 'Плодове', tint: '#5B5BA8', stockQuantity: 12, isActive: true, farmerId: farmerRows[0].id, subcategoryId: subcatRows[0].id },
     { tenantId: tenant.id, name: 'Малини', slug: 'malini', priceStotinki: 820, unit: 'бр', weight: '500 г', category: 'Плодове', tint: '#C0426B', stockQuantity: 6, isActive: true, farmerId: farmerRows[0].id, subcategoryId: subcatRows[0].id },
@@ -89,7 +89,13 @@ async function main() {
     { tenantId: tenant.id, name: 'Летен микс', slug: 'paket-leten', description: 'за 2–3 души', priceStotinki: 2490, compareAtPriceStotinki: 2940, unit: 'бр', weight: 'пакет', category: 'bundle', tint: '#C0426B', stockQuantity: null, isActive: true, bundleItems: ['Малини 250 г', 'Боровинки 250 г', 'Къпини 300 г', 'Ягоди 500 г'] },
     { tenantId: tenant.id, name: 'Семеен пакет', slug: 'paket-semeen', description: 'за цялото семейство', priceStotinki: 4200, compareAtPriceStotinki: 4980, unit: 'бр', weight: 'пакет', category: 'bundle', tint: '#A11E2E', stockQuantity: null, isActive: true, featured: true, bundleItems: ['Малини 500 г', 'Боровинки 500 г', 'Череши 500 г', 'Ягоди 500 г', 'Сироп от бъз', 'Горско сладко'] },
     { tenantId: tenant.id, name: 'Подаръчна кутия', slug: 'paket-podarak', description: 'в дървена кутийка', priceStotinki: 3450, compareAtPriceStotinki: 3800, unit: 'бр', weight: 'пакет', category: 'bundle', tint: '#D89A2B', stockQuantity: null, isActive: true, bundleItems: ['Микс горски плодове 750 г', 'Сироп от малина', 'Горско сладко', 'Картичка с поздрав'] },
-  ]).returning();
+  ];
+  // Seed an explicit display order so the storefront catalog is deterministic
+  // (without `position` every row defaults to 0 and ties break on random uuid).
+  const productRows = await db
+    .insert(products)
+    .values(productSeed.map((p, i) => ({ ...p, position: i })))
+    .returning();
 
   // Full week of slots (25–31 May 2026) from docs/farmflow/project/data.js.
   // `booked` is computed live from orders, so only capacity is seeded here.
