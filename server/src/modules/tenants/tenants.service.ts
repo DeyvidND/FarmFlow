@@ -13,6 +13,7 @@ import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { StorageService } from '../storage/storage.service';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
+import { optimizeImage } from '../storage/image.util';
 import { sniffMime } from '../storage/magic-mime';
 import { type PublicDelivery, type PublicMethods, type EcontMode } from '../orders/delivery-pricing';
 import { StripeService } from '../stripe/stripe.service';
@@ -54,6 +55,13 @@ export interface PublicStorefront {
   econtMode: EcontMode;
   codEnabled: boolean;
   stripeEnabled: boolean;
+  // «Продукт на седмицата» highlight config — carried through from TenantMeta so
+  // the bootstrap endpoint can resolve the featured product without a re-read or
+  // an unchecked cast. Structurally matches ProductOfWeekConfig.
+  productOfWeekEnabled: boolean;
+  productOfWeekMode: string;
+  productOfWeekId: string | null;
+  productOfWeekNote: string | null;
   delivery: PublicDelivery;
   methods: PublicMethods;
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
@@ -127,11 +135,17 @@ export class TenantsService {
         set.farmLat = String(farmLat);
         set.farmLng = String(farmLng);
       } else if (farmAddress) {
+        // Re-geocode the typed address. On failure CLEAR the old coords rather
+        // than leaving them: a changed address with a stale pin would silently
+        // route from the wrong origin. Cleared coords show the farm un-mapped so
+        // the farmer re-pins (mirrors the custom route-end in resolveRouting).
         const geo = await this.maps.geocode(farmAddress);
-        if (geo) {
-          set.farmLat = String(geo.lat);
-          set.farmLng = String(geo.lng);
-        }
+        set.farmLat = geo ? String(geo.lat) : null;
+        set.farmLng = geo ? String(geo.lng) : null;
+      } else {
+        // Address cleared → drop the pin too.
+        set.farmLat = null;
+        set.farmLng = null;
       }
     } else if (farmLat != null && farmLng != null) {
       set.farmLat = String(farmLat);
@@ -203,9 +217,13 @@ export class TenantsService {
       throw new BadRequestException('Непознат слот за снимка');
     }
 
-    const ext = PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin';
-    const key = `tenants/${tenantId}/site/${slotKey}/${randomUUID()}.${ext}`;
-    const { url } = await this.storage.upload(file.buffer, key, file.mimetype);
+    const img = await optimizeImage(
+      file.buffer,
+      file.mimetype,
+      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+    );
+    const key = `tenants/${tenantId}/site/${slotKey}/${randomUUID()}.${img.ext}`;
+    const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
     const prev = readMedia(settings)[slotKey];
 
@@ -427,10 +445,15 @@ export class TenantsService {
 function sanitizeDelivery(delivery: Record<string, unknown>): Record<string, unknown> {
   const econt = delivery.econt;
   if (econt && typeof econt === 'object' && !Array.isArray(econt)) {
-    const { password, apiPassword, pass, ...safeEcont } = econt as Record<string, unknown>;
+    // Strip every credential field, INCLUDING `passwordEnc`: the encrypted-secret
+    // slot is owned solely by EcontService.saveCredentials. A client must never be
+    // able to write it (preserveEcontSecret then carries the stored value forward).
+    const { password, apiPassword, pass, passwordEnc, ...safeEcont } =
+      econt as Record<string, unknown>;
     void password;
     void apiPassword;
     void pass;
+    void passwordEnc;
     return { ...delivery, econt: safeEcont };
   }
   return delivery;

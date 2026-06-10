@@ -8,6 +8,7 @@ import { Cron } from '@nestjs/schedule';
 import { and, eq, ne, gte, lte, sql, getTableColumns } from 'drizzle-orm';
 import { type Database, deliverySlots, orders, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { UpdateSlotDto } from './dto/update-slot.dto';
 import { SlotRule, slotRuleSlots, normalizeRule, migrateRule } from './slot-rule';
@@ -41,7 +42,10 @@ export const PUBLIC_SLOT_COLUMNS = [
 
 @Injectable()
 export class SlotsService {
-  constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
+  constructor(
+    @Inject(DB_TOKEN) private readonly db: Database,
+    private readonly publicCache: PublicCacheService,
+  ) {}
 
   /**
    * Slots for the tenant with a computed `booked` (count of non-cancelled orders
@@ -133,18 +137,28 @@ export class SlotsService {
    * Returns the trimmed {@link PublicSlot} shape — internal columns and the
    * tenant id are never exposed to the storefront.
    */
-  async findPublicBySlug(slug: string, date?: string): Promise<PublicSlot[]> {
-    const [tenant] = await this.db
-      .select({ id: tenants.id, deliveryEnabled: tenants.deliveryEnabled })
-      .from(tenants)
-      .where(eq(tenants.slug, slug))
-      .limit(1);
-    if (!tenant) throw new NotFoundException('Фермата не е намерена');
+  async findPublicBySlug(
+    slug: string,
+    opts: { date?: string; from?: string; to?: string } = {},
+  ): Promise<PublicSlot[]> {
+    // Shared Redis slug→tenant resolver (deliveryEnabled rides on TenantMeta) — no
+    // Postgres tenant lookup on this hot, short-TTL checkout path.
+    const tenant = await this.publicCache.resolveTenant(this.db, slug);
     // Farm hasn't enabled self-delivery → storefront offers no slots.
     if (!tenant.deliveryEnabled) return [];
 
+    const { date, from, to } = opts;
     const filters = [eq(deliverySlots.tenantId, tenant.id), eq(deliverySlots.isActive, true)];
-    if (date) filters.push(eq(deliverySlots.date, date));
+    if (date) {
+      // Single-day (legacy `?date=`) request.
+      filters.push(eq(deliverySlots.date, date));
+    } else {
+      // Ranged (or open) request: always bound below by today so the query can't
+      // return the farm's entire (ever-growing) slot history. The picker sends one
+      // ranged request for its whole window instead of one-request-per-day.
+      filters.push(gte(deliverySlots.date, from ?? this.bgToday()));
+      if (to) filters.push(lte(deliverySlots.date, to));
+    }
 
     return this.db
       .select({
@@ -212,7 +226,7 @@ export class SlotsService {
       .where(eq(tenants.id, tenantId));
 
     await this.deleteFutureUnbookedGenerated(tenantId, this.bgToday());
-    await this.materializeRule(tenantId);
+    await this.materializeRule(tenantId, this.bgToday(), true); // force rebuild
     return rule;
   }
 
@@ -233,9 +247,15 @@ export class SlotsService {
    * (diffs against existing generated rows in the window). Returns count inserted.
    * MUST NOT run on the public read path.
    */
-  async materializeRule(tenantId: string, today = this.bgToday()): Promise<number> {
+  async materializeRule(tenantId: string, today = this.bgToday(), force = false): Promise<number> {
     const rule = await this.getRule(tenantId);
     if (!rule || !rule.active) return 0;
+    // Already topped-up today and not a forced rebuild → the horizon dates are
+    // identical within the same calendar day, so nothing can be missing. Skip the
+    // existing-slots diff query. This path runs on EVERY admin slots/delivery page
+    // load (via findAll); the short-circuit saves a query per load. saveRule passes
+    // force=true (it just deleted future generated slots and must recreate them).
+    if (!force && rule.lastMaterializedDate === today) return 0;
     const wanted = slotRuleSlots(rule, today);
     if (!wanted.length) return 0;
 

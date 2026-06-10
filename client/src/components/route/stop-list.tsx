@@ -1,6 +1,6 @@
 'use client';
 
-import { MapPin, Navigation, Phone } from 'lucide-react';
+import { Mail, MapPin, Navigation, Phone } from 'lucide-react';
 import { cn, hhmm } from '@/lib/utils';
 import type { RouteStop } from '@/lib/types';
 
@@ -10,9 +10,10 @@ interface StopListProps {
   onPick: (id: string) => void;
   onOpenMaps: (stop: RouteStop) => void;
   onCall: (stop: RouteStop) => void;
+  onEmail: (stop: RouteStop) => void;
 }
 
-export function StopList({ stops, activeId, onPick, onOpenMaps, onCall }: StopListProps) {
+export function StopList({ stops, activeId, onPick, onOpenMaps, onCall, onEmail }: StopListProps) {
   if (stops.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center text-ff-muted">
@@ -78,6 +79,18 @@ export function StopList({ stops, activeId, onPick, onOpenMaps, onCall }: StopLi
                   >
                     <Phone size={16} />
                   </button>
+                  {s.email && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEmail(s);
+                      }}
+                      title={`Имейл до ${s.email}`}
+                      className="grid h-8 w-8 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
+                    >
+                      <Mail size={16} />
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="mt-0.5 flex items-center gap-[5px] text-[13px] text-ff-ink-2">

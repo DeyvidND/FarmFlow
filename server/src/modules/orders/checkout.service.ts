@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { eq } from 'drizzle-orm';
 import { type Database, orders, tenants } from '@farmflow/db';
@@ -13,6 +13,7 @@ import {
   applyFreeThreshold,
   freeThresholdStotinki,
   econtMode,
+  codEnabled,
   type DeliveryConfig,
 } from './delivery-pricing';
 
@@ -77,18 +78,31 @@ export class CheckoutService {
   }
 
   async create(slug: string, dto: CreateOrderDto): Promise<CheckoutResult> {
+    // Resolve the farm ONCE — drives both the pre-flight payment check and the
+    // Stripe branch below.
+    const [tenant] = await this.db
+      .select({ settings: tenants.settings, stripeAccountId: tenants.stripeAccountId })
+      .from(tenants)
+      .where(eq(tenants.slug, slug))
+      .limit(1);
+    const canCard = !!tenant && this.stripe.isEnabledForAccount(tenant.stripeAccountId);
+
+    // Pre-flight: an 'online' choice on a farm that can't take cards silently
+    // falls back to COD — but only if the farm actually offers COD. Reject here
+    // (before booking a slot) rather than recording an order the farm can honour
+    // by no payment method. (An explicit COD choice is already validated during
+    // intake by assertMethodAllowed, so it's not re-checked here.)
+    if (dto.paymentMethod !== 'cod' && !canCard) {
+      const cfg = (tenant?.settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
+      if (!codEnabled(cfg)) {
+        throw new BadRequestException('Плащането с наложен платеж не е налично.');
+      }
+    }
+
     // 1. Order intake + shipping folded into the total.
     const { order, shipping, grandTotal } = await this.createAndFold(slug, dto);
 
-    // 2. Resolve the farm's connected account.
-    const [tenant] = await this.db
-      .select({ stripeAccountId: tenants.stripeAccountId })
-      .from(tenants)
-      .where(eq(tenants.id, order.tenantId!))
-      .limit(1);
-
     const wantsCod = dto.paymentMethod === 'cod';
-    const canCard = !!tenant && this.stripe.isEnabledForAccount(tenant.stripeAccountId);
 
     // COD, or a farm that can't take cards → no Stripe session. Record the order
     // as 'cod' (collected at delivery) so the farmer badge + digest are accurate,

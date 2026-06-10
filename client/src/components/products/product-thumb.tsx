@@ -37,7 +37,7 @@ export function ProductThumb({
     >
       {showImg ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={imageUrl} alt="" className="h-full w-full object-cover" onError={() => setBroken(true)} />
+        <img src={imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" onError={() => setBroken(true)} />
       ) : (
         <svg viewBox="0 0 60 40" width="62%" height="62%" style={{ opacity: 0.7 }}>
           <circle cx="24" cy="22" r="8" fill={hexA(g, 0.3)} />

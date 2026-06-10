@@ -2,11 +2,23 @@ import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 
-function makeStrategy(): JwtStrategy {
+/** Chainable Drizzle stub: `.select().from().where().limit()` resolves to [row]
+ *  (or [] when row is null), matching the tokenVersion lookup the strategy runs. */
+function makeDb(row: { tokenVersion: number } | null = { tokenVersion: 0 }) {
+  const chain: any = {
+    select: () => chain,
+    from: () => chain,
+    where: () => chain,
+    limit: async () => (row ? [row] : []),
+  };
+  return chain;
+}
+
+function makeStrategy(row: { tokenVersion: number } | null = { tokenVersion: 0 }): JwtStrategy {
   const config = {
     getOrThrow: jest.fn().mockReturnValue('test-secret'),
   } as unknown as ConfigService;
-  return new JwtStrategy(config);
+  return new JwtStrategy(config, makeDb(row));
 }
 
 describe('JwtStrategy.validate', () => {
@@ -59,6 +71,20 @@ describe('JwtStrategy.validate', () => {
   it('rejects a tenant token that is missing tenantId', async () => {
     await expect(
       strategy.validate({ sub: 'u1', type: 'tenant' } as any),
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('rejects a token whose tv does not match the stored tokenVersion (revoked)', async () => {
+    const revoked = makeStrategy({ tokenVersion: 3 });
+    await expect(
+      revoked.validate({ sub: 'u1', type: 'tenant', tenantId: 't1', role: 'admin', tv: 0 } as any),
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('rejects when the principal no longer exists', async () => {
+    const gone = makeStrategy(null);
+    await expect(
+      gone.validate({ sub: 'a1', type: 'platform', tv: 0 } as any),
     ).rejects.toThrow(UnauthorizedException);
   });
 });

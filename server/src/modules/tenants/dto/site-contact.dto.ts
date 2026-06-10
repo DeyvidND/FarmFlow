@@ -2,13 +2,45 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsEmail,
   IsOptional,
   IsString,
   IsUrl,
   Matches,
   MaxLength,
+  registerDecorator,
+  ValidateIf,
   ValidateNested,
+  type ValidationOptions,
 } from 'class-validator';
+
+/**
+ * A decimal-string coordinate within [min, max], or empty (clears the pin). The
+ * previous `@Matches` only bounded digit COUNT, so "99.9"/"999.9" — out of valid
+ * lat/lng range — passed and reached the public storefront map. This validates the
+ * numeric range, not just the shape.
+ */
+function IsCoordString(min: number, max: number, opts?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      name: 'isCoordString',
+      target: object.constructor,
+      propertyName,
+      options: opts,
+      validator: {
+        validate(value: unknown) {
+          if (value === '' || value === undefined || value === null) return true;
+          if (typeof value !== 'string' || !/^-?\d+(\.\d+)?$/.test(value)) return false;
+          const n = Number(value);
+          return Number.isFinite(n) && n >= min && n <= max;
+        },
+        defaultMessage() {
+          return `${propertyName} must be a number between ${min} and ${max}`;
+        },
+      },
+    });
+  };
+}
 
 /** One social link row. `url` must be a real http(s) URL; `label` is free text. */
 export class SocialLinkDto {
@@ -44,21 +76,27 @@ export class SiteContactDto {
   tagline?: string;
 
   @IsOptional()
+  @ValidateIf((o) => o.email !== '' && o.email !== undefined && o.email !== null)
+  @IsEmail()
+  @MaxLength(160)
+  email?: string;
+
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(8)
   @ValidateNested({ each: true })
   @Type(() => SocialLinkDto)
   social?: SocialLinkDto[];
 
-  // Decimal or empty. Lat ±90, lng ±180 — kept loose (string passthrough).
+  // Decimal-string coordinate or empty. Range-checked: lat ∈ [-90, 90], lng ∈ [-180, 180].
   @IsOptional()
   @IsString()
-  @Matches(/^$|^-?\d{1,2}(\.\d+)?$/)
+  @IsCoordString(-90, 90)
   mapLat?: string;
 
   @IsOptional()
   @IsString()
-  @Matches(/^$|^-?\d{1,3}(\.\d+)?$/)
+  @IsCoordString(-180, 180)
   mapLng?: string;
 
   // "#RRGGBB" or empty (empty clears it back to the storefront default).

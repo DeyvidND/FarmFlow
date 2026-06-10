@@ -11,11 +11,11 @@ import type { ProductOption } from '@/lib/types';
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
 /**
- * «Продукт на седмицата» settings: the on/off gate, the manual-vs-auto mode, an
- * optional blurb, and (manual mode) the product picker. The product can also be
- * set with the star on the Продукти page — both write the same tenant field.
+ * «Продукт на седмицата» panel rendered on the Products page.
+ * Self-contained: loads and saves tenant settings directly.
+ * The product can also be set with the star on a product card — both write the same tenant field.
  */
-export function ProductOfWeekCard() {
+export function ProductOfWeekPanel() {
   const [loaded, setLoaded] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [mode, setMode] = useState<'manual' | 'auto'>('manual');
@@ -79,7 +79,7 @@ export function ProductOfWeekCard() {
           <div>
             <h2 className="text-[16px] font-extrabold">Продукт на седмицата</h2>
             <p className="mt-0.5 max-w-[440px] text-[13px] leading-snug text-ff-ink-2">
-              Откроява един продукт на видно място в сайта. Избери го ръчно (със звездата в „Продукти“)
+              Откроява един продукт на видно място в сайта. Избери го ръчно (със звездата на картичката)
               или остави системата да го сменя автоматично всяка седмица.
             </p>
           </div>
@@ -131,7 +131,7 @@ export function ProductOfWeekCard() {
               onChange={(e) => setNote(e.target.value)}
               rows={2}
               maxLength={200}
-              placeholder="напр. „Сезонна ягода, набрана тази сутрин“"
+              placeholder={'напр. „Сезонна ягода, набрана тази сутрин“'}
               className="resize-none rounded-lg border border-ff-border bg-ff-surface px-3 py-2.5 text-[14px]"
             />
           </label>

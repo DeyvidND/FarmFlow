@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus, Info, ArrowUpDown, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { HelpModal } from '@/components/delivery/ui';
 import { PRODUCTS_HELP } from '@/lib/help-content';
 import { ProductCard } from './product-card';
 import { ProductDialog } from './product-dialog';
+import { ProductOfWeekPanel } from './product-of-week-panel';
 import { ReorderableList } from '@/components/reorderable-list';
 import {
   ApiError,
@@ -26,9 +27,8 @@ import type { Farmer, Paginated, Product, Subcategory } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
-/** Sentinel for the "no category" group in the reorder filter. */
 const NO_CAT = '__none__';
-const catKey = (p: Product) => p.category ?? NO_CAT;
+const catKey = (p: Product) => p.subcategoryId ?? NO_CAT;
 
 export function ProductsClient({
   initial,
@@ -59,8 +59,13 @@ export function ProductsClient({
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
   const [help, setHelp] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
+  // True once the order changed in reorder mode — drives a single persist on exit.
+  const reorderDirty = useRef(false);
   const [catFilter, setCatFilter] = useState<string>('all');
   const [featured, setFeatured] = useState<string | null>(featuredId);
+  const [q, setQ] = useState('');
+  const [farmerFilter, setFarmerFilter] = useState<string>('all');
+  const [subcatFilter, setSubcatFilter] = useState<string>('all');
 
   const activeCount = products.filter((p) => p.isActive).length;
   // `total` (full count) comes from the first page; fall back to the loaded count.
@@ -73,16 +78,26 @@ export function ProductsClient({
     () => [...products].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)),
     [products],
   );
-  // Distinct categories present, for the per-category reorder filter.
+  // Subcategories that have at least one product, in storefront order, for the reorder filter.
   const categories = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const p of ordered) seen.set(catKey(p), p.category ?? 'Без категория');
-    return [...seen.entries()]; // [key, label]
-  }, [ordered]);
+    const withSubcat = new Set(ordered.filter((p) => p.subcategoryId).map((p) => p.subcategoryId as string));
+    return subcats.filter((s) => withSubcat.has(s.id)).map((s) => [s.id, s.name] as [string, string]);
+  }, [ordered, subcats]);
   // The slice being reordered: everything (global) or one category.
   const reorderScope = useMemo(
     () => (catFilter === 'all' ? ordered : ordered.filter((p) => catKey(p) === catFilter)),
     [ordered, catFilter],
+  );
+  // Client-side filter (search + farmer + subcat) — applied on top of the sorted order.
+  const filtered = useMemo(
+    () =>
+      ordered.filter((p) => {
+        if (q.trim() && !p.name.toLowerCase().includes(q.trim().toLowerCase())) return false;
+        if (farmerFilter !== 'all' && p.farmerId !== farmerFilter) return false;
+        if (subcatFilter !== 'all' && p.subcategoryId !== subcatFilter) return false;
+        return true;
+      }),
+    [ordered, q, farmerFilter, subcatFilter],
   );
   // The star shows only while the highlight is on and manually controlled.
   const showStar = potwEnabled && potwMode === 'manual';
@@ -121,7 +136,11 @@ export function ProductsClient({
    *  untouched. We always renumber the full catalog so the order is well-defined
    *  even when stored positions were never normalized (e.g. all default 0 from the
    *  seed or freshly-created products). */
-  async function onReorder(orderedIds: string[]) {
+  // Each arrow click / drag updates only LOCAL order; we persist ONCE when the
+  // farmer leaves reorder mode ("Готово"). Previously every single move fired a
+  // full-list PATCH (move up 10 slots = 10 requests × N items + 10 cache busts),
+  // which on the mobile/keyboard arrow path is the common case.
+  function onReorder(orderedIds: string[]) {
     let fullOrder: string[];
     if (catFilter === 'all') {
       fullOrder = orderedIds;
@@ -133,14 +152,18 @@ export function ProductsClient({
       fullOrder = ordered.map((p) => (scopeIds.has(p.id) ? (nextInScope.next().value as string) : p.id));
     }
     const posById = new Map(fullOrder.map((id, i) => [id, i] as const));
+    setProducts((prev) => prev.map((p) => ({ ...p, position: posById.get(p.id) ?? p.position })));
+    reorderDirty.current = true;
+  }
 
-    const prev = products;
-    const next = products.map((p) => ({ ...p, position: posById.get(p.id) ?? p.position }));
-    setProducts(next); // optimistic
+  /** Persist the current local order once, on leaving reorder mode. `ordered` is
+   *  sorted by position, so it already reflects every local move. */
+  async function persistReorder() {
+    if (!reorderDirty.current) return;
+    reorderDirty.current = false;
     try {
-      await reorderProducts(fullOrder.map((id, i) => ({ id, position: i })));
+      await reorderProducts(ordered.map((p, i) => ({ id: p.id, position: i })));
     } catch (e) {
-      setProducts(prev); // rollback
       toast.error(errMsg(e));
     }
   }
@@ -193,6 +216,12 @@ export function ProductsClient({
 
   return (
     <div className="animate-ff-fade-up">
+      {!reorderMode && (
+        <div className="mb-5">
+          <ProductOfWeekPanel />
+        </div>
+      )}
+
       <div className="mb-[18px] flex items-center justify-between gap-2">
         <p className="text-sm text-ff-muted">
           {activeCount} активни · {totalCount} общо
@@ -204,7 +233,10 @@ export function ProductsClient({
           <Button
             variant={reorderMode ? 'primary' : 'ghost'}
             size="sm"
-            onClick={() => setReorderMode((v) => !v)}
+            onClick={() => {
+              if (reorderMode) void persistReorder(); // leaving → save once
+              setReorderMode((v) => !v);
+            }}
             title="Подреди реда на продуктите в сайта"
           >
             {reorderMode ? <Check size={16} /> : <ArrowUpDown size={16} />}
@@ -217,6 +249,46 @@ export function ProductsClient({
           )}
         </div>
       </div>
+
+      {!reorderMode && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Търси продукт…"
+            className="rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] text-ff-ink placeholder:text-ff-muted focus:outline-none"
+          />
+          {multiFarmer && (
+            <select
+              value={farmerFilter}
+              onChange={(e) => setFarmerFilter(e.target.value)}
+              className="rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] font-bold text-ff-ink-2"
+            >
+              <option value="all">Всички стопани</option>
+              {farmers.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {multiSubcat && (
+            <select
+              value={subcatFilter}
+              onChange={(e) => setSubcatFilter(e.target.value)}
+              className="rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] font-bold text-ff-ink-2"
+            >
+              <option value="all">Всички категории</option>
+              {subcats.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       {reorderMode ? (
         <div className="flex flex-col gap-3">
@@ -234,7 +306,7 @@ export function ProductsClient({
                 </option>
               ))}
             </select>
-            <span className="text-ff-muted">— влачи или ползвай стрелките</span>
+            <span className="text-ff-muted">— редът е уникален за всяка подкатегория и за „Всички&quot;</span>
           </div>
           {reorderScope.length === 0 ? (
             <p className="text-sm text-ff-muted">Няма продукти в тази категория.</p>
@@ -248,7 +320,7 @@ export function ProductsClient({
                   <div className="min-w-0">
                     <div className="truncate text-[14.5px] font-bold">{p.name}</div>
                     <div className="text-[12px] text-ff-muted">
-                      {[p.weight, p.category].filter(Boolean).join(' · ') || '—'}
+                      {[p.weight, p.subcategoryId ? subcatName.get(p.subcategoryId) : null].filter(Boolean).join(' · ') || '—'}
                     </div>
                   </div>
                   <span className="ff-fig shrink-0 text-[15px] font-extrabold">
@@ -261,9 +333,11 @@ export function ProductsClient({
         </div>
       ) : products.length === 0 ? (
         <p className="mt-16 text-center text-sm text-ff-muted">Все още няма продукти. Добави първия си продукт.</p>
+      ) : filtered.length === 0 ? (
+        <p className="mt-10 text-center text-sm text-ff-muted">Няма продукти, отговарящи на филтрите.</p>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(232px,1fr))] gap-4 max-lg:grid-cols-2 max-sm:grid-cols-1">
-          {ordered.map((p, i) => (
+          {filtered.map((p, i) => (
             <ProductCard
               key={p.id}
               product={p}

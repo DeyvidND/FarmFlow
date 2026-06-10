@@ -57,7 +57,7 @@ export class BillingService {
 
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
-    private readonly config: ConfigService,
+    config: ConfigService,
     private readonly email: EmailService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();

@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@farmflow/db": "workspace:*",
-    "drizzle-orm": "~0.35.0"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "typescript": "~5.6.0"

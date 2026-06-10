@@ -21,7 +21,7 @@ export function SectionPhoto({
   if (imageUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={imageUrl} alt="" className="w-full object-cover" style={{ height, borderRadius: radius }} />
+      <img src={imageUrl} alt="" loading="lazy" decoding="async" className="w-full object-cover" style={{ height, borderRadius: radius }} />
     );
   }
   return (

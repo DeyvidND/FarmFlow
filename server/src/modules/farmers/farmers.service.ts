@@ -12,6 +12,7 @@ import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-c
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import { ReorderDto } from '../../common/dto/reorder.dto';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
+import { optimizeImage } from '../storage/image.util';
 
 @Injectable()
 export class FarmersService {
@@ -100,9 +101,13 @@ export class FarmersService {
     file: Express.Multer.File,
   ): Promise<Farmer> {
     const farmer = await this.findOne(id, tenantId);
-    const ext = PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin';
-    const key = `tenants/${tenantId}/farmers/${id}/${randomUUID()}.${ext}`;
-    const { url } = await this.storage.upload(file.buffer, key, file.mimetype);
+    const img = await optimizeImage(
+      file.buffer,
+      file.mimetype,
+      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+    );
+    const key = `tenants/${tenantId}/farmers/${id}/${randomUUID()}.${img.ext}`;
+    const { url } = await this.storage.upload(img.buffer, key, img.contentType);
     if (farmer.imageUrl) await this.deleteObject(farmer.imageUrl);
     const [row] = await this.db
       .update(farmers)
@@ -149,9 +154,13 @@ export class FarmersService {
       existing.push(adopted);
     }
 
-    const ext = PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin';
-    const key = `tenants/${tenantId}/farmers/${id}/${randomUUID()}.${ext}`;
-    const { url } = await this.storage.upload(file.buffer, key, file.mimetype);
+    const img = await optimizeImage(
+      file.buffer,
+      file.mimetype,
+      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+    );
+    const key = `tenants/${tenantId}/farmers/${id}/${randomUUID()}.${img.ext}`;
+    const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
     const [row] = await this.db
       .insert(farmerMedia)
@@ -274,7 +283,11 @@ export class FarmersService {
       .where(eq(farmers.tenantId, tenant.id))
       .orderBy(asc(farmers.position), asc(farmers.createdAt));
     const mediaByFarmer = await this.mediaUrlsByFarmer(rows.map((r) => r.id));
-    const result: PublicFarmer[] = rows.map(({ tenantId: _tenantId, email: _email, ...rest }) => {
+    // Strip personal farmer contact (email + phone) — the storefront renders the
+    // tenant's public contact, never an individual farmer's. (email leak fixed in
+    // 248c330; phone was the same class of over-exposure on a world-readable API.)
+    const result: PublicFarmer[] = rows.map(
+      ({ tenantId: _tenantId, email: _email, phone: _phone, ...rest }) => {
       const urls = mediaByFarmer.get(rest.id) ?? [];
       const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
       return { ...rest, images };

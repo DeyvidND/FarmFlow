@@ -10,9 +10,41 @@ import {
   Max,
   Min,
   MinLength,
+  registerDecorator,
   ValidateIf,
+  type ValidationOptions,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
+/**
+ * Cap the serialized size of a free-form jsonb blob. `settings.delivery` /
+ * `settings.routing` accept a client-owned shape (validated only as an object),
+ * so without a ceiling an authenticated admin could persist a multi-MB blob that
+ * bloats the row and every cached TenantMeta payload. 20 KB is ample headroom.
+ */
+function MaxJsonSize(maxBytes: number, opts?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      name: 'maxJsonSize',
+      target: object.constructor,
+      propertyName,
+      options: opts,
+      validator: {
+        validate(value: unknown) {
+          if (value === undefined || value === null) return true;
+          try {
+            return Buffer.byteLength(JSON.stringify(value), 'utf8') <= maxBytes;
+          } catch {
+            return false; // unserializable (e.g. circular) → reject
+          }
+        },
+        defaultMessage() {
+          return `${propertyName} is too large (max ${maxBytes} bytes)`;
+        },
+      },
+    });
+  };
+}
 
 export class UpdateTenantDto {
   @ApiPropertyOptional({ example: 'Ферма Петрови' })
@@ -109,6 +141,7 @@ export class UpdateTenantDto {
   @ApiPropertyOptional({ description: 'Route end config (persisted to settings.routing)' })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(20_000)
   routing?: Record<string, unknown>;
 
   /**
@@ -121,5 +154,6 @@ export class UpdateTenantDto {
   @ApiPropertyOptional({ description: 'Delivery config (persisted to settings.delivery)' })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(20_000)
   delivery?: Record<string, unknown>;
 }

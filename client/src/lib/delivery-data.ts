@@ -56,23 +56,8 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
   pricing: {
     // Mirrors the server `DELIVERY_DEFAULTS.freeThresholdStotinki` (4000) — the
     // only global pricing value the server actually reads — so a first save is
-    // idempotent. (ownSlots stays free by design: it's the customer-friendly
-    // default the admin visibly shows; the server's 490 fallback only ever
-    // applied to a never-saved tenant.)
+    // idempotent.
     freeThresholdStotinki: 4000,
-    model: 'byWeight',
-    flatFeeStotinki: 499,
-    weightTiers: [
-      { uptoKg: 2, feeStotinki: 499 },
-      { uptoKg: 5, feeStotinki: 690 },
-      { uptoKg: 10, feeStotinki: 990 },
-    ],
-    zones: [
-      { region: 'Варна (град)', feeStotinki: 0 },
-      { region: 'Варненска област', feeStotinki: 490 },
-      { region: 'Останалата страна', feeStotinki: 690 },
-    ],
-    packagingFeeStotinki: 0,
   },
   econt: {
     env: 'prod',

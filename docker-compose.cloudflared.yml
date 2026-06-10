@@ -16,7 +16,8 @@
 
 services:
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    # Pinned for reproducible deploys — bump deliberately, not implicitly via :latest.
+    image: cloudflare/cloudflared:2026.6.0
     restart: unless-stopped
     command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
     networks: [dokploy-network]

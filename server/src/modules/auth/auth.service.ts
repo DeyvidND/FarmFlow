@@ -9,7 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { createHash } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { type Database, users } from '@farmflow/db';
 import type { JwtPayload } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -38,11 +38,27 @@ export class AuthService {
       .limit(1);
 
     const invalid = new UnauthorizedException('Грешен имейл или парола');
-    if (!user || !user.tenantId) throw invalid;
+    if (!user || !user.tenantId) {
+      // Constant-time: pay the same Argon2 cost for an unknown email as for a
+      // wrong password, so response latency can't be used to enumerate accounts.
+      await this.burnPasswordTime(dto.password);
+      throw invalid;
+    }
     if (!(await argon2.verify(user.passwordHash, dto.password))) throw invalid;
 
-    return this.sign(user.id, user.tenantId, user.role, user.mustChangePassword);
+    return this.sign(user.id, user.tenantId, user.role, user.mustChangePassword, user.tokenVersion);
   }
+
+  /** Run a throwaway Argon2 verify so the no-such-user path costs the same as a
+   *  real verify. Memoized dummy hash; never matches a real password. */
+  private burnPasswordTime(password: string): Promise<void> {
+    this.dummyHashPromise ??= argon2.hash('argon2-timing-equalizer-placeholder');
+    return this.dummyHashPromise
+      .then((h) => argon2.verify(h, password))
+      .then(() => undefined)
+      .catch(() => undefined);
+  }
+  private dummyHashPromise?: Promise<string>;
 
   async changePassword(
     userId: string,
@@ -66,11 +82,22 @@ export class AuthService {
 
     const [updated] = await this.db
       .update(users)
-      .set({ passwordHash, mustChangePassword: false })
+      .set({
+        passwordHash,
+        mustChangePassword: false,
+        // Bump the session epoch so every previously issued token stops validating.
+        tokenVersion: sql`${users.tokenVersion} + 1`,
+      })
       .where(eq(users.id, userId))
       .returning();
 
-    return this.sign(updated.id, updated.tenantId as string, updated.role, false);
+    return this.sign(
+      updated.id,
+      updated.tenantId as string,
+      updated.role,
+      false,
+      updated.tokenVersion,
+    );
   }
 
   async getMe(userId: string): Promise<{
@@ -134,19 +161,26 @@ export class AuthService {
       );
       const appUrl = this.config.get<string>('PUBLIC_APP_URL') ?? 'http://localhost:3000';
       const link = `${appUrl}/reset-password?token=${encodeURIComponent(token)}`;
-      try {
-        await this.email.sendMail({
-          to: user.email,
-          subject: 'Възстановяване на парола — FarmFlow',
-          html: resetEmailHtml(link),
-          text: `Заявена е смяна на паролата за FarmFlow.\nОтвори тази връзка, за да зададеш нова парола (валидна 30 минути):\n${link}\n\nАко не си заявявал/а това, просто игнорирай имейла.`,
-        });
-      } catch (err) {
-        // Don't leak send failures to the caller; log for ops.
-        this.logger.error(
-          `Password-reset email failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+      // Fire-and-forget: do NOT await the send. Awaiting only on the account-exists
+      // branch made the response measurably slower for real emails than for unknown
+      // ones — a timing oracle. Dispatching async keeps latency independent of
+      // whether the account exists. (IIFE so a non-promise/throwing transport is
+      // contained and never rejects the caller.)
+      void (async () => {
+        try {
+          await this.email.sendMail({
+            to: user.email,
+            subject: 'Възстановяване на парола — FarmFlow',
+            html: resetEmailHtml(link),
+            text: `Заявена е смяна на паролата за FarmFlow.\nОтвори тази връзка, за да зададеш нова парола (валидна 30 минути):\n${link}\n\nАко не си заявявал/а това, просто игнорирай имейла.`,
+          });
+        } catch (err) {
+          // Don't leak send failures to the caller; log for ops.
+          this.logger.error(
+            `Password-reset email failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      })();
     }
     return { ok: true };
   }
@@ -177,7 +211,12 @@ export class AuthService {
     const passwordHash = await argon2.hash(newPassword);
     await this.db
       .update(users)
-      .set({ passwordHash, mustChangePassword: false })
+      .set({
+        passwordHash,
+        mustChangePassword: false,
+        // Revoke every existing session on reset (the user's "lock out the attacker" action).
+        tokenVersion: sql`${users.tokenVersion} + 1`,
+      })
       .where(eq(users.id, user.id));
 
     return { ok: true };
@@ -198,8 +237,16 @@ export class AuthService {
     tenantId: string,
     role: Role,
     mustChangePassword = false,
+    tokenVersion = 0,
   ): { accessToken: string } {
-    const payload: JwtPayload = { sub, type: 'tenant', tenantId, role, mustChangePassword };
+    const payload: JwtPayload = {
+      sub,
+      type: 'tenant',
+      tenantId,
+      role,
+      mustChangePassword,
+      tv: tokenVersion,
+    };
     return { accessToken: this.jwt.sign(payload) };
   }
 }

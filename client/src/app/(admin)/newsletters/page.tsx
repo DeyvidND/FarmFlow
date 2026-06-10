@@ -30,6 +30,7 @@ export default async function NewslettersPage() {
     <NewsletterClient
       initial={{ items: data.items, nextCursor: data.nextCursor }}
       activeCount={data.activeCount}
+      total={data.activeCount + data.unsubscribedCount}
     />
   );
 }

@@ -53,7 +53,7 @@ export interface PublicSlot {
   remaining: number;
 }
 
-export type DeliveryType = 'address' | 'econt' | 'econt_address';
+export type DeliveryType = 'address' | 'econt' | 'econt_address' | 'pickup';
 
 export interface OrderItemInput {
   productId: string;

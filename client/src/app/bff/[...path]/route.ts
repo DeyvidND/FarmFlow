@@ -12,9 +12,8 @@ type Ctx = { params: { path: string[] } };
  * browser code never touches the JWT. Body is buffered (handles JSON + multipart
  * image uploads). Reusable for every admin feature: call `/bff/<path>`.
  *
- * NOTE: lives outside `/api` on purpose — next.config's `/api/:path*` rewrite is
- * an afterFiles rewrite, which Next checks *before* dynamic (catch-all) routes,
- * so an `/api/proxy/[...path]` handler would be shadowed by it.
+ * NOTE: lives under `/bff` (not `/api`) on purpose — keeps the proxy namespace
+ * distinct from the `/api/session/*` cookie-issuing route handlers.
  */
 async function proxy(req: Request, { params }: Ctx) {
   const token = cookies().get(SESSION_COOKIE)?.value;

@@ -94,7 +94,7 @@ export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
 
 /** Public storefront shapes — tenant_id stripped. `images` = ordered gallery
  *  (cover first), fallback [imageUrl] for legacy single-image rows, else []. */
-export type PublicFarmer = Omit<Farmer, 'tenantId' | 'email'> & { images: string[] };
+export type PublicFarmer = Omit<Farmer, 'tenantId' | 'email' | 'phone'> & { images: string[] };
 export type PublicSubcategory = Omit<Subcategory, 'tenantId'> & { images: string[] };
 export type SafeUser = Omit<User, 'passwordHash'>;
 
@@ -111,6 +111,10 @@ export type JwtPayload = {
   tenantId?: string;
   role?: TenantRole;
   mustChangePassword?: boolean;
+  // Session epoch — must equal the principal's current tokenVersion in the DB,
+  // else the token has been revoked (password change/reset). Absent on legacy
+  // pre-feature tokens; treated as 0.
+  tv?: number;
   iat?: number;
   exp?: number;
 };

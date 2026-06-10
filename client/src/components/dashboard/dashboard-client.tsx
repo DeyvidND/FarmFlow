@@ -13,14 +13,14 @@ import { StatCard } from './stat-card';
 import { OrdersFeed } from './orders-feed';
 import { OrderPanel } from '@/components/orders/order-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { ApiError, confirmPendingOrders, updateOrderStatus } from '@/lib/api-client';
+import { ApiError, confirmPendingOrders, getDashboard, updateOrderStatus } from '@/lib/api-client';
 import type { DashboardSummary, Order } from '@/lib/types';
 
 const WEEKDAYS = ['неделя', 'понеделник', 'вторник', 'сряда', 'четвъртък', 'петък', 'събота'];
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
 export function DashboardClient({
-  summary,
+  summary: initialSummary,
   initialOrders,
   nudgeCard = false,
 }: {
@@ -30,6 +30,11 @@ export function DashboardClient({
   nudgeCard?: boolean;
 }) {
   const router = useRouter();
+  // Local so a status action can refresh ONLY the summary (one lean /dashboard
+  // call) instead of router.refresh() re-running the whole server page — which
+  // also re-fetched /orders?limit=100 (discarded here) and the Stripe-backed
+  // /billing/summary nudge on every single click.
+  const [summary, setSummary] = useState(initialSummary);
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -50,6 +55,16 @@ export function DashboardClient({
   ];
 
   const weekday = WEEKDAYS[new Date(`${summary.date}T00:00:00`).getDay()];
+
+  /** Refresh just the stat cards / capacity bars (revenue, pending, next slot)
+   *  via the single lean dashboard endpoint after an order action. */
+  async function refreshSummary() {
+    try {
+      setSummary(await getDashboard(summary.date));
+    } catch {
+      /* keep the current figures if the refresh fails */
+    }
+  }
 
   function confirmAll() {
     if (!pendingCount) {
@@ -72,7 +87,7 @@ export function DashboardClient({
         ),
       );
       toast.success(`${confirmed} поръчки потвърдени`);
-      router.refresh();
+      void refreshSummary();
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -85,7 +100,7 @@ export function DashboardClient({
     try {
       await updateOrderStatus(id, to);
       toast.success('Върнато');
-      router.refresh();
+      void refreshSummary();
     } catch (e) {
       toast.error(errMsg(e));
     }
@@ -101,7 +116,7 @@ export function DashboardClient({
         action: { label: 'Отмени', onClick: () => void revertStatus(o.id, prev) },
       });
       setActiveId(null);
-      router.refresh();
+      void refreshSummary();
     } catch (e) {
       setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status: prev } : x)));
       toast.error(errMsg(e));

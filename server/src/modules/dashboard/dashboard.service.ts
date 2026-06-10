@@ -1,8 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import { type Database, orders, deliverySlots, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
-import { bgToday, bgDate } from '../../common/time/bg-time';
+import { bgToday, bgDayBounds, bgAddDays } from '../../common/time/bg-time';
 
 export interface DashboardSlot {
   id: string;
@@ -33,6 +33,10 @@ export class DashboardService {
   /** Today's summary: counts, revenue (non-cancelled), pending, next slot + capacity bars. */
   async summary(tenantId: string, date?: string): Promise<DashboardSummary> {
     const day = date ?? bgToday();
+    // Index-served day windows (vs the non-sargable `::date` cast that scanned the
+    // tenant's whole order history). today.from == prev.to by construction.
+    const today = bgDayBounds(day);
+    const prev = bgDayBounds(bgAddDays(day, -1));
 
     // The four reads are independent — run them concurrently (one hot per-load path).
     const aggP = this.db
@@ -42,12 +46,24 @@ export class DashboardService {
         pendingCount: sql<number>`count(*) filter (where ${orders.status} = 'pending')::int`,
       })
       .from(orders)
-      .where(and(eq(orders.tenantId, tenantId), sql`${bgDate(orders.createdAt)} = ${day}`));
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          gte(orders.createdAt, today.from),
+          lt(orders.createdAt, today.to),
+        ),
+      );
 
     const yesterdayP = this.db
       .select({ yesterday: sql<number>`count(*)::int` })
       .from(orders)
-      .where(and(eq(orders.tenantId, tenantId), sql`${bgDate(orders.createdAt)} = ${day}::date - 1`));
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          gte(orders.createdAt, prev.from),
+          lt(orders.createdAt, prev.to),
+        ),
+      );
 
     const tenantP = this.db
       .select({ status: tenants.subscriptionStatus })

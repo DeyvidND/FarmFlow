@@ -3,13 +3,24 @@ import { JwtService } from '@nestjs/jwt';
 import type { JwtPayload } from '@farmflow/types';
 
 /**
- * Global guard that blocks tenant writes while mustChangePassword is true.
- * It reads the JWT header directly so it runs independently of route guards.
+ * Global guard that locks a principal out while `mustChangePassword` is true.
+ * Reads the JWT header directly so it runs independently of route guards.
  * Errors in JWT parsing → pass-through (let the route guard handle auth).
+ *
+ * - Platform (super-admin): fully locked — only the endpoints needed to read the
+ *   identity and rotate the password are reachable. A leaked/initial password
+ *   can do nothing else.
+ * - Tenant (farmer): all writes blocked, PLUS reads of customer PII blocked, so a
+ *   leaked temporary password can't exfiltrate orders/subscribers/messages. The
+ *   panel chrome (`/tenants/me`, `/auth/me`) still loads so the force-change modal
+ *   can render.
  */
 @Injectable()
 export class MustChangePasswordGuard implements CanActivate {
   constructor(private readonly jwt: JwtService) {}
+
+  // Customer-PII read surfaces blocked while a temp password is in force.
+  private static readonly SENSITIVE_READ = /^\/(orders|subscribers|contact-messages)\b/;
 
   canActivate(ctx: ExecutionContext): boolean {
     const req = ctx.switchToHttp().getRequest<{
@@ -29,15 +40,23 @@ export class MustChangePasswordGuard implements CanActivate {
       return true; // invalid token — let the route guard deal with it
     }
 
-    // Platform tokens are never subject to this check.
-    if (payload.type === 'platform') return true;
+    if (payload.mustChangePassword !== true) return true;
 
-    // Only block non-GET mutations when the flag is set.
-    if (
-      payload.mustChangePassword === true &&
-      req.method !== 'GET' &&
-      req.path !== '/auth/change-password'
-    ) {
+    const isPlatform = payload.type === 'platform';
+
+    // Endpoints required to render the change-password screen + perform the change.
+    const allowed = isPlatform
+      ? ['/platform/me', '/platform/change-password']
+      : ['/auth/me', '/auth/change-password', '/tenants/me'];
+    if (allowed.includes(req.path)) return true;
+
+    // Platform: nothing else is reachable until the password is rotated.
+    if (isPlatform) {
+      throw new ForbiddenException('Смени временната си парола, за да продължиш');
+    }
+
+    // Tenant: block all mutations and all customer-PII reads.
+    if (req.method !== 'GET' || MustChangePasswordGuard.SENSITIVE_READ.test(req.path)) {
       throw new ForbiddenException('Смени временната си парола, за да продължиш');
     }
 

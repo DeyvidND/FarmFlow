@@ -123,11 +123,41 @@ export class PlatformService {
       .limit(1);
 
     const invalid = new UnauthorizedException('Грешен имейл или парола');
-    if (!admin) throw invalid;
+    if (!admin) {
+      // Constant-time: an unknown email pays the same Argon2 cost as a wrong
+      // password, so the most privileged login can't be enumerated by timing.
+      await this.burnPasswordTime(password);
+      throw invalid;
+    }
     if (!(await argon2.verify(admin.passwordHash, password))) throw invalid;
 
-    const payload: JwtPayload = { sub: admin.id, type: 'platform' };
+    const payload: JwtPayload = {
+      sub: admin.id,
+      type: 'platform',
+      mustChangePassword: admin.mustChangePassword,
+      tv: admin.tokenVersion,
+    };
     return { accessToken: this.jwt.sign(payload) };
+  }
+
+  /** Identity for the admin panel's server-side auth gate + force-change flow. */
+  async me(adminId: string): Promise<{ email: string; mustChangePassword: boolean }> {
+    const [admin] = await this.db
+      .select({ email: platformAdmins.email, mustChangePassword: platformAdmins.mustChangePassword })
+      .from(platformAdmins)
+      .where(eq(platformAdmins.id, adminId))
+      .limit(1);
+    if (!admin) throw new UnauthorizedException();
+    return admin;
+  }
+
+  private dummyHashPromise?: Promise<string>;
+  private burnPasswordTime(password: string): Promise<void> {
+    this.dummyHashPromise ??= argon2.hash('argon2-timing-equalizer-placeholder');
+    return this.dummyHashPromise
+      .then((h) => argon2.verify(h, password))
+      .then(() => undefined)
+      .catch(() => undefined);
   }
 
   /** Every farm + order summary (count, last order). One grouped query, keyset-paginated. */
@@ -414,8 +444,11 @@ export class PlatformService {
     return { id: tenant.id, name: tenant.name, slug: tenant.slug, email: tenant.email ?? dto.email };
   }
 
-  /** Platform admin changes own password. Returns nothing (204). */
-  async platformChangePassword(adminId: string, dto: ChangePasswordDto): Promise<void> {
+  /** Platform admin changes own password → fresh token (old sessions revoked). */
+  async platformChangePassword(
+    adminId: string,
+    dto: ChangePasswordDto,
+  ): Promise<{ accessToken: string }> {
     const [admin] = await this.db
       .select()
       .from(platformAdmins)
@@ -431,11 +464,24 @@ export class PlatformService {
     }
 
     const passwordHash = await argon2.hash(dto.newPassword);
-    await this.db
+    const [updated] = await this.db
       .update(platformAdmins)
-      .set({ passwordHash })
+      .set({
+        passwordHash,
+        mustChangePassword: false,
+        // Bump the session epoch so the bootstrap/old token can't be reused.
+        tokenVersion: sql`${platformAdmins.tokenVersion} + 1`,
+      })
       .where(eq(platformAdmins.id, adminId))
       .returning();
+
+    const payload: JwtPayload = {
+      sub: updated.id,
+      type: 'platform',
+      mustChangePassword: false,
+      tv: updated.tokenVersion,
+    };
+    return { accessToken: this.jwt.sign(payload) };
   }
 
   private async uniqueSlug(name: string): Promise<string> {

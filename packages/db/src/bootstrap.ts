@@ -27,6 +27,9 @@ export async function ensureSuperAdmin(
     await db.insert(platformAdmins).values({
       email,
       passwordHash: await argon2.hash(password),
+      // Force a rotation on first login so the env-provided bootstrap password
+      // (which may be weak, reused, or shared during setup) can't persist.
+      mustChangePassword: true,
     });
     // eslint-disable-next-line no-console
     console.log(`[bootstrap] created first super-admin: ${email}`);

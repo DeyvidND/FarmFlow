@@ -1,7 +1,7 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { type Database, products, productMedia, tenants, farmers, subcategories } from '@farmflow/db';
+import { type Database, products, productMedia, farmers, subcategories } from '@farmflow/db';
 import type { Product, ProductMedia, PublicProduct } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
@@ -23,10 +23,12 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { StorageService } from '../storage/storage.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import { ReorderDto } from '../../common/dto/reorder.dto';
 import { slugify } from '../articles/articles.util';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
+import { optimizeImage } from '../storage/image.util';
 
 @Injectable()
 export class ProductsService {
@@ -34,6 +36,7 @@ export class ProductsService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly storage: StorageService,
     private readonly cache: CatalogCacheService,
+    private readonly publicCache: PublicCacheService,
   ) {}
 
   /** Admin list: tenant-scoped, oldest first, keyset-paginated. `total` is included
@@ -199,9 +202,13 @@ export class ProductsService {
   ): Promise<Product> {
     const product = await this.findOne(id, tenantId);
 
-    const ext = PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin';
-    const key = `tenants/${tenantId}/products/${id}/${randomUUID()}.${ext}`;
-    const { url } = await this.storage.upload(file.buffer, key, file.mimetype);
+    const img = await optimizeImage(
+      file.buffer,
+      file.mimetype,
+      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+    );
+    const key = `tenants/${tenantId}/products/${id}/${randomUUID()}.${img.ext}`;
+    const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
     // Replace: drop the previous object once the new one is stored.
     if (product.imageUrl) await this.deleteObject(product.imageUrl);
@@ -282,9 +289,13 @@ export class ProductsService {
       existing.push(adopted);
     }
 
-    const ext = PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin';
-    const key = `tenants/${tenantId}/products/${id}/${randomUUID()}.${ext}`;
-    const { url } = await this.storage.upload(file.buffer, key, file.mimetype);
+    const img = await optimizeImage(
+      file.buffer,
+      file.mimetype,
+      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+    );
+    const key = `tenants/${tenantId}/products/${id}/${randomUUID()}.${img.ext}`;
+    const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
     const [row] = await this.db
       .insert(productMedia)
@@ -391,12 +402,9 @@ export class ProductsService {
 
   /** Public catalog for a storefront slug — active products only, Redis-cached. */
   async findPublicBySlug(slug: string): Promise<PublicProduct[]> {
-    const [tenant] = await this.db
-      .select({ id: tenants.id })
-      .from(tenants)
-      .where(eq(tenants.slug, slug))
-      .limit(1);
-    if (!tenant) throw new NotFoundException('Фермата не е намерена');
+    // Shared Redis slug→tenant resolver (same key farmers/subcats/reviews use), so
+    // a warm storefront/bootstrap render does zero Postgres tenant lookups.
+    const tenant = await this.publicCache.resolveTenant(this.db, slug);
 
     const cached = (await this.cache.get(tenant.id)) as PublicProduct[] | null;
     if (cached) return cached;

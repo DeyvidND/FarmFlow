@@ -19,7 +19,11 @@ function bgToday(): string {
   }).format(new Date());
 }
 
-async function getRoute(date: string, end?: EndMode, order?: OrderMode): Promise<RouteResult> {
+async function getRoute(
+  date: string,
+  end?: EndMode,
+  order?: OrderMode,
+): Promise<{ route: RouteResult; failed: boolean }> {
   const empty: RouteResult = {
     date,
     origin: { address: null, lat: null, lng: null },
@@ -31,14 +35,25 @@ async function getRoute(date: string, end?: EndMode, order?: OrderMode): Promise
     optimized: false,
   };
   const token = cookies().get(SESSION_COOKIE)?.value;
-  if (!token) return empty;
+  if (!token) return { route: empty, failed: false };
   const qs = `date=${date}${end ? `&end=${end}` : ''}${order ? `&order=${order}` : ''}`;
-  const res = await fetch(`${API_BASE}/orders/route?${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store',
-  });
-  if (!res.ok) return empty;
-  return res.json();
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/orders/route?${qs}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+  } catch {
+    // API unreachable — surface it, don't fake an empty route.
+    return { route: empty, failed: true };
+  }
+  // 401/403 → handled by the auth layer (login redirect); treat as no-data, not
+  // an error banner. Any other non-OK (esp. 5xx) is a real failure that must NOT
+  // be silently shown as "0 stops" — a farmer would think the day is empty and
+  // skip real deliveries.
+  if (res.status === 401 || res.status === 403) return { route: empty, failed: false };
+  if (!res.ok) return { route: empty, failed: true };
+  return { route: await res.json(), failed: false };
 }
 
 export default async function RoutePage({
@@ -52,7 +67,7 @@ export default async function RoutePage({
       ? (searchParams.end as EndMode)
       : undefined;
   const order = searchParams.order === 'distance' ? 'distance' : undefined;
-  const route = await getRoute(date, end, order);
+  const { route, failed } = await getRoute(date, end, order);
   const dateLabel = bgDateLabel(new Date(`${date}T00:00:00`)).replace(' г.', '');
-  return <RouteClient route={route} dateLabel={dateLabel} />;
+  return <RouteClient route={route} dateLabel={dateLabel} loadError={failed} />;
 }

@@ -14,6 +14,8 @@ import {
   Route as RouteIcon,
   HelpCircle,
   Settings,
+  Mail,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { RouteResult, RouteStop, RouteEndMode, RouteOrderMode } from '@/lib/types';
@@ -44,10 +46,20 @@ const END_OPTIONS: { mode: RouteEndMode; label: string; Icon: typeof Home; hint:
   { mode: 'custom', label: 'По избор', Icon: MapPin, hint: 'Завършваш на друг адрес (задава се в Настройки).' },
 ];
 
-// Google Maps consumer dir links accept ~9 waypoints; bigger routes are split
-// into chained legs (each leg's destination is the next leg's origin).
-const WAYPOINTS_PER_LEG = 9;
-const NODES_PER_LEG = WAYPOINTS_PER_LEG + 2; // origin + 9 waypoints + destination
+// Google Maps consumer dir links cap waypoints PER PLATFORM: up to 9 on desktop
+// browsers but only 3 on mobile browsers (per Google's Maps URLs docs). Farmers
+// are mostly on phones, so detect mobile and split into more, smaller chained
+// legs there — otherwise the device silently drops every waypoint past the 3rd.
+const WAYPOINTS_PER_LEG_DESKTOP = 9;
+const WAYPOINTS_PER_LEG_MOBILE = 3;
+
+const isMobileBrowser = () =>
+  typeof navigator !== 'undefined' &&
+  /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i.test(navigator.userAgent);
+
+/** Nodes per Google Maps directions leg = origin + N waypoints + destination. */
+const nodesPerLeg = () =>
+  (isMobileBrowser() ? WAYPOINTS_PER_LEG_MOBILE : WAYPOINTS_PER_LEG_DESKTOP) + 2;
 
 type Point = { address: string | null; lat: number | null; lng: number | null };
 
@@ -70,12 +82,13 @@ function legUrl(nodes: Point[], navigate: boolean): string {
 /** Farm → stops as one or more chained Google Maps legs (≤9 waypoints each). */
 function dirUrls(origin: Point, stops: RouteStop[], end: Point | null, navigate = false): string[] {
   if (!stops.length) return [];
+  const perLeg = nodesPerLeg(); // 11 on desktop, 5 on mobile
   const points: Point[] = [origin, ...stops];
   if (end && (end.lat != null || end.address)) points.push(end);
   const urls: string[] = [];
   let i = 0;
   while (i < points.length - 1) {
-    const seg = points.slice(i, i + NODES_PER_LEG);
+    const seg = points.slice(i, i + perLeg);
     urls.push(legUrl(seg, navigate));
     i += seg.length - 1; // each leg's destination is the next leg's origin
   }
@@ -99,7 +112,17 @@ function fmtDur(s: number | null): string | null {
   return r ? `${h} ч ${r} мин` : `${h} ч`;
 }
 
-export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabel: string }) {
+export function RouteClient({
+  route,
+  dateLabel,
+  loadError = false,
+}: {
+  route: RouteResult;
+  dateLabel: string;
+  /** The route fetch failed (server error / API down) — show an error banner
+   *  instead of letting the empty list read as "no deliveries today". */
+  loadError?: boolean;
+}) {
   const router = useRouter();
   const { stops, origin, end, orderMode } = route;
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
@@ -157,9 +180,40 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
     if (s.phone) window.open(`tel:${s.phone.replace(/\s+/g, '')}`, '_self');
     toast.info(`Обаждане до ${s.customer ?? 'клиента'}…`);
   };
+  const onEmail = (s: RouteStop) => {
+    if (s.email) window.open(`mailto:${s.email}`, '_self');
+  };
+
+  // Buyer emails for the day's stops — for a one-shot batch notice (BCC keeps
+  // addresses private from each other).
+  const emails = stops.map((s) => s.email).filter((e): e is string => !!e);
+  const emailAll = () => {
+    if (!emails.length) {
+      toast.error('Няма имейл адреси за този ден');
+      return;
+    }
+    window.open(`mailto:?bcc=${encodeURIComponent(emails.join(','))}`, '_self');
+  };
 
   return (
     <div className="animate-ff-fade-up">
+      {/* route fetch failed — make it explicit; an empty list must not read as
+          "no deliveries today" when the real cause is a server error */}
+      {loadError && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
+          <AlertTriangle size={16} className="text-ff-amber-600" />
+          <span className="text-[12.5px] font-bold text-ff-amber-600">
+            Маршрутът не можа да се зареди (грешка от сървъра). Това НЕ значи, че няма поръчки.
+          </span>
+          <button
+            onClick={() => router.refresh()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12.5px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2"
+          >
+            Опитай пак
+          </button>
+        </div>
+      )}
+
       {/* summary + ordering + end-mode + date + help */}
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[14px] text-ff-muted">{summary}</p>
@@ -214,6 +268,14 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
           </label>
+          <button
+            onClick={emailAll}
+            disabled={!emails.length}
+            title="Изпрати общ имейл до всички клиенти за деня (скрито копие)"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Mail size={16} /> Имейли{emails.length ? ` (${emails.length})` : ''}
+          </button>
           <button
             onClick={() => setShowLoc((v) => !v)}
             title="Адрес на базата и край на маршрута"
@@ -305,8 +367,8 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
               При всяка спирка: <b>Карти</b> отваря само нея, <b>Обади</b> звъни на клиента.
             </li>
             <li>
-              Много спирки? Google пуска до 9 наведнъж — затова се появяват бутони{' '}
-              <b>Отсечка 2, 3…</b> за останалите.
+              Много спирки? Google показва до 9 на компютър и до 3 на телефон — затова при дълъг
+              маршрут се появяват бутони <b>Отсечка 2, 3…</b> за останалите.
             </li>
             <li>
               На картата: <b>★</b> = твоята база, <b>номерата</b> = редът на доставките, <b>⚑</b> =
@@ -346,6 +408,7 @@ export function RouteClient({ route, dateLabel }: { route: RouteResult; dateLabe
             onPick={setActiveId}
             onOpenMaps={onOpenMaps}
             onCall={onCall}
+            onEmail={onEmail}
           />
         </div>
 
