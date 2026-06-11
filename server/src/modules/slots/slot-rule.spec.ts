@@ -248,4 +248,19 @@ describe('slotMinutes (slot length splitting)', () => {
     expect(normalizeRule({ ...input, slotMinutes: 0 }).slotMinutes).toBe(0);
     expect(normalizeRule(input).slotMinutes).toBe(0);
   });
+
+  it('normalizeRule forces capacity 1 per sub-slot when a duration is set', () => {
+    const input = {
+      ...base,
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00', maxOrders: 5 }],
+      intervalWindow: { timeFrom: '09:00', timeTo: '12:00', maxOrders: 4 },
+    };
+    const r = normalizeRule({ ...input, slotMinutes: 60 });
+    expect(r.days.every((d) => d.maxOrders === 1)).toBe(true);
+    expect(r.intervalWindow.maxOrders).toBe(1);
+    // No duration → capacities pass through untouched.
+    const r0 = normalizeRule({ ...input, slotMinutes: 0 });
+    expect(r0.days[0].maxOrders).toBe(5);
+    expect(r0.intervalWindow.maxOrders).toBe(4);
+  });
 });

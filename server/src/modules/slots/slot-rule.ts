@@ -232,12 +232,18 @@ export function normalizeRule(input: Partial<SlotRule> & LegacyRule, prev?: Slot
   const rawSlotMin = Math.floor(migrated.slotMinutes ?? 0);
   const slotMinutes = rawSlotMin > 0 ? Math.min(480, Math.max(15, rawSlotMin)) : 0;
 
+  // A slot sized to one delivery holds exactly one delivery — with a duration
+  // set, capacity per sub-slot is always 1 (the admin hides the field).
+  const cap1 = <T extends SlotWindow>(w: T): T => ({ ...w, maxOrders: 1 });
+  const finalDays = slotMinutes > 0 ? days.map(cap1) : days;
+  const finalIntervalWindow = slotMinutes > 0 ? cap1(intervalWindow) : intervalWindow;
+
   return {
     active: migrated.active !== false,
     repeat,
-    days,
+    days: finalDays,
     intervalDays,
-    intervalWindow,
+    intervalWindow: finalIntervalWindow,
     anchorDate,
     slotMinutes,
     customerNote: migrated.customerNote?.slice(0, 280) || undefined,

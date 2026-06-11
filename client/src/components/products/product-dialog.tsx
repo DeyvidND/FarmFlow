@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { ImagePlus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
@@ -34,7 +34,7 @@ export function ProductDialog({
   multiFarmer: boolean;
   multiSubcat: boolean;
   onClose: () => void;
-  onSubmit: (data: Partial<Product>) => Promise<void>;
+  onSubmit: (data: Partial<Product>, files?: File[]) => Promise<void>;
   /** Edit mode only: fired when the gallery cover (photo 0) changes. */
   onCoverChange?: (url: string | null) => void;
 }) {
@@ -44,15 +44,31 @@ export function ProductDialog({
   const [stock, setStock] = useState(product?.stockQuantity == null ? '' : String(product.stockQuantity));
   const [unit, setUnit] = useState(product?.unit ?? 'бр');
   const [weight, setWeight] = useState(product?.weight ?? '');
-  const [category, setCategory] = useState(product?.category ?? '');
   const [farmerId, setFarmerId] = useState(product?.farmerId ?? farmers[0]?.id ?? '');
   const [subcatId, setSubcatId] = useState(product?.subcategoryId ?? subcats[0]?.id ?? '');
   const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? null);
   const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(product?.coverCrop ?? null);
+  // Create mode: no product id yet to attach photos to, so buffer the picked files
+  // locally (with object-URL previews) and upload them right after the product is
+  // created. Edit mode uses the server-backed MediaManager instead.
+  const [pending, setPending] = useState<{ file: File; url: string }[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (!open) return null;
+
+  function addPending(files: FileList | null) {
+    if (!files?.length) return;
+    setPending((prev) => [...prev, ...Array.from(files).map((file) => ({ file, url: URL.createObjectURL(file) }))]);
+  }
+
+  function removePending(i: number) {
+    setPending((prev) => {
+      URL.revokeObjectURL(prev[i]?.url);
+      return prev.filter((_, j) => j !== i);
+    });
+  }
 
   // The gallery cover changed (photo 0 added/removed/reordered). Sync the local
   // preview and invalidate the saved framing — a new photo needs re-framing.
@@ -76,19 +92,21 @@ export function ProductDialog({
     }
     setLoading(true);
     try {
-      await onSubmit({
-        name: name.trim(),
-        priceStotinki,
-        unit: unit.trim() || 'бр',
-        weight: weight.trim() || undefined,
-        category: category.trim() || undefined,
-        // Empty = unlimited stock → send null explicitly (the column defaults to 0
-        // = out of stock, which would contradict the "неограничено" placeholder).
-        stockQuantity: stock === '' ? null : parseInt(stock, 10) || 0,
-        ...(isEdit ? { coverCrop } : { isActive: true }),
-        ...(multiFarmer ? { farmerId: farmerId || null } : {}),
-        ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
-      });
+      await onSubmit(
+        {
+          name: name.trim(),
+          priceStotinki,
+          unit: unit.trim() || 'бр',
+          weight: weight.trim() || undefined,
+          // Empty = unlimited stock → send null explicitly (the column defaults to 0
+          // = out of stock, which would contradict the "неограничено" placeholder).
+          stockQuantity: stock === '' ? null : parseInt(stock, 10) || 0,
+          ...(isEdit ? { coverCrop } : { isActive: true }),
+          ...(multiFarmer ? { farmerId: farmerId || null } : {}),
+          ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
+        },
+        isEdit ? undefined : pending.map((p) => p.file),
+      );
       onClose();
     } catch (e2) {
       setErr(e2 instanceof ApiError ? e2.message : 'Неуспешно записване');
@@ -132,6 +150,51 @@ export function ProductDialog({
             />
           )}
 
+          {!isEdit && (
+            <div className="flex flex-col gap-2">
+              <div className="text-[12.5px] font-bold text-ff-ink-2">Снимки {pending.length ? `(${pending.length})` : ''}</div>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2">
+                {pending.map((p, i) => (
+                  <div key={p.url} className="group relative aspect-square overflow-hidden rounded-lg border border-ff-border bg-ff-surface-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.url} alt="" className="h-full w-full object-cover" />
+                    {i === 0 && (
+                      <span className="absolute left-1 top-1 rounded bg-ff-green-600/90 px-1.5 py-0.5 text-[9.5px] font-bold text-white">Корица</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removePending(i)}
+                      aria-label="Премахни снимка"
+                      className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded bg-white/85 text-ff-red opacity-0 transition group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="grid aspect-square place-items-center rounded-lg border border-dashed border-ff-border-2 bg-ff-surface-2 text-ff-muted transition hover:border-ff-green-500 hover:text-ff-ink"
+                >
+                  <span className="inline-flex flex-col items-center gap-1 text-[10.5px] font-semibold">
+                    <ImagePlus size={18} /> Добави
+                  </span>
+                </button>
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                hidden
+                onChange={(e) => {
+                  addPending(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </div>
+          )}
+
           <label className={labelCls}>
             Име
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ягоди" className={field} autoFocus={!isEdit} />
@@ -143,8 +206,8 @@ export function ProductDialog({
               <input value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="500 г" className={field} />
             </label>
             <label className={labelCls}>
-              Категория
-              <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Плодове" className={field} />
+              Единица
+              <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="бр" className={field} />
             </label>
           </div>
 
@@ -159,11 +222,6 @@ export function ProductDialog({
               <span className="text-[10.5px] font-semibold text-ff-muted-2">празно = без лимит</span>
             </label>
           </div>
-
-          <label className={labelCls}>
-            Единица
-            <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="бр" className={field} />
-          </label>
 
           {multiFarmer && farmers.length > 0 && (
             <label className={labelCls}>
@@ -181,7 +239,7 @@ export function ProductDialog({
 
           {multiSubcat && subcats.length > 0 && (
             <label className={labelCls}>
-              Подкатегория
+              Категория
               <select value={subcatId} onChange={(e) => setSubcatId(e.target.value)} className={`${field} cursor-pointer appearance-none`}>
                 {subcats.map((s) => (
                   <option key={s.id} value={s.id}>
