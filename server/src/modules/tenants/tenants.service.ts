@@ -112,11 +112,16 @@ export class TenantsService {
     // Reuses the shared, Redis-cached slug→tenant resolver. The cached meta IS
     // the profile shape plus internal `id`/`stripeAccountId` — strip them, and
     // derive the public `stripeEnabled` flag (same gate the checkout uses).
-    const { id: _id, stripeAccountId, ...profile } = await this.publicCache.resolveTenant(
+    const { id: _id, stripeAccountId, cardEnabled, ...profile } = await this.publicCache.resolveTenant(
       this.db,
       slug,
     );
-    return { ...profile, stripeEnabled: this.stripe.isEnabledForAccount(stripeAccountId) };
+    // Card is offered only when Stripe can charge AND the farmer hasn't turned card
+    // off (the COD-only override). `cardEnabled` itself stays internal — stripped here.
+    return {
+      ...profile,
+      stripeEnabled: this.stripe.isEnabledForAccount(stripeAccountId) && cardEnabled,
+    };
   }
 
   async updateMe(tenantId: string, dto: UpdateTenantDto): Promise<PublicTenant> {

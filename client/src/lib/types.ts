@@ -136,7 +136,7 @@ export interface RoutingConfig {
 // ---- Delivery configuration (persisted to tenant.settings.delivery) ----
 
 export type DeliveryMethodKey = 'econtOffice' | 'econtAddress' | 'ownSlots' | 'pickup';
-export type PricingType = 'free' | 'flat' | 'byWeight' | 'freeOver';
+export type PricingType = 'free' | 'flat' | 'freeOver';
 export type Payer = 'customer' | 'farm';
 
 /** Per-method price rule. Money in integer stotinki (cents). */
@@ -219,6 +219,8 @@ export interface DeliveryConfig {
   econt: EcontConfig;
   /** Customer-facing наложен платеж (COD) toggle. Absent → treated as enabled. */
   cod?: { enabled: boolean };
+  /** Card (online/Stripe) toggle. Absent → enabled; off → COD-only even with Stripe connected. */
+  card?: { enabled: boolean };
 }
 
 /** Econt office nomenclature row (global, mock for now). */
@@ -337,6 +339,8 @@ export interface SlotRule {
   intervalDays: number;
   intervalWindow: SlotWindow; // interval mode — single window
   anchorDate: string; // YYYY-MM-DD
+  /** Minutes one delivery takes; >0 splits each window into slots of this length. 0/absent = one slot. */
+  slotMinutes?: number;
   customerNote?: string;
   driverNote?: string;
   horizonDays: number;

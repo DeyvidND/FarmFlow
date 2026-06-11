@@ -6,6 +6,7 @@
  */
 import type {
   DeliveryConfig,
+  DeliveryMethod,
   DeliveryMethodKey,
   EcontOffice,
   Shipment,
@@ -79,7 +80,23 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
     nomenclature: { lastSyncedAt: 'никога', cities: 0, offices: 0 },
   },
   cod: { enabled: true },
+  card: { enabled: true },
 };
+
+/** Two retired price-types collapse to `flat`:
+ *  - „Безплатна над сума" (`freeOver`) — replaced by a single shared free-over
+ *    threshold (`pricing.freeThresholdStotinki`).
+ *  - „Според теглото" (`byWeight`) — never had a configurable fee; it silently fell
+ *    back to the method's default flat fee, so the option was misleading.
+ *  Both already resolve to flat on the server (`methodBaseFee`), so collapsing the
+ *  type changes nothing the customer is charged — it just makes the fee editable
+ *  in the admin again. */
+function normalizeMethod(m: DeliveryMethod): DeliveryMethod {
+  if (m.pricing?.type === 'freeOver' || m.pricing?.type === 'byWeight') {
+    return { ...m, pricing: { ...m.pricing, type: 'flat' } };
+  }
+  return m;
+}
 
 /** Deep-ish merge of a saved config over the defaults so missing/new keys are filled. */
 export function hydrateDelivery(saved: DeliveryConfig | null | undefined): DeliveryConfig {
@@ -87,9 +104,9 @@ export function hydrateDelivery(saved: DeliveryConfig | null | undefined): Deliv
   const d = DEFAULT_DELIVERY;
   return {
     methods: {
-      econtOffice: { ...d.methods.econtOffice, ...saved.methods?.econtOffice },
-      econtAddress: { ...d.methods.econtAddress, ...saved.methods?.econtAddress },
-      ownSlots: { ...d.methods.ownSlots, ...saved.methods?.ownSlots },
+      econtOffice: normalizeMethod({ ...d.methods.econtOffice, ...saved.methods?.econtOffice }),
+      econtAddress: normalizeMethod({ ...d.methods.econtAddress, ...saved.methods?.econtAddress }),
+      ownSlots: normalizeMethod({ ...d.methods.ownSlots, ...saved.methods?.ownSlots }),
       pickup: { ...d.methods.pickup, ...saved.methods?.pickup },
       order: saved.methods?.order ?? d.methods.order,
     },
@@ -105,6 +122,7 @@ export function hydrateDelivery(saved: DeliveryConfig | null | undefined): Deliv
       nomenclature: { ...d.econt.nomenclature, ...saved.econt?.nomenclature },
     },
     cod: { enabled: saved?.cod?.enabled ?? d.cod?.enabled ?? true },
+    card: { enabled: saved?.card?.enabled ?? d.card?.enabled ?? true },
   };
 }
 
@@ -197,7 +215,7 @@ export const ECONT_HELP = {
     'Наложен платеж (COD): клиентът плаща при получаване — ти избираш кой поема таксата за това.',
     'Авто-товарителница: при платена поръчка системата може да създаде етикета сама.',
     'Натисни „Обнови градове и офиси“, ако Еконт е добавил нови офиси и не ги виждаш.',
-    'Цената на Еконт доставката се задава при самия метод („Фиксирана“, „По тегло“ или „Безплатна над сума“).',
+    'Цената на Еконт доставката се задава при самия метод („Фиксирана“). Безплатна над обща сума се задава веднъж за всички методи.',
   ],
 };
 

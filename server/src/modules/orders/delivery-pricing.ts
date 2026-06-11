@@ -32,6 +32,7 @@ export interface DeliveryConfig {
   pricing?: { freeThresholdStotinki?: number };
   econt?: { mode?: EcontMode; configured?: boolean };
   cod?: { enabled?: boolean };
+  card?: { enabled?: boolean };
 }
 
 /**
@@ -55,6 +56,16 @@ export function econtMode(cfg: DeliveryConfig | null | undefined): EcontMode {
  */
 export function codEnabled(cfg: DeliveryConfig | null | undefined): boolean {
   return cfg?.cod?.enabled ?? true;
+}
+
+/**
+ * Whether the farm accepts card (online/Stripe) payment. Defaults to true: with a
+ * connected Stripe account card is offered unless the farm explicitly turns it off
+ * (a COD-only farm flips this off without having to disconnect Stripe). This only
+ * gates the *offer* — a farm with no Stripe account can't take cards regardless.
+ */
+export function cardEnabled(cfg: DeliveryConfig | null | undefined): boolean {
+  return cfg?.card?.enabled ?? true;
 }
 
 /** Legacy hardcoded amounts — the fallback when a tenant has no saved config. */

@@ -390,6 +390,22 @@ export const getSlotRule = () => apiFetch<SlotRule | null>('slots/rule');
 export const saveSlotRule = (rule: SlotRuleInput) =>
   apiFetch<SlotRule>('slots/rule', { method: 'PUT', ...json(rule) }, 'Неуспешно записване на правилото');
 
+/** Close a calendar day: deletes its unbooked slots + the rule skips the date. */
+export const closeSlotDay = (date: string) =>
+  apiFetch<{ date: string; removed: number; kept: number }>(
+    'slots/close-day',
+    { method: 'POST', ...json({ date }) },
+    'Неуспешно затваряне на деня',
+  );
+
+/** Reopen a closed day: un-skips the date and the rule refills it immediately. */
+export const openSlotDay = (date: string) =>
+  apiFetch<{ date: string; created: number }>(
+    'slots/open-day',
+    { method: 'POST', ...json({ date }) },
+    'Неуспешно отваряне на деня',
+  );
+
 // ---- Orders ----
 export const listOrders = (cursor?: string) =>
   apiFetch<Paginated<Order>>(`orders${qs(cursor)}`);
