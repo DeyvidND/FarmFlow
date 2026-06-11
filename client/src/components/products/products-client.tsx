@@ -197,14 +197,29 @@ export function ProductsClient({
     }
   }
 
-  async function onCreate(data: Partial<Product>) {
+  async function onCreate(data: Partial<Product>, files?: File[]) {
     const created = await createProduct(data);
     setProducts((prev) => [created, ...prev]);
-    // Reopen the just-created product in the edit dialog so its photo gallery is
-    // available immediately — adding images is part of the creation flow.
     setCreateOpen(false);
-    setFullEdit(created);
-    toast.success('Продуктът е създаден — добави снимки');
+    if (files && files.length) {
+      // Photos were picked in the create dialog — upload them now that we have an
+      // id. The server keeps imageUrl synced to photo 0, so the first one is cover.
+      let cover = created.imageUrl ?? null;
+      for (const f of files) {
+        try {
+          const item = await addMedia('products', created.id, f);
+          cover = cover ?? item.url;
+        } catch (e) {
+          toast.error(errMsg(e));
+        }
+      }
+      patchLocal(created.id, { imageUrl: cover });
+      toast.success('Продуктът е създаден');
+    } else {
+      // No photos picked — reopen in the edit dialog so the gallery is one tap away.
+      setFullEdit(created);
+      toast.success('Продуктът е създаден — добави снимки');
+    }
   }
 
   async function onFullUpdate(data: Partial<Product>) {
