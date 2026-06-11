@@ -33,4 +33,20 @@ describe('resolveLanding', () => {
     expect(out.latest).toEqual(DEFAULT_LANDING.latest);
     expect(out.farmers).toEqual({ show: false, count: 3 }); // count falls back to default
   });
+
+  it('defaults reviews to off with no picks', () => {
+    expect(DEFAULT_LANDING.reviews).toEqual({ show: false, ids: [] });
+    expect(resolveLanding(undefined).reviews).toEqual({ show: false, ids: [] });
+  });
+
+  it('coerces reviews.show, dedupes ids, drops non-strings, caps at 12', () => {
+    const ids = Array.from({ length: 15 }, (_, i) => `id${i}`);
+    const out = resolveLanding({
+      reviews: { show: true, ids: [...ids, 'id0', 5, null] },
+    });
+    expect(out.reviews.show).toBe(true);
+    expect(out.reviews.ids).toHaveLength(12);
+    expect(out.reviews.ids[0]).toBe('id0');
+    expect(new Set(out.reviews.ids).size).toBe(12); // deduped
+  });
 });

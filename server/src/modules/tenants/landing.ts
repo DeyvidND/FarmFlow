@@ -12,21 +12,31 @@ export interface LandingBlock {
   count: number;
 }
 
+/** Reviews block: a show flag + an ordered list of farmer-picked review ids. */
+export interface ReviewsBlock {
+  show: boolean;
+  ids: string[];
+}
+
 export interface PublicLanding {
   categories: LandingBlock;
   farmers: LandingBlock;
   latest: LandingBlock;
+  reviews: ReviewsBlock;
 }
 
 /** Defaults mirror the storefront's pre-config hardcoded behavior, so a tenant
- *  with no saved config renders identically: all categories, 3 farmers, 4 latest. */
+ *  with no saved config renders identically: all categories, 3 farmers, 4 latest.
+ *  The reviews block is opt-in (off, no picks) — no reviews block until enabled. */
 export const DEFAULT_LANDING: PublicLanding = {
   categories: { show: true, count: 0 }, // 0 = all categories
   farmers: { show: true, count: 3 },
   latest: { show: true, count: 4 },
+  reviews: { show: false, ids: [] },
 };
 
 const MAX_COUNT = 12;
+const MAX_REVIEW_IDS = 12;
 
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
@@ -42,6 +52,25 @@ function resolveBlock(raw: unknown, def: LandingBlock, minCount: number): Landin
   return { show, count };
 }
 
+/** Reviews block: a show flag + an ordered, deduped, capped list of picked review
+ *  ids. Non-string entries are dropped; order is the farmer's pick order. */
+function resolveReviewsBlock(raw: unknown): ReviewsBlock {
+  const r = asRecord(raw);
+  const show = typeof r.show === 'boolean' ? r.show : DEFAULT_LANDING.reviews.show;
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  if (Array.isArray(r.ids)) {
+    for (const v of r.ids) {
+      if (typeof v === 'string' && v && !seen.has(v)) {
+        seen.add(v);
+        ids.push(v);
+        if (ids.length >= MAX_REVIEW_IDS) break;
+      }
+    }
+  }
+  return { show, ids };
+}
+
 /** Resolve stored (or incoming) landing config into a complete, clamped value.
  *  Idempotent — used on both the read (public profile) and write (save) paths.
  *  Missing / garbage → DEFAULT_LANDING. */
@@ -51,5 +80,6 @@ export function resolveLanding(raw: unknown): PublicLanding {
     categories: resolveBlock(r.categories, DEFAULT_LANDING.categories, 0),
     farmers: resolveBlock(r.farmers, DEFAULT_LANDING.farmers, 1),
     latest: resolveBlock(r.latest, DEFAULT_LANDING.latest, 1),
+    reviews: resolveReviewsBlock(r.reviews),
   };
 }
