@@ -26,6 +26,7 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { EcontService } from '../econt/econt.service';
 import { buildPublicMethods, codEnabled, type DeliveryConfig } from './delivery-pricing';
+import { scheduledForDay } from './order-scheduling';
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
@@ -222,13 +223,13 @@ export class OrdersService {
    */
   async production(tenantId: string, date?: string): Promise<ProductionSummary> {
     const day = date ?? bgToday();
-    // Index-served day window (replaces the non-sargable `::date` cast).
-    const { from, to } = bgDayBounds(day);
+    // A slotted order counts on its delivery-slot day, not its creation day —
+    // the same rule as the daily digests (see scheduledForDay). Slotless orders
+    // (market pickup) fall back to creation day. Needs the deliverySlots leftJoin.
     const onDay = and(
       eq(orders.tenantId, tenantId),
       eq(orders.status, 'confirmed'),
-      gte(orders.createdAt, from),
-      lt(orders.createdAt, to),
+      scheduledForDay(day),
     )!;
 
     // The three reads are independent — run concurrently (one admin page load).
@@ -243,6 +244,7 @@ export class OrdersService {
         })
         .from(orderItems)
         .innerJoin(orders, eq(orderItems.orderId, orders.id))
+        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
         .leftJoin(products, eq(orderItems.productId, products.id))
         .leftJoin(farmers, eq(products.farmerId, farmers.id))
         .where(onDay)
@@ -251,6 +253,7 @@ export class OrdersService {
       this.db
         .select({ count: sql<number>`count(*)::int` })
         .from(orders)
+        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
         .where(onDay),
       this.db
         .select({ multiFarmer: tenants.multiFarmer })
