@@ -86,14 +86,16 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
 /** Two retired price-types collapse to `flat`:
  *  - „Безплатна над сума" (`freeOver`) — replaced by a single shared free-over
  *    threshold (`pricing.freeThresholdStotinki`).
- *  - „Според теглото" (`byWeight`) — never had a configurable fee; it silently fell
- *    back to the method's default flat fee, so the option was misleading.
+ *  - „Според теглото" (`byWeight`) — fully removed; it never had a configurable fee
+ *    and silently fell back to the method's default flat fee. `byWeight` is gone
+ *    from `PricingType`, so legacy saved configs are matched as a raw string.
  *  Both already resolve to flat on the server (`methodBaseFee`), so collapsing the
  *  type changes nothing the customer is charged — it just makes the fee editable
  *  in the admin again. */
 function normalizeMethod(m: DeliveryMethod): DeliveryMethod {
-  if (m.pricing?.type === 'freeOver' || m.pricing?.type === 'byWeight') {
-    return { ...m, pricing: { ...m.pricing, type: 'flat' } };
+  const t = m.pricing?.type as string | undefined;
+  if (t === 'freeOver' || t === 'byWeight') {
+    return { ...m, pricing: { ...m.pricing!, type: 'flat' } };
   }
   return m;
 }

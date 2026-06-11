@@ -8,7 +8,7 @@
  * is unchanged until a farmer edits the delivery page.
  */
 
-export type DeliveryPricingType = 'free' | 'flat' | 'freeOver' | 'byWeight';
+export type DeliveryPricingType = 'free' | 'flat' | 'freeOver';
 
 export interface MethodPricing {
   type?: DeliveryPricingType;
@@ -78,9 +78,9 @@ export const DELIVERY_DEFAULTS = {
 
 /**
  * Base fee for a method from its pricing block. No free-over here — that is the
- * single global threshold (step 3 of the checkout calc). `freeOver`/`byWeight`
- * are treated as flat for now (per-method free-over is deferred; weight pricing
- * needs numeric product weights we don't have).
+ * single global threshold (step 3 of the checkout calc). `freeOver` (and any legacy
+ * `byWeight`) is treated as flat: per-method free-over is deferred, and weight
+ * pricing was removed since it never had a configurable fee.
  */
 export function methodBaseFee(pricing: MethodPricing | undefined, fallbackFee: number): number {
   if (!pricing || !pricing.type) return fallbackFee;
