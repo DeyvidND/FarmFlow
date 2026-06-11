@@ -285,6 +285,7 @@ export interface LandingConfig {
   categories: LandingBlock;
   farmers: LandingBlock;
   latest: LandingBlock;
+  reviews: { show: boolean; ids: string[] };
 }
 
 export const getLanding = () => apiFetch<{ landing: LandingConfig }>('tenants/me/landing');

@@ -16,8 +16,10 @@ import {
   getLanding,
   updateLanding,
   getTenant,
+  listReviews,
   type LandingConfig,
 } from '@/lib/api-client';
+import type { AdminReview } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -39,15 +41,17 @@ export function LandingCard() {
   const [multiFarmer, setMultiFarmer] = React.useState(true);
   const [saved, setSaved] = React.useState<LandingConfig | null>(null);
   const [cfg, setCfg] = React.useState<LandingConfig | null>(null);
+  const [pubReviews, setPubReviews] = React.useState<AdminReview[]>([]);
 
   React.useEffect(() => {
     let active = true;
-    Promise.all([getLanding(), getTenant()])
-      .then(([l, t]) => {
+    Promise.all([getLanding(), getTenant(), listReviews('published')])
+      .then(([l, t, rv]) => {
         if (!active) return;
         setSaved(l.landing);
         setCfg(l.landing);
         setMultiFarmer(Boolean(t.multiFarmer));
+        setPubReviews(rv.items);
       })
       .catch(() => active && toast.error('Неуспешно зареждане на настройките'))
       .finally(() => active && setLoading(false));
@@ -62,6 +66,20 @@ export function LandingCard() {
     setCfg((p) => (p ? { ...p, [key]: { ...p[key], show } } : p));
   const setCount = (key: BlockKey, count: number) =>
     setCfg((p) => (p ? { ...p, [key]: { ...p[key], count } } : p));
+
+  const MAX_REVIEW_PICKS = 12;
+  const setReviewsShow = (show: boolean) =>
+    setCfg((p) => (p ? { ...p, reviews: { ...p.reviews, show } } : p));
+  const toggleReview = (id: string) =>
+    setCfg((p) => {
+      if (!p) return p;
+      const ids = p.reviews.ids.includes(id)
+        ? p.reviews.ids.filter((x) => x !== id)
+        : p.reviews.ids.length < MAX_REVIEW_PICKS
+          ? [...p.reviews.ids, id]
+          : p.reviews.ids;
+      return { ...p, reviews: { ...p.reviews, ids } };
+    });
 
   const save = async () => {
     if (!cfg) return;
@@ -145,6 +163,65 @@ export function LandingCard() {
               </div>
             );
           })}
+
+          {/* Reviews — pick specific published reviews to feature on the home page */}
+          <div className="rounded-xl border border-ff-border bg-ff-surface-2 px-[15px] py-3">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-[14.5px] font-extrabold text-ff-ink">Отзиви</div>
+                <div className="mt-0.5 text-[12.5px] leading-snug text-ff-muted">
+                  Избери кои отзиви на клиенти да се показват на началната страница.
+                </div>
+              </div>
+              <ToggleSwitch checked={cfg.reviews.show} onChange={setReviewsShow} />
+            </div>
+
+            {cfg.reviews.show && (
+              <div className="mt-3">
+                {pubReviews.length === 0 ? (
+                  <div className="text-[12.5px] text-ff-muted">
+                    Няма публикувани отзиви за избор. Публикувай отзиви от „Отзиви“.
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-2 text-[12px] font-bold text-ff-ink-2">
+                      Избрани: {cfg.reviews.ids.length}/{MAX_REVIEW_PICKS}
+                    </div>
+                    <div className="flex max-h-[280px] flex-col gap-1.5 overflow-y-auto">
+                      {pubReviews.map((r) => {
+                        const picked = cfg.reviews.ids.includes(r.id);
+                        const atCap = !picked && cfg.reviews.ids.length >= MAX_REVIEW_PICKS;
+                        return (
+                          <label
+                            key={r.id}
+                            className={cn(
+                              'flex cursor-pointer items-start gap-2.5 rounded-lg border border-ff-border bg-ff-surface px-3 py-2',
+                              atCap && 'cursor-not-allowed opacity-45',
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1 shrink-0"
+                              checked={picked}
+                              disabled={atCap}
+                              onChange={() => toggleReview(r.id)}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[13px] font-bold text-ff-ink">
+                                {'★'.repeat(r.rating)} · {r.authorName}
+                                {r.authorLocation ? `, ${r.authorLocation}` : ''}
+                              </div>
+                              <div className="truncate text-[12.5px] text-ff-muted">{r.body}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
