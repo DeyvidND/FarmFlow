@@ -36,6 +36,20 @@
       "port": 4330
     },
     {
+      "name": "templates",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "C:/Users/Lenovo/source/repos/FarmFlow-Templates",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "4332"
+      ],
+      "port": 4332
+    },
+    {
       "name": "chaika",
       "runtimeExecutable": "npm",
       "runtimeArgs": [

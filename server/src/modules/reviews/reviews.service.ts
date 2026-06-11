@@ -4,7 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { type Database, tenants, products, reviews } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
@@ -12,6 +12,7 @@ import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewStatusDto } from './dto/update-review-status.dto';
+import { orderReviewsByIds } from './home-reviews';
 
 /** Cap on reviews returned to the storefront; count/average still cover all. */
 const PUBLIC_REVIEWS_LIMIT = 60;
@@ -93,6 +94,38 @@ export class ReviewsService {
     };
     await this.publicCache.set(key, summary);
     return summary;
+  }
+
+  /** Picked-for-home reviews: the tenant's PUBLISHED reviews whose ids the farmer
+   *  selected in settings.landing.reviews, returned in pick order. Empty when the
+   *  block is off or nothing is picked. */
+  async findHomeReviews(slug: string): Promise<PublicReview[]> {
+    const tenant = await this.publicCache.resolveTenant(this.db, slug);
+    const cfg = tenant.landing.reviews;
+    if (!cfg.show || cfg.ids.length === 0) return [];
+
+    const rows = await this.db
+      .select({
+        id: reviews.id,
+        authorName: reviews.authorName,
+        authorLocation: reviews.authorLocation,
+        rating: reviews.rating,
+        body: reviews.body,
+        createdAt: reviews.createdAt,
+      })
+      .from(reviews)
+      .where(
+        and(
+          eq(reviews.tenantId, tenant.id),
+          eq(reviews.status, 'published'),
+          inArray(reviews.id, cfg.ids),
+        ),
+      );
+
+    return orderReviewsByIds(cfg.ids, rows).map((r) => ({
+      ...r,
+      createdAt: r.createdAt ? r.createdAt.toISOString() : null,
+    }));
   }
 
   /** Public submission → stored as `pending` for moderation. */

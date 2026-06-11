@@ -4,6 +4,7 @@ import { TenantsService } from '../tenants/tenants.service';
 import { ProductsService } from '../products/products.service';
 import { FarmersService } from '../farmers/farmers.service';
 import { SubcategoriesService } from '../subcategories/subcategories.service';
+import { ReviewsService } from '../reviews/reviews.service';
 import { resolveProductOfWeek } from './product-of-week';
 
 /**
@@ -20,6 +21,7 @@ export class PublicBootstrapController {
     private readonly products: ProductsService,
     private readonly farmers: FarmersService,
     private readonly subcategories: SubcategoriesService,
+    private readonly reviews: ReviewsService,
   ) {}
 
   @ApiOperation({
@@ -27,15 +29,16 @@ export class PublicBootstrapController {
   })
   @Get()
   async bootstrap(@Param('slug') slug: string) {
-    const [storefront, products, farmers, subcategories] = await Promise.all([
+    const [storefront, products, farmers, subcategories, homeReviews] = await Promise.all([
       this.tenants.findPublicProfileBySlug(slug),
       this.products.findPublicBySlug(slug),
       this.farmers.findPublicBySlug(slug),
       this.subcategories.findPublicBySlug(slug),
+      this.reviews.findHomeReviews(slug),
     ]);
     // Resolve the optional «Продукт на седмицата» highlight from the tenant config
     // against the (already active, ordered) public catalog.
     const productOfWeek = resolveProductOfWeek(storefront, products, new Date());
-    return { storefront, products, farmers, subcategories, productOfWeek };
+    return { storefront, products, farmers, subcategories, productOfWeek, homeReviews };
   }
 }

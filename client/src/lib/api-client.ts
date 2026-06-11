@@ -275,6 +275,28 @@ export const updateSiteContact = (data: {
     'Неуспешно записване',
   );
 
+// ---- Landing-page blocks (settings.landing) ----
+
+export interface LandingBlock {
+  show: boolean;
+  count: number;
+}
+export interface LandingConfig {
+  categories: LandingBlock;
+  farmers: LandingBlock;
+  latest: LandingBlock;
+  reviews: { show: boolean; ids: string[] };
+}
+
+export const getLanding = () => apiFetch<{ landing: LandingConfig }>('tenants/me/landing');
+
+export const updateLanding = (landing: LandingConfig) =>
+  apiFetch<{ landing: LandingConfig }>(
+    'tenants/me/landing',
+    { method: 'PATCH', ...json(landing) },
+    'Неуспешна промяна',
+  );
+
 export function uploadFavicon(file: File) {
   const fd = new FormData();
   fd.append('image', file);
