@@ -1,10 +1,11 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { and, eq, gte, isNotNull, lt, or } from 'drizzle-orm';
+import { and, eq, isNotNull, or } from 'drizzle-orm';
 import { type Database, orders, orderItems, products, deliverySlots, tenants, farmers } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
-import { bgToday, bgDayBounds } from '../../common/time/bg-time';
+import { bgToday } from '../../common/time/bg-time';
+import { scheduledForDay } from '../orders/order-scheduling';
 
 interface DigestOrder {
   id: string;
@@ -352,11 +353,10 @@ export class DigestService {
   ) {}
 
   /**
-   * Query confirmed orders for a tenant on a given date and build email content.
-   * Returns null when there are zero confirmed orders.
+   * Query confirmed orders for a tenant on a given delivery day and build email
+   * content. Returns null when there are zero confirmed orders.
    */
   async buildDigest(tenantId: string, date: string): Promise<DigestResult | null> {
-    const { from, to } = bgDayBounds(date); // index-served day window
     const rows = await this.db
       .select({
         id: orders.id,
@@ -376,8 +376,7 @@ export class DigestService {
         and(
           eq(orders.tenantId, tenantId),
           eq(orders.status, 'confirmed'),
-          gte(orders.createdAt, from),
-          lt(orders.createdAt, to),
+          scheduledForDay(date),
         )!,
       )
       .orderBy(orders.createdAt);
@@ -419,7 +418,6 @@ export class DigestService {
     date: string,
     farmerName = '',
   ): Promise<DigestResult | null> {
-    const { from, to } = bgDayBounds(date); // index-served day window
     const rows = await this.db
       .select({
         orderId: orders.id,
@@ -441,8 +439,7 @@ export class DigestService {
         and(
           eq(orders.tenantId, tenantId),
           eq(orders.status, 'confirmed'),
-          gte(orders.createdAt, from),
-          lt(orders.createdAt, to),
+          scheduledForDay(date),
           eq(products.farmerId, farmerId),
         )!,
       )
