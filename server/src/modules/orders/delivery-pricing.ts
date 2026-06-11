@@ -8,7 +8,7 @@
  * is unchanged until a farmer edits the delivery page.
  */
 
-export type DeliveryPricingType = 'free' | 'flat' | 'freeOver' | 'byWeight';
+export type DeliveryPricingType = 'free' | 'flat' | 'freeOver';
 
 export interface MethodPricing {
   type?: DeliveryPricingType;
@@ -32,6 +32,7 @@ export interface DeliveryConfig {
   pricing?: { freeThresholdStotinki?: number };
   econt?: { mode?: EcontMode; configured?: boolean };
   cod?: { enabled?: boolean };
+  card?: { enabled?: boolean };
 }
 
 /**
@@ -57,6 +58,16 @@ export function codEnabled(cfg: DeliveryConfig | null | undefined): boolean {
   return cfg?.cod?.enabled ?? true;
 }
 
+/**
+ * Whether the farm accepts card (online/Stripe) payment. Defaults to true: with a
+ * connected Stripe account card is offered unless the farm explicitly turns it off
+ * (a COD-only farm flips this off without having to disconnect Stripe). This only
+ * gates the *offer* — a farm with no Stripe account can't take cards regardless.
+ */
+export function cardEnabled(cfg: DeliveryConfig | null | undefined): boolean {
+  return cfg?.card?.enabled ?? true;
+}
+
 /** Legacy hardcoded amounts — the fallback when a tenant has no saved config. */
 export const DELIVERY_DEFAULTS = {
   freeThresholdStotinki: 4000,
@@ -67,9 +78,9 @@ export const DELIVERY_DEFAULTS = {
 
 /**
  * Base fee for a method from its pricing block. No free-over here — that is the
- * single global threshold (step 3 of the checkout calc). `freeOver`/`byWeight`
- * are treated as flat for now (per-method free-over is deferred; weight pricing
- * needs numeric product weights we don't have).
+ * single global threshold (step 3 of the checkout calc). `freeOver` (and any legacy
+ * `byWeight`) is treated as flat: per-method free-over is deferred, and weight
+ * pricing was removed since it never had a configurable fee.
  */
 export function methodBaseFee(pricing: MethodPricing | undefined, fallbackFee: number): number {
   if (!pricing || !pricing.type) return fallbackFee;

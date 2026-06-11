@@ -45,6 +45,34 @@ function todayIso() {
 
 const DEFAULT_WIN: SlotWindow = { timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 };
 
+// How long one delivery takes. 0 = the whole window is a single slot.
+const SLOT_LEN = [
+  { v: 0, l: 'Без разделяне — целият прозорец е един слот' },
+  { v: 30, l: '30 минути' },
+  { v: 45, l: '45 минути' },
+  { v: 60, l: '1 час' },
+  { v: 90, l: '1 час и 30 мин' },
+  { v: 120, l: '2 часа' },
+  { v: 180, l: '3 часа' },
+];
+
+const toMin = (t: string) => parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
+const toHhmm = (m: number) =>
+  `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+/** Mirror of the server's splitWindow — drives the live preview line. */
+function chunksOf(win: SlotWindow, slotMinutes: number): string[] {
+  if (!slotMinutes) return [`${win.timeFrom}–${win.timeTo}`];
+  const from = toMin(win.timeFrom);
+  const to = toMin(win.timeTo);
+  if (to - from < slotMinutes) return [`${win.timeFrom}–${win.timeTo}`];
+  const out: string[] = [];
+  for (let m = from; m + slotMinutes <= to; m += slotMinutes) {
+    out.push(`${toHhmm(m)}–${toHhmm(m + slotMinutes)}`);
+  }
+  return out;
+}
+
 /** Two same windows? Used to decide whether "same hours for all" starts on. */
 const sameWin = (a: SlotWindow, b: SlotWindow) =>
   a.timeFrom === b.timeFrom && a.timeTo === b.timeTo && a.maxOrders === b.maxOrders;
@@ -107,6 +135,7 @@ interface State {
   intervalDays: number;
   intervalWindow: SlotWindow;
   anchorDate: string;
+  slotMinutes: number;
   customerNote: string;
   driverNote: string;
   horizonDays: number;
@@ -124,6 +153,7 @@ function initialState(initial: SlotRule | null): State {
       intervalDays: 3,
       intervalWindow: { ...DEFAULT_WIN },
       anchorDate: todayIso(),
+      slotMinutes: 0,
       customerNote: '',
       driverNote: '',
       horizonDays: 28,
@@ -141,6 +171,7 @@ function initialState(initial: SlotRule | null): State {
     intervalDays: initial.intervalDays,
     intervalWindow: initial.intervalWindow ?? { ...DEFAULT_WIN },
     anchorDate: initial.anchorDate,
+    slotMinutes: initial.slotMinutes ?? 0,
     customerNote: initial.customerNote ?? '',
     driverNote: initial.driverNote ?? '',
     horizonDays: initial.horizonDays,
@@ -190,6 +221,7 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
         intervalDays: s.intervalDays,
         intervalWindow: s.intervalWindow,
         anchorDate: s.anchorDate,
+        slotMinutes: s.slotMinutes,
         customerNote: s.customerNote || undefined,
         driverNote: s.driverNote || undefined,
         horizonDays: s.horizonDays,
@@ -309,6 +341,40 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
             <WindowFields win={s.intervalWindow} onChange={(w) => set({ intervalWindow: w })} />
           </>
         )}
+
+        {(() => {
+          // Live preview of what the chosen slot length produces, so the farmer
+          // sees the result before saving. Per-day hours → generic hint instead.
+          const perDay = s.repeat === 'weekdays' && !s.sameHours;
+          const win = s.repeat === 'interval' ? s.intervalWindow : s.shared;
+          const parts = chunksOf(win, s.slotMinutes);
+          const preview = perDay
+            ? 'Прозорецът на всеки ден се разделя според собствените му часове.'
+            : s.slotMinutes === 0
+              ? `Един слот на ден: ${win.timeFrom}–${win.timeTo} (до ${win.maxOrders} поръчки).`
+              : parts.length === 1
+                ? `Прозорецът е по-къс от времетраенето — остава един слот ${parts[0]}.`
+                : `${parts.length} слота на ден: ${parts.slice(0, 6).join(' · ')}${parts.length > 6 ? ' …' : ''} (до ${win.maxOrders} поръчки на слот).`;
+          return (
+            <div className="flex flex-col gap-1.5">
+              <label className={lbl}>
+                Колко трае една доставка
+                <select
+                  value={String(s.slotMinutes)}
+                  onChange={(e) => set({ slotMinutes: parseInt(e.target.value, 10) || 0 })}
+                  className={field}
+                >
+                  {SLOT_LEN.map((o) => (
+                    <option key={o.v} value={o.v}>
+                      {o.l}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-[12.5px] leading-relaxed text-ff-muted">{preview}</p>
+            </div>
+          );
+        })()}
 
         <label className={cn(lbl, 'max-w-[14rem]')}>
           Започва от

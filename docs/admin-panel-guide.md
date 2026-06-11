@@ -227,7 +227,7 @@ The delivery control centre. A master **Доставка активна** toggle
 
 ![Доставка — full delivery configuration](images/guide-delivery.png)
 
-**1 · Методи за доставка.** Up to four methods, each with its own on/off toggle, a customer-facing **Етикет**, a **Срок** ("1–2 работни дни"), and a pricing rule (**Безплатна / Фиксирана / Според теглото / Безплатна над сума**) plus **кой плаща** (customer or farm) and a minimum-order threshold:
+**1 · Методи за доставка.** Up to four methods, each with its own on/off toggle, a customer-facing **Етикет**, a **Срок** ("1–2 работни дни"), and a pricing rule (**Безплатна / Фиксирана**) plus **кой плаща** (customer or farm) and a minimum-order threshold:
 
 1. **До офис на Еконт** — customer collects from an Econt office.
 2. **До адрес (Еконт до врата)** — Econt courier to the door.

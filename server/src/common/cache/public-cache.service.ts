@@ -8,6 +8,7 @@ import {
   buildPublicMethods,
   econtMode,
   codEnabled,
+  cardEnabled,
   type PublicDelivery,
   type PublicMethods,
   type DeliveryConfig,
@@ -51,6 +52,9 @@ export interface TenantMeta {
   econtMode: EcontMode;
   // Whether наложен платеж (COD) is offered — gates the storefront's COD radio.
   codEnabled: boolean;
+  // Internal: whether the farm accepts card payment (the farmer's override). Folded
+  // into `stripeEnabled` in TenantsService, then stripped — not sent to the storefront.
+  cardEnabled: boolean;
   // Internal: the farm's connected Stripe account id. Used to derive `stripeEnabled`
   // in TenantsService, then stripped — never sent to the storefront.
   stripeAccountId: string | null;
@@ -175,6 +179,7 @@ export class PublicCacheService {
       econtEnabled: mode !== 'off',
       econtMode: mode,
       codEnabled: codEnabled(delivery),
+      cardEnabled: cardEnabled(delivery),
       stripeAccountId: row.stripeAccountId ?? null,
       delivery: buildPublicDelivery(delivery),
       methods: buildPublicMethods(delivery),

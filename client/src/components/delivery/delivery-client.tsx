@@ -11,7 +11,6 @@ import { ApiError, saveDelivery } from '@/lib/api-client';
 import { hydrateDelivery } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
 import { MethodsSection } from './methods-section';
-import { PricingSection } from './pricing-section';
 import { EcontConnectionSection } from './econt-section';
 import { OfficePickerPreview } from './office-picker-preview';
 import { ShipmentsTable } from './shipments-table';
@@ -99,7 +98,6 @@ export function DeliveryClient({
 
       <div className="flex flex-col gap-4">
         <MethodsSection cfg={cfg} mut={mut} slotFreeCount={slotFreeCount} />
-        <PricingSection cfg={cfg} mut={mut} />
         {econtMode !== 'off' && <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />}
         {econtMode === 'auto' && <OfficePickerPreview configured={econtReady} />}
         {econtMode === 'auto' && <ShipmentsTable toast={toastAdapter} />}

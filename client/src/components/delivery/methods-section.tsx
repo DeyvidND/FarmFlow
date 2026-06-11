@@ -29,8 +29,6 @@ const METHOD_ICON: Record<DeliveryMethodKey, LucideIcon> = {
 const PRICE_OPTS: { value: PricingType; label: string }[] = [
   { value: 'free', label: 'Безплатна' },
   { value: 'flat', label: 'Фиксирана' },
-  { value: 'byWeight', label: 'Според теглото' },
-  { value: 'freeOver', label: 'Безплатна над сума' },
 ];
 
 /**
@@ -56,6 +54,8 @@ export function MethodsSection({
     if (k === 'econtAddress') return econtMode !== 'off';
     return true;
   });
+  // The free-over threshold only matters when a paid method is on (pickup is free).
+  const hasPaidMethod = order.some((k) => k !== 'pickup');
 
   return (
     <DSection
@@ -77,6 +77,20 @@ export function MethodsSection({
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
+          {hasPaidMethod && (
+            <div className="rounded-xl border border-ff-border bg-ff-surface-2 px-[15px] py-4">
+              <div className="max-w-[260px]">
+                <LvInput
+                  label="Безплатна доставка над сума"
+                  value={cfg.pricing.freeThresholdStotinki}
+                  onChange={(v) => mut((d) => (d.pricing.freeThresholdStotinki = v))}
+                />
+              </div>
+              <p className="mt-2 max-w-[460px] text-[12.5px] leading-snug text-ff-muted">
+                Над тази сума доставката е безплатна за всеки метод. Сложи 0, за да я изключиш.
+              </p>
+            </div>
+          )}
           {order.map((key) => (
             <MethodCard key={key} mkey={key} m={cfg.methods[key]} mut={mut} slotFreeCount={slotFreeCount} />
           ))}
@@ -191,8 +205,6 @@ function MethodCard({
                         if (!x.pricing) x.pricing = { type: v };
                         x.pricing.type = v;
                         if (v === 'flat' && x.pricing.feeStotinki == null) x.pricing.feeStotinki = 499;
-                        if (v === 'freeOver' && x.pricing.freeOverStotinki == null)
-                          x.pricing.freeOverStotinki = 4000;
                       })
                     }
                     options={PRICE_OPTS}
@@ -206,25 +218,6 @@ function MethodCard({
                       onChange={(v) => patch((x) => (x.pricing!.feeStotinki = v))}
                     />
                   </div>
-                )}
-                {m.pricing?.type === 'freeOver' && (
-                  <div className="mt-2.5 grid max-w-[460px] grid-cols-2 gap-3">
-                    <LvInput
-                      label="Праг за безплатна"
-                      value={m.pricing.freeOverStotinki ?? 0}
-                      onChange={(v) => patch((x) => (x.pricing!.freeOverStotinki = v))}
-                    />
-                    <LvInput
-                      label="Такса под прага"
-                      value={m.pricing.feeStotinki ?? 0}
-                      onChange={(v) => patch((x) => (x.pricing!.feeStotinki = v))}
-                    />
-                  </div>
-                )}
-                {m.pricing?.type === 'byWeight' && (
-                  <p className="mt-2 text-[12.5px] text-ff-muted">
-                    Използва таблицата по тегло от секцията „Правила за цена“ по-долу.
-                  </p>
                 )}
               </div>
             )}

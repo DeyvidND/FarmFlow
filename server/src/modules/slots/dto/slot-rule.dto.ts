@@ -51,6 +51,16 @@ export class SaveSlotRuleDto {
 
   @ApiProperty({ example: 28 }) @IsInt() @Min(1) @Max(60) horizonDays: number;
 
+  @ApiPropertyOptional({
+    example: 60,
+    description: 'Колко минути трае една доставка; >0 разделя прозореца на слотове с тази дължина. 0/липсва = един слот.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(480)
+  slotMinutes?: number;
+
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(280) customerNote?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) driverNote?: string;

@@ -23,9 +23,10 @@ describe('delivery-pricing', () => {
       expect(methodBaseFee({ type: 'flat', feeStotinki: 600 }, 490)).toBe(600);
       expect(methodBaseFee({ type: 'flat' }, 490)).toBe(490);
     });
-    it('freeOver/byWeight are treated as flat (per-method free-over ignored)', () => {
+    it('freeOver and legacy/unknown types are treated as flat (per-method free-over ignored)', () => {
       expect(methodBaseFee({ type: 'freeOver', feeStotinki: 700, freeOverStotinki: 3000 }, 490)).toBe(700);
-      expect(methodBaseFee({ type: 'byWeight', feeStotinki: 800 }, 490)).toBe(800);
+      // `byWeight` was removed from the union but may still exist in old saved configs.
+      expect(methodBaseFee({ type: 'byWeight' as never, feeStotinki: 800 }, 490)).toBe(800);
     });
   });
 

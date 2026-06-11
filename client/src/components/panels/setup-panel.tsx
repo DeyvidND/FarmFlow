@@ -58,6 +58,7 @@ export function SetupPanel({
 
   // --- payment ---
   const codOn = cfg.cod?.enabled ?? true;
+  const cardOn = cfg.card?.enabled ?? true;
 
   // --- delivery ---
   const pickupOn = cfg.methods.pickup.enabled;
@@ -114,7 +115,9 @@ export function SetupPanel({
   );
   const cardDesc = stripeAvailable
     ? stripeReady
-      ? 'Приемаш плащания с карта. Управлението на Stripe е в „Плащания“.'
+      ? cardOn
+        ? 'Приемаш плащания с карта. Управлението на Stripe е в „Плащания“.'
+        : 'Изключено — клиентите не виждат плащане с карта. Stripe остава свързан.'
       : 'Свържи Stripe в „Плащания“, за да приемаш плащания с карта.'
     : CARD_COPY;
 
@@ -145,7 +148,8 @@ export function SetupPanel({
           icon={CreditCard}
           title="Карта (онлайн)"
           desc={cardDesc}
-          on={stripeReady}
+          on={stripeReady && cardOn}
+          onToggle={stripeReady ? (v) => mut((d) => (d.card = { enabled: v })) : undefined}
           badge={stripeBadge}
           headerAction={
             stripeAvailable ? (
