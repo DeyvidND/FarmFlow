@@ -133,6 +133,58 @@ export class SlotsService {
   }
 
   /**
+   * Close one calendar day ("няма да доставям на 15.06"): delete every slot on
+   * that date that has no live order, and add the date to the rule's skipDates
+   * so the generator never recreates it. Slots holding live orders are KEPT —
+   * silently dropping a customer's booked delivery is not this button's job;
+   * the farmer resolves those orders first, then the day can be fully closed.
+   * The farmer can still add one-off manual slots on a closed day (e.g. "ще
+   * доставям, но в други часове").
+   */
+  async closeDay(
+    tenantId: string,
+    date: string,
+  ): Promise<{ date: string; removed: number; kept: number }> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('Невалидна дата');
+    const removed = await this.db
+      .delete(deliverySlots)
+      .where(
+        and(
+          eq(deliverySlots.tenantId, tenantId),
+          eq(deliverySlots.date, date),
+          sql`not exists (select 1 from ${orders} o where o.slot_id = ${deliverySlots.id} and o.status <> 'cancelled')`,
+        ),
+      )
+      .returning({ id: deliverySlots.id });
+    const [keptRow] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(deliverySlots)
+      .where(and(eq(deliverySlots.tenantId, tenantId), eq(deliverySlots.date, date)));
+    // Only mark skipDates when a rule actually exists — jsonb_set would otherwise
+    // plant a partial slotRule blob on a farm that never configured one.
+    if (await this.getRule(tenantId)) await this.addSkipDate(tenantId, date);
+    return { date, removed: removed.length, kept: keptRow?.count ?? 0 };
+  }
+
+  /** Reopen a closed day: pull it from skipDates and let the rule refill it now. */
+  async openDay(tenantId: string, date: string): Promise<{ date: string; created: number }> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('Невалидна дата');
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(
+          coalesce(${tenants.settings}, '{}'::jsonb),
+          array['slotRule','skipDates'],
+          coalesce(${tenants.settings} -> 'slotRule' -> 'skipDates', '[]'::jsonb) - ${date}::text,
+          true
+        )`,
+      })
+      .where(eq(tenants.id, tenantId));
+    const created = await this.materializeRule(tenantId, this.bgToday(), true);
+    return { date, created };
+  }
+
+  /**
    * Public: slots for a storefront slug that still have remaining capacity.
    * Returns the trimmed {@link PublicSlot} shape — internal columns and the
    * tenant id are never exposed to the storefront.
@@ -260,7 +312,11 @@ export class SlotsService {
     if (!wanted.length) return 0;
 
     const existing = await this.db
-      .select({ date: deliverySlots.date })
+      .select({
+        date: deliverySlots.date,
+        timeFrom: deliverySlots.timeFrom,
+        timeTo: deliverySlots.timeTo,
+      })
       .from(deliverySlots)
       .where(
         and(
@@ -270,8 +326,14 @@ export class SlotsService {
           lte(deliverySlots.date, wanted[wanted.length - 1].date),
         ),
       );
-    const have = new Set(existing.map((r) => r.date));
-    const missing = wanted.filter((w) => !have.has(w.date));
+    // Key on date+times (PG `time` comes back HH:MM:SS — trim to HH:MM): with
+    // slotMinutes a date carries several slots, so a date-only diff would stop
+    // after the first one. A date-keyed set also guards rule edits that change
+    // a day's hours: those rows were already deleted by the force path.
+    const slotKey = (d: string, from: string, to: string) =>
+      `${d}|${from.slice(0, 5)}|${to.slice(0, 5)}`;
+    const have = new Set(existing.map((r) => slotKey(r.date, r.timeFrom, r.timeTo)));
+    const missing = wanted.filter((w) => !have.has(slotKey(w.date, w.timeFrom, w.timeTo)));
     if (missing.length) {
       await this.db.insert(deliverySlots).values(
         missing.map((w) => ({

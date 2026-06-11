@@ -12,7 +12,7 @@ import { SLOTS_HELP } from '@/lib/delivery-data';
 import { SlotPill } from './slot-pill';
 import { AddSlotDialog, type SlotInput } from './add-slot-dialog';
 import { RecurrenceCard } from './recurrence-card';
-import { ApiError, createSlot, updateSlot, deleteSlot } from '@/lib/api-client';
+import { ApiError, createSlot, updateSlot, deleteSlot, listSlots, closeSlotDay, openSlotDay } from '@/lib/api-client';
 import type { Slot, SlotRule } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -37,6 +37,12 @@ export function SlotsClient({
   const [editSlot, setEditSlot] = useState<Slot | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [help, setHelp] = useState(false);
+  // Dates the recurring rule skips ("затворен ден"). Mirrors rule.skipDates and
+  // is kept in sync locally as days are closed/reopened.
+  const [closedDates, setClosedDates] = useState<Set<string>>(
+    () => new Set(initialRule?.skipDates ?? []),
+  );
+  const [busyDay, setBusyDay] = useState<string | null>(null);
 
   // The master delivery switch lives on the Доставка page — here it's read-only
   // so the same flag is never toggled from two screens (it would go stale).
@@ -55,6 +61,48 @@ export function SlotsClient({
       const created = await createSlot(data);
       setSlots((prev) => [...prev, created]);
       toast.success('Слотът е добавен');
+    }
+  }
+
+  /** Refetch the visible week so the grid matches the server after a day action. */
+  async function refreshWeek() {
+    if (days.length) setSlots(await listSlots(days[0], days[days.length - 1]));
+  }
+
+  async function onCloseDay(d: string) {
+    if (!window.confirm(`Затваряш ${ddmm(d)} — свободните часове за деня се махат и правилото няма да създава нови. Часове с поръчки остават. Продължаваш ли?`)) return;
+    setBusyDay(d);
+    try {
+      const res = await closeSlotDay(d);
+      await refreshWeek();
+      setClosedDates((prev) => new Set(prev).add(d));
+      toast.success(
+        res.kept > 0
+          ? `Денят е затворен · ${res.removed} часа премахнати, ${res.kept} с поръчки останаха`
+          : `Денят е затворен (${res.removed} часа премахнати)`,
+      );
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusyDay(null);
+    }
+  }
+
+  async function onOpenDay(d: string) {
+    setBusyDay(d);
+    try {
+      const res = await openSlotDay(d);
+      await refreshWeek();
+      setClosedDates((prev) => {
+        const next = new Set(prev);
+        next.delete(d);
+        return next;
+      });
+      toast.success(res.created > 0 ? `Денят е отворен (${res.created} часа)` : 'Денят е отворен');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusyDay(null);
     }
   }
 
@@ -129,6 +177,7 @@ export function SlotsClient({
       >
         {days.map((d) => {
           const isToday = d === today;
+          const isClosed = closedDates.has(d);
           return (
             <div
               key={d}
@@ -147,6 +196,11 @@ export function SlotsClient({
                 {isToday && <div className="mt-1 text-[10.5px] font-extrabold tracking-wide text-ff-green-700">ДНЕС</div>}
               </div>
               <div className="flex min-h-[90px] flex-col gap-[7px] p-[9px]">
+                {isClosed && (
+                  <div className="rounded-[10px] bg-ff-amber-softer px-2 py-1.5 text-center text-[11px] font-extrabold text-ff-amber-600">
+                    Няма доставка
+                  </div>
+                )}
                 {byDay(d).map((s) => (
                   <SlotPill
                     key={s.id}
@@ -162,6 +216,25 @@ export function SlotsClient({
                 >
                   <Plus size={15} /> Слот
                 </button>
+                {/* Per-day override: close the day ("няма да доставям на 15.06") or
+                    reopen it. Different hours that day = close + add manual slots. */}
+                {isClosed ? (
+                  <button
+                    onClick={() => onOpenDay(d)}
+                    disabled={busyDay === d}
+                    className="text-[11.5px] font-bold text-ff-green-700 underline-offset-2 hover:underline disabled:opacity-50"
+                  >
+                    {busyDay === d ? 'Отваряне…' : 'Отвори деня'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onCloseDay(d)}
+                    disabled={busyDay === d}
+                    className="text-[11.5px] font-semibold text-ff-muted underline-offset-2 hover:text-ff-amber-600 hover:underline disabled:opacity-50"
+                  >
+                    {busyDay === d ? 'Затваряне…' : 'Затвори деня'}
+                  </button>
+                )}
               </div>
             </div>
           );

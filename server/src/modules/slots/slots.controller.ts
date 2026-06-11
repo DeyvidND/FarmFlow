@@ -7,6 +7,7 @@ import { SlotsService } from './slots.service';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { UpdateSlotDto } from './dto/update-slot.dto';
 import { SaveSlotRuleDto } from './dto/slot-rule.dto';
+import { SlotDayActionDto } from './dto/slot-day-action.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -45,6 +46,20 @@ export class SlotsController {
   @UseGuards(ActiveSubscriptionGuard)
   saveRule(@CurrentTenant() tenantId: string, @Body() dto: SaveSlotRuleDto) {
     return this.slotsService.saveRule(tenantId, dto);
+  }
+
+  /** Close one day: delete its unbooked slots + skip it in the recurring rule. */
+  @Post('close-day')
+  @UseGuards(ActiveSubscriptionGuard)
+  closeDay(@CurrentTenant() tenantId: string, @Body() dto: SlotDayActionDto) {
+    return this.slotsService.closeDay(tenantId, dto.date);
+  }
+
+  /** Reopen a closed day: un-skip it and let the rule refill it immediately. */
+  @Post('open-day')
+  @UseGuards(ActiveSubscriptionGuard)
+  openDay(@CurrentTenant() tenantId: string, @Body() dto: SlotDayActionDto) {
+    return this.slotsService.openDay(tenantId, dto.date);
   }
 
   @Patch(':id')

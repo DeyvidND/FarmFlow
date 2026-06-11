@@ -177,3 +177,75 @@ describe('normalizeRule', () => {
     expect(r.days.map((d) => d.dow)).toEqual([2, 4]);
   });
 });
+
+describe('slotMinutes (slot length splitting)', () => {
+  it('splits each day window into back-to-back slots of the given length', () => {
+    const r: SlotRule = {
+      ...base,
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00', maxOrders: 2 }],
+      slotMinutes: 60,
+    };
+    const s = slotRuleSlots(r, '2026-06-08'); // Monday
+    const mon = s.filter((g) => g.date === '2026-06-08');
+    expect(mon.map((g) => `${g.timeFrom}-${g.timeTo}`)).toEqual([
+      '10:00-11:00',
+      '11:00-12:00',
+      '12:00-13:00',
+      '13:00-14:00',
+    ]);
+    // Capacity applies per sub-slot.
+    for (const g of mon) expect(g.maxOrders).toBe(2);
+  });
+
+  it('drops a trailing partial chunk', () => {
+    const r: SlotRule = {
+      ...base,
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '11:30', maxOrders: 5 }],
+      slotMinutes: 60,
+    };
+    const mon = slotRuleSlots(r, '2026-06-08').filter((g) => g.date === '2026-06-08');
+    expect(mon.map((g) => `${g.timeFrom}-${g.timeTo}`)).toEqual(['10:00-11:00']);
+  });
+
+  it('window shorter than the slot length falls back to the whole window', () => {
+    const r: SlotRule = {
+      ...base,
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '10:45', maxOrders: 5 }],
+      slotMinutes: 60,
+    };
+    const mon = slotRuleSlots(r, '2026-06-08').filter((g) => g.date === '2026-06-08');
+    expect(mon.map((g) => `${g.timeFrom}-${g.timeTo}`)).toEqual(['10:00-10:45']);
+  });
+
+  it('0/absent keeps the original one-slot-per-day behaviour', () => {
+    const s0 = slotRuleSlots({ ...base, slotMinutes: 0 }, '2026-06-08');
+    const sAbsent = slotRuleSlots(base, '2026-06-08');
+    expect(s0).toEqual(sAbsent);
+    expect(s0.filter((g) => g.date === '2026-06-08')).toHaveLength(1);
+  });
+
+  it('splits the interval-mode window too', () => {
+    const r: SlotRule = {
+      ...base,
+      repeat: 'interval',
+      intervalDays: 3,
+      anchorDate: '2026-06-08',
+      intervalWindow: { timeFrom: '09:00', timeTo: '12:00', maxOrders: 4 },
+      slotMinutes: 90,
+    };
+    const first = slotRuleSlots(r, '2026-06-08').filter((g) => g.date === '2026-06-08');
+    expect(first.map((g) => `${g.timeFrom}-${g.timeTo}`)).toEqual(['09:00-10:30', '10:30-12:00']);
+  });
+
+  it('normalizeRule clamps slotMinutes (0 off, 15..480 when set)', () => {
+    const input = {
+      ...base,
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00', maxOrders: 2 }],
+    };
+    expect(normalizeRule({ ...input, slotMinutes: 60 }).slotMinutes).toBe(60);
+    expect(normalizeRule({ ...input, slotMinutes: 5 }).slotMinutes).toBe(15);
+    expect(normalizeRule({ ...input, slotMinutes: 9999 }).slotMinutes).toBe(480);
+    expect(normalizeRule({ ...input, slotMinutes: 0 }).slotMinutes).toBe(0);
+    expect(normalizeRule(input).slotMinutes).toBe(0);
+  });
+});
