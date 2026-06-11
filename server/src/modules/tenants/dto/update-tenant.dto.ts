@@ -112,6 +112,14 @@ export class UpdateTenantDto {
   @IsString()
   productOfWeekNote?: string | null;
 
+  @ApiPropertyOptional({
+    enum: ['section', 'bar'],
+    description: 'Where the highlight renders: full section under the hero, or a thin bar above the header',
+  })
+  @IsOptional()
+  @IsIn(['section', 'bar'])
+  productOfWeekPlacement?: 'section' | 'bar';
+
   // Home / depot — the delivery route origin. If an address is given without
   // coords, the server geocodes it on save.
   @ApiPropertyOptional({ example: 'с. Звездица, общ. Варна' })

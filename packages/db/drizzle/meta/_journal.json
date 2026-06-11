@@ -288,6 +288,13 @@
       "when": 1781127780494,
       "tag": "0040_left_rafael_vega",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1781185308766,
+      "tag": "0041_normal_gunslinger",
+      "breakpoints": true
     }
   ]
 }

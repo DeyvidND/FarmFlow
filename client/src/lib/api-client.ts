@@ -196,6 +196,7 @@ export const updateTenant = (data: {
   productOfWeekMode?: 'manual' | 'auto';
   productOfWeekId?: string | null;
   productOfWeekNote?: string | null;
+  productOfWeekPlacement?: 'section' | 'bar';
   farmAddress?: string;
   farmLat?: number;
   farmLng?: number;

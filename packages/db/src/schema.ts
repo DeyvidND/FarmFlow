@@ -61,6 +61,10 @@ export const tenants = pgTable('tenants', {
   productOfWeekMode: text('product_of_week_mode').notNull().default('manual'),
   productOfWeekId: uuid('product_of_week_id').references((): AnyPgColumn => products.id),
   productOfWeekNote: text('product_of_week_note'),
+  // Where the highlight renders on the storefront: 'section' (full banner under
+  // the hero, the default) or 'bar' (a thin announcement strip above the header,
+  // site-wide). Hiding it altogether is the `productOfWeekEnabled` gate.
+  productOfWeekPlacement: text('product_of_week_placement').notNull().default('section'),
   stripeAccountId: text('stripe_account_id'),
   // Connected-account capability flags, mirrored from Stripe `account.updated`
   // webhooks so the super-admin oversight table reads status without per-load
