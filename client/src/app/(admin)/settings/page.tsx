@@ -4,12 +4,14 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { PasswordCard } from '@/components/settings/password-card';
 import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
+import { LandingCard } from '@/components/settings/landing-card';
 
-type Section = 'password' | 'nav';
+type Section = 'password' | 'nav' | 'landing';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'password', label: 'Смяна на парола' },
   { id: 'nav', label: 'Странична навигация' },
+  { id: 'landing', label: 'Начална страница' },
 ];
 
 export default function SettingsPage() {
@@ -48,6 +50,7 @@ export default function SettingsPage() {
           >
             {section === 'password' && <PasswordCard />}
             {section === 'nav' && <NavVisibilityCard />}
+            {section === 'landing' && <LandingCard />}
           </div>
         </div>
       </div>
