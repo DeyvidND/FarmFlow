@@ -18,6 +18,7 @@ import {
   FAVICON_MAX_BYTES,
 } from '../storage/dto/upload-image.dto';
 import { SiteContactDto } from './dto/site-contact.dto';
+import { LandingDto } from './dto/landing.dto';
 
 @ApiTags('tenants')
 @ApiBearerAuth()
@@ -85,6 +86,20 @@ export class TenantsController {
   @Patch('me/site-contact')
   updateSiteContact(@CurrentTenant() tenantId: string, @Body() dto: SiteContactDto) {
     return this.tenantsService.updateSiteContact(tenantId, dto);
+  }
+
+  // ---- Landing-page blocks ----
+
+  @ApiOperation({ summary: 'Storefront landing blocks (show + count)' })
+  @Get('me/landing')
+  getLanding(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.getLanding(tenantId);
+  }
+
+  @ApiOperation({ summary: 'Update storefront landing blocks' })
+  @Patch('me/landing')
+  updateLanding(@CurrentTenant() tenantId: string, @Body() dto: LandingDto) {
+    return this.tenantsService.updateLanding(tenantId, dto);
   }
 
   @ApiOperation({ summary: 'Upload/replace the website icon (PNG or ICO)' })

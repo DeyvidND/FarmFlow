@@ -19,6 +19,8 @@ import { type PublicDelivery, type PublicMethods, type EcontMode } from '../orde
 import { StripeService } from '../stripe/stripe.service';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { SiteContactDto } from './dto/site-contact.dto';
+import { LandingDto } from './dto/landing.dto';
+import { resolveLanding, type PublicLanding } from './landing';
 import {
   getMediaCatalog,
   isValidSlot,
@@ -74,6 +76,9 @@ export interface PublicStorefront {
   // (settings.brand.themeColor). Null → storefront defaults.
   faviconUrl: string | null;
   themeColor: string | null;
+  // Configurable landing blocks (settings.landing) — which of the three dynamic
+  // home blocks show and how many items each shows. Always present (resolved).
+  landing: PublicLanding;
 }
 
 @Injectable()
@@ -326,6 +331,29 @@ export class TenantsService {
 
     await this.publicCache.del(publicCacheKeys.tenant(slug));
     return { contact: buildPublicContact(contact), themeColor: themeColor ?? null };
+  }
+
+  // ---- Landing-page blocks (settings.landing) ----
+
+  /** Current landing config for the admin editor (resolved + clamped). */
+  async getLanding(tenantId: string): Promise<{ landing: PublicLanding }> {
+    const settings = await this.loadSettings(tenantId);
+    return { landing: resolveLanding(settings.landing) };
+  }
+
+  /** Replace settings.landing with the resolved (clamped) incoming config in a
+   *  single atomic per-path write, then bust the cached public profile. */
+  async updateLanding(tenantId: string, dto: LandingDto): Promise<{ landing: PublicLanding }> {
+    const { slug } = await this.loadTenantForMedia(tenantId);
+    const landing = resolveLanding(dto);
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['landing'], ${JSON.stringify(landing)}::jsonb, true)`,
+      })
+      .where(eq(tenants.id, tenantId));
+    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    return { landing };
   }
 
   /** Upload/replace the website icon. PNG or ICO only — verified by magic bytes
