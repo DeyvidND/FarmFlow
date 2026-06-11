@@ -40,6 +40,8 @@ export interface TenantMeta {
   productOfWeekMode: string;
   productOfWeekId: string | null;
   productOfWeekNote: string | null;
+  // 'section' (full banner under the hero) | 'bar' (thin strip above the header).
+  productOfWeekPlacement: string;
   // Whether the farm offers Econt at all (manual or automatic) — gates the Econt
   // delivery radios on the storefront.
   econtEnabled: boolean;
@@ -136,6 +138,7 @@ export class PublicCacheService {
         productOfWeekMode: tenants.productOfWeekMode,
         productOfWeekId: tenants.productOfWeekId,
         productOfWeekNote: tenants.productOfWeekNote,
+        productOfWeekPlacement: tenants.productOfWeekPlacement,
         settings: tenants.settings,
         stripeAccountId: tenants.stripeAccountId,
       })

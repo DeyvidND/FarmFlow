@@ -64,6 +64,7 @@ export interface PublicStorefront {
   productOfWeekMode: string;
   productOfWeekId: string | null;
   productOfWeekNote: string | null;
+  productOfWeekPlacement: string;
   delivery: PublicDelivery;
   methods: PublicMethods;
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by

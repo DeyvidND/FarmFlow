@@ -111,6 +111,8 @@ export interface TenantProfile {
   productOfWeekMode: 'manual' | 'auto';
   productOfWeekId: string | null;
   productOfWeekNote: string | null;
+  /** Where the highlight renders: full 'section' or a thin 'bar' above the header. */
+  productOfWeekPlacement: 'section' | 'bar';
   /** Home / depot — the delivery route origin. */
   farmAddress: string | null;
   farmLat: string | null;

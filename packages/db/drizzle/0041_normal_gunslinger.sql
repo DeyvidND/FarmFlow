@@ -1,0 +1,1 @@
+ALTER TABLE "tenants" ADD COLUMN "product_of_week_placement" text DEFAULT 'section' NOT NULL;
