@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { Image as ImageIcon } from 'lucide-react';
+import { coverCropStyle } from '@/lib/cover-crop';
+import type { CoverCrop } from '@/lib/types';
 
 function hexA(hex: string, a: number) {
   const h = hex.replace('#', '');
@@ -15,10 +17,13 @@ function hexA(hex: string, a: number) {
  *  image-upload trigger. Shows the real image when one is set. */
 export function ProductThumb({
   imageUrl,
+  coverCrop,
   uploading,
   onPick,
 }: {
   imageUrl?: string | null;
+  /** Farmer's saved framing — applied so the panel shows the same crop as the shop. */
+  coverCrop?: CoverCrop | null;
   uploading?: boolean;
   onPick?: () => void;
 }) {
@@ -31,13 +36,15 @@ export function ProductThumb({
     <button
       type="button"
       onClick={onPick}
-      className="relative grid h-[132px] w-full place-items-center overflow-hidden rounded-xl border border-ff-border-2"
+      // Aspect 4:3 matches the default storefront product card, so a photo framed
+      // here lands the same in the shop (portrait or landscape, both look uniform).
+      className="relative grid aspect-[4/3] w-full place-items-center overflow-hidden rounded-xl border border-ff-border-2"
       style={{ background: 'linear-gradient(150deg, var(--ff-green-50), var(--ff-surface-2))' }}
       title="Качи снимка"
     >
       {showImg ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" onError={() => setBroken(true)} />
+        <img src={imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full" style={coverCropStyle(coverCrop)} onError={() => setBroken(true)} />
       ) : (
         <svg viewBox="0 0 60 40" width="62%" height="62%" style={{ opacity: 0.7 }}>
           <circle cx="24" cy="22" r="8" fill={hexA(g, 0.3)} />

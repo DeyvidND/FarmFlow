@@ -2,17 +2,22 @@
 
 import { Image as ImageIcon } from 'lucide-react';
 import { hexA } from '@/components/farmers/avatar';
+import { coverCropStyle } from '@/lib/cover-crop';
+import type { CoverCrop } from '@/lib/types';
 
 /** Section banner — uploaded photo, else a tinted gradient placeholder. */
 export function SectionPhoto({
   tint,
   imageUrl,
+  coverCrop,
   height = 120,
   radius = 12,
   label = true,
 }: {
   tint: string | null;
   imageUrl?: string | null;
+  /** Farmer's saved framing — applied so the banner matches the shop. */
+  coverCrop?: CoverCrop | null;
   height?: number;
   radius?: number;
   label?: boolean;
@@ -20,8 +25,11 @@ export function SectionPhoto({
   const t = tint ?? '#4C8A54';
   if (imageUrl) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={imageUrl} alt="" loading="lazy" decoding="async" className="w-full object-cover" style={{ height, borderRadius: radius }} />
+      // overflow-hidden so a zoomed (scale > 1) framing clips to the banner box.
+      <div className="w-full overflow-hidden" style={{ height, borderRadius: radius }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full" style={coverCropStyle(coverCrop)} />
+      </div>
     );
   }
   return (

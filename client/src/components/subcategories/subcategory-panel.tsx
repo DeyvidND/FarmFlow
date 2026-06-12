@@ -118,7 +118,7 @@ export function SubcategoryPanel({
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
           <div>
             <div className="mb-1.5 text-[12.5px] font-bold text-ff-ink-2">Снимка на секцията</div>
-            <SectionPhoto tint={tint} imageUrl={imageUrl} height={130} />
+            <SectionPhoto tint={tint} imageUrl={imageUrl} coverCrop={coverCrop} height={130} />
             {isNew ? (
               <p className="mt-2 text-[12.5px] text-ff-muted-2">Първо запази секцията, после добави снимка.</p>
             ) : (

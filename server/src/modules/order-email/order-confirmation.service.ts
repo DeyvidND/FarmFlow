@@ -107,8 +107,7 @@ export class OrderConfirmationService {
       // Strip CR/LF from the tenant-controlled farm name before it enters the
       // email subject — defense-in-depth against header injection.
       const safeFarmName = farmName.replace(/[\r\n]+/g, ' ').trim();
-      const subject =
-        `Поръчка №${order.orderNumber ?? ''} е потвърдена — ${safeFarmName}`.trim();
+      const subject = `Поръчката ти е потвърдена — ${safeFarmName}`.trim();
 
       await this.email.sendMail({
         to,
@@ -219,7 +218,7 @@ export class OrderConfirmationService {
         <tr><td style="padding:28px">
           <h1 style="margin:0 0 6px;font-size:22px;color:#23210f">Благодарим за поръчката!${greetingName ? '' : ''}</h1>
           <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#4a4733">
-            ${greetingName ? `Здравей, ${greetingName}! ` : ''}Поръчка <strong>№${esc(String(order.orderNumber ?? ''))}</strong> е потвърдена и вече я приготвяме.
+            ${greetingName ? `Здравей, ${greetingName}! ` : ''}Поръчката ти е <strong>потвърдена</strong> и вече я приготвяме.
           </p>
 
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
@@ -256,7 +255,7 @@ export class OrderConfirmationService {
       (it) => `- ${it.name} × ${it.quantity} = ${money(it.priceStotinki * it.quantity)}`,
     );
     return [
-      `${farmName} — Поръчка №${order.orderNumber ?? ''} е потвърдена.`,
+      `${farmName} — Поръчката ти е потвърдена.`,
       order.customerName ? `Здравей, ${order.customerName}!` : '',
       '',
       ...lines,

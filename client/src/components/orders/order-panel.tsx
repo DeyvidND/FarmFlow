@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Phone, MapPin, Package, CalendarClock, Check, Truck, CreditCard } from 'lucide-react';
+import { X, Phone, Mail, MapPin, Package, CalendarClock, Check, Truck, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusBadge } from '@/components/status-badge';
@@ -71,6 +71,9 @@ export function OrderPanel({
 
           <div className="mb-[22px] flex flex-col gap-2.5">
             <InfoRow icon={<Phone size={18} />} label="Телефон" value={order.customerPhone ?? '—'} />
+            {order.customerEmail && (
+              <InfoRow icon={<Mail size={18} />} label="Имейл" value={order.customerEmail} />
+            )}
             <InfoRow
               icon={isEcont ? <Package size={18} /> : <MapPin size={18} />}
               label={deliveryLabel}

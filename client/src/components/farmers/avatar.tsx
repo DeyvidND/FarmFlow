@@ -1,5 +1,8 @@
 'use client';
 
+import { coverCropStyle } from '@/lib/cover-crop';
+import type { CoverCrop } from '@/lib/types';
+
 /** hex + alpha → rgba() string, with a green fallback for null tints. */
 export function hexA(hex: string | null, a: number): string {
   const h = (hex ?? '#4C8A54').replace('#', '');
@@ -21,27 +24,33 @@ export function Avatar({
   name,
   tint,
   imageUrl,
+  coverCrop,
   size = 44,
   ring = false,
 }: {
   name: string;
   tint: string | null;
   imageUrl?: string | null;
+  /** Farmer's saved cover framing — applied so the avatar respects their focal point. */
+  coverCrop?: CoverCrop | null;
   size?: number;
   ring?: boolean;
 }) {
   const t = tint ?? '#2C5530';
   if (imageUrl) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={imageUrl}
-        alt={name}
-        loading="lazy"
-        decoding="async"
-        className="shrink-0 rounded-full object-cover"
-        style={{ width: size, height: size }}
-      />
+      // overflow-hidden wrapper clips a zoomed (scale > 1) framing to the circle.
+      <span className="block shrink-0 overflow-hidden rounded-full" style={{ width: size, height: size }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageUrl}
+          alt={name}
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full"
+          style={coverCropStyle(coverCrop)}
+        />
+      </span>
     );
   }
   return (
