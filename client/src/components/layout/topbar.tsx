@@ -72,17 +72,28 @@ function toInitials(name: string): string {
   return parts.slice(0, 2).map((w) => w[0]!.toUpperCase()).join('');
 }
 
+// Keep these labels identical to the sidebar nav (NAV_GROUPS in sidebar.tsx) so a
+// screen reads the same name in the menu and in the top bar. Every admin route
+// needs an entry — a missing one falls back to a bare "FarmFlow".
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Табло',
   '/orders': 'Поръчки',
-  '/production': 'За приготвяне днес',
+  '/production': 'Производство',
+  '/route': 'Маршрут',
+  '/payments': 'Плащания',
   '/products': 'Продукти',
   '/farmers': 'Фермери',
   '/subcategories': 'Подкатегории',
-  '/slots': 'Слотове за доставка',
-  '/route': 'Маршрут за днес',
   '/articles': 'Статии',
+  '/reviews': 'Отзиви',
+  '/site-media': 'Снимки на сайта',
+  '/contacts': 'Контакти',
   '/newsletters': 'Имейл клиенти',
+  '/setup': 'Методи и цени',
+  '/delivery': 'Доставка',
+  '/slots': 'Часове за доставка',
+  '/features': 'Функции на магазина',
+  '/settings': 'Настройки',
   '/help': 'Документация',
 };
 

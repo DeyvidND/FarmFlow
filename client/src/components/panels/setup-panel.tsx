@@ -125,10 +125,10 @@ export function SetupPanel({
     <div className={cn('animate-ff-fade-up flex flex-col gap-4', dirty && 'pb-20')}>
       <div className="mb-1">
         <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">
-          Доставка и плащане
+          Методи и цени
         </h1>
         <p className="mt-0.5 text-[14px] text-ff-ink-2">
-          Избери как клиентите плащат и получават поръчките си. Настройките им са в страница „Доставка“.
+          Избери как клиентите плащат и получават поръчките си. Подробните настройки са в страница „Доставка“.
         </p>
       </div>
 

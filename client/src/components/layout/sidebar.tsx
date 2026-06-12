@@ -64,39 +64,25 @@ export const HOME: NavItem = {
   desc: 'Начален преглед — обобщение на продажби и поръчки.',
 };
 
-// Grouped by intent — everyday work (sell · fulfil) stays open; set-up-once
-// groups (catalog · marketing) fold away so the list doesn't overwhelm.
+// Grouped by function — the everyday order pipeline (Продажби) stays open; the
+// set-up-once groups (catalog · marketing · delivery+payment config) fold away
+// so the list doesn't overwhelm. Each group is one functional domain, daily-doing
+// kept apart from set-once config, and no label repeats a group title.
 export const NAV_GROUPS: NavGroup[] = [
   {
-    title: 'Магазин',
-    desc: 'Основни настройки на магазина.',
-    items: [
-      { href: '/setup', label: 'Доставка и плащане', Icon: SlidersHorizontal, desc: 'Начини на доставка и плащане.' },
-      { href: '/features', label: 'Функции на магазина', Icon: ToggleRight, desc: 'Включи/изключи цели части от магазина.' },
-    ],
-  },
-  {
     title: 'Продажби',
-    desc: 'Поръчки и приходи.',
+    desc: 'Ежедневният поток на поръчките — от приемане до доставка и пари.',
     items: [
       { href: '/orders', label: 'Поръчки', Icon: ClipboardList, desc: 'Входящи поръчки от клиенти.' },
-      { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите.' },
-    ],
-  },
-  {
-    title: 'Доставка',
-    desc: 'Подготовка и разнасяне на поръчките.',
-    items: [
       { href: '/production', label: 'Производство', Icon: ShoppingBasket, gated: true, desc: 'Дневен списък какво да приготвиш за доставките.' },
       { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true, desc: 'Маршрут за разнасяне на поръчките.' },
-      { href: '/slots', label: 'Слотове', Icon: CalendarDays, gated: true, desc: 'Часове и дни за доставка, които клиентът избира.' },
-      { href: '/delivery', label: 'Доставка', Icon: Truck, desc: 'Настройки на куриер и зони на доставка.' },
+      { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите.' },
     ],
   },
   {
     title: 'Каталог',
     collapsible: true,
-    desc: 'Продукти, фермери и раздели.',
+    desc: 'Какво продаваш — продукти, фермери и раздели.',
     items: [
       { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоят каталог с продукти и цени.' },
       { href: '/farmers', label: 'Фермери', Icon: Users, desc: 'Производителите, чиято стока продаваш.' },
@@ -113,6 +99,17 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/site-media', label: 'Снимки на сайта', Icon: ImageIcon, desc: 'Снимки за началната страница и секциите.' },
       { href: '/contacts', label: 'Контакти', Icon: Contact, desc: 'Контактна информация, социални мрежи, локация и иконка на сайта.' },
       { href: '/newsletters', label: 'Имейл клиенти', Icon: Mail, desc: 'Списък с имейли за бюлетин.' },
+    ],
+  },
+  {
+    title: 'Доставка и плащане',
+    collapsible: true,
+    desc: 'Начини на доставка и плащане, часове за доставка и функции на магазина.',
+    items: [
+      { href: '/setup', label: 'Методи и цени', Icon: SlidersHorizontal, desc: 'Кои начини на доставка и плащане приемаш и на каква цена.' },
+      { href: '/delivery', label: 'Доставка', Icon: Truck, desc: 'Настройки на куриер (Еконт) и зони на доставка.' },
+      { href: '/slots', label: 'Часове за доставка', Icon: CalendarDays, gated: true, desc: 'Часове и дни за лична доставка, които клиентът избира.' },
+      { href: '/features', label: 'Функции на магазина', Icon: ToggleRight, desc: 'Включи/изключи цели части от магазина.' },
     ],
   },
 ];
