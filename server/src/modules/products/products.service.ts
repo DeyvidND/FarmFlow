@@ -29,6 +29,7 @@ import { ReorderDto } from '../../common/dto/reorder.dto';
 import { slugify } from '../articles/articles.util';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { optimizeImage } from '../storage/image.util';
+import { smartFocal, smartFocalFromUrl } from '../storage/smart-crop.util';
 
 @Injectable()
 export class ProductsService {
@@ -215,7 +216,7 @@ export class ProductsService {
 
     const [row] = await this.db
       .update(products)
-      .set({ imageUrl: url })
+      .set({ imageUrl: url, coverCrop: await smartFocal(img.buffer) })
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
       .returning();
 
@@ -377,9 +378,20 @@ export class ProductsService {
       .where(eq(productMedia.productId, id))
       .orderBy(asc(productMedia.position))
       .limit(1);
+    const newUrl = first?.url ?? null;
+    const [cur] = await this.db
+      .select({ imageUrl: products.imageUrl })
+      .from(products)
+      .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
+      .limit(1);
+    // Cover image unchanged → keep whatever framing is set (incl. a manual override).
+    if (cur?.imageUrl === newUrl) return;
+    // New cover → recompute a content-aware focal default (the old framing belonged
+    // to the previous image; the cover editor also resets it on a cover change).
+    const coverCrop = newUrl ? await smartFocalFromUrl(newUrl) : null;
     await this.db
       .update(products)
-      .set({ imageUrl: first?.url ?? null })
+      .set({ imageUrl: newUrl, coverCrop })
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)));
   }
 
