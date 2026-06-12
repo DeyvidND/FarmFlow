@@ -14,6 +14,7 @@ import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 import { Throttle } from '@nestjs/throttler';
 import { PlatformService } from './platform.service';
+import { PlatformInsightsService } from './insights.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import { SetPremiumDto } from './dto/set-premium.dto';
@@ -44,12 +45,30 @@ export class PlatformAuthController {
 @UseGuards(PlatformAdminGuard)
 @Controller('platform')
 export class PlatformController {
-  constructor(private readonly platform: PlatformService) {}
+  constructor(
+    private readonly platform: PlatformService,
+    private readonly insights: PlatformInsightsService,
+  ) {}
 
   /** Current super-admin identity — backs the panel's server-side auth gate. */
   @Get('me')
   me(@CurrentUser() user: RequestUser) {
     return this.platform.me((user as { type: 'platform'; adminId: string }).adminId);
+  }
+
+  /** Farm-health snapshot for the «Анализ» screen: who needs attention + why,
+   *  feature adoption across all farms, and the farm list for the chart scope. */
+  @Get('insights')
+  getInsights() {
+    return this.insights.insights();
+  }
+
+  /** Orders/revenue time series for the trend chart (Sofia-local buckets). */
+  @Get('insights/timeseries')
+  @ApiQuery({ name: 'range', required: false })
+  @ApiQuery({ name: 'tenantId', required: false })
+  getTimeseries(@Query('range') range = '30d', @Query('tenantId') tenantId?: string) {
+    return this.insights.timeseries(range, tenantId);
   }
 
   @Get('tenants')
