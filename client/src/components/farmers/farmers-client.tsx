@@ -208,7 +208,7 @@ export function FarmersClient({
                         )}
                       </div>
                     ) : (
-                      <div className="text-[12.5px] text-ff-muted">Още няма продукти. Свържи от „Продукти".</div>
+                      <div className="text-[12.5px] text-ff-muted">Още няма продукти. Свържи от „Продукти&rdquo;.</div>
                     )}
                   </div>
                 </div>
