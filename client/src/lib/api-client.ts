@@ -240,8 +240,16 @@ export const deleteSiteMedia = (slotKey: string) =>
 
 // ---- Site contact + website icon ----
 export interface SocialLink {
+  // Known network key ('fb'|'ig'|'yt'|'tt'|'viber'|'telegram'|'whatsapp'|'x'|'other').
+  // '' on older rows → the storefront guesses the icon from the url.
+  network: string;
   label: string;
   url: string;
+}
+
+export interface CustomField {
+  label: string;
+  value: string;
 }
 
 export interface SiteContactResponse {
@@ -249,8 +257,10 @@ export interface SiteContactResponse {
     address: string | null;
     hours: string | null;
     tagline: string | null;
+    phone: string | null;
     email: string | null;
     social: SocialLink[];
+    custom: CustomField[];
     mapLat: string | null;
     mapLng: string | null;
   };
@@ -264,8 +274,10 @@ export const updateSiteContact = (data: {
   address: string;
   hours: string;
   tagline: string;
+  phone: string;
   email: string;
   social: SocialLink[];
+  custom: CustomField[];
   mapLat: string;
   mapLng: string;
   themeColor: string;

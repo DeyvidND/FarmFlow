@@ -86,6 +86,7 @@ export function FeaturesPanel({ initial }: { initial: FeatureFlags }) {
           desc="Клиентите оставят оценки и мнения в магазина. Изключи, за да скриеш секцията с отзиви."
           on={val.reviewsEnabled}
           onToggle={(v) => set('reviewsEnabled', v)}
+          configLink={{ href: '/reviews', label: 'Управлявай отзивите' }}
         />
       </CardGroup>
 

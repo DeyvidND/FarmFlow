@@ -46,16 +46,12 @@ export function MethodsSection({
   slotFreeCount: number;
 }) {
   const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
-  // Show the config of methods that are switched on. Econt's visible variant
-  // depends on the mode (office in auto, address in manual); both hide when off.
   const order = cfg.methods.order.filter((k) => {
     if (!cfg.methods[k].enabled) return false;
     if (k === 'econtOffice') return econtMode === 'auto';
     if (k === 'econtAddress') return econtMode !== 'off';
     return true;
   });
-  // The free-over threshold only matters when a paid method is on (pickup is free).
-  const hasPaidMethod = order.some((k) => k !== 'pickup');
 
   return (
     <DSection
@@ -77,22 +73,16 @@ export function MethodsSection({
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
-          {hasPaidMethod && (
-            <div className="rounded-xl border border-ff-border bg-ff-surface-2 px-[15px] py-4">
-              <div className="max-w-[260px]">
-                <LvInput
-                  label="Безплатна доставка над сума"
-                  value={cfg.pricing.freeThresholdStotinki}
-                  onChange={(v) => mut((d) => (d.pricing.freeThresholdStotinki = v))}
-                />
-              </div>
-              <p className="mt-2 max-w-[460px] text-[12.5px] leading-snug text-ff-muted">
-                Над тази сума доставката е безплатна за всеки метод. Сложи 0, за да я изключиш.
-              </p>
-            </div>
-          )}
           {order.map((key) => (
-            <MethodCard key={key} mkey={key} m={cfg.methods[key]} mut={mut} slotFreeCount={slotFreeCount} />
+            <MethodCard
+              key={key}
+              mkey={key}
+              m={cfg.methods[key]}
+              mut={mut}
+              slotFreeCount={slotFreeCount}
+              freeThreshold={cfg.pricing.freeThresholdStotinki}
+              onFreeThresholdChange={(v) => mut((d) => (d.pricing.freeThresholdStotinki = v))}
+            />
           ))}
         </div>
       )}
@@ -105,11 +95,15 @@ function MethodCard({
   m,
   mut,
   slotFreeCount,
+  freeThreshold,
+  onFreeThresholdChange,
 }: {
   mkey: DeliveryMethodKey;
   m: DeliveryMethod;
   mut: Mut;
   slotFreeCount: number;
+  freeThreshold: number;
+  onFreeThresholdChange: (v: number) => void;
 }) {
   const router = useRouter();
   const meta = METHOD_META[mkey];
@@ -211,11 +205,16 @@ function MethodCard({
                   />
                 </DLabel>
                 {m.pricing?.type === 'flat' && (
-                  <div className="mt-2.5 max-w-[220px]">
+                  <div className="mt-2.5 grid grid-cols-2 gap-3 max-w-[460px]">
                     <LvInput
                       label="Фиксирана такса"
                       value={m.pricing.feeStotinki ?? 0}
                       onChange={(v) => patch((x) => (x.pricing!.feeStotinki = v))}
+                    />
+                    <LvInput
+                      label="Безплатно над сума"
+                      value={freeThreshold}
+                      onChange={onFreeThresholdChange}
                     />
                   </div>
                 )}

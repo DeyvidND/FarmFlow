@@ -11,23 +11,71 @@ import {
   uploadFavicon,
   deleteFavicon,
   type SocialLink,
+  type CustomField,
 } from '@/lib/api-client';
 
 const FAVICON_ACCEPT = 'image/png,image/x-icon,.ico,.png';
+
+// Social networks the dropdown offers; the key drives the storefront icon, the
+// name is the label shown both in the picker and (for known nets) on the site.
+const NETWORKS: { key: string; name: string }[] = [
+  { key: 'fb', name: 'Facebook' },
+  { key: 'ig', name: 'Instagram' },
+  { key: 'yt', name: 'YouTube' },
+  { key: 'tt', name: 'TikTok' },
+  { key: 'viber', name: 'Viber' },
+  { key: 'telegram', name: 'Telegram' },
+  { key: 'whatsapp', name: 'WhatsApp' },
+  { key: 'x', name: 'X (Twitter)' },
+  { key: 'other', name: 'Друго (линк)' },
+];
+
+const NETWORK_KEYS = new Set(NETWORKS.map((n) => n.key));
+
+// Sample url per network. Links must be https web profiles (the API rejects
+// tel:/viber: schemes) — click-to-call lives in the phone + custom fields.
+const SOCIAL_PLACEHOLDER: Record<string, string> = {
+  fb: 'https://facebook.com/твоята-страница',
+  ig: 'https://instagram.com/твоя-профил',
+  yt: 'https://youtube.com/@твоя-канал',
+  tt: 'https://tiktok.com/@твоя-профил',
+  viber: 'https://viber.me/…',
+  telegram: 'https://t.me/твоя-профил',
+  whatsapp: 'https://wa.me/3598…',
+  x: 'https://x.com/твоя-профил',
+  other: 'https://…',
+};
+
+/** Pick a network key for an older row that has only a url, so the dropdown
+ *  pre-selects sensibly. Falls back to 'other'. */
+function guessNetwork(url: string): string {
+  const u = url.toLowerCase();
+  if (u.includes('facebook') || u.includes('fb.com') || u.includes('fb.me')) return 'fb';
+  if (u.includes('instagram') || u.includes('instagr.am')) return 'ig';
+  if (u.includes('youtube') || u.includes('youtu.be')) return 'yt';
+  if (u.includes('tiktok')) return 'tt';
+  if (u.includes('viber')) return 'viber';
+  if (u.includes('t.me') || u.includes('telegram')) return 'telegram';
+  if (u.includes('wa.me') || u.includes('whatsapp')) return 'whatsapp';
+  if (u.includes('twitter.com') || u.includes('x.com')) return 'x';
+  return 'other';
+}
 
 type Form = {
   address: string;
   hours: string;
   tagline: string;
+  phone: string;
   email: string;
   social: SocialLink[];
+  custom: CustomField[];
   mapLat: string;
   mapLng: string;
   themeColor: string;
 };
 
 const EMPTY: Form = {
-  address: '', hours: '', tagline: '', email: '', social: [], mapLat: '', mapLng: '', themeColor: '',
+  address: '', hours: '', tagline: '', phone: '', email: '', social: [], custom: [], mapLat: '', mapLng: '', themeColor: '',
 };
 
 export default function ContactsPage() {
@@ -45,8 +93,14 @@ export default function ContactsPage() {
           address: res.contact.address ?? '',
           hours: res.contact.hours ?? '',
           tagline: res.contact.tagline ?? '',
+          phone: res.contact.phone ?? '',
           email: res.contact.email ?? '',
-          social: res.contact.social ?? [],
+          social: (res.contact.social ?? []).map((s) => ({
+            network: s.network && NETWORK_KEYS.has(s.network) ? s.network : guessNetwork(s.url),
+            label: s.label ?? '',
+            url: s.url ?? '',
+          })),
+          custom: res.contact.custom ?? [],
           mapLat: res.contact.mapLat ?? '',
           mapLng: res.contact.mapLng ?? '',
           themeColor: res.themeColor ?? '',
@@ -69,11 +123,28 @@ export default function ContactsPage() {
   }
 
   function addSocial() {
-    setForm((f) => (f.social.length >= 8 ? f : { ...f, social: [...f.social, { label: '', url: '' }] }));
+    setForm((f) =>
+      f.social.length >= 8 ? f : { ...f, social: [...f.social, { network: 'fb', label: '', url: '' }] },
+    );
   }
 
   function removeSocial(i: number) {
     setForm((f) => ({ ...f, social: f.social.filter((_, idx) => idx !== i) }));
+  }
+
+  function setCustom(i: number, patch: Partial<CustomField>) {
+    setForm((f) => ({
+      ...f,
+      custom: f.custom.map((c, idx) => (idx === i ? { ...c, ...patch } : c)),
+    }));
+  }
+
+  function addCustom() {
+    setForm((f) => (f.custom.length >= 12 ? f : { ...f, custom: [...f.custom, { label: '', value: '' }] }));
+  }
+
+  function removeCustom(i: number) {
+    setForm((f) => ({ ...f, custom: f.custom.filter((_, idx) => idx !== i) }));
   }
 
   async function save() {
@@ -83,9 +154,12 @@ export default function ContactsPage() {
         address: form.address,
         hours: form.hours,
         tagline: form.tagline,
+        phone: form.phone,
         email: form.email,
         // Drop rows without a url — the API rejects non-url social links.
         social: form.social.filter((s) => s.url.trim()),
+        // Drop rows without a value.
+        custom: form.custom.filter((c) => c.value.trim()),
         mapLat: form.mapLat,
         mapLng: form.mapLng,
         themeColor: form.themeColor,
@@ -164,6 +238,20 @@ export default function ContactsPage() {
                 placeholder="Всеки петък · 11:00–18:00" />
             </div>
             <div>
+              <label className={label}>Телефон / Viber</label>
+              <input
+                type="tel"
+                className={input}
+                value={form.phone}
+                onChange={(e) => set('phone', e.target.value)}
+                placeholder="+359 88 123 4567"
+              />
+              <p className="mt-1 text-[12px] text-ff-muted">
+                Показва се във футъра и на страница „Контакти“ — клиентите могат да се обадят с
+                едно докосване.
+              </p>
+            </div>
+            <div>
               <label className={label}>Кратко описание (във футъра)</label>
               <textarea className={`${input} min-h-[80px]`} value={form.tagline}
                 onChange={(e) => set('tagline', e.target.value)}
@@ -196,12 +284,23 @@ export default function ContactsPage() {
           ) : (
             <div className="flex flex-col gap-2">
               {form.social.map((s, i) => (
-                <div key={i} className="flex gap-2">
-                  <input className={`${input} max-w-[160px]`} value={s.label}
-                    onChange={(e) => setSocial(i, { label: e.target.value })} placeholder="Facebook" />
-                  <input className={input} value={s.url}
+                <div key={i} className="flex flex-wrap items-center gap-2">
+                  <select
+                    className={`${input} max-w-[170px] cursor-pointer`}
+                    value={NETWORK_KEYS.has(s.network) ? s.network : 'other'}
+                    onChange={(e) => setSocial(i, { network: e.target.value })}
+                  >
+                    {NETWORKS.map((n) => (
+                      <option key={n.key} value={n.key}>{n.name}</option>
+                    ))}
+                  </select>
+                  {s.network === 'other' && (
+                    <input className={`${input} max-w-[150px]`} value={s.label}
+                      onChange={(e) => setSocial(i, { label: e.target.value })} placeholder="Име на връзката" />
+                  )}
+                  <input className={`${input} min-w-[200px] flex-1`} value={s.url}
                     onChange={(e) => setSocial(i, { url: e.target.value })}
-                    placeholder="https://facebook.com/твоята-страница" />
+                    placeholder={SOCIAL_PLACEHOLDER[s.network] ?? SOCIAL_PLACEHOLDER.other} />
                   <Button variant="ghost" type="button" onClick={() => removeSocial(i)}
                     title="Премахни" className="rounded-sm px-2.5 text-ff-red hover:bg-ff-red/10">
                     <Trash2 size={15} />
@@ -211,8 +310,45 @@ export default function ContactsPage() {
             </div>
           )}
           <p className="mt-2 text-[12px] text-ff-muted">
-            Връзката трябва да започва с https:// — иконата се познава по адреса (Facebook,
-            Instagram, TikTok, YouTube), останалите получават обща икона.
+            Избери мрежата от падащото меню — иконата се поставя автоматично. Връзката трябва да
+            е https:// уеб адрес (за Viber/WhatsApp ползвай viber.me / wa.me). „Друго“ показва
+            обща икона.
+          </p>
+        </section>
+
+        {/* Допълнителни контактни полета */}
+        <section className={card}>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-[15px] font-extrabold">Допълнителни полета</h2>
+            <Button variant="soft" type="button" onClick={addCustom} disabled={form.custom.length >= 12}
+              className="gap-1.5 rounded-sm px-3 py-1.5 text-[13px]">
+              <Plus size={15} /> Добави
+            </Button>
+          </div>
+          {form.custom.length === 0 ? (
+            <p className="text-[13px] text-ff-muted">Няма допълнителни полета.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {form.custom.map((c, i) => (
+                <div key={i} className="flex flex-wrap items-center gap-2">
+                  <input className={`${input} max-w-[200px]`} value={c.label}
+                    onChange={(e) => setCustom(i, { label: e.target.value })}
+                    placeholder="Етикет (напр. WhatsApp)" />
+                  <input className={`${input} min-w-[200px] flex-1`} value={c.value}
+                    onChange={(e) => setCustom(i, { value: e.target.value })}
+                    placeholder="Стойност (напр. +359 88 …)" />
+                  <Button variant="ghost" type="button" onClick={() => removeCustom(i)}
+                    title="Премахни" className="rounded-sm px-2.5 text-ff-red hover:bg-ff-red/10">
+                    <Trash2 size={15} />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 text-[12px] text-ff-muted">
+            Каквото поиска фермата — втори телефон, WhatsApp, допълнителни часове… Показва се
+            автоматично във футъра и на страница „Контакти“. Празните не се показват; телефон,
+            имейл и линк стават кликаеми автоматично.
           </p>
         </section>
 
@@ -293,7 +429,7 @@ export default function ContactsPage() {
           </div>
         </section>
 
-        <div className="sticky bottom-0 -mx-1 flex justify-end bg-gradient-to-t from-ff-bg to-transparent py-3">
+        <div className="mt-1 flex justify-end border-t border-ff-border pt-4">
           <Button type="button" onClick={save} disabled={saving}
             className="rounded-sm px-6 py-2.5 text-[14px] font-bold">
             {saving ? 'Запазване…' : 'Запази'}

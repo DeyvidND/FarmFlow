@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsEmail,
+  IsIn,
   IsOptional,
   IsString,
   IsUrl,
@@ -42,8 +43,29 @@ function IsCoordString(min: number, max: number, opts?: ValidationOptions) {
   };
 }
 
-/** One social link row. `url` must be a real http(s) URL; `label` is free text. */
+/** Known social-network keys the admin dropdown offers. `other` = a free link
+ *  with a custom label; the storefront falls back to a globe icon. */
+export const SOCIAL_NETWORKS = [
+  'fb',
+  'ig',
+  'yt',
+  'tt',
+  'viber',
+  'telegram',
+  'whatsapp',
+  'x',
+  'other',
+] as const;
+
+/** One social link row. `url` must be a real http(s) URL; `network` picks the
+ *  icon (optional → older rows / icon guessed from url); `label` is free text
+ *  (used for the `other` network). */
 export class SocialLinkDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(SOCIAL_NETWORKS)
+  network?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(40)
@@ -53,6 +75,19 @@ export class SocialLinkDto {
   @IsUrl({ require_protocol: true })
   @MaxLength(300)
   url!: string;
+}
+
+/** One arbitrary labeled contact row ("каквото иска клиента"). `value` is
+ *  required free text; `label` is the optional caption shown before it. */
+export class CustomFieldDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  label?: string;
+
+  @IsString()
+  @MaxLength(200)
+  value!: string;
 }
 
 /** Editable storefront contact block (settings.contact) + theme color
@@ -75,6 +110,16 @@ export class SiteContactDto {
   @MaxLength(400)
   tagline?: string;
 
+  // Free-text phone (shown + click-to-call on the storefront). Lenient: digits,
+  // spaces, +, and the usual separators. Empty clears it.
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  @Matches(/^$|^[+\d][\d\s()\-./]{3,}$/, {
+    message: 'phone must be a valid phone number',
+  })
+  phone?: string;
+
   @IsOptional()
   @ValidateIf((o) => o.email !== '' && o.email !== undefined && o.email !== null)
   @IsEmail()
@@ -87,6 +132,14 @@ export class SiteContactDto {
   @ValidateNested({ each: true })
   @Type(() => SocialLinkDto)
   social?: SocialLinkDto[];
+
+  // Arbitrary extra contact rows (label + value). Empty rows are dropped server-side.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(12)
+  @ValidateNested({ each: true })
+  @Type(() => CustomFieldDto)
+  custom?: CustomFieldDto[];
 
   // Decimal-string coordinate or empty. Range-checked: lat ∈ [-90, 90], lng ∈ [-180, 180].
   @IsOptional()

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Star } from 'lucide-react';
+import { ChevronDown, ChevronUp, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
@@ -24,6 +24,7 @@ export function ProductOfWeekPanel() {
   const [placement, setPlacement] = useState<'section' | 'bar'>('section');
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [saving, setSaving] = useState(false);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -46,6 +47,7 @@ export function ProductOfWeekPanel() {
 
   async function onToggle(v: boolean) {
     setEnabled(v); // optimistic
+    if (v) setOpen(true);
     try {
       await updateTenant({ productOfWeekEnabled: v });
       toast.success(v ? 'Продукт на седмицата — включен' : 'Продукт на седмицата — изключен');
@@ -65,6 +67,7 @@ export function ProductOfWeekPanel() {
         productOfWeekPlacement: placement,
       });
       toast.success('Записано');
+      setOpen(false);
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -87,10 +90,22 @@ export function ProductOfWeekPanel() {
             </p>
           </div>
         </div>
-        <ToggleSwitch checked={enabled} disabled={!loaded} onChange={onToggle} />
+        <div className="flex items-center gap-2">
+          <ToggleSwitch checked={enabled} disabled={!loaded} onChange={onToggle} />
+          {enabled && (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="rounded-lg border border-ff-border p-1.5 text-ff-ink-2 hover:bg-ff-surface-2"
+              aria-label={open ? 'Скрий настройки' : 'Покажи настройки'}
+            >
+              {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+          )}
+        </div>
       </div>
 
-      {enabled && (
+      {enabled && open && (
         <div className="mt-5 flex flex-col gap-4 border-t border-ff-border-2 pt-5">
           <div className="flex flex-wrap gap-2">
             {(['manual', 'auto'] as const).map((m) => (

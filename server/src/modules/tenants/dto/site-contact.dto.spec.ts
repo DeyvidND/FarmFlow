@@ -50,4 +50,23 @@ describe('SiteContactDto', () => {
   it('rejects a malformed theme color', () => {
     expect(errorsFor({ themeColor: 'red' })).toContain('themeColor');
   });
+
+  it('accepts a social row with a known network and custom fields', () => {
+    expect(
+      errorsFor({
+        social: [{ network: 'whatsapp', url: 'https://wa.me/359' }],
+        custom: [{ label: 'WhatsApp', value: '+359 88 000 000' }, { value: 'само стойност' }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects an unknown social network', () => {
+    expect(errorsFor({ social: [{ network: 'myspace', url: 'https://x.com/a' }] })).toContain('social');
+  });
+
+  it('rejects a custom field without a value and a too-long custom list', () => {
+    expect(errorsFor({ custom: [{ label: 'no value' }] })).toContain('custom');
+    const custom = Array.from({ length: 13 }, (_, i) => ({ value: `v${i}` }));
+    expect(errorsFor({ custom })).toContain('custom');
+  });
 });
