@@ -122,15 +122,8 @@ export function DateNavBar({ date, dateLabel }: { date: string; dateLabel: strin
         >
           <CalendarDays size={17} className="shrink-0 text-ff-muted" />
           <span className="capitalize">{dateLabel}</span>
-          {!isToday && (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label="Към днес"
-              onClick={(e) => { e.stopPropagation(); goToday(); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); goToday(); } }}
-              className="rounded-md bg-ff-green-50 px-1.5 py-0.5 text-[11px] font-bold text-ff-green-700 cursor-pointer"
-            >
+          {isToday && (
+            <span className="rounded-md bg-ff-green-50 px-1.5 py-0.5 text-[11px] font-bold text-ff-green-700">
               Днес
             </span>
           )}
