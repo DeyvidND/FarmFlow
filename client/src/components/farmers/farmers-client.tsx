@@ -157,12 +157,12 @@ export function FarmersClient({
               )}
             />
           ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(330px,1fr))] gap-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
             {ordered.map((f) => {
               const prods = productsOf(f.id);
               return (
                 <div key={f.id} className="flex flex-col overflow-hidden rounded-[var(--ff-radius)] border border-ff-border bg-ff-surface shadow-ff-sm">
-                  <SectionPhoto tint={f.tint} imageUrl={f.imageUrl} coverCrop={f.coverCrop} height={110} radius={0} label={false} />
+                  <SectionPhoto tint={f.tint} imageUrl={f.imageUrl} coverCrop={f.coverCrop} height={175} radius={0} label={false} />
                   <div className="flex items-start gap-3.5 border-b border-ff-border-2 px-[18px] pb-3.5 pt-[18px]">
                     <div className="min-w-0 flex-1">
                       <div className="text-[17px] font-extrabold tracking-[-0.01em]">{f.name}</div>
