@@ -147,7 +147,7 @@ export function FarmersClient({
               onReorder={onReorder}
               renderItem={(f) => (
                 <div className="flex items-center gap-2.5">
-                  <Avatar name={f.name} tint={f.tint} imageUrl={f.imageUrl} size={34} />
+                  <Avatar name={f.name} tint={f.tint} imageUrl={f.imageUrl} coverCrop={f.coverCrop} size={34} />
                   <div className="min-w-0">
                     <div className="truncate text-[14.5px] font-bold">{f.name}</div>
                     {f.role && <div className="truncate text-[12px] text-ff-muted">{f.role}</div>}
@@ -162,7 +162,7 @@ export function FarmersClient({
               return (
                 <div key={f.id} className="flex flex-col overflow-hidden rounded-[var(--ff-radius)] border border-ff-border bg-ff-surface shadow-ff-sm">
                   <div className="flex items-start gap-3.5 border-b border-ff-border-2 px-[18px] pb-3.5 pt-[18px]">
-                    <Avatar name={f.name} tint={f.tint} imageUrl={f.imageUrl} size={52} ring />
+                    <Avatar name={f.name} tint={f.tint} imageUrl={f.imageUrl} coverCrop={f.coverCrop} size={52} ring />
                     <div className="min-w-0 flex-1">
                       <div className="text-[17px] font-extrabold tracking-[-0.01em]">{f.name}</div>
                       <div className="mt-px text-[13px] font-bold" style={{ color: f.tint ?? 'var(--ff-green-700)' }}>{f.role}</div>

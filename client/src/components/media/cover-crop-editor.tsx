@@ -103,7 +103,7 @@ export function CoverCropEditor({
 
       {aspects && aspects.length > 1 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-[11.5px] font-semibold text-ff-muted-2">Изглед:</span>
+          <span className="text-[11.5px] font-semibold text-ff-muted-2">Форма:</span>
           <div className="inline-flex overflow-hidden rounded-lg border border-ff-border">
             {aspects.map((a) => {
               const active = Math.abs(a.value - previewAspect) < 1e-6;

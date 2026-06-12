@@ -76,7 +76,7 @@ export function ProductCard({
           e.target.value = '';
         }}
       />
-      <ProductThumb imageUrl={product.imageUrl} uploading={busy} onPick={() => fileRef.current?.click()} />
+      <ProductThumb imageUrl={product.imageUrl} coverCrop={product.coverCrop} uploading={busy} onPick={() => fileRef.current?.click()} />
 
       <div className="mt-[13px] flex items-start justify-between gap-2">
         <div>
