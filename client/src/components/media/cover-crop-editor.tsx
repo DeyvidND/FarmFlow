@@ -118,10 +118,12 @@ export function CoverCropEditor({
                 <button
                   key={a.label}
                   type="button"
-                  onClick={() => {
-                    setPreviewAspect(a.value);
-                    if (a.shape !== undefined) onChange({ ...cropRef.current, shape: a.shape });
-                  }}
+                  // Preview-only: switching shape just re-frames the preview box so the
+                  // farmer can check the focal point at each card shape. It does NOT persist
+                  // a per-product shape — every product card stays the same (theme) aspect so
+                  // the grid never goes ragged. Framing is controlled by zoom + pan, which ARE
+                  // shape-independent (focal point), so the saved crop works in any shape.
+                  onClick={() => setPreviewAspect(a.value)}
                   className={`px-2 py-1 text-[11.5px] font-bold ${
                     active ? 'bg-ff-green-600 text-white' : 'bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2'
                   }`}

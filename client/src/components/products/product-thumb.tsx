@@ -31,21 +31,20 @@ export function ProductThumb({
   useEffect(() => setBroken(false), [imageUrl]);
   const g = '#4C8A54';
   const showImg = imageUrl && !broken;
-  // Mirror the storefront card shape the farmer picked in the framing editor
-  // (square→1:1, tall→4:5, wide/none→4:3) so the panel shows exactly what the
-  // shop will — that's what makes the «Квадрат / Висока» buttons visibly do something.
-  const aspect = coverCrop?.shape === 'square' ? '1 / 1' : coverCrop?.shape === 'tall' ? '4 / 5' : '4 / 3';
 
   return (
     <button
       type="button"
       onClick={onPick}
-      // The image fills the box absolutely (NOT as a centered grid child) — a centering
-      // grid lets the <img> keep its source aspect, which leaves object-fit:cover nothing
-      // to crop, so the saved pan/zoom appear to "do nothing". Absolute inset-0 forces the
-      // img to the box size, so coverCropStyle's object-position + scale frame it for real.
-      className={`relative w-full overflow-hidden rounded-xl border border-ff-border-2 ${showImg ? '' : 'grid place-items-center'}`}
-      style={{ aspectRatio: aspect, background: 'linear-gradient(150deg, var(--ff-green-50), var(--ff-surface-2))' }}
+      // Every product card uses the SAME 4:3 box so the grid stays uniform regardless of
+      // photo orientation — a tall/portrait photo is cropped into the box, not allowed to
+      // stretch the card (which made rows look ragged). The image fills the box absolutely
+      // (NOT as a centered grid child): a centering grid lets the <img> keep its source
+      // aspect, leaving object-fit:cover nothing to crop so pan/zoom appear to do nothing.
+      // Absolute inset-0 forces the img to the box, so coverCropStyle's object-position +
+      // scale actually frame it. The farmer picks which part shows via zoom + drag.
+      className={`relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-ff-border-2 ${showImg ? '' : 'grid place-items-center'}`}
+      style={{ background: 'linear-gradient(150deg, var(--ff-green-50), var(--ff-surface-2))' }}
       title="Качи снимка"
     >
       {showImg ? (
