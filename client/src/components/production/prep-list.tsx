@@ -103,7 +103,7 @@ export function PrepList({
         {/* prep list */}
         <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
           <div className="flex items-center justify-between border-b border-ff-border-2 px-[22px] pb-[15px] pt-[18px]">
-            <h2 className="text-[17px] font-extrabold">За приготвяне днес</h2>
+            <h2 className="text-[17px] font-extrabold capitalize">За приготвяне — {dateLabel}</h2>
             <span className={cn('text-[13px] font-bold', allDone ? 'text-ff-green-700' : 'text-ff-muted')}>
               {doneQty}/{totalQty} готови
             </span>
