@@ -25,6 +25,7 @@ export function FarmersClient({
   const [multi, setMulti] = useState(initialMultiFarmer);
   const [edit, setEdit] = useState<Partial<Farmer> | null>(null);
   const [reorderMode, setReorderMode] = useState(false);
+  const [prodModalFarmerId, setProdModalFarmerId] = useState<string | null>(null);
   const reorderDirty = useRef(false);
   // Local copy so bulk product (re)links from the drawer update the chips live.
   const [productList, setProductList] = useState(products);
@@ -190,15 +191,24 @@ export function FarmersClient({
                     </div>
                     {prods.length ? (
                       <div className="flex flex-wrap gap-[7px]">
-                        {prods.map((p) => (
+                        {prods.slice(0, 8).map((p) => (
                           <span key={p.id} className="inline-flex items-center gap-1.5 rounded-full border border-ff-border bg-ff-surface py-[5px] pl-2 pr-2.5 text-[12.5px] font-bold text-ff-ink-2">
                             <span className="h-2 w-2 rounded-full" style={{ background: p.tint ?? '#4C8A54' }} />
                             {p.name}
                           </span>
                         ))}
+                        {prods.length > 8 && (
+                          <button
+                            type="button"
+                            onClick={() => setProdModalFarmerId(f.id)}
+                            className="inline-flex items-center rounded-full border border-ff-green-300 bg-ff-green-50 py-[5px] pl-2.5 pr-2.5 text-[12.5px] font-bold text-ff-green-700 hover:bg-ff-green-100"
+                          >
+                            + {prods.length - 8} още
+                          </button>
+                        )}
                       </div>
                     ) : (
-                      <div className="text-[12.5px] text-ff-muted">Още няма продукти. Свържи от „Продукти“.</div>
+                      <div className="text-[12.5px] text-ff-muted">Още няма продукти. Свържи от „Продукти".</div>
                     )}
                   </div>
                 </div>
@@ -218,6 +228,54 @@ export function FarmersClient({
           onProductsChanged={onProductsChanged}
         />
       )}
+
+      <ProductsModal
+        farmerId={prodModalFarmerId}
+        farmers={farmers}
+        products={productList}
+        onClose={() => setProdModalFarmerId(null)}
+      />
+    </div>
+  );
+}
+
+function ProductsModal({
+  farmerId,
+  farmers,
+  products,
+  onClose,
+}: {
+  farmerId: string | null;
+  farmers: Farmer[];
+  products: ProductOption[];
+  onClose: () => void;
+}) {
+  if (!farmerId) return null;
+  const farmer = farmers.find((f) => f.id === farmerId);
+  const prods = products.filter((p) => p.farmerId === farmerId);
+  return (
+    <div className="animate-ff-fade fixed inset-0 z-[80] grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-md overflow-hidden rounded-[var(--ff-radius)] bg-ff-surface shadow-ff-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-ff-border px-6 py-4">
+          <div>
+            <div className="text-[15px] font-extrabold">{farmer?.name}</div>
+            <div className="mt-0.5 text-[12.5px] text-ff-muted">{prods.length} продукта</div>
+          </div>
+          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-ff-muted-2 hover:bg-ff-surface-2 text-[18px]">
+            &times;
+          </button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+          <div className="flex flex-wrap gap-[7px]">
+            {prods.map((p) => (
+              <span key={p.id} className="inline-flex items-center gap-1.5 rounded-full border border-ff-border bg-ff-surface py-[5px] pl-2 pr-2.5 text-[12.5px] font-bold text-ff-ink-2">
+                <span className="h-2 w-2 rounded-full" style={{ background: p.tint ?? '#4C8A54' }} />
+                {p.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

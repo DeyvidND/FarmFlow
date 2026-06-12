@@ -1,5 +1,5 @@
-import { IsNumber, Min, Max } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsNumber, IsOptional, IsIn, Min, Max } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * How a catalog cover image is framed on the storefront: focal point (`x`/`y`,
@@ -24,4 +24,9 @@ export class CoverCropDto {
   @Min(1)
   @Max(3)
   zoom: number;
+
+  @ApiPropertyOptional({ enum: ['wide', 'square', 'tall'] })
+  @IsOptional()
+  @IsIn(['wide', 'square', 'tall'])
+  shape?: 'wide' | 'square' | 'tall';
 }

@@ -142,9 +142,9 @@ export function ProductDialog({
               value={coverCrop}
               aspect={4 / 3}
               aspects={[
-                { label: 'Широка', value: 4 / 3 },
-                { label: 'Квадрат', value: 1 },
-                { label: 'Висока', value: 4 / 5 },
+                { label: 'Широка', value: 4 / 3, shape: 'wide' as const },
+                { label: 'Квадрат', value: 1, shape: 'square' as const },
+                { label: 'Висока', value: 4 / 5, shape: 'tall' as const },
               ]}
               onChange={setCoverCrop}
             />

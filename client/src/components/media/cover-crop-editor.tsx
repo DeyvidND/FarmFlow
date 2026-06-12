@@ -34,12 +34,19 @@ export function CoverCropEditor({
    * (focal point + zoom) is aspect-independent, so switching only re-frames the
    * preview — it never mutates the saved crop.
    */
-  aspects?: { label: string; value: number }[];
+  aspects?: { label: string; value: number; shape?: 'wide' | 'square' | 'tall' }[];
   onChange: (next: CoverCrop) => void;
 }) {
   const crop = value ?? DEFAULT_CROP;
   // Which aspect the preview frame uses; defaults to the canonical `aspect`.
-  const [previewAspect, setPreviewAspect] = useState(aspect);
+  // Initialise from the saved shape so the preview matches what's stored.
+  const [previewAspect, setPreviewAspect] = useState(() => {
+    if (value?.shape && aspects) {
+      const saved = aspects.find((a) => a.shape === value.shape);
+      if (saved) return saved.value;
+    }
+    return aspect;
+  });
   // Latest crop for the pointer handlers (closures can lag behind fast moves).
   const cropRef = useRef(crop);
   cropRef.current = crop;
@@ -111,7 +118,10 @@ export function CoverCropEditor({
                 <button
                   key={a.label}
                   type="button"
-                  onClick={() => setPreviewAspect(a.value)}
+                  onClick={() => {
+                    setPreviewAspect(a.value);
+                    if (a.shape !== undefined) onChange({ ...cropRef.current, shape: a.shape });
+                  }}
                   className={`px-2 py-1 text-[11.5px] font-bold ${
                     active ? 'bg-ff-green-600 text-white' : 'bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2'
                   }`}
