@@ -191,19 +191,19 @@ export function FarmersClient({
                     </div>
                     {prods.length ? (
                       <div className="flex flex-wrap gap-[7px]">
-                        {prods.slice(0, 8).map((p) => (
+                        {prods.slice(0, 6).map((p) => (
                           <span key={p.id} className="inline-flex items-center gap-1.5 rounded-full border border-ff-border bg-ff-surface py-[5px] pl-2 pr-2.5 text-[12.5px] font-bold text-ff-ink-2">
                             <span className="h-2 w-2 rounded-full" style={{ background: p.tint ?? '#4C8A54' }} />
                             {p.name}
                           </span>
                         ))}
-                        {prods.length > 8 && (
+                        {prods.length > 6 && (
                           <button
                             type="button"
                             onClick={() => setProdModalFarmerId(f.id)}
                             className="inline-flex items-center rounded-full border border-ff-green-300 bg-ff-green-50 py-[5px] pl-2.5 pr-2.5 text-[12.5px] font-bold text-ff-green-700 hover:bg-ff-green-100"
                           >
-                            + {prods.length - 8} още
+                            + {prods.length - 6} още
                           </button>
                         )}
                       </div>

@@ -24,6 +24,7 @@ export function SubcategoriesClient({
   const [multi, setMulti] = useState(initialMultiSubcat);
   const [edit, setEdit] = useState<Partial<Subcategory> | null>(null);
   const [reorderMode, setReorderMode] = useState(false);
+  const [prodModalSubcatId, setProdModalSubcatId] = useState<string | null>(null);
   const reorderDirty = useRef(false);
   // Local copy so bulk product (re)links from the drawer update the chips live.
   const [productList, setProductList] = useState(products);
@@ -187,15 +188,24 @@ export function SubcategoriesClient({
                     </div>
                     {prods.length ? (
                       <div className="flex flex-wrap gap-[7px]">
-                        {prods.map((p) => (
+                        {prods.slice(0, 6).map((p) => (
                           <span key={p.id} className="inline-flex items-center gap-1.5 rounded-full border border-ff-border bg-ff-surface py-[5px] pl-2 pr-2.5 text-[12.5px] font-bold text-ff-ink-2">
                             <span className="h-2 w-2 rounded-full" style={{ background: p.tint ?? '#4C8A54' }} />
                             {p.name}
                           </span>
                         ))}
+                        {prods.length > 6 && (
+                          <button
+                            type="button"
+                            onClick={() => setProdModalSubcatId(s.id)}
+                            className="inline-flex items-center rounded-full border border-ff-green-300 bg-ff-green-50 py-[5px] pl-2.5 pr-2.5 text-[12.5px] font-bold text-ff-green-700 hover:bg-ff-green-100"
+                          >
+                            + {prods.length - 6} още
+                          </button>
+                        )}
                       </div>
                     ) : (
-                      <div className="text-[12.5px] text-ff-muted">Още няма продукти. Свържи от „Продукти“.</div>
+                      <div className="text-[12.5px] text-ff-muted">Още няма продукти. Свържи от &bdquo;Продукти&rdquo;.</div>
                     )}
                   </div>
                 </div>
@@ -215,6 +225,54 @@ export function SubcategoriesClient({
           onProductsChanged={onProductsChanged}
         />
       )}
+
+      <SubcatProductsModal
+        subcatId={prodModalSubcatId}
+        subcats={subcats}
+        products={productList}
+        onClose={() => setProdModalSubcatId(null)}
+      />
+    </div>
+  );
+}
+
+function SubcatProductsModal({
+  subcatId,
+  subcats,
+  products,
+  onClose,
+}: {
+  subcatId: string | null;
+  subcats: Subcategory[];
+  products: ProductOption[];
+  onClose: () => void;
+}) {
+  if (!subcatId) return null;
+  const subcat = subcats.find((s) => s.id === subcatId);
+  const prods = products.filter((p) => p.subcategoryId === subcatId);
+  return (
+    <div className="animate-ff-fade fixed inset-0 z-[80] grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-md overflow-hidden rounded-[var(--ff-radius)] bg-ff-surface shadow-ff-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-ff-border px-6 py-4">
+          <div>
+            <div className="text-[15px] font-extrabold">{subcat?.name}</div>
+            <div className="mt-0.5 text-[12.5px] text-ff-muted">{prods.length} продукта</div>
+          </div>
+          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-ff-muted-2 hover:bg-ff-surface-2 text-[18px]">
+            &times;
+          </button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+          <div className="flex flex-wrap gap-[7px]">
+            {prods.map((p) => (
+              <span key={p.id} className="inline-flex items-center gap-1.5 rounded-full border border-ff-border bg-ff-surface py-[5px] pl-2 pr-2.5 text-[12.5px] font-bold text-ff-ink-2">
+                <span className="h-2 w-2 rounded-full" style={{ background: p.tint ?? '#4C8A54' }} />
+                {p.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
