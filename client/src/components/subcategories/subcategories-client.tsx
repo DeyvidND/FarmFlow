@@ -163,7 +163,7 @@ export function SubcategoriesClient({
               const prods = productsOf(s.id);
               return (
                 <div key={s.id} className="flex flex-col overflow-hidden rounded-[var(--ff-radius)] border border-ff-border bg-ff-surface shadow-ff-sm">
-                  <SectionPhoto tint={s.tint} imageUrl={s.imageUrl} coverCrop={s.coverCrop} height={108} radius={0} label={false} />
+                  <SectionPhoto tint={s.tint} imageUrl={s.imageUrl} coverCrop={s.coverCrop} aspect="4 / 3" radius={0} label={false} />
                   <div className="flex items-start gap-2.5 border-b border-ff-border-2 px-[18px] pb-3 pt-3.5">
                     <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.tint ?? '#4C8A54' }} />
                     <div className="min-w-0 flex-1">
