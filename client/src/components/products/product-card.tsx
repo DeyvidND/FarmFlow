@@ -103,7 +103,11 @@ export function ProductCard({
         </div>
       )}
 
-      <div className="mt-3.5 flex items-baseline justify-between">
+      {/* mt-auto pushes the price + stock + action buttons to the bottom of the card.
+          Grid cards stretch to equal height per row, so this keeps the price and the
+          „Редактирай" row aligned across the row even when product photos differ in
+          height (a tall photo no longer shoves this card's buttons out of line). */}
+      <div className="mt-auto flex items-baseline justify-between pt-3.5">
         <span className="ff-fig text-[22px] font-extrabold tracking-[-0.02em]">
           {moneyFromStotinki(product.priceStotinki)}
         </span>

@@ -363,7 +363,9 @@ body.show-modules .is-optional > .opt-inline { display: inline-flex; }
 .product__name { font-family: var(--font-head); font-size: 20px; font-weight: var(--h-weight); }
 [data-theme="klasik"] .product__name { font-size: 24px; }
 .product__meta { font-size: 13.5px; color: var(--muted); }
-.product__price { font-size: 20px; font-weight: 700; color: var(--primary); margin-top: 6px; }
+/* margin-top:auto bottom-aligns the price + foot across a stretched grid row,
+   so cards line up even when product photos differ in height. */
+.product__price { font-size: 20px; font-weight: 700; color: var(--primary); margin-top: auto; padding-top: 6px; }
 [data-theme="svezho"] .product__price { color: var(--primary); }
 [data-theme="klasik"] .product__price { color: var(--ink); font-family: var(--font-head); font-size: 26px; }
 .product__foot { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
