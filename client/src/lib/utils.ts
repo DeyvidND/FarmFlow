@@ -54,7 +54,20 @@ export function ddmm(dateStr: string): string {
   return `${d}.${m}`;
 }
 
-/** ISO timestamp → "HH:MM" (reads the wall-clock chars, TZ-agnostic). */
+/** Renders an HH:MM in Bulgaria local time. Deterministic (fixed IANA zone), so it
+ *  agrees between SSR and the browser — no hydration mismatch. */
+const SOFIA_HM = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Sofia',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+/** ISO timestamp → "HH:MM" in Europe/Sofia. The API serialises timestamps in UTC,
+ *  so slicing the raw string showed UTC (07:51 for a 10:51 Sofia time). Parse as UTC
+ *  even when the offset suffix is absent, then format in Bulgaria local time. */
 export function timeFromIso(iso: string): string {
-  return iso.length >= 16 ? iso.slice(11, 16) : iso;
+  const hasTz = /[zZ]$|[+-]\d\d:?\d\d$/.test(iso);
+  const d = new Date(hasTz ? iso : `${iso}Z`);
+  return Number.isNaN(d.getTime()) ? iso : SOFIA_HM.format(d);
 }
