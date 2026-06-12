@@ -9,6 +9,7 @@ import { ApiError, reorderFarmers, updateTenant } from '@/lib/api-client';
 import { ReorderableList } from '@/components/reorderable-list';
 import type { Farmer, ProductOption } from '@/lib/types';
 import { Avatar } from './avatar';
+import { SectionPhoto } from '@/components/subcategories/section-photo';
 import { FarmerPanel } from './farmer-panel';
 
 export function FarmersClient({
@@ -161,8 +162,8 @@ export function FarmersClient({
               const prods = productsOf(f.id);
               return (
                 <div key={f.id} className="flex flex-col overflow-hidden rounded-[var(--ff-radius)] border border-ff-border bg-ff-surface shadow-ff-sm">
+                  <SectionPhoto tint={f.tint} imageUrl={f.imageUrl} coverCrop={f.coverCrop} aspect="4 / 3" radius={0} label={false} />
                   <div className="flex items-start gap-3.5 border-b border-ff-border-2 px-[18px] pb-3.5 pt-[18px]">
-                    <Avatar name={f.name} tint={f.tint} imageUrl={f.imageUrl} coverCrop={f.coverCrop} size={52} ring />
                     <div className="min-w-0 flex-1">
                       <div className="text-[17px] font-extrabold tracking-[-0.01em]">{f.name}</div>
                       <div className="mt-px text-[13px] font-bold" style={{ color: f.tint ?? 'var(--ff-green-700)' }}>{f.role}</div>
