@@ -11,8 +11,8 @@ import { ProductAssignPicker } from '@/components/products/product-assign-picker
 import { ApiError, assignProducts, createSubcategory, updateSubcategory } from '@/lib/api-client';
 import type { Subcategory, ProductOption, CoverCrop } from '@/lib/types';
 
-// Storefront section banner is full content width (max 1200, minus padding) × 160px.
-const SECTION_BANNER_ASPECT = 1152 / 160;
+// Match the admin card display (aspect="4/3") so the editor preview matches the card.
+const SECTION_BANNER_ASPECT = 4 / 3;
 
 const field =
   'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
@@ -118,7 +118,7 @@ export function SubcategoryPanel({
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
           <div>
             <div className="mb-1.5 text-[12.5px] font-bold text-ff-ink-2">Снимка на секцията</div>
-            <SectionPhoto tint={tint} imageUrl={imageUrl} coverCrop={coverCrop} height={130} />
+            <SectionPhoto tint={tint} imageUrl={imageUrl} coverCrop={coverCrop} aspect="4 / 3" />
             {isNew ? (
               <p className="mt-2 text-[12.5px] text-ff-muted-2">Първо запази секцията, после добави снимка.</p>
             ) : (
