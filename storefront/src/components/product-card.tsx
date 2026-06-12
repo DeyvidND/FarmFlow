@@ -44,13 +44,18 @@ export function ProductCard({
     toast(`„${product.name}“ е добавен в количката`);
   };
 
+  // Honor the framed card shape (square→1:1, tall→4:5, wide/absent→theme default),
+  // matching the chaika storefront + admin grid so framing is WYSIWYG.
+  const shape = product.coverCrop?.shape;
+  const phStyle = shape === 'square' || shape === 'tall'
+    ? { aspectRatio: shape === 'square' ? '1 / 1' : '4 / 5' }
+    : undefined;
+
   const thumbInner = product.imageUrl ? (
     // next/image for lazy-loading + automatic optimization. Absolutely filling the
     // `.ph` box (which is `position:relative; display:grid`) is what makes object-fit
     // crop + the saved pan/zoom take effect — an in-flow img keeps its source aspect,
-    // leaving object-fit nothing to crop so the framing would appear to do nothing. The
-    // `.ph` box has one fixed aspect per shop theme, so a portrait photo is cropped into
-    // it (the farmer frames it with zoom/pan) instead of stretching the card.
+    // leaving object-fit nothing to crop so the framing would appear to do nothing.
     <Image
       src={product.imageUrl}
       alt={product.name}
@@ -66,11 +71,11 @@ export function ProductCard({
   return (
     <article className="card product" data-product>
       {href ? (
-        <Link href={href} className="ph" style={{ display: 'block' }}>
+        <Link href={href} className="ph" style={phStyle}>
           {thumbInner}
         </Link>
       ) : (
-        <span className="ph" style={{ display: 'block' }}>
+        <span className="ph" style={phStyle}>
           {thumbInner}
         </span>
       )}

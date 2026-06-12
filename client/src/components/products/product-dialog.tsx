@@ -134,14 +134,18 @@ export function ProductDialog({
           )}
 
           {isEdit && imageUrl && (
-            // All product cards use one uniform 4:3 box (keeps the shop grid tidy — a
-            // portrait photo is cropped in, never stretches the card). So the editor frames
-            // at that single 4:3 shape; the farmer uses zoom + drag to choose which part of
-            // the photo shows. No per-card shape picker — that made rows ragged.
+            // The storefront card shape depends on the shop's layout — most are wide
+            // (4:3), some square (1:1) or tall (4:5). Let the farmer preview the
+            // framing in each shape so the focal point looks right whichever is used.
             <CoverCropEditor
               imageUrl={imageUrl}
               value={coverCrop}
               aspect={4 / 3}
+              aspects={[
+                { label: 'Широка', value: 4 / 3, shape: 'wide' as const },
+                { label: 'Квадрат', value: 1, shape: 'square' as const },
+                { label: 'Висока', value: 4 / 5, shape: 'tall' as const },
+              ]}
               onChange={setCoverCrop}
             />
           )}
