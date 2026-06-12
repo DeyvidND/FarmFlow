@@ -45,7 +45,7 @@ export function ProductCard({
 
   return (
     <div
-      className="relative flex flex-col rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm transition-opacity"
+      className="relative flex flex-col overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm transition-opacity"
       style={{ opacity: product.isActive ? 1 : 0.62, animation: `ff-fade-up .35s ease ${index * 0.03}s both` }}
     >
       {showStar && (
@@ -78,7 +78,8 @@ export function ProductCard({
       />
       <ProductThumb imageUrl={product.imageUrl} coverCrop={product.coverCrop} uploading={busy} onPick={() => fileRef.current?.click()} />
 
-      <div className="mt-[13px] flex items-start justify-between gap-2">
+      <div className="flex flex-col p-3.5">
+      <div className="flex items-start justify-between gap-2">
         <div>
           <div className="text-[15.5px] font-extrabold leading-tight">{product.name}</div>
           <div className="mt-0.5 text-[12.5px] text-ff-muted">
@@ -132,6 +133,7 @@ export function ProductCard({
         >
           <Trash2 size={15} />
         </button>
+      </div>
       </div>
     </div>
   );

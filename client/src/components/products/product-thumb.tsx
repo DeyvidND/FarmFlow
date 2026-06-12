@@ -38,7 +38,7 @@ export function ProductThumb({
       onClick={onPick}
       // Aspect 4:3 matches the default storefront product card, so a photo framed
       // here lands the same in the shop (portrait or landscape, both look uniform).
-      className="relative grid aspect-[4/3] w-full place-items-center overflow-hidden rounded-xl border border-ff-border-2"
+      className="relative grid aspect-[4/3] w-full place-items-center overflow-hidden border-b border-ff-border-2"
       style={{ background: 'linear-gradient(150deg, var(--ff-green-50), var(--ff-surface-2))' }}
       title="Качи снимка"
     >
