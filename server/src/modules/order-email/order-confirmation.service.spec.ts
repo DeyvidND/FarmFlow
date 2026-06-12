@@ -45,7 +45,7 @@ const ORDER = {
 };
 
 describe('OrderConfirmationService.sendForOrder', () => {
-  it('sends a styled confirmation with items, photos, euro totals + order number', async () => {
+  it('sends a styled confirmation with items, photos and euro totals, without an order number', async () => {
     const email = makeEmail();
     const svc = build(
       [
@@ -64,7 +64,12 @@ describe('OrderConfirmationService.sendForOrder', () => {
     const arg = email.sendMail.mock.calls[0][0];
     expect(arg.to).toBe('buyer@example.com');
     expect(arg.stream).toBe('transactional');
-    expect(arg.subject).toContain('№42');
+    expect(arg.subject).toContain('Поръчката ти е потвърдена');
+    expect(arg.subject).toContain('Ферма Петрови');
+    // The order number is intentionally hidden from the buyer (a sequential №N
+    // would reveal the shop's order count), so it appears in neither subject nor body.
+    expect(arg.subject).not.toContain('42');
+    expect(arg.html).not.toContain('№42');
     expect(arg.html).toContain('Одит Ябълки');
     expect(arg.html).toContain('cdn.example.com/apple.jpg'); // product photo
     expect(arg.html).toContain('13,48 €'); // grand total
