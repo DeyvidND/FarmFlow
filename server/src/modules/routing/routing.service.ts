@@ -47,7 +47,7 @@ export interface RouteResult {
   orderMode: RouteOrderMode;
   totalDistanceM: number | null;
   totalDurationS: number | null;
-  /** true once stops were ordered. */
+  /** true once stops were reordered from DB arrival order (greedy or Google). */
   optimized: boolean;
 }
 
@@ -97,10 +97,11 @@ export function endPoint(mode: RouteEndMode, origin: Pt, end: RouteEnd): Pt | nu
 
 /**
  * Greedy nearest-neighbour ordering by straight-line distance. Starts from
- * `start` (the depot) when given, else from the first stop. Pure, no API cost —
- * used as the no-Google fallback for distance mode and to chain any stops past
- * the optimizer's per-request cap, so the order is always distance-driven and
- * never just the order rows came back from the DB. Un-geocoded stops sort last.
+ * `start` (the depot) when given, else from the first geocoded stop. Pure, no
+ * API cost — used as the no-Google fallback for distance mode and to chain any
+ * stops past the optimizer's per-request cap, so the order is always
+ * distance-driven and never just the order rows came back from the DB.
+ * Un-geocoded stops sort last.
  */
 export function greedyByDistance(start: Pt | null, stops: RouteStop[]): RouteStop[] {
   const remaining = [...stops];
@@ -119,6 +120,11 @@ export function greedyByDistance(start: Pt | null, stops: RouteStop[]): RouteSto
           best = k;
         }
       });
+    } else {
+      // No depot: pick the first geocoded stop so un-geocoded stops don't
+      // accidentally become the first route point just by being input[0].
+      const firstGeo = remaining.findIndex((s) => ptOf(s) !== null);
+      if (firstGeo !== -1) best = firstGeo;
     }
     const pick = remaining.splice(best, 1)[0];
     out.push(pick);
@@ -132,20 +138,23 @@ export function greedyByDistance(start: Pt | null, stops: RouteStop[]): RouteSto
  * since they have a fixed map position. Keeps an un-geocoded stop near its
  * delivery slot instead of dumping it at the very end of the route. Null slots
  * (Infinity) sort last in both lists, so they still land at the tail.
+ * Sorts both inputs internally so callers don't need to pre-sort.
  */
 export function mergeBySlot(located: RouteStop[], unlocated: RouteStop[]): RouteStop[] {
+  const loc = [...located].sort((a, b) => slotMinutes(a.slotFrom) - slotMinutes(b.slotFrom));
+  const unloc = [...unlocated].sort((a, b) => slotMinutes(a.slotFrom) - slotMinutes(b.slotFrom));
   const out: RouteStop[] = [];
   let i = 0;
   let j = 0;
-  while (i < located.length && j < unlocated.length) {
-    if (slotMinutes(unlocated[j].slotFrom) < slotMinutes(located[i].slotFrom)) {
-      out.push(unlocated[j++]);
+  while (i < loc.length && j < unloc.length) {
+    if (slotMinutes(unloc[j].slotFrom) < slotMinutes(loc[i].slotFrom)) {
+      out.push(unloc[j++]);
     } else {
-      out.push(located[i++]);
+      out.push(loc[i++]);
     }
   }
-  while (i < located.length) out.push(located[i++]);
-  while (j < unlocated.length) out.push(unlocated[j++]);
+  while (i < loc.length) out.push(loc[i++]);
+  while (j < unloc.length) out.push(unloc[j++]);
   return out;
 }
 
