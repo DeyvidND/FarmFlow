@@ -13,6 +13,7 @@ import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import { ReorderDto } from '../../common/dto/reorder.dto';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { optimizeImage } from '../storage/image.util';
+import { smartFocal, smartFocalFromUrl } from '../storage/smart-crop.util';
 
 @Injectable()
 export class SubcategoriesService {
@@ -118,7 +119,7 @@ export class SubcategoriesService {
     if (subcat.imageUrl) await this.deleteObject(subcat.imageUrl);
     const [row] = await this.db
       .update(subcategories)
-      .set({ imageUrl: url })
+      .set({ imageUrl: url, coverCrop: await smartFocal(img.buffer) })
       .where(and(eq(subcategories.id, id), eq(subcategories.tenantId, tenantId)))
       .returning();
     await this.cache.invalidate(tenantId);
@@ -252,9 +253,20 @@ export class SubcategoriesService {
       .where(eq(subcategoryMedia.subcategoryId, id))
       .orderBy(asc(subcategoryMedia.position))
       .limit(1);
+    const newUrl = first?.url ?? null;
+    const [cur] = await this.db
+      .select({ imageUrl: subcategories.imageUrl })
+      .from(subcategories)
+      .where(and(eq(subcategories.id, id), eq(subcategories.tenantId, tenantId)))
+      .limit(1);
+    // Cover image unchanged → keep whatever framing is set (incl. a manual override).
+    if (cur?.imageUrl === newUrl) return;
+    // New cover → recompute a content-aware focal default (the old framing belonged
+    // to the previous image; the cover editor also resets it on a cover change).
+    const coverCrop = newUrl ? await smartFocalFromUrl(newUrl) : null;
     await this.db
       .update(subcategories)
-      .set({ imageUrl: first?.url ?? null })
+      .set({ imageUrl: newUrl, coverCrop })
       .where(and(eq(subcategories.id, id), eq(subcategories.tenantId, tenantId)));
   }
 

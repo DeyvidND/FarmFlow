@@ -115,6 +115,71 @@ export interface PlatformStripeAccount {
   statusUpdatedAt: string | null;
 }
 
+// ── «Анализ» (farm-health insights) ──
+
+export type SignalKey =
+  | 'empty_shop'
+  | 'no_orders'
+  | 'dormant'
+  | 'dropping'
+  | 'stripe_incomplete'
+  | 'econt_incomplete';
+
+export interface FarmSignal {
+  key: SignalKey;
+  label: string;
+  action: string;
+  severity: number;
+}
+
+export interface FarmSignals {
+  tenantId: string;
+  name: string;
+  slug: string;
+  phone: string | null;
+  email: string | null;
+  signals: FarmSignal[];
+  maxSeverity: number;
+}
+
+export interface AdoptionRow {
+  key: string;
+  label: string;
+  count: number;
+  total: number;
+  pct: number;
+}
+
+export interface PlatformInsights {
+  totalFarms: number;
+  farms: { id: string; name: string }[];
+  signals: FarmSignals[];
+  adoption: AdoptionRow[];
+}
+
+export type TimeseriesRange = '7d' | '30d' | '90d' | '1y' | 'all';
+export type TimeseriesBucket = 'day' | 'week' | 'month';
+
+export interface TimeseriesPoint {
+  t: string;
+  orders: number;
+  revenueStotinki: number;
+}
+
+export interface PlatformTimeseries {
+  range: TimeseriesRange;
+  bucket: TimeseriesBucket;
+  points: TimeseriesPoint[];
+}
+
+/** Trend chart series (client-side, via the BFF proxy). */
+export const getInsightsTimeseries = (range: TimeseriesRange, tenantId?: string) =>
+  apiFetch<PlatformTimeseries>(
+    `platform/insights/timeseries?range=${range}${tenantId ? `&tenantId=${encodeURIComponent(tenantId)}` : ''}`,
+    undefined,
+    'Неуспешно зареждане на графиката',
+  );
+
 export const setTenantStatus = (id: string, status: 'active' | 'inactive') =>
   apiFetch<{ id: string; subscriptionStatus: string }>(
     `platform/tenants/${id}/status`,
