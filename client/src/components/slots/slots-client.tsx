@@ -78,7 +78,7 @@ export function SlotsClient({
    * custom window's slots — split by the rule's delivery duration, 1 order per
    * sub-slot when a duration is set.
    */
-  async function applyDay(d: string, working: boolean, win: { timeFrom: string; timeTo: string }, cap: number) {
+  async function applyDay(d: string, working: boolean, win: { timeFrom: string; timeTo: string }) {
     setBusyDay(d);
     try {
       const res = await closeSlotDay(d);
@@ -90,7 +90,7 @@ export function SlotsClient({
             date: d,
             timeFrom: c.timeFrom,
             timeTo: c.timeTo,
-            maxOrders: slotMinutes > 0 ? 1 : cap,
+            maxOrders: 1,
           });
           createdN++;
         }
@@ -271,9 +271,9 @@ export function SlotsClient({
           daySlots={byDay(dayDialog)}
           slotMinutes={initialRule?.slotMinutes ?? 0}
           onClose={() => setDayDialog(null)}
-          onApply={(working, win, cap) => {
+          onApply={(working, win) => {
             setDayDialog(null);
-            void applyDay(dayDialog, working, win, cap);
+            void applyDay(dayDialog, working, win);
           }}
           onReset={() => {
             setDayDialog(null);
@@ -329,7 +329,7 @@ function DayScheduleDialog({
   daySlots: Slot[];
   slotMinutes: number;
   onClose: () => void;
-  onApply: (working: boolean, win: { timeFrom: string; timeTo: string }, cap: number) => void;
+  onApply: (working: boolean, win: { timeFrom: string; timeTo: string }) => void;
   onReset: () => void;
 }) {
   // Seed from the day's current slots so "different hours" starts from reality.
@@ -338,7 +338,6 @@ function DayScheduleDialog({
   const [working, setWorking] = useState(closed ? daySlots.length > 0 : true);
   const [from, setFrom] = useState(first ? hhmm(first.timeFrom) : '10:00');
   const [to, setTo] = useState(last ? hhmm(last.timeTo) : '12:00');
-  const [cap, setCap] = useState(String(first?.maxOrders ?? 5));
   const [err, setErr] = useState('');
 
   const chunks =
@@ -352,10 +351,8 @@ function DayScheduleDialog({
     if (working) {
       if (!/^\d{2}:\d{2}$/.test(from) || !/^\d{2}:\d{2}$/.test(to)) return setErr('Часът трябва да е ЧЧ:ММ');
       if (to <= from) return setErr('Краят трябва да е след началото');
-      const m = parseInt(cap, 10);
-      if (slotMinutes === 0 && (!m || m < 1)) return setErr('Невалиден капацитет');
     }
-    onApply(working, { timeFrom: from, timeTo: to }, Math.max(1, parseInt(cap, 10) || 1));
+    onApply(working, { timeFrom: from, timeTo: to });
   }
 
   return (
@@ -391,7 +388,7 @@ function DayScheduleDialog({
 
           {working && (
             <>
-              <div className={cn('grid grid-cols-2 gap-3', slotMinutes === 0 && 'sm:grid-cols-3')}>
+              <div className="grid grid-cols-2 gap-3">
                 <label className={dlgLabel}>
                   Начало
                   <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} className={dlgField} />
@@ -400,18 +397,12 @@ function DayScheduleDialog({
                   Край
                   <input type="time" value={to} onChange={(e) => setTo(e.target.value)} className={dlgField} />
                 </label>
-                {slotMinutes === 0 && (
-                  <label className={dlgLabel}>
-                    Капацитет
-                    <input value={cap} onChange={(e) => setCap(e.target.value)} inputMode="numeric" className={dlgField} />
-                  </label>
-                )}
               </div>
-              {slotMinutes > 0 && chunks.length > 0 && (
+              {chunks.length > 0 && (
                 <p className="text-[12.5px] leading-relaxed text-ff-muted">
-                  {chunks.length} {chunks.length === 1 ? 'час' : 'часа'} по {slotMinutes} мин:{' '}
-                  {chunks.slice(0, 6).map((c) => `${c.timeFrom}–${c.timeTo}`).join(' · ')}
-                  {chunks.length > 6 ? ' …' : ''} — по 1 поръчка на час.
+                  {slotMinutes > 0
+                    ? `${chunks.length} ${chunks.length === 1 ? 'час' : 'часа'} по ${slotMinutes} мин: ${chunks.slice(0, 6).map((c) => `${c.timeFrom}–${c.timeTo}`).join(' · ')}${chunks.length > 6 ? ' …' : ''} — по 1 поръчка на час.`
+                    : `Един слот: ${from}–${to} — 1 поръчка.`}
                 </p>
               )}
             </>

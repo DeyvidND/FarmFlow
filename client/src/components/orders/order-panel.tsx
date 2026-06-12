@@ -21,30 +21,6 @@ export function OrderPanel({
   onAction: (status: OrderStatus) => void;
 }) {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
-  const slotLabel = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '—';
-  const paymentValue =
-    order.paymentStatus === 'paid'
-      ? order.paidAt
-        ? `Платена с карта · ${timeFromIso(order.paidAt)}`
-        : 'Платена с карта'
-      : order.paymentStatus === 'pending_online'
-        ? 'Чака онлайн плащане'
-        : 'Наложен платеж / при доставка';
-  const isEcont = order.deliveryType === 'econt' || order.deliveryType === 'econt_address';
-  const deliveryVal =
-    order.deliveryType === 'econt'
-      ? order.econtOffice ?? 'Еконт офис'
-      : order.deliveryType === 'pickup'
-        ? 'Чайка, Варна'
-        : order.deliveryAddress ?? '—';
-  const deliveryLabel =
-    order.deliveryType === 'econt'
-      ? 'Еконт — до офис'
-      : order.deliveryType === 'econt_address'
-        ? 'Еконт — до адрес'
-        : order.deliveryType === 'pickup'
-          ? 'Вземане от пазара'
-          : 'Адрес за доставка';
 
   return (
     <>
@@ -62,53 +38,7 @@ export function OrderPanel({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="mb-5 flex flex-wrap items-center gap-2.5">
-            <StatusBadge status={order.status} size="md" />
-            <PaymentBadge status={order.paymentStatus} size="md" />
-            <span className="text-[13px] text-ff-muted">· приета в {timeFromIso(order.createdAt)}</span>
-          </div>
-
-          <div className="mb-[22px] flex flex-col gap-2.5">
-            <InfoRow icon={<Phone size={18} />} label="Телефон" value={order.customerPhone ?? '—'} />
-            {order.customerEmail && (
-              <InfoRow icon={<Mail size={18} />} label="Имейл" value={order.customerEmail} />
-            )}
-            <InfoRow
-              icon={isEcont ? <Package size={18} /> : <MapPin size={18} />}
-              label={deliveryLabel}
-              value={deliveryVal}
-            />
-            <InfoRow icon={<CalendarClock size={18} />} label="Слот за доставка" value={slotLabel} />
-            <InfoRow icon={<CreditCard size={18} />} label="Плащане" value={paymentValue} />
-          </div>
-
-          {order.notes && (
-            <div className="mb-[22px] rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-3">
-              <div className="mb-0.5 text-xs font-bold text-ff-amber-600">БЕЛЕЖКА ОТ КЛИЕНТА</div>
-              <div className="text-[13.5px] leading-[1.45] text-ff-ink-2">{order.notes}</div>
-            </div>
-          )}
-
-          <div className="mb-2.5 text-[13px] font-bold text-ff-muted">ПРОДУКТИ</div>
-          <div className="mb-4 overflow-hidden rounded-xl border border-ff-border-2">
-            {order.items.map((it, i) => (
-              <div
-                key={it.id}
-                className={`flex items-center justify-between px-3.5 py-3 ${i < order.items.length - 1 ? 'border-b border-ff-border-2' : ''}`}
-              >
-                <span className="text-sm font-semibold">{it.productName}</span>
-                <span className="text-[13.5px] font-bold text-ff-muted">× {it.quantity}</span>
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[15px] font-bold">Общо</span>
-            <span className="ff-fig text-[22px] font-extrabold tracking-[-0.02em]">
-              {moneyFromStotinki(order.totalStotinki)}
-            </span>
-          </div>
-        </div>
+        <OrderDetailBody order={order} />
 
         <div className="flex flex-col gap-2.5 border-t border-ff-border-2 px-6 py-5">
           {order.status === 'pending' && (
@@ -158,7 +88,84 @@ export function OrderPanel({
   );
 }
 
-function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+export function OrderDetailBody({ order }: { order: Order }) {
+  const slotLabel = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '—';
+  const paymentValue =
+    order.paymentStatus === 'paid'
+      ? order.paidAt
+        ? `Платена с карта · ${timeFromIso(order.paidAt)}`
+        : 'Платена с карта'
+      : order.paymentStatus === 'pending_online'
+        ? 'Чака онлайн плащане'
+        : 'Наложен платеж / при доставка';
+  const isEcont = order.deliveryType === 'econt' || order.deliveryType === 'econt_address';
+  const deliveryVal =
+    order.deliveryType === 'econt'
+      ? order.econtOffice ?? 'Еконт офис'
+      : order.deliveryType === 'pickup'
+        ? 'Чайка, Варна'
+        : order.deliveryAddress ?? '—';
+  const deliveryLabel =
+    order.deliveryType === 'econt'
+      ? 'Еконт — до офис'
+      : order.deliveryType === 'econt_address'
+        ? 'Еконт — до адрес'
+        : order.deliveryType === 'pickup'
+          ? 'Вземане от пазара'
+          : 'Адрес за доставка';
+
+  return (
+    <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="mb-5 flex flex-wrap items-center gap-2.5">
+        <StatusBadge status={order.status} size="md" />
+        <PaymentBadge status={order.paymentStatus} size="md" />
+        <span className="text-[13px] text-ff-muted">· приета в {timeFromIso(order.createdAt)}</span>
+      </div>
+
+      <div className="mb-[22px] flex flex-col gap-2.5">
+        <InfoRow icon={<Phone size={18} />} label="Телефон" value={order.customerPhone ?? '—'} />
+        {order.customerEmail && (
+          <InfoRow icon={<Mail size={18} />} label="Имейл" value={order.customerEmail} />
+        )}
+        <InfoRow
+          icon={isEcont ? <Package size={18} /> : <MapPin size={18} />}
+          label={deliveryLabel}
+          value={deliveryVal}
+        />
+        <InfoRow icon={<CalendarClock size={18} />} label="Слот за доставка" value={slotLabel} />
+        <InfoRow icon={<CreditCard size={18} />} label="Плащане" value={paymentValue} />
+      </div>
+
+      {order.notes && (
+        <div className="mb-[22px] rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-3">
+          <div className="mb-0.5 text-xs font-bold text-ff-amber-600">БЕЛЕЖКА ОТ КЛИЕНТА</div>
+          <div className="text-[13.5px] leading-[1.45] text-ff-ink-2">{order.notes}</div>
+        </div>
+      )}
+
+      <div className="mb-2.5 text-[13px] font-bold text-ff-muted">ПРОДУКТИ</div>
+      <div className="mb-4 overflow-hidden rounded-xl border border-ff-border-2">
+        {order.items.map((it, i) => (
+          <div
+            key={it.id}
+            className={`flex items-center justify-between px-3.5 py-3 ${i < order.items.length - 1 ? 'border-b border-ff-border-2' : ''}`}
+          >
+            <span className="text-sm font-semibold">{it.productName}</span>
+            <span className="text-[13.5px] font-bold text-ff-muted">× {it.quantity}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between px-1">
+        <span className="text-[15px] font-bold">Общо</span>
+        <span className="ff-fig text-[22px] font-extrabold tracking-[-0.02em]">
+          {moneyFromStotinki(order.totalStotinki)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="flex items-start gap-3">
       <span className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] border border-ff-border-2 bg-ff-surface-2 text-ff-green-700">

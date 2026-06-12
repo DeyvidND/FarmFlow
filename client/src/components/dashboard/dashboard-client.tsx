@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, Info } from 'lucide-react';
@@ -12,8 +12,8 @@ import { DASHBOARD_HELP } from '@/lib/help-content';
 import { StatCard } from './stat-card';
 import { OrdersFeed } from './orders-feed';
 import { OrderPanel } from '@/components/orders/order-panel';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { ApiError, confirmPendingOrders, getDashboard, updateOrderStatus } from '@/lib/api-client';
+import { CodReviewDrawer } from '@/components/orders/cod-review-drawer';
+import { ApiError, getDashboard, updateOrderStatus } from '@/lib/api-client';
 import type { DashboardSummary, Order } from '@/lib/types';
 
 const WEEKDAYS = ['неделя', 'понеделник', 'вторник', 'сряда', 'четвъртък', 'петък', 'събота'];
@@ -38,11 +38,11 @@ export function DashboardClient({
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirmingAll, setConfirmingAll] = useState(false);
   const [help, setHelp] = useState(false);
+  const [codReviewOpen, setCodReviewOpen] = useState(false);
 
   const feed = orders.filter((o) => o.createdAt.slice(0, 10) === summary.date);
-  const pendingCount = feed.filter((o) => o.status === 'pending').length;
+  const codPending = feed.filter((o) => o.status === 'pending' && o.paymentStatus === 'cash');
   const active = orders.find((o) => o.id === activeId) ?? null;
 
   const delta = summary.orderDelta;
@@ -67,28 +67,66 @@ export function DashboardClient({
   }
 
   function confirmAll() {
-    if (!pendingCount) {
-      toast.info('Няма чакащи поръчки');
+    if (!codPending.length) {
+      toast.info('Няма чакащи поръчки с наложен платеж');
       return;
     }
-    setConfirmingAll(true);
+    setCodReviewOpen(true);
   }
 
-  async function doConfirmAll() {
-    setConfirmingAll(false);
+  async function codConfirm(o: Order) {
+    const prev = o.status;
+    setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status: 'confirmed' } : x)));
     setBusy(true);
     try {
-      const { confirmed } = await confirmPendingOrders(summary.date);
-      setOrders((p) =>
-        p.map((o) =>
-          o.createdAt.slice(0, 10) === summary.date && o.status === 'pending'
-            ? { ...o, status: 'confirmed' }
-            : o,
-        ),
-      );
-      toast.success(`${confirmed} поръчки потвърдени`);
+      await updateOrderStatus(o.id, 'confirmed');
+      toast.success('Статусът е обновен', {
+        action: { label: 'Отмени', onClick: () => void revertStatus(o.id, prev) },
+      });
       void refreshSummary();
     } catch (e) {
+      setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status: prev } : x)));
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function codReject(o: Order) {
+    const prev = o.status;
+    setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status: 'cancelled' } : x)));
+    setBusy(true);
+    try {
+      await updateOrderStatus(o.id, 'cancelled');
+      toast.success('Поръчката е отказана', {
+        action: { label: 'Отмени', onClick: () => void revertStatus(o.id, prev) },
+      });
+      void refreshSummary();
+    } catch (e) {
+      setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status: prev } : x)));
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function codConfirmRemaining(list: Order[]) {
+    if (!list.length) return;
+    const prevStatuses = list.map((o) => ({ id: o.id, status: o.status }));
+    setOrders((p) => p.map((x) => (list.some((o) => o.id === x.id) ? { ...x, status: 'confirmed' } : x)));
+    setBusy(true);
+    try {
+      await Promise.all(list.map((o) => updateOrderStatus(o.id, 'confirmed')));
+      toast.success(`${list.length} поръчки потвърдени`);
+      void refreshSummary();
+      setCodReviewOpen(false);
+    } catch (e) {
+      setOrders((p) =>
+        p.map((x) => {
+          const prev = prevStatuses.find((s) => s.id === x.id);
+          return prev ? { ...x, status: prev.status } : x;
+        }),
+      );
       toast.error(errMsg(e));
     } finally {
       setBusy(false);
@@ -105,6 +143,10 @@ export function DashboardClient({
       toast.error(errMsg(e));
     }
   }
+
+  useEffect(() => {
+    if (codReviewOpen && codPending.length === 0) setCodReviewOpen(false);
+  }, [codReviewOpen, codPending.length]);
 
   async function onAction(o: Order, status: OrderStatus) {
     setBusy(true);
@@ -185,8 +227,8 @@ export function DashboardClient({
                   <CheckCheck size={22} />
                 </span>
                 <span className="flex min-w-0 flex-col gap-0.5 leading-[1.3]">
-                  <span className="text-[14.5px] font-extrabold">Потвърди всички чакащи</span>
-                  <span className="text-[12.5px] opacity-80">{pendingCount} поръчки</span>
+                  <span className="text-[14.5px] font-extrabold">Прегледай наложен платеж</span>
+                  <span className="text-[12.5px] opacity-80">{codPending.length} с наложен платеж</span>
                 </span>
               </button>
 
@@ -255,19 +297,14 @@ export function DashboardClient({
         />
       )}
 
-      {confirmingAll && (
-        <ConfirmDialog
-          title="Потвърждаване на всички чакащи?"
-          message={
-            <>
-              <b>{pendingCount}</b>{' '}
-              {pendingCount === 1 ? 'поръчка ще бъде потвърдена' : 'поръчки ще бъдат потвърдени'} наведнъж.
-            </>
-          }
-          confirmLabel="Потвърди всички"
+      {codReviewOpen && codPending.length > 0 && (
+        <CodReviewDrawer
+          orders={codPending}
           busy={busy}
-          onCancel={() => setConfirmingAll(false)}
-          onConfirm={doConfirmAll}
+          onConfirm={codConfirm}
+          onReject={codReject}
+          onConfirmRemaining={codConfirmRemaining}
+          onClose={() => setCodReviewOpen(false)}
         />
       )}
 

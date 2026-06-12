@@ -59,24 +59,20 @@ const SLOT_LEN = [
 
 /** Two same windows? Used to decide whether "same hours for all" starts on. */
 const sameWin = (a: SlotWindow, b: SlotWindow) =>
-  a.timeFrom === b.timeFrom && a.timeTo === b.timeTo && a.maxOrders === b.maxOrders;
+  a.timeFrom === b.timeFrom && a.timeTo === b.timeTo;
 
 /** Sorted unique options that always include `v` — so an off-grid legacy time
  *  (e.g. 09:45 from the old free time input) still shows instead of a blank select. */
 const withValue = (opts: string[], v: string) =>
   opts.includes(v) ? opts : [...opts, v].sort();
 
-/** Start/end (24h selects, end is always after start) + capacity. The capacity
- *  input hides when a delivery duration is set — a slot sized to one delivery
- *  always holds exactly one, so the number would only confuse. */
+/** Start/end (24h selects, end always after start). Capacity is always 1 — derived from slotMinutes. */
 function WindowFields({
   win,
   onChange,
-  hideCapacity = false,
 }: {
   win: SlotWindow;
   onChange: (w: SlotWindow) => void;
-  hideCapacity?: boolean;
 }) {
   const setFrom = (timeFrom: string) => {
     // Keep end strictly after start — pick the next valid slot if it slipped behind.
@@ -86,7 +82,7 @@ function WindowFields({
   const startOpts = withValue(TIMES.slice(0, -1), win.timeFrom);
   const endOpts = withValue(TIMES.filter((t) => t > win.timeFrom), win.timeTo);
   return (
-    <div className={cn('grid grid-cols-2 gap-3', !hideCapacity && 'sm:grid-cols-3')}>
+    <div className="grid grid-cols-2 gap-3">
       <label className={lbl}>
         Начало
         <select value={win.timeFrom} onChange={(e) => setFrom(e.target.value)} className={field}>
@@ -107,17 +103,6 @@ function WindowFields({
           ))}
         </select>
       </label>
-      {!hideCapacity && (
-        <label className={lbl}>
-          Капацитет
-          <input
-            value={String(win.maxOrders)}
-            onChange={(e) => onChange({ ...win, maxOrders: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-            inputMode="numeric"
-            className={field}
-          />
-        </label>
-      )}
     </div>
   );
 }
@@ -209,13 +194,9 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
   async function save() {
     setSaving(true);
     try {
-      let days = s.sameHours ? [...pickedDows].map((dow) => ({ dow, ...s.shared })) : s.days;
-      let intervalWindow = s.intervalWindow;
-      // Duration set → one delivery per sub-slot; mirror the server's normalize.
-      if (s.slotMinutes > 0) {
-        days = days.map((d) => ({ ...d, maxOrders: 1 }));
-        intervalWindow = { ...intervalWindow, maxOrders: 1 };
-      }
+      const days = (s.sameHours ? [...pickedDows].map((dow) => ({ dow, ...s.shared })) : s.days)
+        .map((d) => ({ ...d, maxOrders: 1 }));
+      const intervalWindow = { ...s.intervalWindow, maxOrders: 1 };
       const rule: SlotRuleInput = {
         active: s.active,
         repeat: s.repeat,
@@ -308,20 +289,20 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
               <span className="flex flex-col">
                 <span className="text-[13px] font-bold text-ff-ink">Еднакви часове за всички дни</span>
                 <span className="text-[12px] text-ff-muted">
-                  Изключи, за да зададеш различни часове и капацитет за всеки ден.
+                  Изключи, за да зададеш различни часове за всеки ден.
                 </span>
               </span>
               <ToggleSwitch checked={s.sameHours} onChange={setSameHours} />
             </label>
 
             {s.sameHours ? (
-              <WindowFields win={s.shared} onChange={(w) => set({ shared: w })} hideCapacity={s.slotMinutes > 0} />
+              <WindowFields win={s.shared} onChange={(w) => set({ shared: w })} />
             ) : orderedDays.length ? (
               <div className="flex flex-col gap-3">
                 {orderedDays.map((d) => (
                   <div key={d.dow} className="rounded-lg border border-ff-border-2 bg-ff-surface-2/40 p-3">
                     <div className="mb-2 text-[13px] font-extrabold text-ff-green-800">{DOW_LABEL[d.dow]}</div>
-                    <WindowFields win={d} onChange={(w) => setDayWindow(d.dow, w)} hideCapacity={s.slotMinutes > 0} />
+                    <WindowFields win={d} onChange={(w) => setDayWindow(d.dow, w)} />
                   </div>
                 ))}
               </div>
@@ -340,7 +321,7 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
                 className={field}
               />
             </label>
-            <WindowFields win={s.intervalWindow} onChange={(w) => set({ intervalWindow: w })} hideCapacity={s.slotMinutes > 0} />
+            <WindowFields win={s.intervalWindow} onChange={(w) => set({ intervalWindow: w })} />
           </>
         )}
 
@@ -354,7 +335,7 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
           const preview = perDay
             ? 'Прозорецът на всеки ден се разделя според собствените му часове — по 1 поръчка на слот.'
             : s.slotMinutes === 0
-              ? `Един слот на ден: ${win.timeFrom}–${win.timeTo} (до ${win.maxOrders} поръчки).`
+              ? `Един слот на ден: ${win.timeFrom}–${win.timeTo} — 1 поръчка.`
               : !fits
                 ? `Прозорецът е по-къс от времетраенето — остава един слот ${parts[0]} (1 поръчка).`
                 : `${parts.length} ${parts.length === 1 ? 'слот' : 'слота'} на ден: ${parts.slice(0, 6).join(' · ')}${parts.length > 6 ? ' …' : ''} — по 1 поръчка на слот.`;
