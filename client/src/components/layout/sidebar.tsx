@@ -117,6 +117,28 @@ export const NAV_GROUPS: NavGroup[] = [
 /** Flattened list (back-compat for any consumer that wants every item). */
 export const NAV: NavItem[] = [HOME, ...NAV_GROUPS.flatMap((g) => g.items)];
 
+const NAV_ORDER_PREFIX = 'navorder:';
+const DEFAULT_NAV_ORDER = NAV_GROUPS.map((g) => g.title);
+
+/** Parse the raw hiddenNav array (which may contain a `navorder:…` entry) into
+ *  a clean hidden-keys set and an ordered list of section titles. */
+export function parseNavOrder(rawHidden: string[]): { hidden: string[]; navOrder: string[] } {
+  const entry = rawHidden.find((k) => k.startsWith(NAV_ORDER_PREFIX));
+  const parsed = entry
+    ? entry.slice(NAV_ORDER_PREFIX.length).split('|').filter((t) => DEFAULT_NAV_ORDER.includes(t))
+    : [...DEFAULT_NAV_ORDER];
+  const missing = DEFAULT_NAV_ORDER.filter((t) => !parsed.includes(t));
+  return {
+    hidden: rawHidden.filter((k) => !k.startsWith(NAV_ORDER_PREFIX)),
+    navOrder: [...parsed, ...missing],
+  };
+}
+
+/** Encode a section-title order back into a single hiddenNav entry. */
+export function encodeNavOrder(order: string[]): string {
+  return NAV_ORDER_PREFIX + order.join('|');
+}
+
 const OPEN_STORAGE_KEY = 'ff-nav-open';
 
 function Logo({ size = 38 }: { size?: number }) {
@@ -161,8 +183,9 @@ export function Sidebar({
   }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
-  // Keys the farmer chose to hide in Settings (item hrefs + "group:<title>").
-  const hidden = new Set(hiddenNav);
+  const { hidden: hiddenKeys, navOrder } = parseNavOrder(hiddenNav);
+  const hidden = new Set(hiddenKeys);
+  const sortedGroups = navOrder.map((t) => NAV_GROUPS.find((g) => g.title === t)).filter(Boolean) as NavGroup[];
   // Hide feature-gated items (e.g. Статии when off) AND user-hidden items.
   const visibleItems = (g: NavGroup) =>
     g.items.filter(
@@ -253,7 +276,7 @@ export function Sidebar({
         {/* Home — always on top, no group header */}
         <div className="flex flex-col gap-1">{renderItem(HOME)}</div>
 
-        {NAV_GROUPS.map((group) => {
+        {sortedGroups.map((group) => {
           // Whole section hidden by the farmer, or every item in it hidden/off.
           if (hidden.has(navGroupKey(group.title))) return null;
           const items = visibleItems(group);

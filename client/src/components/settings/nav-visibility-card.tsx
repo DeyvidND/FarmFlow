@@ -2,18 +2,18 @@
 
 /**
  * Settings → side-nav customization. Lets the farmer hide menu items (or whole
- * sections) they don't use, so the sidebar isn't over-stacked. Purely cosmetic:
- * hidden screens stay reachable by URL and can be turned back on here at any time.
- * Stored per-user in users.hiddenNav via PATCH /auth/me/nav.
+ * sections) they don't use, so the sidebar isn't over-stacked. Also lets them
+ * reorder the sections with ↑↓ buttons. Stored per-user in users.hiddenNav via
+ * PATCH /auth/me/nav (hidden keys + a "navorder:…" entry for section order).
  */
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutDashboard } from 'lucide-react';
+import { LayoutDashboard, ChevronUp, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { SaveBar } from '@/components/panels/panel-ui';
-import { NAV_GROUPS, HOME, navGroupKey } from '@/components/layout/sidebar';
+import { NAV_GROUPS, HOME, navGroupKey, parseNavOrder, encodeNavOrder } from '@/components/layout/sidebar';
 import { ApiError, getMe, updateHiddenNav } from '@/lib/api-client';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -25,15 +25,20 @@ export function NavVisibilityCard() {
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState<Set<string>>(new Set());
   const [hidden, setHidden] = React.useState<Set<string>>(new Set());
+  const [savedNavOrder, setSavedNavOrder] = React.useState<string[]>([]);
+  const [navOrder, setNavOrder] = React.useState<string[]>([]);
 
   React.useEffect(() => {
     let active = true;
     getMe()
       .then((me) => {
         if (!active) return;
-        const init = new Set(me.hiddenNav ?? []);
+        const { hidden: initHidden, navOrder: initOrder } = parseNavOrder(me.hiddenNav ?? []);
+        const init = new Set(initHidden);
         setSaved(init);
         setHidden(new Set(init));
+        setSavedNavOrder(initOrder);
+        setNavOrder(initOrder);
       })
       .catch(() => active && toast.error('Неуспешно зареждане на настройките'))
       .finally(() => {
@@ -44,9 +49,9 @@ export function NavVisibilityCard() {
     };
   }, []);
 
-  const dirty = sortedKey(hidden) !== sortedKey(saved);
+  const dirty =
+    sortedKey(hidden) !== sortedKey(saved) || navOrder.join('|') !== savedNavOrder.join('|');
 
-  // visible=true → ensure the key is NOT in the hidden set; false → add it.
   const setVisible = (key: string, visible: boolean) =>
     setHidden((prev) => {
       const next = new Set(prev);
@@ -55,12 +60,26 @@ export function NavVisibilityCard() {
       return next;
     });
 
+  const moveSection = (title: string, dir: -1 | 1) =>
+    setNavOrder((prev) => {
+      const idx = prev.indexOf(title);
+      if (idx < 0) return prev;
+      const swap = idx + dir;
+      if (swap < 0 || swap >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return next;
+    });
+
   const save = async () => {
     setSaving(true);
     try {
-      const arr = [...hidden];
+      const defaultOrder = NAV_GROUPS.map((g) => g.title).join('|');
+      const isDefault = navOrder.join('|') === defaultOrder;
+      const arr = [...hidden, ...(isDefault ? [] : [encodeNavOrder(navOrder)])];
       await updateHiddenNav(arr);
-      setSaved(new Set(arr));
+      setSaved(new Set([...hidden]));
+      setSavedNavOrder([...navOrder]);
       router.refresh();
       toast.success('Менюто е обновено');
     } catch (e) {
@@ -75,14 +94,15 @@ export function NavVisibilityCard() {
       <h2 className="text-[16px] font-extrabold">Странична навигация</h2>
       <p className="mt-1 text-[13px] leading-snug text-ff-muted">
         Скрий менютата, които не ползваш, за да не е претрупана лявата лента. Скритите екрани
-        остават достъпни и можеш да ги върнеш оттук по всяко време.
+        остават достъпни и можеш да ги върнеш оттук по всяко време. Използвай стрелките ↑↓ до
+        секцията, за да промениш реда им.
       </p>
 
       {loading ? (
         <div className="mt-5 text-[13.5px] text-ff-muted">Зареждане…</div>
       ) : (
         <div className="mt-5 flex flex-col gap-4">
-          {/* Табло is pinned — it's the landing page, so it can't be hidden. */}
+          {/* Табло is pinned — always on top, not hideable or reorderable. */}
           <div className="flex items-center gap-3 rounded-xl border border-ff-border bg-ff-surface-2 px-[15px] py-3 opacity-90">
             <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] border border-ff-border-2 bg-ff-surface text-ff-muted">
               <LayoutDashboard size={20} />
@@ -96,7 +116,9 @@ export function NavVisibilityCard() {
             <ToggleSwitch checked disabled onChange={() => {}} />
           </div>
 
-          {NAV_GROUPS.map((group) => {
+          {navOrder.map((groupTitle, idx) => {
+            const group = NAV_GROUPS.find((g) => g.title === groupTitle);
+            if (!group) return null;
             const groupKey = navGroupKey(group.title);
             const groupVisible = !hidden.has(groupKey);
             return (
@@ -104,7 +126,7 @@ export function NavVisibilityCard() {
                 key={group.title}
                 className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface-2"
               >
-                {/* Section row — toggling off hides the whole group at once. */}
+                {/* Section header — toggle + reorder arrows */}
                 <div className="flex items-center gap-3 border-b border-ff-border px-[15px] py-3">
                   <div className="min-w-0 flex-1">
                     <div className="text-[11px] font-extrabold uppercase tracking-[0.06em] text-ff-muted-2">
@@ -114,6 +136,27 @@ export function NavVisibilityCard() {
                     {group.desc && (
                       <div className="mt-0.5 text-[12.5px] leading-snug text-ff-muted">{group.desc}</div>
                     )}
+                  </div>
+                  {/* Up/down reorder */}
+                  <div className="flex flex-col">
+                    <button
+                      type="button"
+                      onClick={() => moveSection(group.title, -1)}
+                      disabled={idx === 0}
+                      aria-label="Премести нагоре"
+                      className="grid h-6 w-6 place-items-center rounded text-ff-muted transition-colors hover:bg-ff-surface hover:text-ff-ink disabled:pointer-events-none disabled:opacity-25"
+                    >
+                      <ChevronUp size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveSection(group.title, 1)}
+                      disabled={idx === navOrder.length - 1}
+                      aria-label="Премести надолу"
+                      className="grid h-6 w-6 place-items-center rounded text-ff-muted transition-colors hover:bg-ff-surface hover:text-ff-ink disabled:pointer-events-none disabled:opacity-25"
+                    >
+                      <ChevronDown size={15} />
+                    </button>
                   </div>
                   <ToggleSwitch
                     checked={groupVisible}
@@ -158,7 +201,16 @@ export function NavVisibilityCard() {
         </div>
       )}
 
-      {dirty && <SaveBar saving={saving} onSave={save} onDiscard={() => setHidden(new Set(saved))} />}
+      {dirty && (
+        <SaveBar
+          saving={saving}
+          onSave={save}
+          onDiscard={() => {
+            setHidden(new Set(saved));
+            setNavOrder([...savedNavOrder]);
+          }}
+        />
+      )}
     </section>
   );
 }
