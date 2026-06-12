@@ -143,7 +143,7 @@ export const products = pgTable(
     // How the cover image is framed in storefront product cards: focal point
     // (x/y, 0..1) + zoom (1..3). NULL = legacy behavior (centered, no zoom).
     // Lets portrait/landscape photos be framed instead of blindly center-cropped.
-    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number }>(),
+    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number; shape?: 'wide' | 'square' | 'tall' }>(),
     // Optional multi-producer + section grouping links (admin toggles). FK SET NULL
     // on delete so removing a farmer/subcategory just unlinks its products.
     farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'set null' }),
@@ -531,7 +531,7 @@ export const farmers = pgTable(
     imageUrl: text('image_url'),
     // How the cover image is framed in storefront cards: focal point (x/y, 0..1)
     // + zoom (1..3). NULL = legacy behavior (centered, no zoom). See CoverCrop.
-    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number }>(),
+    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number; shape?: 'wide' | 'square' | 'tall' }>(),
     position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
   },
@@ -557,7 +557,7 @@ export const subcategories = pgTable(
     imageUrl: text('image_url'),
     // How the cover image is framed in the storefront section banner: focal point
     // (x/y, 0..1) + zoom (1..3). NULL = legacy behavior (centered, no zoom).
-    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number }>(),
+    coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number; shape?: 'wide' | 'square' | 'tall' }>(),
     position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
   },

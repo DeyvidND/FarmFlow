@@ -31,9 +31,17 @@ export type NewFarmer = InferInsertModel<typeof farmers>;
 /**
  * How a catalog cover image is framed in the storefront. `x`/`y` are the focal
  * point as fractions (0..1) of the source image; `zoom` magnifies (1..3). Stored
- * on `farmers.coverCrop` / `subcategories.coverCrop`; NULL = centered, no zoom.
+ * on `farmers.coverCrop` / `subcategories.coverCrop` / `products.coverCrop`;
+ * NULL = centered, no zoom. `shape` (products only) is the card aspect the farmer
+ * framed for — the storefront card + admin grid mirror it (square→1:1, tall→4:5,
+ * wide/absent→4:3) so what they frame is what shows.
  */
-export type CoverCrop = { x: number; y: number; zoom: number };
+export type CoverCrop = {
+  x: number;
+  y: number;
+  zoom: number;
+  shape?: 'wide' | 'square' | 'tall';
+};
 
 export type Subcategory = InferSelectModel<typeof subcategories>;
 export type NewSubcategory = InferInsertModel<typeof subcategories>;

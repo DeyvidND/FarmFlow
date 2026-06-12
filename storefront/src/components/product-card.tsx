@@ -44,17 +44,25 @@ export function ProductCard({
     toast(`„${product.name}“ е добавен в количката`);
   };
 
+  // Honor the framed card shape (square→1:1, tall→4:5, wide/absent→theme default),
+  // matching the chaika storefront + admin grid so framing is WYSIWYG.
+  const shape = product.coverCrop?.shape;
+  const phStyle = shape === 'square' || shape === 'tall'
+    ? { aspectRatio: shape === 'square' ? '1 / 1' : '4 / 5' }
+    : undefined;
+
   const thumbInner = product.imageUrl ? (
-    // next/image for lazy-loading + automatic optimization. Intrinsic width/height
-    // set the aspect hint; CSS (width/height 100% + cover) keeps the template's
-    // fixed-aspect `.ph` box, so no layout shift vs the original <img>.
+    // next/image for lazy-loading + automatic optimization. Absolutely filling the
+    // `.ph` box (which is `position:relative; display:grid`) is what makes object-fit
+    // crop + the saved pan/zoom take effect — an in-flow img keeps its source aspect,
+    // leaving object-fit nothing to crop so the framing would appear to do nothing.
     <Image
       src={product.imageUrl}
       alt={product.name}
       width={600}
       height={600}
       sizes="(max-width: 640px) 50vw, 320px"
-      style={{ width: '100%', height: '100%', ...coverCropStyle(product.coverCrop) }}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', ...coverCropStyle(product.coverCrop) }}
     />
   ) : (
     <span className="ph__label">{product.name}</span>
@@ -63,11 +71,11 @@ export function ProductCard({
   return (
     <article className="card product" data-product>
       {href ? (
-        <Link href={href} className="ph" style={{ display: 'block' }}>
+        <Link href={href} className="ph" style={phStyle}>
           {thumbInner}
         </Link>
       ) : (
-        <span className="ph" style={{ display: 'block' }}>
+        <span className="ph" style={phStyle}>
           {thumbInner}
         </span>
       )}

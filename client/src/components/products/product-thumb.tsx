@@ -31,20 +31,26 @@ export function ProductThumb({
   useEffect(() => setBroken(false), [imageUrl]);
   const g = '#4C8A54';
   const showImg = imageUrl && !broken;
+  // Mirror the storefront card shape the farmer picked in the framing editor
+  // (square→1:1, tall→4:5, wide/none→4:3) so the panel shows exactly what the
+  // shop will — that's what makes the «Квадрат / Висока» buttons visibly do something.
+  const aspect = coverCrop?.shape === 'square' ? '1 / 1' : coverCrop?.shape === 'tall' ? '4 / 5' : '4 / 3';
 
   return (
     <button
       type="button"
       onClick={onPick}
-      // Aspect 4:3 matches the default storefront product card, so a photo framed
-      // here lands the same in the shop (portrait or landscape, both look uniform).
-      className="relative grid aspect-[4/3] w-full place-items-center overflow-hidden rounded-xl border border-ff-border-2"
-      style={{ background: 'linear-gradient(150deg, var(--ff-green-50), var(--ff-surface-2))' }}
+      // The image fills the box absolutely (NOT as a centered grid child) — a centering
+      // grid lets the <img> keep its source aspect, which leaves object-fit:cover nothing
+      // to crop, so the saved pan/zoom appear to "do nothing". Absolute inset-0 forces the
+      // img to the box size, so coverCropStyle's object-position + scale frame it for real.
+      className={`relative w-full overflow-hidden rounded-xl border border-ff-border-2 ${showImg ? '' : 'grid place-items-center'}`}
+      style={{ aspectRatio: aspect, background: 'linear-gradient(150deg, var(--ff-green-50), var(--ff-surface-2))' }}
       title="Качи снимка"
     >
       {showImg ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full" style={coverCropStyle(coverCrop)} onError={() => setBroken(true)} />
+        <img src={imageUrl} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full" style={coverCropStyle(coverCrop)} onError={() => setBroken(true)} />
       ) : (
         <svg viewBox="0 0 60 40" width="62%" height="62%" style={{ opacity: 0.7 }}>
           <circle cx="24" cy="22" r="8" fill={hexA(g, 0.3)} />
