@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { CalendarDays, ChevronDown, Check, ShoppingBasket, Clock } from 'lucide-react';
+import { Check, ShoppingBasket, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DateNavBar } from './date-nav-bar';
 import type { ProductionSummary } from '@/lib/types';
 
 const plural = (n: number) => (n === 1 ? 'бройка' : 'бройки');
@@ -22,7 +22,6 @@ export function PrepList({
   dateLabel: string;
   date: string;
 }) {
-  const router = useRouter();
   const { items, confirmedOrders } = summary;
   const [done, setDone] = useState<Record<string, boolean>>({});
 
@@ -97,22 +96,7 @@ export function PrepList({
             {hasUnassigned && <option value="none">Без фермер</option>}
           </select>
         )}
-        <label className="relative flex cursor-pointer items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2">
-          <CalendarDays size={17} />
-          <span className="capitalize">{dateLabel}</span>
-          <ChevronDown size={16} className="text-ff-muted" />
-          <input
-            type="date"
-            value={date}
-            aria-label="Избери дата"
-            onChange={(e) => {
-              if (!e.target.value) return;
-              router.push(`/production?date=${e.target.value}`);
-              router.refresh();
-            }}
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-          />
-        </label>
+        <DateNavBar date={date} dateLabel={dateLabel} />
       </div>
 
       <div className="grid grid-cols-[1fr_300px] items-start gap-4 max-[900px]:grid-cols-1">

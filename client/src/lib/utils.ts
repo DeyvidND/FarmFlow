@@ -26,7 +26,7 @@ export const statusMeta: Record<OrderStatus, { label: string; cls: OrderStatus }
 };
 
 const BG_DAYS = ['неделя', 'понеделник', 'вторник', 'сряда', 'четвъртък', 'петък', 'събота'];
-const BG_MONTHS = [
+export const BG_MONTHS = [
   'януари', 'февруари', 'март', 'април', 'май', 'юни',
   'юли', 'август', 'септември', 'октомври', 'ноември', 'декември',
 ];
@@ -52,6 +52,26 @@ export function bgWeekdayShort(dateStr: string): string {
 export function ddmm(dateStr: string): string {
   const [, m, d] = dateStr.split('-');
   return `${d}.${m}`;
+}
+
+/** Today as local-time "YYYY-MM-DD". Only call from client components. */
+export function todayIso(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Shift a "YYYY-MM-DD" string by deltaDays, returning "YYYY-MM-DD" (local time). */
+export function shiftIsoDate(dateStr: string, deltaDays: number): string {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, mo - 1, d);
+  dt.setDate(dt.getDate() + deltaDays);
+  const ny = dt.getFullYear();
+  const nm = String(dt.getMonth() + 1).padStart(2, '0');
+  const nd = String(dt.getDate()).padStart(2, '0');
+  return `${ny}-${nm}-${nd}`;
 }
 
 /** Renders an HH:MM in Bulgaria local time. Deterministic (fixed IANA zone), so it
