@@ -65,7 +65,7 @@ export function SubcategoriesClient({
     setMulti(v); // optimistic
     try {
       await updateTenant({ multiSubcat: v });
-      toast.success(v ? 'Подкатегориите са включени' : 'Подкатегориите са изключени');
+      toast.success(v ? 'Категориите са включени' : 'Категориите са изключени');
     } catch (e) {
       setMulti(!v); // rollback
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
@@ -93,7 +93,7 @@ export function SubcategoriesClient({
           <Tags size={23} />
         </span>
         <div className="min-w-[220px] flex-1">
-          <div className="text-[15.5px] font-extrabold">Подкатегории в магазина</div>
+          <div className="text-[15.5px] font-extrabold">Категории в магазина</div>
           <div className="mt-0.5 max-w-[580px] text-[13px] leading-snug text-ff-ink-2">
             Включи това, ако искаш да групираш продуктите си в собствени секции — всяка със снимка, заглавие и кратко описание.
           </div>
@@ -111,7 +111,7 @@ export function SubcategoriesClient({
           <div className="mx-auto mb-4 grid h-[60px] w-[60px] place-items-center rounded-2xl bg-ff-surface-2 text-ff-muted-2">
             <Tags size={30} />
           </div>
-          <h2 className="mb-2 text-[19px] font-extrabold">Без подкатегории</h2>
+          <h2 className="mb-2 text-[19px] font-extrabold">Без категории</h2>
           <p className="mx-auto max-w-[430px] text-sm leading-relaxed text-ff-ink-2">
             В момента продуктите се показват без допълнително групиране. Включи опцията горе, за да подредиш магазина в секции.
           </p>
@@ -119,7 +119,7 @@ export function SubcategoriesClient({
       ) : (
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-ff-muted">{subcats.length} подкатегории · показват се като секции в магазина</p>
+            <p className="text-sm text-ff-muted">{subcats.length} категории · показват се като секции в магазина</p>
             <div className="flex items-center gap-2">
               {subcats.length > 1 && (
                 <Button
@@ -137,7 +137,7 @@ export function SubcategoriesClient({
               )}
               {!reorderMode && (
                 <Button variant="primary" onClick={() => setEdit({})} className="rounded-sm">
-                  <Plus size={18} /> Добави подкатегория
+                  <Plus size={18} /> Добави категория
                 </Button>
               )}
             </div>
@@ -158,7 +158,7 @@ export function SubcategoriesClient({
               )}
             />
           ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(330px,1fr))] gap-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4">
             {ordered.map((s) => {
               const prods = productsOf(s.id);
               return (

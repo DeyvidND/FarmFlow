@@ -86,7 +86,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоят каталог с продукти и цени.' },
       { href: '/farmers', label: 'Фермери', Icon: Users, desc: 'Производителите, чиято стока продаваш.' },
-      { href: '/subcategories', label: 'Подкатегории', Icon: Tags, desc: 'Раздели, в които групираш продуктите.' },
+      { href: '/subcategories', label: 'Категории', Icon: Tags, desc: 'Раздели, в които групираш продуктите.' },
     ],
   },
   {

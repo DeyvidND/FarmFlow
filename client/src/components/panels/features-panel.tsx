@@ -63,7 +63,7 @@ export function FeaturesPanel({ initial }: { initial: FeatureFlags }) {
         />
         <ToggleCard
           icon={Tags}
-          title="Подкатегории"
+          title="Категории"
           desc="Групирай продуктите в раздели (напр. „Млечни“, „Зеленчуци“). Без това всичко е в общ списък."
           on={val.multiSubcat}
           onToggle={(v) => set('multiSubcat', v)}

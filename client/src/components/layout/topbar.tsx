@@ -83,7 +83,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/payments': 'Плащания',
   '/products': 'Продукти',
   '/farmers': 'Фермери',
-  '/subcategories': 'Подкатегории',
+  '/subcategories': 'Категории',
   '/articles': 'Статии',
   '/reviews': 'Отзиви',
   '/site-media': 'Снимки на сайта',

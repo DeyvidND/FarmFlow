@@ -411,22 +411,6 @@ export default function ContactsPage() {
             </div>
           </div>
 
-          <div className="mt-4">
-            <label className={label}>Основен цвят (theme color)</label>
-            <div className="flex items-center gap-2">
-              <input type="color" value={form.themeColor || '#3F7D43'}
-                onChange={(e) => set('themeColor', e.target.value)}
-                className="h-9 w-12 cursor-pointer rounded border border-ff-border bg-ff-surface" />
-              <input className={`${input} max-w-[140px]`} value={form.themeColor}
-                onChange={(e) => set('themeColor', e.target.value)} placeholder="#3F7D43" />
-              {form.themeColor && (
-                <Button variant="ghost" type="button" onClick={() => set('themeColor', '')}
-                  className="rounded-sm px-2.5 text-[13px] text-ff-muted">
-                  Изчисти
-                </Button>
-              )}
-            </div>
-          </div>
         </section>
 
         <div className="mt-1 flex justify-end border-t border-ff-border pt-4">
