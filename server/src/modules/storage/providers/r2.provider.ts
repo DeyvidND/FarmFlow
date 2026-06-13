@@ -4,6 +4,8 @@ import {
   S3Client,
   PutObjectCommand,
   DeleteObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { StorageService } from '../storage.service';
 import { assertContentMatchesMime } from '../magic-mime';
@@ -98,6 +100,29 @@ export class R2StorageProvider extends StorageService {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
     );
+  }
+
+  async deleteByPrefix(prefix: string): Promise<void> {
+    if (this.stubMode || !this.client) {
+      this.logger.warn(`[stub] deleteByPrefix skipped for prefix=${prefix}`);
+      return;
+    }
+    let token: string | undefined;
+    do {
+      const listed = await this.client.send(
+        new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: token }),
+      );
+      const keys = (listed.Contents ?? [])
+        .map((o) => ({ Key: o.Key! }))
+        .filter((k) => k.Key);
+      if (keys.length) {
+        // DeleteObjects caps at 1000 keys; ListObjectsV2 already pages at 1000.
+        await this.client.send(
+          new DeleteObjectsCommand({ Bucket: this.bucket, Delete: { Objects: keys, Quiet: true } }),
+        );
+      }
+      token = listed.IsTruncated ? listed.NextContinuationToken : undefined;
+    } while (token);
   }
 
   getPublicUrl(key: string): string {
