@@ -6,7 +6,10 @@
  */
 export function bodyToHtml(body: string | null | undefined): string {
   if (!body) return '';
-  if (/<[a-z][\s\S]*>/i.test(body)) return body; // already HTML
+  // Treat as HTML only when it BEGINS with a tag (server-sanitized bodies always
+  // do). Legacy plain text — even if it contains a stray "<tag" mid-string — falls
+  // through to the escape path below, so old un-sanitized bodies can't inject HTML.
+  if (/^\s*<[a-z]/i.test(body)) return body;
   const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return body

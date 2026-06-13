@@ -56,6 +56,19 @@ describe('sanitizeArticleHtml', () => {
     expect(sanitizeArticleHtml('<img src="data:image/png;base64,AAAA">')).toBe('');
   });
 
+  it('drops images whose src is not absolute https (relative / http)', () => {
+    expect(sanitizeArticleHtml('<img src="x">')).toBe('');
+    expect(sanitizeArticleHtml('<img src="/local.jpg">')).toBe('');
+    expect(sanitizeArticleHtml('<img src="http://cdn.x/y.jpg">')).toBe('');
+  });
+
+  it('collapses empty editor output to an empty string', () => {
+    expect(sanitizeArticleHtml('<p><br></p>')).toBe('');
+    expect(sanitizeArticleHtml('<p></p>')).toBe('');
+    expect(sanitizeArticleHtml('<p>   </p>')).toBe('');
+    expect(sanitizeArticleHtml('<h2></h2><p><br></p>')).toBe('');
+  });
+
   it('strips iframe and video', () => {
     expect(sanitizeArticleHtml('<iframe src="https://x"></iframe>')).toBe('');
     expect(sanitizeArticleHtml('<video src="https://x"></video>')).toBe('');

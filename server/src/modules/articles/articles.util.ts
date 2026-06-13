@@ -24,30 +24,6 @@ export function slugify(input: string): string {
   return out;
 }
 
-export type ParsedEmbed = { type: 'youtube' | 'instagram'; embedId: string };
-
-const YOUTUBE_PATTERNS = [
-  /(?:youtube\.com\/watch\?(?:.*&)?v=)([A-Za-z0-9_-]{11})/,
-  /(?:youtu\.be\/)([A-Za-z0-9_-]{11})/,
-  /(?:youtube\.com\/(?:embed|shorts)\/)([A-Za-z0-9_-]{11})/,
-];
-
-const INSTAGRAM_PATTERN = /instagram\.com\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/;
-
-/**
- * Parse a YouTube or Instagram URL into a provider + id (keyless). Returns null
- * when the URL is neither — the caller turns that into a 400.
- */
-export function parseEmbed(url: string): ParsedEmbed | null {
-  for (const re of YOUTUBE_PATTERNS) {
-    const m = url.match(re);
-    if (m) return { type: 'youtube', embedId: m[1] };
-  }
-  const ig = url.match(INSTAGRAM_PATTERN);
-  if (ig) return { type: 'instagram', embedId: ig[1] };
-  return null;
-}
-
 /**
  * Sanitize WYSIWYG article HTML for safe storage + render. Allowlist matches the
  * Quill toolbar (bold/italic/underline/strike, h2/h3, color, align, lists, link,
@@ -55,7 +31,7 @@ export function parseEmbed(url: string): ParsedEmbed | null {
  */
 export function sanitizeArticleHtml(html: string): string {
   if (!html) return '';
-  return sanitizeHtml(html, {
+  const clean = sanitizeHtml(html, {
     allowedTags: [
       'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
       'h2', 'h3', 'ul', 'ol', 'li', 'a', 'img', 'span', 'blockquote',
@@ -76,7 +52,16 @@ export function sanitizeArticleHtml(html: string): string {
     transformTags: {
       a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer', target: '_blank' }),
     },
-    // Drop <img> with no surviving (https) src instead of leaving an empty tag.
-    exclusiveFilter: (frame) => frame.tag === 'img' && !frame.attribs.src,
+    // Inline images are uploaded to our R2 bucket (https). Drop any <img> whose
+    // src isn't an absolute https URL — this also removes relative/data/http srcs
+    // that scheme filtering alone would leave as a broken tag.
+    exclusiveFilter: (frame) =>
+      frame.tag === 'img' && !/^https:\/\//i.test(frame.attribs.src ?? ''),
   });
+
+  // Collapse "empty" editor output (e.g. Quill's <p><br></p>) to '' so a blank
+  // body is stored as empty rather than a stray empty paragraph.
+  const hasText = clean.replace(/<[^>]*>/g, '').trim().length > 0;
+  const hasImg = /<img\b/i.test(clean);
+  return hasText || hasImg ? clean : '';
 }
