@@ -1,6 +1,7 @@
 'use client';
 
 import type { Article, ArticleMedia } from '@/lib/types';
+import { bodyToHtml } from '@/lib/article-html';
 
 /**
  * Renders an article + its ordered media exactly as the storefront does — the
@@ -12,10 +13,7 @@ import type { Article, ArticleMedia } from '@/lib/types';
  *   youtube   → /embed/{id}      instagram → /p/{shortcode}/embed
  */
 export function ArticleRenderer({ article }: { article: Article }) {
-  const paragraphs = (article.body ?? '')
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const html = bodyToHtml(article.body);
 
   return (
     <article className="mx-auto max-w-[680px]">
@@ -36,14 +34,11 @@ export function ArticleRenderer({ article }: { article: Article }) {
         <p className="mt-3 text-[17px] leading-[1.55] text-ff-ink-2">{article.excerpt}</p>
       )}
 
-      {paragraphs.length > 0 && (
-        <div className="mt-5 flex flex-col gap-4">
-          {paragraphs.map((p, i) => (
-            <p key={i} className="text-[15.5px] leading-[1.7] text-ff-ink">
-              {p}
-            </p>
-          ))}
-        </div>
+      {html && (
+        <div
+          className="article-content mt-5"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
       )}
 
       {article.media.length > 0 && (

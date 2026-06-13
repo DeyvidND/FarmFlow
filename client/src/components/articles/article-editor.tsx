@@ -2,41 +2,22 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  ArrowLeft, Save, ImagePlus, Link2, Trash2, GripVertical,
-  Eye, Pencil, Image as ImageIcon, Film, Youtube, Instagram,
-} from 'lucide-react';
+import { ArrowLeft, Save, ImagePlus, Trash2, Eye, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ArticleRenderer } from './article-renderer';
 import { ArticleStatusBadge } from './articles-client';
+import { ArticleBodyEditor } from './article-body-editor';
 import { cn } from '@/lib/utils';
-import {
-  ApiError,
-  updateArticle,
-  deleteArticle,
-  uploadArticleCover,
-  uploadArticleMedia,
-  addArticleEmbed,
-  updateArticleMedia,
-  deleteArticleMedia,
-  reorderArticleMedia,
-} from '@/lib/api-client';
-import type { Article, ArticleMedia } from '@/lib/types';
+import { ApiError, updateArticle, deleteArticle, uploadArticleCover } from '@/lib/api-client';
+import type { Article } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
 const field =
   'rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
-
-const MEDIA_ICON = {
-  image: ImageIcon,
-  video: Film,
-  youtube: Youtube,
-  instagram: Instagram,
-} as const;
 
 export function ArticleEditor({ initial }: { initial: Article }) {
   const router = useRouter();
@@ -48,17 +29,12 @@ export function ArticleEditor({ initial }: { initial: Article }) {
   const [coverImageUrl, setCoverImageUrl] = useState(initial.coverImageUrl);
   const [status, setStatus] = useState<Article['status']>(initial.status);
   const [publishedAt, setPublishedAt] = useState(initial.publishedAt);
-  const [media, setMedia] = useState<ArticleMedia[]>(initial.media);
 
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [embedUrl, setEmbedUrl] = useState('');
-
   const coverRef = useRef<HTMLInputElement>(null);
-  const mediaRef = useRef<HTMLInputElement>(null);
-  const dragIndex = useRef<number | null>(null);
 
-  // The live object the preview (and storefront) render from.
+  // The live object the preview renders from.
   const preview: Article = {
     ...initial,
     title,
@@ -67,7 +43,7 @@ export function ArticleEditor({ initial }: { initial: Article }) {
     coverImageUrl,
     status,
     publishedAt,
-    media,
+    media: initial.media, // legacy media still previews
   };
 
   async function onSave() {
@@ -79,6 +55,7 @@ export function ArticleEditor({ initial }: { initial: Article }) {
         body,
       });
       setTitle(updated.title);
+      setBody(updated.body ?? ''); // reflect server-sanitized HTML
       toast.success('Статията е запазена');
     } catch (e) {
       toast.error(errMsg(e));
@@ -112,76 +89,6 @@ export function ArticleEditor({ initial }: { initial: Article }) {
     } finally {
       setBusy(false);
     }
-  }
-
-  async function onAddMediaFile(file: File) {
-    setBusy(true);
-    try {
-      const m = await uploadArticleMedia(initial.id, file);
-      setMedia((prev) => [...prev, m]);
-      toast.success('Медията е добавена');
-    } catch (e) {
-      toast.error(errMsg(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onAddEmbed() {
-    const url = embedUrl.trim();
-    if (!url) return;
-    setBusy(true);
-    try {
-      const m = await addArticleEmbed(initial.id, url);
-      setMedia((prev) => [...prev, m]);
-      setEmbedUrl('');
-      toast.success('Видеото е вмъкнато');
-    } catch (e) {
-      toast.error(errMsg(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onCaptionBlur(m: ArticleMedia, caption: string) {
-    if ((m.caption ?? '') === caption) return;
-    try {
-      const updated = await updateArticleMedia(initial.id, m.id, caption);
-      setMedia((prev) => prev.map((x) => (x.id === m.id ? updated : x)));
-    } catch (e) {
-      toast.error(errMsg(e));
-    }
-  }
-
-  async function onDeleteMedia(m: ArticleMedia) {
-    setMedia((prev) => prev.filter((x) => x.id !== m.id)); // optimistic
-    try {
-      await deleteArticleMedia(initial.id, m.id);
-    } catch (e) {
-      setMedia((prev) => [...prev, m].sort((a, b) => a.position - b.position)); // rollback
-      toast.error(errMsg(e));
-    }
-  }
-
-  async function persistOrder(next: ArticleMedia[]) {
-    setMedia(next);
-    try {
-      const saved = await reorderArticleMedia(
-        initial.id,
-        next.map((m, i) => ({ id: m.id, position: i })),
-      );
-      setMedia(saved);
-    } catch (e) {
-      toast.error(errMsg(e));
-    }
-  }
-
-  function moveTo(from: number, to: number) {
-    if (to < 0 || to >= media.length || from === to) return;
-    const next = [...media];
-    const [item] = next.splice(from, 1);
-    next.splice(to, 0, item);
-    void persistOrder(next);
   }
 
   async function onDeleteArticle() {
@@ -242,13 +149,13 @@ export function ArticleEditor({ initial }: { initial: Article }) {
               Кратко описание
               <textarea value={excerpt} onChange={(e) => setExcerpt(e.target.value)} rows={2} className={field} placeholder="Едно-две изречения за изданието/новината" />
             </label>
-            <label className={labelCls}>
+            <div className={labelCls}>
               Съдържание
-              <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={12} className={cn(field, 'leading-[1.6]')} placeholder="Текст на статията. Раздели абзаците с празен ред." />
-            </label>
+              <ArticleBodyEditor articleId={initial.id} value={body} onChange={setBody} />
+            </div>
           </div>
 
-          {/* side column: cover + media */}
+          {/* side column: cover + delete */}
           <div className="flex flex-col gap-5">
             <section className="flex flex-col gap-2">
               <h3 className="text-[12.5px] font-bold text-ff-ink-2">Корица</h3>
@@ -265,70 +172,6 @@ export function ArticleEditor({ initial }: { initial: Article }) {
                   </span>
                 )}
               </button>
-            </section>
-
-            <section className="flex flex-col gap-2.5">
-              <h3 className="text-[12.5px] font-bold text-ff-ink-2">Медия ({media.length})</h3>
-
-              <div className="flex flex-col gap-2">
-                {media.map((m, i) => {
-                  const Icon = MEDIA_ICON[m.type];
-                  return (
-                    <div
-                      key={m.id}
-                      draggable
-                      onDragStart={() => { dragIndex.current = i; }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={() => { if (dragIndex.current !== null) { moveTo(dragIndex.current, i); dragIndex.current = null; } }}
-                      className="flex items-start gap-2 rounded-[10px] border border-ff-border bg-ff-surface p-2"
-                    >
-                      <span className="mt-1 cursor-grab text-ff-muted-2" title="Влачи за подреждане">
-                        <GripVertical size={15} />
-                      </span>
-                      <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md bg-ff-surface-2 text-ff-ink-2">
-                        <Icon size={15} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[11.5px] font-semibold text-ff-muted">{m.type}{m.embedId ? ` · ${m.embedId}` : ''}</div>
-                        <input
-                          defaultValue={m.caption ?? ''}
-                          onBlur={(e) => onCaptionBlur(m, e.target.value)}
-                          placeholder="Надпис (по избор)"
-                          className="mt-1 w-full rounded-sm border border-ff-border bg-ff-surface-2 px-2 py-1 text-[12.5px] outline-none focus:border-ff-green-500"
-                        />
-                        <div className="mt-1 flex gap-2">
-                          <MiniBtn disabled={i === 0} onClick={() => moveTo(i, i - 1)}>↑</MiniBtn>
-                          <MiniBtn disabled={i === media.length - 1} onClick={() => moveTo(i, i + 1)}>↓</MiniBtn>
-                        </div>
-                      </div>
-                      <button onClick={() => onDeleteMedia(m)} aria-label="Изтрий медия"
-                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-ff-muted hover:bg-ff-red/10 hover:text-ff-red">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  );
-                })}
-                {media.length === 0 && <p className="text-[12.5px] text-ff-muted-2">Няма добавена медия.</p>}
-              </div>
-
-              <input ref={mediaRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" hidden
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) onAddMediaFile(f); e.target.value = ''; }} />
-              <Button variant="ghost" onClick={() => mediaRef.current?.click()} disabled={busy} className="rounded-sm">
-                <ImagePlus size={16} /> Качи снимка / видео
-              </Button>
-
-              <div className="flex gap-2">
-                <input
-                  value={embedUrl}
-                  onChange={(e) => setEmbedUrl(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAddEmbed(); } }}
-                  placeholder="YouTube / Instagram адрес"
-                  className={cn(field, 'flex-1 py-2 text-[13px]')}
-                />
-                <Button variant="soft" onClick={onAddEmbed} disabled={busy || !embedUrl.trim()} className="rounded-sm px-3">
-                  <Link2 size={16} />
-                </Button>
-              </div>
             </section>
 
             <button onClick={onDeleteArticle} disabled={busy}
@@ -352,18 +195,6 @@ function TabBtn({ on, onClick, Icon, label }: { on: boolean; onClick: () => void
       )}
     >
       <Icon size={15} /> {label}
-    </button>
-  );
-}
-
-function MiniBtn({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="grid h-6 w-6 place-items-center rounded border border-ff-border bg-ff-surface-2 text-[13px] font-bold text-ff-ink-2 transition hover:bg-ff-green-50 disabled:opacity-40"
-    >
-      {children}
     </button>
   );
 }
