@@ -2,10 +2,9 @@ import {
   Injectable,
   Inject,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { and, eq, inArray, asc, desc, sql } from 'drizzle-orm';
+import { and, eq, inArray, asc, desc } from 'drizzle-orm';
 import { type Database, articles, articleMedia } from '@farmflow/db';
 import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
 import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
@@ -22,11 +21,9 @@ import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ArticlesCacheService } from './articles-cache.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
-import { EmbedMediaDto } from './dto/embed-media.dto';
-import { ReorderMediaDto } from './dto/reorder-media.dto';
-import { ARTICLE_MEDIA_EXT_BY_MIME, articleMediaTypeForMime } from './dto/upload-media.dto';
+import { ARTICLE_MEDIA_EXT_BY_MIME } from './dto/upload-media.dto';
 import { optimizeImage } from '../storage/image.util';
-import { slugify, parseEmbed, sanitizeArticleHtml } from './articles.util';
+import { slugify, sanitizeArticleHtml } from './articles.util';
 
 @Injectable()
 export class ArticlesService {
@@ -172,137 +169,6 @@ export class ArticlesService {
     return { url };
   }
 
-  async addMedia(
-    id: string,
-    tenantId: string,
-    file: Express.Multer.File,
-  ): Promise<ArticleMedia> {
-    await this.findOne(id, tenantId); // scope check
-
-    const url = await this.store(tenantId, id, 'media', file);
-    const position = await this.nextPosition(id);
-    const [row] = await this.db
-      .insert(articleMedia)
-      .values({
-        articleId: id,
-        tenantId,
-        type: articleMediaTypeForMime(file.mimetype),
-        url,
-        position,
-      })
-      .returning();
-    await this.cache.invalidate(tenantId);
-    return row;
-  }
-
-  async addEmbed(id: string, tenantId: string, dto: EmbedMediaDto): Promise<ArticleMedia> {
-    await this.findOne(id, tenantId);
-
-    const parsed = parseEmbed(dto.url);
-    if (!parsed) throw new BadRequestException('Невалиден YouTube или Instagram адрес');
-
-    const position = await this.nextPosition(id);
-    const [row] = await this.db
-      .insert(articleMedia)
-      .values({
-        articleId: id,
-        tenantId,
-        type: parsed.type,
-        url: dto.url,
-        embedId: parsed.embedId,
-        caption: dto.caption ?? null,
-        position,
-      })
-      .returning();
-    await this.cache.invalidate(tenantId);
-    return row;
-  }
-
-  async removeMedia(
-    id: string,
-    mediaId: string,
-    tenantId: string,
-  ): Promise<{ id: string }> {
-    await this.findOne(id, tenantId);
-
-    const [m] = await this.db
-      .select()
-      .from(articleMedia)
-      .where(
-        and(
-          eq(articleMedia.id, mediaId),
-          eq(articleMedia.articleId, id),
-          eq(articleMedia.tenantId, tenantId),
-        ),
-      )
-      .limit(1);
-    if (!m) throw new NotFoundException('Медията не е намерена');
-
-    if (m.type === 'image' || m.type === 'video') await this.deleteObject(m.url);
-    await this.db.delete(articleMedia).where(eq(articleMedia.id, mediaId));
-    await this.cache.invalidate(tenantId);
-    return { id: mediaId };
-  }
-
-  async updateMedia(
-    id: string,
-    mediaId: string,
-    tenantId: string,
-    patch: { caption?: string },
-  ): Promise<ArticleMedia> {
-    await this.findOne(id, tenantId);
-
-    const set: Partial<ArticleMedia> = {};
-    if (patch.caption !== undefined) set.caption = patch.caption;
-
-    const [row] = await this.db
-      .update(articleMedia)
-      .set(set)
-      .where(
-        and(
-          eq(articleMedia.id, mediaId),
-          eq(articleMedia.articleId, id),
-          eq(articleMedia.tenantId, tenantId),
-        ),
-      )
-      .returning();
-    if (!row) throw new NotFoundException('Медията не е намерена');
-    await this.cache.invalidate(tenantId);
-    return row;
-  }
-
-  async reorderMedia(
-    id: string,
-    tenantId: string,
-    dto: ReorderMediaDto,
-  ): Promise<ArticleMedia[]> {
-    await this.findOne(id, tenantId);
-
-    // Scope each update by article + tenant so foreign media ids are no-ops.
-    // One transaction so a mid-loop failure can't leave a half-applied order.
-    await this.db.transaction(async (tx) => {
-      for (const it of dto.items) {
-        await tx
-          .update(articleMedia)
-          .set({ position: it.position })
-          .where(
-            and(
-              eq(articleMedia.id, it.id),
-              eq(articleMedia.articleId, id),
-              eq(articleMedia.tenantId, tenantId),
-            ),
-          );
-      }
-    });
-    await this.cache.invalidate(tenantId);
-
-    return this.db
-      .select()
-      .from(articleMedia)
-      .where(eq(articleMedia.articleId, id))
-      .orderBy(asc(articleMedia.position));
-  }
-
   // ---- Public (storefront) reads — published only, Redis-cached ----
 
   async findPublicBySlug(slug: string): Promise<PublicArticle[]> {
@@ -377,14 +243,6 @@ export class ArticlesService {
       if (!hit || hit.id === excludeId) return candidate;
       candidate = `${root}-${n++}`;
     }
-  }
-
-  private async nextPosition(articleId: string): Promise<number> {
-    const [row] = await this.db
-      .select({ max: sql<number>`coalesce(max(${articleMedia.position}), -1)` })
-      .from(articleMedia)
-      .where(eq(articleMedia.articleId, articleId));
-    return (row?.max ?? -1) + 1;
   }
 
   private async store(
