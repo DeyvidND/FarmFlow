@@ -89,6 +89,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/reviews': 'Отзиви',
   '/site-media': 'Снимки на сайта',
   '/contacts': 'Контакти',
+  '/marketing-tracking': 'Маркетинг и проследяване',
   '/newsletters': 'Имейл клиенти',
   '/setup': 'Методи и цени',
   '/delivery': 'Доставка',

@@ -16,6 +16,10 @@ import {
 } from '../../modules/orders/delivery-pricing';
 import { buildPublicContact, type PublicContact } from '../../modules/tenants/site-contact';
 import { resolveLanding, type PublicLanding } from '../../modules/tenants/landing';
+import {
+  buildPublicMarketing,
+  type PublicMarketing,
+} from '../../modules/tenants/site-marketing';
 
 /**
  * Lean tenant identity + storefront toggles, cached per slug. Doubles as the
@@ -75,6 +79,9 @@ export interface TenantMeta {
   // Configurable landing blocks (settings.landing) — which of the three dynamic
   // home blocks show and how many items each shows. Resolved+clamped, always present.
   landing: PublicLanding;
+  // Per-vendor ad/analytics tracking IDs (settings.marketing). Derived here so a
+  // warm storefront render needs no extra read; empty → all-null.
+  marketing: PublicMarketing;
 }
 
 /**
@@ -164,6 +171,7 @@ export class PublicCacheService {
           contact?: unknown;
           brand?: { favicon?: { url?: unknown }; themeColor?: unknown };
           landing?: unknown;
+          marketing?: unknown;
         }
       | null;
     const delivery = settingsObj?.delivery;
@@ -192,6 +200,7 @@ export class PublicCacheService {
       faviconUrl,
       themeColor,
       landing: resolveLanding(settingsObj?.landing),
+      marketing: buildPublicMarketing(settingsObj?.marketing),
     };
 
     await this.set(key, meta);

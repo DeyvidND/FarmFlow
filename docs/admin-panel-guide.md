@@ -343,6 +343,20 @@ The contact and branding info customers see in the storefront footer and contact
 </details>
 
 <details>
+<summary><b>Маркетинг и проследяване (Marketing &amp; tracking)</b></summary>
+
+Connect the storefront to Google and Meta for ads + analytics **without a developer**. The farmer pastes their per-vendor **IDs** once; the storefront templates the loader snippets and injects them. No vendor code is stored — only the IDs. An empty field disables that vendor; a malformed value is rejected (a soft warning shows) so a typo can never emit a broken script.
+
+- **Google Analytics (GA4)** — **Measurement ID** (`G-…`), for traffic + behaviour.
+- **Google Ads** — **Conversion ID** (`AW-…`) plus a **Conversion Label** so a completed order is reported as a purchase conversion (the base tag alone can't attribute a sale; a lone label is ignored).
+- **Meta Pixel** — the numeric **Pixel ID** from Events Manager, for Facebook/Instagram ads.
+- **По избор (optional)** — **Google Tag Manager** container (`GTM-…`) and **TikTok Pixel**, only if already in use.
+
+GDPR: the storefront shows a **cookie-consent bar** — Google loads in **Consent Mode v2** (defaulted to *denied*/modeled) and Meta with consent **revoked** until the visitor accepts; TikTok is deferred until consent. On the order-confirmation page a **purchase** event fires for GA4 + Google Ads + Meta (value in €), so sales are attributed automatically. Saved per farm via `settings.marketing`; changes go live on the next storefront render.
+
+</details>
+
+<details>
 <summary><b>Имейл клиенти (Newsletter broadcasts)</b></summary>
 
 Reach the customers who subscribed to the farm's newsletter. The header shows the **active subscriber** count; the **Абонати** list shows each email and signup date.

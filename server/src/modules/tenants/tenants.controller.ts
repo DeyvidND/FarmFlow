@@ -18,6 +18,7 @@ import {
   FAVICON_MAX_BYTES,
 } from '../storage/dto/upload-image.dto';
 import { SiteContactDto } from './dto/site-contact.dto';
+import { SiteMarketingDto } from './dto/site-marketing.dto';
 import { LandingDto } from './dto/landing.dto';
 
 @ApiTags('tenants')
@@ -86,6 +87,20 @@ export class TenantsController {
   @Patch('me/site-contact')
   updateSiteContact(@CurrentTenant() tenantId: string, @Body() dto: SiteContactDto) {
     return this.tenantsService.updateSiteContact(tenantId, dto);
+  }
+
+  // ---- Marketing / tracking IDs ----
+
+  @ApiOperation({ summary: 'Storefront tracking IDs (GA4/Ads/Meta/GTM/TikTok)' })
+  @Get('me/site-marketing')
+  getSiteMarketing(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.getMarketing(tenantId);
+  }
+
+  @ApiOperation({ summary: 'Update storefront tracking IDs' })
+  @Patch('me/site-marketing')
+  updateSiteMarketing(@CurrentTenant() tenantId: string, @Body() dto: SiteMarketingDto) {
+    return this.tenantsService.updateMarketing(tenantId, dto);
   }
 
   // ---- Landing-page blocks ----
