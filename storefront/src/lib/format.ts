@@ -15,10 +15,24 @@ export function formatDate(iso: string | Date | null | undefined): string {
   return `${d.getUTCDate()} ${MONTHS_FULL[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
-/** Rough reading time in minutes from a body (≈200 wpm, min 1). */
+/** Rough reading time in minutes from a body (≈200 wpm, min 1). Strips HTML tags. */
 export function readingMinutes(body: string | null | undefined): number {
-  const words = (body ?? '').trim().split(/\s+/).filter(Boolean).length;
+  const text = (body ?? '').replace(/<[^>]*>/g, ' ');
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
   return Math.max(1, Math.round(words / 200));
+}
+
+/** Body → render-ready HTML (HTML passthrough; legacy plain text → <p>). */
+export function bodyToHtml(body: string | null | undefined): string {
+  if (!body) return '';
+  if (/<[a-z][\s\S]*>/i.test(body)) return body;
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return body
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${esc(p)}</p>`)
+    .join('');
 }
 
 /** `"4 мин четене"` meta string. */

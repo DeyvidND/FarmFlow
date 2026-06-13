@@ -10,7 +10,7 @@ import {
   type PublicArticle,
 } from '@/lib/api';
 import { SITE } from '@/lib/site';
-import { formatDate, readingTime, paragraphs } from '@/lib/format';
+import { formatDate, readingTime, bodyToHtml } from '@/lib/format';
 import { Facebook, Instagram, TikTok } from '@/components/icons';
 
 type MediaItem = PublicArticle['media'][number];
@@ -207,11 +207,11 @@ export default async function ArticlePage({
 
         {/* body */}
         <div className="wrap" style={{ maxWidth: 820 }}>
-          <div className="prose" style={{ marginTop: 36 }}>
-            {paragraphs(article.body).map((p, i) => (
-              <p key={i}>{p}</p>
-            ))}
-          </div>
+          <div
+            className="article-content"
+            style={{ maxWidth: 720, marginInline: 'auto', marginTop: 36 }}
+            dangerouslySetInnerHTML={{ __html: bodyToHtml(article.body) }}
+          />
 
           {/* media */}
           {media.map((m) => (

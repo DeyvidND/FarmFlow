@@ -916,3 +916,16 @@ body.show-modules .module-toggle .sw::after { transform: translateX(14px); }
 [data-theme="klasik"] .seg, [data-theme="klasik"] .seg button { border-radius: 2px; }
 [data-theme="klasik"] .seg button { text-transform: uppercase; letter-spacing: .1em; font-size: 11.5px; }
 .home-block[hidden] { display: none; }
+
+/* Rendered article HTML (matches admin preview + chaika contract). */
+.article-content { font-size: 18px; line-height: 1.75; color: var(--ink-soft); }
+.article-content p { margin: 0 0 22px; }
+.article-content h2 { font-size: 30px; font-weight: 800; margin: 36px 0 16px; color: var(--ink); }
+.article-content h3 { font-size: 22px; font-weight: 800; margin: 28px 0 12px; color: var(--ink); }
+.article-content ul, .article-content ol { margin: 0 0 22px; padding-left: 26px; }
+.article-content ul { list-style: disc; }
+.article-content ol { list-style: decimal; }
+.article-content li { margin: 6px 0; }
+.article-content a { color: var(--primary); text-decoration: underline; }
+.article-content img { max-width: 100%; height: auto; border-radius: var(--radius); margin: 18px 0; }
+.article-content blockquote { margin: 22px 0; padding-left: 16px; border-left: 3px solid var(--line); color: var(--muted); }
