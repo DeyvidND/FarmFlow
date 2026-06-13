@@ -33,7 +33,7 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const status = tokenStatus(req.cookies.get(SESSION_COOKIE)?.value);
   const isAuthPage = pathname === '/login';
-  const isProtected = ['/tenants', '/email-billing', '/stripe', '/settings'].some(
+  const isProtected = ['/tenants', '/email-billing', '/stripe', '/settings', '/insights'].some(
     (p) => pathname === p || pathname.startsWith(p + '/'),
   );
 
@@ -69,6 +69,8 @@ export const config = {
     '/stripe/:path*',
     '/stripe',
     '/settings/:path*',
+    '/insights/:path*',
+    '/insights',
     '/login',
   ],
 };

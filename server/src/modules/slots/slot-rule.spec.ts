@@ -121,8 +121,9 @@ describe('normalizeRule', () => {
       ],
     });
     expect(r.days.map((d) => d.dow)).toEqual([1, 5]);
-    // last write wins for the duplicated weekday
-    expect(r.days[0]).toMatchObject({ timeFrom: '14:00', maxOrders: 9 });
+    // last write wins for the duplicated weekday (its times survive); capacity is
+    // always clamped to 1 (each slot = one delivery), regardless of the input 9.
+    expect(r.days[0]).toMatchObject({ timeFrom: '14:00', timeTo: '16:00', maxOrders: 1 });
   });
 
   it('rejects a day with timeTo <= timeFrom', () => {
@@ -145,7 +146,8 @@ describe('normalizeRule', () => {
       repeat: 'weekdays',
       intervalWindow: { timeFrom: '10:00', timeTo: '09:00', maxOrders: 5 },
     });
-    expect(r.intervalWindow).toEqual({ timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 });
+    // Falls back to DEFAULT_WINDOW's times; capacity normalised to the always-1 rule.
+    expect(r.intervalWindow).toEqual({ timeFrom: '10:00', timeTo: '12:00', maxOrders: 1 });
     expect(r.days.length).toBeGreaterThan(0);
   });
 
@@ -249,18 +251,20 @@ describe('slotMinutes (slot length splitting)', () => {
     expect(normalizeRule(input).slotMinutes).toBe(0);
   });
 
-  it('normalizeRule forces capacity 1 per sub-slot when a duration is set', () => {
+  it('normalizeRule always forces capacity 1 (each slot = one delivery), with or without a duration', () => {
     const input = {
       ...base,
       days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00', maxOrders: 5 }],
       intervalWindow: { timeFrom: '09:00', timeTo: '12:00', maxOrders: 4 },
     };
+    // With a duration set, every sub-slot carries capacity 1…
     const r = normalizeRule({ ...input, slotMinutes: 60 });
     expect(r.days.every((d) => d.maxOrders === 1)).toBe(true);
     expect(r.intervalWindow.maxOrders).toBe(1);
-    // No duration → capacities pass through untouched.
+    // …and so does a no-duration rule — the capacity field was removed from the UI;
+    // a slot holds exactly one delivery either way (commit a30decb).
     const r0 = normalizeRule({ ...input, slotMinutes: 0 });
-    expect(r0.days[0].maxOrders).toBe(5);
-    expect(r0.intervalWindow.maxOrders).toBe(4);
+    expect(r0.days[0].maxOrders).toBe(1);
+    expect(r0.intervalWindow.maxOrders).toBe(1);
   });
 });

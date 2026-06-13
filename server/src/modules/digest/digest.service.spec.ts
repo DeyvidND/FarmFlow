@@ -312,9 +312,9 @@ describe('DigestService', () => {
       db.orderBy.mockResolvedValueOnce([{ id: TENANT_ID, email: null, multiFarmer: true }]);
       // farmers-with-email query
       db.orderBy.mockResolvedValueOnce([{ id: 'f1', name: 'Петър', email: 'petar@ferma.bg' }]);
-      // buildFarmerDigest items query
+      // batched farmer items query (one read for all farmers, grouped by farmerId)
       db.orderBy.mockResolvedValueOnce([
-        { orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
+        { farmerId: 'f1', orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
           deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null,
           productName: 'Домати', quantity: 3 },
       ]);
@@ -324,6 +324,28 @@ describe('DigestService', () => {
       expect(emailService.sendMail).toHaveBeenCalledWith(
         expect.objectContaining({ to: 'petar@ferma.bg' }),
       );
+    });
+
+    it('batches a single items query for all farmers, grouped by farmerId', async () => {
+      db.orderBy.mockResolvedValueOnce([{ id: TENANT_ID, email: null, multiFarmer: true }]);
+      // two farmers with email
+      db.orderBy.mockResolvedValueOnce([
+        { id: 'f1', name: 'Петър', email: 'petar@ferma.bg' },
+        { id: 'f2', name: 'Иван', email: 'ivan@ferma.bg' },
+      ]);
+      // ONE batched items query returns rows for BOTH farmers (no per-farmer N+1)
+      db.orderBy.mockResolvedValueOnce([
+        { farmerId: 'f1', orderId: 'o1', deliveryType: 'address', customerName: 'А', deliveryAddress: 'ул. 1',
+          deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null, productName: 'Мед', quantity: 1 },
+        { farmerId: 'f2', orderId: 'o2', deliveryType: 'pickup', customerName: 'Б', deliveryAddress: null,
+          deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null, productName: 'Сирене', quantity: 2 },
+      ]);
+
+      await service.runDailyDigests();
+
+      expect(emailService.sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'petar@ferma.bg' }));
+      expect(emailService.sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'ivan@ferma.bg' }));
+      expect(emailService.sendMail).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -342,7 +364,7 @@ describe('DigestService', () => {
       db.limit.mockResolvedValueOnce([{ email: null, multiFarmer: true }]);
       db.orderBy.mockResolvedValueOnce([{ id: 'f1', name: 'Петър', email: 'petar@ferma.bg' }]);
       db.orderBy.mockResolvedValueOnce([
-        { orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
+        { farmerId: 'f1', orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
           deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null,
           productName: 'Домати', quantity: 2 },
       ]);

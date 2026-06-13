@@ -11,6 +11,7 @@ import {
   newsletterSubscribers,
 } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { BG_TZ, bgToday, bgAddDays, bgDayBounds } from '../../common/time/bg-time';
 
 // ── Thresholds for the "needs attention" signals. Kept here (not a settings UI)
@@ -21,6 +22,14 @@ const DROP_MIN_PREV = 3; // need a real prior week before "dropping" means anyth
 const DROP_RATIO = 0.5; // this week ≤ 50% of last week → flag a fall
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Both endpoints are full-table aggregates over every farm — uncacheable by index,
+// so a short Redis TTL absorbs repeat super-admin loads. Analytics tolerate a
+// minute of staleness; TTL-only (no write-bust) keeps it simple.
+const INSIGHTS_TTL = 90;
+const INSIGHTS_KEY = 'platform:insights';
+const timeseriesKey = (range: string, tenantId?: string) =>
+  `platform:timeseries:${range}:${tenantId ?? 'all'}`;
 
 export type SignalKey =
   | 'empty_shop'
@@ -281,7 +290,10 @@ export function computeInsights(input: InsightsInput, nowMs: number): PlatformIn
 
 @Injectable()
 export class PlatformInsightsService {
-  constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
+  constructor(
+    @Inject(DB_TOKEN) private readonly db: Database,
+    private readonly cache: PublicCacheService,
+  ) {}
 
   /**
    * One snapshot powering the super-admin "Анализ" screen:
@@ -291,6 +303,9 @@ export class PlatformInsightsService {
    *  - `farms`    → id+name list for the trend chart's scope dropdown.
    */
   async insights(): Promise<PlatformInsights> {
+    const cached = await this.cache.get<PlatformInsights>(INSIGHTS_KEY);
+    if (cached) return cached;
+
     // Independent aggregates — run concurrently, stitch in JS (mirrors tenantDetail).
     const tenantsP = this.db
       .select({
@@ -372,7 +387,7 @@ export class PlatformInsightsService {
       subsP,
     ]);
 
-    return computeInsights(
+    const result = computeInsights(
       {
         tenants: tRows,
         orders: oRows,
@@ -384,6 +399,8 @@ export class PlatformInsightsService {
       },
       Date.now(),
     );
+    await this.cache.set(INSIGHTS_KEY, result, INSIGHTS_TTL);
+    return result;
   }
 
   /**
@@ -399,6 +416,12 @@ export class PlatformInsightsService {
 
     // `tenantId` lands in a uuid column — drop anything that isn't one (→ all farms).
     const tenantId = tenantIdInput && UUID_RE.test(tenantIdInput) ? tenantIdInput : undefined;
+
+    // Cache keyed by the normalized (range, tenantId) — the only inputs that change
+    // the result. A scope/range switch in the UI is a fresh key; same view repeats hit Redis.
+    const cacheKey = timeseriesKey(range, tenantId);
+    const cached = await this.cache.get<PlatformTimeseries>(cacheKey);
+    if (cached) return cached;
 
     // Bucket key produced in SQL — must match the JS axis keys below exactly.
     const localTs = sql`(${orders.createdAt} at time zone 'UTC' at time zone ${BG_TZ})`;
@@ -436,7 +459,9 @@ export class PlatformInsightsService {
       return { t, orders: r?.orders ?? 0, revenueStotinki: r?.revenueStotinki ?? 0 };
     });
 
-    return { range, bucket: cfg.bucket, points };
+    const result: PlatformTimeseries = { range, bucket: cfg.bucket, points };
+    await this.cache.set(cacheKey, result, INSIGHTS_TTL);
+    return result;
   }
 
   /** The continuous bucket axis (keys) + the UTC lower bound to filter on. For

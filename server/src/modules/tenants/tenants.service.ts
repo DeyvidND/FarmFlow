@@ -358,7 +358,12 @@ export class TenantsService {
         settings: sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['landing'], ${JSON.stringify(landing)}::jsonb, true)`,
       })
       .where(eq(tenants.id, tenantId));
-    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    // settings.landing.reviews.ids drives the cached home-reviews block — a re-pick
+    // (or toggling the block) must bust it alongside the profile cache.
+    await this.publicCache.del(
+      publicCacheKeys.tenant(slug),
+      publicCacheKeys.homeReviews(tenantId),
+    );
     return { landing };
   }
 

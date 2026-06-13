@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { PaymentsClient } from '@/components/payments/payments-client';
-import type { StripeSummary } from '@/lib/api-client';
+import type { StripeSummary, CodPaymentsSummary } from '@/lib/api-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +17,8 @@ const DISCONNECTED: StripeSummary = {
   recentPayments: [],
   feeBps: 0,
 };
+
+const NO_COD: CodPaymentsSummary = { totalStotinki: 0, count: 0, days: [] };
 
 async function getJson<T>(path: string, fallback: T): Promise<T> {
   const token = cookies().get(SESSION_COOKIE)?.value;
@@ -34,10 +36,13 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
 // Картата за абонамент (SubscriptionCard) е скрита нарочно; билинг кодът остава
 // наличен, но не се показва.
 export default async function PaymentsPage() {
-  const summary = await getJson<StripeSummary>('stripe/connect/summary', DISCONNECTED);
+  const [summary, cod] = await Promise.all([
+    getJson<StripeSummary>('stripe/connect/summary', DISCONNECTED),
+    getJson<CodPaymentsSummary>('orders/cod-payments', NO_COD),
+  ]);
   return (
     <div className="max-w-[820px]">
-      <PaymentsClient initial={summary} />
+      <PaymentsClient initial={summary} cod={cod} />
     </div>
   );
 }

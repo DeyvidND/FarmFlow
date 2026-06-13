@@ -21,8 +21,30 @@ async function proxy(req: Request, { params }: Ctx) {
     return Response.json({ message: 'Unauthorized' }, { status: 401 });
   }
 
+  // CSRF defense-in-depth on top of the session cookie's SameSite=Lax: reject a
+  // cross-site state change. same-origin/same-site/direct-nav (none) pass through;
+  // legacy clients without Sec-Fetch-Site (all evergreen browsers send it) still
+  // require the cookie, so this only ever tightens.
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const site = req.headers.get('sec-fetch-site');
+    if (site && site !== 'same-origin' && site !== 'same-site' && site !== 'none') {
+      return Response.json({ message: 'Cross-site request blocked' }, { status: 403 });
+    }
+  }
+
+  // Constrain what can be proxied: no path traversal / control chars, and the
+  // farmer panel must never tunnel to platform/super-admin routes — so a future
+  // internal endpoint that forgets its own guard can't be reached through here.
+  const segments = params.path;
+  const unsafe = segments.some(
+    (s) => s.includes('..') || s.includes('\\') || [...s].some((c) => c.charCodeAt(0) < 0x20),
+  );
+  if (unsafe || segments[0] === 'platform') {
+    return Response.json({ message: 'Forbidden' }, { status: 403 });
+  }
+
   const search = new URL(req.url).search;
-  const url = `${API_BASE}/${params.path.join('/')}${search}`;
+  const url = `${API_BASE}/${segments.join('/')}${search}`;
 
   const headers: Record<string, string> = { authorization: `Bearer ${token}` };
   const contentType = req.headers.get('content-type');

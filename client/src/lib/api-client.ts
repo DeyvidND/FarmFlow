@@ -467,6 +467,36 @@ export interface StripeSummary {
 
 export const getStripeSummary = () => apiFetch<StripeSummary>('stripe/connect/summary');
 
+// ---- COD (наложен платеж) payments — order-derived, grouped by delivery day ----
+export interface CodPaymentOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  totalStotinki: number;
+  status: string;
+  deliveryType: string;
+  /** Delivered → money collected; otherwise expected at delivery. */
+  collected: boolean;
+  createdAt: string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+}
+export interface CodPaymentDay {
+  /** BG calendar day of delivery, "YYYY-MM-DD". */
+  day: string;
+  totalStotinki: number;
+  count: number;
+  orders: CodPaymentOrder[];
+}
+export interface CodPaymentsSummary {
+  totalStotinki: number;
+  count: number;
+  /** Newest delivery day first. */
+  days: CodPaymentDay[];
+}
+
+export const getCodPayments = () => apiFetch<CodPaymentsSummary>('orders/cod-payments');
+
 /**
  * Create (if needed) the farm's Standard connected account and get a hosted
  * Stripe onboarding URL — the caller redirects the browser to it.

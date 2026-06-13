@@ -75,8 +75,19 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/orders', label: 'Поръчки', Icon: ClipboardList, desc: 'Входящи поръчки от клиенти.' },
       { href: '/production', label: 'Производство', Icon: ShoppingBasket, gated: true, desc: 'Дневен списък какво да приготвиш за доставките.' },
+      { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите — наложен платеж и карти.' },
+    ],
+  },
+  {
+    title: 'Доставка и плащане',
+    collapsible: true,
+    desc: 'Начини на доставка и плащане, маршрут, часове за доставка и функции на магазина.',
+    items: [
+      { href: '/setup', label: 'Методи и цени', Icon: SlidersHorizontal, desc: 'Кои начини на доставка и плащане приемаш и на каква цена.' },
+      { href: '/delivery', label: 'Доставка', Icon: Truck, desc: 'Настройки на куриер (Еконт) и зони на доставка.' },
       { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true, desc: 'Маршрут за разнасяне на поръчките.' },
-      { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите.' },
+      { href: '/slots', label: 'Часове за доставка', Icon: CalendarDays, gated: true, desc: 'Часове и дни за лична доставка, които клиентът избира.' },
+      { href: '/features', label: 'Функции на магазина', Icon: ToggleRight, desc: 'Включи/изключи цели части от магазина.' },
     ],
   },
   {
@@ -99,17 +110,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/site-media', label: 'Снимки на сайта', Icon: ImageIcon, desc: 'Снимки за началната страница и секциите.' },
       { href: '/contacts', label: 'Контакти', Icon: Contact, desc: 'Контактна информация, социални мрежи, локация и иконка на сайта.' },
       { href: '/newsletters', label: 'Имейл клиенти', Icon: Mail, desc: 'Списък с имейли за бюлетин.' },
-    ],
-  },
-  {
-    title: 'Доставка и плащане',
-    collapsible: true,
-    desc: 'Начини на доставка и плащане, часове за доставка и функции на магазина.',
-    items: [
-      { href: '/setup', label: 'Методи и цени', Icon: SlidersHorizontal, desc: 'Кои начини на доставка и плащане приемаш и на каква цена.' },
-      { href: '/delivery', label: 'Доставка', Icon: Truck, desc: 'Настройки на куриер (Еконт) и зони на доставка.' },
-      { href: '/slots', label: 'Часове за доставка', Icon: CalendarDays, gated: true, desc: 'Часове и дни за лична доставка, които клиентът избира.' },
-      { href: '/features', label: 'Функции на магазина', Icon: ToggleRight, desc: 'Включи/изключи цели части от магазина.' },
     ],
   },
 ];

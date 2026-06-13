@@ -86,7 +86,7 @@ export class FarmersService {
       .select({ url: farmerMedia.url })
       .from(farmerMedia)
       .where(eq(farmerMedia.farmerId, id));
-    for (const m of media) await this.deleteObject(m.url);
+    await Promise.all(media.map((m) => this.deleteObject(m.url)));
     if (farmer.imageUrl) await this.deleteObject(farmer.imageUrl);
     await this.db
       .delete(farmers)
@@ -240,18 +240,21 @@ export class FarmersService {
   /** Mirror the first gallery photo into `farmers.imageUrl` as the cover; NULLs it
    *  when the gallery is empty. */
   private async syncCover(id: string, tenantId: string): Promise<void> {
-    const [first] = await this.db
-      .select({ url: farmerMedia.url })
-      .from(farmerMedia)
-      .where(eq(farmerMedia.farmerId, id))
-      .orderBy(asc(farmerMedia.position))
-      .limit(1);
+    // Two independent reads (gallery cover + current cover) — run them together.
+    const [[first], [cur]] = await Promise.all([
+      this.db
+        .select({ url: farmerMedia.url })
+        .from(farmerMedia)
+        .where(eq(farmerMedia.farmerId, id))
+        .orderBy(asc(farmerMedia.position))
+        .limit(1),
+      this.db
+        .select({ imageUrl: farmers.imageUrl })
+        .from(farmers)
+        .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
+        .limit(1),
+    ]);
     const newUrl = first?.url ?? null;
-    const [cur] = await this.db
-      .select({ imageUrl: farmers.imageUrl })
-      .from(farmers)
-      .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
-      .limit(1);
     // Cover image unchanged → keep whatever framing is set (incl. a manual override).
     if (cur?.imageUrl === newUrl) return;
     // New cover → recompute a content-aware focal default (the old framing belonged

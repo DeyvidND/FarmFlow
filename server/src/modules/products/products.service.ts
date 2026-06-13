@@ -372,18 +372,21 @@ export class ProductsService {
   /** Mirror the first gallery photo (by position) into `products.imageUrl` as the
    *  cover; NULLs the cover when the gallery is empty. */
   private async syncCover(id: string, tenantId: string): Promise<void> {
-    const [first] = await this.db
-      .select({ url: productMedia.url })
-      .from(productMedia)
-      .where(eq(productMedia.productId, id))
-      .orderBy(asc(productMedia.position))
-      .limit(1);
+    // Two independent reads (gallery cover + current cover) — run them together.
+    const [[first], [cur]] = await Promise.all([
+      this.db
+        .select({ url: productMedia.url })
+        .from(productMedia)
+        .where(eq(productMedia.productId, id))
+        .orderBy(asc(productMedia.position))
+        .limit(1),
+      this.db
+        .select({ imageUrl: products.imageUrl })
+        .from(products)
+        .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
+        .limit(1),
+    ]);
     const newUrl = first?.url ?? null;
-    const [cur] = await this.db
-      .select({ imageUrl: products.imageUrl })
-      .from(products)
-      .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
-      .limit(1);
     // Cover image unchanged → keep whatever framing is set (incl. a manual override).
     if (cur?.imageUrl === newUrl) return;
     // New cover → recompute a content-aware focal default (the old framing belonged

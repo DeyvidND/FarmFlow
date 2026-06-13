@@ -25,6 +25,7 @@ type SessionCreateParams = NonNullable<
 >;
 type SessionLineItem = NonNullable<SessionCreateParams['line_items']>[number];
 type AccountCreateParams = NonNullable<Parameters<StripeClient['accounts']['create']>[0]>;
+type StripeEvent = ReturnType<StripeClient['webhooks']['constructEvent']>;
 
 /** One order line as snapshotted at intake — enough to build a Stripe line item. */
 export interface CheckoutLine {
@@ -397,7 +398,7 @@ export class StripeService {
     const secrets = [this.webhookSecret, this.connectWebhookSecret].filter(Boolean);
     if (!secrets.length) throw new BadRequestException('Stripe webhook secret липсва');
 
-    let event: ReturnType<StripeClient['webhooks']['constructEvent']> | null = null;
+    let event: StripeEvent | null = null;
     let lastErr: unknown;
     for (const secret of secrets) {
       try {
@@ -423,14 +424,33 @@ export class StripeService {
       .returning({ id: stripeEvents.id });
     if (!fresh) return { received: true };
 
-    // Order charges are DIRECT charges on the farm's connected account, so order
-    // events arrive on a Connect endpoint carrying `event.account`. Every order
-    // mutation is authorized against the tenant that owns that account — a farm
-    // must not be able to confirm/cancel another tenant's order by emitting a
-    // (validly signed) event with a foreign orderId in metadata. Platform billing
-    // events have no `account` and are routed to BillingService instead.
-    const account = event.account ?? null;
+    // If dispatch throws mid-way, release the idempotency claim so Stripe's retry
+    // reprocesses the event instead of no-opping on a row we recorded but failed
+    // to fully handle (a transient DB error mid-handler would otherwise leave a
+    // paid order stuck `pending` forever). The handlers are individually
+    // idempotent, so a reprocess after partial success is safe.
+    try {
+      await this.dispatchEvent(event, event.account ?? null);
+    } catch (err) {
+      await this.db
+        .delete(stripeEvents)
+        .where(eq(stripeEvents.id, event.id))
+        .catch(() => undefined);
+      throw err;
+    }
+    return { received: true };
+  }
 
+  /**
+   * Apply the side effects for a verified, first-seen webhook event. Order charges
+   * are DIRECT charges on the farm's connected account, so order events arrive on
+   * a Connect endpoint carrying `event.account`. Every order mutation is authorized
+   * against the tenant that owns that account — a farm must not be able to
+   * confirm/cancel another tenant's order by emitting a (validly signed) event with
+   * a foreign orderId in metadata. Platform billing events have no `account` and
+   * are routed to BillingService instead.
+   */
+  private async dispatchEvent(event: StripeEvent, account: string | null): Promise<void> {
     switch (event.type) {
       case 'checkout.session.completed': {
         const obj = event.data.object as {
@@ -545,8 +565,6 @@ export class StripeService {
         if (account === null) await this.billing.handleBillingEvent(event);
         break;
     }
-
-    return { received: true };
   }
 
   /** Persist a connected account's capability flags onto its tenant row. */

@@ -61,6 +61,21 @@ export interface DigestResult {
   summary: DigestSummary;
 }
 
+/** One line-item row feeding a per-farmer digest. Shared by the single-farmer
+ *  build and the batched daily send (the batch adds farmerId for grouping). */
+interface FarmerDigestRow {
+  orderId: string;
+  deliveryType: string;
+  customerName: string | null;
+  deliveryAddress: string | null;
+  deliveryCity: string | null;
+  econtOffice: string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+  productName: string | null;
+  quantity: number;
+}
+
 function hhmm(t: string | null): string {
   return t ? t.slice(0, 5) : '';
 }
@@ -445,6 +460,19 @@ export class DigestService {
       )
       .orderBy(orders.createdAt);
 
+    return this.assembleFarmerDigest(date, farmerName, rows);
+  }
+
+  /**
+   * Assemble a farmer digest from its already-fetched line-item rows. Pure (no
+   * DB) — shared by {@link buildFarmerDigest} (single farmer) and the batched
+   * {@link sendFarmerDigests} path. Returns null when the farmer has no rows.
+   */
+  private assembleFarmerDigest(
+    date: string,
+    farmerName: string,
+    rows: FarmerDigestRow[],
+  ): DigestResult | null {
     if (rows.length === 0) return null;
 
     // Group line items by order.
@@ -516,12 +544,51 @@ export class DigestService {
       .from(farmers)
       .where(and(eq(farmers.tenantId, tenantId), isNotNull(farmers.email))!)
       .orderBy(farmers.id);
+    if (farmerRows.length === 0) return 0;
+
+    // Batch: one query for every farmer's line items for the day, grouped by
+    // farmerId in JS — instead of a per-farmer query inside the loop (N+1 across
+    // the tenant's farmers).
+    const rows = await this.db
+      .select({
+        farmerId: products.farmerId,
+        orderId: orders.id,
+        deliveryType: orders.deliveryType,
+        customerName: orders.customerName,
+        deliveryAddress: orders.deliveryAddress,
+        deliveryCity: orders.deliveryCity,
+        econtOffice: orders.econtOffice,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+        productName: orderItems.productName,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .innerJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(orders.status, 'confirmed'),
+          scheduledForDay(date),
+        )!,
+      )
+      .orderBy(orders.createdAt);
+
+    const byFarmer = new Map<string, FarmerDigestRow[]>();
+    for (const r of rows) {
+      if (!r.farmerId) continue;
+      const list = byFarmer.get(r.farmerId) ?? [];
+      list.push(r);
+      byFarmer.set(r.farmerId, list);
+    }
 
     let sent = 0;
     for (const f of farmerRows) {
       if (!f.email) continue;
       try {
-        const digest = await this.buildFarmerDigest(tenantId, f.id, date, f.name);
+        const digest = this.assembleFarmerDigest(date, f.name, byFarmer.get(f.id) ?? []);
         if (!digest) continue;
         await this.email.sendMail({
           to: f.email,

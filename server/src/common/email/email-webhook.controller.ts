@@ -109,9 +109,9 @@ export class EmailWebhookController {
 
     if (type === 'email.bounced') {
       const detail = data.bounce?.message ?? data.bounce?.subType ?? data.bounce?.type ?? undefined;
-      for (const r of recipients) await this.suppression.suppress(r, 'bounce', detail);
+      await Promise.all(recipients.map((r) => this.suppression.suppress(r, 'bounce', detail)));
     } else if (type === 'email.complained') {
-      for (const r of recipients) await this.suppression.suppress(r, 'complaint');
+      await Promise.all(recipients.map((r) => this.suppression.suppress(r, 'complaint')));
     }
   }
 }

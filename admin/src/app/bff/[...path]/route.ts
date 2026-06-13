@@ -11,8 +11,24 @@ async function proxy(req: Request, { params }: Ctx) {
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return Response.json({ message: 'Unauthorized' }, { status: 401 });
 
+  // CSRF defense-in-depth on top of the session cookie's SameSite=Lax: reject a
+  // cross-site state change (same-origin/same-site/direct-nav pass through).
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const site = req.headers.get('sec-fetch-site');
+    if (site && site !== 'same-origin' && site !== 'same-site' && site !== 'none') {
+      return Response.json({ message: 'Cross-site request blocked' }, { status: 403 });
+    }
+  }
+
+  // No path traversal / control chars in proxied segments.
+  const segments = params.path;
+  const unsafe = segments.some(
+    (s) => s.includes('..') || s.includes('\\') || [...s].some((c) => c.charCodeAt(0) < 0x20),
+  );
+  if (unsafe) return Response.json({ message: 'Bad request' }, { status: 400 });
+
   const search = new URL(req.url).search;
-  const url = `${API_BASE}/${params.path.join('/')}${search}`;
+  const url = `${API_BASE}/${segments.join('/')}${search}`;
 
   const headers: Record<string, string> = { authorization: `Bearer ${token}` };
   const contentType = req.headers.get('content-type');

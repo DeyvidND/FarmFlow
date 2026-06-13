@@ -7,8 +7,11 @@ export class ChangePasswordDto {
   @MinLength(6)
   currentPassword: string;
 
-  @ApiProperty({ minLength: 6 })
+  // New password floor is higher than the current-password check above: the latter
+  // only verifies what the user already has, so it must not lock out legacy
+  // accounts; the former is a creation gate and sets the strength minimum.
+  @ApiProperty({ minLength: 8 })
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
   newPassword: string;
 }

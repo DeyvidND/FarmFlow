@@ -12,7 +12,10 @@ export const envValidationSchema = Joi.object({
   // `tlds:false` → validate email SHAPE only, not the TLD against the IANA list,
   // so dev/internal admin addresses (e.g. admin@local.test) aren't rejected.
   SUPER_ADMIN_EMAIL: Joi.string().email({ tlds: false }).optional().allow(''),
-  SUPER_ADMIN_PASSWORD: Joi.string().optional().allow(''),
+  // Min 12 chars when set: this seeds the single most-privileged account, so a
+  // trivially weak bootstrap password must not ship. Empty is still allowed (it
+  // just skips the seed on an already-provisioned DB).
+  SUPER_ADMIN_PASSWORD: Joi.string().min(12).optional().allow(''),
   STRIPE_SECRET_KEY: Joi.string().optional().allow(''),
   // Signing secret of the PLATFORM (account) webhook endpoint — verifies SaaS
   // billing events (invoices / subscriptions) raised on the platform account.

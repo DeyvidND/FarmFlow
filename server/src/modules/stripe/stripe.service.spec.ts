@@ -267,3 +267,70 @@ describe('StripeService webhook — checkout.session.expired frees the slot', ()
     expect(calls.update).toBe(0);
   });
 });
+
+// Regression: the idempotency ledger records the event id BEFORE the handler runs,
+// so if a handler throws mid-way (e.g. a transient DB error) the recorded row must
+// be released — otherwise Stripe's retry would see the event already recorded and
+// no-op, leaving a paid order stuck `pending` forever.
+describe('StripeService webhook — releases the idempotency claim when a handler fails', () => {
+  const config = {
+    get: (key: string, def?: unknown) =>
+      key === 'STRIPE_WEBHOOK_SECRET' ? 'whsec_test' : key === 'STRIPE_SECRET_KEY' ? '' : def,
+  } as unknown as ConfigService;
+
+  function build() {
+    const calls = { deleted: 0 };
+    const db = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoNothing: () => ({ returning: () => Promise.resolve([{ id: 'evt_fail' }]) }),
+        }),
+      }),
+      select: () => {
+        let table: unknown;
+        const c: Record<string, unknown> = {
+          from: (t: unknown) => {
+            table = t;
+            return c;
+          },
+          where: () => c,
+          limit: () =>
+            Promise.resolve(table === tenants ? [{ id: 'tenant-A' }] : [{ id: 'order-1', total: 1000 }]),
+        };
+        return c;
+      },
+      // Simulate a transient DB failure inside markOrderPaid's confirm UPDATE.
+      update: () => ({
+        set: () => ({ where: () => ({ returning: () => Promise.reject(new Error('db down')) }) }),
+      }),
+      // Compensating delete of the idempotency row.
+      delete: () => ({
+        where: () => {
+          calls.deleted++;
+          return Promise.resolve();
+        },
+      }),
+    };
+    const svc = new StripeService(
+      db as never,
+      config,
+      { handleBillingEvent: jest.fn() } as never,
+      { autoCreateForOrder: jest.fn() } as never,
+      { sendForOrder: jest.fn() } as never,
+    );
+    const event = {
+      id: 'evt_fail',
+      type: 'payment_intent.succeeded',
+      account: 'acct_farm',
+      data: { object: { id: 'pi_1', metadata: { orderId: 'order-1' }, amount_received: 1000 } },
+    };
+    (svc as unknown as { client: unknown }).client = { webhooks: { constructEvent: () => event } };
+    return { svc, calls };
+  }
+
+  it('deletes the recorded event and rethrows when dispatch throws', async () => {
+    const { svc, calls } = build();
+    await expect(svc.handleWebhook(Buffer.from('{}'), 'sig')).rejects.toThrow('db down');
+    expect(calls.deleted).toBe(1);
+  });
+});

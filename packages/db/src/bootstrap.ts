@@ -16,6 +16,11 @@ export async function ensureSuperAdmin(
   password: string | undefined = process.env.SUPER_ADMIN_PASSWORD,
 ): Promise<void> {
   if (!databaseUrl || !email || !password) return;
+  // Fail loudly rather than seed the most-privileged account with a weak secret.
+  // (The API also enforces this via env validation; this guards direct/test calls.)
+  if (password.length < 12) {
+    throw new Error('[bootstrap] SUPER_ADMIN_PASSWORD must be at least 12 characters');
+  }
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     const db = drizzle(pool);

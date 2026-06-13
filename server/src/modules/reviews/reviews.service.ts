@@ -104,6 +104,13 @@ export class ReviewsService {
     const cfg = tenant.landing.reviews;
     if (!cfg.show || cfg.ids.length === 0) return [];
 
+    // Read-hot (every storefront bootstrap), write-rare (farmer rarely re-picks).
+    // Cache it like the sibling public reads so a warm home page does zero Postgres.
+    // Busted on publish/hide (setStatus) + a landing re-pick (TenantsService.updateLanding).
+    const key = publicCacheKeys.homeReviews(tenant.id);
+    const cached = await this.publicCache.get<PublicReview[]>(key);
+    if (cached) return cached;
+
     const rows = await this.db
       .select({
         id: reviews.id,
@@ -122,10 +129,12 @@ export class ReviewsService {
         ),
       );
 
-    return orderReviewsByIds(cfg.ids, rows).map((r) => ({
+    const result = orderReviewsByIds(cfg.ids, rows).map((r) => ({
       ...r,
       createdAt: r.createdAt ? r.createdAt.toISOString() : null,
     }));
+    await this.publicCache.set(key, result);
+    return result;
   }
 
   /** Public submission → stored as `pending` for moderation. */
@@ -184,8 +193,12 @@ export class ReviewsService {
       .where(and(eq(reviews.id, id), eq(reviews.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Ревюто не е намерено');
-    // Publishing/hiding changes the public list + average.
-    await this.publicCache.del(publicCacheKeys.reviews(tenantId));
+    // Publishing/hiding changes the public list + average — and can add/remove a
+    // farmer-picked review from the home block, so bust that cache too.
+    await this.publicCache.del(
+      publicCacheKeys.reviews(tenantId),
+      publicCacheKeys.homeReviews(tenantId),
+    );
     return row;
   }
 }

@@ -18,7 +18,7 @@ import {
 } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
-import { bgToday, bgDayBounds } from '../../common/time/bg-time';
+import { bgToday, bgDayBounds, bgDate } from '../../common/time/bg-time';
 import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
 import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -60,6 +60,100 @@ export function serializeOrder(o: OrderWithItems): SerializedOrder {
       ? 'pending_online'
       : 'cash';
   return { ...rest, paymentStatus };
+}
+
+/** Order statuses that count as a real COD «payment» on the Плащания screen:
+ *  everything the farmer has confirmed (money in hand or due at delivery),
+ *  excluding still-pending and cancelled orders. */
+export const COD_COUNTED_STATUSES = [
+  'confirmed',
+  'preparing',
+  'out_for_delivery',
+  'delivered',
+] as const;
+
+/** One COD order as shown under a day on the payments screen. */
+export interface CodPaymentOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  totalStotinki: number;
+  status: string;
+  deliveryType: string;
+  /** True once delivered — money actually collected (vs. expected). */
+  collected: boolean;
+  createdAt: string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+}
+
+export interface CodPaymentDay {
+  /** BG calendar day of delivery (slot day; creation day for slotless orders). */
+  day: string;
+  totalStotinki: number;
+  count: number;
+  orders: CodPaymentOrder[];
+}
+
+export interface CodPaymentsSummary {
+  /** Grand total over the returned window (minor units, EUR cents). */
+  totalStotinki: number;
+  count: number;
+  /** Newest delivery day first. */
+  days: CodPaymentDay[];
+}
+
+/** Raw row shape the COD query feeds into {@link groupCodPayments}. */
+export interface CodPaymentRow {
+  day: string;
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  totalStotinki: number;
+  status: string;
+  deliveryType: string;
+  createdAt: Date | string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+}
+
+/**
+ * Group flat COD order rows into per-day buckets (newest day first), summing the
+ * day total + count. Pure (no DB) so it's unit-testable; rows arrive already
+ * filtered to counted statuses + paymentMethod='cod'. Within a day the input
+ * order is preserved (the query sorts newest-created first).
+ */
+export function groupCodPayments(rows: CodPaymentRow[]): CodPaymentsSummary {
+  const byDay = new Map<string, CodPaymentDay>();
+  for (const r of rows) {
+    let bucket = byDay.get(r.day);
+    if (!bucket) {
+      bucket = { day: r.day, totalStotinki: 0, count: 0, orders: [] };
+      byDay.set(r.day, bucket);
+    }
+    bucket.orders.push({
+      id: r.id,
+      orderNumber: r.orderNumber,
+      customerName: r.customerName,
+      totalStotinki: r.totalStotinki,
+      status: r.status,
+      deliveryType: r.deliveryType,
+      collected: r.status === 'delivered',
+      createdAt: r.createdAt == null ? null : new Date(r.createdAt).toISOString(),
+      slotFrom: r.slotFrom,
+      slotTo: r.slotTo,
+    });
+    bucket.totalStotinki += r.totalStotinki;
+    bucket.count += 1;
+  }
+  const days = [...byDay.values()].sort((a, b) =>
+    a.day < b.day ? 1 : a.day > b.day ? -1 : 0,
+  );
+  return {
+    totalStotinki: days.reduce((s, d) => s + d.totalStotinki, 0),
+    count: days.reduce((s, d) => s + d.count, 0),
+    days,
+  };
 }
 
 export interface ProductionItem {
@@ -176,6 +270,44 @@ export class OrdersService {
       nextCursor:
         hasMore && last ? encodeCursor({ createdAt: last.createdAt!, id: last.id }) : null,
     };
+  }
+
+  /**
+   * COD («наложен платеж») money for the farmer's Плащания screen: confirmed-and-
+   * beyond orders paid by наложен платеж, grouped by delivery day (slot day;
+   * creation day for slotless Econt/pickup orders — same rule as production /
+   * digests). Newest day first; capped at the most recent 300 orders. Card
+   * (Stripe) payments are surfaced separately by the Stripe summary.
+   */
+  async codPayments(tenantId: string): Promise<CodPaymentsSummary> {
+    // Delivery day: the slot's date, falling back to the BG-local creation date
+    // for slotless orders. Mirrors scheduledForDay's day rule.
+    const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
+    const rows = await this.db
+      .select({
+        day,
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        totalStotinki: orders.totalStotinki,
+        status: orders.status,
+        deliveryType: orders.deliveryType,
+        createdAt: orders.createdAt,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+      })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(orders.paymentMethod, 'cod'),
+          inArray(orders.status, [...COD_COUNTED_STATUSES]),
+        ),
+      )
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(300);
+    return groupCodPayments(rows as CodPaymentRow[]);
   }
 
   async findOne(id: string, tenantId: string): Promise<SerializedOrder> {

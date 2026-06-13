@@ -381,12 +381,13 @@ export class SlotsService {
       .select({ id: tenants.id })
       .from(tenants)
       .where(sql`${tenants.settings} -> 'slotRule' ->> 'active' = 'true'`);
-    for (const t of rows) {
-      try {
-        await this.materializeRule(t.id);
-      } catch {
-        // one tenant's bad rule must not stop the others
-      }
+    // Process in bounded-concurrency chunks: materialization is independent per
+    // tenant, so a handful run together (faster than strictly sequential) without
+    // flooding the connection pool. allSettled keeps one tenant's bad rule from
+    // aborting the rest.
+    const CHUNK = 10;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await Promise.allSettled(rows.slice(i, i + CHUNK).map((t) => this.materializeRule(t.id)));
     }
   }
 }

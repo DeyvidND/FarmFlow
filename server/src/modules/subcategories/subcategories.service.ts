@@ -93,7 +93,7 @@ export class SubcategoriesService {
       .select({ url: subcategoryMedia.url })
       .from(subcategoryMedia)
       .where(eq(subcategoryMedia.subcategoryId, id));
-    for (const m of media) await this.deleteObject(m.url);
+    await Promise.all(media.map((m) => this.deleteObject(m.url)));
     if (subcat.imageUrl) await this.deleteObject(subcat.imageUrl);
     await this.db
       .delete(subcategories)
@@ -247,18 +247,21 @@ export class SubcategoriesService {
   /** Mirror the first gallery photo into `subcategories.imageUrl` as the cover;
    *  NULLs it when the gallery is empty. */
   private async syncCover(id: string, tenantId: string): Promise<void> {
-    const [first] = await this.db
-      .select({ url: subcategoryMedia.url })
-      .from(subcategoryMedia)
-      .where(eq(subcategoryMedia.subcategoryId, id))
-      .orderBy(asc(subcategoryMedia.position))
-      .limit(1);
+    // Two independent reads (gallery cover + current cover) — run them together.
+    const [[first], [cur]] = await Promise.all([
+      this.db
+        .select({ url: subcategoryMedia.url })
+        .from(subcategoryMedia)
+        .where(eq(subcategoryMedia.subcategoryId, id))
+        .orderBy(asc(subcategoryMedia.position))
+        .limit(1),
+      this.db
+        .select({ imageUrl: subcategories.imageUrl })
+        .from(subcategories)
+        .where(and(eq(subcategories.id, id), eq(subcategories.tenantId, tenantId)))
+        .limit(1),
+    ]);
     const newUrl = first?.url ?? null;
-    const [cur] = await this.db
-      .select({ imageUrl: subcategories.imageUrl })
-      .from(subcategories)
-      .where(and(eq(subcategories.id, id), eq(subcategories.tenantId, tenantId)))
-      .limit(1);
     // Cover image unchanged → keep whatever framing is set (incl. a manual override).
     if (cur?.imageUrl === newUrl) return;
     // New cover → recompute a content-aware focal default (the old framing belonged

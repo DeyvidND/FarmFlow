@@ -1,4 +1,5 @@
 import {
+  PlatformInsightsService,
   computeInsights,
   type InsightsInput,
   type InsightsTenantRow,
@@ -198,6 +199,54 @@ describe('computeInsights — adoption', () => {
     const out = computeInsights({ tenants: [], orders: [], products: [], slots: [], reviews: [], articles: [], subs: [] }, NOW);
     expect(out.totalFarms).toBe(0);
     expect(out.adoption.every((a) => a.pct === 0)).toBe(true);
+  });
+});
+
+describe('PlatformInsightsService — Redis caching', () => {
+  // A db that explodes if touched — proves the cache hit short-circuits Postgres.
+  const explodingDb = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error('Postgres must not be queried on a cache hit');
+      },
+    },
+  ) as never;
+
+  const svc = (cache: unknown) => new PlatformInsightsService(explodingDb, cache as never);
+
+  it('insights() serves the cached snapshot without querying Postgres', async () => {
+    const snapshot = { totalFarms: 3, farms: [], signals: [], adoption: [] };
+    const cache = { get: jest.fn().mockResolvedValue(snapshot), set: jest.fn() };
+    const out = await svc(cache).insights();
+    expect(out).toBe(snapshot);
+    expect(cache.get).toHaveBeenCalledWith('platform:insights');
+    expect(cache.set).not.toHaveBeenCalled();
+  });
+
+  it('timeseries() serves a cache hit, keyed by range + scope', async () => {
+    const cached = { range: '7d', bucket: 'day', points: [] };
+    const cache = { get: jest.fn().mockResolvedValue(cached), set: jest.fn() };
+    const s = svc(cache);
+
+    await s.timeseries('7d');
+    expect(cache.get).toHaveBeenCalledWith('platform:timeseries:7d:all');
+
+    const uuid = '11111111-1111-1111-1111-111111111111';
+    await s.timeseries('30d', uuid);
+    expect(cache.get).toHaveBeenCalledWith(`platform:timeseries:30d:${uuid}`);
+  });
+
+  it('timeseries() drops a non-uuid scope to the all-farms key', async () => {
+    const cache = { get: jest.fn().mockResolvedValue({ range: '7d', bucket: 'day', points: [] }), set: jest.fn() };
+    await svc(cache).timeseries('7d', 'not-a-uuid');
+    expect(cache.get).toHaveBeenCalledWith('platform:timeseries:7d:all');
+  });
+
+  it('timeseries() rejects an invalid range before any cache or db work', async () => {
+    const cache = { get: jest.fn(), set: jest.fn() };
+    await expect(svc(cache).timeseries('bogus')).rejects.toThrow();
+    expect(cache.get).not.toHaveBeenCalled();
   });
 });
 

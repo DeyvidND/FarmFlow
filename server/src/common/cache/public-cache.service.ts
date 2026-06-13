@@ -88,6 +88,10 @@ export const publicCacheKeys = {
   farmers: (tenantId: string) => `farmers:${tenantId}`,
   subcategories: (tenantId: string) => `subcats:${tenantId}`,
   reviews: (tenantId: string) => `reviews:${tenantId}`,
+  // Farmer-picked home-page reviews (settings.landing.reviews.ids). Separate from
+  // the full `reviews:` summary so the landing edit + a publish/hide can bust the
+  // home block without clobbering the storefront's reviews-page cache.
+  homeReviews: (tenantId: string) => `home-reviews:${tenantId}`,
 };
 
 export const PUBLIC_CACHE_TTL = 300;
