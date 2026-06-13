@@ -381,6 +381,46 @@ export interface DashboardSummary {
   subscriptionActive: boolean;
 }
 
+// ── Sales statistics (GET /stats?range=) — the over-time companion to the
+//    today-only dashboard. ──
+export type StatsRange = '7d' | '30d' | '90d' | '1y';
+export type StatsBucket = 'day' | 'week' | 'month';
+
+/** One point on the trend line. Both metrics travel together so the UI toggles
+ *  Поръчки/Оборот without a refetch. */
+export interface StatsPoint {
+  t: string;
+  orders: number;
+  revenueStotinki: number;
+}
+
+export interface TopProduct {
+  name: string;
+  quantity: number;
+  revenueStotinki: number;
+}
+
+export interface StatsSummary {
+  range: StatsRange;
+  bucket: StatsBucket;
+  revenueStotinki: number;
+  orderCount: number;
+  avgOrderStotinki: number;
+  prevRevenueStotinki: number;
+  prevOrderCount: number;
+  customerCount: number;
+  returningCustomers: number;
+  newCustomers: number;
+  codOrders: number;
+  codRevenueStotinki: number;
+  onlineOrders: number;
+  onlineRevenueStotinki: number;
+  topProducts: TopProduct[];
+  /** Too few orders for the lists/loyalty to mean anything yet. */
+  sparse: boolean;
+  points: StatsPoint[];
+}
+
 /** One delivery stop on the optimized route (GET /orders/route). */
 export interface RouteStop {
   id: string;

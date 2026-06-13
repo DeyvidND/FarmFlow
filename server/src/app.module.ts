@@ -27,6 +27,7 @@ import { SlotsModule } from './modules/slots/slots.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { RoutingModule } from './modules/routing/routing.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { StatsModule } from './modules/stats/stats.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { BillingModule } from './modules/billing/billing.module';
@@ -105,6 +106,7 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
     RoutingModule,
     OrdersModule,
     DashboardModule,
+    StatsModule,
     PlatformModule,
     StripeModule,
     BillingModule,
