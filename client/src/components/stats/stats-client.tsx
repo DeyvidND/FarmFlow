@@ -47,6 +47,21 @@ const RANGE_NOUN: Record<StatsRange, string> = {
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
+/** 'YYYY-MM-DD' → 'DD.MM.YYYY' for human-facing range labels. */
+const fmtBg = (d: string) => {
+  const [y, m, dd] = d.split('-');
+  return `${dd}.${m}.${y}`;
+};
+
+/** Today's local date as 'YYYY-MM-DD' — caps the date inputs (server re-clamps). */
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const dateInputCls =
+  'rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] font-semibold text-ff-ink-2 shadow-ff-sm focus:outline-none focus:ring-2 focus:ring-ff-green-500/40';
+
 /** Segmented pill selector (range / metric). */
 function Seg<T extends string>({
   value,
@@ -169,8 +184,24 @@ function ShareBar({
   );
 }
 
+/** Muted chip marking a section whose numbers are thin (few orders in window). */
+function SparseTag() {
+  return (
+    <span className="rounded-full bg-ff-surface-2 px-2 py-0.5 text-[11px] font-bold text-ff-muted-2">
+      малко данни
+    </span>
+  );
+}
+
 export function StatsClient({ initial }: { initial: StatsSummary | null }) {
-  const [range, setRange] = useState<StatsRange>(initial?.range ?? '30d');
+  const initPreset: StatsRange = initial && initial.range !== 'custom' ? initial.range : '30d';
+  const [range, setRange] = useState<StatsRange>(initPreset);
+  // 'preset' uses one of the quick pills; 'custom' uses the от→до date picker.
+  const [mode, setMode] = useState<'preset' | 'custom'>('preset');
+  // Draft values bound to the date inputs; committed to `applied` on „Покажи".
+  const [draftFrom, setDraftFrom] = useState('');
+  const [draftTo, setDraftTo] = useState('');
+  const [applied, setApplied] = useState<{ from: string; to: string } | null>(null);
   const [metric, setMetric] = useState<'orders' | 'revenue'>('revenue');
   const [data, setData] = useState<StatsSummary | null>(initial);
   const [loading, setLoading] = useState(false);
@@ -179,13 +210,19 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    if (!hydrated && initial && initial.range === range) {
+    if (!hydrated) {
       setHydrated(true);
-      return;
+      // Server pre-fetched the default preset — don't refetch the same thing.
+      if (initial && mode === 'preset' && initial.range === range) return;
     }
+    // Custom mode with nothing applied yet: wait for „Покажи".
+    if (mode === 'custom' && !applied) return;
+
     let live = true;
     setLoading(true);
-    getStats(range)
+    const req =
+      mode === 'custom' && applied ? getStats({ from: applied.from, to: applied.to }) : getStats({ range });
+    req
       .then((s) => {
         if (live) setData(s);
       })
@@ -199,7 +236,19 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range]);
+  }, [mode, range, applied]);
+
+  function applyCustom() {
+    if (!draftFrom || !draftTo) {
+      toast.error('Избери начална и крайна дата');
+      return;
+    }
+    if (draftFrom > draftTo) {
+      toast.error('Началната дата е след крайната');
+      return;
+    }
+    setApplied({ from: draftFrom, to: draftTo });
+  }
 
   const repeatPct =
     data && data.customerCount > 0 ? Math.round((data.returningCustomers / data.customerCount) * 100) : 0;
@@ -209,14 +258,81 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
   const busiest =
     data && data.weekdayLoad.length ? data.weekdayLoad.reduce((a, b) => (b.orders > a.orders ? b : a)) : null;
   const byDow = (d: number) => data?.weekdayLoad.find((w) => w.dow === d) ?? { dow: d, orders: 0, revenueStotinki: 0 };
+  const today = todayStr();
 
   return (
     <div className="animate-ff-fade-up flex flex-col gap-5">
       {/* header: period selector + help */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Seg value={range} onChange={setRange} options={RANGES} />
-          <span className="text-[13px] text-ff-muted">{RANGE_NOUN[range]}</span>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* range pills: 4 quick presets + „По избор" custom range */}
+            <div className="inline-flex flex-wrap rounded-xl border border-ff-border bg-ff-surface p-0.5 shadow-ff-sm">
+              {RANGES.map((o) => {
+                const active = mode === 'preset' && range === o.key;
+                return (
+                  <button
+                    key={o.key}
+                    onClick={() => {
+                      setMode('preset');
+                      setRange(o.key);
+                    }}
+                    className={cn(
+                      'rounded-lg px-3 py-1.5 text-[13px] font-bold transition-colors',
+                      active ? 'bg-ff-green-700 text-[#EAF1E4]' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setMode('custom')}
+                className={cn(
+                  'rounded-lg px-3 py-1.5 text-[13px] font-bold transition-colors',
+                  mode === 'custom' ? 'bg-ff-green-700 text-[#EAF1E4]' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+                )}
+              >
+                По избор
+              </button>
+            </div>
+            <span className="text-[13px] text-ff-muted">
+              {mode === 'custom'
+                ? applied
+                  ? `${fmtBg(applied.from)} – ${fmtBg(applied.to)}`
+                  : 'избери начална и крайна дата'
+                : RANGE_NOUN[range]}
+            </span>
+            {data?.sparse && (
+              <span className="text-[12.5px] text-ff-muted-2">· малко поръчки — пробвай по-дълъг период</span>
+            )}
+          </div>
+
+          {mode === 'custom' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                aria-label="Начална дата"
+                value={draftFrom}
+                max={draftTo || today}
+                onChange={(e) => setDraftFrom(e.target.value)}
+                className={dateInputCls}
+              />
+              <span className="text-ff-muted">–</span>
+              <input
+                type="date"
+                aria-label="Крайна дата"
+                value={draftTo}
+                min={draftFrom || undefined}
+                max={today}
+                onChange={(e) => setDraftTo(e.target.value)}
+                className={dateInputCls}
+              />
+              <Button size="sm" onClick={applyCustom} disabled={!draftFrom || !draftTo}>
+                Покажи
+              </Button>
+            </div>
+          )}
         </div>
         <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
           <Info size={16} /> Обяснения
@@ -229,17 +345,6 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
         </div>
       ) : (
         <div className={cn('flex flex-col gap-5 transition-opacity', loading && 'opacity-50')}>
-          {data.sparse && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-ff-green-100 bg-ff-green-50 px-4 py-3">
-              <Info size={18} className="mt-px shrink-0 text-ff-green-700" />
-              <div className="text-[13px] leading-[1.45] text-ff-ink-2">
-                <span className="font-bold text-ff-green-800">Още малко поръчки за изводи.</span>{' '}
-                Показваме оборота и поръчките; топ продуктите и клиентите ще станат полезни с повече
-                продажби. Пробвай по-дълъг период горе.
-              </div>
-            </div>
-          )}
-
           {/* headline numbers */}
           <div className="grid grid-cols-4 gap-4 max-[1024px]:grid-cols-2 max-[640px]:grid-cols-1">
             <StatTile
@@ -263,7 +368,7 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
               sub="средно на поръчка"
               index={2}
             />
-            {!data.sparse && (
+            {(
               <StatTile
                 Icon={Repeat}
                 label="Връщащи се клиенти"
@@ -275,12 +380,13 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
           </div>
 
           {/* top products + payment split */}
-          {!data.sparse && (
+          {(
             <div className="grid grid-cols-2 gap-4 max-[900px]:grid-cols-1">
               <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
                 <div className="mb-1 flex items-center gap-2">
                   <Trophy size={17} className="text-ff-green-700" />
                   <h2 className="text-[16.5px] font-extrabold">Топ продукти</h2>
+                  {data.sparse && <SparseTag />}
                 </div>
                 <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
                   Кое носи най-много пари — какво да зареждаш повече.
@@ -306,6 +412,7 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
                 <div className="mb-1 flex items-center gap-2">
                   <CreditCard size={17} className="text-ff-green-700" />
                   <h2 className="text-[16.5px] font-extrabold">Как плащат</h2>
+                  {data.sparse && <SparseTag />}
                 </div>
                 <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
                   Колко от парите идват с наложен платеж и колко с карта.
@@ -332,12 +439,13 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
           )}
 
           {/* slow products + weekday load */}
-          {!data.sparse && (
+          {(
             <div className="grid grid-cols-2 gap-4 max-[900px]:grid-cols-1">
               <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
                 <div className="mb-1 flex items-center gap-2">
                   <PackageX size={17} className="text-ff-amber-600" />
                   <h2 className="text-[16.5px] font-extrabold">Слабо продавани</h2>
+                  {data.sparse && <SparseTag />}
                 </div>
                 <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
                   Кое почти не се търси — обмисли намаление или го махни.
@@ -371,6 +479,7 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
                 <div className="mb-1 flex items-center gap-2">
                   <CalendarRange size={17} className="text-ff-green-700" />
                   <h2 className="text-[16.5px] font-extrabold">Натоварени дни</h2>
+                  {data.sparse && <SparseTag />}
                 </div>
                 <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
                   {busiest && busiest.orders > 0 ? (
