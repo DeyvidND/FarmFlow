@@ -25,7 +25,9 @@ export function readingMinutes(body: string | null | undefined): number {
 /** Body → render-ready HTML (HTML passthrough; legacy plain text → <p>). */
 export function bodyToHtml(body: string | null | undefined): string {
   if (!body) return '';
-  if (/<[a-z][\s\S]*>/i.test(body)) return body;
+  // HTML only when it BEGINS with a tag (server-sanitized bodies always do).
+  // Legacy plain text containing a stray "<tag" mid-string is escaped below.
+  if (/^\s*<[a-z]/i.test(body)) return body;
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return body
     .split(/\n\s*\n/)
@@ -38,12 +40,4 @@ export function bodyToHtml(body: string | null | undefined): string {
 /** `"4 мин четене"` meta string. */
 export function readingTime(body: string | null | undefined): string {
   return `${readingMinutes(body)} мин четене`;
-}
-
-/** Split an article body into paragraphs on blank lines. */
-export function paragraphs(body: string | null | undefined): string[] {
-  return (body ?? '')
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter(Boolean);
 }
