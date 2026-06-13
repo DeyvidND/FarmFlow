@@ -84,6 +84,26 @@ export class ArticlesController {
     return this.articlesService.uploadCover(id, tenantId, file);
   }
 
+  @Post(':id/images')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: UploadArticleMediaDto })
+  @UseInterceptors(FileInterceptor('file'))
+  addInlineImage(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new FileTypeValidator({ fileType: ARTICLE_COVER_MIME_REGEX }),
+          new MaxFileSizeValidator({ maxSize: ARTICLE_COVER_MAX_BYTES }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    return this.articlesService.addInlineImage(id, tenantId, file);
+  }
+
   @Post(':id/media')
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: UploadArticleMediaDto })

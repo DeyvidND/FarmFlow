@@ -130,6 +130,9 @@ export class ArticlesService {
     }
     if (article.coverImageUrl) await this.deleteObject(article.coverImageUrl);
 
+    // Sweep inline images (no per-row tracking) by wiping the article's R2 prefix.
+    await this.storage.deleteByPrefix(`tenants/${tenantId}/articles/${id}/`);
+
     await this.db.delete(articleMedia).where(eq(articleMedia.articleId, id));
     await this.db
       .delete(articles)
@@ -157,6 +160,16 @@ export class ArticlesService {
     await this.cache.invalidate(tenantId);
     const [withMedia] = await this.attachMedia([row]);
     return withMedia;
+  }
+
+  async addInlineImage(
+    id: string,
+    tenantId: string,
+    file: Express.Multer.File,
+  ): Promise<{ url: string }> {
+    await this.findOne(id, tenantId); // scope check (404 cross-tenant)
+    const url = await this.store(tenantId, id, 'inline', file);
+    return { url };
   }
 
   async addMedia(
@@ -377,7 +390,7 @@ export class ArticlesService {
   private async store(
     tenantId: string,
     articleId: string,
-    kind: 'cover' | 'media',
+    kind: 'cover' | 'media' | 'inline',
     file: Express.Multer.File,
   ): Promise<string> {
     // Images get downscaled+re-encoded; video (article media) passes through.
