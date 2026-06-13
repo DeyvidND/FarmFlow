@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   ClipboardList,
+  BarChart3,
   CreditCard,
   ShoppingBasket,
   Package,
@@ -76,6 +77,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/orders', label: 'Поръчки', Icon: ClipboardList, desc: 'Входящи поръчки от клиенти.' },
       { href: '/production', label: 'Производство', Icon: ShoppingBasket, gated: true, desc: 'Дневен списък какво да приготвиш за доставките.' },
       { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите — наложен платеж и карти.' },
+      { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Оборот, поръчки, топ продукти и тренд през времето.' },
     ],
   },
   {
