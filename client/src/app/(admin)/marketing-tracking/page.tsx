@@ -140,7 +140,7 @@ export default function MarketingTrackingPage() {
               'G-XXXXXXXXXX',
               <>
                 Намира се в Google Analytics → Admin → Data Streams → твоят сайт →
-                „Measurement ID" (започва с <b>G-</b>).
+                „Measurement ID&rdquo; (започва с <b>G-</b>).
               </>,
             )}
           </div>
@@ -155,7 +155,7 @@ export default function MarketingTrackingPage() {
               'Conversion ID',
               'AW-XXXXXXXXX',
               <>
-                В Google Ads → Tools → Conversions → твоята конверсия → „Tag setup".
+                В Google Ads → Tools → Conversions → твоята конверсия → „Tag setup&rdquo;.
                 ID-то започва с <b>AW-</b>.
               </>,
             )}
