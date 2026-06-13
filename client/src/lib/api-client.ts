@@ -18,6 +18,8 @@ import type {
   Slot,
   SlotRule,
   SlotRuleInput,
+  StatsSummary,
+  StatsRange,
   Subcategory,
   TenantProfile,
 } from './types';
@@ -415,6 +417,10 @@ export const getRoute = (date?: string) =>
 
 export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);
+
+// ---- Sales statistics ----
+export const getStats = (range: StatsRange) =>
+  apiFetch<StatsSummary>(`stats?range=${range}`);
 
 // ---- Stripe (payments / Connect) ----
 export interface StripeSummary {

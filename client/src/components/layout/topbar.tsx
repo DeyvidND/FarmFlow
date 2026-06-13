@@ -81,6 +81,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/production': 'Производство',
   '/route': 'Маршрут',
   '/payments': 'Плащания',
+  '/stats': 'Статистика',
   '/products': 'Продукти',
   '/farmers': 'Фермери',
   '/subcategories': 'Категории',
