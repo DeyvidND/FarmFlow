@@ -1,7 +1,6 @@
 import type {
   AdminReview,
   Article,
-  ArticleMedia,
   DashboardSummary,
   DeliveryConfig,
   EcontCity,
@@ -346,35 +345,11 @@ export function uploadArticleCover(id: string, file: File) {
   return apiFetch<Article>(`articles/${id}/cover`, { method: 'POST', body: fd }, 'Неуспешно качване');
 }
 
-export function uploadArticleMedia(id: string, file: File) {
+export function uploadArticleInlineImage(id: string, file: File) {
   const fd = new FormData();
   fd.append('file', file);
-  return apiFetch<ArticleMedia>(`articles/${id}/media`, { method: 'POST', body: fd }, 'Неуспешно качване');
+  return apiFetch<{ url: string }>(`articles/${id}/images`, { method: 'POST', body: fd }, 'Неуспешно качване');
 }
-
-export const addArticleEmbed = (id: string, url: string, caption?: string) =>
-  apiFetch<ArticleMedia>(
-    `articles/${id}/media/embed`,
-    { method: 'POST', ...json({ url, caption }) },
-    'Невалиден YouTube или Instagram адрес',
-  );
-
-export const updateArticleMedia = (id: string, mediaId: string, caption: string) =>
-  apiFetch<ArticleMedia>(
-    `articles/${id}/media/${mediaId}`,
-    { method: 'PATCH', ...json({ caption }) },
-    'Неуспешно записване',
-  );
-
-export const deleteArticleMedia = (id: string, mediaId: string) =>
-  apiFetch<{ id: string }>(`articles/${id}/media/${mediaId}`, { method: 'DELETE' }, 'Неуспешно изтриване');
-
-export const reorderArticleMedia = (id: string, items: { id: string; position: number }[]) =>
-  apiFetch<ArticleMedia[]>(
-    `articles/${id}/media/reorder`,
-    { method: 'PATCH', ...json({ items }) },
-    'Неуспешно подреждане',
-  );
 
 // ---- Slots ----
 export const listSlots = (from: string, to: string) =>
