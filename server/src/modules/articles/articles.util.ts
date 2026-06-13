@@ -1,3 +1,5 @@
+import sanitizeHtml from 'sanitize-html';
+
 // Bulgarian Cyrillic → Latin for URL slugs (BDS / common transliteration).
 const BG_TRANSLIT: Record<string, string> = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y',
@@ -44,4 +46,37 @@ export function parseEmbed(url: string): ParsedEmbed | null {
   const ig = url.match(INSTAGRAM_PATTERN);
   if (ig) return { type: 'instagram', embedId: ig[1] };
   return null;
+}
+
+/**
+ * Sanitize WYSIWYG article HTML for safe storage + render. Allowlist matches the
+ * Quill toolbar (bold/italic/underline/strike, h2/h3, color, align, lists, link,
+ * inline image). Strips scripts, iframes, video, event handlers, and unsafe URLs.
+ */
+export function sanitizeArticleHtml(html: string): string {
+  if (!html) return '';
+  return sanitizeHtml(html, {
+    allowedTags: [
+      'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
+      'h2', 'h3', 'ul', 'ol', 'li', 'a', 'img', 'span', 'blockquote',
+    ],
+    allowedAttributes: {
+      a: ['href', 'target', 'rel'],
+      img: ['src', 'alt'],
+      '*': ['style'],
+    },
+    allowedSchemes: ['http', 'https', 'mailto'],
+    allowedSchemesByTag: { img: ['https'] },
+    allowedStyles: {
+      '*': {
+        'text-align': [/^(left|center|right|justify)$/],
+        color: [/^#(0x)?[0-9a-fA-F]+$/, /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/],
+      },
+    },
+    transformTags: {
+      a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer', target: '_blank' }),
+    },
+    // Drop <img> with no surviving (https) src instead of leaving an empty tag.
+    exclusiveFilter: (frame) => frame.tag === 'img' && !frame.attribs.src,
+  });
 }
