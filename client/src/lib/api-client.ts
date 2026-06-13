@@ -444,8 +444,13 @@ export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);
 
 // ---- Sales statistics ----
-export const getStats = (range: StatsRange) =>
-  apiFetch<StatsSummary>(`stats?range=${range}`);
+export const getStats = (opts: { range: StatsRange } | { from: string; to: string }) => {
+  const qs =
+    'from' in opts
+      ? `from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`
+      : `range=${opts.range}`;
+  return apiFetch<StatsSummary>(`stats?${qs}`);
+};
 
 // ---- Stripe (payments / Connect) ----
 export interface StripeSummary {

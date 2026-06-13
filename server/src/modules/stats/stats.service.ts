@@ -13,20 +13,29 @@ import { BG_TZ, bgToday, bgAddDays, bgDayBounds } from '../../common/time/bg-tim
  *  the UI hides the lists/loyalty and shows a "too early for conclusions" note. */
 export const SPARSE_MIN = 8;
 
+/** The four quick presets. A custom from→to range is also accepted (range tag
+ *  'custom'); both paths resolve to a concrete [from, to] day window. */
 export type StatsRange = '7d' | '30d' | '90d' | '1y';
+export type StatsRangeTag = StatsRange | 'custom';
 export type StatsBucket = 'day' | 'week' | 'month';
 
-/** Per-range window length + chart bucketing. `trunc`/`fmt` are inlined into SQL,
- *  so they MUST come from this fixed map — never from request input. */
-const RANGES: Record<
-  StatsRange,
-  { bucket: StatsBucket; trunc: 'day' | 'week' | 'month'; fmt: string }
-> = {
-  '7d': { bucket: 'day', trunc: 'day', fmt: 'YYYY-MM-DD' },
-  '30d': { bucket: 'day', trunc: 'day', fmt: 'YYYY-MM-DD' },
-  '90d': { bucket: 'week', trunc: 'week', fmt: 'YYYY-MM-DD' },
-  '1y': { bucket: 'month', trunc: 'month', fmt: 'YYYY-MM' },
+/** Preset → rolling window length in days (ending today). */
+const PRESET_DAYS: Record<StatsRange, number> = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
+
+/** Chart bucketing per bucket. `trunc`/`fmt` are inlined into SQL, so they MUST
+ *  come from this fixed map — never from request input. The bucket itself is
+ *  derived server-side from the window span (see {@link pickBucket}). */
+const BUCKETS: Record<StatsBucket, { trunc: 'day' | 'week' | 'month'; fmt: string }> = {
+  day: { trunc: 'day', fmt: 'YYYY-MM-DD' },
+  week: { trunc: 'week', fmt: 'YYYY-MM-DD' },
+  month: { trunc: 'month', fmt: 'YYYY-MM' },
 };
+
+// Span thresholds (inclusive days) that pick the bucket granularity, and the
+// hard cap on a custom range so bar counts and the SQL stay sane.
+const DAY_MAX_SPAN = 62; //  ≤ ~2 months → daily bars
+const WEEK_MAX_SPAN = 187; // ≤ ~6 months → weekly bars; beyond → monthly
+export const MAX_RANGE_DAYS = 731; // 2 years
 
 export interface StatsPoint {
   /** Bucket key: 'YYYY-MM-DD' for day/week, 'YYYY-MM' for month. */
@@ -49,8 +58,11 @@ export interface WeekdayLoad {
 }
 
 export interface StatsSummary {
-  range: StatsRange;
+  range: StatsRangeTag;
   bucket: StatsBucket;
+  /** Resolved window (BG calendar dates, both inclusive). */
+  from: string;
+  to: string;
   /** Current window. */
   revenueStotinki: number;
   orderCount: number;
@@ -98,39 +110,78 @@ function addMonths(firstOfMonth: string, n: number): string {
   return `${ny}-${String(nm).padStart(2, '0')}-01`;
 }
 
-/** The continuous bucket axis (keys, oldest→newest) + the BG date its window
- *  starts on. Pure given `today` (a BG 'YYYY-MM-DD'). */
-export function buildStatsAxis(
-  range: StatsRange,
+/** First day of the month containing `day` ('YYYY-MM-01'). */
+function firstOfMonth(day: string): string {
+  return `${day.slice(0, 7)}-01`;
+}
+
+/** True if `s` is a real 'YYYY-MM-DD' calendar date. */
+export function isValidDay(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/** Inclusive number of calendar days in [from, to] (both 'YYYY-MM-DD'). */
+export function daySpanInclusive(from: string, to: string): number {
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000) + 1;
+}
+
+/** Resolve the request into a concrete, validated [from, to] BG-day window.
+ *  Custom from/to wins over a preset; both end no later than `today`. Throws
+ *  BadRequest on a malformed, inverted, or too-wide custom range. Pure. */
+export function resolveWindow(
+  opts: { range?: string; from?: string; to?: string },
   today: string,
-): { keys: string[]; sinceDay: string } {
-  const cfg = RANGES[range];
-
-  if (cfg.bucket === 'day') {
-    const span = range === '7d' ? 7 : 30;
-    const start = bgAddDays(today, -(span - 1));
-    const keys: string[] = [];
-    for (let i = 0; i < span; i++) keys.push(bgAddDays(start, i));
-    return { keys, sinceDay: keys[0] };
+): { from: string; to: string; range: StatsRangeTag } {
+  const { from, to } = opts;
+  if (from != null || to != null) {
+    if (!from || !to || !isValidDay(from) || !isValidDay(to)) {
+      throw new BadRequestException('Невалиден период');
+    }
+    const end = to > today ? today : to; // clamp a future end to today
+    if (from > end) throw new BadRequestException('Невалиден период');
+    if (daySpanInclusive(from, end) > MAX_RANGE_DAYS) {
+      throw new BadRequestException('Прекалено дълъг период (максимум 2 години)');
+    }
+    return { from, to: end, range: 'custom' };
   }
+  const range = (opts.range ?? '30d') as StatsRange;
+  const span = PRESET_DAYS[range];
+  if (!span) throw new BadRequestException('Невалиден период');
+  return { from: bgAddDays(today, -(span - 1)), to: today, range };
+}
 
-  if (cfg.bucket === 'week') {
-    // 13 ISO weeks (Mondays), oldest first.
-    const thisMonday = mondayOf(today);
-    const keys: string[] = [];
-    for (let i = 12; i >= 0; i--) keys.push(bgAddDays(thisMonday, -i * 7));
-    return { keys, sinceDay: keys[0] };
-  }
+/** Bucket granularity for a window, by inclusive span. Derived server-side so
+ *  the SQL `trunc`/`fmt` never come from request input. */
+export function pickBucket(from: string, to: string): StatsBucket {
+  const span = daySpanInclusive(from, to);
+  if (span <= DAY_MAX_SPAN) return 'day';
+  if (span <= WEEK_MAX_SPAN) return 'week';
+  return 'month';
+}
 
-  // month bucket → last 12 months.
-  const firstThis = `${today.slice(0, 7)}-01`;
+/** Continuous bucket axis covering [from, to], oldest→newest. Keys are
+ *  'YYYY-MM-DD' for day/week (week = its Monday) and 'YYYY-MM' for month.
+ *  Edge buckets may be partial — that's fine; the series query is clamped to
+ *  the exact window so only in-range orders are counted into them. Pure. */
+export function buildAxis(bucket: StatsBucket, from: string, to: string): string[] {
   const keys: string[] = [];
-  let cur = addMonths(firstThis, -11);
-  for (let i = 0; i < 12; i++) {
-    keys.push(cur.slice(0, 7)); // 'YYYY-MM'
-    cur = addMonths(cur, 1);
+  if (bucket === 'day') {
+    for (let d = from; d <= to; d = bgAddDays(d, 1)) keys.push(d);
+    return keys;
   }
-  return { keys, sinceDay: `${keys[0]}-01` };
+  if (bucket === 'week') {
+    const end = mondayOf(to);
+    for (let d = mondayOf(from); d <= end; d = bgAddDays(d, 7)) keys.push(d);
+    return keys;
+  }
+  const end = firstOfMonth(to);
+  for (let d = firstOfMonth(from); d <= end; d = addMonths(d, 1)) keys.push(d.slice(0, 7));
+  return keys;
 }
 
 /** Loyalty split from the two distinct-key sets. `winKeys` are this window's
@@ -173,16 +224,22 @@ export function pickSlowProducts(active: TopProduct[], limit: number): TopProduc
 export class StatsService {
   constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
 
-  async stats(tenantId: string, rangeInput?: string): Promise<StatsSummary> {
-    const range = (rangeInput ?? '30d') as StatsRange;
-    const cfg = RANGES[range];
-    if (!cfg) throw new BadRequestException('Невалиден период');
-
+  async stats(
+    tenantId: string,
+    opts: { range?: string; from?: string; to?: string } = {},
+  ): Promise<StatsSummary> {
     const today = bgToday();
-    const axis = buildStatsAxis(range, today);
-    const since = bgDayBounds(axis.sinceDay).from;
+    const { from, to, range } = resolveWindow(opts, today);
+    const bucket = pickBucket(from, to);
+    const cfg = BUCKETS[bucket];
+    const axisKeys = buildAxis(bucket, from, to);
+
+    // Exact window bounds [since, toExcl) — clamped to the picked from/to so
+    // edge buckets only count in-range orders. Served by (tenant_id, created_at, id).
+    const since = bgDayBounds(from).from;
+    const toExcl = bgDayBounds(to).to;
     // Equal-length window immediately before, for the delta arrows.
-    const spanMs = Date.now() - since.getTime();
+    const spanMs = toExcl.getTime() - since.getTime();
     const prevSince = new Date(since.getTime() - spanMs);
 
     // A sale is anything not cancelled (status may be NULL on legacy rows).
@@ -194,13 +251,13 @@ export class StatsService {
     //    served by the (tenant_id, created_at, id) index. ──
     const aggP = this.db
       .select({
-        orderCount: sql<number>`count(*) filter (where ${orders.createdAt} >= ${since} and ${live})::int`,
-        revenue: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.createdAt} >= ${since} and ${live}), 0)::int`,
+        orderCount: sql<number>`count(*) filter (where ${orders.createdAt} >= ${since} and ${orders.createdAt} < ${toExcl} and ${live})::int`,
+        revenue: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.createdAt} >= ${since} and ${orders.createdAt} < ${toExcl} and ${live}), 0)::int`,
         prevOrderCount: sql<number>`count(*) filter (where ${orders.createdAt} >= ${prevSince} and ${orders.createdAt} < ${since} and ${live})::int`,
         prevRevenue: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.createdAt} >= ${prevSince} and ${orders.createdAt} < ${since} and ${live}), 0)::int`,
       })
       .from(orders)
-      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, prevSince)));
+      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, prevSince), lt(orders.createdAt, toExcl)));
 
     // ── Payment split (current window). ──
     const paymentP = this.db
@@ -210,7 +267,7 @@ export class StatsService {
         revenue: sql<number>`coalesce(sum(${orders.totalStotinki}), 0)::int`,
       })
       .from(orders)
-      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), live))
+      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), lt(orders.createdAt, toExcl), live))
       .groupBy(orders.paymentMethod);
 
     // ── Top products by sales revenue (line = quantity × unit price). ──
@@ -222,7 +279,7 @@ export class StatsService {
       })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), live))
+      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), lt(orders.createdAt, toExcl), live))
       // GROUP/ORDER BY output position (the name expr / revenue) — avoids
       // re-emitting the expressions and the param-placeholder drift it causes.
       .groupBy(sql`1`)
@@ -234,7 +291,13 @@ export class StatsService {
       .selectDistinct({ k: keyExpr })
       .from(orders)
       .where(
-        and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), live, sql`${keyExpr} is not null`),
+        and(
+          eq(orders.tenantId, tenantId),
+          gte(orders.createdAt, since),
+          lt(orders.createdAt, toExcl),
+          live,
+          sql`${keyExpr} is not null`,
+        ),
       );
     const priorKeysP = this.db
       .selectDistinct({ k: keyExpr })
@@ -255,7 +318,7 @@ export class StatsService {
         revenueStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${live}), 0)::int`,
       })
       .from(orders)
-      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since)))
+      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), lt(orders.createdAt, toExcl)))
       // Bucket is the first SELECT column — reference it by position (same reason
       // as topProducts above; the BG_TZ bound param breaks GROUP BY by expression).
       .groupBy(sql`1`)
@@ -280,6 +343,7 @@ export class StatsService {
         and(
           eq(orders.tenantId, tenantId),
           gte(orders.createdAt, since),
+          lt(orders.createdAt, toExcl),
           live,
           sql`${orderItems.productId} is not null`,
         ),
@@ -295,7 +359,7 @@ export class StatsService {
         revenueStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${live}), 0)::int`,
       })
       .from(orders)
-      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since)))
+      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), lt(orders.createdAt, toExcl)))
       // dow carries the BG_TZ bound param — group/order by position (see above).
       .groupBy(sql`1`)
       .orderBy(sql`1`);
@@ -335,14 +399,16 @@ export class StatsService {
     const weekdayLoad = fillWeekday(weekdayRows);
 
     const found = new Map(seriesRows.map((r) => [r.t, r]));
-    const points: StatsPoint[] = axis.keys.map((t) => {
+    const points: StatsPoint[] = axisKeys.map((t) => {
       const r = found.get(t);
       return { t, orders: r?.orders ?? 0, revenueStotinki: r?.revenueStotinki ?? 0 };
     });
 
     return {
       range,
-      bucket: cfg.bucket,
+      bucket,
+      from,
+      to,
       revenueStotinki: agg.revenue,
       orderCount: agg.orderCount,
       avgOrderStotinki: agg.orderCount ? Math.round(agg.revenue / agg.orderCount) : 0,

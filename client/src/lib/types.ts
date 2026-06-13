@@ -384,6 +384,8 @@ export interface DashboardSummary {
 // ── Sales statistics (GET /stats?range=) — the over-time companion to the
 //    today-only dashboard. ──
 export type StatsRange = '7d' | '30d' | '90d' | '1y';
+/** Either a quick preset or a farmer-picked custom from→to window. */
+export type StatsRangeTag = StatsRange | 'custom';
 export type StatsBucket = 'day' | 'week' | 'month';
 
 /** One point on the trend line. Both metrics travel together so the UI toggles
@@ -408,8 +410,11 @@ export interface WeekdayLoad {
 }
 
 export interface StatsSummary {
-  range: StatsRange;
+  range: StatsRangeTag;
   bucket: StatsBucket;
+  /** Resolved window (BG dates, both inclusive). */
+  from: string;
+  to: string;
   revenueStotinki: number;
   orderCount: number;
   avgOrderStotinki: number;
