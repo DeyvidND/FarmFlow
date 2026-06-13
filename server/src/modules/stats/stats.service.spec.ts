@@ -1,4 +1,11 @@
-import { buildStatsAxis, computeReturning, SPARSE_MIN, type StatsRange } from './stats.service';
+import {
+  buildStatsAxis,
+  computeReturning,
+  fillWeekday,
+  pickSlowProducts,
+  SPARSE_MIN,
+  type StatsRange,
+} from './stats.service';
 
 describe('buildStatsAxis', () => {
   const today = '2026-06-13'; // a Saturday
@@ -90,6 +97,50 @@ describe('computeReturning', () => {
       returningCustomers: 0,
       newCustomers: 0,
     });
+  });
+});
+
+describe('fillWeekday', () => {
+  it('fills all 7 weekdays ascending, zeroing the missing ones', () => {
+    const out = fillWeekday([
+      { dow: 3, orders: 5, revenueStotinki: 1000 },
+      { dow: 0, orders: 2, revenueStotinki: 400 },
+    ]);
+    expect(out).toHaveLength(7);
+    expect(out.map((r) => r.dow)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(out[0]).toEqual({ dow: 0, orders: 2, revenueStotinki: 400 });
+    expect(out[3]).toEqual({ dow: 3, orders: 5, revenueStotinki: 1000 });
+    expect(out[1]).toEqual({ dow: 1, orders: 0, revenueStotinki: 0 });
+  });
+
+  it('empty input → 7 zero days', () => {
+    const out = fillWeekday([]);
+    expect(out).toHaveLength(7);
+    expect(out.every((r) => r.orders === 0 && r.revenueStotinki === 0)).toBe(true);
+  });
+});
+
+describe('pickSlowProducts', () => {
+  const p = (name: string, quantity: number, revenueStotinki: number) => ({ name, quantity, revenueStotinki });
+
+  it('surfaces zero-sellers first, then lowest qty, capped', () => {
+    const out = pickSlowProducts(
+      [p('A', 10, 5000), p('B', 0, 0), p('C', 2, 800), p('D', 0, 0), p('E', 1, 300)],
+      3,
+    );
+    expect(out.map((x) => x.name)).toEqual(['B', 'D', 'E']);
+  });
+
+  it('does not mutate the input array', () => {
+    const input = [p('A', 3, 0), p('B', 1, 0)];
+    const copy = [...input];
+    pickSlowProducts(input, 5);
+    expect(input).toEqual(copy);
+  });
+
+  it('returns at most `limit` rows', () => {
+    const out = pickSlowProducts([p('A', 1, 0), p('B', 2, 0), p('C', 3, 0)], 2);
+    expect(out).toHaveLength(2);
   });
 });
 

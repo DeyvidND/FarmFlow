@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { and, eq, gte, lt, sql } from 'drizzle-orm';
-import { type Database, orders, orderItems } from '@farmflow/db';
+import { type Database, orders, orderItems, products } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { BG_TZ, bgToday, bgAddDays, bgDayBounds } from '../../common/time/bg-time';
 
@@ -41,6 +41,13 @@ export interface TopProduct {
   revenueStotinki: number;
 }
 
+export interface WeekdayLoad {
+  /** Postgres dow: 0=Sunday … 6=Saturday. */
+  dow: number;
+  orders: number;
+  revenueStotinki: number;
+}
+
 export interface StatsSummary {
   range: StatsRange;
   bucket: StatsBucket;
@@ -62,6 +69,12 @@ export interface StatsSummary {
   onlineOrders: number;
   onlineRevenueStotinki: number;
   topProducts: TopProduct[];
+  /** Active products that sold least in the window (zero-sellers first) — the
+   *  candidates to discount or drop. */
+  slowProducts: TopProduct[];
+  /** Orders + revenue per weekday (always 7 entries, dow 0..6) — which day is
+   *  busiest, to plan delivery capacity. */
+  weekdayLoad: WeekdayLoad[];
   /** Too few orders for the lists to mean anything — UI shows a gentle note. */
   sparse: boolean;
   points: StatsPoint[];
@@ -135,6 +148,25 @@ export function computeReturning(
     returningCustomers: returning,
     newCustomers: winKeys.length - returning,
   };
+}
+
+/** Ensure all 7 weekdays (0=Sun..6=Sat) are present, ascending, zero-filled. */
+export function fillWeekday(rows: WeekdayLoad[]): WeekdayLoad[] {
+  const m = new Map(rows.map((r) => [r.dow, r]));
+  return Array.from({ length: 7 }, (_, dow) => m.get(dow) ?? { dow, orders: 0, revenueStotinki: 0 });
+}
+
+/** Least-sold active products in the window — qty asc, then revenue asc, then
+ *  name. Zero-sellers surface first: the ones to discount or drop. */
+export function pickSlowProducts(active: TopProduct[], limit: number): TopProduct[] {
+  return [...active]
+    .sort(
+      (a, b) =>
+        a.quantity - b.quantity ||
+        a.revenueStotinki - b.revenueStotinki ||
+        a.name.localeCompare(b.name, 'bg'),
+    )
+    .slice(0, limit);
 }
 
 @Injectable()
@@ -229,14 +261,57 @@ export class StatsService {
       .groupBy(sql`1`)
       .orderBy(sql`1`);
 
-    const [[agg], paymentRows, topProducts, winKeys, priorKeys, seriesRows] = await Promise.all([
-      aggP,
-      paymentP,
-      topP,
-      winKeysP,
-      priorKeysP,
-      seriesP,
-    ]);
+    // ── Slow products: active catalog rows + how much each sold this window
+    //    (joined in JS so zero-sellers are kept). ──
+    const activeProductsP = this.db
+      .select({ id: products.id, name: products.name, weight: products.weight })
+      .from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
+
+    const soldP = this.db
+      .select({
+        productId: orderItems.productId,
+        qty: sql<number>`sum(${orderItems.quantity})::int`,
+        revenue: sql<number>`sum(${orderItems.quantity} * ${orderItems.priceStotinki})::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          gte(orders.createdAt, since),
+          live,
+          sql`${orderItems.productId} is not null`,
+        ),
+      )
+      .groupBy(orderItems.productId);
+
+    // ── Weekday load: orders/revenue per BG-local weekday (capacity planning). ──
+    const dowExpr = sql<number>`extract(dow from (${orders.createdAt} at time zone 'UTC' at time zone ${BG_TZ}))::int`;
+    const weekdayP = this.db
+      .select({
+        dow: dowExpr,
+        orders: sql<number>`count(*) filter (where ${live})::int`,
+        revenueStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${live}), 0)::int`,
+      })
+      .from(orders)
+      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since)))
+      // dow carries the BG_TZ bound param — group/order by position (see above).
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
+
+    const [[agg], paymentRows, topProducts, winKeys, priorKeys, seriesRows, activeProducts, sold, weekdayRows] =
+      await Promise.all([
+        aggP,
+        paymentP,
+        topP,
+        winKeysP,
+        priorKeysP,
+        seriesP,
+        activeProductsP,
+        soldP,
+        weekdayP,
+      ]);
 
     const ret = computeReturning(
       winKeys.map((r) => r.k),
@@ -244,6 +319,20 @@ export class StatsService {
     );
     const cod = paymentRows.find((r) => r.method === 'cod');
     const online = paymentRows.find((r) => r.method === 'online');
+
+    const soldMap = new Map(sold.map((s) => [s.productId, s]));
+    const slowProducts = pickSlowProducts(
+      activeProducts.map((p) => {
+        const s = soldMap.get(p.id);
+        return {
+          name: [p.name, p.weight].filter(Boolean).join(' '),
+          quantity: s?.qty ?? 0,
+          revenueStotinki: s?.revenue ?? 0,
+        };
+      }),
+      5,
+    );
+    const weekdayLoad = fillWeekday(weekdayRows);
 
     const found = new Map(seriesRows.map((r) => [r.t, r]));
     const points: StatsPoint[] = axis.keys.map((t) => {
@@ -267,6 +356,8 @@ export class StatsService {
       onlineOrders: online?.count ?? 0,
       onlineRevenueStotinki: online?.revenue ?? 0,
       topProducts,
+      slowProducts,
+      weekdayLoad,
       sparse: agg.orderCount < SPARSE_MIN,
       points,
     };

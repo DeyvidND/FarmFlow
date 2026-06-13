@@ -14,6 +14,8 @@ import {
   Trophy,
   CreditCard,
   Banknote,
+  PackageX,
+  CalendarRange,
   type LucideIcon,
 } from 'lucide-react';
 import { cn, moneyFromStotinki } from '@/lib/utils';
@@ -30,6 +32,11 @@ const RANGES: { key: StatsRange; label: string }[] = [
   { key: '90d', label: '3 месеца' },
   { key: '1y', label: '1 година' },
 ];
+
+// dow index → BG day name (0=Sunday). Rendered Monday-first.
+const DOW_SHORT = ['Нед', 'Пон', 'Вто', 'Сря', 'Чет', 'Пет', 'Съб'];
+const DOW_FULL = ['неделя', 'понеделник', 'вторник', 'сряда', 'четвъртък', 'петък', 'събота'];
+const MON_FIRST = [1, 2, 3, 4, 5, 6, 0];
 
 const RANGE_NOUN: Record<StatsRange, string> = {
   '7d': 'последните 7 дни',
@@ -198,6 +205,10 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
     data && data.customerCount > 0 ? Math.round((data.returningCustomers / data.customerCount) * 100) : 0;
   const topMax = data ? Math.max(0, ...data.topProducts.map((p) => p.revenueStotinki)) : 0;
   const payMax = data ? Math.max(data.codRevenueStotinki, data.onlineRevenueStotinki) : 0;
+  const weekMax = data ? Math.max(1, ...data.weekdayLoad.map((w) => w.orders)) : 1;
+  const busiest =
+    data && data.weekdayLoad.length ? data.weekdayLoad.reduce((a, b) => (b.orders > a.orders ? b : a)) : null;
+  const byDow = (d: number) => data?.weekdayLoad.find((w) => w.dow === d) ?? { dow: d, orders: 0, revenueStotinki: 0 };
 
   return (
     <div className="animate-ff-fade-up flex flex-col gap-5">
@@ -315,6 +326,81 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
                     value={data.onlineRevenueStotinki}
                     max={payMax}
                   />
+                </div>
+              </section>
+            </div>
+          )}
+
+          {/* slow products + weekday load */}
+          {!data.sparse && (
+            <div className="grid grid-cols-2 gap-4 max-[900px]:grid-cols-1">
+              <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
+                <div className="mb-1 flex items-center gap-2">
+                  <PackageX size={17} className="text-ff-amber-600" />
+                  <h2 className="text-[16.5px] font-extrabold">Слабо продавани</h2>
+                </div>
+                <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
+                  Кое почти не се търси — обмисли намаление или го махни.
+                </p>
+                {data.slowProducts.length === 0 ? (
+                  <p className="text-[13px] text-ff-muted">Няма активни продукти.</p>
+                ) : (
+                  <div className="flex flex-col">
+                    {data.slowProducts.map((p) => (
+                      <div
+                        key={p.name}
+                        className="flex items-center justify-between gap-3 border-b border-ff-border-2 py-2.5 last:border-0"
+                      >
+                        <span className="truncate text-[13.5px] font-semibold text-ff-ink-2">{p.name}</span>
+                        {p.quantity === 0 ? (
+                          <span className="shrink-0 rounded-full bg-ff-amber-softer px-2 py-0.5 text-[11.5px] font-bold text-ff-amber-600">
+                            0 продажби
+                          </span>
+                        ) : (
+                          <span className="ff-fig shrink-0 text-[12.5px] text-ff-muted">
+                            {p.quantity} бр. · {moneyFromStotinki(p.revenueStotinki)}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
+                <div className="mb-1 flex items-center gap-2">
+                  <CalendarRange size={17} className="text-ff-green-700" />
+                  <h2 className="text-[16.5px] font-extrabold">Натоварени дни</h2>
+                </div>
+                <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
+                  {busiest && busiest.orders > 0 ? (
+                    <>
+                      Най-натоварен ден:{' '}
+                      <span className="font-bold text-ff-ink-2">{DOW_FULL[busiest.dow]}</span> — пусни повече
+                      часове за доставка.
+                    </>
+                  ) : (
+                    'В кои дни идват най-много поръчки.'
+                  )}
+                </p>
+                <div className="flex flex-col gap-2.5">
+                  {MON_FIRST.map((d) => {
+                    const w = byDow(d);
+                    const pct = Math.round((w.orders / weekMax) * 100);
+                    const top = busiest != null && busiest.orders > 0 && d === busiest.dow;
+                    return (
+                      <div key={d} className="flex items-center gap-3">
+                        <span className="w-9 shrink-0 text-[12.5px] font-bold text-ff-ink-2">{DOW_SHORT[d]}</span>
+                        <div className="h-[7px] flex-1 overflow-hidden rounded-full bg-ff-border-2">
+                          <div
+                            className={cn('h-full rounded-full', top ? 'bg-ff-green-600' : 'bg-ff-green-500')}
+                            style={{ width: `${w.orders > 0 ? Math.max(4, pct) : 0}%` }}
+                          />
+                        </div>
+                        <span className="ff-fig w-7 shrink-0 text-right text-[12.5px] text-ff-muted">{w.orders}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
             </div>

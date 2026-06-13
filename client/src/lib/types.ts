@@ -400,6 +400,13 @@ export interface TopProduct {
   revenueStotinki: number;
 }
 
+export interface WeekdayLoad {
+  /** 0=Sunday … 6=Saturday. */
+  dow: number;
+  orders: number;
+  revenueStotinki: number;
+}
+
 export interface StatsSummary {
   range: StatsRange;
   bucket: StatsBucket;
@@ -416,6 +423,10 @@ export interface StatsSummary {
   onlineOrders: number;
   onlineRevenueStotinki: number;
   topProducts: TopProduct[];
+  /** Least-sold active products (zero-sellers first) — discount/drop candidates. */
+  slowProducts: TopProduct[];
+  /** Orders + revenue per weekday (7 entries, dow 0..6) — capacity planning. */
+  weekdayLoad: WeekdayLoad[];
   /** Too few orders for the lists/loyalty to mean anything yet. */
   sparse: boolean;
   points: StatsPoint[];
