@@ -169,6 +169,15 @@ function ShareBar({
   );
 }
 
+/** Muted chip marking a section whose numbers are thin (few orders in window). */
+function SparseTag() {
+  return (
+    <span className="rounded-full bg-ff-surface-2 px-2 py-0.5 text-[11px] font-bold text-ff-muted-2">
+      малко данни
+    </span>
+  );
+}
+
 export function StatsClient({ initial }: { initial: StatsSummary | null }) {
   const [range, setRange] = useState<StatsRange>(initial?.range ?? '30d');
   const [metric, setMetric] = useState<'orders' | 'revenue'>('revenue');
@@ -217,6 +226,9 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
         <div className="flex flex-wrap items-center gap-2.5">
           <Seg value={range} onChange={setRange} options={RANGES} />
           <span className="text-[13px] text-ff-muted">{RANGE_NOUN[range]}</span>
+          {data?.sparse && (
+            <span className="text-[12.5px] text-ff-muted-2">· малко поръчки — пробвай по-дълъг период</span>
+          )}
         </div>
         <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
           <Info size={16} /> Обяснения
@@ -229,17 +241,6 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
         </div>
       ) : (
         <div className={cn('flex flex-col gap-5 transition-opacity', loading && 'opacity-50')}>
-          {data.sparse && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-ff-green-100 bg-ff-green-50 px-4 py-3">
-              <Info size={18} className="mt-px shrink-0 text-ff-green-700" />
-              <div className="text-[13px] leading-[1.45] text-ff-ink-2">
-                <span className="font-bold text-ff-green-800">Още малко поръчки за изводи.</span>{' '}
-                Показваме оборота и поръчките; топ продуктите и клиентите ще станат полезни с повече
-                продажби. Пробвай по-дълъг период горе.
-              </div>
-            </div>
-          )}
-
           {/* headline numbers */}
           <div className="grid grid-cols-4 gap-4 max-[1024px]:grid-cols-2 max-[640px]:grid-cols-1">
             <StatTile
@@ -263,7 +264,7 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
               sub="средно на поръчка"
               index={2}
             />
-            {!data.sparse && (
+            {(
               <StatTile
                 Icon={Repeat}
                 label="Връщащи се клиенти"
@@ -275,12 +276,13 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
           </div>
 
           {/* top products + payment split */}
-          {!data.sparse && (
+          {(
             <div className="grid grid-cols-2 gap-4 max-[900px]:grid-cols-1">
               <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
                 <div className="mb-1 flex items-center gap-2">
                   <Trophy size={17} className="text-ff-green-700" />
                   <h2 className="text-[16.5px] font-extrabold">Топ продукти</h2>
+                  {data.sparse && <SparseTag />}
                 </div>
                 <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
                   Кое носи най-много пари — какво да зареждаш повече.
@@ -306,6 +308,7 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
                 <div className="mb-1 flex items-center gap-2">
                   <CreditCard size={17} className="text-ff-green-700" />
                   <h2 className="text-[16.5px] font-extrabold">Как плащат</h2>
+                  {data.sparse && <SparseTag />}
                 </div>
                 <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
                   Колко от парите идват с наложен платеж и колко с карта.
@@ -332,12 +335,13 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
           )}
 
           {/* slow products + weekday load */}
-          {!data.sparse && (
+          {(
             <div className="grid grid-cols-2 gap-4 max-[900px]:grid-cols-1">
               <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
                 <div className="mb-1 flex items-center gap-2">
                   <PackageX size={17} className="text-ff-amber-600" />
                   <h2 className="text-[16.5px] font-extrabold">Слабо продавани</h2>
+                  {data.sparse && <SparseTag />}
                 </div>
                 <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
                   Кое почти не се търси — обмисли намаление или го махни.
@@ -371,6 +375,7 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
                 <div className="mb-1 flex items-center gap-2">
                   <CalendarRange size={17} className="text-ff-green-700" />
                   <h2 className="text-[16.5px] font-extrabold">Натоварени дни</h2>
+                  {data.sparse && <SparseTag />}
                 </div>
                 <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
                   {busiest && busiest.orders > 0 ? (
