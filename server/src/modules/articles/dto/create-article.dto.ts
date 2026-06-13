@@ -17,7 +17,7 @@ export class CreateArticleDto {
   @IsString()
   excerpt?: string;
 
-  @ApiPropertyOptional({ description: 'Markdown / plain text body' })
+  @ApiPropertyOptional({ description: 'Sanitized HTML body (WYSIWYG)' })
   @IsOptional()
   @IsString()
   body?: string;

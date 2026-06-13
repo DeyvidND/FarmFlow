@@ -26,7 +26,7 @@ import { EmbedMediaDto } from './dto/embed-media.dto';
 import { ReorderMediaDto } from './dto/reorder-media.dto';
 import { ARTICLE_MEDIA_EXT_BY_MIME, articleMediaTypeForMime } from './dto/upload-media.dto';
 import { optimizeImage } from '../storage/image.util';
-import { slugify, parseEmbed } from './articles.util';
+import { slugify, parseEmbed, sanitizeArticleHtml } from './articles.util';
 
 @Injectable()
 export class ArticlesService {
@@ -88,7 +88,7 @@ export class ArticlesService {
         title: dto.title.trim(),
         slug,
         excerpt: dto.excerpt ?? null,
-        body: dto.body ?? null,
+        body: dto.body != null ? sanitizeArticleHtml(dto.body) : null,
       })
       .returning();
     await this.cache.invalidate(tenantId);
@@ -101,7 +101,7 @@ export class ArticlesService {
     const patch: Partial<NewArticle> = { updatedAt: new Date() };
     if (dto.title !== undefined) patch.title = dto.title.trim();
     if (dto.excerpt !== undefined) patch.excerpt = dto.excerpt;
-    if (dto.body !== undefined) patch.body = dto.body;
+    if (dto.body !== undefined) patch.body = dto.body == null ? null : sanitizeArticleHtml(dto.body);
     if (dto.slug !== undefined) {
       patch.slug = await this.uniqueSlug(tenantId, dto.slug.trim() || existing.title, id);
     }
