@@ -1,5 +1,5 @@
 {
-  "id": "35c84b66-1f3c-4ff5-906f-f6eb0d8b7f89",
+  "id": "4d0692c0-f689-40af-941a-d21e5ae82cba",
   "prevId": "f2e47b76-c743-4716-8be5-dbb31e5d091a",
   "version": "7",
   "dialect": "postgresql",
@@ -1706,7 +1706,7 @@
           "name": "product_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "starts_at": {
           "name": "starts_at",
@@ -1741,8 +1741,8 @@
         }
       },
       "indexes": {
-        "paw_product_range_idx": {
-          "name": "paw_product_range_idx",
+        "product_availability_windows_product_range_idx": {
+          "name": "product_availability_windows_product_range_idx",
           "columns": [
             {
               "expression": "product_id",
@@ -1768,8 +1768,8 @@
           "method": "btree",
           "with": {}
         },
-        "paw_tenant_idx": {
-          "name": "paw_tenant_idx",
+        "product_availability_windows_tenant_idx": {
+          "name": "product_availability_windows_tenant_idx",
           "columns": [
             {
               "expression": "tenant_id",

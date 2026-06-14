@@ -200,7 +200,7 @@ export const productAvailabilityWindows = pgTable(
   {
     id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
     tenantId: uuid('tenant_id').references(() => tenants.id),
-    productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
     // Inclusive BG-local date range. day = from == to; week/month/several = wider.
     startsAt: date('starts_at').notNull(),
     endsAt: date('ends_at').notNull(),
@@ -212,9 +212,9 @@ export const productAvailabilityWindows = pgTable(
   },
   (t) => ({
     // Active-window lookup: "this product's window covering today".
-    productRangeIdx: index('paw_product_range_idx').on(t.productId, t.startsAt, t.endsAt),
+    productRangeIdx: index('product_availability_windows_product_range_idx').on(t.productId, t.startsAt, t.endsAt),
     // Tenant-scoped admin list.
-    tenantIdx: index('paw_tenant_idx').on(t.tenantId),
+    tenantIdx: index('product_availability_windows_tenant_idx').on(t.tenantId),
   }),
 );
 
