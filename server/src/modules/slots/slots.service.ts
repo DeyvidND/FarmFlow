@@ -4,7 +4,6 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { and, eq, ne, gte, lte, sql, getTableColumns } from 'drizzle-orm';
 import { type Database, deliverySlots, orders, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -375,7 +374,6 @@ export class SlotsService {
   }
 
   /** Daily 06:30 Europe/Sofia: roll every active rule's horizon forward. */
-  @Cron('30 6 * * *', { timeZone: 'Europe/Sofia' })
   async materializeAllRules(): Promise<void> {
     const rows = await this.db
       .select({ id: tenants.id })
