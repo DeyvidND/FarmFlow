@@ -458,7 +458,10 @@ export class StatsService {
     const inCur = sql`${orders.createdAt} >= ${since} and ${orders.createdAt} < ${toExcl} and ${live}`;
     const inPrev = sql`${orders.createdAt} >= ${prevSince} and ${orders.createdAt} < ${since} and ${live}`;
 
-    // ── Headline: current + previous window, line-item money + distinct orders. ──
+    // ── Headline: current + previous window, line-item money + distinct orders.
+    //    The outer WHERE spans both windows in ONE scan; `live` lives in each
+    //    per-window FILTER (not the WHERE) so cancelled orders drop from the totals
+    //    while the scan still covers [prevSince, toExcl). (Mirrors stats().) ──
     const aggP = this.db
       .select({
         orderCount: sql<number>`count(distinct ${orders.id}) filter (where ${inCur})::int`,
