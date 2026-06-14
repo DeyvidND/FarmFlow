@@ -56,7 +56,7 @@
   ```bash
   pnpm --filter @farmflow/db build && pnpm --filter @farmflow/types build
   ```
-- Server tests: `pnpm --filter @farmflow/server test -- <pattern>`. The `client/` app has **no Jest** — verify it with `pnpm --filter @farmflow/client build` / `tsc`.
+- Server tests: `pnpm --filter @farmflow/api test -- <pattern>`. The `client/` app has **no Jest** — verify it with `pnpm --filter @farmflow/web build` / `tsc`.
 - This machine flakes when Jest + Next build + the server run in parallel — **run them sequentially** (per project gotchas).
 - Day logic uses `bgToday()` from `server/src/common/time/bg-time.ts` (Europe/Sofia). `date` columns compare correctly against its `'YYYY-MM-DD'` string.
 
@@ -237,7 +237,7 @@ describe('applyQuantityDelta', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `pnpm --filter @farmflow/server test -- availability.util`
+Run: `pnpm --filter @farmflow/api test -- availability.util`
 Expected: FAIL — `Cannot find module './availability.util'`.
 
 - [ ] **Step 3: Implement the helpers**
@@ -279,7 +279,7 @@ export function applyQuantityDelta(
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `pnpm --filter @farmflow/server test -- availability.util`
+Run: `pnpm --filter @farmflow/api test -- availability.util`
 Expected: PASS (3 suites green).
 
 - [ ] **Step 5: Commit**
@@ -334,7 +334,7 @@ describe('CreateWindowDto', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `pnpm --filter @farmflow/server test -- create-window.dto`
+Run: `pnpm --filter @farmflow/api test -- create-window.dto`
 Expected: FAIL — `Cannot find module './create-window.dto'`.
 
 - [ ] **Step 3: Implement the DTOs**
@@ -393,7 +393,7 @@ export class UpdateWindowDto {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `pnpm --filter @farmflow/server test -- create-window.dto`
+Run: `pnpm --filter @farmflow/api test -- create-window.dto`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -457,7 +457,7 @@ describe('AvailabilityService.create overlap guard', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `pnpm --filter @farmflow/server test -- availability.service`
+Run: `pnpm --filter @farmflow/api test -- availability.service`
 Expected: FAIL — `Cannot find module './availability.service'`.
 
 - [ ] **Step 3: Implement the service**
@@ -599,7 +599,7 @@ export { activeWindow };
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `pnpm --filter @farmflow/server test -- availability.service`
+Run: `pnpm --filter @farmflow/api test -- availability.service`
 Expected: PASS. If the db stub shape mismatches the real chain, align the stub (Step 1 note).
 
 - [ ] **Step 5: Commit**
@@ -704,7 +704,7 @@ and add `AvailabilityModule` to the `imports: [...]` array (next to `ProductsMod
 
 - [ ] **Step 4: Build the server**
 
-Run: `pnpm --filter @farmflow/server build`
+Run: `pnpm --filter @farmflow/api build`
 Expected: PASS (Nest compiles, DI resolves).
 
 - [ ] **Step 5: Commit**
@@ -748,7 +748,7 @@ In `public-bootstrap.module.ts`, add `AvailabilityModule` to its `imports` array
 
 - [ ] **Step 3: Build the server**
 
-Run: `pnpm --filter @farmflow/server build`
+Run: `pnpm --filter @farmflow/api build`
 Expected: PASS.
 
 - [ ] **Step 4: Commit**
@@ -793,7 +793,7 @@ describe('decideDecrement', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `pnpm --filter @farmflow/server test -- availability-checkout`
+Run: `pnpm --filter @farmflow/api test -- availability-checkout`
 Expected: FAIL — `decideDecrement` not exported.
 
 - [ ] **Step 3: Add the helper**
@@ -815,7 +815,7 @@ export function decideDecrement(
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `pnpm --filter @farmflow/server test -- availability-checkout`
+Run: `pnpm --filter @farmflow/api test -- availability-checkout`
 Expected: PASS.
 
 - [ ] **Step 5: Wire the decrement into order creation**
@@ -860,7 +860,7 @@ In `server/src/modules/orders/orders.service.ts`:
 
 - [ ] **Step 6: Build the server**
 
-Run: `pnpm --filter @farmflow/server build`
+Run: `pnpm --filter @farmflow/api build`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -897,7 +897,7 @@ describe('restoreRemaining', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `pnpm --filter @farmflow/server test -- availability-checkout`
+Run: `pnpm --filter @farmflow/api test -- availability-checkout`
 Expected: FAIL — `restoreRemaining` not exported.
 
 - [ ] **Step 3: Add the helper**
@@ -914,7 +914,7 @@ export function restoreRemaining(w: { quantity: number; remaining: number }, qty
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `pnpm --filter @farmflow/server test -- availability-checkout`
+Run: `pnpm --filter @farmflow/api test -- availability-checkout`
 Expected: PASS.
 
 - [ ] **Step 5: Wire restore into the cancel path**
@@ -949,7 +949,7 @@ Adapt the variable names (`items`, `order`, `tx`) to the actual cancel method. I
 
 - [ ] **Step 6: Build + run the availability suite**
 
-Run: `pnpm --filter @farmflow/server build && pnpm --filter @farmflow/server test -- availability`
+Run: `pnpm --filter @farmflow/api build && pnpm --filter @farmflow/api test -- availability`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -1014,8 +1014,8 @@ In `client/src/components/panels/features-panel.tsx`:
 
 Run sequentially:
 ```bash
-pnpm --filter @farmflow/server build
-pnpm --filter @farmflow/client build
+pnpm --filter @farmflow/api build
+pnpm --filter @farmflow/web build
 ```
 Expected: both PASS.
 
@@ -1083,7 +1083,7 @@ export function deleteAvailabilityWindow(id: string): Promise<{ id: string }> {
 
 - [ ] **Step 3: Typecheck the client**
 
-Run: `pnpm --filter @farmflow/client build`
+Run: `pnpm --filter @farmflow/web build`
 Expected: PASS.
 
 - [ ] **Step 4: Commit**
@@ -1303,7 +1303,7 @@ export default async function AvailabilityPage() {
 
 - [ ] **Step 4: Typecheck/build the client**
 
-Run: `pnpm --filter @farmflow/client build`
+Run: `pnpm --filter @farmflow/web build`
 Expected: PASS. Fix any import-name mismatches against the real api-client.
 
 - [ ] **Step 5: Commit**
@@ -1345,7 +1345,7 @@ In `client/src/lib/help-content.ts`, add a short section for the screen (mirror 
 
 - [ ] **Step 4: Build the client**
 
-Run: `pnpm --filter @farmflow/client build`
+Run: `pnpm --filter @farmflow/web build`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1453,8 +1453,8 @@ git commit -m "feat(availability): storefront „Налично сега" sectio
 ```bash
 pnpm --filter @farmflow/db build
 pnpm --filter @farmflow/types build
-pnpm --filter @farmflow/server build
-pnpm --filter @farmflow/client build
+pnpm --filter @farmflow/api build
+pnpm --filter @farmflow/web build
 pnpm --filter @farmflow/storefront build
 ```
 Expected: all PASS.
@@ -1462,7 +1462,7 @@ Expected: all PASS.
 - [ ] **Step 2: Run the full server test suite**
 
 ```bash
-pnpm --filter @farmflow/server test
+pnpm --filter @farmflow/api test
 ```
 Expected: all green (existing suites + the new availability suites). Note the known flaky `email.service` load-timeout test (passes alone) per project history.
 
