@@ -121,6 +121,11 @@ export const NAV_GROUPS: NavGroup[] = [
 /** Flattened list (back-compat for any consumer that wants every item). */
 export const NAV: NavItem[] = [HOME, ...NAV_GROUPS.flatMap((g) => g.items)];
 
+/** Reduced nav for a producer sub-account (role='farmer'). Grows in later phases. */
+export const FARMER_NAV: NavItem[] = [
+  { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Твоят личен оборот, поръчки и тренд.' },
+];
+
 const NAV_ORDER_PREFIX = 'navorder:';
 const DEFAULT_NAV_ORDER = NAV_GROUPS.map((g) => g.title);
 
@@ -161,6 +166,7 @@ export function Sidebar({
   subscriptionActive = true,
   articlesEnabled = true,
   hiddenNav = [],
+  role = 'admin',
 }: {
   pendingCount?: number;
   subscriptionActive?: boolean;
@@ -168,6 +174,7 @@ export function Sidebar({
   articlesEnabled?: boolean;
   /** Per-user hidden nav keys (item hrefs + group keys) from users.hiddenNav. */
   hiddenNav?: string[];
+  role?: string;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -277,39 +284,45 @@ export function Sidebar({
       </div>
 
       <nav className="ff-nav-scroll mt-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
-        {/* Home — always on top, no group header */}
-        <div className="flex flex-col gap-1">{renderItem(HOME)}</div>
+        {role === 'farmer' ? (
+          <div className="flex flex-col gap-1">{FARMER_NAV.map(renderItem)}</div>
+        ) : (
+          <>
+            {/* Home — always on top, no group header */}
+            <div className="flex flex-col gap-1">{renderItem(HOME)}</div>
 
-        {sortedGroups.map((group) => {
-          // Whole section hidden by the farmer, or every item in it hidden/off.
-          if (hidden.has(navGroupKey(group.title))) return null;
-          const items = visibleItems(group);
-          if (items.length === 0) return null;
-          const open = isGroupOpen(group);
-          return (
-            <div key={group.title} className="flex flex-col gap-1">
-              {group.collapsible ? (
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(group.title)}
-                  className="flex items-center justify-between rounded-[8px] px-[13px] pb-0.5 pt-1 text-[10.5px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2 transition-colors hover:text-ff-muted"
-                  aria-expanded={open}
-                >
-                  <span>{group.title}</span>
-                  <ChevronDown
-                    size={13}
-                    className={cn('shrink-0 transition-transform', !open && '-rotate-90')}
-                  />
-                </button>
-              ) : (
-                <div className="px-[13px] pb-0.5 pt-1 text-[10.5px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2">
-                  {group.title}
+            {sortedGroups.map((group) => {
+              // Whole section hidden by the farmer, or every item in it hidden/off.
+              if (hidden.has(navGroupKey(group.title))) return null;
+              const items = visibleItems(group);
+              if (items.length === 0) return null;
+              const open = isGroupOpen(group);
+              return (
+                <div key={group.title} className="flex flex-col gap-1">
+                  {group.collapsible ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.title)}
+                      className="flex items-center justify-between rounded-[8px] px-[13px] pb-0.5 pt-1 text-[10.5px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2 transition-colors hover:text-ff-muted"
+                      aria-expanded={open}
+                    >
+                      <span>{group.title}</span>
+                      <ChevronDown
+                        size={13}
+                        className={cn('shrink-0 transition-transform', !open && '-rotate-90')}
+                      />
+                    </button>
+                  ) : (
+                    <div className="px-[13px] pb-0.5 pt-1 text-[10.5px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2">
+                      {group.title}
+                    </div>
+                  )}
+                  {open && items.map(renderItem)}
                 </div>
-              )}
-              {open && items.map(renderItem)}
-            </div>
-          );
-        })}
+              );
+            })}
+          </>
+        )}
       </nav>
 
       <div className="shrink-0 pt-4">

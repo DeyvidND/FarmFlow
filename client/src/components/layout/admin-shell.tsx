@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { ForcePasswordModal } from '@/components/auth/force-password-modal';
+import { FarmerRouteGuard } from '@/components/layout/farmer-route-guard';
 import { useUiStore } from '@/stores/ui-store';
 
 /** Client chrome for the admin panel (sidebar + topbar + drawer + toasts).
@@ -15,6 +16,7 @@ export function AdminShell({
   articlesEnabled = true,
   hiddenNav = [],
   mustChangePassword = false,
+  role = 'admin',
 }: {
   children: React.ReactNode;
   subscriptionActive?: boolean;
@@ -25,6 +27,7 @@ export function AdminShell({
   hiddenNav?: string[];
   /** First login with the temporary password → block the panel with the modal. */
   mustChangePassword?: boolean;
+  role?: string;
 }) {
   const drawerOpen = useUiStore((s) => s.drawerOpen);
   const closeDrawer = useUiStore((s) => s.closeDrawer);
@@ -35,6 +38,7 @@ export function AdminShell({
         subscriptionActive={subscriptionActive}
         articlesEnabled={articlesEnabled}
         hiddenNav={hiddenNav}
+        role={role}
       />
 
       {drawerOpen && (
@@ -52,6 +56,8 @@ export function AdminShell({
       </div>
 
       {mustChangePassword && <ForcePasswordModal />}
+
+      {role === 'farmer' && <FarmerRouteGuard />}
 
       <Toaster
         position="bottom-right"
