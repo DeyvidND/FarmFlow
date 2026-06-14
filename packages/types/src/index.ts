@@ -140,3 +140,41 @@ export type PlatformRequestUser = {
 };
 
 export type RequestUser = TenantRequestUser | PlatformRequestUser;
+
+// ── Newsletter block-builder ───────────────────────────────────────────────
+// Structured email content. Persisted as JSON on newsletter_campaigns.blocks and
+// rendered to email-safe HTML by the server (renderEmail). `image` fields hold
+// absolute https R2/CDN urls; `html` fields are server-sanitized Quill output.
+export type NewsletterColumn =
+  | { kind: 'text'; html: string }
+  | { kind: 'image'; image: string; alt?: string };
+
+export type NewsletterBlock =
+  | { type: 'hero'; image: string; alt?: string; href?: string }
+  | { type: 'heading'; text: string; level?: 1 | 2 }
+  | { type: 'text'; html: string }
+  | { type: 'image'; image: string; alt?: string; href?: string; caption?: string }
+  | { type: 'button'; label: string; href: string }
+  | { type: 'columns'; left: NewsletterColumn; right: NewsletterColumn }
+  | { type: 'divider' }
+  | { type: 'spacer'; size?: 'sm' | 'md' | 'lg' };
+
+export interface NewsletterCampaign {
+  id: string;
+  subject: string;
+  blocks: NewsletterBlock[];
+  status: 'draft' | 'sent';
+  recipientCount: number | null;
+  priceStotinki: number | null;
+  sentAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface NewsletterQuote {
+  activeCount: number;
+  perRecipientMicro: number;
+  sendCostStotinki: number;
+  monthToDateCount: number;
+  monthToDateStotinki: number;
+  premium: boolean;
+}
