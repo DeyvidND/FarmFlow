@@ -15,6 +15,13 @@ export class EmailProcessor extends WorkerHost {
   }
 
   async process(job: Job<SendMailOptions>): Promise<void> {
-    await this.email.deliver(job.data);
+    try {
+      await this.email.deliver(job.data);
+    } catch (err) {
+      this.logger.error(
+        `[email] send failed job=${job.id} to=${job.data.to}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw err; // let BullMQ apply its retry/backoff
+    }
   }
 }

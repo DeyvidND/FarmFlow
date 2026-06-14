@@ -59,4 +59,12 @@ describe('EmailService.deliver (worker send path)', () => {
     await svc.deliver({ to: 'ok@b.bg', subject: 'x', html: '<p>y</p>' });
     expect(spy).toHaveBeenCalled();
   });
+
+  it('skips the suppression lookup when skipSuppressionCheck is true', async () => {
+    const suppression = makeSuppression(false);
+    const svc = await build(makeQueue(), suppression);
+    jest.spyOn(svc as any, 'writePreview').mockResolvedValue(undefined);
+    await svc.deliver({ to: 'x@b.bg', subject: 'x', html: 'x', skipSuppressionCheck: true });
+    expect(suppression.isSuppressed).not.toHaveBeenCalled();
+  });
 });
