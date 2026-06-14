@@ -14,6 +14,7 @@ import { ReorderDto } from '../../common/dto/reorder.dto';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { optimizeImage } from '../storage/image.util';
 import { smartFocal, smartFocalFromUrl } from '../storage/smart-crop.util';
+import { tenantSlug } from '../../common/tenant-slug.util';
 
 @Injectable()
 export class FarmersService {
@@ -107,7 +108,8 @@ export class FarmersService {
       file.mimetype,
       PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
     );
-    const key = `tenants/${tenantId}/farmers/${id}/${randomUUID()}.${img.ext}`;
+    const slug = await tenantSlug(this.db, tenantId);
+    const key = `tenants/${slug}/farmers/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
     if (farmer.imageUrl) await this.deleteObject(farmer.imageUrl);
     const [row] = await this.db
@@ -160,7 +162,8 @@ export class FarmersService {
       file.mimetype,
       PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
     );
-    const key = `tenants/${tenantId}/farmers/${id}/${randomUUID()}.${img.ext}`;
+    const slug = await tenantSlug(this.db, tenantId);
+    const key = `tenants/${slug}/farmers/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
     const [row] = await this.db

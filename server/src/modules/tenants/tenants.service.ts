@@ -242,7 +242,7 @@ export class TenantsService {
       file.mimetype,
       PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
     );
-    const key = `tenants/${tenantId}/site/${slotKey}/${randomUUID()}.${img.ext}`;
+    const key = `tenants/${slug}/site/${slotKey}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
     const prev = readMedia(settings)[slotKey];
@@ -413,7 +413,7 @@ export class TenantsService {
       throw new BadRequestException('Иконата трябва да е PNG или ICO файл.');
     }
     const ext = detected === 'image/png' ? 'png' : 'ico';
-    const key = `tenants/${tenantId}/site/favicon/${randomUUID()}.${ext}`;
+    const key = `tenants/${slug}/site/favicon/${randomUUID()}.${ext}`;
     // Upload with the *detected* (canonical) content type, not the client header.
     const { url } = await this.storage.upload(file.buffer, key, detected);
 

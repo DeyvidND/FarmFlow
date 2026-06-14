@@ -23,6 +23,7 @@ import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { ARTICLE_MEDIA_EXT_BY_MIME } from './dto/upload-media.dto';
 import { optimizeImage } from '../storage/image.util';
+import { tenantSlug } from '../../common/tenant-slug.util';
 import { slugify, sanitizeArticleHtml } from './articles.util';
 
 @Injectable()
@@ -257,7 +258,8 @@ export class ArticlesService {
       file.mimetype,
       ARTICLE_MEDIA_EXT_BY_MIME[file.mimetype] ?? 'bin',
     );
-    const key = `tenants/${tenantId}/articles/${articleId}/${kind}/${randomUUID()}.${img.ext}`;
+    const slug = await tenantSlug(this.db, tenantId);
+    const key = `tenants/${slug}/articles/${articleId}/${kind}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
     return url;
   }
