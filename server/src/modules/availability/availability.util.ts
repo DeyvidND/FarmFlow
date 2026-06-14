@@ -28,3 +28,14 @@ export function applyQuantityDelta(
   const sold = w.quantity - w.remaining;
   return Math.max(0, newQuantity - sold);
 }
+
+/** Checkout decision for one ordered item against its active window (or null when
+ *  the product has no active window → today's behavior, no stock check). */
+export function decideDecrement(
+  active: { remaining: number } | null,
+  qty: number,
+): { ok: boolean; newRemaining: number | null } {
+  if (!active) return { ok: true, newRemaining: null };
+  if (active.remaining < qty) return { ok: false, newRemaining: null };
+  return { ok: true, newRemaining: active.remaining - qty };
+}

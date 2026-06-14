@@ -12,6 +12,7 @@ import {
   orders,
   orderItems,
   products,
+  productAvailabilityWindows,
   deliverySlots,
   tenants,
   farmers,
@@ -28,6 +29,7 @@ import { OrderConfirmationService } from '../order-email/order-confirmation.serv
 import { EcontService } from '../econt/econt.service';
 import { buildPublicMethods, codEnabled, type DeliveryConfig } from './delivery-pricing';
 import { scheduledForDay } from './order-scheduling';
+import { decideDecrement } from '../availability/availability.util';
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
@@ -720,6 +722,36 @@ export class OrdersService {
           .from(orders)
           .where(and(eq(orders.slotId, slotId), ne(orders.status, 'cancelled')));
         if (count >= slot.maxOrders) throw new ConflictException('Слотът е запълнен');
+      }
+
+      // Per-item availability-window enforcement. A product with an active window
+      // (today within range) sells from that window's `remaining`; the row is
+      // locked so concurrent intakes serialize, mirroring the slot-capacity guard
+      // above. Products with no active window are unaffected (today's behavior).
+      const today = bgToday();
+      for (const it of dto.items) {
+        const [win] = await tx
+          .select()
+          .from(productAvailabilityWindows)
+          .where(
+            and(
+              eq(productAvailabilityWindows.productId, it.productId),
+              eq(productAvailabilityWindows.tenantId, tenant.id),
+            ),
+          )
+          .for('update');
+        const active = win && win.startsAt <= today && today <= win.endsAt ? win : null;
+        const decision = decideDecrement(active, it.quantity);
+        if (!decision.ok) {
+          const p = byId.get(it.productId);
+          throw new ConflictException(`Няма достатъчна наличност: ${p?.name ?? 'продукт'}`);
+        }
+        if (active && decision.newRemaining != null) {
+          await tx
+            .update(productAvailabilityWindows)
+            .set({ remaining: decision.newRemaining })
+            .where(eq(productAvailabilityWindows.id, active.id));
+        }
       }
 
       let total = 0;
