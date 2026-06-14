@@ -1,3 +1,13 @@
+/** Admin view of an availability window (GET /availability-windows). */
+export interface AvailabilityWindow {
+  id: string;
+  productId: string;
+  startsAt: string; // 'YYYY-MM-DD'
+  endsAt: string;
+  quantity: number;
+  remaining: number;
+}
+
 /** Keyset-paginated list envelope returned by admin list endpoints. */
 export interface Paginated<T> {
   items: T[];
@@ -113,6 +123,9 @@ export interface TenantProfile {
   articlesEnabled: boolean;
   reviewsEnabled: boolean;
   deliveryEnabled: boolean;
+  /** Availability windows section — shows „Налично сега" on the storefront. */
+  availabilitySectionEnabled: boolean;
+  availabilityTitle: string | null;
   /** «Продукт на седмицата» highlight config. */
   productOfWeekEnabled: boolean;
   productOfWeekMode: 'manual' | 'auto';

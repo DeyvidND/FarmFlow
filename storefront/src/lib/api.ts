@@ -43,6 +43,16 @@ export function resolveSlug(override?: string | null): string {
 
 /* ----------------------------- shared types ----------------------------- */
 
+/** Active availability window as returned by `GET /public/:slug/availability`.
+ *  The server only returns windows that are active today (BG timezone). */
+export interface PublicAvailabilityWindow {
+  productId: string;
+  startsAt: string; // YYYY-MM-DD
+  endsAt: string;   // YYYY-MM-DD
+  quantity: number;
+  remaining: number;
+}
+
 /** Available delivery slot as returned by `GET /public/:slug/slots`. Times may
  *  arrive as `HH:MM:SS` (pg `time`); trim to `HH:MM` for display. */
 export interface PublicSlot {
@@ -200,6 +210,10 @@ export interface StorefrontProfile {
   delivery: StorefrontDelivery;
   /** Which delivery methods are switched on — show only these. */
   methods: DeliveryMethods;
+  /** „Задай наличност" section opt-in toggle. Default false (absent older API). */
+  availabilitySectionEnabled?: boolean;
+  /** Optional section title. NULL / absent → storefront default „Налично сега". */
+  availabilityTitle?: string | null;
 }
 
 /** Per-method on/off flags from the farm's config. */
@@ -235,6 +249,13 @@ export function getFarmers(slug: string): Promise<PublicFarmer[]> {
 export function getSubcategories(slug: string): Promise<PublicSubcategory[]> {
   return request<PublicSubcategory[]>(`/public/${slug}/subcategories`, {
     next: { revalidate: 300 },
+  } as RequestInit);
+}
+
+/** Active availability windows for today (BG timezone). `[]` when none active. */
+export function getAvailability(slug: string): Promise<PublicAvailabilityWindow[]> {
+  return request<PublicAvailabilityWindow[]>(`/public/${slug}/availability`, {
+    next: { revalidate: 60 },
   } as RequestInit);
 }
 

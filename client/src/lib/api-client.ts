@@ -1,6 +1,7 @@
 import type {
   AdminReview,
   Article,
+  AvailabilityWindow,
   DashboardSummary,
   DeliveryConfig,
   EcontCity,
@@ -204,6 +205,8 @@ export const updateTenant = (data: {
   articlesEnabled?: boolean;
   reviewsEnabled?: boolean;
   deliveryEnabled?: boolean;
+  availabilitySectionEnabled?: boolean;
+  availabilityTitle?: string | null;
   productOfWeekEnabled?: boolean;
   productOfWeekMode?: 'manual' | 'auto';
   productOfWeekId?: string | null;
@@ -792,3 +795,39 @@ export const listReviews = (status?: ReviewStatus, cursor?: string) => {
 
 export const setReviewStatus = (id: string, status: ReviewStatus) =>
   apiFetch<AdminReview>(`reviews/${id}/status`, { method: 'PATCH', ...json({ status }) }, 'Неуспешна промяна');
+
+// ─── Availability windows ────────────────────────────────────────────────────
+
+export const listAvailabilityWindows = (productId?: string): Promise<AvailabilityWindow[]> => {
+  const q = productId ? `?productId=${encodeURIComponent(productId)}` : '';
+  return apiFetch<AvailabilityWindow[]>(`availability-windows${q}`);
+};
+
+export const createAvailabilityWindow = (body: {
+  productId: string;
+  startsAt: string;
+  endsAt: string;
+  quantity: number;
+}): Promise<AvailabilityWindow> =>
+  apiFetch<AvailabilityWindow>(
+    'availability-windows',
+    { method: 'POST', ...json(body) },
+    'Неуспешно създаване',
+  );
+
+export const updateAvailabilityWindow = (
+  id: string,
+  body: Partial<{ startsAt: string; endsAt: string; quantity: number }>,
+): Promise<AvailabilityWindow> =>
+  apiFetch<AvailabilityWindow>(
+    `availability-windows/${id}`,
+    { method: 'PATCH', ...json(body) },
+    'Неуспешно записване',
+  );
+
+export const deleteAvailabilityWindow = (id: string): Promise<{ id: string }> =>
+  apiFetch<{ id: string }>(
+    `availability-windows/${id}`,
+    { method: 'DELETE' },
+    'Неуспешно изтриване',
+  );

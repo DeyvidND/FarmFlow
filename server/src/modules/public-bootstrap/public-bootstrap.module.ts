@@ -5,6 +5,7 @@ import { ProductsModule } from '../products/products.module';
 import { FarmersModule } from '../farmers/farmers.module';
 import { SubcategoriesModule } from '../subcategories/subcategories.module';
 import { ReviewsModule } from '../reviews/reviews.module';
+import { AvailabilityModule } from '../availability/availability.module';
 
 /**
  * Composes the existing public read services behind a single `/bootstrap`
@@ -12,7 +13,14 @@ import { ReviewsModule } from '../reviews/reviews.module';
  * data access of its own.
  */
 @Module({
-  imports: [TenantsModule, ProductsModule, FarmersModule, SubcategoriesModule, ReviewsModule],
+  imports: [
+    TenantsModule,
+    ProductsModule,
+    FarmersModule,
+    SubcategoriesModule,
+    ReviewsModule,
+    AvailabilityModule,
+  ],
   controllers: [PublicBootstrapController],
 })
 export class PublicBootstrapModule {}

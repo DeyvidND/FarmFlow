@@ -5,11 +5,13 @@ import {
   getFarmers,
   getSubcategories,
   getStorefront,
+  getAvailability,
   resolveSlug,
   type PublicArticle,
   type PublicProduct,
   type PublicFarmer,
   type PublicSubcategory,
+  type PublicAvailabilityWindow,
 } from '@/lib/api';
 import { formatDate, readingTime } from '@/lib/format';
 import {
@@ -21,6 +23,7 @@ import { NewsletterForm } from '@/components/newsletter-form';
 import { HomeListing } from '@/components/home-listing';
 import { FarmerCard } from '@/components/farmer-card';
 import { ProductOfWeekHighlight } from '@/components/product-of-week';
+import { AvailabilitySection } from '@/components/availability-section';
 import { resolveProductOfWeek } from '@/lib/product-of-week';
 import { Leaf, Truck, Heart } from '@/components/icons';
 
@@ -32,7 +35,7 @@ import { Leaf, Truck, Heart } from '@/components/icons';
 export default async function HomePage() {
   const slug = resolveSlug();
 
-  const [products, posts, farmers, subcategories, profile] = await Promise.all([
+  const [products, posts, farmers, subcategories, profile, availability] = await Promise.all([
     getProducts(slug).catch(() => [] as PublicProduct[]),
     getArticles(slug)
       .then((a) => a.slice(0, 3))
@@ -40,6 +43,7 @@ export default async function HomePage() {
     getFarmers(slug).catch(() => [] as PublicFarmer[]),
     getSubcategories(slug).catch(() => [] as PublicSubcategory[]),
     getStorefront(slug).catch(() => null),
+    getAvailability(slug).catch(() => [] as PublicAvailabilityWindow[]),
   ]);
 
   // The blog teaser hides when the «Статии» section is switched off.
@@ -112,6 +116,20 @@ export default async function HomePage() {
 
       {/* PRODUCT OF THE WEEK · optional highlight */}
       {potw && <ProductOfWeekHighlight product={potw} note={profile?.productOfWeekNote} />}
+
+      {/* „НАЛИЧНО СЕГА" · time-bounded availability windows (opt-in toggle) */}
+      {profile?.availabilitySectionEnabled && (
+        <AvailabilitySection
+          title={
+            (profile.availabilityTitle && profile.availabilityTitle.trim())
+              ? profile.availabilityTitle
+              : 'Налично сега'
+          }
+          products={sellable}
+          windows={availability}
+          farmers={farmers}
+        />
+      )}
 
       {/* FEATURED LISTING · products / subsections (toggleable home layout) */}
       {featured.length > 0 && <HomeListing featured={featured} categories={categories} />}

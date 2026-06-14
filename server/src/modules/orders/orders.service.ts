@@ -6,12 +6,13 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, gte, ilike, inArray, lt, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, ilike, inArray, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   type Database,
   orders,
   orderItems,
   products,
+  productAvailabilityWindows,
   deliverySlots,
   tenants,
   farmers,
@@ -28,6 +29,7 @@ import { OrderConfirmationService } from '../order-email/order-confirmation.serv
 import { EcontService } from '../econt/econt.service';
 import { buildPublicMethods, codEnabled, type DeliveryConfig } from './delivery-pricing';
 import { scheduledForDay } from './order-scheduling';
+import { decideDecrement, restoreRemaining } from '../availability/availability.util';
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
@@ -514,6 +516,60 @@ export class OrdersService {
       // Stripe paid-webhook (its only other trigger).
       void this.econt.autoCreateForOrder(id);
     }
+    // First transition into `cancelled`: return each item's reserved stock to its
+    // active availability window (best-effort — only while the window is still
+    // active; expired windows are left as-is). The into-cancelled transition is
+    // claimed atomically inside the tx so two concurrent cancels can't both restore.
+    if (dto.status === 'cancelled' && prev?.status !== 'cancelled') {
+      await this.db.transaction(async (tx) => {
+        // Atomic claim: lock the order row and flip its status to 'cancelled' ONLY
+        // if it is not already cancelled, in one statement. RETURNING tells us
+        // whether THIS tx performed the into-cancelled transition. A racing second
+        // cancel blocks on the row lock, then matches zero rows (already cancelled)
+        // and returns empty → it skips the restore. This — not the pre-update
+        // `prev` read, which both racers can observe as non-cancelled — is the gate.
+        const claimed = await tx
+          .update(orders)
+          .set({ status: 'cancelled' })
+          .where(
+            and(
+              eq(orders.id, id),
+              eq(orders.tenantId, tenantId),
+              ne(orders.status, 'cancelled'),
+            ),
+          )
+          .returning({ id: orders.id });
+        if (!claimed.length) return; // another concurrent cancel already restored
+
+        const items = await tx
+          .select()
+          .from(orderItems)
+          .where(eq(orderItems.orderId, id));
+        const today = bgToday();
+        for (const it of items) {
+          if (!it.productId) continue;
+          const [win] = await tx
+            .select()
+            .from(productAvailabilityWindows)
+            .where(
+              and(
+                eq(productAvailabilityWindows.productId, it.productId),
+                eq(productAvailabilityWindows.tenantId, tenantId),
+                lte(productAvailabilityWindows.startsAt, today),
+                gte(productAvailabilityWindows.endsAt, today),
+              ),
+            )
+            .for('update')
+            .limit(1);
+          if (win) {
+            await tx
+              .update(productAvailabilityWindows)
+              .set({ remaining: restoreRemaining(win, it.quantity) })
+              .where(eq(productAvailabilityWindows.id, win.id));
+          }
+        }
+      });
+    }
     // Status change moves the order in/out of the counted set (and flips collected
     // for COD) — refresh the Плащания cache.
     await this.bustPayments(tenantId);
@@ -720,6 +776,39 @@ export class OrdersService {
           .from(orders)
           .where(and(eq(orders.slotId, slotId), ne(orders.status, 'cancelled')));
         if (count >= slot.maxOrders) throw new ConflictException('Слотът е запълнен');
+      }
+
+      // Per-item availability-window enforcement. A product with an active window
+      // (today within range) sells from that window's `remaining`; the row is
+      // locked so concurrent intakes serialize, mirroring the slot-capacity guard
+      // above. Products with no active window are unaffected (today's behavior).
+      const today = bgToday();
+      for (const it of dto.items) {
+        const [win] = await tx
+          .select()
+          .from(productAvailabilityWindows)
+          .where(
+            and(
+              eq(productAvailabilityWindows.productId, it.productId),
+              eq(productAvailabilityWindows.tenantId, tenant.id),
+              lte(productAvailabilityWindows.startsAt, today),
+              gte(productAvailabilityWindows.endsAt, today),
+            ),
+          )
+          .for('update')
+          .limit(1);
+        const active = win ?? null;
+        const decision = decideDecrement(active, it.quantity);
+        if (!decision.ok) {
+          const p = byId.get(it.productId);
+          throw new ConflictException(`Няма достатъчна наличност: ${p?.name ?? 'продукт'}`);
+        }
+        if (active && decision.newRemaining != null) {
+          await tx
+            .update(productAvailabilityWindows)
+            .set({ remaining: decision.newRemaining })
+            .where(eq(productAvailabilityWindows.id, active.id));
+        }
       }
 
       let total = 0;

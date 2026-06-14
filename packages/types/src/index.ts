@@ -3,6 +3,7 @@ import type {
   tenants,
   users,
   products,
+  productAvailabilityWindows,
   farmers,
   subcategories,
   productMedia,
@@ -90,6 +91,20 @@ export type PublicProduct = Omit<
   // items, or [] when the item has no photo. `imageUrl` stays the cover for back-compat.
   images: string[];
 };
+
+export type AvailabilityWindow = InferSelectModel<typeof productAvailabilityWindows>;
+export type NewAvailabilityWindow = InferInsertModel<typeof productAvailabilityWindows>;
+
+/** Active-window overlay the storefront merges onto the public catalog by
+ *  `productId`. `tenantId` stripped; only what the storefront needs. */
+export type PublicAvailabilityWindow = {
+  productId: string;
+  startsAt: string;
+  endsAt: string;
+  quantity: number;
+  remaining: number;
+};
+
 /**
  * Tenant profile for the admin panel. `settings` + `stripeAccountId` are stripped,
  * but the delivery config (kept under `settings.delivery`) is surfaced as `delivery`

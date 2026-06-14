@@ -59,6 +59,9 @@ export interface PublicStorefront {
   multiSubcat: boolean;
   articlesEnabled: boolean;
   reviewsEnabled: boolean;
+  // Availability-windows section toggle + optional custom title.
+  availabilitySectionEnabled: boolean;
+  availabilityTitle: string | null;
   econtEnabled: boolean;
   econtMode: EcontMode;
   codEnabled: boolean;
