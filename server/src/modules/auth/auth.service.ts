@@ -97,6 +97,7 @@ export class AuthService {
       updated.role,
       false,
       updated.tokenVersion,
+      updated.farmerId,
     );
   }
 

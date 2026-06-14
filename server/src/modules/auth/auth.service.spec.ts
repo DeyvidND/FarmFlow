@@ -102,6 +102,20 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
     });
+
+    it('preserves farmerId in the re-issued token for a producer sub-account', async () => {
+      const farmerRow = { ...userRow, role: 'farmer' as const, farmerId: 'farmer-1' };
+      db.limit.mockResolvedValueOnce([farmerRow]);
+      (argon2.verify as jest.Mock).mockResolvedValueOnce(true);
+      (argon2.hash as jest.Mock).mockResolvedValueOnce('new-hash');
+      db.returning.mockResolvedValueOnce([{ ...farmerRow, mustChangePassword: false }]);
+
+      await service.changePassword(USER_ID, dto);
+
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'farmer', farmerId: 'farmer-1' }),
+      );
+    });
   });
 
   // ── getMe ─────────────────────────────────────────────────────────────────
