@@ -23,7 +23,8 @@ Resend cost).
 
 ## Goals
 
-- Replace flat €2/broadcast with **€0.002 per recipient**, accumulated into the monthly Stripe invoice.
+- Replace flat €2/broadcast with **true 50%-markup-over-cost per recipient** (Resend cost × 1.5 ≈
+  €0.000555/recipient), accumulated into the monthly Stripe invoice.
 - A **custom block-based email builder** (own blocks + pure server-side email-safe HTML renderer), with inline
   images stored in R2, auto-branded from the farm's existing `settings.brand` (logo + theme colour).
 - **Drafts**: editor content persists; farmer can save and come back. A list of past + draft campaigns.
@@ -53,11 +54,14 @@ New config (env + `env.validation.ts`), with defaults:
 
 | Const | Value | Meaning |
 |---|---|---|
-| `EMAIL_PRICE_PER_RECIPIENT_MICRO` | `2000` | €0.002 charged per recipient |
-| `EMAIL_COST_PER_RECIPIENT_MICRO` | `370` | ≈ Resend Pro $0.0004/email in € (margin calc only — never charges) |
+| `EMAIL_COST_PER_RECIPIENT_MICRO` | `370` | ≈ Resend Pro $0.0004/email in € — the cost basis |
+| `EMAIL_PRICE_PER_RECIPIENT_MICRO` | `555` | cost × 1.5 = **true 50% markup**; €0.000555 charged per recipient |
 | `EMAIL_PUSH_MAX_RECIPIENTS` | `5000` | unchanged — reject a single send over this |
 
-Removed: `EMAIL_PUSH_PRICE_STOTINKI` (the flat €2). Update `.env.example` and `docs/EMAIL-SETUP.md`.
+Price is derived as **cost × 1.5** (owner's choice: real 50% profit over Resend's cost). The cost basis is
+the explicit input; the price const is set to `round(370 × 1.5) = 555`. Margin is therefore €0.000185/email
+(= 50% of cost, 33% of the charged price). Removed: `EMAIL_PUSH_PRICE_STOTINKI` (the flat €2). Update
+`.env.example` and `docs/EMAIL-SETUP.md`.
 
 Per-send charge:
 
@@ -65,8 +69,8 @@ Per-send charge:
 priceStotinki = Math.round(recipientCount * EMAIL_PRICE_PER_RECIPIENT_MICRO / 10_000)
 ```
 
-(`micro / 10_000` converts micro-euro → stotinki: 2000 micro = 0.2 stotinki/recipient.)
-Examples: 200 → 40 ст = **€0.40**; 50 → 10 ст = €0.10; 1 000 → 200 ст = €2.00.
+(`micro / 10_000` converts micro-euro → stotinki: 555 micro = 0.0555 stotinki/recipient.)
+Examples: 200 → round(11.1) = 11 ст = **€0.11**; 50 → 3 ст = €0.03; 1 000 → round(55.5) = 56 ст = €0.56.
 
 A shared pure helper `priceForRecipients(n)` lives in a small `billing.pricing.ts` (no I/O, unit-tested) and
 is used by **both** the cost preview endpoint and `billPush`, so the quoted price and the billed price can
@@ -79,7 +83,8 @@ never drift.
 invoice item). Invoice-item description unchanged in shape: `Бюлетин: <subject> (<n> получателя)`.
 
 `BillingSummary.emailPriceStotinki` (flat per-push) is replaced by `emailPricePerRecipientMicro` so the
-farmer Payments card can show "€0.002 на получател" instead of "€2 на бюлетин".
+farmer Payments card can show the per-recipient price (displayed as **"€0.55 на 1000 имейла"** — cleaner than
+the sub-cent figure) instead of "€2 на бюлетин".
 
 ---
 
@@ -233,10 +238,10 @@ brand/contact data the panel already loads; no new farmer input.
 Driven by `GET /newsletter/quote`:
 
 - **In the composer** (always visible, e.g. a small bar): "Имаш **{activeCount}** активни абоната.
-  Това изпращане ще струва **€{sendCost}** (€0.002/имейл)." Plus, when `monthToDateCount>0`: "Този месец:
-  {monthToDateCount} имейла ≈ €{monthToDateStotinki}."
+  Това изпращане ще струва **€{sendCost}** (€0.55 на 1000 имейла)." Plus, when `monthToDateCount>0`: "Този
+  месец: {monthToDateCount} имейла ≈ €{monthToDateStotinki}."
 - **In the send-confirm dialog**: restate recipients + total cost prominently before the irreversible send,
-  e.g. "Изпрати до **200** абоната — ще ти струва **€0.40**." Premium farms see "безплатно" instead.
+  e.g. "Изпрати до **200** абоната — ще ти струва **€0.11**." Premium farms see "безплатно" instead.
 - Numbers come from the shared `priceForRecipients` helper so preview == billed.
 
 `monthToDate` = sum over `email_pushes` for the tenant in the current Stripe/calendar cycle
@@ -251,9 +256,9 @@ as a block on the existing super-admin **Анализ / `/insights`** screen.
 
 Per the selected range, from `email_pushes`:
 
-- emails sent (`sum(recipient_count)`), revenue (`sum(price_stotinki)`),
+- emails sent (`sum(recipient_count)`), revenue (`sum(price_stotinki)` — historical, per-row),
 - Resend cost (`sum(recipient_count) * EMAIL_COST_PER_RECIPIENT_MICRO / 10_000`, rounded),
-- **margin** = revenue − cost, and margin %.
+- **margin** = revenue − cost, and margin % (≈50% by design at the 555/370 rates).
 - A short per-farm table (top senders) + a platform total.
 
 This is read-only and derived entirely from existing ledger data (no new tracking). It literally answers
