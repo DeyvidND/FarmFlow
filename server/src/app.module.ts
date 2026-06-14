@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { MulterModule } from '@nestjs/platform-express';
 import type Redis from 'ioredis';
@@ -51,7 +50,6 @@ import { HealthModule } from './common/health/health.module';
       envFilePath: ['../.env', '.env'],
       validationSchema: envValidationSchema,
     }),
-    ScheduleModule.forRoot(),
     // Distributed rate limiting backed by the shared Redis (REDIS_URL is required),
     // so limits hold across instances and survive restarts. A generous global
     // backstop; abuse-prone routes tighten it via @Throttle, and signature-verified
