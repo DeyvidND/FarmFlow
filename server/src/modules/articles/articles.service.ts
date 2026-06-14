@@ -21,7 +21,7 @@ import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ArticlesCacheService } from './articles-cache.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
-import { ARTICLE_MEDIA_EXT_BY_MIME } from './dto/upload-media.dto';
+import { ARTICLE_IMAGE_EXT_BY_MIME } from './dto/upload-media.dto';
 import { optimizeImage } from '../storage/image.util';
 import { slugify, sanitizeArticleHtml } from './articles.util';
 
@@ -248,14 +248,14 @@ export class ArticlesService {
   private async store(
     tenantId: string,
     articleId: string,
-    kind: 'cover' | 'media' | 'inline',
+    kind: 'cover' | 'inline',
     file: Express.Multer.File,
   ): Promise<string> {
-    // Images get downscaled+re-encoded; video (article media) passes through.
+    // Article images are image-only — downscaled + re-encoded to web-sized WebP.
     const img = await optimizeImage(
       file.buffer,
       file.mimetype,
-      ARTICLE_MEDIA_EXT_BY_MIME[file.mimetype] ?? 'bin',
+      ARTICLE_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
     );
     const key = `tenants/${tenantId}/articles/${articleId}/${kind}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);

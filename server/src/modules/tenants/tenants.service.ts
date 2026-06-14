@@ -19,8 +19,14 @@ import { type PublicDelivery, type PublicMethods, type EcontMode } from '../orde
 import { StripeService } from '../stripe/stripe.service';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { SiteContactDto } from './dto/site-contact.dto';
+import { SiteMarketingDto } from './dto/site-marketing.dto';
 import { LandingDto } from './dto/landing.dto';
 import { resolveLanding, type PublicLanding } from './landing';
+import {
+  buildPublicMarketing,
+  normalizeMarketing,
+  type PublicMarketing,
+} from './site-marketing';
 import {
   getMediaCatalog,
   isValidSlot,
@@ -80,6 +86,9 @@ export interface PublicStorefront {
   // Configurable landing blocks (settings.landing) — which of the three dynamic
   // home blocks show and how many items each shows. Always present (resolved).
   landing: PublicLanding;
+  // Per-vendor ad/analytics tracking IDs (settings.marketing). Empty → all-null
+  // (no scripts injected). The storefront templates the loader from the id.
+  marketing: PublicMarketing;
 }
 
 @Injectable()
@@ -365,6 +374,33 @@ export class TenantsService {
       publicCacheKeys.homeReviews(tenantId),
     );
     return { landing };
+  }
+
+  // ---- Marketing / tracking IDs (settings.marketing) ----
+
+  /** Current tracking IDs for the admin editor (validated, malformed → null). */
+  async getMarketing(tenantId: string): Promise<{ marketing: PublicMarketing }> {
+    const settings = await this.loadSettings(tenantId);
+    return { marketing: buildPublicMarketing(settings.marketing) };
+  }
+
+  /** Replace the whole settings.marketing block with the validated incoming IDs
+   *  in a single atomic per-path write, then bust the cached public profile so
+   *  the storefront picks up the new (or cleared) IDs on its next render. */
+  async updateMarketing(
+    tenantId: string,
+    dto: SiteMarketingDto,
+  ): Promise<{ marketing: PublicMarketing }> {
+    const { slug } = await this.loadTenantForMedia(tenantId);
+    const marketing = normalizeMarketing(dto);
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['marketing'], ${JSON.stringify(marketing)}::jsonb, true)`,
+      })
+      .where(eq(tenants.id, tenantId));
+    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    return { marketing: buildPublicMarketing(marketing) };
   }
 
   /** Upload/replace the website icon. PNG or ICO only — verified by magic bytes

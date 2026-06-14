@@ -260,7 +260,8 @@ export function RouteClient({
             <ChevronDown size={16} className="text-ff-muted" />
             <input
               type="date"
-              value={route.date}
+              key={route.date}
+              defaultValue={route.date}
               aria-label="Избери дата за маршрута"
               onChange={(e) => {
                 if (e.target.value) setDate(e.target.value);

@@ -182,24 +182,11 @@ A daily prep/harvest checklist built from the products in **confirmed** orders. 
 </details>
 
 <details>
-<summary><b>Маршрут (Route) &nbsp;🔒 needs active subscription</b></summary>
-
-The optimised delivery route for a chosen date, built from confirmed home-delivery orders. The summary reads **stops · km · ~minutes**.
-
-![Маршрут — Google Maps route planner](images/guide-route.png)
-
-- **Локация** *(set this first)* — a card on this page sets your logistics base: **Адрес на базата (дом)** (your depot/start address, saved as a point on the map and used as the **origin** for every route) and the default **Край на маршрута** — **Към дома** (back to base), **Едностранно** (stop at the last delivery) or **По избор** (a custom end address). **Запази локацията** stores it. *(This moved here from Настройки.)*
-- **Order mode** — **По часови слот** (group by booked slot time) or **Най-кратък път** (re-order stops by geography to minimise km).
-- The **stop list** numbers each delivery with customer, address, and item summary, plus per-stop **Карти** (open that stop in Google Maps) and **Обади** (call) buttons.
-- **Google Maps** opens the whole route and **Старт** launches turn-by-turn navigation. Long routes are split into ≤ 9-waypoint **legs** (Google's limit), each leg chaining into the next.
-- The right panel is an interactive map of every stop and the start/end points. (Empty when there are no confirmed home-delivery orders for the day.)
-
-</details>
-
-<details>
 <summary><b>Плащания (Payments & subscription)</b></summary>
 
-Two things live here:
+A few things live here — the money coming in from orders, and the farm's own subscription:
+
+**Наложен платеж (cash on delivery)** — sits at the top, since most farms collect cash on delivery. The **„Наложен платеж"** card totals the cash due and the order count, **grouped by delivery day** („Пари в брой при доставка — групирани по ден."). Each order shows its amount and an **Очаквано / Получено** status so you can tick off what's been collected. (Empty: „Още няма плащания с наложен платеж.")
 
 **Абонамент (subscription)** — the farm's plan for using FarmFlow:
 
@@ -288,11 +275,11 @@ Blog/news posts for the public storefront. The header shows "X published · Y to
 
 The **editor** (`/articles/{id}`) has a **Редактор / Преглед** tab pair, a **Чернова ⇄ Публикувана** publish toggle, and **Запази**:
 
-![Статия — editor with rich-media blocks](images/guide-article-editor.png)
+![Статия — rich-text WYSIWYG editor](images/guide-article-editor.png)
 
-- **Заглавие**, **Кратко описание**, and the **Съдържание** body.
+- **Заглавие** and **Кратко описание** (a one–two-sentence excerpt).
+- **Съдържание** — a **rich-text (WYSIWYG) editor**: a formatting toolbar with headings, **bold / italic**, text colour, alignment and bullet/number lists, plus **links** and **inline images**. The image button uploads a **JPEG / PNG / WebP** straight into the body (stored on R2; images are swept from storage when the article is deleted). What you type is what the storefront shows — no HTML knowledge needed.
 - **Корица** — the cover image (upload / drag-drop).
-- **Медия** — rich-media blocks inside the article: **Качи снимка / видео** (image or MP4 to R2) and a **YouTube / Instagram адрес** field that embeds by URL. Blocks can be reordered, captioned, and deleted.
 - **Преглед** renders the post exactly as the storefront will show it.
 
 > The whole Статии section can be hidden from the shop with **Функции на магазина → Статии**.
@@ -339,6 +326,20 @@ The contact and branding info customers see in the storefront footer and contact
 - **Локация на картата** — click the map to drop the pin, or type **Ширина (lat)** / **Дължина (lng)** by hand. It shows on the storefront.
 - **Иконка на сайта** (favicon) — **Качи икона** (**PNG or ICO, up to 512 KB**); appears in the browser tab. **Премахни** clears it.
 - **Основен цвят (theme color)** — a colour picker + hex field that tints the storefront; **Изчисти** reverts to the default green.
+
+</details>
+
+<details>
+<summary><b>Маркетинг и проследяване (Marketing &amp; tracking)</b></summary>
+
+Connect the storefront to Google and Meta for ads + analytics **without a developer**. The farmer pastes their per-vendor **IDs** once; the storefront templates the loader snippets and injects them. No vendor code is stored — only the IDs. An empty field disables that vendor; a malformed value is rejected (a soft warning shows) so a typo can never emit a broken script.
+
+- **Google Analytics (GA4)** — **Measurement ID** (`G-…`), for traffic + behaviour.
+- **Google Ads** — **Conversion ID** (`AW-…`) plus a **Conversion Label** so a completed order is reported as a purchase conversion (the base tag alone can't attribute a sale; a lone label is ignored).
+- **Meta Pixel** — the numeric **Pixel ID** from Events Manager, for Facebook/Instagram ads.
+- **По избор (optional)** — **Google Tag Manager** container (`GTM-…`) and **TikTok Pixel**, only if already in use.
+
+GDPR: the storefront shows a **cookie-consent bar** — Google loads in **Consent Mode v2** (defaulted to *denied*/modeled) and Meta with consent **revoked** until the visitor accepts; TikTok is deferred until consent. On the order-confirmation page a **purchase** event fires for GA4 + Google Ads + Meta (value in €), so sales are attributed automatically. Saved per farm via `settings.marketing`; changes go live on the next storefront render.
 
 </details>
 
@@ -394,6 +395,21 @@ The detailed configuration behind the switchboard — pricing, schedule, and the
   - **Разширени настройки** — optional **Размери Д×Ш×В**, **Размер на товарителницата** (**A4** / **A6 (етикет)**), and **Авто-товарителница** (auto-create the waybill on a paid order).
   - **Градове и офиси** — last sync date + counts, with **Обнови градове и офиси** to refresh from Econt.
 - **Пратки** — a table of orders that already have Econt waybills (tracking number, method, status, history), with actions to refresh or void a label.
+
+</details>
+
+<details>
+<summary><b>Маршрут (Route) &nbsp;🔒 needs active subscription</b></summary>
+
+The optimised delivery route for a chosen date, built from confirmed home-delivery orders. The summary reads **stops · km · ~minutes**.
+
+![Маршрут — Google Maps route planner](images/guide-route.png)
+
+- **Локация** *(set this first)* — a card on this page sets your logistics base: **Адрес на базата (дом)** (your depot/start address, saved as a point on the map and used as the **origin** for every route) and the default **Край на маршрута** — **Към дома** (back to base), **Едностранно** (stop at the last delivery) or **По избор** (a custom end address). **Запази локацията** stores it. *(This moved here from Настройки.)*
+- **Order mode** — **По часови слот** (group by booked slot time) or **Най-кратък път** (re-order stops by geography to minimise km).
+- The **stop list** numbers each delivery with customer, address, and item summary, plus per-stop **Карти** (open that stop in Google Maps) and **Обади** (call) buttons.
+- **Google Maps** opens the whole route and **Старт** launches turn-by-turn navigation. Long routes are split into ≤ 9-waypoint **legs** (Google's limit), each leg chaining into the next.
+- The right panel is an interactive map of every stop and the start/end points. (Empty when there are no confirmed home-delivery orders for the day.)
 
 </details>
 
@@ -466,13 +482,14 @@ Everything a farmer creates here is served to their storefront through the publi
 | Per-screen in-app help | Farmer (3005) → **„Обяснения"** button (top-right) |
 | Full in-app guide | Farmer (3005) → **Документация** (start at „Първи стъпки") |
 | Confirm / track orders | Farmer (3005) → **Продажби → Поръчки** |
-| Plan the day's route + set depot | Farmer (3005) → **Продажби → Маршрут** (Локация) |
-| Connect / monitor card payments | Farmer (3005) → **Продажби → Плащания** |
+| Plan the day's route + set depot | Farmer (3005) → **Доставка и плащане → Маршрут** (Локация) |
+| Track cash-on-delivery + card payments | Farmer (3005) → **Продажби → Плащания** |
 | Add product + photo gallery | Farmer (3005) → **Каталог → Продукти → Снимки** |
 | Reorder / Product of the Week | Farmer (3005) → **Каталог → Продукти** (Подреди / star) |
 | Manage farmers / sections | Farmer (3005) → **Каталог → Фермери / Подкатегории** |
 | Moderate reviews | Farmer (3005) → **Маркетинг → Отзиви** |
 | Storefront photos / contacts / favicon | Farmer (3005) → **Маркетинг → Снимки на сайта / Контакти** |
+| Add ad/analytics tracking (GA4 / Ads / Meta) | Farmer (3005) → **Маркетинг → Маркетинг и проследяване** |
 | Email the subscribers | Farmer (3005) → **Маркетинг → Имейл клиенти** |
 | Turn delivery/payment methods on/off | Farmer (3005) → **Доставка и плащане → Методи и цени** |
 | Configure courier / Econt | Farmer (3005) → **Доставка и плащане → Доставка** |

@@ -9,6 +9,11 @@ const MAX_EDGE = 1600;
  *  than a full-res phone JPEG. */
 const QUALITY = 82;
 
+/** Encoder effort 0–6. Encoding happens once at upload; the object is served on every
+ *  page view, so we spend the extra CPU for a smaller file (~5–15% over the default 4).
+ *  smartSubsample preserves sharp colour edges at this quality. */
+const EFFORT = 6;
+
 /** MIME types we re-encode. Everything else (e.g. video for article media) passes
  *  through untouched. The product/farmer/subcategory upload guards already restrict
  *  to this set; articles also allow video, which lands in the pass-through path. */
@@ -43,7 +48,7 @@ export async function optimizeImage(
     const out = await sharp(buffer, { failOn: 'none' })
       .rotate() // apply EXIF orientation before metadata is dropped by re-encode
       .resize({ width: MAX_EDGE, height: MAX_EDGE, fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: QUALITY })
+      .webp({ quality: QUALITY, effort: EFFORT, smartSubsample: true })
       .toBuffer();
     if (out.length < buffer.length) {
       return { buffer: out, contentType: 'image/webp', ext: 'webp' };

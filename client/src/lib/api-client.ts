@@ -287,6 +287,34 @@ export const updateSiteContact = (data: {
     'Неуспешно записване',
   );
 
+// ---- Marketing / tracking IDs (settings.marketing) ----
+
+export interface MarketingIds {
+  ga4: string | null;
+  googleAds: string | null;
+  googleAdsLabel: string | null;
+  metaPixel: string | null;
+  gtm: string | null;
+  tiktok: string | null;
+}
+
+export const getSiteMarketing = () =>
+  apiFetch<{ marketing: MarketingIds }>('tenants/me/site-marketing');
+
+export const updateSiteMarketing = (data: {
+  ga4: string;
+  googleAds: string;
+  googleAdsLabel: string;
+  metaPixel: string;
+  gtm: string;
+  tiktok: string;
+}) =>
+  apiFetch<{ marketing: MarketingIds }>(
+    'tenants/me/site-marketing',
+    { method: 'PATCH', ...json(data) },
+    'Неуспешно записване',
+  );
+
 // ---- Landing-page blocks (settings.landing) ----
 
 export interface LandingBlock {

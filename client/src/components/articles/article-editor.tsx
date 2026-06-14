@@ -16,7 +16,7 @@ import type { Article } from '@/lib/types';
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
 const field =
-  'rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
+  'rounded-sm border border-ff-border bg-ff-surface px-3 py-2.5 text-[14.5px] text-ff-ink shadow-ff-sm outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500 focus:shadow-none';
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
 export function ArticleEditor({ initial }: { initial: Article }) {
