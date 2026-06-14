@@ -48,14 +48,19 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
 // със Stripe за картови плащания. Първата страница на „Всичко" се SSR-ва за бърз
 // първоначален изглед; табовете/търсенето/„зареди още" дофетчват клиентски.
 export default async function PaymentsPage() {
-  const [summary, initial, account] = await Promise.all([
-    getJson<StripeSummary>('stripe/connect/summary', DISCONNECTED),
-    getJson<PaymentsPage>('orders/payments', EMPTY_PAGE),
-    // Role decides the subtitle: a producer's figures are scoped to their own
-    // products (the server line-item-scopes the same /orders/payments call).
-    getJson<{ role?: string }>('auth/me', {}),
-  ]);
+  // Role decides both the subtitle and whether to fetch the Stripe summary.
+  // A producer (role='farmer') never sees the Card tab, so skip the stripe
+  // fetch entirely to avoid a pointless (and potentially 4xx) call.
+  const account = await getJson<{ role?: string }>('auth/me', {});
   const role = account.role === 'farmer' ? 'farmer' : 'admin';
+
+  const [summary, initial] = await Promise.all([
+    role === 'farmer'
+      ? Promise.resolve(DISCONNECTED)
+      : getJson<StripeSummary>('stripe/connect/summary', DISCONNECTED),
+    getJson<PaymentsPage>('orders/payments', EMPTY_PAGE),
+  ]);
+
   return (
     <div className="max-w-[980px]">
       <PaymentsClient stripe={summary} initial={initial} role={role} />

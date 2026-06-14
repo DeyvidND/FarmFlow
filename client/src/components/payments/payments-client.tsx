@@ -242,9 +242,11 @@ export function PaymentsClient({
         <TabButton active={tab === 'cod'} onClick={() => setTab('cod')} count={totals.codCount}>
           Наложен платеж
         </TabButton>
-        <TabButton active={tab === 'card'} onClick={() => setTab('card')}>
-          Карта
-        </TabButton>
+        {role !== 'farmer' && (
+          <TabButton active={tab === 'card'} onClick={() => setTab('card')}>
+            Карта
+          </TabButton>
+        )}
       </div>
 
       {tab !== 'card' && (
@@ -288,7 +290,9 @@ export function PaymentsClient({
           onLoadMore={loadMore}
         />
       )}
-      {tab === 'card' && <StripeSection summary={stripe} busy={busy} onboard={onboard} />}
+      {tab === 'card' && role !== 'farmer' && (
+        <StripeSection summary={stripe} busy={busy} onboard={onboard} />
+      )}
     </div>
   );
 }
