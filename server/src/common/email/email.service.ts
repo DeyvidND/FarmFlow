@@ -20,7 +20,7 @@ export interface SendMailOptions {
   /**
    * Skip the per-recipient suppression DB lookup. Set ONLY when the caller has
    * already batch-filtered the recipient list against the suppression list (e.g.
-   * NewsletterService.broadcast) — avoids one SELECT per recipient on a large send.
+   * NewsletterService.sendCampaign) — avoids one SELECT per recipient on a large send.
    * Transactional callers must leave this false so a suppressed address is honored.
    */
   skipSuppressionCheck?: boolean;

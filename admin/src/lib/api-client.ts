@@ -93,14 +93,30 @@ export interface PlatformTenantDetail {
   }[];
 }
 
-export interface PlatformEmailBilling {
+export interface PlatformEmailBillingRow {
   tenantId: string;
   name: string;
   slug: string;
   email: string | null;
   pushCount: number;
+  recipientTotal: number;
+  /** Revenue charged to the farm. */
   totalStotinki: number;
+  /** Underlying Resend cost. */
+  costStotinki: number;
+  /** Platform margin = revenue − cost. */
+  marginStotinki: number;
   lastPushAt: string | null;
+}
+
+export interface PlatformEmailBilling {
+  rows: PlatformEmailBillingRow[];
+  totals: {
+    recipientTotal: number;
+    revenueStotinki: number;
+    costStotinki: number;
+    marginStotinki: number;
+  };
 }
 
 /** Per-farm Stripe Connect status for the oversight table. */

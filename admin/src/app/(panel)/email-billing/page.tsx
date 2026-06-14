@@ -5,18 +5,23 @@ import type { PlatformEmailBilling } from '@/lib/api-client';
 
 export const dynamic = 'force-dynamic';
 
-async function getBilling(): Promise<PlatformEmailBilling[]> {
+const EMPTY: PlatformEmailBilling = {
+  rows: [],
+  totals: { recipientTotal: 0, revenueStotinki: 0, costStotinki: 0, marginStotinki: 0 },
+};
+
+async function getBilling(): Promise<PlatformEmailBilling> {
   const token = cookies().get(SESSION_COOKIE)?.value;
-  if (!token) return [];
+  if (!token) return EMPTY;
   const res = await fetch(`${API_BASE}/platform/email-billing`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: 'no-store',
   });
-  if (!res.ok) return [];
+  if (!res.ok) return EMPTY;
   return res.json();
 }
 
 export default async function EmailBillingPage() {
-  const rows = await getBilling();
-  return <EmailBillingClient initial={rows} />;
+  const data = await getBilling();
+  return <EmailBillingClient initial={data} />;
 }
