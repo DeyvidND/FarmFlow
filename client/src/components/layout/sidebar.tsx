@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   BarChart3,
+  CalendarClock,
   CreditCard,
   ShoppingBasket,
   Package,
@@ -101,6 +102,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоят каталог с продукти и цени.' },
       { href: '/farmers', label: 'Фермери', Icon: Users, desc: 'Производителите, чиято стока продаваш.' },
       { href: '/subcategories', label: 'Категории', Icon: Tags, desc: 'Раздели, в които групираш продуктите.' },
+      { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, gated: true, desc: 'Обяви наличност за определен период (ден/седмица/месец).' },
     ],
   },
   {
@@ -160,12 +162,15 @@ export function Sidebar({
   pendingCount = 0,
   subscriptionActive = true,
   articlesEnabled = true,
+  availabilitySectionEnabled = true,
   hiddenNav = [],
 }: {
   pendingCount?: number;
   subscriptionActive?: boolean;
   /** «Статии» feature flag — hides the Статии nav item when the section is off. */
   articlesEnabled?: boolean;
+  /** «Задай наличност» feature flag — hides the item when the section is off. */
+  availabilitySectionEnabled?: boolean;
   /** Per-user hidden nav keys (item hrefs + group keys) from users.hiddenNav. */
   hiddenNav?: string[];
 }) {
@@ -193,7 +198,10 @@ export function Sidebar({
   // Hide feature-gated items (e.g. Статии when off) AND user-hidden items.
   const visibleItems = (g: NavGroup) =>
     g.items.filter(
-      (i) => (i.href === '/articles' ? articlesEnabled : true) && !hidden.has(i.href),
+      (i) =>
+        (i.href === '/articles' ? articlesEnabled : true) &&
+        (i.href === '/availability' ? availabilitySectionEnabled : true) &&
+        !hidden.has(i.href),
     );
   const groupHasActive = (g: NavGroup) => visibleItems(g).some((i) => isActive(i.href));
   // A group is shown when it isn't collapsible, when it holds the active page, or
