@@ -30,6 +30,7 @@ import { slugify } from '../articles/articles.util';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { optimizeImage } from '../storage/image.util';
 import { smartFocal, smartFocalFromUrl } from '../storage/smart-crop.util';
+import { tenantSlug } from '../../common/tenant-slug.util';
 
 @Injectable()
 export class ProductsService {
@@ -208,7 +209,8 @@ export class ProductsService {
       file.mimetype,
       PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
     );
-    const key = `tenants/${tenantId}/products/${id}/${randomUUID()}.${img.ext}`;
+    const slug = await tenantSlug(this.db, tenantId);
+    const key = `tenants/${slug}/products/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
     // Replace: drop the previous object once the new one is stored.
@@ -295,7 +297,8 @@ export class ProductsService {
       file.mimetype,
       PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
     );
-    const key = `tenants/${tenantId}/products/${id}/${randomUUID()}.${img.ext}`;
+    const slug = await tenantSlug(this.db, tenantId);
+    const key = `tenants/${slug}/products/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
     const [row] = await this.db
