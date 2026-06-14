@@ -101,7 +101,7 @@
 }
 
 /* Rendered article HTML (preview + storefront contract). */
-.article-content { color: var(--ff-ink, #26241d); line-height: 1.7; font-size: 15.5px; }
+.article-content { color: var(--ff-ink, #26241d); line-height: 1.7; font-size: 15.5px; overflow-wrap: break-word; word-break: break-word; }
 .article-content p { margin: 0 0 16px; }
 .article-content h2 { font-size: 22px; font-weight: 800; margin: 26px 0 12px; }
 .article-content h3 { font-size: 18px; font-weight: 800; margin: 22px 0 10px; }
@@ -112,9 +112,13 @@
 .article-content a { color: var(--ff-green-600, #387040); text-decoration: underline; }
 .article-content img { max-width: 100%; height: auto; border-radius: 12px; margin: 12px 0; }
 .article-content blockquote { margin: 16px 0; padding-left: 14px; border-left: 3px solid var(--ff-border, #e6dece); color: var(--ff-muted, #8b8573); }
+/* Keep wide pasted content (tables, pre, embeds) inside the column on phones. */
+.article-content table { display: block; max-width: 100%; overflow-x: auto; }
+.article-content pre { max-width: 100%; overflow-x: auto; white-space: pre-wrap; }
+.article-content video, .article-content iframe { max-width: 100%; }
 
 /* Quill editor surface. */
-.article-editor-quill .ql-container { min-height: 320px; font-size: 15.5px; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }
-.article-editor-quill .ql-toolbar { border-top-left-radius: 8px; border-top-right-radius: 8px; }
+.article-editor-quill .ql-container { min-height: 320px; font-size: 15.5px; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; background: var(--ff-surface, #fff); border-color: var(--ff-border, #e6dece); }
+.article-editor-quill .ql-toolbar { border-top-left-radius: 8px; border-top-right-radius: 8px; background: var(--ff-surface, #fff); border-color: var(--ff-border, #e6dece); box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); }
 .article-editor-quill .ql-editor { min-height: 320px; }
 .article-editor-quill-skeleton { min-height: 380px; border: 1px solid var(--ff-border, #e6dece); border-radius: 8px; background: var(--ff-surface-2, #fbf8f1); }

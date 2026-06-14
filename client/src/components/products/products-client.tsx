@@ -237,11 +237,11 @@ export function ProductsClient({
         </div>
       )}
 
-      <div className="mb-[18px] flex items-center justify-between gap-2">
+      <div className="mb-[18px] flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-ff-muted">
           {activeCount} активни · {totalCount} общо
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
             <Info size={16} /> Обяснения
           </Button>
