@@ -41,6 +41,7 @@ import { ArticlesModule } from './modules/articles/articles.module';
 import { EcontModule } from './modules/econt/econt.module';
 import { DigestModule } from './modules/digest/digest.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
+import { HealthModule } from './common/health/health.module';
 
 @Module({
   imports: [
@@ -94,6 +95,7 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
     }),
     DrizzleModule,
     RedisModule,
+    HealthModule,
     EmailModule,
     MapsModule,
     AuthModule,
