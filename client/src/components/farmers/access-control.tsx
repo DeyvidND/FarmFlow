@@ -32,6 +32,7 @@ export function AccessControl({ farmerId, initial }: { farmerId: string; initial
     try {
       await revokeFarmerAccess(farmerId);
       setAccess(undefined);
+      setEmail(''); // clear so the re-appearing form isn't pre-filled with the revoked address
       toast.success('Достъпът е премахнат');
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
@@ -67,7 +68,11 @@ export function AccessControl({ farmerId, initial }: { farmerId: string; initial
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor={`access-email-${farmerId}`} className="sr-only">
+            Имейл на фермера
+          </label>
           <input
+            id={`access-email-${farmerId}`}
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
