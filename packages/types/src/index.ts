@@ -106,7 +106,7 @@ export type PublicFarmer = Omit<Farmer, 'tenantId' | 'email' | 'phone'> & { imag
 export type PublicSubcategory = Omit<Subcategory, 'tenantId'> & { images: string[] };
 export type SafeUser = Omit<User, 'passwordHash'>;
 
-export type TenantRole = 'admin' | 'driver' | 'customer';
+export type TenantRole = 'admin' | 'driver' | 'customer' | 'farmer';
 
 /**
  * JWT body. `type` discriminates platform admins from tenant users; absent =
@@ -118,6 +118,9 @@ export type JwtPayload = {
   type?: 'tenant' | 'platform';
   tenantId?: string;
   role?: TenantRole;
+  /** Present only on producer sub-account tokens (role='farmer'): the farmers.id
+   *  this login is scoped to. */
+  farmerId?: string;
   mustChangePassword?: boolean;
   // Session epoch — must equal the principal's current tokenVersion in the DB,
   // else the token has been revoked (password change/reset). Absent on legacy
@@ -132,6 +135,8 @@ export type TenantRequestUser = {
   userId: string;
   tenantId: string;
   role: TenantRole;
+  /** Producer scope for role='farmer' (else undefined). */
+  farmerId?: string;
 };
 
 export type PlatformRequestUser = {

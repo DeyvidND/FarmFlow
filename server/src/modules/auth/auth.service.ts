@@ -3,6 +3,7 @@ import {
   Inject,
   UnauthorizedException,
   BadRequestException,
+  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -46,7 +47,7 @@ export class AuthService {
     }
     if (!(await argon2.verify(user.passwordHash, dto.password))) throw invalid;
 
-    return this.sign(user.id, user.tenantId, user.role, user.mustChangePassword, user.tokenVersion);
+    return this.sign(user.id, user.tenantId, user.role, user.mustChangePassword, user.tokenVersion, user.farmerId);
   }
 
   /** Run a throwaway Argon2 verify so the no-such-user path costs the same as a
@@ -97,6 +98,7 @@ export class AuthService {
       updated.role,
       false,
       updated.tokenVersion,
+      updated.farmerId,
     );
   }
 
@@ -185,6 +187,34 @@ export class AuthService {
     return { ok: true };
   }
 
+  /**
+   * Invite a producer sub-account: email a set-password link. Reuses the password
+   * reset token (separate secret, single-use, bound to the password fingerprint), so
+   * the temporary random password set at creation is never disclosed. Longer-lived
+   * (7d) than a self-service reset since the producer may open the email later.
+   */
+  async sendFarmerInvite(userId: string): Promise<void> {
+    const [user] = await this.db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!user) throw new NotFoundException('Профилът не е намерен');
+
+    const token = await this.jwt.signAsync(
+      { sub: user.id, type: 'reset', pv: this.pwFingerprint(user.passwordHash) },
+      { secret: this.resetSecret(), expiresIn: '7d' },
+    );
+    const appUrl = this.config.get<string>('PUBLIC_APP_URL') ?? 'http://localhost:3000';
+    const link = `${appUrl}/reset-password?token=${encodeURIComponent(token)}`;
+    await this.email.sendMail({
+      to: user.email,
+      subject: 'Покана за достъп — FarmFlow',
+      html: inviteEmailHtml(link),
+      text: `Получи достъп до своя оборот във FarmFlow.\nОтвори тази връзка, за да зададеш парола (валидна 7 дни):\n${link}`,
+    });
+  }
+
   /** Finish the reset flow: verify the token + set the new password. */
   async resetPassword(token: string, newPassword: string): Promise<{ ok: true }> {
     let payload: { sub?: string; type?: string; pv?: string };
@@ -238,6 +268,7 @@ export class AuthService {
     role: Role,
     mustChangePassword = false,
     tokenVersion = 0,
+    farmerId?: string | null,
   ): { accessToken: string } {
     const payload: JwtPayload = {
       sub,
@@ -246,9 +277,34 @@ export class AuthService {
       role,
       mustChangePassword,
       tv: tokenVersion,
+      ...(farmerId ? { farmerId } : {}),
     };
     return { accessToken: this.jwt.sign(payload) };
   }
+}
+
+/** Branded invite email — producer sets their first password. */
+function inviteEmailHtml(link: string): string {
+  return `<!doctype html><html lang="bg"><body style="margin:0;background:#f6f4ec;font-family:Arial,Helvetica,sans-serif;color:#23210f">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f4ec;padding:28px 0">
+    <tr><td align="center">
+      <table role="presentation" width="460" cellpadding="0" cellspacing="0" style="max-width:460px;background:#fffdf7;border:1px solid #e7e3d6;border-radius:16px;overflow:hidden">
+        <tr><td style="background:#2d6a4f;padding:22px 28px;color:#eaf1e4;font-size:20px;font-weight:bold">🌿 FarmFlow</td></tr>
+        <tr><td style="padding:28px">
+          <h1 style="margin:0 0 12px;font-size:20px;color:#23210f">Покана за достъп</h1>
+          <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#4a4733">
+            Получи достъп до своя личен оборот във FarmFlow. Натисни бутона, за да зададеш парола и да влезеш.
+          </p>
+          <p style="margin:0 0 22px">
+            <a href="${link}" style="display:inline-block;background:#2d6a4f;color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px;padding:13px 22px;border-radius:10px">Задай парола и влез</a>
+          </p>
+          <p style="margin:0;font-size:13px;color:#8a8770">Връзката е валидна 7 дни.</p>
+        </td></tr>
+        <tr><td style="padding:16px 28px;border-top:1px solid #eee7d6;font-size:12px;color:#a8a594">FarmFlow · Управление на фермата</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
 }
 
 /** Branded reset email (inline styles — email clients ignore <style>/classes). */

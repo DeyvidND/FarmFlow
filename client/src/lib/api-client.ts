@@ -6,6 +6,7 @@ import type {
   EcontCity,
   EcontOfficeLive,
   Farmer,
+  FarmerAccess,
   MediaItem,
   Order,
   Paginated,
@@ -138,6 +139,15 @@ export function uploadFarmerImage(id: string, file: File) {
   fd.append('image', file);
   return apiFetch<Farmer>(`farmers/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
 }
+
+export const getFarmerAccess = () =>
+  apiFetch<Record<string, FarmerAccess>>('farmers/access');
+
+export const grantFarmerAccess = (id: string, email: string) =>
+  apiFetch<FarmerAccess>(`farmers/${id}/access`, { method: 'POST', ...json({ email }) }, 'Неуспешна покана');
+
+export const revokeFarmerAccess = (id: string) =>
+  apiFetch<{ ok: true }>(`farmers/${id}/access`, { method: 'DELETE' }, 'Неуспешно премахване');
 
 // ---- Subcategories ----
 export const listSubcategories = () => apiFetch<Subcategory[]>('subcategories');
@@ -448,12 +458,15 @@ export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);
 
 // ---- Sales statistics ----
-export const getStats = (opts: { range: StatsRange } | { from: string; to: string }) => {
-  const qs =
+export const getStats = (
+  opts: ({ range: StatsRange } | { from: string; to: string }) & { farmerId?: string },
+) => {
+  const base =
     'from' in opts
       ? `from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`
       : `range=${opts.range}`;
-  return apiFetch<StatsSummary>(`stats?${qs}`);
+  const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
+  return apiFetch<StatsSummary>(`stats?${base}${fid}`);
 };
 
 // ---- Stripe (payments / Connect) ----

@@ -1,7 +1,9 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { and, eq, asc, inArray } from 'drizzle-orm';
-import { type Database, farmers, farmerMedia } from '@farmflow/db';
+import { and, eq, asc, inArray, sql } from 'drizzle-orm';
+import { type Database, farmers, farmerMedia, users } from '@farmflow/db';
+import * as argon2 from 'argon2';
+import { AuthService } from '../auth/auth.service';
 import type { Farmer, FarmerMedia, PublicFarmer } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { CreateFarmerDto } from './dto/create-farmer.dto';
@@ -18,11 +20,14 @@ import { tenantSlug } from '../../common/tenant-slug.util';
 
 @Injectable()
 export class FarmersService {
+  private readonly logger = new Logger(FarmersService.name);
+
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly storage: StorageService,
     private readonly cache: CatalogCacheService,
     private readonly publicCache: PublicCacheService,
+    private readonly auth: AuthService,
   ) {}
 
   /** All farmers for the tenant, ordered by display position then age. */
@@ -58,6 +63,98 @@ export class FarmersService {
       .limit(1);
     if (!row) throw new NotFoundException('Фермерът не е намерен');
     return row;
+  }
+
+  /** Producer → login status map for the admin Фермери screen. */
+  async listAccess(
+    tenantId: string,
+  ): Promise<Record<string, { hasLogin: true; loginEmail: string; invitePending: boolean }>> {
+    const rows = await this.db
+      .select({ farmerId: users.farmerId, email: users.email, mustChange: users.mustChangePassword })
+      .from(users)
+      .where(and(eq(users.tenantId, tenantId), eq(users.role, 'farmer')));
+    const map: Record<string, { hasLogin: true; loginEmail: string; invitePending: boolean }> = {};
+    for (const r of rows) {
+      if (r.farmerId) map[r.farmerId] = { hasLogin: true, loginEmail: r.email, invitePending: r.mustChange };
+    }
+    return map;
+  }
+
+  /** Invite (or re-invite) a producer: create the scoped login if absent, then email
+   *  a set-password link. Idempotent re-invite resends to the (optionally updated)
+   *  email. Email must be free across all users. */
+  async grantAccess(
+    tenantId: string,
+    farmerId: string,
+    email: string,
+  ): Promise<{ hasLogin: true; loginEmail: string; invitePending: boolean }> {
+    await this.findOne(farmerId, tenantId); // 404 if cross-tenant / missing
+
+    // Normalize so the stored address matches what the producer types at login
+    // (the login lookup is case-sensitive).
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const [existing] = await this.db
+      .select()
+      .from(users)
+      .where(and(eq(users.farmerId, farmerId), eq(users.tenantId, tenantId)))
+      .limit(1);
+
+    // Email collision check (ignore the producer's own current row on re-invite).
+    const [emailOwner] = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, normalizedEmail))
+      .limit(1);
+    if (emailOwner && emailOwner.id !== existing?.id) {
+      throw new ConflictException('Този имейл вече се използва');
+    }
+
+    let userId: string;
+    if (existing) {
+      const [updated] = await this.db
+        .update(users)
+        .set({ email: normalizedEmail, mustChangePassword: true, tokenVersion: sql`${users.tokenVersion} + 1` })
+        .where(eq(users.id, existing.id))
+        .returning({ id: users.id });
+      userId = updated.id;
+    } else {
+      const passwordHash = await argon2.hash(`${randomUUID()}${randomUUID()}`);
+      const [created] = await this.db
+        .insert(users)
+        .values({ tenantId, farmerId, email: normalizedEmail, role: 'farmer', passwordHash, mustChangePassword: true })
+        .returning({ id: users.id });
+      userId = created.id;
+    }
+
+    // Swallow invite-send failures (mirrors AuthService.requestPasswordReset): the
+    // account is created and the owner can re-send from the Фермери screen, so a
+    // transient email outage must not 500 the provisioning call.
+    try {
+      await this.auth.sendFarmerInvite(userId);
+    } catch (err) {
+      this.logger.error(
+        `Farmer invite email failed for user ${userId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return { hasLogin: true, loginEmail: normalizedEmail, invitePending: true };
+  }
+
+  /** Revoke a producer's login: kill live sessions (token_version bump) then delete. */
+  async revokeAccess(tenantId: string, farmerId: string): Promise<{ ok: true }> {
+    await this.findOne(farmerId, tenantId);
+    const [login] = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.farmerId, farmerId), eq(users.tenantId, tenantId)))
+      .limit(1);
+    if (!login) throw new NotFoundException('Този фермер няма достъп');
+    await this.db
+      .update(users)
+      .set({ tokenVersion: sql`${users.tokenVersion} + 1` })
+      .where(eq(users.id, login.id));
+    await this.db.delete(users).where(eq(users.id, login.id));
+    return { ok: true };
   }
 
   async create(tenantId: string, dto: CreateFarmerDto): Promise<Farmer> {

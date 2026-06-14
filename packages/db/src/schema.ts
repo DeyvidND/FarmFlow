@@ -16,7 +16,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
-export const userRoleEnum = pgEnum('user_role', ['admin', 'driver', 'customer']);
+export const userRoleEnum = pgEnum('user_role', ['admin', 'driver', 'customer', 'farmer']);
 export const orderStatusEnum = pgEnum('order_status', [
   'pending',
   'confirmed',
@@ -103,23 +103,36 @@ export const tenants = pgTable('tenants', {
     .where(sql`${t.stripeSubscriptionId} is not null`),
 }));
 
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  role: userRoleEnum('role').notNull(),
-  mustChangePassword: boolean('must_change_password').notNull().default(false),
-  // Monotonic session epoch. Embedded in the JWT (`tv`) and checked on every
-  // authenticated request; bumped on password change/reset so previously issued
-  // tokens stop validating (logout-everywhere / revoke-on-reset).
-  tokenVersion: integer('token_version').notNull().default(0),
-  // Per-user sidebar customization: keys the farmer chose to hide from the side
-  // nav — item hrefs (e.g. "/orders") and whole-group keys ("group:Каталог").
-  // NULL/empty = show everything. Purely cosmetic; the routes stay reachable.
-  hiddenNav: jsonb('hidden_nav').$type<string[]>(),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    email: text('email').notNull().unique(),
+    passwordHash: text('password_hash').notNull(),
+    role: userRoleEnum('role').notNull(),
+    mustChangePassword: boolean('must_change_password').notNull().default(false),
+    // Monotonic session epoch. Embedded in the JWT (`tv`) and checked on every
+    // authenticated request; bumped on password change/reset so previously issued
+    // tokens stop validating (logout-everywhere / revoke-on-reset).
+    tokenVersion: integer('token_version').notNull().default(0),
+    // Per-user sidebar customization: keys the farmer chose to hide from the side
+    // nav — item hrefs (e.g. "/orders") and whole-group keys ("group:Каталог").
+    // NULL/empty = show everything. Purely cosmetic; the routes stay reachable.
+    hiddenNav: jsonb('hidden_nav').$type<string[]>(),
+    // Producer sub-account link: a `role='farmer'` user manages only this producer's
+    // data. NULL for owner/driver/customer rows. CASCADE so deleting the producer
+    // deletes its login. (See farmers table below — forward ref via thunk.)
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    // At most one login per producer.
+    farmerIdUniq: uniqueIndex('users_farmer_id_uniq')
+      .on(t.farmerId)
+      .where(sql`${t.farmerId} is not null`),
+  }),
+);
 
 export const products = pgTable(
   'products',

@@ -5,12 +5,8 @@ import type { StatsSummary } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-/** Server-fetch the default (30d) window so the screen paints with data; the
- *  client refetches on any range change. Never throws — null → "couldn't load". */
-async function load(): Promise<StatsSummary | null> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  const res = await fetch(`${API_BASE}/stats?range=30d`, {
+async function authed<T>(path: string, token: string): Promise<T | null> {
+  const res = await fetch(`${API_BASE}/${path}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: 'no-store',
   }).catch(() => null);
@@ -19,6 +15,23 @@ async function load(): Promise<StatsSummary | null> {
 }
 
 export default async function StatsPage() {
-  const initial = await load();
-  return <StatsClient initial={initial} />;
+  const token = cookies().get(SESSION_COOKIE)?.value;
+  if (!token) return <StatsClient initial={null} role="admin" farmers={[]} multiFarmer={false} />;
+
+  const [initial, account, profile] = await Promise.all([
+    authed<StatsSummary>('stats?range=30d', token),
+    authed<{ role?: string }>('auth/me', token),
+    authed<{ multiFarmer?: boolean }>('tenants/me', token),
+  ]);
+  const role = account?.role ?? 'admin';
+  const multiFarmer = profile?.multiFarmer === true;
+  // Only the owner of a multi-farmer shop needs the producer picker.
+  const farmers =
+    role === 'admin' && multiFarmer
+      ? (await authed<{ id: string; name: string }[]>('farmers', token)) ?? []
+      : [];
+
+  return (
+    <StatsClient initial={initial} role={role} farmers={farmers} multiFarmer={multiFarmer} />
+  );
 }

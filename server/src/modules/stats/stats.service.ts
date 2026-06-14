@@ -428,4 +428,188 @@ export class StatsService {
       points,
     };
   }
+
+  /** Per-producer turnover for a multi-farmer shop. Same shape as {@link stats}, but
+   *  money/orders come from order_items joined to products filtered by farmer_id (a
+   *  shared order counts for every producer in it; delivery is nobody's turnover).
+   *  Uses the product's current farmer_id (no snapshot) — see the spec's v1 limit. */
+  async statsForFarmer(
+    tenantId: string,
+    farmerId: string,
+    opts: { range?: string; from?: string; to?: string } = {},
+  ): Promise<StatsSummary> {
+    const today = bgToday();
+    const { from, to, range } = resolveWindow(opts, today);
+    const bucket = pickBucket(from, to);
+    const cfg = BUCKETS[bucket];
+    const axisKeys = buildAxis(bucket, from, to);
+
+    const since = bgDayBounds(from).from;
+    const toExcl = bgDayBounds(to).to;
+    const spanMs = toExcl.getTime() - since.getTime();
+    const prevSince = new Date(since.getTime() - spanMs);
+
+    const live = sql`${orders.status} is distinct from 'cancelled'`;
+    const lineRev = sql`${orderItems.quantity} * ${orderItems.priceStotinki}`;
+    const keyExpr = sql<string>`coalesce(nullif(${orders.customerPhone}, ''), nullif(${orders.customerEmail}, ''), ${orders.customerId}::text)`;
+    // Reusable base: this producer's line items, in/around the window.
+    const mine = and(eq(orders.tenantId, tenantId), eq(products.farmerId, farmerId));
+
+    const inCur = sql`${orders.createdAt} >= ${since} and ${orders.createdAt} < ${toExcl} and ${live}`;
+    const inPrev = sql`${orders.createdAt} >= ${prevSince} and ${orders.createdAt} < ${since} and ${live}`;
+
+    // ── Headline: current + previous window, line-item money + distinct orders.
+    //    The outer WHERE spans both windows in ONE scan; `live` lives in each
+    //    per-window FILTER (not the WHERE) so cancelled orders drop from the totals
+    //    while the scan still covers [prevSince, toExcl). (Mirrors stats().) ──
+    const aggP = this.db
+      .select({
+        orderCount: sql<number>`count(distinct ${orders.id}) filter (where ${inCur})::int`,
+        revenue: sql<number>`coalesce(sum(${lineRev}) filter (where ${inCur}), 0)::int`,
+        prevOrderCount: sql<number>`count(distinct ${orders.id}) filter (where ${inPrev})::int`,
+        prevRevenue: sql<number>`coalesce(sum(${lineRev}) filter (where ${inPrev}), 0)::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(mine, gte(orders.createdAt, prevSince), lt(orders.createdAt, toExcl)));
+
+    // ── Payment split (current window): line-item money by parent order method. ──
+    const paymentP = this.db
+      .select({
+        method: orders.paymentMethod,
+        count: sql<number>`count(distinct ${orders.id})::int`,
+        revenue: sql<number>`coalesce(sum(${lineRev}), 0)::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(mine, gte(orders.createdAt, since), lt(orders.createdAt, toExcl), live))
+      .groupBy(orders.paymentMethod);
+
+    // ── Top products (this producer's). ──
+    const topP = this.db
+      .select({
+        name: sql<string>`coalesce(${orderItems.productName}, 'Без име')`,
+        quantity: sql<number>`sum(${orderItems.quantity})::int`,
+        revenueStotinki: sql<number>`sum(${lineRev})::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(mine, gte(orders.createdAt, since), lt(orders.createdAt, toExcl), live))
+      .groupBy(sql`1`)
+      .orderBy(sql`3 desc`)
+      .limit(5);
+
+    // ── Loyalty: distinct customers among this producer's orders, window vs before. ──
+    const winKeysP = this.db
+      .selectDistinct({ k: keyExpr })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(mine, gte(orders.createdAt, since), lt(orders.createdAt, toExcl), live, sql`${keyExpr} is not null`));
+    const priorKeysP = this.db
+      .selectDistinct({ k: keyExpr })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(mine, lt(orders.createdAt, since), live, sql`${keyExpr} is not null`));
+
+    // ── Trend: line-item money + distinct orders per Sofia-local bucket. ──
+    const localTs = sql`(${orders.createdAt} at time zone 'UTC' at time zone ${BG_TZ})`;
+    const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${cfg.trunc}'`)}, ${localTs}), ${sql.raw(`'${cfg.fmt}'`)})`;
+    const seriesP = this.db
+      .select({
+        t: bucketExpr,
+        orders: sql<number>`count(distinct ${orders.id}) filter (where ${live})::int`,
+        revenueStotinki: sql<number>`coalesce(sum(${lineRev}) filter (where ${live}), 0)::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(mine, gte(orders.createdAt, since), lt(orders.createdAt, toExcl)))
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
+
+    // ── Slow products: this producer's active catalog + how much each sold. ──
+    const activeProductsP = this.db
+      .select({ id: products.id, name: products.name, weight: products.weight })
+      .from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.farmerId, farmerId), eq(products.isActive, true)));
+    const soldP = this.db
+      .select({
+        productId: orderItems.productId,
+        qty: sql<number>`sum(${orderItems.quantity})::int`,
+        revenue: sql<number>`sum(${lineRev})::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(mine, gte(orders.createdAt, since), lt(orders.createdAt, toExcl), live, sql`${orderItems.productId} is not null`))
+      .groupBy(orderItems.productId);
+
+    // ── Weekday load: line-item money + distinct orders per Sofia weekday. ──
+    const dowExpr = sql<number>`extract(dow from (${orders.createdAt} at time zone 'UTC' at time zone ${BG_TZ}))::int`;
+    const weekdayP = this.db
+      .select({
+        dow: dowExpr,
+        orders: sql<number>`count(distinct ${orders.id}) filter (where ${live})::int`,
+        revenueStotinki: sql<number>`coalesce(sum(${lineRev}) filter (where ${live}), 0)::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(mine, gte(orders.createdAt, since), lt(orders.createdAt, toExcl)))
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
+
+    const [[agg], paymentRows, topProducts, winKeys, priorKeys, seriesRows, activeProducts, sold, weekdayRows] =
+      await Promise.all([aggP, paymentP, topP, winKeysP, priorKeysP, seriesP, activeProductsP, soldP, weekdayP]);
+
+    const ret = computeReturning(winKeys.map((r) => r.k), priorKeys.map((r) => r.k));
+    const cod = paymentRows.find((r) => r.method === 'cod');
+    const online = paymentRows.find((r) => r.method === 'online');
+
+    const soldMap = new Map(sold.map((s) => [s.productId, s]));
+    const slowProducts = pickSlowProducts(
+      activeProducts.map((p) => {
+        const s = soldMap.get(p.id);
+        return {
+          name: [p.name, p.weight].filter(Boolean).join(' '),
+          quantity: s?.qty ?? 0,
+          revenueStotinki: s?.revenue ?? 0,
+        };
+      }),
+      5,
+    );
+    const weekdayLoad = fillWeekday(weekdayRows);
+
+    const found = new Map(seriesRows.map((r) => [r.t, r]));
+    const points: StatsPoint[] = axisKeys.map((t) => {
+      const r = found.get(t);
+      return { t, orders: r?.orders ?? 0, revenueStotinki: r?.revenueStotinki ?? 0 };
+    });
+
+    return {
+      range, bucket, from, to,
+      revenueStotinki: agg.revenue,
+      orderCount: agg.orderCount,
+      avgOrderStotinki: agg.orderCount ? Math.round(agg.revenue / agg.orderCount) : 0,
+      prevRevenueStotinki: agg.prevRevenue,
+      prevOrderCount: agg.prevOrderCount,
+      customerCount: ret.customerCount,
+      returningCustomers: ret.returningCustomers,
+      newCustomers: ret.newCustomers,
+      codOrders: cod?.count ?? 0,
+      codRevenueStotinki: cod?.revenue ?? 0,
+      onlineOrders: online?.count ?? 0,
+      onlineRevenueStotinki: online?.revenue ?? 0,
+      topProducts,
+      slowProducts,
+      weekdayLoad,
+      sparse: agg.orderCount < SPARSE_MIN,
+      points,
+    };
+  }
 }

@@ -7,19 +7,22 @@ import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ApiError, reorderFarmers, updateTenant } from '@/lib/api-client';
 import { ReorderableList } from '@/components/reorderable-list';
-import type { Farmer, ProductOption } from '@/lib/types';
+import type { Farmer, ProductOption, FarmerAccess } from '@/lib/types';
 import { Avatar } from './avatar';
 import { SectionPhoto } from '@/components/subcategories/section-photo';
 import { FarmerPanel } from './farmer-panel';
+import { AccessControl } from './access-control';
 
 export function FarmersClient({
   initialFarmers,
   products,
   initialMultiFarmer,
+  initialAccess = {},
 }: {
   initialFarmers: Farmer[];
   products: ProductOption[];
   initialMultiFarmer: boolean;
+  initialAccess?: Record<string, FarmerAccess>;
 }) {
   const [farmers, setFarmers] = useState(initialFarmers);
   const [multi, setMulti] = useState(initialMultiFarmer);
@@ -211,6 +214,7 @@ export function FarmersClient({
                       <div className="text-[12.5px] text-ff-muted">Още няма продукти. Свържи от „Продукти&rdquo;.</div>
                     )}
                   </div>
+                  <AccessControl farmerId={f.id} initial={initialAccess[f.id]} />
                 </div>
               );
             })}

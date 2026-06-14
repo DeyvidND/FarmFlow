@@ -193,7 +193,17 @@ function SparseTag() {
   );
 }
 
-export function StatsClient({ initial }: { initial: StatsSummary | null }) {
+export function StatsClient({
+  initial,
+  role = 'admin',
+  farmers = [],
+  multiFarmer = false,
+}: {
+  initial: StatsSummary | null;
+  role?: string;
+  farmers?: { id: string; name: string }[];
+  multiFarmer?: boolean;
+}) {
   const initPreset: StatsRange = initial && initial.range !== 'custom' ? initial.range : '30d';
   const [range, setRange] = useState<StatsRange>(initPreset);
   // 'preset' uses one of the quick pills; 'custom' uses the от→до date picker.
@@ -208,12 +218,20 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
   const [help, setHelp] = useState(false);
   // Skip the first fetch when the server already handed us this range's data.
   const [hydrated, setHydrated] = useState(false);
+  // '' = whole tenant; non-empty = scoped to that producer.
+  const showPicker = role === 'admin' && multiFarmer && farmers.length > 0;
+  const [farmerId, setFarmerId] = useState<string>('');
+
+  /** Merge producer scope into any getStats argument. */
+  const withScope = (o: { range: StatsRange } | { from: string; to: string }) =>
+    ({ ...o, ...(farmerId ? { farmerId } : {}) });
 
   useEffect(() => {
     if (!hydrated) {
       setHydrated(true);
       // Server pre-fetched the default preset — don't refetch the same thing.
-      if (initial && mode === 'preset' && initial.range === range) return;
+      // But if a farmerId is selected we must always fetch.
+      if (initial && mode === 'preset' && initial.range === range && !farmerId) return;
     }
     // Custom mode with nothing applied yet: wait for „Покажи".
     if (mode === 'custom' && !applied) return;
@@ -221,7 +239,9 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
     let live = true;
     setLoading(true);
     const req =
-      mode === 'custom' && applied ? getStats({ from: applied.from, to: applied.to }) : getStats({ range });
+      mode === 'custom' && applied
+        ? getStats(withScope({ from: applied.from, to: applied.to }))
+        : getStats(withScope({ range }));
     req
       .then((s) => {
         if (live) setData(s);
@@ -236,7 +256,7 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, range, applied]);
+  }, [mode, range, applied, farmerId]);
 
   function applyCustom() {
     if (!draftFrom || !draftTo) {
@@ -265,6 +285,23 @@ export function StatsClient({ initial }: { initial: StatsSummary | null }) {
       {/* header: period selector + help */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-2.5">
+          {role === 'farmer' ? (
+            <div className="text-[15px] font-extrabold text-ff-ink">Моят оборот</div>
+          ) : showPicker ? (
+            <label className="inline-flex items-center gap-2 text-[13px] font-bold text-ff-ink-2">
+              Фермер:
+              <select
+                value={farmerId}
+                onChange={(e) => setFarmerId(e.target.value)}
+                className="rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] font-semibold text-ff-ink-2 shadow-ff-sm focus:outline-none focus:ring-2 focus:ring-ff-green-500/40"
+              >
+                <option value="">Всички</option>
+                {farmers.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2.5">
             {/* range pills: 4 quick presets + „По избор" custom range */}
             <div className="inline-flex flex-wrap rounded-xl border border-ff-border bg-ff-surface p-0.5 shadow-ff-sm">

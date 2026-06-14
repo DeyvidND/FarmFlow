@@ -57,6 +57,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       articlesEnabled={me.articlesEnabled ?? true}
       hiddenNav={account?.hiddenNav ?? []}
       mustChangePassword={mustChangePassword}
+      role={account?.role ?? 'admin'}
     >
       {children}
     </AdminShell>

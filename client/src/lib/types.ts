@@ -78,6 +78,12 @@ export interface Farmer {
   createdAt: string;
 }
 
+export interface FarmerAccess {
+  hasLogin: true;
+  loginEmail: string;
+  invitePending: boolean;
+}
+
 export interface Subcategory {
   id: string;
   name: string;

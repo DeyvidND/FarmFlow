@@ -87,4 +87,23 @@ describe('JwtStrategy.validate', () => {
       gone.validate({ sub: 'a1', type: 'platform', tv: 0 } as any),
     ).rejects.toThrow(UnauthorizedException);
   });
+
+  it('returns farmerId in RequestUser for a producer sub-account token', async () => {
+    const producerStrategy = makeStrategy({ tokenVersion: 0 });
+    await expect(
+      producerStrategy.validate({
+        sub: 'u1', type: 'tenant', tenantId: 't1', role: 'farmer', tv: 0, farmerId: 'farmer-1',
+      } as any),
+    ).resolves.toEqual({
+      type: 'tenant', userId: 'u1', tenantId: 't1', role: 'farmer', farmerId: 'farmer-1',
+    });
+  });
+
+  it('omits farmerId from RequestUser when the payload has no farmerId', async () => {
+    const ownerStrategy = makeStrategy({ tokenVersion: 0 });
+    const result = await ownerStrategy.validate({
+      sub: 'u1', type: 'tenant', tenantId: 't1', role: 'admin', tv: 0,
+    } as any);
+    expect((result as any).farmerId).toBeUndefined();
+  });
 });

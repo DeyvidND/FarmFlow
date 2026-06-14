@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -100,6 +100,20 @@ describe('AuthService', () => {
 
       await expect(service.changePassword(USER_ID, dto)).rejects.toThrow(
         UnauthorizedException,
+      );
+    });
+
+    it('preserves farmerId in the re-issued token for a producer sub-account', async () => {
+      const farmerRow = { ...userRow, role: 'farmer' as const, farmerId: 'farmer-1' };
+      db.limit.mockResolvedValueOnce([farmerRow]);
+      (argon2.verify as jest.Mock).mockResolvedValueOnce(true);
+      (argon2.hash as jest.Mock).mockResolvedValueOnce('new-hash');
+      db.returning.mockResolvedValueOnce([{ ...farmerRow, mustChangePassword: false }]);
+
+      await service.changePassword(USER_ID, dto);
+
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'farmer', farmerId: 'farmer-1' }),
       );
     });
   });
@@ -269,6 +283,70 @@ describe('AuthService', () => {
 
       await expect(service.resetPassword('tok', 'newPass1')).rejects.toThrow(BadRequestException);
       expect(argon2.hash).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── login ─────────────────────────────────────────────────────────────────
+
+  describe('login', () => {
+    it('signs a token carrying farmerId for a producer sub-account', async () => {
+      db.limit.mockResolvedValueOnce([{
+        id: USER_ID, tenantId: TENANT_ID, email: 'p@farm.bg',
+        passwordHash: '$argon2id$fake', role: 'farmer', mustChangePassword: false,
+        tokenVersion: 0, farmerId: 'farmer-1',
+      }]);
+      (argon2.verify as jest.Mock).mockResolvedValueOnce(true);
+
+      await service.login({ email: 'p@farm.bg', password: 'x' });
+
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'farmer', farmerId: 'farmer-1', tenantId: TENANT_ID }),
+      );
+    });
+
+    it('omits farmerId for an owner token', async () => {
+      db.limit.mockResolvedValueOnce([{
+        id: USER_ID, tenantId: TENANT_ID, email: 'o@farm.bg',
+        passwordHash: '$argon2id$fake', role: 'admin', mustChangePassword: false,
+        tokenVersion: 0, farmerId: null,
+      }]);
+      (argon2.verify as jest.Mock).mockResolvedValueOnce(true);
+
+      await service.login({ email: 'o@farm.bg', password: 'x' });
+
+      const payload = (jwtService.sign as jest.Mock).mock.calls[0][0];
+      expect(payload.farmerId).toBeUndefined();
+    });
+  });
+
+  // ── sendFarmerInvite ────────────────────────────────────────────────────────
+
+  describe('sendFarmerInvite', () => {
+    const userRow = {
+      id: USER_ID, tenantId: TENANT_ID, email: 'p@farm.bg',
+      passwordHash: '$argon2id$fake', role: 'farmer' as const, mustChangePassword: true,
+    };
+
+    it('signs a reset token and emails a set-password invite', async () => {
+      db.limit.mockResolvedValueOnce([userRow]);
+
+      await service.sendFarmerInvite(USER_ID);
+
+      expect(jwtService.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: USER_ID, type: 'reset' }),
+        // 7d is a deliberate security property (longer than a self-service reset) —
+        // pin it so a regression to '30m'/no-expiry can't pass silently.
+        expect.objectContaining({ secret: 'test-secret::pwreset', expiresIn: '7d' }),
+      );
+      const sent = emailMock.sendMail.mock.calls[0][0];
+      expect(sent.to).toBe('p@farm.bg');
+      expect(sent.html).toContain('reset-token');
+      expect(sent.text).toContain('reset-token');
+    });
+
+    it('throws NotFoundException when the user does not exist', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      await expect(service.sendFarmerInvite(USER_ID)).rejects.toThrow(NotFoundException);
     });
   });
 
