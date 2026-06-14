@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, eq, asc, inArray, sql } from 'drizzle-orm';
 import { type Database, farmers, farmerMedia, users } from '@farmflow/db';
@@ -20,6 +20,8 @@ import { tenantSlug } from '../../common/tenant-slug.util';
 
 @Injectable()
 export class FarmersService {
+  private readonly logger = new Logger(FarmersService.name);
+
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly storage: StorageService,
@@ -91,7 +93,7 @@ export class FarmersService {
     const [existing] = await this.db
       .select()
       .from(users)
-      .where(eq(users.farmerId, farmerId))
+      .where(and(eq(users.farmerId, farmerId), eq(users.tenantId, tenantId)))
       .limit(1);
 
     // Email collision check (ignore the producer's own current row on re-invite).
@@ -121,7 +123,16 @@ export class FarmersService {
       userId = created.id;
     }
 
-    await this.auth.sendFarmerInvite(userId);
+    // Swallow invite-send failures (mirrors AuthService.requestPasswordReset): the
+    // account is created and the owner can re-send from the Фермери screen, so a
+    // transient email outage must not 500 the provisioning call.
+    try {
+      await this.auth.sendFarmerInvite(userId);
+    } catch (err) {
+      this.logger.error(
+        `Farmer invite email failed for user ${userId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     return { hasLogin: true, loginEmail: email, invitePending: true };
   }
 

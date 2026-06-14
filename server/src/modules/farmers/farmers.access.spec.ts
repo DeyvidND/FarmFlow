@@ -76,4 +76,17 @@ describe('FarmersService access', () => {
       .mockResolvedValueOnce([]); // no login
     await expect(svc.revokeAccess(TENANT, FARMER)).rejects.toThrow(NotFoundException);
   });
+
+  it('grantAccess still returns pending when the invite email fails', async () => {
+    db.limit
+      .mockResolvedValueOnce([{ id: FARMER, tenantId: TENANT, name: 'Иван' }]) // findOne
+      .mockResolvedValueOnce([]) // no existing login
+      .mockResolvedValueOnce([]); // email not taken
+    db.returning.mockResolvedValueOnce([{ id: 'user-1' }]); // insert user
+    auth.sendFarmerInvite.mockRejectedValueOnce(new Error('smtp down'));
+
+    const res = await svc.grantAccess(TENANT, FARMER, 'ivan@farm.bg');
+
+    expect(res).toEqual({ hasLogin: true, loginEmail: 'ivan@farm.bg', invitePending: true });
+  });
 });
