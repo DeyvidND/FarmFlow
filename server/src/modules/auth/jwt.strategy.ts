@@ -63,6 +63,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         userId: payload.sub,
         tenantId: payload.tenantId,
         role: (payload.role ?? 'admin') as TenantRole,
+        ...(payload.farmerId ? { farmerId: payload.farmerId } : {}),
       };
     }
     throw new UnauthorizedException();

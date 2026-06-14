@@ -46,7 +46,7 @@ export class AuthService {
     }
     if (!(await argon2.verify(user.passwordHash, dto.password))) throw invalid;
 
-    return this.sign(user.id, user.tenantId, user.role, user.mustChangePassword, user.tokenVersion);
+    return this.sign(user.id, user.tenantId, user.role, user.mustChangePassword, user.tokenVersion, user.farmerId);
   }
 
   /** Run a throwaway Argon2 verify so the no-such-user path costs the same as a
@@ -238,6 +238,7 @@ export class AuthService {
     role: Role,
     mustChangePassword = false,
     tokenVersion = 0,
+    farmerId?: string | null,
   ): { accessToken: string } {
     const payload: JwtPayload = {
       sub,
@@ -246,6 +247,7 @@ export class AuthService {
       role,
       mustChangePassword,
       tv: tokenVersion,
+      ...(farmerId ? { farmerId } : {}),
     };
     return { accessToken: this.jwt.sign(payload) };
   }

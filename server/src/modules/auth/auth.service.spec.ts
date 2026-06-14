@@ -272,6 +272,39 @@ describe('AuthService', () => {
     });
   });
 
+  // ── login ─────────────────────────────────────────────────────────────────
+
+  describe('login', () => {
+    it('signs a token carrying farmerId for a producer sub-account', async () => {
+      db.limit.mockResolvedValueOnce([{
+        id: USER_ID, tenantId: TENANT_ID, email: 'p@farm.bg',
+        passwordHash: '$argon2id$fake', role: 'farmer', mustChangePassword: false,
+        tokenVersion: 0, farmerId: 'farmer-1',
+      }]);
+      (argon2.verify as jest.Mock).mockResolvedValueOnce(true);
+
+      await service.login({ email: 'p@farm.bg', password: 'x' });
+
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'farmer', farmerId: 'farmer-1', tenantId: TENANT_ID }),
+      );
+    });
+
+    it('omits farmerId for an owner token', async () => {
+      db.limit.mockResolvedValueOnce([{
+        id: USER_ID, tenantId: TENANT_ID, email: 'o@farm.bg',
+        passwordHash: '$argon2id$fake', role: 'admin', mustChangePassword: false,
+        tokenVersion: 0, farmerId: null,
+      }]);
+      (argon2.verify as jest.Mock).mockResolvedValueOnce(true);
+
+      await service.login({ email: 'o@farm.bg', password: 'x' });
+
+      const payload = (jwtService.sign as jest.Mock).mock.calls[0][0];
+      expect(payload.farmerId).toBeUndefined();
+    });
+  });
+
   // ── register no longer exists ──────────────────────────────────────────────
 
   it('does NOT expose a register method on the service', () => {
