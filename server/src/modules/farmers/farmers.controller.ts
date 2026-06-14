@@ -8,6 +8,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { FarmersService } from './farmers.service';
 import { CreateFarmerDto } from './dto/create-farmer.dto';
 import { UpdateFarmerDto } from './dto/update-farmer.dto';
+import { GrantAccessDto } from './dto/grant-access.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
@@ -26,6 +27,12 @@ export class FarmersController {
   @Get()
   findAll(@CurrentTenant() tenantId: string) {
     return this.farmersService.findAll(tenantId);
+  }
+
+  // Literal route — must precede `:id` so "access" isn't captured as a farmer id.
+  @Get('access')
+  listAccess(@CurrentTenant() tenantId: string) {
+    return this.farmersService.listAccess(tenantId);
   }
 
   @Get(':id')
@@ -56,6 +63,22 @@ export class FarmersController {
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.farmersService.remove(id, tenantId);
+  }
+
+  // ---- Farmer sub-account access (admin-only — no @Roles) ----
+
+  @Post(':id/access')
+  grantAccess(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: GrantAccessDto,
+  ) {
+    return this.farmersService.grantAccess(tenantId, id, dto.email);
+  }
+
+  @Delete(':id/access')
+  revokeAccess(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.farmersService.revokeAccess(tenantId, id);
   }
 
   @Post(':id/image')

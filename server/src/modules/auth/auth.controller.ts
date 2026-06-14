@@ -9,6 +9,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateNavDto } from './dto/update-nav.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user-id.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -26,13 +27,14 @@ export class AuthController {
   @ApiOperation({ summary: 'Change password; returns a fresh JWT' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @Roles('admin', 'farmer')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('change-password')
   changePassword(@CurrentUserId() userId: string, @Body() dto: ChangePasswordDto) {
     return this.authService.changePassword(userId, dto);
   }
 
-  // Tight cap — each call may send an email; limits reset-spam / enumeration probing.
+  // Tight cap -- each call may send an email; limits reset-spam / enumeration probing.
   @ApiOperation({ summary: 'Email a password-reset link (always 200, no enumeration)' })
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('forgot-password')
@@ -53,15 +55,17 @@ export class AuthController {
   @ApiOperation({ summary: 'Return the current authenticated user profile' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @Roles('admin', 'farmer')
   @Get('me')
   @HttpCode(200)
   getMe(@CurrentUserId() userId: string) {
     return this.authService.getMe(userId);
   }
 
-  @ApiOperation({ summary: 'Save the current user’s hidden side-nav keys' })
+  @ApiOperation({ summary: "Save the current user's hidden side-nav keys" })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @Roles('admin', 'farmer')
   @Patch('me/nav')
   @HttpCode(200)
   updateNav(@CurrentUserId() userId: string, @Body() dto: UpdateNavDto) {
