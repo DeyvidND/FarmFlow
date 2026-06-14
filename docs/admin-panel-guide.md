@@ -73,11 +73,11 @@ Re-enabling is immediate (no confirmation). This is a **manual override** — bi
 <details>
 <summary><b>A6. Billing & premium</b></summary>
 
-Farms are billed automatically through Stripe: **30 € / month** + **2 € per newsletter broadcast** they send. You don't collect anything by hand.
+Farms are billed automatically through Stripe: **30 € / month** + **€0.000555 per newsletter recipient** (≈ €0.55 per 1000 emails — true 50% markup over the Resend cost). You don't collect anything by hand.
 
 - **План column** — toggle a farm to **Премиум** to make its subscription **free** (no monthly fee, no per-email fee); it stays active forever without a card. Toggle back to **Стандартен** to bill it normally.
 - **Status** — driven by Stripe: a successful charge keeps it **Активен**; a failed charge moves it to **Просрочен** with a visible countdown (default **7 days**) and emails the farmer; if still unpaid when the countdown ends, it auto-suspends to **Спрян** (same effect as A4).
-- **„Имейл сметки"** page — the per-farm tally of newsletter pushes (now collected automatically via Stripe, not by hand).
+- **„Имейл сметки"** page — per-farm **приход / разход (Resend) / печалба** for newsletter sends, plus a platform total and margin % (this is "how much I make on email"). Charged automatically via Stripe.
 
 **Setup (one-time, to go live):** set `STRIPE_SECRET_KEY`, create the 30 €/mo price (`node server/scripts/create-billing-price.mjs`) → put the id in `STRIPE_BILLING_PRICE_ID`, set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, and register a Stripe webhook for `invoice.*`, `customer.subscription.*`, and `checkout.session.completed`. Until then billing is dormant (no charges) and farms run free.
 
@@ -203,7 +203,7 @@ Two things live here:
 
 **Абонамент (subscription)** — the farm's plan for using FarmFlow:
 
-- **Стандартен** — **30 € / месец** + **2 € на изпратен бюлетин**, billed automatically.
+- **Стандартен** — **30 € / месец** + **€0.55 на 1000 изпратени имейла** (€0.000555/получател), billed automatically.
 - **Add a card** with **Добави карта** (a secure Stripe checkout). After that the card is charged each month; **Управление на плащането** opens the Stripe portal to update the card or see invoices.
 - A status badge shows **Активен**, **Просрочен** (a payment failed — a countdown shows how many days before the shop is paused; just update the card), or **Спрян**.
 - **Премиум** farms see **„Премиум — безплатно"** and are never charged.
@@ -359,11 +359,13 @@ GDPR: the storefront shows a **cookie-consent bar** — Google loads in **Consen
 <details>
 <summary><b>Имейл клиенти (Newsletter broadcasts)</b></summary>
 
-Reach the customers who subscribed to the farm's newsletter. The header shows the **active subscriber** count; the **Абонати** list shows each email and signup date.
+Reach the customers who subscribed to the farm's newsletter. Two tabs: **Бюлетини** (the farm's campaigns — draft + sent, with status, date, recipients, cost) and **Абонати** (each email + signup date).
 
 ![Имейл клиенти — newsletter broadcast](images/guide-newsletters.png)
 
-**Ново съобщение** composes a broadcast: a **Тема** (subject) and **Съобщение** (body), then **Изпрати**. A confirmation step shows the recipient count before anything goes out, and a toast reports how many emails were sent. (Empty state: "Все още няма абонати.") **Each broadcast costs 2 €**, added to the farm's monthly subscription bill — unless the farm is **Премиум** (free). Sending is blocked while the subscription is suspended.
+**Ново съобщение** opens a **block editor**: the farmer stacks blocks — heading, rich text, image, full-width hero image, button, 2-column, divider, spacer — with a **live preview** of the email on the right. The email auto-brands from the farm's logo + theme colour; drafts auto-save. Inline images upload to R2.
+
+Before sending, a cost bar shows the active-subscriber count and the exact price of this send (e.g. *„200 абоната — €0.11"*), and the confirm dialog restates it. **Pricing is per recipient: €0.000555/email (≈ €0.55 per 1000)** — true 50% markup over the Resend cost — added to the farm's monthly Stripe invoice. **Премиум** farms send free. Sending is blocked while the subscription is suspended; a sent campaign is read-only.
 
 </details>
 
