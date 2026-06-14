@@ -12,6 +12,7 @@ import Stripe from 'stripe';
 import { type Database, tenants, emailPushes } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
+import { priceForRecipients } from './billing.pricing';
 
 // stripe@22 ships `export = StripeConstructor`; derive the client type from the
 // constructor instead of the (unreachable) `Stripe.*` namespace. Mirrors StripeService.
@@ -28,9 +29,10 @@ export interface BillingSummary {
   cardBrand: string | null;
   cardLast4: string | null;
   basePriceStotinki: number;
-  emailPriceStotinki: number;
+  /** Per-recipient newsletter price in micro-€ (e.g. 555 = €0.000555). */
+  emailPricePerRecipientMicro: number;
   pushesThisCycle: number;
-  /** Estimated amount of the next invoice (base + €2 × pushes this cycle). */
+  /** Estimated amount of the next invoice (base + per-recipient sends this cycle). */
   estimatedNextStotinki: number;
   invoices: { amountStotinki: number; status: string; date: string; url: string | null }[];
 }
@@ -51,7 +53,7 @@ export class BillingService {
   private readonly client: StripeClient | null;
   private readonly priceId: string;
   private readonly basePrice: number;
-  private readonly emailPrice: number;
+  private readonly emailPerRecipientMicro: number;
   private readonly graceDays: number;
   private readonly panelUrl: string;
 
@@ -64,7 +66,7 @@ export class BillingService {
     this.client = key ? new Stripe(key) : null;
     this.priceId = config.get<string>('STRIPE_BILLING_PRICE_ID')?.trim() ?? '';
     this.basePrice = config.get<number>('BILLING_BASE_PRICE_STOTINKI', 3000);
-    this.emailPrice = config.get<number>('EMAIL_PUSH_PRICE_STOTINKI', 200);
+    this.emailPerRecipientMicro = config.get<number>('EMAIL_PRICE_PER_RECIPIENT_MICRO', 555);
     this.graceDays = config.get<number>('BILLING_GRACE_DAYS', 7);
     // CORS_ORIGIN may be a comma-separated allowlist — use the first (primary) origin.
     this.panelUrl = (config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000')
@@ -173,7 +175,7 @@ export class BillingService {
       cardBrand: null,
       cardLast4: null,
       basePriceStotinki: this.basePrice,
-      emailPriceStotinki: this.emailPrice,
+      emailPricePerRecipientMicro: this.emailPerRecipientMicro,
       pushesThisCycle: 0,
       estimatedNextStotinki: this.basePrice,
       invoices: [],
@@ -253,10 +255,13 @@ export class BillingService {
     }
     if (!this.client || !t.stripeCustomerId) return; // not billable yet
 
+    const amount = priceForRecipients(push.recipientCount, this.emailPerRecipientMicro);
+    if (amount <= 0) return; // nothing to bill (e.g. 0 recipients)
+
     try {
       const item = await this.stripe.invoiceItems.create({
         customer: t.stripeCustomerId,
-        amount: this.emailPrice,
+        amount,
         currency: 'eur',
         description: `Бюлетин: ${push.subject ?? ''} (${push.recipientCount} получателя)`,
         metadata: { farmflowTenantId: t.id, pushId },

@@ -102,7 +102,7 @@ describe('BillingService.billPush', () => {
   beforeEach(async () => {
     db = makeDb();
     email = makeEmail();
-    svc = await build(db, cfg({ EMAIL_PUSH_PRICE_STOTINKI: 200 }), email);
+    svc = await build(db, cfg({ EMAIL_PRICE_PER_RECIPIENT_MICRO: 555 }), email);
     invoiceItems.create.mockClear();
   });
 
@@ -115,16 +115,25 @@ describe('BillingService.billPush', () => {
     expect(invoiceItems.create).not.toHaveBeenCalled();
   });
 
-  it('non-premium with customer → creates invoice item + stores id', async () => {
+  it('non-premium with customer → invoice item priced per recipient (200 × 555µ = 11 ст)', async () => {
     (svc as any).client = { invoiceItems };
     db.limit
-      .mockResolvedValueOnce([{ id: 'p1', tenantId: 't1', stripeInvoiceItemId: null, subject: 'Лято', recipientCount: 5 }])
+      .mockResolvedValueOnce([{ id: 'p1', tenantId: 't1', stripeInvoiceItemId: null, subject: 'Лято', recipientCount: 200 }])
       .mockResolvedValueOnce([{ id: 't1', premium: false, stripeCustomerId: 'cus_1' }]);
     await svc.billPush('p1');
     expect(invoiceItems.create).toHaveBeenCalledWith(
-      expect.objectContaining({ customer: 'cus_1', amount: 200, currency: 'eur' }),
+      expect.objectContaining({ customer: 'cus_1', amount: 11, currency: 'eur' }),
     );
     expect(db.set).toHaveBeenCalledWith({ stripeInvoiceItemId: 'ii_1' });
+  });
+
+  it('tiny send that rounds to 0 ст → not billed (no Stripe call)', async () => {
+    (svc as any).client = { invoiceItems };
+    db.limit
+      .mockResolvedValueOnce([{ id: 'p1', tenantId: 't1', stripeInvoiceItemId: null, subject: 'x', recipientCount: 5 }])
+      .mockResolvedValueOnce([{ id: 't1', premium: false, stripeCustomerId: 'cus_1' }]);
+    await svc.billPush('p1'); // 5 × 555µ = 0.2775 ст → round 0
+    expect(invoiceItems.create).not.toHaveBeenCalled();
   });
 
   it('already-billed push → no-op (no Stripe, no update)', async () => {
