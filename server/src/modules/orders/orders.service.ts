@@ -428,6 +428,127 @@ export class OrdersService {
     return { totals, ...listPart };
   }
 
+  /**
+   * Producer-scoped Плащания: the same {@link PaymentsPage} shape as
+   * {@link payments}, but every order's money is the producer's OWN line-item
+   * subtotal (sum of their items' qty × price on that order), NOT the full order
+   * total. Mirrors `statsForFarmer`'s line-item attribution: source the list from
+   * `orderItems ⋈ orders ⋈ products` and keep only items whose product belongs to
+   * `farmerId`. An order containing two of the producer's items appears ONCE
+   * (GROUP BY orders.id) and is counted once in the totals (distinct orders.id).
+   *
+   * NOT cached — producers are low-traffic, and skipping the cache avoids new bust
+   * keys (one per farmer × method) plus the risk of a stale producer view. The
+   * owner path keeps its short-TTL cache.
+   */
+  async paymentsForFarmer(
+    tenantId: string,
+    farmerId: string,
+    opts: { method?: PaymentMethodFilter; q?: string; cursor?: string; limit?: number } = {},
+  ): Promise<PaymentsPage> {
+    const method: PaymentMethodFilter = opts.method === 'cod' ? 'cod' : 'all';
+    const q = (opts.q ?? '').trim();
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+
+    // This producer's line revenue on each order (minor units, EUR cents).
+    const lineRev = sql<number>`sum(${orderItems.quantity} * ${orderItems.priceStotinki})::int`;
+
+    const conds = [
+      eq(orders.tenantId, tenantId),
+      eq(products.farmerId, farmerId),
+      inArray(orders.status, [...PAYMENT_COUNTED_STATUSES]),
+    ];
+    if (method === 'cod') conds.push(eq(orders.paymentMethod, 'cod'));
+    if (q) conds.push(this.paymentSearchCond(q));
+    if (cur) {
+      // Same naive-timestamp + uuid cast as the owner method — keyset «older than
+      // cursor» on (created_at, id), tz-agnostic regardless of the PG session tz.
+      conds.push(
+        sql`(${orders.createdAt}, ${orders.id}) < (${cur.createdAt.toISOString()}::timestamp, ${cur.id}::uuid)`,
+      );
+    }
+
+    // Delivery day: the slot's date, falling back to the BG-local creation date.
+    const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
+    const rows = await this.db
+      .select({
+        day,
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        customerEmail: orders.customerEmail,
+        // Producer subtotal — the sum of THIS farmer's line items on the order,
+        // not orders.totalStotinki (which includes other producers + delivery fee).
+        totalStotinki: lineRev,
+        status: orders.status,
+        deliveryType: orders.deliveryType,
+        paymentMethod: orders.paymentMethod,
+        createdAt: orders.createdAt,
+        paidAt: orders.paidAt,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(and(...conds)!)
+      // One row per order (each of the producer's items folds into the subtotal).
+      // The non-aggregated selected columns are all functionally dependent on
+      // orders.id, so they go in the GROUP BY alongside it.
+      .groupBy(
+        orders.id,
+        orders.orderNumber,
+        orders.customerName,
+        orders.customerPhone,
+        orders.customerEmail,
+        orders.status,
+        orders.deliveryType,
+        orders.paymentMethod,
+        orders.createdAt,
+        orders.paidAt,
+        deliverySlots.date,
+        deliverySlots.timeFrom,
+        deliverySlots.timeTo,
+      )
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(lim + 1);
+
+    const { items, nextCursor } = buildPage(rows as PaymentRow[], lim, (r) => ({
+      createdAt: r.createdAt as Date,
+      id: r.id,
+    }));
+
+    // Totals: same line-item join, grouped by channel. count(distinct orders.id) so
+    // a single order with two of the producer's items counts once; the card paid
+    // split filters on orders.paidAt (money actually received). Not cached.
+    const aggRows = await this.db
+      .select({
+        paymentMethod: orders.paymentMethod,
+        count: sql<number>`count(distinct ${orders.id})::int`,
+        totalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}), 0)::int`,
+        paidCount: sql<number>`count(distinct ${orders.id}) filter (where ${orders.paidAt} is not null)::int`,
+        paidTotalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.paidAt} is not null), 0)::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(products.farmerId, farmerId),
+          inArray(orders.status, [...PAYMENT_COUNTED_STATUSES]),
+        ),
+      )
+      .groupBy(orders.paymentMethod);
+    // Totals are global (ignore search/page) — only returned on the first page.
+    const totals = cur ? null : paymentTotals(aggRows as PaymentAggRow[]);
+
+    return { totals, orders: items.map(toPaymentOrder), nextCursor };
+  }
+
   /** Tenant-wide payment totals, Redis-cached (busted on order writes). */
   private async paymentTotalsCached(tenantId: string): Promise<PaymentTotals> {
     const key = `payments:totals:${tenantId}`;

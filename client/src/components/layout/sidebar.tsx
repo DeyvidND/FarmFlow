@@ -126,6 +126,7 @@ export const NAV: NavItem[] = [HOME, ...NAV_GROUPS.flatMap((g) => g.items)];
 /** Reduced nav for a producer sub-account (role='farmer'). Grows in later phases. */
 export const FARMER_NAV: NavItem[] = [
   { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Твоят личен оборот, поръчки и тренд.' },
+  { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Плащанията за твоите продукти.' },
 ];
 
 const NAV_ORDER_PREFIX = 'navorder:';

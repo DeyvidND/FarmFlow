@@ -114,9 +114,12 @@ function groupByDay(list: PaymentOrder[]): DayGroup[] {
 export function PaymentsClient({
   stripe,
   initial,
+  role = 'admin',
 }: {
   stripe: StripeSummary;
   initial: PaymentsPage;
+  /** A producer ('farmer') sees only the money from their own products. */
+  role?: 'admin' | 'farmer';
 }) {
   const [tab, setTab] = useState<Tab>('all');
   const [query, setQuery] = useState('');
@@ -205,7 +208,9 @@ export function PaymentsClient({
       <div className="mb-5">
         <h1 className="mb-1 text-[22px] font-extrabold tracking-[-0.01em]">Плащания</h1>
         <p className="text-[13.5px] text-ff-muted">
-          Парите от поръчки — наложен платеж и картови плащания, по клиент.
+          {role === 'farmer'
+            ? 'Сумите са за твоите продукти.'
+            : 'Парите от поръчки — наложен платеж и картови плащания, по клиент.'}
         </p>
       </div>
 

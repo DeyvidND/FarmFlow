@@ -13,7 +13,11 @@ import { PaymentsQueryDto } from './dto/payments-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
+import type { TenantRequestUser } from '@farmflow/types';
 
 @ApiTags('orders')
 @ApiBearerAuth()
@@ -46,14 +50,23 @@ export class OrdersController {
 
   // Literal route — declared before `:id` so it isn't captured as an order id.
   // All order money (наложен платеж + card) for the Плащания screen: keyset page
-  // + method filter (all/cod) + free-text search.
+  // + method filter (all/cod) + free-text search. Opened to producer sub-accounts
+  // (role='farmer'), who see only the payments attributable to THEIR line items —
+  // mirroring how /stats scopes turnover (effectiveFarmerId + a producer-scoped
+  // service method). A producer is always forced to its own farmerId; the owner
+  // may optionally narrow to one producer via ?farmerId.
   @Get('payments')
+  @Roles('admin', 'farmer')
   @ApiQuery({ name: 'method', required: false })
   @ApiQuery({ name: 'q', required: false })
   @ApiQuery({ name: 'cursor', required: false })
   @ApiQuery({ name: 'limit', required: false })
-  payments(@CurrentTenant() tenantId: string, @Query() query: PaymentsQueryDto) {
-    return this.ordersService.payments(tenantId, query);
+  @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
+  payments(@CurrentUser() user: TenantRequestUser, @Query() query: PaymentsQueryDto) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, query.farmerId);
+    return scope
+      ? this.ordersService.paymentsForFarmer(user.tenantId, scope, query)
+      : this.ordersService.payments(user.tenantId, query);
   }
 
   @Get(':id')

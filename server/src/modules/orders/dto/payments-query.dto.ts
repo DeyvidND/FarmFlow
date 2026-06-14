@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/pagination/pagination-query.dto';
 
 /** Query params for GET /orders/payments — keyset page + tab filter + search. */
@@ -13,4 +13,10 @@ export class PaymentsQueryDto extends PaginationQueryDto {
   @IsString()
   @MaxLength(100)
   q?: string;
+
+  /** Owner-only: scope the list to one producer's line items. Ignored for a
+   *  producer token (a producer is always forced to its own farmerId server-side). */
+  @IsOptional()
+  @IsUUID()
+  farmerId?: string;
 }
