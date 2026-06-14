@@ -62,97 +62,139 @@ export function serializeOrder(o: OrderWithItems): SerializedOrder {
   return { ...rest, paymentStatus };
 }
 
-/** Order statuses that count as a real COD «payment» on the Плащания screen:
- *  everything the farmer has confirmed (money in hand or due at delivery),
- *  excluding still-pending and cancelled orders. */
-export const COD_COUNTED_STATUSES = [
+/** Order statuses that count as a real «payment» on the Плащания screen:
+ *  everything the farmer has confirmed (money in hand, due at delivery, or
+ *  paid by card), excluding still-pending and cancelled orders. */
+export const PAYMENT_COUNTED_STATUSES = [
   'confirmed',
   'preparing',
   'out_for_delivery',
   'delivered',
 ] as const;
 
-/** One COD order as shown under a day on the payments screen. */
-export interface CodPaymentOrder {
+/** How the customer chose to pay — наложен платеж (cash on delivery) vs card. */
+export type PaymentChannel = 'cod' | 'online';
+
+/** One order as shown on the Плащания screen (both COD and card channels). */
+export interface PaymentOrder {
   id: string;
   orderNumber: number | null;
   customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
   totalStotinki: number;
   status: string;
   deliveryType: string;
-  /** True once delivered — money actually collected (vs. expected). */
+  paymentMethod: PaymentChannel;
+  /** Derived: paid (card captured) / pending_online (card unpaid) / cash (COD). */
+  paymentStatus: PaymentStatus;
+  /** True once the money is in hand — COD delivered, or card paid. */
   collected: boolean;
-  createdAt: string | null;
-  slotFrom: string | null;
-  slotTo: string | null;
-}
-
-export interface CodPaymentDay {
   /** BG calendar day of delivery (slot day; creation day for slotless orders). */
   day: string;
-  totalStotinki: number;
-  count: number;
-  orders: CodPaymentOrder[];
-}
-
-export interface CodPaymentsSummary {
-  /** Grand total over the returned window (minor units, EUR cents). */
-  totalStotinki: number;
-  count: number;
-  /** Newest delivery day first. */
-  days: CodPaymentDay[];
-}
-
-/** Raw row shape the COD query feeds into {@link groupCodPayments}. */
-export interface CodPaymentRow {
-  day: string;
-  id: string;
-  orderNumber: number | null;
-  customerName: string | null;
-  totalStotinki: number;
-  status: string;
-  deliveryType: string;
-  createdAt: Date | string | null;
+  createdAt: string | null;
+  paidAt: string | null;
   slotFrom: string | null;
   slotTo: string | null;
 }
 
+export interface PaymentsSummary {
+  /** COD due + card received, over the window (minor units, EUR cents). */
+  totalStotinki: number;
+  count: number;
+  /** Наложен платеж: every counted order (money due/collected). */
+  codTotalStotinki: number;
+  codCount: number;
+  /** Card: only paid orders (money actually received). */
+  cardTotalStotinki: number;
+  cardCount: number;
+  /** Flat list, newest delivery day first, then newest created. */
+  orders: PaymentOrder[];
+}
+
+/** Raw row shape the payments query feeds into {@link buildPaymentsSummary}. */
+export interface PaymentRow {
+  day: string;
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  totalStotinki: number;
+  status: string;
+  deliveryType: string;
+  paymentMethod: PaymentChannel;
+  createdAt: Date | string | null;
+  paidAt: Date | string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+}
+
+const toIso = (v: Date | string | null): string | null =>
+  v == null ? null : new Date(v).toISOString();
+
 /**
- * Group flat COD order rows into per-day buckets (newest day first), summing the
- * day total + count. Pure (no DB) so it's unit-testable; rows arrive already
- * filtered to counted statuses + paymentMethod='cod'. Within a day the input
- * order is preserved (the query sorts newest-created first).
+ * Map flat payment rows to the screen shape and sum per-channel + grand totals.
+ * Pure (no DB) so it's unit-testable; rows arrive already filtered to counted
+ * statuses (both methods). Sorted newest delivery day first, newest created
+ * within a day (order-independent — the query also sorts, this is defensive).
+ * Card total counts only paid card orders (money actually received); COD total
+ * counts every due order.
  */
-export function groupCodPayments(rows: CodPaymentRow[]): CodPaymentsSummary {
-  const byDay = new Map<string, CodPaymentDay>();
-  for (const r of rows) {
-    let bucket = byDay.get(r.day);
-    if (!bucket) {
-      bucket = { day: r.day, totalStotinki: 0, count: 0, orders: [] };
-      byDay.set(r.day, bucket);
-    }
-    bucket.orders.push({
+export function buildPaymentsSummary(rows: PaymentRow[]): PaymentsSummary {
+  const list: PaymentOrder[] = rows.map((r) => {
+    const paid = r.paidAt != null;
+    const paymentStatus: PaymentStatus = paid
+      ? 'paid'
+      : r.paymentMethod === 'online'
+        ? 'pending_online'
+        : 'cash';
+    return {
       id: r.id,
       orderNumber: r.orderNumber,
       customerName: r.customerName,
+      customerPhone: r.customerPhone,
+      customerEmail: r.customerEmail,
       totalStotinki: r.totalStotinki,
       status: r.status,
       deliveryType: r.deliveryType,
-      collected: r.status === 'delivered',
-      createdAt: r.createdAt == null ? null : new Date(r.createdAt).toISOString(),
+      paymentMethod: r.paymentMethod,
+      paymentStatus,
+      collected: r.paymentMethod === 'cod' ? r.status === 'delivered' : paid,
+      day: r.day,
+      createdAt: toIso(r.createdAt),
+      paidAt: toIso(r.paidAt),
       slotFrom: r.slotFrom,
       slotTo: r.slotTo,
-    });
-    bucket.totalStotinki += r.totalStotinki;
-    bucket.count += 1;
+    };
+  });
+  list.sort((a, b) => {
+    if (a.day !== b.day) return a.day < b.day ? 1 : -1;
+    const ca = a.createdAt ?? '';
+    const cb = b.createdAt ?? '';
+    return ca < cb ? 1 : ca > cb ? -1 : 0;
+  });
+  let codTotalStotinki = 0;
+  let codCount = 0;
+  let cardTotalStotinki = 0;
+  let cardCount = 0;
+  for (const o of list) {
+    if (o.paymentMethod === 'cod') {
+      codTotalStotinki += o.totalStotinki;
+      codCount += 1;
+    } else if (o.paymentStatus === 'paid') {
+      cardTotalStotinki += o.totalStotinki;
+      cardCount += 1;
+    }
   }
-  const days = [...byDay.values()].sort((a, b) =>
-    a.day < b.day ? 1 : a.day > b.day ? -1 : 0,
-  );
   return {
-    totalStotinki: days.reduce((s, d) => s + d.totalStotinki, 0),
-    count: days.reduce((s, d) => s + d.count, 0),
-    days,
+    totalStotinki: codTotalStotinki + cardTotalStotinki,
+    count: codCount + cardCount,
+    codTotalStotinki,
+    codCount,
+    cardTotalStotinki,
+    cardCount,
+    orders: list,
   };
 }
 
@@ -273,13 +315,14 @@ export class OrdersService {
   }
 
   /**
-   * COD («наложен платеж») money for the farmer's Плащания screen: confirmed-and-
-   * beyond orders paid by наложен платеж, grouped by delivery day (slot day;
-   * creation day for slotless Econt/pickup orders — same rule as production /
-   * digests). Newest day first; capped at the most recent 300 orders. Card
-   * (Stripe) payments are surfaced separately by the Stripe summary.
+   * All order money for the farmer's Плащания screen: confirmed-and-beyond orders
+   * across both channels (наложен платеж + card), tagged with the delivery day
+   * (slot day; creation day for slotless Econt/pickup orders — same rule as
+   * production / digests) and the customer's contact details for searching.
+   * Newest day first; capped at the most recent 300 orders. The Stripe summary
+   * (payouts / onboarding) is surfaced separately.
    */
-  async codPayments(tenantId: string): Promise<CodPaymentsSummary> {
+  async payments(tenantId: string): Promise<PaymentsSummary> {
     // Delivery day: the slot's date, falling back to the BG-local creation date
     // for slotless orders. Mirrors scheduledForDay's day rule.
     const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
@@ -289,10 +332,14 @@ export class OrdersService {
         id: orders.id,
         orderNumber: orders.orderNumber,
         customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        customerEmail: orders.customerEmail,
         totalStotinki: orders.totalStotinki,
         status: orders.status,
         deliveryType: orders.deliveryType,
+        paymentMethod: orders.paymentMethod,
         createdAt: orders.createdAt,
+        paidAt: orders.paidAt,
         slotFrom: deliverySlots.timeFrom,
         slotTo: deliverySlots.timeTo,
       })
@@ -301,13 +348,12 @@ export class OrdersService {
       .where(
         and(
           eq(orders.tenantId, tenantId),
-          eq(orders.paymentMethod, 'cod'),
-          inArray(orders.status, [...COD_COUNTED_STATUSES]),
+          inArray(orders.status, [...PAYMENT_COUNTED_STATUSES]),
         ),
       )
       .orderBy(desc(orders.createdAt), desc(orders.id))
       .limit(300);
-    return groupCodPayments(rows as CodPaymentRow[]);
+    return buildPaymentsSummary(rows as PaymentRow[]);
   }
 
   async findOne(id: string, tenantId: string): Promise<SerializedOrder> {

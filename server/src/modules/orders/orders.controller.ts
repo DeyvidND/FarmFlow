@@ -44,10 +44,10 @@ export class OrdersController {
   }
 
   // Literal route — declared before `:id` so it isn't captured as an order id.
-  // COD («наложен платеж») money for the Плащания screen, grouped by day.
-  @Get('cod-payments')
-  codPayments(@CurrentTenant() tenantId: string) {
-    return this.ordersService.codPayments(tenantId);
+  // All order money (наложен платеж + card) for the Плащания screen.
+  @Get('payments')
+  payments(@CurrentTenant() tenantId: string) {
+    return this.ordersService.payments(tenantId);
   }
 
   @Get(':id')

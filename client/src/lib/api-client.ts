@@ -9,6 +9,7 @@ import type {
   MediaItem,
   Order,
   Paginated,
+  PaymentStatus,
   Product,
   ProductOption,
   ProductionSummary,
@@ -481,35 +482,43 @@ export interface StripeSummary {
 
 export const getStripeSummary = () => apiFetch<StripeSummary>('stripe/connect/summary');
 
-// ---- COD (наложен платеж) payments — order-derived, grouped by delivery day ----
-export interface CodPaymentOrder {
+// ---- Payments (Плащания screen) — order-derived, both COD + card channels ----
+export type PaymentChannel = 'cod' | 'online';
+/** One order on the payments screen, with contact details for searching. */
+export interface PaymentOrder {
   id: string;
   orderNumber: number | null;
   customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
   totalStotinki: number;
   status: string;
   deliveryType: string;
-  /** Delivered → money collected; otherwise expected at delivery. */
+  paymentMethod: PaymentChannel;
+  /** paid (card captured) / pending_online (card unpaid) / cash (COD). */
+  paymentStatus: PaymentStatus;
+  /** True once the money is in hand — COD delivered, or card paid. */
   collected: boolean;
+  /** BG calendar day of delivery, "YYYY-MM-DD". */
+  day: string;
   createdAt: string | null;
+  paidAt: string | null;
   slotFrom: string | null;
   slotTo: string | null;
 }
-export interface CodPaymentDay {
-  /** BG calendar day of delivery, "YYYY-MM-DD". */
-  day: string;
+export interface PaymentsSummary {
+  /** COD due + card received (minor units, EUR cents). */
   totalStotinki: number;
   count: number;
-  orders: CodPaymentOrder[];
-}
-export interface CodPaymentsSummary {
-  totalStotinki: number;
-  count: number;
-  /** Newest delivery day first. */
-  days: CodPaymentDay[];
+  codTotalStotinki: number;
+  codCount: number;
+  cardTotalStotinki: number;
+  cardCount: number;
+  /** Flat list, newest delivery day first, then newest created. */
+  orders: PaymentOrder[];
 }
 
-export const getCodPayments = () => apiFetch<CodPaymentsSummary>('orders/cod-payments');
+export const getPayments = () => apiFetch<PaymentsSummary>('orders/payments');
 
 /**
  * Create (if needed) the farm's Standard connected account and get a hosted
