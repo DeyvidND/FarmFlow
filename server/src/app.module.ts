@@ -41,6 +41,7 @@ import { ArticlesModule } from './modules/articles/articles.module';
 import { EcontModule } from './modules/econt/econt.module';
 import { DigestModule } from './modules/digest/digest.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
+import { AvailabilityModule } from './modules/availability/availability.module';
 
 @Module({
   imports: [
@@ -119,6 +120,7 @@ import { NewsletterModule } from './modules/newsletter/newsletter.module';
     EcontModule,
     DigestModule,
     NewsletterModule,
+    AvailabilityModule,
     // After the feature modules it composes (Tenants/Products/Farmers/Subcategories).
     PublicBootstrapModule,
   ],
