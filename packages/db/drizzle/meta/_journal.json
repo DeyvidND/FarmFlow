@@ -302,6 +302,13 @@
       "when": 1781437816863,
       "tag": "0042_square_vanisher",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1781464932562,
+      "tag": "0043_colorful_lady_bullseye",
+      "breakpoints": true
     }
   ]
 }

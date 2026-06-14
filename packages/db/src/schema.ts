@@ -54,6 +54,12 @@ export const tenants = pgTable('tenants', {
   // on — preserves the historic always-visible behavior for existing farms.
   articlesEnabled: boolean('articles_enabled').notNull().default(true),
   reviewsEnabled: boolean('reviews_enabled').notNull().default(true),
+  // Opt-in „Задай наличност" section: farmers declare time-bounded availability
+  // windows per product. Default OFF (new feature, preserves existing storefronts).
+  availabilitySectionEnabled: boolean('availability_section_enabled').notNull().default(false),
+  // Optional storefront title for that section. NULL → the storefront default
+  // („Налично сега").
+  availabilityTitle: text('availability_title'),
   // Optional «Продукт на седмицата» storefront highlight. `enabled` is the gate;
   // mode 'manual' features `productOfWeekId` (one product), mode 'auto' resolves a
   // weekly ISO-week rotation server-side (no cron). `note` = optional blurb.
@@ -186,6 +192,29 @@ export const products = pgTable(
     // instead of a seq scan over products.
     farmerIdx: index('products_farmer_idx').on(t.farmerId),
     subcategoryIdx: index('products_subcategory_idx').on(t.subcategoryId),
+  }),
+);
+
+export const productAvailabilityWindows = pgTable(
+  'product_availability_windows',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
+    // Inclusive BG-local date range. day = from == to; week/month/several = wider.
+    startsAt: date('starts_at').notNull(),
+    endsAt: date('ends_at').notNull(),
+    // `quantity` = the amount the farmer set; `remaining` decrements on each order
+    // and blocks at 0. An active window's `remaining` is the product's real stock.
+    quantity: integer('quantity').notNull(),
+    remaining: integer('remaining').notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    // Active-window lookup: "this product's window covering today".
+    productRangeIdx: index('paw_product_range_idx').on(t.productId, t.startsAt, t.endsAt),
+    // Tenant-scoped admin list.
+    tenantIdx: index('paw_tenant_idx').on(t.tenantId),
   }),
 );
 
@@ -652,6 +681,7 @@ export const schema = {
   tenants,
   users,
   products,
+  productAvailabilityWindows,
   farmers,
   subcategories,
   productMedia,
