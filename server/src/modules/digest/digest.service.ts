@@ -617,7 +617,11 @@ export class DigestService {
   }
 
   /** Build + enqueue (via EmailService) the digests for ONE tenant. Mirrors the
-   *  per-tenant body of the former runDailyDigests so each tenant retries independently. */
+   *  per-tenant body of the former runDailyDigests so each tenant retries
+   *  independently as its own BullMQ job.
+   *  NOT idempotent: if this throws after the owner email was enqueued, the whole
+   *  tenant job retries and the owner can receive a duplicate digest. Accepted
+   *  at-least-once trade-off (a duplicate daily digest is low-harm). */
   async runForTenant(tenantId: string): Promise<void> {
     const today = bgToday();
     const [tenant] = await this.db
@@ -636,6 +640,7 @@ export class DigestService {
           html: digest.html,
           text: digest.text,
         });
+        this.logger.log(`[digest] owner queued tenant=${tenant.id} orders=${digest.summary.totalOrders}`);
       }
     }
     if (tenant.multiFarmer) {

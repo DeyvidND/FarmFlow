@@ -32,6 +32,8 @@ export class DigestProcessor extends WorkerHost implements OnModuleInit {
     }
     if (job.name === 'tenant') {
       await this.digest.runForTenant((job.data as { tenantId: string }).tenantId);
+      return;
     }
+    this.logger.warn(`[digest] unknown job name=${job.name}`);
   }
 }

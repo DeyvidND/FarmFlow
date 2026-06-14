@@ -36,4 +36,16 @@ describe('DigestProcessor', () => {
     await proc.process({ name: 'tenant', data: { tenantId: 't9' } } as Job);
     expect(svc.runForTenant).toHaveBeenCalledWith('t9');
   });
+
+  it('onModuleInit registers the 07:00 Europe/Sofia repeatable', async () => {
+    const queue = makeQueue();
+    const svc = { eligibleTenantIds: jest.fn(), runForTenant: jest.fn() };
+    const proc = await build(svc, queue);
+    await proc.onModuleInit();
+    expect(queue.add).toHaveBeenCalledWith(
+      'daily',
+      {},
+      expect.objectContaining({ repeat: { pattern: '0 7 * * *', tz: 'Europe/Sofia' } }),
+    );
+  });
 });

@@ -7,7 +7,17 @@ import { DIGEST_QUEUE } from '../../common/queue/queue.constants';
 import { RUN_WORKERS } from '../../config/app-role';
 
 @Module({
-  imports: [BullModule.registerQueue({ name: DIGEST_QUEUE })],
+  imports: [
+    BullModule.registerQueue({
+      name: DIGEST_QUEUE,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: true,
+        removeOnFail: 200,
+      },
+    }),
+  ],
   controllers: [DigestController],
   providers: [DigestService, ...(RUN_WORKERS ? [DigestProcessor] : [])],
 })
