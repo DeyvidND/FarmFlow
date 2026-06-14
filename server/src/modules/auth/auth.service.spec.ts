@@ -319,6 +319,34 @@ describe('AuthService', () => {
     });
   });
 
+  // ── sendFarmerInvite ────────────────────────────────────────────────────────
+
+  describe('sendFarmerInvite', () => {
+    const userRow = {
+      id: USER_ID, tenantId: TENANT_ID, email: 'p@farm.bg',
+      passwordHash: '$argon2id$fake', role: 'farmer' as const, mustChangePassword: true,
+    };
+
+    it('signs a reset token and emails a set-password invite', async () => {
+      db.limit.mockResolvedValueOnce([userRow]);
+
+      await service.sendFarmerInvite(USER_ID);
+
+      expect(jwtService.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: USER_ID, type: 'reset' }),
+        expect.objectContaining({ secret: 'test-secret::pwreset' }),
+      );
+      const sent = emailMock.sendMail.mock.calls[0][0];
+      expect(sent.to).toBe('p@farm.bg');
+      expect(sent.html).toContain('reset-token');
+    });
+
+    it('throws when the user does not exist', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      await expect(service.sendFarmerInvite(USER_ID)).rejects.toThrow();
+    });
+  });
+
   // ── register no longer exists ──────────────────────────────────────────────
 
   it('does NOT expose a register method on the service', () => {
