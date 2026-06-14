@@ -6,7 +6,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, gte, ilike, inArray, lt, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, ilike, inArray, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   type Database,
   orders,
@@ -536,10 +536,13 @@ export class OrdersService {
               and(
                 eq(productAvailabilityWindows.productId, it.productId),
                 eq(productAvailabilityWindows.tenantId, tenantId),
+                lte(productAvailabilityWindows.startsAt, today),
+                gte(productAvailabilityWindows.endsAt, today),
               ),
             )
-            .for('update');
-          if (win && win.startsAt <= today && today <= win.endsAt) {
+            .for('update')
+            .limit(1);
+          if (win) {
             await tx
               .update(productAvailabilityWindows)
               .set({ remaining: restoreRemaining(win, it.quantity) })
@@ -769,10 +772,13 @@ export class OrdersService {
             and(
               eq(productAvailabilityWindows.productId, it.productId),
               eq(productAvailabilityWindows.tenantId, tenant.id),
+              lte(productAvailabilityWindows.startsAt, today),
+              gte(productAvailabilityWindows.endsAt, today),
             ),
           )
-          .for('update');
-        const active = win && win.startsAt <= today && today <= win.endsAt ? win : null;
+          .for('update')
+          .limit(1);
+        const active = win ?? null;
         const decision = decideDecrement(active, it.quantity);
         if (!decision.ok) {
           const p = byId.get(it.productId);
