@@ -458,12 +458,15 @@ export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);
 
 // ---- Sales statistics ----
-export const getStats = (opts: { range: StatsRange } | { from: string; to: string }) => {
-  const qs =
+export const getStats = (
+  opts: ({ range: StatsRange } | { from: string; to: string }) & { farmerId?: string },
+) => {
+  const base =
     'from' in opts
       ? `from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`
       : `range=${opts.range}`;
-  return apiFetch<StatsSummary>(`stats?${qs}`);
+  const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
+  return apiFetch<StatsSummary>(`stats?${base}${fid}`);
 };
 
 // ---- Stripe (payments / Connect) ----
