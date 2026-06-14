@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, Tags, Newspaper, Star, LayoutGrid, MessageSquare } from 'lucide-react';
+import { Users, Tags, Newspaper, Star, LayoutGrid, MessageSquare, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ApiError, updateTenant } from '@/lib/api-client';
@@ -10,12 +10,13 @@ import { CardGroup, ToggleCard, SaveBar } from './panel-ui';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
-/** The four storefront-feature flags this panel owns. */
+/** The five storefront-feature flags this panel owns. */
 export interface FeatureFlags {
   multiFarmer: boolean;
   multiSubcat: boolean;
   articlesEnabled: boolean;
   reviewsEnabled: boolean;
+  availabilitySectionEnabled: boolean;
 }
 
 export function FeaturesPanel({ initial }: { initial: FeatureFlags }) {
@@ -87,6 +88,14 @@ export function FeaturesPanel({ initial }: { initial: FeatureFlags }) {
           on={val.reviewsEnabled}
           onToggle={(v) => set('reviewsEnabled', v)}
           configLink={{ href: '/reviews', label: 'Управлявай отзивите' }}
+        />
+        <ToggleCard
+          icon={CalendarClock}
+          title="Задай наличност"
+          desc="Секция, в която обявяваш каква наличност имаш за определен период (ден/седмица/месец). Клиентът поръчва, количеството намалява."
+          on={val.availabilitySectionEnabled}
+          onToggle={(v) => set('availabilitySectionEnabled', v)}
+          configLink={{ href: '/availability', label: 'Управлявай наличността' }}
         />
       </CardGroup>
 

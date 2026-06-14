@@ -39,6 +39,9 @@ export interface TenantMeta {
   // Storefront content sections, gated from the «Функции на магазина» panel.
   articlesEnabled: boolean;
   reviewsEnabled: boolean;
+  // Availability-windows section toggle + optional custom title.
+  availabilitySectionEnabled: boolean;
+  availabilityTitle: string | null;
   // «Продукт на седмицата» highlight config. The bootstrap resolver turns these
   // into the featured product (manual pick or weekly ISO-week rotation).
   productOfWeekEnabled: boolean;
@@ -149,6 +152,8 @@ export class PublicCacheService {
         multiSubcat: tenants.multiSubcat,
         articlesEnabled: tenants.articlesEnabled,
         reviewsEnabled: tenants.reviewsEnabled,
+        availabilitySectionEnabled: tenants.availabilitySectionEnabled,
+        availabilityTitle: tenants.availabilityTitle,
         productOfWeekEnabled: tenants.productOfWeekEnabled,
         productOfWeekMode: tenants.productOfWeekMode,
         productOfWeekId: tenants.productOfWeekId,
