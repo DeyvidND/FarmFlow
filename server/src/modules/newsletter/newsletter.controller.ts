@@ -1,8 +1,19 @@
-import { Controller, Get, Post, Query, Body, UseGuards, Res } from '@nestjs/common';
+import {
+  Controller, Get, Post, Patch, Delete,
+  Param, Body, Query, UseGuards, Res,
+  UploadedFile, UseInterceptors,
+  ParseFilePipe, FileTypeValidator, MaxFileSizeValidator,
+} from '@nestjs/common';
 import { Response } from 'express';
-import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { NewsletterService } from './newsletter.service';
-import { BroadcastDto } from './dto/broadcast.dto';
+import { UpsertCampaignDto } from './dto/campaign.dto';
+import {
+  UploadNewsletterMediaDto,
+  NEWSLETTER_IMG_MIME_REGEX,
+  NEWSLETTER_IMG_MAX_BYTES,
+} from './dto/upload-newsletter-media.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -23,21 +34,95 @@ export class NewsletterController {
     return this.newsletterService.getSubscribers(tenantId, { cursor: q.cursor, limit: q.limit });
   }
 
-  /**
-   * Send a broadcast to all active subscribers. Requires an active (non-suspended)
-   * subscription — each push is a billable €2 invoice item, so a suspended farm
-   * must not be able to send. `past_due` (within grace) is still allowed.
-   */
-  @Post('broadcast')
+  /** Cost preview for the composer (active count, this-send cost, month-to-date). */
+  @Get('newsletter/quote')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  quote(@CurrentTenant() tenantId: string) {
+    return this.newsletterService.quote(tenantId);
+  }
+
+  /** List campaigns (drafts + sent), newest-edited first. */
+  @Get('newsletter/campaigns')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  listCampaigns(@CurrentTenant() tenantId: string, @Query() q: PaginationQueryDto) {
+    return this.newsletterService.listCampaigns(tenantId, { cursor: q.cursor, limit: q.limit });
+  }
+
+  @Post('newsletter/campaigns')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, ActiveSubscriptionGuard)
-  broadcast(@CurrentTenant() tenantId: string, @Body() dto: BroadcastDto) {
-    return this.newsletterService.broadcast(tenantId, dto);
+  createCampaign(@CurrentTenant() tenantId: string, @Body() dto: UpsertCampaignDto) {
+    return this.newsletterService.createCampaign(tenantId, dto);
+  }
+
+  @Get('newsletter/campaigns/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  getCampaign(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.newsletterService.getCampaign(id, tenantId);
+  }
+
+  @Patch('newsletter/campaigns/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, ActiveSubscriptionGuard)
+  updateCampaign(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: UpsertCampaignDto,
+  ) {
+    return this.newsletterService.updateCampaign(id, tenantId, dto);
+  }
+
+  @Delete('newsletter/campaigns/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  deleteCampaign(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.newsletterService.deleteCampaign(id, tenantId);
+  }
+
+  @Post('newsletter/campaigns/:id/images')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, ActiveSubscriptionGuard)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: UploadNewsletterMediaDto })
+  @UseInterceptors(FileInterceptor('file'))
+  addInlineImage(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new FileTypeValidator({ fileType: NEWSLETTER_IMG_MIME_REGEX }),
+          new MaxFileSizeValidator({ maxSize: NEWSLETTER_IMG_MAX_BYTES }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    return this.newsletterService.addInlineImage(id, tenantId, file);
+  }
+
+  @Post('newsletter/campaigns/:id/preview')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  preview(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.newsletterService.preview(id, tenantId);
+  }
+
+  @Post('newsletter/campaigns/:id/send')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, ActiveSubscriptionGuard)
+  sendCampaign(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.newsletterService.sendCampaign(id, tenantId);
   }
 
   /**
-   * Public unsubscribe endpoint — no auth guard.
-   * Verifies the JWT token, sets unsubscribedAt, returns an HTML confirmation page.
+   * Public unsubscribe endpoint — no auth guard. Verifies the JWT token, sets
+   * unsubscribedAt, returns an HTML confirmation page.
    */
   @Get('unsubscribe')
   @ApiQuery({ name: 'token', required: true })

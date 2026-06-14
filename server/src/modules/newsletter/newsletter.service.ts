@@ -1,15 +1,41 @@
-import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
-import { type Database, newsletterSubscribers, emailPushes } from '@farmflow/db';
+import {
+  Injectable,
+  Inject,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
+import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
+import {
+  type Database,
+  newsletterSubscribers,
+  newsletterCampaigns,
+  emailPushes,
+  tenants,
+} from '@farmflow/db';
+import type {
+  NewsletterBlock,
+  NewsletterColumn,
+  NewsletterCampaign,
+  NewsletterQuote,
+} from '@farmflow/types';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { SuppressionService } from '../../common/email/suppression.service';
 import { BillingService } from '../billing/billing.service';
-import { BroadcastDto } from './dto/broadcast.dto';
-import { clampLimit, keysetAfter, buildPage } from '../../common/pagination/keyset';
+import { StorageService } from '../storage/storage.service';
+import { optimizeImage } from '../storage/image.util';
+import { tenantSlug } from '../../common/tenant-slug.util';
+import { priceForRecipients } from '../billing/billing.pricing';
+import { renderEmail, type RenderOpts } from './email-render';
+import { sanitizeNewsletterHtml } from './newsletter.util';
+import { UpsertCampaignDto } from './dto/campaign.dto';
+import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
+import { bgToday, bgDayBounds } from '../../common/time/bg-time';
 
 export interface SubscribersResult {
   items: { id: string; email: string; createdAt: Date | null }[];
@@ -22,16 +48,36 @@ export interface UnsubscribeResult {
   success: boolean;
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+const IMG_EXT_BY_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+/** Sanitize the html-bearing block fields (text blocks + text columns). */
+function sanitizeBlocks(blocks: NewsletterBlock[]): NewsletterBlock[] {
+  const col = (c: NewsletterColumn): NewsletterColumn =>
+    c.kind === 'text' ? { kind: 'text', html: sanitizeNewsletterHtml(c.html) } : c;
+  return (blocks ?? []).map((b) => {
+    if (b.type === 'text') return { ...b, html: sanitizeNewsletterHtml(b.html) };
+    if (b.type === 'columns') return { ...b, left: col(b.left), right: col(b.right) };
+    return b;
+  });
 }
 
-function nl2br(s: string): string {
-  return escapeHtml(s).replace(/\n/g, '<br>');
+type CampaignRow = typeof newsletterCampaigns.$inferSelect;
+
+function toCampaign(r: CampaignRow): NewsletterCampaign {
+  return {
+    id: r.id,
+    subject: r.subject,
+    blocks: (r.blocks as NewsletterBlock[]) ?? [],
+    status: r.status as 'draft' | 'sent',
+    recipientCount: r.recipientCount ?? null,
+    priceStotinki: r.priceStotinki ?? null,
+    sentAt: r.sentAt ? new Date(r.sentAt).toISOString() : null,
+    updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
+  };
 }
 
 @Injectable()
@@ -39,6 +85,8 @@ export class NewsletterService {
   private readonly logger = new Logger(NewsletterService.name);
   /** Origin of the API that serves the unsubscribe page (GET /unsubscribe). */
   private readonly apiBaseUrl: string;
+  private readonly perRecipientMicro: number;
+  private readonly maxRecipients: number;
 
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
@@ -47,10 +95,14 @@ export class NewsletterService {
     private readonly config: ConfigService,
     private readonly suppression: SuppressionService,
     private readonly billing: BillingService,
+    private readonly storage: StorageService,
   ) {
-    this.apiBaseUrl =
-      config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3001';
+    this.apiBaseUrl = config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3001';
+    this.perRecipientMicro = config.get<number>('EMAIL_PRICE_PER_RECIPIENT_MICRO') ?? 555;
+    this.maxRecipients = config.get<number>('EMAIL_PUSH_MAX_RECIPIENTS') ?? 5000;
   }
+
+  /* ------------------------------ subscribers ------------------------------ */
 
   async getSubscribers(
     tenantId: string,
@@ -74,9 +126,6 @@ export class NewsletterService {
 
     const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
 
-    // Headline counts cover ALL rows (not just the page), so they come from SQL.
-    // Computed once on the first page; cursored pages reuse the client's copy.
-    // `.limit(1)` is a harmless no-op on a single-row aggregate (keeps the unit mock simple).
     let activeCount = 0;
     let unsubscribedCount = 0;
     if (!cur) {
@@ -95,27 +144,170 @@ export class NewsletterService {
     return { items: page.items, nextCursor: page.nextCursor, activeCount, unsubscribedCount };
   }
 
-  async broadcast(
+  /* ------------------------------- campaigns ------------------------------- */
+
+  async listCampaigns(
     tenantId: string,
-    dto: BroadcastDto,
-  ): Promise<{ sent: number; recipients: number }> {
-    // Billability gate: a push costs €2, billed as a Stripe invoice item that
-    // needs a customer to land on. Without one (non-premium farm that never set
-    // up billing) the send would go out unbilled, so refuse it up front rather
-    // than email first and silently fail to charge.
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<NewsletterCampaign>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    const conds = [eq(newsletterCampaigns.tenantId, tenantId)];
+    if (cur) conds.push(keysetAfter(newsletterCampaigns.updatedAt, newsletterCampaigns.id, cur, 'desc'));
+
+    const rows = await this.db
+      .select()
+      .from(newsletterCampaigns)
+      .where(and(...conds))
+      .orderBy(desc(newsletterCampaigns.updatedAt), desc(newsletterCampaigns.id))
+      .limit(lim + 1);
+
+    const page = buildPage(rows, lim, (r) => ({ createdAt: r.updatedAt ?? new Date(0), id: r.id }));
+    return { items: page.items.map(toCampaign), nextCursor: page.nextCursor };
+  }
+
+  private async campaignRow(id: string, tenantId: string): Promise<CampaignRow> {
+    const [row] = await this.db
+      .select()
+      .from(newsletterCampaigns)
+      .where(and(eq(newsletterCampaigns.id, id), eq(newsletterCampaigns.tenantId, tenantId)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Бюлетинът не е намерен');
+    return row;
+  }
+
+  async getCampaign(id: string, tenantId: string): Promise<NewsletterCampaign> {
+    return toCampaign(await this.campaignRow(id, tenantId));
+  }
+
+  async createCampaign(tenantId: string, dto: UpsertCampaignDto): Promise<NewsletterCampaign> {
+    const [row] = await this.db
+      .insert(newsletterCampaigns)
+      .values({
+        tenantId,
+        subject: dto.subject,
+        blocks: sanitizeBlocks(dto.blocks),
+      })
+      .returning();
+    return toCampaign(row);
+  }
+
+  async updateCampaign(
+    id: string,
+    tenantId: string,
+    dto: UpsertCampaignDto,
+  ): Promise<NewsletterCampaign> {
+    const existing = await this.campaignRow(id, tenantId);
+    if (existing.status === 'sent') {
+      throw new BadRequestException('Изпратен бюлетин не може да се променя');
+    }
+    const [row] = await this.db
+      .update(newsletterCampaigns)
+      .set({
+        subject: dto.subject,
+        blocks: sanitizeBlocks(dto.blocks),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(newsletterCampaigns.id, id), eq(newsletterCampaigns.tenantId, tenantId)))
+      .returning();
+    return toCampaign(row);
+  }
+
+  async deleteCampaign(id: string, tenantId: string): Promise<{ success: boolean }> {
+    const existing = await this.campaignRow(id, tenantId);
+    if (existing.status === 'sent') {
+      throw new BadRequestException('Изпратен бюлетин не може да се изтрива');
+    }
+    await this.db
+      .delete(newsletterCampaigns)
+      .where(and(eq(newsletterCampaigns.id, id), eq(newsletterCampaigns.tenantId, tenantId)));
+    try {
+      const slug = await tenantSlug(this.db, tenantId);
+      await this.storage.deleteByPrefix(`tenants/${slug}/newsletter/${id}/`);
+    } catch (err) {
+      this.logger.warn(`[newsletter] image sweep failed for ${id}: ${this.errText(err)}`);
+    }
+    return { success: true };
+  }
+
+  /** Upload an inline image for a campaign → absolute R2 url. */
+  async addInlineImage(
+    id: string,
+    tenantId: string,
+    file: Express.Multer.File,
+  ): Promise<{ url: string }> {
+    await this.campaignRow(id, tenantId); // scope check (404 cross-tenant)
+    const img = await optimizeImage(file.buffer, file.mimetype, IMG_EXT_BY_MIME[file.mimetype] ?? 'jpg');
+    const slug = await tenantSlug(this.db, tenantId);
+    const key = `tenants/${slug}/newsletter/${id}/${randomUUID()}.${img.ext}`;
+    const { url } = await this.storage.upload(img.buffer, key, img.contentType);
+    return { url };
+  }
+
+  /** Render the campaign to email HTML for the live preview. */
+  async preview(id: string, tenantId: string): Promise<{ html: string }> {
+    const campaign = await this.campaignRow(id, tenantId);
+    const opts = await this.renderOpts(tenantId, campaign.subject, `${this.apiBaseUrl}/unsubscribe?token=preview`);
+    return { html: renderEmail((campaign.blocks as NewsletterBlock[]) ?? [], opts) };
+  }
+
+  /* --------------------------------- quote --------------------------------- */
+
+  /** Cost preview for the composer: active count + what a send costs now. */
+  async quote(tenantId: string): Promise<NewsletterQuote> {
+    const [counts] = await this.db
+      .select({
+        active: sql<number>`count(*) filter (where ${newsletterSubscribers.unsubscribedAt} is null)::int`,
+      })
+      .from(newsletterSubscribers)
+      .where(eq(newsletterSubscribers.tenantId, tenantId))
+      .limit(1);
+    const activeCount = counts?.active ?? 0;
+
+    const [t] = await this.db
+      .select({ premium: tenants.premium })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const premium = !!t?.premium;
+
+    const monthFrom = bgDayBounds(`${bgToday().slice(0, 7)}-01`).from;
+    const [mtd] = await this.db
+      .select({
+        count: sql<number>`coalesce(sum(${emailPushes.recipientCount}),0)::int`,
+        cost: sql<number>`coalesce(sum(${emailPushes.priceStotinki}),0)::int`,
+      })
+      .from(emailPushes)
+      .where(and(eq(emailPushes.tenantId, tenantId), gte(emailPushes.createdAt, monthFrom)))
+      .limit(1);
+
+    return {
+      activeCount,
+      perRecipientMicro: this.perRecipientMicro,
+      sendCostStotinki: premium ? 0 : priceForRecipients(activeCount, this.perRecipientMicro),
+      monthToDateCount: mtd?.count ?? 0,
+      monthToDateStotinki: mtd?.cost ?? 0,
+      premium,
+    };
+  }
+
+  /* --------------------------------- send ---------------------------------- */
+
+  async sendCampaign(id: string, tenantId: string): Promise<{ sent: number; recipients: number }> {
+    // Billability gate: a send is billed as a Stripe invoice item that needs a
+    // customer to land on. Without one (non-premium farm that never set up
+    // billing) refuse up front rather than email first and fail to charge.
     if (!(await this.billing.isBillable(tenantId))) {
-      throw new BadRequestException(
-        'Настройте плащане (абонамент) преди да изпращате бюлетини.',
-      );
+      throw new BadRequestException('Настройте плащане (абонамент) преди да изпращате бюлетини.');
     }
 
-    // Guard the flat per-push price: a huge list on a flat fee loses money and
-    // strains the shared domain. Reject over the cap rather than silently truncate.
-    const maxRecipients = this.config.get<number>('EMAIL_PUSH_MAX_RECIPIENTS') ?? 5000;
+    const campaign = await this.campaignRow(id, tenantId);
+    if (campaign.status === 'sent') {
+      throw new BadRequestException('Този бюлетин вече е изпратен.');
+    }
 
-    // Filter unsubscribed in SQL (index-backed) and pull only the columns the
-    // send needs. Cap the fetch at maxRecipients+1 so an oversized list never
-    // loads the whole table into memory — the +1 row is enough to detect "over cap".
+    // Cap the fetch at maxRecipients+1 so an oversized list never loads the whole
+    // table; the +1 row is enough to detect "over cap".
     const active = await this.db
       .select({ id: newsletterSubscribers.id, email: newsletterSubscribers.email })
       .from(newsletterSubscribers)
@@ -126,17 +318,22 @@ export class NewsletterService {
         ),
       )
       .orderBy(newsletterSubscribers.createdAt)
-      .limit(maxRecipients + 1);
+      .limit(this.maxRecipients + 1);
 
-    if (active.length > maxRecipients) {
+    if (active.length > this.maxRecipients) {
       throw new BadRequestException(
-        `Списъкът е твърде голям за едно изпращане (${active.length} получателя, лимит ${maxRecipients}). Раздели изпращането.`,
+        `Списъкът е твърде голям за едно изпращане (${active.length} получателя, лимит ${this.maxRecipients}). Раздели изпращането.`,
       );
     }
 
     // Drop suppressed addresses (hard bounces / complaints) to protect the domain.
     const suppressed = await this.suppression.filterSuppressed(active.map((a) => a.email));
     const recipients = active.filter((a) => !suppressed.has(a.email.trim().toLowerCase()));
+
+    // Render the body ONCE with a placeholder unsubscribe URL, then swap per
+    // recipient (a string replace, not a full re-render of the block tree).
+    const opts = await this.renderOpts(tenantId, campaign.subject, '{{UNSUB}}');
+    const bodyTemplate = renderEmail((campaign.blocks as NewsletterBlock[]) ?? [], opts);
 
     let sent = 0;
     for (const subscriber of recipients) {
@@ -146,54 +343,60 @@ export class NewsletterService {
           { secret: this.unsubSecret(), expiresIn: '3650d' },
         );
         const unsubscribeUrl = `${this.apiBaseUrl}/unsubscribe?token=${encodeURIComponent(token)}`;
-        const html = this.renderBroadcastHtml(dto.subject, dto.body, unsubscribeUrl);
-        const text = `${dto.body}\n\n---\nОтпишете се: ${unsubscribeUrl}`;
+        const html = bodyTemplate.replace('{{UNSUB}}', unsubscribeUrl);
+        const text = `${campaign.subject}\n\n---\nОтпишете се: ${unsubscribeUrl}`;
 
         await this.email.sendMail({
           to: subscriber.email,
-          subject: dto.subject,
+          subject: campaign.subject,
           html,
           text,
           stream: 'bulk', // newsletters ride the bulk reputation lane
-          // Already filtered against the suppression list above (one batch query)
-          // — skip the redundant per-recipient lookup.
-          skipSuppressionCheck: true,
+          skipSuppressionCheck: true, // already filtered above (one batch query)
         });
         sent++;
       } catch (err) {
         this.logger.error(
-          `[newsletter] Failed to send to subscriber=${subscriber.id}: ${err instanceof Error ? err.message : String(err)}`,
+          `[newsletter] Failed to send to subscriber=${subscriber.id}: ${this.errText(err)}`,
         );
       }
     }
 
-    // Usage ledger: one row per push, valued at the per-push price, then billed
-    // to the farm's Stripe subscription as a €2 invoice item (premium → free).
-    const priceStotinki = this.config.get<number>('EMAIL_PUSH_PRICE_STOTINKI') ?? 200;
+    // Usage ledger: one row per send, valued per recipient, then billed to the
+    // farm's Stripe subscription (premium → free).
+    const priceStotinki = priceForRecipients(recipients.length, this.perRecipientMicro);
     if (recipients.length > 0) {
       try {
         const [push] = await this.db
           .insert(emailPushes)
-          .values({ tenantId, subject: dto.subject, recipientCount: recipients.length, priceStotinki })
+          .values({
+            tenantId,
+            campaignId: id,
+            subject: campaign.subject,
+            recipientCount: recipients.length,
+            priceStotinki,
+          })
           .returning({ id: emailPushes.id });
         await this.billing.billPush(push.id);
       } catch (err) {
-        this.logger.error(
-          `[newsletter] push-record/bill failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        this.logger.error(`[newsletter] push-record/bill failed: ${this.errText(err)}`);
       }
     }
+
+    await this.db
+      .update(newsletterCampaigns)
+      .set({ status: 'sent', sentAt: new Date(), recipientCount: recipients.length, priceStotinki })
+      .where(and(eq(newsletterCampaigns.id, id), eq(newsletterCampaigns.tenantId, tenantId)));
 
     return { sent, recipients: recipients.length };
   }
 
+  /* ------------------------------ unsubscribe ------------------------------ */
+
   async unsubscribe(token: string): Promise<UnsubscribeResult> {
     let payload: { sub?: string; typ?: string };
     try {
-      payload = this.jwt.verify(token, { secret: this.unsubSecret() }) as {
-        sub?: string;
-        typ?: string;
-      };
+      payload = this.jwt.verify(token, { secret: this.unsubSecret() }) as { sub?: string; typ?: string };
     } catch {
       return { success: false };
     }
@@ -208,14 +411,8 @@ export class NewsletterService {
       .where(eq(newsletterSubscribers.id, payload.sub))
       .limit(1);
 
-    if (!subscriber) {
-      return { success: false };
-    }
-
-    if (subscriber.unsubscribedAt != null) {
-      // Already unsubscribed — idempotent success
-      return { success: true };
-    }
+    if (!subscriber) return { success: false };
+    if (subscriber.unsubscribedAt != null) return { success: true }; // idempotent
 
     await this.db
       .update(newsletterSubscribers)
@@ -226,29 +423,45 @@ export class NewsletterService {
     return { success: true };
   }
 
+  /* -------------------------------- helpers -------------------------------- */
+
+  /** Build the renderer's brand/contact options from the tenant's settings. */
+  private async renderOpts(
+    tenantId: string,
+    subject: string,
+    unsubscribeUrl: string,
+  ): Promise<RenderOpts> {
+    const [t] = await this.db
+      .select({ name: tenants.name, settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const settings = (t?.settings ?? {}) as Record<string, any>;
+    const brand = (settings.brand ?? {}) as Record<string, any>;
+    const contact = (settings.contact ?? {}) as Record<string, any>;
+    const logoUrl = typeof brand?.favicon?.url === 'string' ? brand.favicon.url : undefined;
+    const themeColor =
+      typeof brand?.themeColor === 'string' && brand.themeColor ? brand.themeColor : '#2d6a4f';
+    const contactLine = [contact.address, contact.phone].filter((s) => typeof s === 'string' && s).join(' · ');
+
+    return {
+      subject,
+      brand: { logoUrl, themeColor, farmName: t?.name ?? 'Фермата' },
+      contact: contactLine ? { line: contactLine } : null,
+      unsubscribeUrl,
+    };
+  }
+
   /**
    * Unsubscribe tokens use a SEPARATE derived secret so a token emailed to every
-   * subscriber can never validate against the main JWT_SECRET (i.e. never be
-   * replayed as an auth/session token). Mirrors AuthService.resetSecret().
+   * subscriber can never validate against the main JWT_SECRET. Mirrors
+   * AuthService.resetSecret().
    */
   private unsubSecret(): string {
     return `${this.config.getOrThrow<string>('JWT_SECRET')}::unsub`;
   }
 
-  private renderBroadcastHtml(subject: string, body: string, unsubscribeUrl: string): string {
-    return `<!DOCTYPE html>
-<html lang="bg">
-<head><meta charset="UTF-8"><title>${escapeHtml(subject)}</title></head>
-<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333">
-  <div style="border-bottom:2px solid #2d6a4f;padding-bottom:12px;margin-bottom:20px">
-    <h1 style="font-size:20px;color:#2d6a4f;margin:0">${escapeHtml(subject)}</h1>
-  </div>
-  <div style="font-size:15px;line-height:1.6">${nl2br(body)}</div>
-  <div style="margin-top:40px;padding-top:16px;border-top:1px solid #eee;font-size:12px;color:#999">
-    <p>Получавате този имейл, защото сте се абонирали за новини от фермата.</p>
-    <p><a href="${unsubscribeUrl}" style="color:#999">Отпишете се от абонамента</a></p>
-  </div>
-</body>
-</html>`;
+  private errText(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
   }
 }

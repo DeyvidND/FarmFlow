@@ -7,6 +7,7 @@ import { NewsletterService } from './newsletter.service';
 import { EmailService } from '../../common/email/email.service';
 import { SuppressionService } from '../../common/email/suppression.service';
 import { BillingService } from '../billing/billing.service';
+import { StorageService } from '../storage/storage.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
 // ── Mock DB builder ─────────────────────────────────────────────────────────
@@ -21,8 +22,7 @@ function makeDb() {
     returning: jest.fn().mockResolvedValue([{ id: 'push-1' }]),
     update: jest.fn().mockReturnThis(),
     set: jest.fn().mockReturnThis(),
-    // Chainable: both broadcast (orderBy→limit) and getSubscribers (orderBy→limit)
-    // terminate in `.limit`, which resolves the rows.
+    delete: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
   };
 }
@@ -40,8 +40,17 @@ function makeJwtService() {
 
 function makeConfigService() {
   return {
-    get: jest.fn().mockReturnValue(undefined),
+    get: jest.fn().mockReturnValue(undefined), // → service falls back to defaults (555, 5000)
     getOrThrow: jest.fn().mockReturnValue('test-jwt-secret'),
+  };
+}
+
+function makeStorage() {
+  return {
+    upload: jest.fn().mockResolvedValue({ key: 'k', url: 'https://cdn.x/k.jpg' }),
+    delete: jest.fn().mockResolvedValue(undefined),
+    deleteByPrefix: jest.fn().mockResolvedValue(undefined),
+    getPublicUrl: jest.fn(),
   };
 }
 
@@ -76,24 +85,23 @@ describe('NewsletterService', () => {
           useValue: { filterSuppressed: jest.fn().mockResolvedValue(new Set()), isSuppressed: jest.fn().mockResolvedValue(false), suppress: jest.fn() },
         },
         { provide: BillingService, useValue: billing },
+        { provide: StorageService, useValue: makeStorage() },
       ],
     }).compile();
 
     service = module.get(NewsletterService);
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
   // ── getSubscribers ──────────────────────────────────────────────────────
 
   describe('getSubscribers', () => {
-    // The list query terminates in `.limit(lim+1)`; the counts query terminates
-    // in `.limit(1)`. So `db.limit` is called twice on the first page: rows, then counts.
-    it("returns only the calling tenant subscribers, not another tenant's", async () => {
-      const mySubscriber = { id: 'sub-1', email: 'a@test.bg', createdAt: new Date('2026-01-01') };
+    it("returns only the calling tenant subscribers", async () => {
       db.limit
-        .mockResolvedValueOnce([mySubscriber]) // page rows
-        .mockResolvedValueOnce([{ active: 1, unsub: 0 }]); // SQL counts
+        .mockResolvedValueOnce([{ id: 'sub-1', email: 'a@test.bg', createdAt: new Date('2026-01-01') }])
+        .mockResolvedValueOnce([{ active: 1, unsub: 0 }]);
 
       const result = await service.getSubscribers(TENANT_ID);
 
@@ -102,7 +110,7 @@ describe('NewsletterService', () => {
       expect(result.nextCursor).toBeNull();
     });
 
-    it('counts active vs unsubscribed from the SQL aggregate (not the page)', async () => {
+    it('counts active vs unsubscribed from the SQL aggregate', async () => {
       db.limit
         .mockResolvedValueOnce([{ id: 'sub-1', email: 'a@test.bg', createdAt: new Date('2026-01-01') }])
         .mockResolvedValueOnce([{ active: 1, unsub: 1 }]);
@@ -114,87 +122,124 @@ describe('NewsletterService', () => {
     });
   });
 
-  // ── broadcast ──────────────────────────────────────────────────────────
+  // ── createCampaign ──────────────────────────────────────────────────────
 
-  describe('broadcast', () => {
-    it('refuses to send when the farm is not billable (no Stripe customer)', async () => {
+  describe('createCampaign', () => {
+    it('sanitizes text-block html before storing', async () => {
+      db.returning.mockResolvedValueOnce([
+        { id: 'c1', tenantId: TENANT_ID, subject: 'Нов', blocks: [], status: 'draft', recipientCount: null, priceStotinki: null, sentAt: null, updatedAt: new Date() },
+      ]);
+
+      const c = await service.createCampaign(TENANT_ID, {
+        subject: 'Нов',
+        blocks: [{ type: 'text', html: '<p>x</p><script>evil()</script>' }],
+      });
+
+      expect(c.id).toBe('c1');
+      const valuesArg = db.values.mock.calls[0][0];
+      expect(valuesArg.blocks[0].html).not.toContain('script');
+      expect(valuesArg.blocks[0].html).toContain('<p>x</p>');
+    });
+  });
+
+  // ── quote ────────────────────────────────────────────────────────────────
+
+  describe('quote', () => {
+    it('prices a send at the per-recipient rate (200 → 11 ст)', async () => {
+      db.limit
+        .mockResolvedValueOnce([{ active: 200 }]) // active count
+        .mockResolvedValueOnce([{ premium: false }]) // tenant premium
+        .mockResolvedValueOnce([{ count: 1200, cost: 66 }]); // month-to-date
+
+      const q = await service.quote(TENANT_ID);
+
+      expect(q.activeCount).toBe(200);
+      expect(q.sendCostStotinki).toBe(11);
+      expect(q.monthToDateCount).toBe(1200);
+      expect(q.monthToDateStotinki).toBe(66);
+      expect(q.premium).toBe(false);
+    });
+
+    it('premium farm → send cost 0', async () => {
+      db.limit
+        .mockResolvedValueOnce([{ active: 200 }])
+        .mockResolvedValueOnce([{ premium: true }])
+        .mockResolvedValueOnce([{ count: 0, cost: 0 }]);
+
+      const q = await service.quote(TENANT_ID);
+
+      expect(q.premium).toBe(true);
+      expect(q.sendCostStotinki).toBe(0);
+    });
+  });
+
+  // ── sendCampaign ──────────────────────────────────────────────────────────
+
+  describe('sendCampaign', () => {
+    const draft = {
+      id: 'c1',
+      tenantId: TENANT_ID,
+      subject: 'Тест',
+      blocks: [{ type: 'text', html: '<p>Здравей</p>' }],
+      status: 'draft',
+    };
+
+    it('refuses when the farm is not billable', async () => {
       billing.isBillable.mockResolvedValueOnce(false);
-      await expect(
-        service.broadcast(TENANT_ID, { subject: 'Новини', body: 'Тяло' }),
-      ).rejects.toThrow('Настройте плащане');
+      await expect(service.sendCampaign('c1', TENANT_ID)).rejects.toThrow('Настройте плащане');
       expect(emailService.sendMail).not.toHaveBeenCalled();
       expect(billing.billPush).not.toHaveBeenCalled();
     });
 
-    it('only sends to active subscribers (unsubscribedAt is null)', async () => {
-      const active = {
-        id: 'sub-1',
-        email: 'active@test.bg',
-        createdAt: new Date(),
-        unsubscribedAt: null,
-        tenantId: TENANT_ID,
-      };
-      // The unsubscribed filter is applied in SQL (WHERE unsubscribed_at IS NULL),
-      // so the query returns active rows only.
-      db.limit.mockResolvedValue([active]);
+    it('sends to active subscribers, records + bills the push, flips to sent', async () => {
+      db.limit
+        .mockResolvedValueOnce([draft]) // campaignRow
+        .mockResolvedValueOnce([
+          { id: 'sub-1', email: 'a@test.bg' },
+          { id: 'sub-2', email: 'b@test.bg' },
+        ]) // active subscribers
+        .mockResolvedValueOnce([{ name: 'Ферма Х', settings: {} }]); // renderOpts tenant
 
-      const result = await service.broadcast(TENANT_ID, {
-        subject: 'Новини',
-        body: 'Добре дошли!',
-      });
+      const r = await service.sendCampaign('c1', TENANT_ID);
 
-      expect(result.sent).toBe(1);
-      expect(emailService.sendMail).toHaveBeenCalledTimes(1);
-      expect(emailService.sendMail).toHaveBeenCalledWith(
-        expect.objectContaining({ to: 'active@test.bg' }),
+      expect(r.sent).toBe(2);
+      expect(r.recipients).toBe(2);
+      expect(emailService.sendMail).toHaveBeenCalledTimes(2);
+      expect(billing.billPush).toHaveBeenCalledWith('push-1');
+      // campaign flipped to sent with recipient count
+      expect(db.set).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'sent', recipientCount: 2 }),
       );
     });
 
-    it('sent count matches number of active subscribers', async () => {
-      const activeList = [
-        { id: 'sub-1', email: 'a@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
-        { id: 'sub-2', email: 'b@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
-        { id: 'sub-3', email: 'c@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
-      ];
-      db.limit.mockResolvedValue(activeList);
+    it('each email html carries a per-recipient unsubscribe token', async () => {
+      db.limit
+        .mockResolvedValueOnce([draft])
+        .mockResolvedValueOnce([{ id: 'sub-1', email: 'a@test.bg' }])
+        .mockResolvedValueOnce([{ name: 'Ферма Х', settings: {} }]);
 
-      const result = await service.broadcast(TENANT_ID, { subject: 'Test', body: 'Body' });
-
-      expect(result.sent).toBe(3);
-    });
-
-    it('each sent email html contains an unsubscribe link with a token', async () => {
-      const active = {
-        id: 'sub-1',
-        email: 'active@test.bg',
-        createdAt: new Date(),
-        unsubscribedAt: null,
-        tenantId: TENANT_ID,
-      };
-      db.limit.mockResolvedValue([active]);
-
-      await service.broadcast(TENANT_ID, { subject: 'Test', body: 'Здравей!' });
+      await service.sendCampaign('c1', TENANT_ID);
 
       const callArg = emailService.sendMail.mock.calls[0][0];
       expect(callArg.html).toContain('/unsubscribe?token=');
       expect(callArg.html).toContain('unsub-token-abc');
+      expect(callArg.html).not.toContain('{{UNSUB}}');
     });
 
-    it('continues sending to remaining subscribers when one fails', async () => {
-      const activeList = [
-        { id: 'sub-1', email: 'a@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
-        { id: 'sub-2', email: 'b@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
-      ];
-      db.limit.mockResolvedValue(activeList);
+    it('rejects an already-sent campaign', async () => {
+      db.limit.mockResolvedValueOnce([{ ...draft, status: 'sent' }]);
+      await expect(service.sendCampaign('c1', TENANT_ID)).rejects.toThrow('вече е изпратен');
+    });
 
-      emailService.sendMail
-        .mockRejectedValueOnce(new Error('SMTP error'))
-        .mockResolvedValueOnce(undefined);
-
-      const result = await service.broadcast(TENANT_ID, { subject: 'Test', body: 'Body' });
-
-      // Only the second one succeeded
-      expect(result.sent).toBe(1);
+    it('rejects a list over the recipient cap', async () => {
+      (service as any).maxRecipients = 1;
+      db.limit
+        .mockResolvedValueOnce([draft])
+        .mockResolvedValueOnce([
+          { id: 'sub-1', email: 'a@test.bg' },
+          { id: 'sub-2', email: 'b@test.bg' },
+        ]); // 2 > cap(1)+ ... fetch returns maxRecipients+1 rows
+      await expect(service.sendCampaign('c1', TENANT_ID)).rejects.toThrow('твърде голям');
     });
   });
 
@@ -203,14 +248,8 @@ describe('NewsletterService', () => {
   describe('unsubscribe', () => {
     it('sets unsubscribedAt for a valid token pointing to an active subscriber', async () => {
       jwtService.verify.mockReturnValue({ sub: 'sub-1', typ: 'unsub' });
-      const subscriber = {
-        id: 'sub-1',
-        tenantId: TENANT_ID,
-        email: 'a@test.bg',
-        unsubscribedAt: null,
-      };
-      db.limit.mockResolvedValue([subscriber]);
-      db.returning.mockResolvedValue([{ ...subscriber, unsubscribedAt: new Date() }]);
+      db.limit.mockResolvedValue([{ id: 'sub-1', tenantId: TENANT_ID, email: 'a@test.bg', unsubscribedAt: null }]);
+      db.returning.mockResolvedValue([{ id: 'sub-1', unsubscribedAt: new Date() }]);
 
       const result = await service.unsubscribe('valid-token');
 
@@ -218,67 +257,34 @@ describe('NewsletterService', () => {
       expect(db.update).toHaveBeenCalled();
     });
 
-    it('is idempotent — already-unsubscribed subscriber still returns success', async () => {
+    it('is idempotent for an already-unsubscribed subscriber', async () => {
       jwtService.verify.mockReturnValue({ sub: 'sub-1', typ: 'unsub' });
-      const subscriber = {
-        id: 'sub-1',
-        tenantId: TENANT_ID,
-        email: 'a@test.bg',
-        unsubscribedAt: new Date('2026-01-01'),
-      };
-      db.limit.mockResolvedValue([subscriber]);
+      db.limit.mockResolvedValue([{ id: 'sub-1', tenantId: TENANT_ID, email: 'a@test.bg', unsubscribedAt: new Date('2026-01-01') }]);
 
       const result = await service.unsubscribe('valid-token');
 
       expect(result.success).toBe(true);
-      // No update call — already unsubscribed
       expect(db.update).not.toHaveBeenCalled();
     });
 
-    it('returns success:false for an invalid/expired token', async () => {
-      jwtService.verify.mockImplementation(() => {
-        throw new Error('jwt malformed');
-      });
-
+    it('returns success:false for an invalid token', async () => {
+      jwtService.verify.mockImplementation(() => { throw new Error('jwt malformed'); });
       const result = await service.unsubscribe('bad-token');
-
       expect(result.success).toBe(false);
       expect(db.update).not.toHaveBeenCalled();
     });
 
     it('returns success:false when token typ is not "unsub"', async () => {
       jwtService.verify.mockReturnValue({ sub: 'sub-1', typ: 'access' });
-
       const result = await service.unsubscribe('wrong-typ-token');
-
       expect(result.success).toBe(false);
     });
 
     it('returns success:false when subscriber is not found', async () => {
       jwtService.verify.mockReturnValue({ sub: 'sub-999', typ: 'unsub' });
       db.limit.mockResolvedValue([]);
-
       const result = await service.unsubscribe('token-for-unknown');
-
       expect(result.success).toBe(false);
-    });
-  });
-
-  // ── broadcast excludes already-unsubscribed ────────────────────────────
-
-  describe('broadcast excludes unsubscribed after an unsubscribe call', () => {
-    it('an unsubscribed subscriber is not in the active list passed to broadcast', async () => {
-      // Simulate DB already filtering: broadcast's query returns only active
-      db.limit.mockResolvedValue([
-        { id: 'sub-1', email: 'active@test.bg', createdAt: new Date(), unsubscribedAt: null, tenantId: TENANT_ID },
-      ]);
-
-      const result = await service.broadcast(TENANT_ID, { subject: 'S', body: 'B' });
-
-      expect(result.sent).toBe(1);
-      expect(emailService.sendMail).toHaveBeenCalledWith(
-        expect.objectContaining({ to: 'active@test.bg' }),
-      );
     });
   });
 });
