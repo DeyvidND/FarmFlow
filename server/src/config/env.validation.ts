@@ -99,4 +99,8 @@ export const envValidationSchema = Joi.object({
   BILLING_BASE_PRICE_STOTINKI: Joi.number().default(3000),
   // Days a farm keeps full access after a failed payment before auto-suspend.
   BILLING_GRACE_DAYS: Joi.number().default(7),
+  // Which job this process does: 'all' (default — HTTP + workers + scheduled jobs,
+  // the single-box behavior), 'web' (HTTP + enqueue only), 'worker' (drains queues
+  // + runs scheduled jobs). Scale horizontally by running copies with different roles.
+  APP_ROLE: Joi.string().valid('all', 'web', 'worker').default('all'),
 });
