@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Menu, Bell } from 'lucide-react';
 import { cn, bgDateLabel } from '@/lib/utils';
@@ -96,7 +96,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/slots': 'Часове за доставка',
   '/features': 'Функции на магазина',
   '/settings': 'Настройки',
-  '/help': 'Документация',
+  '/help': 'Помощ',
 };
 
 function titleFor(pathname: string): string {
@@ -114,6 +114,7 @@ export function Topbar({ tenantName }: TopbarProps) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [tenant, setTenant] = useState(tenantName ?? '');
   const [notifs, setNotifs] = useState<Notif[]>([]);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   const refreshNotifs = useCallback(() => {
     loadNotifs()
@@ -125,6 +126,15 @@ export function Topbar({ tenantName }: TopbarProps) {
   useEffect(() => {
     refreshNotifs();
   }, [refreshNotifs]);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!notifRef.current?.contains(e.target as Node)) setNotifOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [notifOpen]);
 
   useEffect(() => {
     if (tenantName) return;
@@ -178,19 +188,16 @@ export function Topbar({ tenantName }: TopbarProps) {
             )}
           </button>
           {notifOpen && (
-            <>
-              <div className="fixed inset-0 z-30" onClick={() => setNotifOpen(false)} />
-              <div className="absolute right-0 top-[52px] z-[31] w-80 animate-ff-pop rounded-2xl border border-ff-border bg-ff-surface p-2 shadow-ff-lg">
-                <div className="px-2.5 pb-2.5 pt-2 text-[13px] font-bold text-ff-muted">Известия</div>
-                {notifs.length === 0 ? (
-                  <div className="px-2.5 pb-3 pt-1 text-[13.5px] text-ff-muted">Няма нови известия.</div>
-                ) : (
-                  notifs.map((n) => (
-                    <NotifRow key={n.id} amber={n.amber} title={n.title} time={n.meta} />
-                  ))
-                )}
-              </div>
-            </>
+            <div ref={notifRef} className="fixed inset-x-3 top-[72px] z-[31] max-h-[70vh] min-h-[240px] overflow-y-auto animate-ff-pop rounded-2xl border border-ff-border bg-ff-surface p-2 shadow-ff-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-[52px] sm:max-h-none sm:min-h-0 sm:w-80">
+              <div className="px-2.5 pb-2.5 pt-2 text-[13px] font-bold text-ff-muted">Известия</div>
+              {notifs.length === 0 ? (
+                <div className="px-2.5 pb-3 pt-1 text-[13.5px] text-ff-muted">Няма нови известия.</div>
+              ) : (
+                notifs.map((n) => (
+                  <NotifRow key={n.id} amber={n.amber} title={n.title} time={n.meta} />
+                ))
+              )}
+            </div>
           )}
         </div>
 

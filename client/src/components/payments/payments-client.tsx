@@ -139,8 +139,8 @@ function CodSection({ cod }: { cod: CodPaymentsSummary }) {
         hint="Пари в брой при доставка — групирани по ден."
         right={
           cod.count > 0 ? (
-            <div className="text-right">
-              <div className="ff-fig text-[18px] font-extrabold text-ff-green-800">
+            <div className="shrink-0 text-right">
+              <div className="ff-fig whitespace-nowrap text-[18px] font-extrabold text-ff-green-800">
                 {moneyFromStotinki(cod.totalStotinki)}
               </div>
               <div className="text-[10.5px] font-semibold uppercase tracking-[0.03em] text-ff-muted">

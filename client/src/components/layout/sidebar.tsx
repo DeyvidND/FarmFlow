@@ -328,7 +328,7 @@ export function Sidebar({
             size={20}
             strokeWidth={pathname === '/help' || pathname.startsWith('/help/') ? 2 : 1.8}
           />
-          Документация
+          Помощ
         </Link>
         <Link
           href="/settings"

@@ -198,7 +198,7 @@ export function ReviewsClient({ initial }: { initial: Paginated<AdminReview> }) 
           <p className="text-sm text-ff-muted">{EMPTY_LABELS[activeTab]}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4">
           {page.items.map((r) => (
             <ReviewCard key={r.id} review={r} onStatusChange={onStatusChange} />
           ))}
