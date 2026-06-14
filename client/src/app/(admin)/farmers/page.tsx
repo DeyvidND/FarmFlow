@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { FarmersClient } from '@/components/farmers/farmers-client';
-import type { Farmer, ProductOption } from '@/lib/types';
+import type { Farmer, ProductOption, FarmerAccess } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,10 +17,18 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export default async function FarmersPage() {
-  const [farmers, products, tenant] = await Promise.all([
+  const [farmers, products, tenant, accessMap] = await Promise.all([
     fetchJson<Farmer[]>('farmers', []),
     fetchJson<ProductOption[]>('products/options', []),
     fetchJson<{ multiFarmer: boolean }>('tenants/me', { multiFarmer: false }),
+    fetchJson<Record<string, FarmerAccess>>('farmers/access', {}),
   ]);
-  return <FarmersClient initialFarmers={farmers} products={products} initialMultiFarmer={tenant.multiFarmer} />;
+  return (
+    <FarmersClient
+      initialFarmers={farmers}
+      products={products}
+      initialMultiFarmer={tenant.multiFarmer}
+      initialAccess={accessMap}
+    />
+  );
 }
