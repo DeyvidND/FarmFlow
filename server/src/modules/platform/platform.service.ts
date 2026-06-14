@@ -7,9 +7,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { asc, eq, sql, desc } from 'drizzle-orm';
 import { BillingService } from '../billing/billing.service';
+import { emailCostStotinki } from '../billing/billing.pricing';
 import {
   type Database,
   tenants,
@@ -44,15 +46,32 @@ export interface PlatformTenantRow {
   lastOrderAt: Date | null;
 }
 
-/** Per-farm email-push usage → what the farm owes the platform (collected manually). */
+/** Per-farm email usage → revenue, Resend cost, and the platform's margin. */
 export interface PlatformEmailBillingRow {
   tenantId: string;
   name: string;
   slug: string;
   email: string | null;
   pushCount: number;
+  recipientTotal: number;
+  /** Revenue charged to the farm (sum of per-send price_stotinki, historical). */
   totalStotinki: number;
+  /** Underlying Resend cost (recipients × cost rate). */
+  costStotinki: number;
+  /** Platform margin = revenue − cost. */
+  marginStotinki: number;
   lastPushAt: Date | null;
+}
+
+/** Email-billing table + platform-wide totals — "how much do I make on email". */
+export interface PlatformEmailBilling {
+  rows: PlatformEmailBillingRow[];
+  totals: {
+    recipientTotal: number;
+    revenueStotinki: number;
+    costStotinki: number;
+    marginStotinki: number;
+  };
 }
 
 /** Per-farm Stripe Connect status for the super-admin oversight table. */
@@ -112,6 +131,7 @@ export class PlatformService {
     private readonly jwt: JwtService,
     private readonly billing: BillingService,
     private readonly publicCache: PublicCacheService,
+    private readonly config: ConfigService,
   ) {}
 
   /** Platform admin login → platform-typed JWT. */
@@ -199,14 +219,15 @@ export class PlatformService {
    * pushes. The platform owner collects payment manually; this is just the ledger.
    * Only farms with at least one push are returned, highest owed first.
    */
-  async emailBilling(): Promise<PlatformEmailBillingRow[]> {
-    const rows = await this.db
+  async emailBilling(): Promise<PlatformEmailBilling> {
+    const raw = await this.db
       .select({
         tenantId: tenants.id,
         name: tenants.name,
         slug: tenants.slug,
         email: tenants.email,
         pushCount: sql<number>`count(${emailPushes.id})::int`,
+        recipientTotal: sql<number>`coalesce(sum(${emailPushes.recipientCount}), 0)::int`,
         totalStotinki: sql<number>`coalesce(sum(${emailPushes.priceStotinki}), 0)::int`,
         lastPushAt: sql<Date | null>`max(${emailPushes.createdAt})`,
       })
@@ -214,7 +235,22 @@ export class PlatformService {
       .innerJoin(emailPushes, eq(emailPushes.tenantId, tenants.id))
       .groupBy(tenants.id)
       .orderBy(sql`sum(${emailPushes.priceStotinki}) desc`);
-    return rows as PlatformEmailBillingRow[];
+
+    const costMicro = this.config.get<number>('EMAIL_COST_PER_RECIPIENT_MICRO', 370);
+    const rows: PlatformEmailBillingRow[] = raw.map((r) => {
+      const costStotinki = emailCostStotinki(r.recipientTotal, costMicro);
+      return { ...r, costStotinki, marginStotinki: r.totalStotinki - costStotinki };
+    });
+    const totals = rows.reduce(
+      (acc, r) => ({
+        recipientTotal: acc.recipientTotal + r.recipientTotal,
+        revenueStotinki: acc.revenueStotinki + r.totalStotinki,
+        costStotinki: acc.costStotinki + r.costStotinki,
+        marginStotinki: acc.marginStotinki + r.marginStotinki,
+      }),
+      { recipientTotal: 0, revenueStotinki: 0, costStotinki: 0, marginStotinki: 0 },
+    );
+    return { rows, totals };
   }
 
   /**

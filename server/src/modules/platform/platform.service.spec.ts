@@ -5,6 +5,7 @@ import { BillingService } from '../billing/billing.service';
 import { PlatformService } from './platform.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
+import { ConfigService } from '@nestjs/config';
 
 // Mock argon2 at module level so native bindings are not called.
 jest.mock('argon2', () => ({
@@ -26,6 +27,7 @@ function makeDb() {
     update: jest.fn().mockReturnThis(),
     set: jest.fn().mockReturnThis(),
     leftJoin: jest.fn().mockReturnThis(),
+    innerJoin: jest.fn().mockReturnThis(),
     groupBy: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockResolvedValue([]),
   };
@@ -51,10 +53,32 @@ describe('PlatformService', () => {
         },
         { provide: BillingService, useValue: { setPremium: jest.fn().mockResolvedValue(undefined) } },
         { provide: PublicCacheService, useValue: { del: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ConfigService, useValue: { get: (_k: string, d?: any) => (_k === 'EMAIL_COST_PER_RECIPIENT_MICRO' ? 370 : d) } },
       ],
     }).compile();
 
     service = module.get(PlatformService);
+  });
+
+  // ── emailBilling (revenue / cost / margin) ──────────────────────────────────
+  describe('emailBilling', () => {
+    it('computes Resend cost + margin per farm and platform totals', async () => {
+      db.orderBy.mockResolvedValueOnce([
+        { tenantId: 't1', name: 'Ферма А', slug: 'a', email: null, pushCount: 2, recipientTotal: 1000, totalStotinki: 56, lastPushAt: null },
+        { tenantId: 't2', name: 'Ферма Б', slug: 'b', email: null, pushCount: 1, recipientTotal: 200, totalStotinki: 11, lastPushAt: null },
+      ]);
+
+      const { rows, totals } = await service.emailBilling();
+
+      // cost = round(recipients × 370 / 10000): 1000 → 37, 200 → 7
+      expect(rows[0].costStotinki).toBe(37);
+      expect(rows[0].marginStotinki).toBe(56 - 37);
+      expect(rows[1].costStotinki).toBe(7);
+      expect(totals.recipientTotal).toBe(1200);
+      expect(totals.revenueStotinki).toBe(67);
+      expect(totals.costStotinki).toBe(44);
+      expect(totals.marginStotinki).toBe(23);
+    });
   });
 
   // ── createTenant ──────────────────────────────────────────────────────────
