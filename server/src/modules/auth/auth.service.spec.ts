@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -334,16 +334,19 @@ describe('AuthService', () => {
 
       expect(jwtService.signAsync).toHaveBeenCalledWith(
         expect.objectContaining({ sub: USER_ID, type: 'reset' }),
-        expect.objectContaining({ secret: 'test-secret::pwreset' }),
+        // 7d is a deliberate security property (longer than a self-service reset) —
+        // pin it so a regression to '30m'/no-expiry can't pass silently.
+        expect.objectContaining({ secret: 'test-secret::pwreset', expiresIn: '7d' }),
       );
       const sent = emailMock.sendMail.mock.calls[0][0];
       expect(sent.to).toBe('p@farm.bg');
       expect(sent.html).toContain('reset-token');
+      expect(sent.text).toContain('reset-token');
     });
 
-    it('throws when the user does not exist', async () => {
+    it('throws NotFoundException when the user does not exist', async () => {
       db.limit.mockResolvedValueOnce([]);
-      await expect(service.sendFarmerInvite(USER_ID)).rejects.toThrow();
+      await expect(service.sendFarmerInvite(USER_ID)).rejects.toThrow(NotFoundException);
     });
   });
 
