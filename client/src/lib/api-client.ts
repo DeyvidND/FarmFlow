@@ -566,7 +566,7 @@ export interface BillingSummary {
   cardBrand: string | null;
   cardLast4: string | null;
   basePriceStotinki: number;
-  emailPriceStotinki: number;
+  emailPricePerRecipientMicro: number;
   pushesThisCycle: number;
   estimatedNextStotinki: number;
   invoices: { amountStotinki: number; status: string; date: string; url: string | null }[];
@@ -674,8 +674,79 @@ export const listSubscribers = (cursor?: string) =>
     `subscribers${qs(cursor)}`,
   );
 
-export const sendBroadcast = (data: { subject: string; body: string }) =>
-  apiFetch<{ sent: number }>('broadcast', { method: 'POST', ...json(data) }, 'Неуспешно изпращане');
+// ─── Newsletter block-builder campaigns ─────────────────────────────────────
+// Local mirror of @farmflow/types NewsletterBlock (client doesn't consume the
+// types package). Keep in sync with packages/types/src/index.ts.
+export type NewsletterColumn =
+  | { kind: 'text'; html: string }
+  | { kind: 'image'; image: string; alt?: string };
+
+export type NewsletterBlock =
+  | { type: 'hero'; image: string; alt?: string; href?: string }
+  | { type: 'heading'; text: string; level?: 1 | 2 }
+  | { type: 'text'; html: string }
+  | { type: 'image'; image: string; alt?: string; href?: string; caption?: string }
+  | { type: 'button'; label: string; href: string }
+  | { type: 'columns'; left: NewsletterColumn; right: NewsletterColumn }
+  | { type: 'divider' }
+  | { type: 'spacer'; size?: 'sm' | 'md' | 'lg' };
+
+export interface NewsletterCampaign {
+  id: string;
+  subject: string;
+  blocks: NewsletterBlock[];
+  status: 'draft' | 'sent';
+  recipientCount: number | null;
+  priceStotinki: number | null;
+  sentAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface NewsletterQuote {
+  activeCount: number;
+  perRecipientMicro: number;
+  sendCostStotinki: number;
+  monthToDateCount: number;
+  monthToDateStotinki: number;
+  premium: boolean;
+}
+
+export const listCampaigns = (cursor?: string) =>
+  apiFetch<Paginated<NewsletterCampaign>>(`newsletter/campaigns${qs(cursor)}`);
+
+export const getCampaign = (id: string) =>
+  apiFetch<NewsletterCampaign>(`newsletter/campaigns/${id}`);
+
+export const createCampaign = (data: { subject: string; blocks: NewsletterBlock[] }) =>
+  apiFetch<NewsletterCampaign>('newsletter/campaigns', { method: 'POST', ...json(data) }, 'Неуспешно създаване');
+
+export const updateCampaign = (id: string, data: { subject: string; blocks: NewsletterBlock[] }) =>
+  apiFetch<NewsletterCampaign>(`newsletter/campaigns/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешно записване');
+
+export const deleteCampaign = (id: string) =>
+  apiFetch<{ success: boolean }>(`newsletter/campaigns/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
+
+export const previewCampaign = (id: string) =>
+  apiFetch<{ html: string }>(`newsletter/campaigns/${id}/preview`, { method: 'POST' });
+
+export const sendCampaign = (id: string) =>
+  apiFetch<{ sent: number; recipients: number }>(
+    `newsletter/campaigns/${id}/send`,
+    { method: 'POST' },
+    'Неуспешно изпращане',
+  );
+
+export const getNewsletterQuote = () => apiFetch<NewsletterQuote>('newsletter/quote');
+
+export function uploadCampaignInlineImage(id: string, file: File) {
+  const fd = new FormData();
+  fd.append('file', file);
+  return apiFetch<{ url: string }>(
+    `newsletter/campaigns/${id}/images`,
+    { method: 'POST', body: fd },
+    'Неуспешно качване',
+  );
+}
 
 // ─── Account / side-nav preferences ────────────────────────────────────────────
 

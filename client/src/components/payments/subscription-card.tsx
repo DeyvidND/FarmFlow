@@ -91,7 +91,7 @@ export function SubscriptionCard({ summary }: { summary: BillingSummary }) {
           Стандартен план — {moneyFromStotinki(summary.basePriceStotinki)}/мес
         </div>
         <div className="mt-0.5 text-[12.5px] text-ff-muted">
-          + {moneyFromStotinki(summary.emailPriceStotinki)} на изпратен бюлетин
+          + €{(summary.emailPricePerRecipientMicro / 1000).toFixed(2)} на 1000 изпратени имейла
         </div>
 
         <div className="mt-4 flex items-center justify-between rounded-xl border border-ff-border-2 bg-ff-surface-2 px-4 py-3">
