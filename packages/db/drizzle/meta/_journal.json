@@ -309,6 +309,13 @@
       "when": 1781464659441,
       "tag": "0043_high_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1781475626851,
+      "tag": "0044_petite_gateway",
+      "breakpoints": true
     }
   ]
 }
