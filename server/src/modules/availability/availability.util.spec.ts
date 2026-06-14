@@ -14,12 +14,27 @@ describe('activeWindow', () => {
   it('returns null when no window covers today', () => {
     expect(activeWindow([w('a', '2026-06-01', '2026-06-10')], '2026-06-13')).toBeNull();
   });
+  it('returns null for an empty list', () => {
+    expect(activeWindow([], '2026-06-14')).toBeNull();
+  });
 });
 
 describe('rangesOverlap', () => {
   it('detects overlapping inclusive ranges', () => {
     expect(rangesOverlap('2026-06-01', '2026-06-10', '2026-06-10', '2026-06-12')).toBe(true);
     expect(rangesOverlap('2026-06-01', '2026-06-10', '2026-06-11', '2026-06-12')).toBe(false);
+  });
+  it('returns false when A is entirely before B', () => {
+    expect(rangesOverlap('2026-06-01', '2026-06-05', '2026-06-10', '2026-06-20')).toBe(false);
+  });
+  it('returns false when B is entirely before A (symmetry)', () => {
+    expect(rangesOverlap('2026-06-10', '2026-06-20', '2026-06-01', '2026-06-05')).toBe(false);
+  });
+  it('returns true when A contains B', () => {
+    expect(rangesOverlap('2026-06-01', '2026-06-20', '2026-06-05', '2026-06-10')).toBe(true);
+  });
+  it('returns true for a single-day touch (same date)', () => {
+    expect(rangesOverlap('2026-06-10', '2026-06-10', '2026-06-10', '2026-06-10')).toBe(true);
   });
 });
 

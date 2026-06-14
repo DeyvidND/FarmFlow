@@ -1,6 +1,7 @@
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { CreateWindowDto } from './create-window.dto';
+import { UpdateWindowDto } from './update-window.dto';
 
 const make = (over: Partial<CreateWindowDto>) =>
   plainToInstance(CreateWindowDto, {
@@ -23,5 +24,12 @@ describe('CreateWindowDto', () => {
   });
   it('rejects a non-uuid productId', async () => {
     expect((await validate(make({ productId: 'x' as any }))).length).toBeGreaterThan(0);
+  });
+});
+
+describe('UpdateWindowDto', () => {
+  it('accepts an empty body (all fields optional)', async () => {
+    const dto = plainToInstance(UpdateWindowDto, {});
+    expect(await validate(dto)).toHaveLength(0);
   });
 });

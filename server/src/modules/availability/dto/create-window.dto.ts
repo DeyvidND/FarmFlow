@@ -1,4 +1,4 @@
-import { IsInt, IsISO8601, IsUUID, Min } from 'class-validator';
+import { IsDateString, IsInt, IsUUID, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateWindowDto {
@@ -6,13 +6,13 @@ export class CreateWindowDto {
   @IsUUID()
   productId: string;
 
-  // Date-only ISO strings ('YYYY-MM-DD'). `strict` keeps them date-shaped.
+  // Date-only ISO strings ('YYYY-MM-DD').
   @ApiProperty({ example: '2026-06-14' })
-  @IsISO8601({ strict: true })
+  @IsDateString()
   startsAt: string;
 
   @ApiProperty({ example: '2026-06-20' })
-  @IsISO8601({ strict: true })
+  @IsDateString()
   endsAt: string;
 
   @ApiProperty({ example: 10 })
