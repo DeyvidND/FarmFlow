@@ -5,8 +5,8 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, asc, eq } from 'drizzle-orm';
-import { type Database, productAvailabilityWindows } from '@farmflow/db';
+import { and, asc, eq, gte, lte } from 'drizzle-orm';
+import { type Database, productAvailabilityWindows, products } from '@farmflow/db';
 import type { AvailabilityWindow, PublicAvailabilityWindow } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
@@ -14,7 +14,7 @@ import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { bgToday } from '../../common/time/bg-time';
 import { CreateWindowDto } from './dto/create-window.dto';
 import { UpdateWindowDto } from './dto/update-window.dto';
-import { activeWindow, rangesOverlap, applyQuantityDelta } from './availability.util';
+import { rangesOverlap, applyQuantityDelta } from './availability.util';
 
 @Injectable()
 export class AvailabilityService {
@@ -41,6 +41,16 @@ export class AvailabilityService {
   }
 
   async create(tenantId: string, dto: CreateWindowDto): Promise<AvailabilityWindow> {
+    // Ownership guard: a window may only be created for a product owned by the
+    // caller's tenant. Without this, a tenant could attach windows to (and read
+    // `remaining` of) another tenant's product — a cross-tenant IDOR.
+    const [owned] = await this.db
+      .select({ id: products.id })
+      .from(products)
+      .where(and(eq(products.id, dto.productId), eq(products.tenantId, tenantId)))
+      .limit(1);
+    if (!owned) throw new NotFoundException('Продуктът не е намерен');
+
     if (dto.endsAt < dto.startsAt) {
       throw new BadRequestException('Крайната дата е преди началната');
     }
@@ -155,19 +165,26 @@ export class AvailabilityService {
   async findPublicActiveBySlug(slug: string): Promise<PublicAvailabilityWindow[]> {
     const tenant = await this.publicCache.resolveTenant(this.db, slug);
     const today = bgToday();
+    // Push the active-today predicate into SQL so it's served by the
+    // (product_id, starts_at, ends_at) index instead of scanning all tenant
+    // windows and filtering in JS (mirrors the checkout-path query).
     const rows = await this.db
       .select()
       .from(productAvailabilityWindows)
-      .where(eq(productAvailabilityWindows.tenantId, tenant.id));
-    return rows
-      .filter((w) => w.startsAt <= today && today <= w.endsAt)
-      .map((w) => ({
-        productId: w.productId!,
-        startsAt: w.startsAt,
-        endsAt: w.endsAt,
-        quantity: w.quantity,
-        remaining: w.remaining,
-      }));
+      .where(
+        and(
+          eq(productAvailabilityWindows.tenantId, tenant.id),
+          lte(productAvailabilityWindows.startsAt, today),
+          gte(productAvailabilityWindows.endsAt, today),
+        ),
+      );
+    return rows.map((w) => ({
+      productId: w.productId!,
+      startsAt: w.startsAt,
+      endsAt: w.endsAt,
+      quantity: w.quantity,
+      remaining: w.remaining,
+    }));
   }
 
   /** Busts the admin catalog cache when windows change. */
@@ -175,6 +192,3 @@ export class AvailabilityService {
     await this.cache.invalidate(tenantId);
   }
 }
-
-// Re-exported for callers that resolve a single product's active window.
-export { activeWindow };

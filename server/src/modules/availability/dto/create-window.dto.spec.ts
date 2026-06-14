@@ -19,6 +19,11 @@ describe('CreateWindowDto', () => {
   it('rejects a non-date startsAt', async () => {
     expect((await validate(make({ startsAt: 'nope' as any }))).length).toBeGreaterThan(0);
   });
+  it('rejects a full datetime startsAt (date-only guard)', async () => {
+    expect(
+      (await validate(make({ startsAt: '2026-06-14T10:00:00Z' as any }))).length,
+    ).toBeGreaterThan(0);
+  });
   it('rejects quantity < 1', async () => {
     expect((await validate(make({ quantity: 0 }))).length).toBeGreaterThan(0);
   });

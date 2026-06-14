@@ -518,10 +518,29 @@ export class OrdersService {
     }
     // First transition into `cancelled`: return each item's reserved stock to its
     // active availability window (best-effort — only while the window is still
-    // active; expired windows are left as-is). Guarded on prev !== cancelled so a
-    // re-cancel can't double-restore.
+    // active; expired windows are left as-is). The into-cancelled transition is
+    // claimed atomically inside the tx so two concurrent cancels can't both restore.
     if (dto.status === 'cancelled' && prev?.status !== 'cancelled') {
       await this.db.transaction(async (tx) => {
+        // Atomic claim: lock the order row and flip its status to 'cancelled' ONLY
+        // if it is not already cancelled, in one statement. RETURNING tells us
+        // whether THIS tx performed the into-cancelled transition. A racing second
+        // cancel blocks on the row lock, then matches zero rows (already cancelled)
+        // and returns empty → it skips the restore. This — not the pre-update
+        // `prev` read, which both racers can observe as non-cancelled — is the gate.
+        const claimed = await tx
+          .update(orders)
+          .set({ status: 'cancelled' })
+          .where(
+            and(
+              eq(orders.id, id),
+              eq(orders.tenantId, tenantId),
+              ne(orders.status, 'cancelled'),
+            ),
+          )
+          .returning({ id: orders.id });
+        if (!claimed.length) return; // another concurrent cancel already restored
+
         const items = await tx
           .select()
           .from(orderItems)
