@@ -29,7 +29,7 @@ import { OrderConfirmationService } from '../order-email/order-confirmation.serv
 import { EcontService } from '../econt/econt.service';
 import { buildPublicMethods, codEnabled, type DeliveryConfig } from './delivery-pricing';
 import { scheduledForDay } from './order-scheduling';
-import { decideDecrement } from '../availability/availability.util';
+import { decideDecrement, restoreRemaining } from '../availability/availability.util';
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
@@ -515,6 +515,38 @@ export class OrdersService {
       // auto-create enabled. Covers COD/cash Econt orders, which never reach the
       // Stripe paid-webhook (its only other trigger).
       void this.econt.autoCreateForOrder(id);
+    }
+    // First transition into `cancelled`: return each item's reserved stock to its
+    // active availability window (best-effort — only while the window is still
+    // active; expired windows are left as-is). Guarded on prev !== cancelled so a
+    // re-cancel can't double-restore.
+    if (dto.status === 'cancelled' && prev?.status !== 'cancelled') {
+      await this.db.transaction(async (tx) => {
+        const items = await tx
+          .select()
+          .from(orderItems)
+          .where(eq(orderItems.orderId, id));
+        const today = bgToday();
+        for (const it of items) {
+          if (!it.productId) continue;
+          const [win] = await tx
+            .select()
+            .from(productAvailabilityWindows)
+            .where(
+              and(
+                eq(productAvailabilityWindows.productId, it.productId),
+                eq(productAvailabilityWindows.tenantId, tenantId),
+              ),
+            )
+            .for('update');
+          if (win && win.startsAt <= today && today <= win.endsAt) {
+            await tx
+              .update(productAvailabilityWindows)
+              .set({ remaining: restoreRemaining(win, it.quantity) })
+              .where(eq(productAvailabilityWindows.id, win.id));
+          }
+        }
+      });
     }
     // Status change moves the order in/out of the counted set (and flips collected
     // for COD) — refresh the Плащания cache.

@@ -39,3 +39,9 @@ export function decideDecrement(
   if (active.remaining < qty) return { ok: false, newRemaining: null };
   return { ok: true, newRemaining: active.remaining - qty };
 }
+
+/** New `remaining` after returning `qty` to a still-active window on cancel,
+ *  capped at the window's `quantity` so it can't exceed the original stock. */
+export function restoreRemaining(w: { quantity: number; remaining: number }, qty: number): number {
+  return Math.min(w.quantity, w.remaining + qty);
+}

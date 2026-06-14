@@ -1,4 +1,4 @@
-import { decideDecrement } from '../availability/availability.util';
+import { decideDecrement, restoreRemaining } from '../availability/availability.util';
 
 describe('decideDecrement', () => {
   it('no active window → allow, no decrement', () => {
@@ -12,5 +12,12 @@ describe('decideDecrement', () => {
   });
   it('exact stock → decrement to 0', () => {
     expect(decideDecrement({ remaining: 3 }, 3)).toEqual({ ok: true, newRemaining: 0 });
+  });
+});
+
+describe('restoreRemaining', () => {
+  it('adds qty back, capped at quantity', () => {
+    expect(restoreRemaining({ quantity: 10, remaining: 4 }, 3)).toBe(7);
+    expect(restoreRemaining({ quantity: 10, remaining: 9 }, 5)).toBe(10); // capped
   });
 });
