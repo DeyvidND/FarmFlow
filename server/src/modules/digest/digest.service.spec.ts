@@ -240,15 +240,30 @@ describe('DigestService', () => {
     });
   });
 
-  // ── runDailyDigests ─────────────────────────────────────────────────────
+  // ── eligibleTenantIds ────────────────────────────────────────────────────
 
-  describe('runDailyDigests', () => {
-    it('sends an email when a tenant has a non-null email and has orders', async () => {
-      const tenantRow = { id: TENANT_ID, email: 'farmer@test.bg', multiFarmer: false };
-      // First call: get all tenants with email
-      db.orderBy.mockResolvedValueOnce([tenantRow]);
-      // Second call: buildDigest → orders query
-      const addressOrder = {
+  describe('eligibleTenantIds', () => {
+    it('returns ids of tenants with email or multiFarmer', async () => {
+      db.orderBy.mockResolvedValueOnce([{ id: 'tenant-a' }, { id: 'tenant-b' }]);
+      const ids = await service.eligibleTenantIds();
+      expect(ids).toEqual(['tenant-a', 'tenant-b']);
+    });
+
+    it('returns empty array when no eligible tenants', async () => {
+      db.orderBy.mockResolvedValueOnce([]);
+      const ids = await service.eligibleTenantIds();
+      expect(ids).toEqual([]);
+    });
+  });
+
+  // ── runForTenant ─────────────────────────────────────────────────────────
+
+  describe('runForTenant', () => {
+    it('sends an email when tenant has an email and has orders', async () => {
+      // limit(1) → get tenant
+      db.limit.mockResolvedValueOnce([{ id: TENANT_ID, email: 'farmer@test.bg', multiFarmer: false }]);
+      // buildDigest → orders query
+      db.orderBy.mockResolvedValueOnce([{
         id: 'ord-1',
         deliveryType: 'address',
         customerName: 'Тест Клиент',
@@ -256,10 +271,9 @@ describe('DigestService', () => {
         econtOffice: null,
         slotFrom: null,
         slotTo: null,
-      };
-      db.orderBy.mockResolvedValueOnce([addressOrder]);
+      }]);
 
-      await service.runDailyDigests();
+      await service.runForTenant(TENANT_ID);
 
       expect(emailService.sendMail).toHaveBeenCalledWith(
         expect.objectContaining({ to: 'farmer@test.bg' }),
@@ -267,49 +281,26 @@ describe('DigestService', () => {
     });
 
     it('does not send when digest returns null (no orders)', async () => {
-      const tenantRow = { id: TENANT_ID, email: 'farmer@test.bg', multiFarmer: false };
-      db.orderBy.mockResolvedValueOnce([tenantRow]);
+      db.limit.mockResolvedValueOnce([{ id: TENANT_ID, email: 'farmer@test.bg', multiFarmer: false }]);
       // buildDigest returns null (no orders)
       db.orderBy.mockResolvedValueOnce([]);
 
-      await service.runDailyDigests();
+      await service.runForTenant(TENANT_ID);
 
       expect(emailService.sendMail).not.toHaveBeenCalled();
     });
 
-    it('catches error for one tenant and continues to the next', async () => {
-      const tenant1 = { id: 'tenant-1', email: 'farmer1@test.bg', multiFarmer: false };
-      const tenant2 = { id: 'tenant-2', email: 'farmer2@test.bg', multiFarmer: false };
-      db.orderBy.mockResolvedValueOnce([tenant1, tenant2]);
+    it('returns early when tenant does not exist', async () => {
+      db.limit.mockResolvedValueOnce([]);
 
-      // tenant1 buildDigest throws
-      db.orderBy
-        .mockRejectedValueOnce(new Error('DB error for tenant 1'))
-        // tenant2 buildDigest succeeds with one order
-        .mockResolvedValueOnce([
-          {
-            id: 'ord-1',
-            deliveryType: 'address',
-            customerName: 'Клиент 2',
-            deliveryAddress: 'ул. 2',
-            econtOffice: null,
-            slotFrom: null,
-            slotTo: null,
-          },
-        ]);
+      await expect(service.runForTenant('non-existent')).resolves.toBeUndefined();
 
-      await expect(service.runDailyDigests()).resolves.toBeUndefined();
-
-      // Only tenant2 email sent
-      expect(emailService.sendMail).toHaveBeenCalledTimes(1);
-      expect(emailService.sendMail).toHaveBeenCalledWith(
-        expect.objectContaining({ to: 'farmer2@test.bg' }),
-      );
+      expect(emailService.sendMail).not.toHaveBeenCalled();
     });
 
     it('sends farmer digests for a multi-farmer tenant with no owner email', async () => {
-      // tenant query: multiFarmer on, no owner email
-      db.orderBy.mockResolvedValueOnce([{ id: TENANT_ID, email: null, multiFarmer: true }]);
+      // limit(1) → tenant with multiFarmer, no email
+      db.limit.mockResolvedValueOnce([{ id: TENANT_ID, email: null, multiFarmer: true }]);
       // farmers-with-email query
       db.orderBy.mockResolvedValueOnce([{ id: 'f1', name: 'Петър', email: 'petar@ferma.bg' }]);
       // batched farmer items query (one read for all farmers, grouped by farmerId)
@@ -319,7 +310,7 @@ describe('DigestService', () => {
           productName: 'Домати', quantity: 3 },
       ]);
 
-      await service.runDailyDigests();
+      await service.runForTenant(TENANT_ID);
 
       expect(emailService.sendMail).toHaveBeenCalledWith(
         expect.objectContaining({ to: 'petar@ferma.bg' }),
@@ -327,7 +318,7 @@ describe('DigestService', () => {
     });
 
     it('batches a single items query for all farmers, grouped by farmerId', async () => {
-      db.orderBy.mockResolvedValueOnce([{ id: TENANT_ID, email: null, multiFarmer: true }]);
+      db.limit.mockResolvedValueOnce([{ id: TENANT_ID, email: null, multiFarmer: true }]);
       // two farmers with email
       db.orderBy.mockResolvedValueOnce([
         { id: 'f1', name: 'Петър', email: 'petar@ferma.bg' },
@@ -341,7 +332,7 @@ describe('DigestService', () => {
           deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null, productName: 'Сирене', quantity: 2 },
       ]);
 
-      await service.runDailyDigests();
+      await service.runForTenant(TENANT_ID);
 
       expect(emailService.sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'petar@ferma.bg' }));
       expect(emailService.sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'ivan@ferma.bg' }));
