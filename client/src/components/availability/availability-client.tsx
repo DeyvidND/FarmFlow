@@ -1,13 +1,19 @@
 'use client';
 
 import * as React from 'react';
+import { Info } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ApiError,
   listAvailabilityWindows,
   deleteAvailabilityWindow,
+  updateTenant,
 } from '@/lib/api-client';
 import type { AvailabilityWindow, Product } from '@/lib/types';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { HelpModal } from '@/components/delivery/ui';
+import { Button } from '@/components/ui/button';
+import { AVAILABILITY_HELP } from '@/lib/help-content';
 import { WindowEditor } from './window-editor';
 
 const errMsg = (e: unknown) =>
@@ -25,6 +31,7 @@ const isActive = (w: AvailabilityWindow) => {
 
 export function AvailabilityClient({
   products,
+  title,
 }: {
   products: Product[];
   title: string | null;
@@ -32,8 +39,12 @@ export function AvailabilityClient({
   const [windows, setWindows] = React.useState<AvailabilityWindow[]>([]);
   const [editing, setEditing] = React.useState<{
     productId: string;
-    window?: AvailabilityWindow;
+    existingWindow?: AvailabilityWindow;
   } | null>(null);
+  const [confirming, setConfirming] = React.useState<string | null>(null);
+  const [help, setHelp] = React.useState(false);
+  const [sectionTitle, setSectionTitle] = React.useState(title ?? '');
+  const [savingTitle, setSavingTitle] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     try {
@@ -53,6 +64,7 @@ export function AvailabilityClient({
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 
   const remove = async (id: string) => {
+    setConfirming(null);
     try {
       await deleteAvailabilityWindow(id);
       await reload();
@@ -61,17 +73,58 @@ export function AvailabilityClient({
     }
   };
 
+  const saveTitle = async () => {
+    setSavingTitle(true);
+    try {
+      await updateTenant({ availabilityTitle: sectionTitle.trim() || '' });
+      toast.success('Запазено');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setSavingTitle(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">
-          Задай наличност
-        </h1>
-        <p className="mt-1 text-[14px] text-ff-ink-2">
-          Обяви каква наличност имаш за определен период. Докато периодът е
-          активен, количеството е реалната наличност в магазина — клиентът
-          поръчва и то намалява.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">
+              Задай наличност
+            </h1>
+            <p className="mt-1 text-[14px] text-ff-ink-2">
+              Обяви каква наличност имаш за определен период. Докато периодът е
+              активен, количеството е реалната наличност в магазина — клиентът
+              поръчва и то намалява.
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
+            <Info size={16} /> Обяснения
+          </Button>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-[12.5px] font-bold text-ff-ink-2">
+            Заглавие на секцията в онлайн магазина
+            <input
+              type="text"
+              value={sectionTitle}
+              onChange={(e) => setSectionTitle(e.target.value)}
+              placeholder="Налично сега"
+              className="rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2 text-[14px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500 w-72 max-w-full font-normal"
+            />
+          </label>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={savingTitle}
+            onClick={saveTitle}
+            className="mb-0.5"
+          >
+            {savingTitle ? 'Запазвам…' : 'Запази заглавието'}
+          </Button>
+        </div>
       </div>
 
       {products.length === 0 && (
@@ -127,14 +180,14 @@ export function AvailabilityClient({
                     </span>
                     <button
                       onClick={() =>
-                        setEditing({ productId: p.id, window: w })
+                        setEditing({ productId: p.id, existingWindow: w })
                       }
                       className="text-ff-ink-2 hover:underline"
                     >
                       Промени
                     </button>
                     <button
-                      onClick={() => remove(w.id)}
+                      onClick={() => setConfirming(w.id)}
                       className="text-red-600 hover:underline"
                     >
                       Изтрий
@@ -150,11 +203,24 @@ export function AvailabilityClient({
       {editing && (
         <WindowEditor
           productId={editing.productId}
-          window={editing.window}
+          existingWindow={editing.existingWindow}
           onClose={() => setEditing(null)}
           onSaved={reload}
         />
       )}
+
+      {confirming && (
+        <ConfirmDialog
+          tone="danger"
+          title="Изтриване на период"
+          message="Сигурен ли си? Този период с наличност ще бъде премахнат."
+          confirmLabel="Изтрий"
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => remove(confirming)}
+        />
+      )}
+
+      {help && <HelpModal {...AVAILABILITY_HELP} onClose={() => setHelp(false)} />}
     </div>
   );
 }

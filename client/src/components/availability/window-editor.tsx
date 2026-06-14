@@ -19,17 +19,17 @@ const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
 interface Props {
   productId: string;
-  window?: AvailabilityWindow; // present = edit
+  existingWindow?: AvailabilityWindow; // present = edit
   onClose: () => void;
   onSaved: () => void;
 }
 
-export function WindowEditor({ productId, window, onClose, onSaved }: Props) {
-  const isEdit = !!window;
-  const [startsAt, setStartsAt] = React.useState(window?.startsAt ?? '');
-  const [endsAt, setEndsAt] = React.useState(window?.endsAt ?? '');
+export function WindowEditor({ productId, existingWindow, onClose, onSaved }: Props) {
+  const isEdit = !!existingWindow;
+  const [startsAt, setStartsAt] = React.useState(existingWindow?.startsAt ?? '');
+  const [endsAt, setEndsAt] = React.useState(existingWindow?.endsAt ?? '');
   const [quantity, setQuantity] = React.useState(
-    window ? String(window.quantity) : '',
+    existingWindow ? String(existingWindow.quantity) : '',
   );
   const [saving, setSaving] = React.useState(false);
 
@@ -46,7 +46,7 @@ export function WindowEditor({ productId, window, onClose, onSaved }: Props) {
     setSaving(true);
     try {
       if (isEdit) {
-        await updateAvailabilityWindow(window!.id, {
+        await updateAvailabilityWindow(existingWindow!.id, {
           startsAt,
           endsAt,
           quantity: qty,
