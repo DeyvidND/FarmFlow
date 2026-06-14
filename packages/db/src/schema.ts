@@ -448,11 +448,32 @@ export const emailSuppressions = pgTable('email_suppressions', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// Billing ledger of broadcast "pushes" — the unit the farmer is charged for
-// (flat price per push, regardless of recipient count). One row per broadcast.
+// Block-builder newsletter campaigns: editor content (block JSON) + draft/sent
+// state. Drafts persist so a farmer can come back; on send the campaign flips to
+// 'sent' and an immutable email_pushes ledger row is written for billing.
+export const newsletterCampaigns = pgTable('newsletter_campaigns', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  subject: text('subject').notNull().default(''),
+  blocks: jsonb('blocks').notNull().default(sql`'[]'::jsonb`),
+  status: text('status').notNull().default('draft'), // 'draft' | 'sent'
+  recipientCount: integer('recipient_count'),
+  priceStotinki: integer('price_stotinki'),
+  sentAt: timestamp('sent_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  // Campaign list is newest-edited first, tenant-scoped.
+  tenantUpdatedIdx: index('newsletter_campaigns_tenant_updated_idx').on(t.tenantId, t.updatedAt),
+}));
+
+// Billing ledger of newsletter sends — the immutable usage record the farm is
+// charged for (per-recipient price, captured per row so historical pricing is
+// preserved). One row per send; links back to its campaign.
 export const emailPushes = pgTable('email_pushes', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
   tenantId: uuid('tenant_id').references(() => tenants.id),
+  campaignId: uuid('campaign_id').references(() => newsletterCampaigns.id),
   subject: text('subject'),
   recipientCount: integer('recipient_count').notNull(),
   priceStotinki: integer('price_stotinki').notNull(),
