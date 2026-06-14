@@ -90,6 +90,10 @@ export class FarmersService {
   ): Promise<{ hasLogin: true; loginEmail: string; invitePending: boolean }> {
     await this.findOne(farmerId, tenantId); // 404 if cross-tenant / missing
 
+    // Normalize so the stored address matches what the producer types at login
+    // (the login lookup is case-sensitive).
+    const normalizedEmail = email.trim().toLowerCase();
+
     const [existing] = await this.db
       .select()
       .from(users)
@@ -100,7 +104,7 @@ export class FarmersService {
     const [emailOwner] = await this.db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.email, email))
+      .where(eq(users.email, normalizedEmail))
       .limit(1);
     if (emailOwner && emailOwner.id !== existing?.id) {
       throw new ConflictException('Този имейл вече се използва');
@@ -110,7 +114,7 @@ export class FarmersService {
     if (existing) {
       const [updated] = await this.db
         .update(users)
-        .set({ email, mustChangePassword: true, tokenVersion: sql`${users.tokenVersion} + 1` })
+        .set({ email: normalizedEmail, mustChangePassword: true, tokenVersion: sql`${users.tokenVersion} + 1` })
         .where(eq(users.id, existing.id))
         .returning({ id: users.id });
       userId = updated.id;
@@ -118,7 +122,7 @@ export class FarmersService {
       const passwordHash = await argon2.hash(`${randomUUID()}${randomUUID()}`);
       const [created] = await this.db
         .insert(users)
-        .values({ tenantId, farmerId, email, role: 'farmer', passwordHash, mustChangePassword: true })
+        .values({ tenantId, farmerId, email: normalizedEmail, role: 'farmer', passwordHash, mustChangePassword: true })
         .returning({ id: users.id });
       userId = created.id;
     }
@@ -133,7 +137,7 @@ export class FarmersService {
         `Farmer invite email failed for user ${userId}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    return { hasLogin: true, loginEmail: email, invitePending: true };
+    return { hasLogin: true, loginEmail: normalizedEmail, invitePending: true };
   }
 
   /** Revoke a producer's login: kill live sessions (token_version bump) then delete. */

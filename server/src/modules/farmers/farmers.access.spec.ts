@@ -89,4 +89,23 @@ describe('FarmersService access', () => {
 
     expect(res).toEqual({ hasLogin: true, loginEmail: 'ivan@farm.bg', invitePending: true });
   });
+
+  it('listAccess maps farmer logins, skipping null farmerId', async () => {
+    db.where.mockResolvedValueOnce([
+      { farmerId: 'f1', email: 'a@x.bg', mustChange: true },
+      { farmerId: 'f2', email: 'b@x.bg', mustChange: false },
+      { farmerId: null, email: 'owner@x.bg', mustChange: false },
+    ]);
+    const res = await svc.listAccess(TENANT);
+    expect(res).toEqual({
+      f1: { hasLogin: true, loginEmail: 'a@x.bg', invitePending: true },
+      f2: { hasLogin: true, loginEmail: 'b@x.bg', invitePending: false },
+    });
+  });
+
+  it('listAccess returns empty when no farmer logins exist', async () => {
+    db.where.mockResolvedValueOnce([]);
+    const res = await svc.listAccess(TENANT);
+    expect(res).toEqual({});
+  });
 });
