@@ -21,10 +21,12 @@ export function ProductCard({
   product,
   farmer,
   withStepper = true,
+  disabled = false,
 }: {
   product: PublicProduct;
   farmer?: PublicFarmer;
   withStepper?: boolean;
+  disabled?: boolean;
 }) {
   const add = useCart((s) => s.add);
   const [qty, setQty] = useState(1);
@@ -69,7 +71,11 @@ export function ProductCard({
   );
 
   return (
-    <article className="card product" data-product>
+    <article
+      className="card product"
+      data-product
+      style={disabled ? { opacity: 0.6 } : undefined}
+    >
       {href ? (
         <Link href={href} className="ph" style={phStyle}>
           {thumbInner}
@@ -102,11 +108,13 @@ export function ProductCard({
         )}
         <div className="product__price">{money(product.priceStotinki)}</div>
         <div className="product__foot">
-          {withStepper && <QtyStepper value={qty} onChange={setQty} />}
+          {withStepper && !disabled && <QtyStepper value={qty} onChange={setQty} />}
           <button
             type="button"
             className="btn btn--primary btn--sm btn--full"
             onClick={addToCart}
+            disabled={disabled}
+            style={disabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
           >
             <Cart /> Добави
           </button>

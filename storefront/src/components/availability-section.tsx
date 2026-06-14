@@ -1,5 +1,3 @@
-'use client';
-
 /**
  * „Налично сега" — storefront section for time-bounded availability windows.
  *
@@ -88,7 +86,7 @@ export function AvailabilitySection({
                   )}
                   <div className="grid grid--4">
                     {farmerItems.map((item) => (
-                      <AvailabilityCard key={item.product.id} item={item} />
+                      <AvailabilityCard key={item.product.id + '-' + item.window.startsAt} item={item} />
                     ))}
                   </div>
                 </div>
@@ -109,7 +107,7 @@ export function AvailabilitySection({
         </div>
         <div className="grid grid--4">
           {items.map((item) => (
-            <AvailabilityCard key={item.product.id} item={item} />
+            <AvailabilityCard key={item.product.id + '-' + item.window.startsAt} item={item} />
           ))}
         </div>
       </div>
@@ -118,9 +116,10 @@ export function AvailabilitySection({
 }
 
 /**
- * Wraps a `ProductCard` with an availability badge overlay (remaining / sold-out).
- * The card itself handles add-to-cart; we hide it via a wrapper when sold-out
- * and show the quantity badge via `pointer-events:none` overlay on the card.
+ * Wraps a `ProductCard` with an availability badge (remaining / sold-out).
+ * Sold-out state is conveyed via the `disabled` prop on `ProductCard` (which
+ * disables the button for both mouse and keyboard users) and the „изчерпан"
+ * badge — no separate overlay div needed.
  */
 function AvailabilityCard({ item }: { item: AvailabilityItem }) {
   const { window: w, product, farmer } = item;
@@ -147,22 +146,7 @@ function AvailabilityCard({ item }: { item: AvailabilityItem }) {
         {soldOut ? 'изчерпан' : `остават ${w.remaining}`}
       </div>
 
-      {/* Sold-out overlay — dims the card and blocks interaction */}
-      {soldOut && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: 1,
-            borderRadius: 'inherit',
-            background: 'rgba(255,255,255,0.55)',
-            pointerEvents: 'all',
-          }}
-          aria-hidden
-        />
-      )}
-
-      <ProductCard product={product} farmer={farmer} withStepper={!soldOut} />
+      <ProductCard product={product} farmer={farmer} withStepper={!soldOut} disabled={soldOut} />
     </div>
   );
 }
