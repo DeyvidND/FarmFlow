@@ -9,6 +9,7 @@ import { OrdersService } from './orders.service';
 import { CheckoutService } from './checkout.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { PaymentsQueryDto } from './dto/payments-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -44,10 +45,15 @@ export class OrdersController {
   }
 
   // Literal route — declared before `:id` so it isn't captured as an order id.
-  // All order money (наложен платеж + card) for the Плащания screen.
+  // All order money (наложен платеж + card) for the Плащания screen: keyset page
+  // + method filter (all/cod) + free-text search.
   @Get('payments')
-  payments(@CurrentTenant() tenantId: string) {
-    return this.ordersService.payments(tenantId);
+  @ApiQuery({ name: 'method', required: false })
+  @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  payments(@CurrentTenant() tenantId: string, @Query() query: PaymentsQueryDto) {
+    return this.ordersService.payments(tenantId, query);
   }
 
   @Get(':id')

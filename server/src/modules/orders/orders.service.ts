@@ -6,7 +6,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, gte, inArray, lt, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, ilike, inArray, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   type Database,
   orders,
@@ -19,8 +19,9 @@ import {
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday, bgDayBounds, bgDate } from '../../common/time/bg-time';
-import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
+import { buildPage, clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
 import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
@@ -72,6 +73,11 @@ export const PAYMENT_COUNTED_STATUSES = [
   'delivered',
 ] as const;
 
+/** Short TTL for the payments totals/first-page cache. Farmer order writes bust
+ *  it immediately; a card payment landing via the Stripe webhook (cross-module,
+ *  not busted here) self-heals within this window. */
+const PAYMENTS_CACHE_TTL = 60;
+
 /** How the customer chose to pay — наложен платеж (cash on delivery) vs card. */
 export type PaymentChannel = 'cod' | 'online';
 
@@ -98,19 +104,40 @@ export interface PaymentOrder {
   slotTo: string | null;
 }
 
-export interface PaymentsSummary {
-  /** COD due + card received, over the window (minor units, EUR cents). */
+/** Tenant-wide payment totals (every counted order), independent of search/page. */
+export interface PaymentTotals {
+  /** COD due + card received (minor units, EUR cents). */
   totalStotinki: number;
   count: number;
+  /** Total counted orders across both channels — the «Всичко» tab badge. */
+  allCount: number;
   /** Наложен платеж: every counted order (money due/collected). */
   codTotalStotinki: number;
   codCount: number;
   /** Card: only paid orders (money actually received). */
   cardTotalStotinki: number;
   cardCount: number;
-  /** Flat list, newest delivery day first, then newest created. */
-  orders: PaymentOrder[];
 }
+
+/** One row of the per-channel aggregate that {@link paymentTotals} folds. */
+export interface PaymentAggRow {
+  paymentMethod: PaymentChannel;
+  count: number;
+  totalStotinki: number;
+  paidCount: number;
+  paidTotalStotinki: number;
+}
+
+/** A page of the payments list: totals (only on the first page) + rows + cursor. */
+export interface PaymentsPage {
+  /** Present on the first page (no cursor); null on «load more» fetches. */
+  totals: PaymentTotals | null;
+  orders: PaymentOrder[];
+  /** Opaque keyset cursor for the next page, or null when exhausted. */
+  nextCursor: string | null;
+}
+
+export type PaymentMethodFilter = 'all' | 'cod';
 
 /** Raw row shape the payments query feeds into {@link buildPaymentsSummary}. */
 export interface PaymentRow {
@@ -134,67 +161,65 @@ const toIso = (v: Date | string | null): string | null =>
   v == null ? null : new Date(v).toISOString();
 
 /**
- * Map flat payment rows to the screen shape and sum per-channel + grand totals.
- * Pure (no DB) so it's unit-testable; rows arrive already filtered to counted
- * statuses (both methods). Sorted newest delivery day first, newest created
- * within a day (order-independent — the query also sorts, this is defensive).
- * Card total counts only paid card orders (money actually received); COD total
- * counts every due order.
+ * Map one DB row to the screen shape, deriving payment status + collected. Pure
+ * (no DB) so it's unit-testable. The query already filters to counted statuses
+ * and orders by (createdAt, id) desc — the client groups by delivery day.
  */
-export function buildPaymentsSummary(rows: PaymentRow[]): PaymentsSummary {
-  const list: PaymentOrder[] = rows.map((r) => {
-    const paid = r.paidAt != null;
-    const paymentStatus: PaymentStatus = paid
-      ? 'paid'
-      : r.paymentMethod === 'online'
-        ? 'pending_online'
-        : 'cash';
-    return {
-      id: r.id,
-      orderNumber: r.orderNumber,
-      customerName: r.customerName,
-      customerPhone: r.customerPhone,
-      customerEmail: r.customerEmail,
-      totalStotinki: r.totalStotinki,
-      status: r.status,
-      deliveryType: r.deliveryType,
-      paymentMethod: r.paymentMethod,
-      paymentStatus,
-      collected: r.paymentMethod === 'cod' ? r.status === 'delivered' : paid,
-      day: r.day,
-      createdAt: toIso(r.createdAt),
-      paidAt: toIso(r.paidAt),
-      slotFrom: r.slotFrom,
-      slotTo: r.slotTo,
-    };
-  });
-  list.sort((a, b) => {
-    if (a.day !== b.day) return a.day < b.day ? 1 : -1;
-    const ca = a.createdAt ?? '';
-    const cb = b.createdAt ?? '';
-    return ca < cb ? 1 : ca > cb ? -1 : 0;
-  });
+export function toPaymentOrder(r: PaymentRow): PaymentOrder {
+  const paid = r.paidAt != null;
+  const paymentStatus: PaymentStatus = paid
+    ? 'paid'
+    : r.paymentMethod === 'online'
+      ? 'pending_online'
+      : 'cash';
+  return {
+    id: r.id,
+    orderNumber: r.orderNumber,
+    customerName: r.customerName,
+    customerPhone: r.customerPhone,
+    customerEmail: r.customerEmail,
+    totalStotinki: r.totalStotinki,
+    status: r.status,
+    deliveryType: r.deliveryType,
+    paymentMethod: r.paymentMethod,
+    paymentStatus,
+    collected: r.paymentMethod === 'cod' ? r.status === 'delivered' : paid,
+    day: r.day,
+    createdAt: toIso(r.createdAt),
+    paidAt: toIso(r.paidAt),
+    slotFrom: r.slotFrom,
+    slotTo: r.slotTo,
+  };
+}
+
+/**
+ * Fold the per-channel SQL aggregate into screen totals. Pure (no DB). COD counts
+ * every due order; card counts only paid orders (money actually received).
+ */
+export function paymentTotals(rows: PaymentAggRow[]): PaymentTotals {
   let codTotalStotinki = 0;
   let codCount = 0;
   let cardTotalStotinki = 0;
   let cardCount = 0;
-  for (const o of list) {
-    if (o.paymentMethod === 'cod') {
-      codTotalStotinki += o.totalStotinki;
-      codCount += 1;
-    } else if (o.paymentStatus === 'paid') {
-      cardTotalStotinki += o.totalStotinki;
-      cardCount += 1;
+  let allCount = 0;
+  for (const r of rows) {
+    allCount += r.count;
+    if (r.paymentMethod === 'cod') {
+      codTotalStotinki += r.totalStotinki;
+      codCount += r.count;
+    } else {
+      cardTotalStotinki += r.paidTotalStotinki;
+      cardCount += r.paidCount;
     }
   }
   return {
     totalStotinki: codTotalStotinki + cardTotalStotinki,
     count: codCount + cardCount,
+    allCount,
     codTotalStotinki,
     codCount,
     cardTotalStotinki,
     cardCount,
-    orders: list,
   };
 }
 
@@ -236,6 +261,7 @@ export class OrdersService {
     private readonly maps: MapsService,
     private readonly orderEmail: OrderConfirmationService,
     private readonly econt: EcontService,
+    private readonly cache: PublicCacheService,
   ) {}
 
   /**
@@ -315,16 +341,58 @@ export class OrdersService {
   }
 
   /**
-   * All order money for the farmer's Плащания screen: confirmed-and-beyond orders
-   * across both channels (наложен платеж + card), tagged with the delivery day
-   * (slot day; creation day for slotless Econt/pickup orders — same rule as
-   * production / digests) and the customer's contact details for searching.
-   * Newest day first; capped at the most recent 300 orders. The Stripe summary
-   * (payouts / onboarding) is surfaced separately.
+   * One page of the farmer's Плащания screen: confirmed-and-beyond orders across
+   * both channels (наложен платеж + card), tagged with the delivery day (slot day;
+   * creation day for slotless orders — same rule as production / digests) and the
+   * customer's contact details. Keyset-paginated newest-first (createdAt, id),
+   * optional method filter (Всичко / наложен платеж) and free-text search over
+   * name / phone / email / order number.
+   *
+   * Tenant-wide totals come back only on the first page (no cursor) — «load more»
+   * fetches reuse them. The first, unfiltered page of each method plus the totals
+   * are Redis-cached (short TTL, busted on order writes); searched and deeper
+   * pages always hit Postgres (bounded by the page LIMIT + tenant/status index).
    */
-  async payments(tenantId: string): Promise<PaymentsSummary> {
-    // Delivery day: the slot's date, falling back to the BG-local creation date
-    // for slotless orders. Mirrors scheduledForDay's day rule.
+  async payments(
+    tenantId: string,
+    opts: { method?: PaymentMethodFilter; q?: string; cursor?: string; limit?: number } = {},
+  ): Promise<PaymentsPage> {
+    const method: PaymentMethodFilter = opts.method === 'cod' ? 'cod' : 'all';
+    const q = (opts.q ?? '').trim();
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+
+    // Totals are global (ignore search/page) — only fetched for the first page.
+    const totals = cur ? null : await this.paymentTotalsCached(tenantId);
+
+    // The first, unfiltered, default-size page of a method is the hot path → cache
+    // it. A custom limit (or search / cursor) bypasses the cache so its key never
+    // has to encode the page size.
+    const listCacheable = !q && !cur && opts.limit == null;
+    const listKey = `payments:list:${tenantId}:${method}`;
+    if (listCacheable) {
+      const hit = await this.cache.get<Omit<PaymentsPage, 'totals'>>(listKey);
+      if (hit) return { totals, ...hit };
+    }
+
+    const conds = [
+      eq(orders.tenantId, tenantId),
+      inArray(orders.status, [...PAYMENT_COUNTED_STATUSES]),
+    ];
+    if (method === 'cod') conds.push(eq(orders.paymentMethod, 'cod'));
+    if (q) conds.push(this.paymentSearchCond(q));
+    if (cur) {
+      // Keyset «older than cursor». `orders.created_at` is `timestamp` (no tz), so
+      // binding a JS Date would let Postgres tz-shift the param vs the naive column
+      // (breaking the boundary when the DB session tz isn't UTC). Cast the cursor's
+      // ISO string to a naive `timestamp` + `uuid` so the row-value compare matches
+      // the column types exactly.
+      conds.push(
+        sql`(${orders.createdAt}, ${orders.id}) < (${cur.createdAt.toISOString()}::timestamp, ${cur.id}::uuid)`,
+      );
+    }
+
+    // Delivery day: the slot's date, falling back to the BG-local creation date.
     const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
     const rows = await this.db
       .select({
@@ -345,15 +413,70 @@ export class OrdersService {
       })
       .from(orders)
       .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(and(...conds)!)
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(lim + 1);
+
+    const { items, nextCursor } = buildPage(rows as PaymentRow[], lim, (r) => ({
+      createdAt: r.createdAt as Date,
+      id: r.id,
+    }));
+    const listPart = { orders: items.map(toPaymentOrder), nextCursor };
+    if (listCacheable) await this.cache.set(listKey, listPart, PAYMENTS_CACHE_TTL);
+    return { totals, ...listPart };
+  }
+
+  /** Tenant-wide payment totals, Redis-cached (busted on order writes). */
+  private async paymentTotalsCached(tenantId: string): Promise<PaymentTotals> {
+    const key = `payments:totals:${tenantId}`;
+    const hit = await this.cache.get<PaymentTotals>(key);
+    if (hit) return hit;
+    const aggRows = await this.db
+      .select({
+        paymentMethod: orders.paymentMethod,
+        count: sql<number>`count(*)::int`,
+        totalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}), 0)::int`,
+        paidCount: sql<number>`count(*) filter (where ${orders.paidAt} is not null)::int`,
+        paidTotalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.paidAt} is not null), 0)::int`,
+      })
+      .from(orders)
       .where(
         and(
           eq(orders.tenantId, tenantId),
           inArray(orders.status, [...PAYMENT_COUNTED_STATUSES]),
         ),
       )
-      .orderBy(desc(orders.createdAt), desc(orders.id))
-      .limit(300);
-    return buildPaymentsSummary(rows as PaymentRow[]);
+      .groupBy(orders.paymentMethod);
+    const totals = paymentTotals(aggRows as PaymentAggRow[]);
+    await this.cache.set(key, totals, PAYMENTS_CACHE_TTL);
+    return totals;
+  }
+
+  /** Free-text WHERE over name / email / phone (digits) / order number. */
+  private paymentSearchCond(q: string): SQL {
+    const like = `%${q}%`;
+    const digits = q.replace(/\D/g, '');
+    const ors: (SQL | undefined)[] = [
+      ilike(orders.customerName, like),
+      ilike(orders.customerEmail, like),
+    ];
+    if (digits) {
+      ors.push(
+        sql`regexp_replace(coalesce(${orders.customerPhone}, ''), '[^0-9]', '', 'g') like ${`%${digits}%`}`,
+      );
+      const n = Number(digits);
+      if (Number.isSafeInteger(n) && n > 0) ors.push(eq(orders.orderNumber, n));
+    }
+    return or(...ors)!;
+  }
+
+  /** Drop the cached payment totals + first pages for a tenant after an order write. */
+  private async bustPayments(tenantId: string): Promise<void> {
+    await this.cache.del(
+      `payments:totals:${tenantId}`,
+      `payments:list:${tenantId}:all`,
+      `payments:list:${tenantId}:cod`,
+    );
   }
 
   async findOne(id: string, tenantId: string): Promise<SerializedOrder> {
@@ -391,6 +514,9 @@ export class OrdersService {
       // Stripe paid-webhook (its only other trigger).
       void this.econt.autoCreateForOrder(id);
     }
+    // Status change moves the order in/out of the counted set (and flips collected
+    // for COD) — refresh the Плащания cache.
+    await this.bustPayments(tenantId);
     return row;
   }
 
@@ -471,6 +597,8 @@ export class OrdersService {
     // concurrency cap (detached) so a large bulk confirm doesn't open N SMTP/Econt
     // connections at once.
     void this.drainConfirmEffects(rows.map((r) => r.id));
+    // Newly-confirmed orders enter the counted set — refresh the Плащания cache.
+    if (rows.length) await this.bustPayments(tenantId);
     return { confirmed: rows.length };
   }
 

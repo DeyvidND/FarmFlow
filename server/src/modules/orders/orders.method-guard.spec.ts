@@ -4,7 +4,7 @@ import { OrdersService } from './orders.service';
 // assertMethodAllowed is a pure guard over the tenant's settings.delivery config,
 // so we can construct the service with stub deps and call it directly.
 describe('OrdersService.assertMethodAllowed', () => {
-  const svc = new OrdersService({} as never, {} as never, {} as never, {} as never);
+  const svc = new OrdersService({} as never, {} as never, {} as never, {} as never, {} as never);
   const check = (
     settings: unknown,
     deliveryEnabled: boolean,

@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CreditCard,
   ShieldCheck,
@@ -12,6 +12,7 @@ import {
   Search,
   Phone,
   Mail,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -26,8 +27,10 @@ import {
 } from '@/lib/utils';
 import {
   startStripeOnboarding,
+  getPayments,
   type StripeSummary,
-  type PaymentsSummary,
+  type PaymentsPage,
+  type PaymentTotals,
   type PaymentOrder,
   type PaymentChannel,
 } from '@/lib/api-client';
@@ -36,6 +39,16 @@ import {
 const STRIPE_DASHBOARD_URL = 'https://dashboard.stripe.com';
 
 type Tab = 'all' | 'cod' | 'card';
+
+const ZERO_TOTALS: PaymentTotals = {
+  totalStotinki: 0,
+  count: 0,
+  allCount: 0,
+  codTotalStotinki: 0,
+  codCount: 0,
+  cardTotalStotinki: 0,
+  cardCount: 0,
+};
 
 const DELIVERY_LABEL: Record<string, string> = {
   pickup: 'На място',
@@ -75,20 +88,6 @@ function moneyStatus(o: PaymentOrder): { label: string; cls: string } {
   };
 }
 
-/** Free-text match over name / phone (digits) / email / order number. */
-function matches(o: PaymentOrder, q: string): boolean {
-  const n = q.trim().toLowerCase();
-  if (!n) return true;
-  const digits = n.replace(/\D/g, '');
-  return (
-    (o.customerName ?? '').toLowerCase().includes(n) ||
-    (o.customerEmail ?? '').toLowerCase().includes(n) ||
-    (digits.length > 0 && (o.customerPhone ?? '').replace(/\D/g, '').includes(digits)) ||
-    (o.orderNumber != null &&
-      (`#${o.orderNumber}`.includes(n) || (digits.length > 0 && String(o.orderNumber) === digits)))
-  );
-}
-
 interface DayGroup {
   day: string;
   totalStotinki: number;
@@ -114,20 +113,75 @@ function groupByDay(list: PaymentOrder[]): DayGroup[] {
 
 export function PaymentsClient({
   stripe,
-  payments,
+  initial,
 }: {
   stripe: StripeSummary;
-  payments: PaymentsSummary;
+  initial: PaymentsPage;
 }) {
   const [tab, setTab] = useState<Tab>('all');
   const [query, setQuery] = useState('');
+  const [dq, setDq] = useState('');
+
+  // SSR seed = the «Всичко» first page (method=all, no search).
+  const [totals, setTotals] = useState<PaymentTotals>(initial.totals ?? ZERO_TOTALS);
+  const [orders, setOrders] = useState<PaymentOrder[]>(initial.orders);
+  const [cursor, setCursor] = useState<string | null>(initial.nextCursor);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const [busy, setBusy] = useState(false);
 
-  const all = payments.orders;
-  const codOrders = useMemo(() => all.filter((o) => o.paymentMethod === 'cod'), [all]);
+  const method = tab === 'cod' ? 'cod' : 'all';
 
-  const filteredAll = useMemo(() => all.filter((o) => matches(o, query)), [all, query]);
-  const filteredCod = useMemo(() => codOrders.filter((o) => matches(o, query)), [codOrders, query]);
+  // Debounce the search box so each keystroke doesn't fire a request.
+  useEffect(() => {
+    const t = setTimeout(() => setDq(query.trim()), 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // Fetch a fresh first page whenever the tab or (debounced) search changes. The
+  // very first run is skipped — the SSR `initial` already covers all/'' .
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (tab === 'card') return;
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    getPayments({ method, q: dq })
+      .then((res) => {
+        if (cancelled) return;
+        setOrders(res.orders);
+        setCursor(res.nextCursor);
+        if (res.totals) setTotals(res.totals);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Грешка при зареждане на плащанията.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, dq]);
+
+  const loadMore = useCallback(async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await getPayments({ method, q: dq, cursor });
+      setOrders((prev) => [...prev, ...res.orders]);
+      setCursor(res.nextCursor);
+    } catch {
+      toast.error('Грешка при зареждане.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [cursor, loadingMore, method, dq]);
 
   /** Create/refresh the connected account and open Stripe's hosted onboarding in a new tab. */
   async function onboard() {
@@ -155,27 +209,32 @@ export function PaymentsClient({
         </p>
       </div>
 
-      {/* totals */}
+      {/* totals (tenant-wide, independent of tab/search) */}
       <div className="mb-5 grid grid-cols-3 gap-2.5">
-        <StatTile label="Общо" value={moneyFromStotinki(payments.totalStotinki)} sub={`${payments.count} ${plural(payments.count)}`} accent />
+        <StatTile
+          label="Общо"
+          value={moneyFromStotinki(totals.totalStotinki)}
+          sub={`${totals.count} ${plural(totals.count)}`}
+          accent
+        />
         <StatTile
           label="Наложен платеж"
-          value={moneyFromStotinki(payments.codTotalStotinki)}
-          sub={`${payments.codCount} ${plural(payments.codCount)}`}
+          value={moneyFromStotinki(totals.codTotalStotinki)}
+          sub={`${totals.codCount} ${plural(totals.codCount)}`}
         />
         <StatTile
           label="Карта"
-          value={moneyFromStotinki(payments.cardTotalStotinki)}
-          sub={`${payments.cardCount} ${plural(payments.cardCount)}`}
+          value={moneyFromStotinki(totals.cardTotalStotinki)}
+          sub={`${totals.cardCount} ${plural(totals.cardCount)}`}
         />
       </div>
 
       {/* tabs */}
       <div className="mb-4 flex gap-1.5 rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
-        <TabButton active={tab === 'all'} onClick={() => setTab('all')} count={all.length}>
+        <TabButton active={tab === 'all'} onClick={() => setTab('all')} count={totals.allCount}>
           Всичко
         </TabButton>
-        <TabButton active={tab === 'cod'} onClick={() => setTab('cod')} count={codOrders.length}>
+        <TabButton active={tab === 'cod'} onClick={() => setTab('cod')} count={totals.codCount}>
           Наложен платеж
         </TabButton>
         <TabButton active={tab === 'card'} onClick={() => setTab('card')}>
@@ -184,21 +243,46 @@ export function PaymentsClient({
       </div>
 
       {tab !== 'card' && (
-        <div className="relative mb-4 w-[340px] max-w-full">
-          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ff-muted">
-            <Search size={18} />
-          </span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Търси по име, телефон, имейл или № поръчка…"
-            className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface pl-11 pr-3 text-[14.5px] shadow-ff-sm outline-none focus:border-ff-green-500"
-          />
+        <div className="mb-4 flex items-center gap-3">
+          <div className="relative w-[340px] max-w-full">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ff-muted">
+              <Search size={18} />
+            </span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Търси по име, телефон, имейл или № поръчка…"
+              className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface pl-11 pr-3 text-[14.5px] shadow-ff-sm outline-none focus:border-ff-green-500"
+            />
+          </div>
+          {loading && (
+            <span className="inline-flex items-center gap-1.5 text-[12.5px] text-ff-muted">
+              <Loader2 size={14} className="animate-spin" /> Зареждане…
+            </span>
+          )}
         </div>
       )}
 
-      {tab === 'all' && <AllTable rows={filteredAll} empty={all.length === 0} />}
-      {tab === 'cod' && <CodView rows={filteredCod} empty={codOrders.length === 0} />}
+      {tab === 'all' && (
+        <AllTable
+          rows={orders}
+          loading={loading}
+          searching={dq.length > 0}
+          cursor={cursor}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
+        />
+      )}
+      {tab === 'cod' && (
+        <CodView
+          rows={orders}
+          loading={loading}
+          searching={dq.length > 0}
+          cursor={cursor}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
+        />
+      )}
       {tab === 'card' && <StripeSection summary={stripe} busy={busy} onboard={onboard} />}
     </div>
   );
@@ -208,95 +292,105 @@ function plural(n: number): string {
   return n === 1 ? 'поръчка' : 'поръчки';
 }
 
+interface ListProps {
+  rows: PaymentOrder[];
+  loading: boolean;
+  searching: boolean;
+  cursor: string | null;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+}
+
 /* ─────────────────────────────  Всичко (all payments table)  ───────────────────────────── */
 
-function AllTable({ rows, empty }: { rows: PaymentOrder[]; empty: boolean }) {
+function AllTable({ rows, loading, searching, cursor, loadingMore, onLoadMore }: ListProps) {
   return (
-    <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
-      {/* table (desktop) */}
-      <table className="w-full border-collapse max-[680px]:hidden">
-        <thead>
-          <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-            {['Поръчка', 'Клиент', 'Контакт', 'Метод', 'Статус'].map((h) => (
-              <th
-                key={h}
-                className="px-5 py-3.5 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted"
-              >
-                {h}
+    <>
+      <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
+        {/* table (desktop) */}
+        <table className="w-full border-collapse max-[680px]:hidden">
+          <thead>
+            <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
+              {['Поръчка', 'Клиент', 'Контакт', 'Метод', 'Статус'].map((h) => (
+                <th
+                  key={h}
+                  className="px-5 py-3.5 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted"
+                >
+                  {h}
+                </th>
+              ))}
+              <th className="px-5 py-3.5 text-right text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
+                Сума
               </th>
-            ))}
-            <th className="px-5 py-3.5 text-right text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
-              Сума
-            </th>
-          </tr>
-        </thead>
-        <tbody>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((o) => {
+              const s = moneyStatus(o);
+              return (
+                <tr key={o.id} className="border-b border-ff-border-2 last:border-0 hover:bg-ff-surface-2">
+                  <td className="px-5 py-3.5 align-top">
+                    <div className="text-[14px] font-extrabold">
+                      {o.orderNumber ? `#${o.orderNumber}` : 'Поръчка'}
+                    </div>
+                    <div className="text-[12px] capitalize text-ff-muted">{dayLabel(o.day)}</div>
+                  </td>
+                  <td className="px-5 py-3.5 align-top">
+                    <div className="text-[14px] font-bold">{o.customerName ?? '—'}</div>
+                    <div className="text-[12px] text-ff-muted">{deliveryMeta(o)}</div>
+                  </td>
+                  <td className="max-w-[220px] px-5 py-3.5 align-top">
+                    <Contact o={o} />
+                  </td>
+                  <td className="px-5 py-3.5 align-top">
+                    <MethodPill method={o.paymentMethod} />
+                  </td>
+                  <td className="px-5 py-3.5 align-top">
+                    <StatusPill {...s} />
+                  </td>
+                  <td className="ff-fig px-5 py-3.5 text-right align-top text-[14.5px] font-extrabold">
+                    {moneyFromStotinki(o.totalStotinki)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        {/* cards (mobile) */}
+        <div className="hidden flex-col max-[680px]:flex">
           {rows.map((o) => {
             const s = moneyStatus(o);
             return (
-              <tr key={o.id} className="border-b border-ff-border-2 last:border-0 hover:bg-ff-surface-2">
-                <td className="px-5 py-3.5 align-top">
-                  <div className="text-[14px] font-extrabold">
-                    {o.orderNumber ? `#${o.orderNumber}` : 'Поръчка'}
+              <div key={o.id} className="flex flex-col gap-2 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
+                <div className="flex items-start justify-between gap-2.5">
+                  <div className="min-w-0">
+                    <div className="truncate text-[15px] font-extrabold">{o.customerName ?? '—'}</div>
+                    <div className="mt-px text-[12px] text-ff-muted">
+                      {o.orderNumber ? `#${o.orderNumber} · ` : ''}
+                      <span className="capitalize">{dayLabel(o.day)}</span> · {deliveryMeta(o)}
+                    </div>
                   </div>
-                  <div className="text-[12px] capitalize text-ff-muted">{dayLabel(o.day)}</div>
-                </td>
-                <td className="px-5 py-3.5 align-top">
-                  <div className="text-[14px] font-bold">{o.customerName ?? '—'}</div>
-                  <div className="text-[12px] text-ff-muted">{deliveryMeta(o)}</div>
-                </td>
-                <td className="max-w-[220px] px-5 py-3.5 align-top">
-                  <Contact o={o} />
-                </td>
-                <td className="px-5 py-3.5 align-top">
+                  <span className="ff-fig shrink-0 text-[16.5px] font-extrabold">
+                    {moneyFromStotinki(o.totalStotinki)}
+                  </span>
+                </div>
+                <Contact o={o} />
+                <div className="flex flex-wrap items-center gap-2">
                   <MethodPill method={o.paymentMethod} />
-                </td>
-                <td className="px-5 py-3.5 align-top">
                   <StatusPill {...s} />
-                </td>
-                <td className="ff-fig px-5 py-3.5 text-right align-top text-[14.5px] font-extrabold">
-                  {moneyFromStotinki(o.totalStotinki)}
-                </td>
-              </tr>
+                </div>
+              </div>
             );
           })}
-        </tbody>
-      </table>
+        </div>
 
-      {/* cards (mobile) */}
-      <div className="hidden flex-col max-[680px]:flex">
-        {rows.map((o) => {
-          const s = moneyStatus(o);
-          return (
-            <div key={o.id} className="flex flex-col gap-2 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
-              <div className="flex items-start justify-between gap-2.5">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-extrabold">{o.customerName ?? '—'}</div>
-                  <div className="mt-px text-[12px] text-ff-muted">
-                    {o.orderNumber ? `#${o.orderNumber} · ` : ''}
-                    <span className="capitalize">{dayLabel(o.day)}</span> · {deliveryMeta(o)}
-                  </div>
-                </div>
-                <span className="ff-fig shrink-0 text-[16.5px] font-extrabold">
-                  {moneyFromStotinki(o.totalStotinki)}
-                </span>
-              </div>
-              <Contact o={o} />
-              <div className="flex flex-wrap items-center gap-2">
-                <MethodPill method={o.paymentMethod} />
-                <StatusPill {...s} />
-              </div>
-            </div>
-          );
-        })}
+        {rows.length === 0 && (
+          <EmptyRow loading={loading} searching={searching} empty="Още няма плащания." />
+        )}
       </div>
-
-      {rows.length === 0 && (
-        <p className="px-5 py-12 text-center text-sm text-ff-muted">
-          {empty ? 'Още няма плащания.' : 'Няма резултати за това търсене.'}
-        </p>
-      )}
-    </div>
+      <LoadMore cursor={cursor} loadingMore={loadingMore} onLoadMore={onLoadMore} />
+    </>
   );
 }
 
@@ -330,70 +424,119 @@ function Contact({ o }: { o: PaymentOrder }) {
 
 /* ─────────────────────────────  Наложен платеж (grouped by day)  ───────────────────────────── */
 
-function CodView({ rows, empty }: { rows: PaymentOrder[]; empty: boolean }) {
+function CodView({ rows, loading, searching, cursor, loadingMore, onLoadMore }: ListProps) {
   const days = useMemo(() => groupByDay(rows), [rows]);
   return (
-    <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-sm">
-      <div className="flex items-center gap-2 text-[13px] font-extrabold">
-        <Banknote size={16} className="text-ff-green-700" /> Пари в брой при доставка
-      </div>
-      <p className="mt-0.5 text-[12.5px] text-ff-muted">Групирани по ден на доставка.</p>
+    <>
+      <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-sm">
+        <div className="flex items-center gap-2 text-[13px] font-extrabold">
+          <Banknote size={16} className="text-ff-green-700" /> Пари в брой при доставка
+        </div>
+        <p className="mt-0.5 text-[12.5px] text-ff-muted">Групирани по ден на доставка.</p>
 
-      {rows.length === 0 ? (
-        <div className="mt-5 text-[13.5px] text-ff-muted">
-          {empty ? 'Още няма плащания с наложен платеж.' : 'Няма резултати за това търсене.'}
-        </div>
-      ) : (
-        <div className="mt-5 flex flex-col gap-5">
-          {days.map((d) => (
-            <div key={d.day}>
-              <div className="mb-1 flex items-baseline justify-between border-b border-ff-border-2 pb-1.5">
-                <span className="text-[12.5px] font-extrabold capitalize text-ff-ink">
-                  {dayLabel(d.day)}
-                </span>
-                <span className="ff-fig text-[13px] font-extrabold text-ff-green-800">
-                  {moneyFromStotinki(d.totalStotinki)}
-                </span>
+        {rows.length === 0 ? (
+          <div className="mt-5">
+            <EmptyRow
+              loading={loading}
+              searching={searching}
+              empty="Още няма плащания с наложен платеж."
+              bare
+            />
+          </div>
+        ) : (
+          <div className="mt-5 flex flex-col gap-5">
+            {days.map((d) => (
+              <div key={d.day}>
+                <div className="mb-1 flex items-baseline justify-between border-b border-ff-border-2 pb-1.5">
+                  <span className="text-[12.5px] font-extrabold capitalize text-ff-ink">
+                    {dayLabel(d.day)}
+                  </span>
+                  <span className="ff-fig text-[13px] font-extrabold text-ff-green-800">
+                    {moneyFromStotinki(d.totalStotinki)}
+                  </span>
+                </div>
+                <ul className="flex flex-col divide-y divide-ff-border-2">
+                  {d.orders.map((o) => {
+                    const s = moneyStatus(o);
+                    return (
+                      <li key={o.id} className="flex items-center gap-3 py-2.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[13.5px] font-semibold text-ff-ink">
+                            {o.orderNumber ? `#${o.orderNumber}` : 'Поръчка'}
+                            {o.customerName ? ` · ${o.customerName}` : ''}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-ff-muted">
+                            <span>{deliveryMeta(o)}</span>
+                            {o.customerPhone && (
+                              <a
+                                href={`tel:${o.customerPhone}`}
+                                className="inline-flex items-center gap-1 hover:text-ff-green-700"
+                              >
+                                <Phone size={11} /> {o.customerPhone}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <StatusPill {...s} />
+                        <div className="ff-fig w-[84px] shrink-0 text-right text-[14px] font-extrabold">
+                          {moneyFromStotinki(o.totalStotinki)}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
-              <ul className="flex flex-col divide-y divide-ff-border-2">
-                {d.orders.map((o) => {
-                  const s = moneyStatus(o);
-                  return (
-                    <li key={o.id} className="flex items-center gap-3 py-2.5">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13.5px] font-semibold text-ff-ink">
-                          {o.orderNumber ? `#${o.orderNumber}` : 'Поръчка'}
-                          {o.customerName ? ` · ${o.customerName}` : ''}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-ff-muted">
-                          <span>{deliveryMeta(o)}</span>
-                          {o.customerPhone && (
-                            <a
-                              href={`tel:${o.customerPhone}`}
-                              className="inline-flex items-center gap-1 hover:text-ff-green-700"
-                            >
-                              <Phone size={11} /> {o.customerPhone}
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                      <StatusPill {...s} />
-                      <div className="ff-fig w-[84px] shrink-0 text-right text-[14px] font-extrabold">
-                        {moneyFromStotinki(o.totalStotinki)}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <LoadMore cursor={cursor} loadingMore={loadingMore} onLoadMore={onLoadMore} />
+    </>
   );
 }
 
-/* ─────────────────────────────  shared pills / tiles  ───────────────────────────── */
+/* ─────────────────────────────  shared pills / tiles / states  ───────────────────────────── */
+
+function EmptyRow({
+  loading,
+  searching,
+  empty,
+  bare,
+}: {
+  loading: boolean;
+  searching: boolean;
+  empty: string;
+  bare?: boolean;
+}) {
+  const text = loading ? 'Зареждане…' : searching ? 'Няма резултати за това търсене.' : empty;
+  return (
+    <p className={cn('text-center text-sm text-ff-muted', bare ? '' : 'px-5 py-12')}>{text}</p>
+  );
+}
+
+function LoadMore({
+  cursor,
+  loadingMore,
+  onLoadMore,
+}: {
+  cursor: string | null;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+}) {
+  if (!cursor) return null;
+  return (
+    <div className="mt-5 flex justify-center">
+      <button
+        onClick={onLoadMore}
+        disabled={loadingMore}
+        className="inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
+      >
+        {loadingMore && <Loader2 size={15} className="animate-spin" />}
+        {loadingMore ? 'Зареждане…' : 'Зареди още'}
+      </button>
+    </div>
+  );
+}
 
 function MethodPill({ method }: { method: PaymentChannel }) {
   const cod = method === 'cod';

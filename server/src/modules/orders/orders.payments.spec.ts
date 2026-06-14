@@ -1,4 +1,9 @@
-import { buildPaymentsSummary, type PaymentRow } from './orders.service';
+import {
+  toPaymentOrder,
+  paymentTotals,
+  type PaymentRow,
+  type PaymentAggRow,
+} from './orders.service';
 
 const row = (over: Partial<PaymentRow>): PaymentRow => ({
   day: '2026-06-12',
@@ -18,84 +23,90 @@ const row = (over: Partial<PaymentRow>): PaymentRow => ({
   ...over,
 });
 
-describe('buildPaymentsSummary', () => {
-  it('sorts newest day first, then newest created within a day', () => {
-    const out = buildPaymentsSummary([
-      row({ id: 'a', day: '2026-06-10', createdAt: '2026-06-10T08:00:00.000Z' }),
-      row({ id: 'b', day: '2026-06-13', createdAt: '2026-06-13T06:00:00.000Z' }),
-      row({ id: 'c', day: '2026-06-13', createdAt: '2026-06-13T09:00:00.000Z' }),
-    ]);
-    expect(out.orders.map((o) => o.id)).toEqual(['c', 'b', 'a']);
-  });
-
+describe('toPaymentOrder', () => {
   it('derives paymentStatus per channel (cash / pending / paid)', () => {
-    const out = buildPaymentsSummary([
-      row({ id: 'cod', paymentMethod: 'cod', paidAt: null }),
-      row({ id: 'unpaid', paymentMethod: 'online', paidAt: null }),
-      row({ id: 'paid', paymentMethod: 'online', paidAt: '2026-06-12T09:00:00.000Z' }),
-    ]);
-    const by = Object.fromEntries(out.orders.map((o) => [o.id, o.paymentStatus]));
-    expect(by.cod).toBe('cash');
-    expect(by.unpaid).toBe('pending_online');
-    expect(by.paid).toBe('paid');
+    expect(toPaymentOrder(row({ paymentMethod: 'cod', paidAt: null })).paymentStatus).toBe('cash');
+    expect(toPaymentOrder(row({ paymentMethod: 'online', paidAt: null })).paymentStatus).toBe(
+      'pending_online',
+    );
+    expect(
+      toPaymentOrder(row({ paymentMethod: 'online', paidAt: '2026-06-12T09:00:00.000Z' }))
+        .paymentStatus,
+    ).toBe('paid');
   });
 
   it('flags collected: COD when delivered, card when paid', () => {
-    const out = buildPaymentsSummary([
-      row({ id: 'cod-due', paymentMethod: 'cod', status: 'out_for_delivery' }),
-      row({ id: 'cod-done', paymentMethod: 'cod', status: 'delivered' }),
-      row({ id: 'card-due', paymentMethod: 'online', paidAt: null }),
-      row({ id: 'card-paid', paymentMethod: 'online', paidAt: '2026-06-12T09:00:00.000Z' }),
-    ]);
-    const by = Object.fromEntries(out.orders.map((o) => [o.id, o.collected]));
-    expect(by['cod-due']).toBe(false);
-    expect(by['cod-done']).toBe(true);
-    expect(by['card-due']).toBe(false);
-    expect(by['card-paid']).toBe(true);
-  });
-
-  it('totals: COD counts every order, card counts only paid ones', () => {
-    const out = buildPaymentsSummary([
-      row({ id: 'a', paymentMethod: 'cod', totalStotinki: 1000 }),
-      row({ id: 'b', paymentMethod: 'cod', totalStotinki: 500 }),
-      row({ id: 'c', paymentMethod: 'online', totalStotinki: 2000, paidAt: '2026-06-12T09:00:00.000Z' }),
-      row({ id: 'd', paymentMethod: 'online', totalStotinki: 9999, paidAt: null }), // unpaid → excluded
-    ]);
-    expect(out.codTotalStotinki).toBe(1500);
-    expect(out.codCount).toBe(2);
-    expect(out.cardTotalStotinki).toBe(2000);
-    expect(out.cardCount).toBe(1);
-    expect(out.totalStotinki).toBe(3500);
-    expect(out.count).toBe(3);
+    expect(toPaymentOrder(row({ paymentMethod: 'cod', status: 'out_for_delivery' })).collected).toBe(
+      false,
+    );
+    expect(toPaymentOrder(row({ paymentMethod: 'cod', status: 'delivered' })).collected).toBe(true);
+    expect(toPaymentOrder(row({ paymentMethod: 'online', paidAt: null })).collected).toBe(false);
+    expect(
+      toPaymentOrder(row({ paymentMethod: 'online', paidAt: '2026-06-12T09:00:00.000Z' })).collected,
+    ).toBe(true);
   });
 
   it('serialises createdAt / paidAt Dates to ISO and tolerates null', () => {
-    const out = buildPaymentsSummary([
+    const a = toPaymentOrder(
       row({
-        id: 'a',
         createdAt: new Date('2026-06-12T06:30:00.000Z'),
         paidAt: new Date('2026-06-12T07:00:00.000Z'),
         paymentMethod: 'online',
       }),
-      row({ id: 'b', createdAt: null, paidAt: null }),
-    ]);
-    const a = out.orders.find((o) => o.id === 'a')!;
-    const b = out.orders.find((o) => o.id === 'b')!;
+    );
     expect(a.createdAt).toBe('2026-06-12T06:30:00.000Z');
     expect(a.paidAt).toBe('2026-06-12T07:00:00.000Z');
+    const b = toPaymentOrder(row({ createdAt: null, paidAt: null }));
     expect(b.createdAt).toBeNull();
     expect(b.paidAt).toBeNull();
   });
 
-  it('returns an empty summary for no rows', () => {
-    expect(buildPaymentsSummary([])).toEqual({
+  it('carries contact fields through for the table', () => {
+    const o = toPaymentOrder(row({ customerPhone: '+359888111222', customerEmail: 'g@x.bg' }));
+    expect(o.customerPhone).toBe('+359888111222');
+    expect(o.customerEmail).toBe('g@x.bg');
+  });
+});
+
+const agg = (over: Partial<PaymentAggRow>): PaymentAggRow => ({
+  paymentMethod: 'cod',
+  count: 0,
+  totalStotinki: 0,
+  paidCount: 0,
+  paidTotalStotinki: 0,
+  ...over,
+});
+
+describe('paymentTotals', () => {
+  it('COD counts every order; card counts only paid; allCount spans both', () => {
+    const out = paymentTotals([
+      agg({ paymentMethod: 'cod', count: 2, totalStotinki: 1500, paidCount: 0, paidTotalStotinki: 0 }),
+      agg({
+        paymentMethod: 'online',
+        count: 3,
+        totalStotinki: 11999,
+        paidCount: 1,
+        paidTotalStotinki: 2000,
+      }),
+    ]);
+    expect(out.codTotalStotinki).toBe(1500);
+    expect(out.codCount).toBe(2);
+    expect(out.cardTotalStotinki).toBe(2000); // only the paid card order's money
+    expect(out.cardCount).toBe(1);
+    expect(out.totalStotinki).toBe(3500);
+    expect(out.count).toBe(3);
+    expect(out.allCount).toBe(5); // 2 cod + 3 online (incl. unpaid) — the Всичко badge
+  });
+
+  it('returns zeroed totals for no aggregate rows', () => {
+    expect(paymentTotals([])).toEqual({
       totalStotinki: 0,
       count: 0,
+      allCount: 0,
       codTotalStotinki: 0,
       codCount: 0,
       cardTotalStotinki: 0,
       cardCount: 0,
-      orders: [],
     });
   });
 });

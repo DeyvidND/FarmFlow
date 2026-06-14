@@ -506,19 +506,43 @@ export interface PaymentOrder {
   slotFrom: string | null;
   slotTo: string | null;
 }
-export interface PaymentsSummary {
+export type PaymentMethodFilter = 'all' | 'cod';
+
+/** Tenant-wide totals (every counted order), independent of search/page. */
+export interface PaymentTotals {
   /** COD due + card received (minor units, EUR cents). */
   totalStotinki: number;
   count: number;
+  /** Total counted orders across both channels — the «Всичко» tab badge. */
+  allCount: number;
   codTotalStotinki: number;
   codCount: number;
   cardTotalStotinki: number;
   cardCount: number;
-  /** Flat list, newest delivery day first, then newest created. */
-  orders: PaymentOrder[];
 }
 
-export const getPayments = () => apiFetch<PaymentsSummary>('orders/payments');
+/** A page of the payments list: totals (first page only) + rows + cursor. */
+export interface PaymentsPage {
+  /** Present on the first page (no cursor); null on «load more» fetches. */
+  totals: PaymentTotals | null;
+  orders: PaymentOrder[];
+  nextCursor: string | null;
+}
+
+export const getPayments = (opts?: {
+  method?: PaymentMethodFilter;
+  q?: string;
+  cursor?: string;
+  limit?: number;
+}) => {
+  const p = new URLSearchParams();
+  if (opts?.method && opts.method !== 'all') p.set('method', opts.method);
+  if (opts?.q) p.set('q', opts.q);
+  if (opts?.cursor) p.set('cursor', opts.cursor);
+  if (opts?.limit) p.set('limit', String(opts.limit));
+  const query = p.toString();
+  return apiFetch<PaymentsPage>(`orders/payments${query ? `?${query}` : ''}`);
+};
 
 /**
  * Create (if needed) the farm's Standard connected account and get a hosted
