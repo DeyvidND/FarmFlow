@@ -5,7 +5,6 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, lt } from 'drizzle-orm';
 import Stripe from 'stripe';
@@ -403,7 +402,6 @@ export class BillingService {
   }
 
   /** Daily: suspend farms whose grace window has expired. */
-  @Cron('0 3 * * *', { timeZone: 'Europe/Sofia' })
   async suspendExpiredGrace(): Promise<void> {
     const rows = await this.db
       .update(tenants)
