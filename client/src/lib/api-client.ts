@@ -550,12 +550,15 @@ export const getPayments = (opts?: {
   q?: string;
   cursor?: string;
   limit?: number;
+  /** Owner-only: scope to one producer's line items (mirrors /stats?farmerId). */
+  farmerId?: string;
 }) => {
   const p = new URLSearchParams();
   if (opts?.method && opts.method !== 'all') p.set('method', opts.method);
   if (opts?.q) p.set('q', opts.q);
   if (opts?.cursor) p.set('cursor', opts.cursor);
   if (opts?.limit) p.set('limit', String(opts.limit));
+  if (opts?.farmerId) p.set('farmerId', opts.farmerId);
   const query = p.toString();
   return apiFetch<PaymentsPage>(`orders/payments${query ? `?${query}` : ''}`);
 };

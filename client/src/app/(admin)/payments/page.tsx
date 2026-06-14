@@ -53,17 +53,29 @@ export default async function PaymentsPage() {
   // fetch entirely to avoid a pointless (and potentially 4xx) call.
   const account = await getJson<{ role?: string }>('auth/me', {});
   const role = account.role === 'farmer' ? 'farmer' : 'admin';
+  const profile = await getJson<{ multiFarmer?: boolean }>('tenants/me', {});
+  const multiFarmer = profile.multiFarmer === true;
 
-  const [summary, initial] = await Promise.all([
+  // Only the owner of a multi-farmer shop needs the producer picker (mirrors Статистика).
+  const [summary, initial, farmers] = await Promise.all([
     role === 'farmer'
       ? Promise.resolve(DISCONNECTED)
       : getJson<StripeSummary>('stripe/connect/summary', DISCONNECTED),
     getJson<PaymentsPage>('orders/payments', EMPTY_PAGE),
+    role === 'admin' && multiFarmer
+      ? getJson<{ id: string; name: string }[]>('farmers', [])
+      : Promise.resolve([] as { id: string; name: string }[]),
   ]);
 
   return (
     <div className="max-w-[980px]">
-      <PaymentsClient stripe={summary} initial={initial} role={role} />
+      <PaymentsClient
+        stripe={summary}
+        initial={initial}
+        role={role}
+        farmers={farmers}
+        multiFarmer={multiFarmer}
+      />
     </div>
   );
 }

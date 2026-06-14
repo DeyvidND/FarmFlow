@@ -115,13 +115,21 @@ export function PaymentsClient({
   stripe,
   initial,
   role = 'admin',
+  farmers = [],
+  multiFarmer = false,
 }: {
   stripe: StripeSummary;
   initial: PaymentsPage;
   /** A producer ('farmer') sees only the money from their own products. */
   role?: 'admin' | 'farmer';
+  /** Owner-only producer picker (multi-farmer shops); mirrors Статистика. */
+  farmers?: { id: string; name: string }[];
+  multiFarmer?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>('all');
+  // Owner-only: scope the whole screen to one producer's line items ('' = all).
+  const [farmerId, setFarmerId] = useState<string>('');
+  const showPicker = role === 'admin' && multiFarmer && farmers.length > 0;
   const [query, setQuery] = useState('');
   const [dq, setDq] = useState('');
 
@@ -142,8 +150,9 @@ export function PaymentsClient({
     return () => clearTimeout(t);
   }, [query]);
 
-  // Fetch a fresh first page whenever the tab or (debounced) search changes. The
-  // very first run is skipped — the SSR `initial` already covers all/'' .
+  // Fetch a fresh first page whenever the tab, (debounced) search, or producer
+  // filter changes. The very first run is skipped — the SSR `initial` already
+  // covers all/''/whole-shop.
   const firstRun = useRef(true);
   useEffect(() => {
     if (tab === 'card') return;
@@ -153,7 +162,7 @@ export function PaymentsClient({
     }
     let cancelled = false;
     setLoading(true);
-    getPayments({ method, q: dq })
+    getPayments({ method, q: dq, ...(farmerId ? { farmerId } : {}) })
       .then((res) => {
         if (cancelled) return;
         setOrders(res.orders);
@@ -170,13 +179,13 @@ export function PaymentsClient({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, dq]);
+  }, [tab, dq, farmerId]);
 
   const loadMore = useCallback(async () => {
     if (!cursor || loadingMore) return;
     setLoadingMore(true);
     try {
-      const res = await getPayments({ method, q: dq, cursor });
+      const res = await getPayments({ method, q: dq, cursor, ...(farmerId ? { farmerId } : {}) });
       setOrders((prev) => [...prev, ...res.orders]);
       setCursor(res.nextCursor);
     } catch {
@@ -184,7 +193,7 @@ export function PaymentsClient({
     } finally {
       setLoadingMore(false);
     }
-  }, [cursor, loadingMore, method, dq]);
+  }, [cursor, loadingMore, method, dq, farmerId]);
 
   /** Create/refresh the connected account and open Stripe's hosted onboarding in a new tab. */
   async function onboard() {
@@ -262,6 +271,21 @@ export function PaymentsClient({
               className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface pl-11 pr-3 text-[14.5px] shadow-ff-sm outline-none focus:border-ff-green-500"
             />
           </div>
+          {showPicker && (
+            <label className="inline-flex items-center gap-2 text-[13px] font-bold text-ff-ink-2">
+              Фермер:
+              <select
+                value={farmerId}
+                onChange={(e) => setFarmerId(e.target.value)}
+                className="h-11 rounded-xl border border-ff-border bg-ff-surface px-2.5 text-[13px] font-semibold text-ff-ink-2 shadow-ff-sm outline-none focus:border-ff-green-500"
+              >
+                <option value="">Всички</option>
+                {farmers.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           {loading && (
             <span className="inline-flex items-center gap-1.5 text-[12.5px] text-ff-muted">
               <Loader2 size={14} className="animate-spin" /> Зареждане…

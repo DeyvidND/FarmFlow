@@ -169,7 +169,27 @@ export function FarmersClient({
                   <SectionPhoto tint={f.tint} imageUrl={f.imageUrl} coverCrop={f.coverCrop} aspect="3 / 2" radius={0} label={false} />
                   <div className="flex items-start gap-3.5 border-b border-ff-border-2 px-[18px] pb-3.5 pt-[18px]">
                     <div className="min-w-0 flex-1">
-                      <div className="text-[17px] font-extrabold tracking-[-0.01em]">{f.name}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-[17px] font-extrabold tracking-[-0.01em]">{f.name}</div>
+                        {(() => {
+                          const acc = initialAccess[f.id];
+                          const s = !acc ? 'none' : acc.invitePending ? 'pending' : 'active';
+                          const meta = {
+                            active: { t: 'Активен', c: 'bg-ff-green-50 text-ff-green-700' },
+                            pending: { t: 'Поканен', c: 'bg-ff-amber-50 text-ff-amber-600' },
+                            none: { t: 'Без достъп', c: 'bg-ff-surface-2 text-ff-muted' },
+                          }[s];
+                          return (
+                            <span
+                              title="Личен достъп до панела"
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold ${meta.c}`}
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+                              {meta.t}
+                            </span>
+                          );
+                        })()}
+                      </div>
                       <div className="mt-px text-[13px] font-bold" style={{ color: f.tint ?? 'var(--ff-green-700)' }}>{f.role}</div>
                       <div className="mt-[3px] text-xs text-ff-muted">
                         {f.since && `от ${f.since} г. · `}
