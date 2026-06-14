@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import { StatsController } from './stats.controller';
 
 describe('StatsController routing', () => {
@@ -29,6 +30,17 @@ describe('StatsController routing', () => {
       '30d', undefined, undefined, undefined,
     );
     expect(svc.stats).toHaveBeenCalledWith('t', { range: '30d', from: undefined, to: undefined });
+    expect(svc.statsForFarmer).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed farmer token (role=farmer, no farmerId) with 403', () => {
+    expect(() =>
+      ctrl.stats(
+        { type: 'tenant', userId: 'u', tenantId: 't', role: 'farmer' } as any,
+        '30d', undefined, undefined, undefined,
+      ),
+    ).toThrow(ForbiddenException);
+    expect(svc.stats).not.toHaveBeenCalled();
     expect(svc.statsForFarmer).not.toHaveBeenCalled();
   });
 });
