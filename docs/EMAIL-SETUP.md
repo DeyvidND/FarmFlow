@@ -3,7 +3,7 @@
 FarmFlow sends two kinds of mail on **one shared sending domain** (`farmsteadflow.com`):
 
 - **transactional** — password resets, onboarding, daily digests (critical, must land)
-- **bulk** — newsletter "pushes" to a farm's subscribers (the €2-per-push feature)
+- **bulk** — newsletter sends to a farm's subscribers (billed €0.000555/recipient = Resend cost ×1.5)
 
 Both go out through Resend over SMTP using FarmFlow's own templates. The lanes are kept apart by from-address (`no-reply@` vs `news@`); if a marketing reputation hit ever threatens transactional mail, point the bulk lane at a separate Resend sending domain. No code change is needed to connect — just env + DNS.
 
@@ -59,13 +59,14 @@ RESEND_WEBHOOK_SECRET=<whsec_... from the webhook endpoint>
 EMAIL_WEBHOOK_SECRET=<random string, also in the webhook URL>
 EMAIL_WEBHOOK_VERIFY=true            # verify Resend (Svix) signatures (recommended)
 EMAIL_PUSH_MAX_RECIPIENTS=5000       # reject a push above this
-EMAIL_PUSH_PRICE_STOTINKI=200        # €2 per push
+EMAIL_PRICE_PER_RECIPIENT_MICRO=555  # €0.000555 per recipient (Resend cost ×1.5)
+EMAIL_COST_PER_RECIPIENT_MICRO=370   # Resend cost basis — margin view only, never charges
 ```
 Leave `SMTP_HOST` empty → dev mode (writes `.mail-preview/*.html`, sends nothing).
 
 The verified domain covers every `@farmsteadflow.com` address, so no per-address verification is needed for sending. `hello@farmsteadflow.com` is the **inbound** contact address (Cloudflare Email Routing → forwarded inbox); the app sends *from* `no-reply@` / `news@`.
 
 ## Notes
-- **Cost:** €0 on the free tier (3k/mo, 100/day). Transactional baseline (resets/confirms/digests) sits well under that. A large newsletter blast can exceed the free cap (and the 100/day limit) — that's the paid case, covered by the €2/push billing. If push volume grows, upgrade Resend (Pro from $20/mo) or send bulk through a cheaper metered provider; keep transactional on Resend free.
+- **Cost:** €0 on the free tier (3k/mo, 100/day). Transactional baseline (resets/confirms/digests) sits well under that. A large newsletter blast can exceed the free cap (and the 100/day limit) — that's the paid case, covered by the per-recipient billing (€0.000555/recipient, Resend cost ×1.5). If push volume grows, upgrade Resend (Pro from $20/mo for 50k/mo) or send bulk through a cheaper metered provider; keep transactional on Resend free.
 - **No provider branding:** unlike Brevo's free tier, Resend adds no footer/logo — mail looks fully first-party.
 - All farms send from the one shared domain — farmers configure nothing. (No per-farm domains by design.)

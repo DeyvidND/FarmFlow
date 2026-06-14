@@ -80,9 +80,13 @@ export const envValidationSchema = Joi.object({
   // 'true' (recommended for the public endpoint). Set 'false' only for local
   // testing without real Resend-signed messages.
   EMAIL_WEBHOOK_VERIFY: Joi.string().valid('true', 'false').default('true'),
-  // Newsletter "push" billing + abuse cap.
+  // Newsletter "push" abuse cap (recipients in one send).
   EMAIL_PUSH_MAX_RECIPIENTS: Joi.number().default(5000),
-  EMAIL_PUSH_PRICE_STOTINKI: Joi.number().default(200),
+  // Per-recipient price in MICRO-euro (1e-6 €). 555 = €0.000555 = Resend cost × 1.5.
+  EMAIL_PRICE_PER_RECIPIENT_MICRO: Joi.number().default(555),
+  // Resend cost basis per recipient in MICRO-euro (~$0.0004 on the Pro $20/50k plan).
+  // Used ONLY for the super-admin margin view — never charges anything.
+  EMAIL_COST_PER_RECIPIENT_MICRO: Joi.number().default(370),
   PUBLIC_APP_URL: Joi.string().default('http://localhost:3000'),
   // Public origin of THIS API — used to build links the API itself serves
   // (e.g. the newsletter unsubscribe page). Defaults to the dev API port.
