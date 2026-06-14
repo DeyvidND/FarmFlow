@@ -15,4 +15,13 @@ describe('effectiveFarmerId', () => {
     expect(effectiveFarmerId('admin', undefined, 'farmer-3')).toBe('farmer-3');
     expect(effectiveFarmerId('admin', undefined, undefined)).toBeNull();
   });
+
+  // Documents intent: this resolver only decides SCOPE for a role already authorized
+  // to hit the endpoint — role gating is the @Roles/TenantRolesGuard's job. Non-farmer
+  // roles fall through to the owner branch (query ?? null). Today only admin+farmer are
+  // ever wired to scoped endpoints, but lock the behavior so it can't drift silently.
+  it('treats other non-farmer roles like the owner (gating is the guard’s job)', () => {
+    expect(effectiveFarmerId('driver', undefined, 'farmer-3')).toBe('farmer-3');
+    expect(effectiveFarmerId('customer', undefined, undefined)).toBeNull();
+  });
 });
