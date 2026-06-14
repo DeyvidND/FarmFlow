@@ -1,22 +1,15 @@
-import { IsString, Length, IsArray, ValidateNested, IsIn, ArrayMaxSize } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsString, Length, IsArray, ArrayMaxSize } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import type { NewsletterBlock } from '@farmflow/types';
 
-const BLOCK_TYPES = ['hero', 'heading', 'text', 'image', 'button', 'columns', 'divider', 'spacer'];
-
 /**
- * Pragmatic block validation: subject is strict; each block must carry a known
- * `type`. Blocks are stored as JSON and the render path sanitizes all html +
- * ignores unknown fields, so a malformed block degrades safely. A new block
- * `type` MUST be added to BLOCK_TYPES above or the whitelist 400s it silently.
+ * Pragmatic block validation: subject is strict; `blocks` is validated only as an
+ * array (cap its size). We deliberately do NOT @ValidateNested/@Type the items:
+ * the global ValidationPipe runs `forbidNonWhitelisted`, which would 400 every
+ * block-specific field (image/text/html/…) of a nested validated class. Blocks
+ * are stored as JSON and the render path (renderEmail) sanitizes all html and
+ * ignores unknown fields, so a malformed block degrades safely.
  */
-class BlockShape {
-  @IsString()
-  @IsIn(BLOCK_TYPES)
-  type: string;
-}
-
 export class UpsertCampaignDto {
   @ApiProperty({ example: 'Новини от фермата', maxLength: 200 })
   @IsString()
@@ -26,7 +19,5 @@ export class UpsertCampaignDto {
   @ApiProperty({ type: [Object], description: 'Ordered newsletter blocks' })
   @IsArray()
   @ArrayMaxSize(200)
-  @ValidateNested({ each: true })
-  @Type(() => BlockShape)
   blocks: NewsletterBlock[];
 }
