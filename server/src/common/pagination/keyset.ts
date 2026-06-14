@@ -21,6 +21,19 @@ export function clampLimit(raw?: number): number {
  * `(created_at, id) < (c, i)` (not the OR expansion) — this is the form Postgres
  * turns into a single index range scan on `(…, created_at, id)`, so the scan
  * seeks straight to the cursor and stops at LIMIT (no Sort, no full read).
+ *
+ * The cursor value is bound as an ISO string cast to a NAIVE `::timestamp` (and the
+ * id to `::uuid`) rather than as a raw JS Date. Every keyset column in this codebase
+ * is `timestamp` WITHOUT time zone, and every id column is `uuid`. If we bound the
+ * cursor as a Date, a Postgres session whose timezone isn't UTC would tz-shift the
+ * bound value relative to the timezone-less column, putting the keyset boundary in
+ * the wrong place — pages then overlap or never advance. `.toISOString()` always
+ * yields UTC wall-clock, matching how the columns are stored, and `::timestamp`
+ * strips any zone so the comparison is tz-agnostic regardless of session tz.
+ *
+ * NOTE: if a future caller keysets on a `timestamptz` column, this `::timestamp`
+ * cast is wrong for it — that column needs `::timestamptz`. Audit the column type
+ * before adding a new caller.
  */
 export function keysetAfter(
   createdCol: PgColumn,
@@ -28,9 +41,11 @@ export function keysetAfter(
   cursor: CursorPos,
   dir: 'asc' | 'desc',
 ): SQL {
+  const c = sql`${cursor.createdAt.toISOString()}::timestamp`;
+  const i = sql`${cursor.id}::uuid`;
   return dir === 'desc'
-    ? sql`(${createdCol}, ${idCol}) < (${cursor.createdAt}, ${cursor.id})`
-    : sql`(${createdCol}, ${idCol}) > (${cursor.createdAt}, ${cursor.id})`;
+    ? sql`(${createdCol}, ${idCol}) < (${c}, ${i})`
+    : sql`(${createdCol}, ${idCol}) > (${c}, ${i})`;
 }
 
 /** Turn `limit+1` rows into a page. `cursorOf` extracts the keyset position of a row. */
