@@ -1,9 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import * as nodemailer from 'nodemailer';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SuppressionService } from './suppression.service';
+import { EMAIL_QUEUE } from '../queue/queue.constants';
 
 /** Which reputation lane the mail rides. Transactional (resets, digests) is kept
  *  separate from bulk (newsletters) so a marketing reputation hit never kills
@@ -39,6 +42,7 @@ export class EmailService implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     private readonly suppression: SuppressionService,
+    @InjectQueue(EMAIL_QUEUE) private readonly queue: Queue,
   ) {
     // `||` (not `??`) so a present-but-empty env var falls back to the default.
     // An empty `EMAIL_TRANSACTIONAL_FROM` would otherwise yield an empty From
@@ -80,23 +84,28 @@ export class EmailService implements OnModuleInit {
     return stream === 'bulk' ? this.bulkFrom : this.txFrom;
   }
 
+  /**
+   * Enqueue an email for asynchronous, retried delivery by the email worker.
+   * Returns once the job is queued — the actual send (and suppression check) runs
+   * in `deliver()` on a worker. At-least-once: a worker crash mid-job can re-send;
+   * tolerated for transactional mail (low harm).
+   */
   async sendMail(options: SendMailOptions): Promise<void> {
+    await this.queue.add('send', options);
+  }
+
+  /** Actually send (called by EmailProcessor). Honors suppression at send time. */
+  async deliver(options: SendMailOptions): Promise<void> {
     const stream: EmailStream = options.stream ?? 'transactional';
 
-    // Never mail a hard-bounced / complained address again. Skipped when the
-    // caller already batch-filtered against the suppression list (bulk broadcast).
     if (!options.skipSuppressionCheck && (await this.suppression.isSuppressed(options.to))) {
       this.logger.warn(`[email] skipped suppressed recipient to=${options.to}`);
       return;
     }
 
-    // Reputation lanes (transactional resets/digests vs bulk newsletters) are
-    // kept apart by from-address; if a hard split is ever needed, point the bulk
-    // lane at a separate Resend sending domain.
     const from = this.streamFrom(stream);
 
     if (!this.isDevMode && this.transporter) {
-      // Real SMTP — let errors propagate so callers can handle them.
       await this.transporter.sendMail({
         from,
         to: options.to,
@@ -107,7 +116,10 @@ export class EmailService implements OnModuleInit {
       return;
     }
 
-    // Dev preview transport — write to file, never throw.
+    await this.writePreview(options, from, stream);
+  }
+
+  private async writePreview(options: SendMailOptions, from: string, stream: EmailStream): Promise<void> {
     try {
       await fs.promises.mkdir(this.previewDir, { recursive: true });
       const sanitizedTo = options.to.replace(/[^a-zA-Z0-9@._-]/g, '_');

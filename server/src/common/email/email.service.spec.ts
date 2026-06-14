@@ -1,114 +1,62 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as os from 'os';
-import * as path from 'path';
-import * as fs from 'fs';
+import { getQueueToken } from '@nestjs/bullmq';
 import { EmailService } from './email.service';
 import { SuppressionService } from './suppression.service';
+import { EMAIL_QUEUE } from '../queue/queue.constants';
 
-const makeSuppression = () =>
-  ({ isSuppressed: jest.fn().mockResolvedValue(false), filterSuppressed: jest.fn().mockResolvedValue(new Set()), suppress: jest.fn() }) as unknown as SuppressionService;
+const cfg = (over: Record<string, any> = {}) => ({
+  get: (k: string, d?: any) => (k in over ? over[k] : d),
+});
 
-// Top-level mock: hoisted before imports by Jest; makes createTransport writable.
-jest.mock('nodemailer', () => ({
-  createTransport: jest.fn(() => ({ sendMail: jest.fn().mockResolvedValue({}) })),
-}));
-// Import AFTER jest.mock so we get the mocked version.
-import * as nodemailer from 'nodemailer';
-
-// ── helpers ────────────────────────────────────────────────────────────────────
-
-function makeConfigService(overrides: Record<string, string | number | undefined> = {}) {
-  return {
-    get: jest.fn((key: string) => overrides[key]),
-    getOrThrow: jest.fn((key: string) => {
-      if (overrides[key] === undefined) throw new Error(`Missing ${key}`);
-      return overrides[key];
-    }),
-  } as unknown as ConfigService;
+function makeQueue() {
+  return { add: jest.fn().mockResolvedValue({ id: 'job1' }) };
+}
+function makeSuppression(suppressed = false) {
+  return { isSuppressed: jest.fn().mockResolvedValue(suppressed) };
 }
 
-// ── tests ──────────────────────────────────────────────────────────────────────
+async function build(queue: any, suppression: any, config = cfg()): Promise<EmailService> {
+  const mod: TestingModule = await Test.createTestingModule({
+    providers: [
+      EmailService,
+      { provide: ConfigService, useValue: config },
+      { provide: SuppressionService, useValue: suppression },
+      { provide: getQueueToken(EMAIL_QUEUE), useValue: queue },
+    ],
+  }).compile();
+  jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+  jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  const svc = mod.get(EmailService);
+  svc.onModuleInit(); // dev mode (no SMTP_HOST) — sets up the preview transport
+  return svc;
+}
 
-describe('EmailService — dev preview transport (no SMTP_HOST)', () => {
-  let service: EmailService;
-  let previewDir: string;
-
-  beforeEach(async () => {
-    previewDir = path.join(os.tmpdir(), `farmflow-mail-test-${Date.now()}`);
-    jest.clearAllMocks();
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        EmailService,
-        {
-          provide: ConfigService,
-          useValue: makeConfigService({ MAIL_PREVIEW_DIR: previewDir }),
-        },
-        { provide: SuppressionService, useValue: makeSuppression() },
-      ],
-    }).compile();
-
-    service = module.get(EmailService);
-    service.onModuleInit();
-  });
-
-  afterEach(async () => {
-    // Clean up preview dir.
-    await fs.promises.rm(previewDir, { recursive: true, force: true });
-  });
-
-  it('resolves without throwing', async () => {
-    await expect(
-      service.sendMail({ to: 'farmer@test.bg', subject: 'Test', html: '<p>Hello</p>' }),
-    ).resolves.toBeUndefined();
-  });
-
-  it('writes an HTML file to the preview dir', async () => {
-    await service.sendMail({
-      to: 'farmer@test.bg',
-      subject: 'Weekly digest',
-      html: '<p>Your orders</p>',
-    });
-
-    const files = await fs.promises.readdir(previewDir);
-    expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/\.html$/);
-
-    const content = await fs.promises.readFile(path.join(previewDir, files[0]), 'utf8');
-    expect(content).toContain('farmer@test.bg');
-    expect(content).toContain('Weekly digest');
-    expect(content).toContain('<p>Your orders</p>');
+describe('EmailService.sendMail (enqueue)', () => {
+  it('enqueues the payload onto the email queue instead of sending inline', async () => {
+    const queue = makeQueue();
+    const svc = await build(queue, makeSuppression());
+    await svc.sendMail({ to: 'a@b.bg', subject: 'Hi', html: '<p>x</p>' });
+    expect(queue.add).toHaveBeenCalledWith(
+      'send',
+      expect.objectContaining({ to: 'a@b.bg', subject: 'Hi', html: '<p>x</p>' }),
+    );
   });
 });
 
-describe('EmailService — SMTP transport (SMTP_HOST set)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+describe('EmailService.deliver (worker send path)', () => {
+  it('skips a suppressed recipient without writing a preview', async () => {
+    const svc = await build(makeQueue(), makeSuppression(true));
+    const spy = jest.spyOn(svc as any, 'writePreview');
+    await svc.deliver({ to: 'bounced@b.bg', subject: 'x', html: 'x' });
+    expect(spy).not.toHaveBeenCalled();
   });
 
-  it('calls nodemailer.createTransport with the configured host', async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        EmailService,
-        {
-          provide: ConfigService,
-          useValue: makeConfigService({
-            SMTP_HOST: 'smtp.example.com',
-            SMTP_PORT: 465,
-            SMTP_USER: 'user@example.com',
-            SMTP_PASS: 'secret',
-          }),
-        },
-        { provide: SuppressionService, useValue: makeSuppression() },
-      ],
-    }).compile();
-
-    const svc = module.get(EmailService);
-    svc.onModuleInit();
-
-    expect(nodemailer.createTransport).toHaveBeenCalledWith(
-      expect.objectContaining({ host: 'smtp.example.com' }),
-    );
+  it('delivers (dev preview) a non-suppressed recipient', async () => {
+    const svc = await build(makeQueue(), makeSuppression(false));
+    const spy = jest.spyOn(svc as any, 'writePreview').mockResolvedValue(undefined);
+    await svc.deliver({ to: 'ok@b.bg', subject: 'x', html: '<p>y</p>' });
+    expect(spy).toHaveBeenCalled();
   });
 });
