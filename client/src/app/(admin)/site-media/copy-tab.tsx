@@ -103,7 +103,7 @@ export function CopyTab() {
               return (
                 <div key={slot.key} className="flex flex-col gap-1">
                   <div className="flex items-center justify-between gap-2">
-                    <label className="text-[13px] font-semibold text-ff-ink">{slot.label}</label>
+                    <label htmlFor={slot.key} className="text-[13px] font-semibold text-ff-ink">{slot.label}</label>
                     {overridden && (
                       <button
                         type="button"
@@ -117,6 +117,7 @@ export function CopyTab() {
                   </div>
                   {slot.multiline ? (
                     <textarea
+                      id={slot.key}
                       rows={3}
                       value={value}
                       placeholder={slot.default}
@@ -125,6 +126,7 @@ export function CopyTab() {
                     />
                   ) : (
                     <input
+                      id={slot.key}
                       type="text"
                       value={value}
                       placeholder={slot.default}
