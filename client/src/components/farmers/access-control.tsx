@@ -7,19 +7,30 @@ import { Button } from '@/components/ui/button';
 import { ApiError, grantFarmerAccess, revokeFarmerAccess } from '@/lib/api-client';
 import type { FarmerAccess } from '@/lib/types';
 
-/** Per-producer login provisioning: invite by email, resend, or revoke. */
-export function AccessControl({ farmerId, initial }: { farmerId: string; initial?: FarmerAccess }) {
-  const [access, setAccess] = useState<FarmerAccess | undefined>(initial);
-  const [email, setEmail] = useState(initial?.loginEmail ?? '');
+/** Per-producer login status on the farmer card. Inviting (which needs the email)
+ *  happens in the edit panel — there's only one email field — so here we just show
+ *  status and the quick re-send / revoke actions; «Без достъп» opens the panel. */
+export function AccessControl({
+  farmerId,
+  access,
+  onOpenEdit,
+  onAccessChange,
+}: {
+  farmerId: string;
+  access?: FarmerAccess;
+  /** Open the farmer edit panel (where the invite + email live). */
+  onOpenEdit: () => void;
+  onAccessChange: (farmerId: string, next: FarmerAccess | undefined) => void;
+}) {
   const [busy, setBusy] = useState(false);
 
-  async function invite() {
-    if (!email.trim()) return;
+  async function resend() {
+    if (!access) return;
     setBusy(true);
     try {
-      const res = await grantFarmerAccess(farmerId, email.trim());
-      setAccess(res);
-      toast.success('Поканата е изпратена');
+      const res = await grantFarmerAccess(farmerId, access.loginEmail);
+      onAccessChange(farmerId, res);
+      toast.success('Поканата е изпратена отново');
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
     } finally {
@@ -31,8 +42,7 @@ export function AccessControl({ farmerId, initial }: { farmerId: string; initial
     setBusy(true);
     try {
       await revokeFarmerAccess(farmerId);
-      setAccess(undefined);
-      setEmail(''); // clear so the re-appearing form isn't pre-filled with the revoked address
+      onAccessChange(farmerId, undefined);
       toast.success('Достъпът е премахнат');
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
@@ -57,7 +67,7 @@ export function AccessControl({ farmerId, initial }: { farmerId: string; initial
           </span>
           <div className="flex items-center gap-2">
             {access.invitePending && (
-              <Button size="sm" variant="ghost" disabled={busy} onClick={invite}>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={resend}>
                 Изпрати отново
               </Button>
             )}
@@ -67,19 +77,9 @@ export function AccessControl({ farmerId, initial }: { farmerId: string; initial
           </div>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor={`access-email-${farmerId}`} className="sr-only">
-            Имейл на фермера
-          </label>
-          <input
-            id={`access-email-${farmerId}`}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="имейл на фермера"
-            className="min-w-[160px] flex-1 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] font-semibold text-ff-ink-2 shadow-ff-sm focus:outline-none focus:ring-2 focus:ring-ff-green-500/40"
-          />
-          <Button size="sm" variant="primary" disabled={busy || !email.trim()} onClick={invite}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[12.5px] text-ff-muted">Този фермер няма достъп до панела.</span>
+          <Button size="sm" variant="ghost" onClick={onOpenEdit}>
             <Send size={14} /> Покани
           </Button>
         </div>

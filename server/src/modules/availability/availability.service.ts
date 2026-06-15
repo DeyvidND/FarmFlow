@@ -14,6 +14,7 @@ import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { bgToday } from '../../common/time/bg-time';
 import { CreateWindowDto } from './dto/create-window.dto';
+import { CreateWindowsBulkDto } from './dto/create-windows-bulk.dto';
 import { UpdateWindowDto } from './dto/update-window.dto';
 import { rangesOverlap, applyQuantityDelta } from './availability.util';
 
@@ -127,6 +128,87 @@ export class AvailabilityService {
       .returning();
     await this.bust(tenantId);
     return row;
+  }
+
+  /** Set one window (same dates + quantity) on many products at once — the
+   *  «Задай за всички» bulk action. Products not owned by the caller (tenant, and
+   *  when scoped the producer's farm) are skipped; products that already have an
+   *  overlapping window are skipped too. Both kinds of skip are reported, never
+   *  fatal, so one bad product doesn't sink the whole batch. */
+  async createBulk(
+    tenantId: string,
+    dto: CreateWindowsBulkDto,
+    farmerScope: string | null,
+  ): Promise<{
+    created: AvailabilityWindow[];
+    skipped: { productId: string; reason: 'not-found' | 'overlap' }[];
+  }> {
+    if (dto.endsAt < dto.startsAt) {
+      throw new BadRequestException('Крайната дата е преди началната');
+    }
+
+    const requested = [...new Set(dto.productIds)];
+    const skipped: { productId: string; reason: 'not-found' | 'overlap' }[] = [];
+
+    // Owned products in this tenant (and, when scoped, this producer's farm).
+    const ownConds = [eq(products.tenantId, tenantId), inArray(products.id, requested)];
+    if (farmerScope !== null) ownConds.push(eq(products.farmerId, farmerScope));
+    const owned = await this.db
+      .select({ id: products.id })
+      .from(products)
+      .where(and(...ownConds));
+    const ownedIds = new Set(owned.map((p) => p.id));
+
+    const eligible: string[] = [];
+    for (const id of requested) {
+      if (ownedIds.has(id)) eligible.push(id);
+      else skipped.push({ productId: id, reason: 'not-found' });
+    }
+    if (!eligible.length) return { created: [], skipped };
+
+    // One query for every eligible product's existing windows → overlap-skip in JS.
+    const existing = await this.db
+      .select()
+      .from(productAvailabilityWindows)
+      .where(
+        and(
+          eq(productAvailabilityWindows.tenantId, tenantId),
+          inArray(productAvailabilityWindows.productId, eligible),
+        ),
+      );
+    const byProduct = new Map<string, typeof existing>();
+    for (const w of existing) {
+      const list = byProduct.get(w.productId!) ?? [];
+      list.push(w);
+      byProduct.set(w.productId!, list);
+    }
+
+    const toInsert: string[] = [];
+    for (const id of eligible) {
+      const windows = byProduct.get(id) ?? [];
+      if (windows.some((w) => rangesOverlap(dto.startsAt, dto.endsAt, w.startsAt, w.endsAt))) {
+        skipped.push({ productId: id, reason: 'overlap' });
+      } else {
+        toInsert.push(id);
+      }
+    }
+    if (!toInsert.length) return { created: [], skipped };
+
+    const created = await this.db
+      .insert(productAvailabilityWindows)
+      .values(
+        toInsert.map((productId) => ({
+          tenantId,
+          productId,
+          startsAt: dto.startsAt,
+          endsAt: dto.endsAt,
+          quantity: dto.quantity,
+          remaining: dto.quantity,
+        })),
+      )
+      .returning();
+    await this.bust(tenantId);
+    return { created, skipped };
   }
 
   /** Update an existing window.

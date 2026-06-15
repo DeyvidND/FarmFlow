@@ -10,6 +10,7 @@ import { CreateSubcategoryDto } from './dto/create-subcategory.dto';
 import { UpdateSubcategoryDto } from './dto/update-subcategory.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import { ReorderDto } from '../../common/dto/reorder.dto';
 import {
@@ -23,7 +24,10 @@ import {
 export class SubcategoriesController {
   constructor(private readonly subcategoriesService: SubcategoriesService) {}
 
+  // Read-only for producers: they pick an existing category when editing their own
+  // products. Creating/renaming categories stays owner-only (default-deny below).
   @Get()
+  @Roles('admin', 'farmer')
   findAll(@CurrentTenant() tenantId: string) {
     return this.subcategoriesService.findAll(tenantId);
   }

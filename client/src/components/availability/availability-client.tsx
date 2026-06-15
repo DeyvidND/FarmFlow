@@ -16,6 +16,8 @@ import { HelpModal } from '@/components/delivery/ui';
 import { Button } from '@/components/ui/button';
 import { AVAILABILITY_HELP } from '@/lib/help-content';
 import { WindowEditor } from './window-editor';
+import { BulkWindowEditor } from './bulk-window-editor';
+import { Layers } from 'lucide-react';
 
 const errMsg = (e: unknown) =>
   e instanceof ApiError ? e.message : 'Възникна грешка';
@@ -50,6 +52,7 @@ export function AvailabilityClient({
     existingWindow?: AvailabilityWindow;
   } | null>(null);
   const [confirming, setConfirming] = React.useState<string | null>(null);
+  const [bulkOpen, setBulkOpen] = React.useState(false);
   const [help, setHelp] = React.useState(false);
   const [sectionTitle, setSectionTitle] = React.useState(title ?? '');
   const [savingTitle, setSavingTitle] = React.useState(false);
@@ -119,9 +122,16 @@ export function AvailabilityClient({
                 : 'Обяви каква наличност имаш за определен период. Докато периодът е активен, количеството е реалната наличност в магазина — клиентът поръчва и то намалява.'}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
-            <Info size={16} /> Обяснения
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {visibleProducts.length > 0 && (
+              <Button variant="primary" size="sm" onClick={() => setBulkOpen(true)}>
+                <Layers size={16} /> Задай за всички
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
+              <Info size={16} /> Обяснения
+            </Button>
+          </div>
         </div>
 
         {/* Owner + multiFarmer: farmer filter dropdown */}
@@ -258,6 +268,14 @@ export function AvailabilityClient({
           productId={editing.productId}
           existingWindow={editing.existingWindow}
           onClose={() => setEditing(null)}
+          onSaved={reload}
+        />
+      )}
+
+      {bulkOpen && (
+        <BulkWindowEditor
+          products={visibleProducts}
+          onClose={() => setBulkOpen(false)}
           onSaved={reload}
         />
       )}

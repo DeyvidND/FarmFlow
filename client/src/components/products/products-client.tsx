@@ -39,6 +39,7 @@ export function ProductsClient({
   potwEnabled = false,
   potwMode = 'manual',
   featuredId = null,
+  role = 'admin',
 }: {
   initial: Paginated<Product>;
   farmers?: Farmer[];
@@ -48,7 +49,12 @@ export function ProductsClient({
   potwEnabled?: boolean;
   potwMode?: 'manual' | 'auto';
   featuredId?: string | null;
+  /** Producer sub-account: scoped to own products, no POTW / catalog-reorder. */
+  role?: 'admin' | 'farmer';
 }) {
+  // «Продукт на седмицата» and the storefront catalog order are shop-wide, owner-only
+  // concerns — a producer manages only the contents of their own products.
+  const isFarmer = role === 'farmer';
   const { items: products, setItems: setProducts, loadMore, hasMore, loading } = usePaginatedList<Product>(
     initial,
     listProducts,
@@ -231,7 +237,7 @@ export function ProductsClient({
 
   return (
     <div className="animate-ff-fade-up">
-      {!reorderMode && (
+      {!reorderMode && !isFarmer && (
         <div className="mb-5">
           <ProductOfWeekPanel />
         </div>
@@ -245,18 +251,20 @@ export function ProductsClient({
           <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
             <Info size={16} /> Обяснения
           </Button>
-          <Button
-            variant={reorderMode ? 'primary' : 'ghost'}
-            size="sm"
-            onClick={() => {
-              if (reorderMode) void persistReorder(); // leaving → save once
-              setReorderMode((v) => !v);
-            }}
-            title="Подреди реда на продуктите в сайта"
-          >
-            {reorderMode ? <Check size={16} /> : <ArrowUpDown size={16} />}
-            {reorderMode ? 'Готово' : 'Подреди'}
-          </Button>
+          {!isFarmer && (
+            <Button
+              variant={reorderMode ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => {
+                if (reorderMode) void persistReorder(); // leaving → save once
+                setReorderMode((v) => !v);
+              }}
+              title="Подреди реда на продуктите в сайта"
+            >
+              {reorderMode ? <Check size={16} /> : <ArrowUpDown size={16} />}
+              {reorderMode ? 'Готово' : 'Подреди'}
+            </Button>
+          )}
           {!reorderMode && (
             <Button variant="primary" onClick={() => setCreateOpen(true)} className="rounded-sm">
               <Plus size={18} /> Добави продукт

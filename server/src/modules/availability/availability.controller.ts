@@ -12,6 +12,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AvailabilityService } from './availability.service';
 import { CreateWindowDto } from './dto/create-window.dto';
+import { CreateWindowsBulkDto } from './dto/create-windows-bulk.dto';
 import { UpdateWindowDto } from './dto/update-window.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -57,6 +58,13 @@ export class AvailabilityController {
   create(@CurrentUser() user: TenantRequestUser, @Body() dto: CreateWindowDto) {
     const farmerScope = effectiveFarmerId(user.role, user.farmerId, undefined);
     return this.svc.create(user.tenantId, dto, farmerScope);
+  }
+
+  /** «Задай за всички» — one window applied to many products at once. */
+  @Post('bulk')
+  createBulk(@CurrentUser() user: TenantRequestUser, @Body() dto: CreateWindowsBulkDto) {
+    const farmerScope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.svc.createBulk(user.tenantId, dto, farmerScope);
   }
 
   @Patch(':id')

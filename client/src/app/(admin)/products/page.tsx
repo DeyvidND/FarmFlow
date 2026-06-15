@@ -17,9 +17,14 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export default async function ProductsPage() {
+  const me = await fetchJson<{ role?: string }>('auth/me', {});
+  const isFarmer = me.role === 'farmer';
+
   const [products, farmers, subcats, tenant] = await Promise.all([
+    // The server scopes this list to the producer's own products for role='farmer'.
     fetchJson<Paginated<Product>>('products?limit=50', { items: [], nextCursor: null }),
-    fetchJson<Farmer[]>('farmers', []),
+    // A producer manages only their own products — the farmer column/filter is moot.
+    isFarmer ? Promise.resolve([] as Farmer[]) : fetchJson<Farmer[]>('farmers', []),
     fetchJson<Subcategory[]>('subcategories', []),
     fetchJson<{
       multiFarmer: boolean;
@@ -34,11 +39,14 @@ export default async function ProductsPage() {
       initial={products}
       farmers={farmers}
       subcats={subcats}
-      multiFarmer={tenant.multiFarmer}
+      // Producers never pick a farmer (it's always themselves) and don't control the
+      // shop-wide «Продукт на седмицата» or the storefront catalog order.
+      multiFarmer={isFarmer ? false : tenant.multiFarmer}
       multiSubcat={tenant.multiSubcat}
-      potwEnabled={tenant.productOfWeekEnabled ?? false}
+      potwEnabled={isFarmer ? false : (tenant.productOfWeekEnabled ?? false)}
       potwMode={tenant.productOfWeekMode ?? 'manual'}
       featuredId={tenant.productOfWeekId ?? null}
+      role={isFarmer ? 'farmer' : 'admin'}
     />
   );
 }

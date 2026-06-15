@@ -47,16 +47,20 @@ export class ProductsService {
   ) {}
 
   /** Admin list: tenant-scoped, oldest first, keyset-paginated. `total` is included
-   *  only on the first page (no cursor) so the UI can show the full count. */
+   *  only on the first page (no cursor) so the UI can show the full count.
+   *  farmerScope — when non-null (producer sub-account), restricts to that farmer's
+   *  own products; null = owner, whole tenant. */
   async findAll(
     tenantId: string,
     opts: { cursor?: string; limit?: number } = {},
+    farmerScope: string | null = null,
   ): Promise<Paginated<Product>> {
     const lim = clampLimit(opts.limit);
     const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
     // `deleted_at IS NULL` hides soft-deleted products (a removed product, unlike a
     // hidden/inactive one, must disappear from the admin list — see remove()).
     const conds = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
+    if (farmerScope !== null) conds.push(eq(products.farmerId, farmerScope));
     if (cur) conds.push(keysetAfter(products.createdAt, products.id, cur, 'asc'));
 
     const rows = await this.db
@@ -68,10 +72,12 @@ export class ProductsService {
 
     const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
     if (!cur) {
+      const totalConds = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
+      if (farmerScope !== null) totalConds.push(eq(products.farmerId, farmerScope));
       const [{ total }] = await this.db
         .select({ total: sql<number>`count(*)::int` })
         .from(products)
-        .where(and(eq(products.tenantId, tenantId), isNull(products.deletedAt)));
+        .where(and(...totalConds));
       page.total = total;
     }
     return page;
@@ -80,7 +86,9 @@ export class ProductsService {
   /** Lean full list for cross-page consumers (no pagination — ids + a few fields).
    *  Soft-deleted products are excluded so they don't inflate farmer/section counts
    *  or trip low-stock notifications. */
-  listOptions(tenantId: string): Promise<ProductOption[]> {
+  listOptions(tenantId: string, farmerScope: string | null = null): Promise<ProductOption[]> {
+    const conds = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
+    if (farmerScope !== null) conds.push(eq(products.farmerId, farmerScope));
     return this.db
       .select({
         id: products.id,
@@ -93,7 +101,7 @@ export class ProductsService {
         subcategoryId: products.subcategoryId,
       })
       .from(products)
-      .where(and(eq(products.tenantId, tenantId), isNull(products.deletedAt)))
+      .where(and(...conds))
       .orderBy(asc(products.position), asc(products.createdAt));
   }
 
@@ -115,13 +123,20 @@ export class ProductsService {
     return { ok: true };
   }
 
-  async findOne(id: string, tenantId: string): Promise<Product> {
+  /** farmerScope — when non-null (producer sub-account), the product must also
+   *  belong to that farmer; a foreign product is reported as not-found (no
+   *  existence leak). This is the single ownership gate the media/image methods
+   *  funnel through, so opening those to producers needs no extra checks. */
+  async findOne(id: string, tenantId: string, farmerScope: string | null = null): Promise<Product> {
     const [row] = await this.db
       .select()
       .from(products)
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
       .limit(1);
     if (!row) throw new NotFoundException('Продуктът не е намерен');
+    if (farmerScope !== null && row.farmerId !== farmerScope) {
+      throw new NotFoundException('Продуктът не е намерен');
+    }
     return row;
   }
 
@@ -150,14 +165,23 @@ export class ProductsService {
     }
   }
 
-  async create(tenantId: string, dto: CreateProductDto): Promise<Product> {
-    await this.assertRefsInTenant(tenantId, dto);
+  /** farmerScope — when non-null (producer sub-account), the new product is forced
+   *  onto that farmer regardless of any farmerId in the DTO (a producer can only
+   *  create products for themselves). */
+  async create(
+    tenantId: string,
+    dto: CreateProductDto,
+    farmerScope: string | null = null,
+  ): Promise<Product> {
+    // A producer's products always belong to them — ignore any client-supplied farmer.
+    const values = farmerScope !== null ? { ...dto, farmerId: farmerScope } : dto;
+    await this.assertRefsInTenant(tenantId, values);
     // Storefront product pages key off `slug`. The admin form doesn't collect
     // one, so derive a tenant-unique slug from the name (Cyrillic-aware).
     const slug = await this.uniqueSlug(tenantId, slugify(dto.name) || 'produkt');
     const [row] = await this.db
       .insert(products)
-      .values({ ...dto, tenantId, slug })
+      .values({ ...values, tenantId, slug })
       .returning();
     await this.cache.invalidate(tenantId);
     return row;
@@ -179,11 +203,22 @@ export class ProductsService {
     }
   }
 
-  async update(id: string, tenantId: string, dto: UpdateProductDto): Promise<Product> {
-    await this.assertRefsInTenant(tenantId, dto);
+  /** farmerScope — when non-null (producer sub-account), the product must belong to
+   *  that farmer (else not-found) and any `farmerId` reassignment in the DTO is
+   *  dropped so a producer can never move a product to (or away from) themselves. */
+  async update(
+    id: string,
+    tenantId: string,
+    dto: UpdateProductDto,
+    farmerScope: string | null = null,
+  ): Promise<Product> {
+    if (farmerScope !== null) await this.findOne(id, tenantId, farmerScope);
+    // Producers can edit their own product's fields but not its ownership.
+    const data = farmerScope !== null ? { ...dto, farmerId: undefined } : dto;
+    await this.assertRefsInTenant(tenantId, data);
     const [row] = await this.db
       .update(products)
-      .set({ ...dto })
+      .set({ ...data })
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Продуктът не е намерен');
@@ -197,8 +232,8 @@ export class ProductsService {
    *  image + gallery are untouched. We also clear `is_active` so the storefront,
    *  which filters on `is_active = true`, drops it too. Distinct from the is_active
    *  hide/show toggle, which keeps a product visible (greyed) in the admin list. */
-  async remove(id: string, tenantId: string): Promise<{ id: string }> {
-    await this.findOne(id, tenantId);
+  async remove(id: string, tenantId: string, farmerScope: string | null = null): Promise<{ id: string }> {
+    await this.findOne(id, tenantId, farmerScope);
 
     await this.db
       .update(products)
@@ -213,8 +248,9 @@ export class ProductsService {
     id: string,
     tenantId: string,
     file: Express.Multer.File,
+    farmerScope: string | null = null,
   ): Promise<Product & { imageProcessing: boolean }> {
-    const product = await this.findOne(id, tenantId);
+    const product = await this.findOne(id, tenantId, farmerScope);
     await this.imageQueue.add('process', encodeImageJob('product-cover', id, tenantId, file));
     return { ...product, imageProcessing: true };
   }
@@ -281,9 +317,10 @@ export class ProductsService {
 
   // ---- Gallery (multi-image) ----
 
-  /** Ordered gallery for a product (admin). 404 if missing / cross-tenant. */
-  async listMedia(id: string, tenantId: string): Promise<ProductMedia[]> {
-    await this.findOne(id, tenantId);
+  /** Ordered gallery for a product (admin). 404 if missing / cross-tenant /
+   *  (when scoped) not the producer's own. */
+  async listMedia(id: string, tenantId: string, farmerScope: string | null = null): Promise<ProductMedia[]> {
+    await this.findOne(id, tenantId, farmerScope);
     return this.db
       .select()
       .from(productMedia)
@@ -298,8 +335,9 @@ export class ProductsService {
     id: string,
     tenantId: string,
     file: Express.Multer.File,
+    farmerScope: string | null = null,
   ): Promise<{ imageProcessing: boolean }> {
-    await this.findOne(id, tenantId);
+    await this.findOne(id, tenantId, farmerScope);
     await this.imageQueue.add('process', encodeImageJob('product-media', id, tenantId, file));
     return { imageProcessing: true };
   }
@@ -353,8 +391,9 @@ export class ProductsService {
     id: string,
     mediaId: string,
     tenantId: string,
+    farmerScope: string | null = null,
   ): Promise<{ id: string }> {
-    await this.findOne(id, tenantId);
+    await this.findOne(id, tenantId, farmerScope);
 
     const [m] = await this.db
       .select()
@@ -381,8 +420,9 @@ export class ProductsService {
     id: string,
     tenantId: string,
     dto: ReorderMediaDto,
+    farmerScope: string | null = null,
   ): Promise<ProductMedia[]> {
-    await this.findOne(id, tenantId);
+    await this.findOne(id, tenantId, farmerScope);
 
     // One transaction so a mid-loop failure can't leave a half-applied order.
     await this.db.transaction(async (tx) => {

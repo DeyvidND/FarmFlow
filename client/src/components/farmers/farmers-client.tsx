@@ -27,6 +27,16 @@ export function FarmersClient({
   const [farmers, setFarmers] = useState(initialFarmers);
   const [multi, setMulti] = useState(initialMultiFarmer);
   const [edit, setEdit] = useState<Partial<Farmer> | null>(null);
+  // Login state per farmer — lifted so an invite/revoke from the panel OR the card
+  // updates the status badge in both places without a reload.
+  const [access, setAccess] = useState<Record<string, FarmerAccess>>(initialAccess);
+  const onAccessChange = (farmerId: string, next: FarmerAccess | undefined) =>
+    setAccess((prev) => {
+      const copy = { ...prev };
+      if (next) copy[farmerId] = next;
+      else delete copy[farmerId];
+      return copy;
+    });
   const [reorderMode, setReorderMode] = useState(false);
   const [prodModalFarmerId, setProdModalFarmerId] = useState<string | null>(null);
   const reorderDirty = useRef(false);
@@ -172,7 +182,7 @@ export function FarmersClient({
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="text-[17px] font-extrabold tracking-[-0.01em]">{f.name}</div>
                         {(() => {
-                          const acc = initialAccess[f.id];
+                          const acc = access[f.id];
                           const s = !acc ? 'none' : acc.invitePending ? 'pending' : 'active';
                           const meta = {
                             active: { t: 'Активен', c: 'bg-ff-green-50 text-ff-green-700' },
@@ -234,7 +244,12 @@ export function FarmersClient({
                       <div className="text-[12.5px] text-ff-muted">Още няма продукти. Свържи от „Продукти&rdquo;.</div>
                     )}
                   </div>
-                  <AccessControl farmerId={f.id} initial={initialAccess[f.id]} />
+                  <AccessControl
+                    farmerId={f.id}
+                    access={access[f.id]}
+                    onOpenEdit={() => setEdit(f)}
+                    onAccessChange={onAccessChange}
+                  />
                 </div>
               );
             })}
@@ -247,9 +262,11 @@ export function FarmersClient({
         <FarmerPanel
           farmer={edit}
           products={productList}
+          access={edit.id ? access[edit.id] : undefined}
           onClose={() => setEdit(null)}
           onSaved={onSaved}
           onProductsChanged={onProductsChanged}
+          onAccessChange={onAccessChange}
         />
       )}
 

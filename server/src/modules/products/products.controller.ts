@@ -12,6 +12,10 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { AssignProductsDto } from './dto/assign-products.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
+import type { TenantRequestUser } from '@farmflow/types';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import { ReorderDto } from '../../common/dto/reorder.dto';
@@ -28,27 +32,49 @@ import {
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
+  // Producers see + manage only their own products; the service enforces the
+  // farmer scope (a producer can never widen it — query overrides are ignored).
   @Get()
+  @Roles('admin', 'farmer')
   @ApiQuery({ name: 'cursor', required: false })
   @ApiQuery({ name: 'limit', required: false })
-  findAll(@CurrentTenant() tenantId: string, @Query() q: PaginationQueryDto) {
-    return this.productsService.findAll(tenantId, { cursor: q.cursor, limit: q.limit });
+  findAll(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Query() q: PaginationQueryDto,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.findAll(tenantId, { cursor: q.cursor, limit: q.limit }, scope);
   }
 
   // Literal route — must precede `:id` so "options" isn't captured as a product id.
   @Get('options')
-  listOptions(@CurrentTenant() tenantId: string) {
-    return this.productsService.listOptions(tenantId);
+  @Roles('admin', 'farmer')
+  listOptions(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.listOptions(tenantId, scope);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.productsService.findOne(id, tenantId);
+  @Roles('admin', 'farmer')
+  findOne(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.findOne(id, tenantId, scope);
   }
 
   @Post()
-  create(@CurrentTenant() tenantId: string, @Body() dto: CreateProductDto) {
-    return this.productsService.create(tenantId, dto);
+  @Roles('admin', 'farmer')
+  create(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Body() dto: CreateProductDto,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.create(tenantId, dto, scope);
   }
 
   // Literal route — must precede `:id` so "assign" isn't captured as a product id.
@@ -64,26 +90,37 @@ export class ProductsController {
   }
 
   @Patch(':id')
+  @Roles('admin', 'farmer')
   update(
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
     @Body() dto: UpdateProductDto,
   ) {
-    return this.productsService.update(id, tenantId, dto);
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.update(id, tenantId, dto, scope);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.productsService.remove(id, tenantId);
+  @Roles('admin', 'farmer')
+  remove(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.remove(id, tenantId, scope);
   }
 
   @Post(':id/image')
+  @Roles('admin', 'farmer')
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: UploadImageDto })
   @UseInterceptors(FileInterceptor('image'))
   uploadImage(
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
     @UploadedFile(
       new ParseFilePipe({
         validators: [
@@ -94,23 +131,32 @@ export class ProductsController {
     )
     file: Express.Multer.File,
   ) {
-    return this.productsService.uploadImage(id, tenantId, file);
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.uploadImage(id, tenantId, file, scope);
   }
 
   // ---- Gallery (multi-image) ----
 
   @Get(':id/media')
-  listMedia(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.productsService.listMedia(id, tenantId);
+  @Roles('admin', 'farmer')
+  listMedia(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.listMedia(id, tenantId, scope);
   }
 
   @Post(':id/media')
+  @Roles('admin', 'farmer')
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: UploadImageDto })
   @UseInterceptors(FileInterceptor('image'))
   addMedia(
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
     @UploadedFile(
       new ParseFilePipe({
         validators: [
@@ -121,25 +167,32 @@ export class ProductsController {
     )
     file: Express.Multer.File,
   ) {
-    return this.productsService.addMedia(id, tenantId, file);
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.addMedia(id, tenantId, file, scope);
   }
 
   @Patch(':id/media/reorder')
+  @Roles('admin', 'farmer')
   reorderMedia(
     @Param('id') id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
     @Body() dto: ReorderMediaDto,
   ) {
-    return this.productsService.reorderMedia(id, tenantId, dto);
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.reorderMedia(id, tenantId, dto, scope);
   }
 
   @Delete(':id/media/:mediaId')
+  @Roles('admin', 'farmer')
   removeMedia(
     @Param('id') id: string,
     @Param('mediaId') mediaId: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
   ) {
-    return this.productsService.removeMedia(id, mediaId, tenantId);
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.removeMedia(id, mediaId, tenantId, scope);
   }
 }
 

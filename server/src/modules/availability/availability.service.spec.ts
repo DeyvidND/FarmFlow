@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AvailabilityService } from './availability.service';
 
 // ---------------------------------------------------------------------------
@@ -159,6 +159,85 @@ describe('AvailabilityService.create overlap guard', () => {
         'farmerA',
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createBulk() — «Задай за всички» (multi-product, skip-not-fatal)
+// ---------------------------------------------------------------------------
+
+/** Db stub for createBulk(): two awaited selects (owned products, existing
+ *  windows) then an insert().values().returning(). `insert` throws when no row
+ *  is eligible, to assert we never write in that case. */
+function makeDbForBulk(owned: any[], existing: any[], created: any[], allowInsert = true) {
+  const selectResults = [owned, existing];
+  return {
+    select: () => {
+      const result = selectResults.length > 0 ? selectResults.shift()! : [];
+      const chain: any = {
+        from: () => chain,
+        where: () => chain,
+        then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
+      };
+      return chain;
+    },
+    insert: () => ({
+      values: () => ({
+        returning: () => {
+          if (!allowInsert) throw new Error('insert must not run when nothing is eligible');
+          return Promise.resolve(created);
+        },
+      }),
+    }),
+  } as any;
+}
+
+describe('AvailabilityService.createBulk', () => {
+  const dates = { startsAt: '2026-07-01', endsAt: '2026-07-10', quantity: 5 };
+
+  it('creates a window on every eligible product', async () => {
+    const db = makeDbForBulk([{ id: 'p1' }, { id: 'p2' }], [], [{ id: 'w1' }, { id: 'w2' }]);
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], ...dates }, null);
+    expect(res.created).toHaveLength(2);
+    expect(res.skipped).toEqual([]);
+  });
+
+  it('skips (not fatal) a product that already has an overlapping window', async () => {
+    const db = makeDbForBulk(
+      [{ id: 'p1' }, { id: 'p2' }],
+      [{ id: 'x', productId: 'p1', startsAt: '2026-07-05', endsAt: '2026-07-15' }],
+      [{ id: 'w2' }],
+    );
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], ...dates }, null);
+    expect(res.created).toHaveLength(1);
+    expect(res.skipped).toEqual([{ productId: 'p1', reason: 'overlap' }]);
+  });
+
+  it('skips a product not owned by the producer (cross-farmer / cross-tenant)', async () => {
+    // Scoped ownership query returns only p1 → p2 is foreign.
+    const db = makeDbForBulk([{ id: 'p1' }], [], [{ id: 'w1' }]);
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], ...dates }, 'farmerA');
+    expect(res.created).toHaveLength(1);
+    expect(res.skipped).toEqual([{ productId: 'p2', reason: 'not-found' }]);
+  });
+
+  it('writes nothing when no product is eligible', async () => {
+    const db = makeDbForBulk([], [], [], /* allowInsert */ false);
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    const res = await svc.createBulk('t1', { productIds: ['p1'], ...dates }, 'farmerA');
+    expect(res.created).toEqual([]);
+    expect(res.skipped).toEqual([{ productId: 'p1', reason: 'not-found' }]);
+  });
+
+  it('rejects an inverted date range before touching the DB', async () => {
+    const db = makeDbForBulk([], [], [], false);
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    await expect(
+      svc.createBulk('t1', { productIds: ['p1'], startsAt: '2026-07-10', endsAt: '2026-07-01', quantity: 5 }, null),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 

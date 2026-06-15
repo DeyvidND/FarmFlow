@@ -1,15 +1,22 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Check } from 'lucide-react';
+import { X, Check, Send, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar } from './avatar';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
 import { ProductAssignPicker } from '@/components/products/product-assign-picker';
-import { ApiError, assignProducts, createFarmer, updateFarmer } from '@/lib/api-client';
-import type { Farmer, ProductOption, CoverCrop } from '@/lib/types';
+import {
+  ApiError,
+  assignProducts,
+  createFarmer,
+  grantFarmerAccess,
+  revokeFarmerAccess,
+  updateFarmer,
+} from '@/lib/api-client';
+import type { Farmer, ProductOption, CoverCrop, FarmerAccess } from '@/lib/types';
 
 const field =
   'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
@@ -18,16 +25,22 @@ const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 export function FarmerPanel({
   farmer,
   products = [],
+  access,
   onClose,
   onSaved,
   onProductsChanged,
+  onAccessChange,
 }: {
   farmer: Partial<Farmer>;
   products?: ProductOption[];
+  /** Current panel-login state for this farmer (undefined = no login yet). */
+  access?: FarmerAccess;
   onClose: () => void;
   onSaved: (f: Farmer) => void;
   /** Fired after bulk product (un)links so the list can refresh its chips. */
   onProductsChanged?: (updates: { id: string; farmerId: string | null }[]) => void;
+  /** Bubble a login state change (invite / revoke) up so the card badge updates. */
+  onAccessChange?: (farmerId: string, next: FarmerAccess | undefined) => void;
 }) {
   const isNew = !farmer.id;
   const [name, setName] = useState(farmer.name ?? '');
@@ -36,6 +49,11 @@ export function FarmerPanel({
   const [phone, setPhone] = useState(farmer.phone ?? '+359 ');
   const [email, setEmail] = useState(farmer.email ?? '');
   const [since, setSince] = useState(farmer.since ?? '2026');
+  // Panel-login state — one email field below feeds both the daily-delivery digest
+  // and (when access is granted) the producer's login.
+  const [acc, setAcc] = useState<FarmerAccess | undefined>(access);
+  const [grantOnCreate, setGrantOnCreate] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
   // Tint is no longer editable (the color picker was removed); keep the stored
   // value for the avatar / role-label fallback only.
   const tint = farmer.tint ?? '#2C5530';
@@ -63,6 +81,17 @@ export function FarmerPanel({
         coverCrop,
       };
       const saved = isNew ? await createFarmer(data) : await updateFarmer(farmer.id!, data);
+      // New farmer + "give panel access" ticked → invite right away with the same
+      // email (no need to find the separate card section). Swallow invite errors so
+      // a failed email doesn't lose the just-created farmer — owner can retry.
+      if (isNew && grantOnCreate && data.email) {
+        try {
+          const res = await grantFarmerAccess(saved.id, data.email);
+          onAccessChange?.(saved.id, res);
+        } catch (e) {
+          toast.error(e instanceof ApiError ? e.message : 'Поканата не бе изпратена');
+        }
+      }
       // Persist product links (existing farmer only — needs an id).
       if (!isNew && farmer.id) {
         const initial = new Set(products.filter((p) => p.farmerId === farmer.id).map((p) => p.id));
@@ -86,6 +115,42 @@ export function FarmerPanel({
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Invite / re-invite an existing farmer using the email field above — the same
+  // address that feeds the daily-delivery digest, so there's only ever one email.
+  async function invite() {
+    if (!farmer.id) return;
+    if (!email.trim()) {
+      toast.error('Въведи имейл на фермера');
+      return;
+    }
+    setInviteBusy(true);
+    try {
+      const res = await grantFarmerAccess(farmer.id, email.trim());
+      setAcc(res);
+      onAccessChange?.(farmer.id, res);
+      toast.success('Поканата е изпратена');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Грешка');
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
+  async function revokeAccess() {
+    if (!farmer.id) return;
+    setInviteBusy(true);
+    try {
+      await revokeFarmerAccess(farmer.id);
+      setAcc(undefined);
+      onAccessChange?.(farmer.id, undefined);
+      toast.success('Достъпът е премахнат');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Грешка');
+    } finally {
+      setInviteBusy(false);
     }
   }
 
@@ -166,7 +231,7 @@ export function FarmerPanel({
             </label>
           </div>
           <label className={labelCls}>
-            Имейл (за дневния списък с доставки)
+            Имейл
             <input
               type="email"
               value={email}
@@ -174,7 +239,58 @@ export function FarmerPanel({
               placeholder="напр. petar@ferma.bg"
               className={field}
             />
+            <span className="text-[11px] font-semibold text-ff-muted-2">
+              Същият имейл се ползва и за дневния списък с доставки, и за входа в панела.
+            </span>
           </label>
+
+          {/* Panel access — invite straight from here with the email above. */}
+          <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+              <KeyRound size={14} /> Достъп до панела
+            </div>
+            {isNew ? (
+              <label className="flex cursor-pointer items-start gap-2.5 text-[13px] font-semibold text-ff-ink-2">
+                <input
+                  type="checkbox"
+                  checked={grantOnCreate}
+                  onChange={(e) => setGrantOnCreate(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-ff-green-600"
+                />
+                <span>
+                  Дай му личен достъп до панела с този имейл — ще получи покана да си
+                  създаде профил и да вижда само своите продукти, поръчки и плащания.
+                </span>
+              </label>
+            ) : acc ? (
+              <div className="flex flex-col gap-2.5">
+                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
+                  {acc.invitePending ? (
+                    <><Send size={13} className="text-ff-amber-600" /> Поканен · {acc.loginEmail}</>
+                  ) : (
+                    <><Check size={13} className="text-ff-green-700" /> Активен · {acc.loginEmail}</>
+                  )}
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="ghost" disabled={inviteBusy} onClick={invite}>
+                    <Send size={14} /> Изпрати поканата отново
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={inviteBusy} onClick={revokeAccess}>
+                    <X size={14} /> Откажи достъп
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-[12.5px] text-ff-muted">
+                  Този фермер още няма достъп до панела.
+                </p>
+                <Button size="sm" variant="primary" disabled={inviteBusy || !email.trim()} onClick={invite}>
+                  <Send size={14} /> Покани в панела
+                </Button>
+              </div>
+            )}
+          </div>
           {!isNew && farmer.id && products.length > 0 && (
             <ProductAssignPicker
               products={products}

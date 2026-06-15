@@ -850,6 +850,21 @@ export const createAvailabilityWindow = (body: {
     'Неуспешно създаване',
   );
 
+export const createBulkAvailabilityWindows = (body: {
+  productIds: string[];
+  startsAt: string;
+  endsAt: string;
+  quantity: number;
+}): Promise<{
+  created: AvailabilityWindow[];
+  skipped: { productId: string; reason: 'not-found' | 'overlap' }[];
+}> =>
+  apiFetch(
+    'availability-windows/bulk',
+    { method: 'POST', ...json(body) },
+    'Неуспешно записване',
+  );
+
 export const updateAvailabilityWindow = (
   id: string,
   body: Partial<{ startsAt: string; endsAt: string; quantity: number }>,
