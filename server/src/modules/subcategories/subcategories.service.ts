@@ -1,9 +1,13 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { and, eq, asc, inArray } from 'drizzle-orm';
 import { type Database, subcategories, subcategoryMedia } from '@farmflow/db';
 import type { Subcategory, SubcategoryMedia, PublicSubcategory } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
+import { encodeImageJob } from '../../common/queue/image-job';
 import { CreateSubcategoryDto } from './dto/create-subcategory.dto';
 import { UpdateSubcategoryDto } from './dto/update-subcategory.dto';
 import { StorageService } from '../storage/storage.service';
@@ -23,6 +27,7 @@ export class SubcategoriesService {
     private readonly storage: StorageService,
     private readonly cache: CatalogCacheService,
     private readonly publicCache: PublicCacheService,
+    @InjectQueue(IMAGE_QUEUE) private readonly imageQueue: Queue,
   ) {}
 
   /** All subcategories for the tenant, ordered by display position then age. */
@@ -108,25 +113,36 @@ export class SubcategoriesService {
     id: string,
     tenantId: string,
     file: Express.Multer.File,
-  ): Promise<Subcategory> {
+  ): Promise<Subcategory & { imageProcessing: boolean }> {
+    const subcat = await this.findOne(id, tenantId);
+    await this.imageQueue.add('process', encodeImageJob('subcategory-cover', id, tenantId, file));
+    return { ...subcat, imageProcessing: true };
+  }
+
+  /** Called by the image worker after it has decoded and optimized the bytes. */
+  async finishSubcategoryCover(
+    id: string,
+    tenantId: string,
+    buffer: Buffer,
+    mime: string,
+  ): Promise<void> {
     const subcat = await this.findOne(id, tenantId);
     const img = await optimizeImage(
-      file.buffer,
-      file.mimetype,
-      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+      buffer,
+      mime,
+      PRODUCT_IMAGE_EXT_BY_MIME[mime] ?? 'bin',
     );
     const slug = await tenantSlug(this.db, tenantId);
     const key = `tenants/${slug}/subcategories/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
     if (subcat.imageUrl) await this.deleteObject(subcat.imageUrl);
-    const [row] = await this.db
+    await this.db
       .update(subcategories)
       .set({ imageUrl: url, coverCrop: await smartFocal(img.buffer) })
       .where(and(eq(subcategories.id, id), eq(subcategories.tenantId, tenantId)))
       .returning();
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.subcategories(tenantId));
-    return row;
   }
 
   // ---- Gallery (multi-image) ----
@@ -141,12 +157,27 @@ export class SubcategoriesService {
       .orderBy(asc(subcategoryMedia.position));
   }
 
-  /** Append an uploaded photo to the gallery; keeps `imageUrl` synced to the cover. */
+  /** Append an uploaded photo to the gallery (async path): validates ownership
+   *  then enqueues the heavy optimize+upload work; returns immediately so the
+   *  HTTP response is fast. The worker calls `finishSubcategoryMedia` once done. */
   async addMedia(
     id: string,
     tenantId: string,
     file: Express.Multer.File,
-  ): Promise<SubcategoryMedia> {
+  ): Promise<{ imageProcessing: boolean }> {
+    await this.findOne(id, tenantId);
+    await this.imageQueue.add('process', encodeImageJob('subcategory-media', id, tenantId, file));
+    return { imageProcessing: true };
+  }
+
+  /** Worker finisher: runs the full synchronous optimize → upload → insert → syncCover
+   *  pipeline for a gallery photo after the queue has decoded the raw bytes. */
+  async finishSubcategoryMedia(
+    id: string,
+    tenantId: string,
+    buffer: Buffer,
+    mime: string,
+  ): Promise<void> {
     const subcat = await this.findOne(id, tenantId);
 
     const existing = await this.db
@@ -165,15 +196,15 @@ export class SubcategoriesService {
     }
 
     const img = await optimizeImage(
-      file.buffer,
-      file.mimetype,
-      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+      buffer,
+      mime,
+      PRODUCT_IMAGE_EXT_BY_MIME[mime] ?? 'bin',
     );
     const slug = await tenantSlug(this.db, tenantId);
     const key = `tenants/${slug}/subcategories/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
-    const [row] = await this.db
+    await this.db
       .insert(subcategoryMedia)
       .values({ subcategoryId: id, tenantId, url, position: existing.length })
       .returning();
@@ -181,7 +212,6 @@ export class SubcategoriesService {
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.subcategories(tenantId));
-    return row;
   }
 
   /** Remove one gallery photo (DB row + R2 object), then re-sync the cover. */

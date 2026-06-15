@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { MulterModule } from '@nestjs/platform-express';
 import type Redis from 'ioredis';
@@ -42,6 +41,9 @@ import { EcontModule } from './modules/econt/econt.module';
 import { DigestModule } from './modules/digest/digest.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
+import { QueueModule } from './common/queue/queue.module';
+import { HealthModule } from './common/health/health.module';
+import { ImageQueueModule } from './modules/image-queue/image-queue.module';
 
 @Module({
   imports: [
@@ -50,7 +52,6 @@ import { AvailabilityModule } from './modules/availability/availability.module';
       envFilePath: ['../.env', '.env'],
       validationSchema: envValidationSchema,
     }),
-    ScheduleModule.forRoot(),
     // Distributed rate limiting backed by the shared Redis (REDIS_URL is required),
     // so limits hold across instances and survive restarts. A generous global
     // backstop; abuse-prone routes tighten it via @Throttle, and signature-verified
@@ -95,6 +96,8 @@ import { AvailabilityModule } from './modules/availability/availability.module';
     }),
     DrizzleModule,
     RedisModule,
+    QueueModule,
+    HealthModule,
     EmailModule,
     MapsModule,
     AuthModule,
@@ -123,6 +126,7 @@ import { AvailabilityModule } from './modules/availability/availability.module';
     AvailabilityModule,
     // After the feature modules it composes (Tenants/Products/Farmers/Subcategories).
     PublicBootstrapModule,
+    ImageQueueModule,
   ],
   controllers: [AppController],
   providers: [

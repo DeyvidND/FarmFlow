@@ -44,6 +44,10 @@ export const envValidationSchema = Joi.object({
   // courier integration stays disabled.
   ENCRYPTION_KEY: Joi.string().optional().allow(''),
   PORT: Joi.number().default(3000),
+  // Max Postgres connections THIS process opens. With N app copies the cluster
+  // opens N × DB_POOL_MAX connections — keep that under Postgres max_connections
+  // (~100 default), or front Postgres with PgBouncer (infra runbook).
+  DB_POOL_MAX: Joi.number().default(10),
   CORS_ORIGIN: Joi.string().default('http://localhost:3000'),
   // --- Rate limiting / abuse protection ---
   // Global backstop: max requests per client IP per RATE_LIMIT_TTL_MS window.
@@ -99,4 +103,8 @@ export const envValidationSchema = Joi.object({
   BILLING_BASE_PRICE_STOTINKI: Joi.number().default(3000),
   // Days a farm keeps full access after a failed payment before auto-suspend.
   BILLING_GRACE_DAYS: Joi.number().default(7),
+  // Which job this process does: 'all' (default — HTTP + workers + scheduled jobs,
+  // the single-box behavior), 'web' (HTTP + enqueue only), 'worker' (drains queues
+  // + runs scheduled jobs). Scale horizontally by running copies with different roles.
+  APP_ROLE: Joi.string().valid('all', 'web', 'worker').default('all'),
 });

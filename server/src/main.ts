@@ -40,6 +40,12 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
+  // Wire SIGTERM/SIGINT to Nest's lifecycle so OnModuleDestroy hooks run: BullMQ
+  // workers finish in-flight jobs, the pg pool and Redis client close cleanly.
+  // Required for zero-drop rolling deploys. The orchestrator (Dokploy) must allow
+  // a termination grace period long enough for in-flight work to drain.
+  app.enableShutdownHooks();
+
   const config = app.get(ConfigService);
   // Comma-separated allowlist so the dashboard, admin panel, and any other
   // first-party origin can each call the API with credentials.

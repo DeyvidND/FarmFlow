@@ -30,7 +30,7 @@ describe('FarmersService access', () => {
     db = makeDb();
     auth = { sendFarmerInvite: jest.fn().mockResolvedValue(undefined) };
     // Storage/cache deps are unused by the access methods → pass minimal stubs.
-    svc = new FarmersService(db as any, {} as any, {} as any, {} as any, auth as any);
+    svc = new FarmersService(db as any, {} as any, {} as any, {} as any, auth as any, {} as any);
     jest.clearAllMocks();
   });
 

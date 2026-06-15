@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { REDIS_TOKEN } from './redis.constants';
@@ -15,4 +15,12 @@ import { REDIS_TOKEN } from './redis.constants';
   ],
   exports: [REDIS_TOKEN],
 })
-export class RedisModule {}
+export class RedisModule implements OnModuleDestroy {
+  constructor(@Inject(REDIS_TOKEN) private readonly redis: Redis) {}
+
+  // Close the connection cleanly on shutdown so a rolling deploy doesn't leave a
+  // half-open socket. `quit()` flushes pending commands first.
+  async onModuleDestroy(): Promise<void> {
+    await this.redis.quit();
+  }
+}

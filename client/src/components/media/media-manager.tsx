@@ -9,6 +9,7 @@ import {
   addMedia,
   deleteMedia,
   reorderMedia,
+  waitForMediaItems,
   type MediaResource,
 } from '@/lib/api-client';
 import type { MediaItem } from '@/lib/types';
@@ -40,6 +41,8 @@ export function MediaManager({
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  /** True while the image-processing worker is still running after an upload. */
+  const [processing, setProcessing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const dragIndex = useRef<number | null>(null);
 
@@ -62,12 +65,28 @@ export function MediaManager({
   async function onAdd(file: File) {
     setBusy(true);
     try {
-      await addMedia(resource, ownerId, file);
-      // Refetch: the server may have lazy-adopted a legacy cover as photo 0, so the
-      // returned single row isn't enough to know the true order.
+      // addMedia polls internally when the server uses the async queue, so by
+      // the time it resolves the new item has a real url (or we hit the 6 s
+      // timeout). We still do a full listMedia refetch because the server may
+      // have lazy-adopted a legacy cover as photo 0, changing the order.
+      const result = await addMedia(resource, ownerId, file);
       const fresh = await listMedia(resource, ownerId);
       setItems(fresh);
       announceCover(fresh);
+      // If the returned item still has no url (timeout path), show a hint.
+      if (result.imageProcessing && !result.url) {
+        setProcessing(true);
+        // One last deferred attempt after a couple more seconds
+        setTimeout(async () => {
+          try {
+            const retry = await waitForMediaItems(resource, ownerId);
+            setItems(retry);
+            announceCover(retry);
+          } finally {
+            setProcessing(false);
+          }
+        }, 2000);
+      }
       toast.success('Снимката е качена');
     } catch (e) {
       toast.error(errMsg(e));
@@ -116,8 +135,14 @@ export function MediaManager({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-[12.5px] font-bold text-ff-ink-2">
-        {maxPhotos === 1 ? 'Снимка' : 'Снимки'} {loading ? '' : `(${items.length})`}
+      <div className="flex items-center gap-2 text-[12.5px] font-bold text-ff-ink-2">
+        <span>{maxPhotos === 1 ? 'Снимка' : 'Снимки'} {loading ? '' : `(${items.length})`}</span>
+        {processing && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-ff-green-50 px-2 py-0.5 text-[10.5px] font-semibold text-ff-green-700">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-ff-green-500" />
+            обработва се…
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2">

@@ -1,5 +1,4 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { and, eq, isNotNull, or } from 'drizzle-orm';
 import { type Database, orders, orderItems, products, deliverySlots, tenants, farmers } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -607,55 +606,45 @@ export class DigestService {
     return sent;
   }
 
-  /**
-   * Daily cron at 07:00 Europe/Sofia: send digests to all tenants that have
-   * an email configured and confirmed orders for today.
-   */
-  @Cron('0 7 * * *', { timeZone: 'Europe/Sofia' })
-  async runDailyDigests(): Promise<void> {
-    const today = bgToday();
-
-    const tenantRows = await this.db
-      .select({ id: tenants.id, email: tenants.email, multiFarmer: tenants.multiFarmer })
+  /** Tenant ids eligible for a daily digest (have an email OR are multi-farmer). */
+  async eligibleTenantIds(): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: tenants.id })
       .from(tenants)
       .where(or(isNotNull(tenants.email), eq(tenants.multiFarmer, true))!)
       .orderBy(tenants.id);
+    return rows.map((r) => r.id);
+  }
 
-    for (const tenant of tenantRows) {
-      // Owner digest (unchanged) — only when the tenant has an email.
-      if (tenant.email) {
-        try {
-          const digest = await this.buildDigest(tenant.id, today);
-          if (!digest) {
-            this.logger.log(`[digest] No orders for tenant=${tenant.id} on ${today} — skipping`);
-          } else {
-            await this.email.sendMail({
-              to: tenant.email,
-              subject: 'Доставки за днес — FarmFlow',
-              html: digest.html,
-              text: digest.text,
-            });
-            this.logger.log(
-              `[digest] Sent to tenant=${tenant.id} orders=${digest.summary.totalOrders}`,
-            );
-          }
-        } catch (err) {
-          this.logger.error(
-            `[digest] Failed for tenant=${tenant.id}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
+  /** Build + enqueue (via EmailService) the digests for ONE tenant. Mirrors the
+   *  per-tenant body of the former runDailyDigests so each tenant retries
+   *  independently as its own BullMQ job.
+   *  NOT idempotent: if this throws after the owner email was enqueued, the whole
+   *  tenant job retries and the owner can receive a duplicate digest. Accepted
+   *  at-least-once trade-off (a duplicate daily digest is low-harm). */
+  async runForTenant(tenantId: string): Promise<void> {
+    const today = bgToday();
+    const [tenant] = await this.db
+      .select({ id: tenants.id, email: tenants.email, multiFarmer: tenants.multiFarmer })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!tenant) return;
 
-      // Per-farmer digests — only in multi-farmer mode.
-      if (tenant.multiFarmer) {
-        try {
-          await this.sendFarmerDigests(tenant.id, today);
-        } catch (err) {
-          this.logger.error(
-            `[digest] Farmer batch failed tenant=${tenant.id}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
+    if (tenant.email) {
+      const digest = await this.buildDigest(tenant.id, today);
+      if (digest) {
+        await this.email.sendMail({
+          to: tenant.email,
+          subject: 'Доставки за днес — FarmFlow',
+          html: digest.html,
+          text: digest.text,
+        });
+        this.logger.log(`[digest] owner queued tenant=${tenant.id} orders=${digest.summary.totalOrders}`);
       }
+    }
+    if (tenant.multiFarmer) {
+      await this.sendFarmerDigests(tenant.id, today);
     }
   }
 
