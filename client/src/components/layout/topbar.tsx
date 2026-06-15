@@ -88,7 +88,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/availability': 'Задай наличност',
   '/articles': 'Статии',
   '/reviews': 'Отзиви',
-  '/site-media': 'Снимки на сайта',
+  '/site-media': 'Промени сайта',
   '/contacts': 'Контакти',
   '/marketing-tracking': 'Маркетинг и проследяване',
   '/newsletters': 'Имейл клиенти',
