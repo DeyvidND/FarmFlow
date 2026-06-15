@@ -316,20 +316,19 @@ A new review never appears automatically — it waits in **Чакащи** for yo
 </details>
 
 <details>
-<summary><b>Промени сайта (Site photos &amp; copy)</b></summary>
+<summary><b>Промени сайта (Unified site editor)</b></summary>
 
-One screen with **two tabs**: **Снимки** (decorative photos) and **Текстове** (body copy + FAQ). Header/footer text and contact details remain in their own screens (**Контакти**).
+One unified editor — texts **and** photos together, organised by page → section, with a **live preview** of the farm's own site on the right. Header/footer text and contact details remain in their own screen (**Контакти**).
 
-**Таб „Снимки"** — the decorative photos for the storefront's fixed spots (hero, section banners…). Each **slot** is a specific place on the public site; an empty slot shows a neutral placeholder — exactly as the site renders it until you add a photo. Slots are grouped by page/section.
+**Адрес на сайта** — set the farm's storefront URL once (e.g. `https://moqta-ferma.bg`). The preview iframe loads the site there; focus any field and the preview scrolls and outlines that section automatically.
 
-Per slot:
+**Editable structure** — the list of pages, sections, slots (text fields and image slots) comes directly from the storefront. If a new section or photo is added to the live site it appears here automatically — no admin update needed.
 
-- **Качи снимка** (or **Смени** when filled) — upload an image (**JPEG, PNG, WebP**); each slot shows its expected aspect (e.g. „Формат 16:9").
-- **Премахни снимката** — clears it back to the neutral placeholder.
+Per **text slot**: edit the heading or paragraph; the placeholder shows the built-in default. Use **Върни оригинала** to revert a field. Save all text changes with **Запази промените**.
 
-Changes go **live immediately** after upload — there's no extra Save. (Empty catalog: „Няма декоративни места за този сайт.")
+Per **image slot**: each slot is a specific decorative place on the public site (aspect ratio shown). Upload a JPEG, PNG, or WebP with **Качи** / **Смени**; remove it with the trash icon. Photo changes go **live immediately** — no extra Save step.
 
-**Таб „Текстове"** — edit the body headings and paragraphs shown on the storefront pages (e.g. the hero title, section intros) and manage the **FAQ** list (questions + answers displayed on `/faq`). Each field shows the default text and a **Върни оригинала** button to revert to it. Save all changes with **Запази промените**.
+**FAQ** — on the `/faq` page the editor shows a list of question + answer pairs. Add, reorder (↑/↓), and delete rows; save with **Запази промените**.
 
 </details>
 
@@ -492,7 +491,7 @@ Everything a farmer creates here is served to their storefront through the publi
 | Reorder / Product of the Week | Farmer (3005) → **Каталог → Продукти** (Подреди / star) |
 | Manage farmers / sections | Farmer (3005) → **Каталог → Фермери / Подкатегории** |
 | Moderate reviews | Farmer (3005) → **Маркетинг → Отзиви** |
-| Storefront photos / body copy / FAQ | Farmer (3005) → **Маркетинг → Промени сайта** (Снимки or Текстове tab) |
+| Storefront photos / body copy / FAQ | Farmer (3005) → **Маркетинг → Промени сайта** |
 | Contacts / favicon | Farmer (3005) → **Маркетинг → Контакти** |
 | Email the subscribers | Farmer (3005) → **Маркетинг → Имейл клиенти** |
 | Turn delivery/payment methods on/off | Farmer (3005) → **Доставка и плащане → Методи и цени** |
