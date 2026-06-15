@@ -20,6 +20,7 @@ import {
   buildPublicMarketing,
   type PublicMarketing,
 } from '../../modules/tenants/site-marketing';
+import { buildPublicCopy, buildPublicFaq, type PublicFaqItem } from '../../modules/tenants/site-copy';
 
 /**
  * Lean tenant identity + storefront toggles, cached per slug. Doubles as the
@@ -85,6 +86,10 @@ export interface TenantMeta {
   // Per-vendor ad/analytics tracking IDs (settings.marketing). Derived here so a
   // warm storefront render needs no extra read; empty → all-null.
   marketing: PublicMarketing;
+  // Editable body copy (settings.copy) + FAQ list (settings.faq). Derived here so
+  // a warm storefront render needs no extra read. Empty → storefront defaults.
+  copy: Record<string, string>;
+  faq: PublicFaqItem[];
 }
 
 /**
@@ -177,6 +182,9 @@ export class PublicCacheService {
           brand?: { favicon?: { url?: unknown }; themeColor?: unknown };
           landing?: unknown;
           marketing?: unknown;
+          copy?: unknown;
+          faq?: unknown;
+          siteTheme?: unknown;
         }
       | null;
     const delivery = settingsObj?.delivery;
@@ -206,6 +214,11 @@ export class PublicCacheService {
       themeColor,
       landing: resolveLanding(settingsObj?.landing),
       marketing: buildPublicMarketing(settingsObj?.marketing),
+      copy: buildPublicCopy(
+        typeof settingsObj?.siteTheme === 'string' ? settingsObj.siteTheme : undefined,
+        settingsObj?.copy,
+      ),
+      faq: buildPublicFaq(settingsObj?.faq),
     };
 
     await this.set(key, meta);

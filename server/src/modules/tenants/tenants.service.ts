@@ -138,13 +138,9 @@ export class TenantsService {
     );
     // Card is offered only when Stripe can charge AND the farmer hasn't turned card
     // off (the COD-only override). `cardEnabled` itself stays internal — stripped here.
-    // copy/faq will be supplied from TenantMeta once Task 6 (public-cache projection)
-    // is implemented; until then provide empty defaults so the type is satisfied.
     return {
       ...profile,
       stripeEnabled: this.stripe.isEnabledForAccount(stripeAccountId) && cardEnabled,
-      copy: (profile as Record<string, unknown>).copy as Record<string, string> ?? {},
-      faq: (profile as Record<string, unknown>).faq as PublicFaqItem[] ?? [],
     };
   }
 
