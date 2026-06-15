@@ -4,6 +4,8 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { type Database, tenants, products } from '@farmflow/db';
@@ -104,6 +106,8 @@ export class TenantsService {
     private readonly publicCache: PublicCacheService,
     private readonly storage: StorageService,
     private readonly stripe: StripeService,
+    private readonly jwt: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
   async getMe(tenantId: string): Promise<PublicTenant> {
@@ -285,6 +289,31 @@ export class TenantsService {
     if (prev.key) await this.storage.delete(prev.key).catch(() => undefined);
     await this.publicCache.del(publicCacheKeys.tenant(slug));
     return { ok: true };
+  }
+
+  // ---- Edit-session token ----
+
+  /** Edit-session tokens use a derived secret so they can't be replayed as auth
+   *  tokens (mirrors auth.service resetSecret). */
+  private editSecret(): string {
+    return `${this.config.getOrThrow<string>('JWT_SECRET')}::siteedit`;
+  }
+
+  /** Issue a short-lived, tenant-scoped token for the storefront edit overlay.
+   *  Returns the token + the farm's storefront URL (set by the operator). */
+  async createEditSession(
+    tenantId: string,
+  ): Promise<{ token: string; siteUrl: string; expiresIn: number }> {
+    const { settings } = await this.loadTenantForMedia(tenantId);
+    const siteUrl = sanitizeSiteUrl(settings.siteUrl);
+    if (!siteUrl) {
+      throw new BadRequestException('Адресът на сайта не е зададен. Свържи се с поддръжката.');
+    }
+    const token = await this.jwt.signAsync(
+      { sub: tenantId, type: 'site-edit' },
+      { secret: this.editSecret(), expiresIn: '30m' },
+    );
+    return { token, siteUrl, expiresIn: 1800 };
   }
 
   // ---- Site copy (editable storefront text + FAQ) ----

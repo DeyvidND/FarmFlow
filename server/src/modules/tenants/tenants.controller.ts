@@ -72,6 +72,15 @@ export class TenantsController {
     return this.tenantsService.deleteSiteMedia(tenantId, slotKey);
   }
 
+  // ---- Edit session ----
+
+  @ApiOperation({ summary: 'Issue a short-lived token to edit the storefront inline' })
+  @Roles('admin')
+  @Post('me/edit-session')
+  createEditSession(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.createEditSession(tenantId);
+  }
+
   // ---- Site copy (editable storefront text + FAQ) ----
 
   @ApiOperation({ summary: 'Editable text slots: catalog + current overrides + FAQ' })
