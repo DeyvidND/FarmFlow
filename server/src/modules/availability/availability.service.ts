@@ -6,7 +6,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
 import { type Database, productAvailabilityWindows, products } from '@farmflow/db';
 import type { AvailabilityWindow, PublicAvailabilityWindow } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -260,7 +260,10 @@ export class AvailabilityService {
     const conditions = [
       eq(products.tenantId, tenantId),
       eq(products.isActive, true),
-    ] as ReturnType<typeof eq>[];
+      // Exclude soft-deleted products (migration 0045): a deleted product must not
+      // surface in the availability picker (matches products.service reads).
+      isNull(products.deletedAt),
+    ];
     if (farmerScope !== null) {
       conditions.push(eq(products.farmerId, farmerScope));
     }
