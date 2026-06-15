@@ -31,6 +31,7 @@ import { decodeCursor } from '../../common/pagination/cursor';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
+import { sanitizeSiteUrl } from '../tenants/site-copy';
 
 export interface PlatformTenantRow {
   id: string;
@@ -439,6 +440,16 @@ export class PlatformService {
       }
       await this.publicCache.del(...keys);
     }
+
+    if (dto.siteUrl !== undefined) {
+      const siteUrl = sanitizeSiteUrl(dto.siteUrl);
+      await this.db
+        .update(tenants)
+        .set({ settings: sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['siteUrl'], ${JSON.stringify(siteUrl)}::jsonb, true)` })
+        .where(eq(tenants.id, id));
+      await this.publicCache.del(publicCacheKeys.tenant(existing.slug));
+    }
+
     return { id };
   }
 

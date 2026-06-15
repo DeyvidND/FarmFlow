@@ -38,9 +38,11 @@ const ADMIN_ID = 'admin-uuid-1';
 describe('PlatformService', () => {
   let service: PlatformService;
   let db: ReturnType<typeof makeDb>;
+  let cacheDel: jest.Mock;
 
   beforeEach(async () => {
     db = makeDb();
+    cacheDel = jest.fn().mockResolvedValue(undefined);
     jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
@@ -52,7 +54,7 @@ describe('PlatformService', () => {
           useValue: { sign: jest.fn().mockReturnValue('platform-token') },
         },
         { provide: BillingService, useValue: { setPremium: jest.fn().mockResolvedValue(undefined) } },
-        { provide: PublicCacheService, useValue: { del: jest.fn().mockResolvedValue(undefined) } },
+        { provide: PublicCacheService, useValue: { del: cacheDel } },
         { provide: ConfigService, useValue: { get: (_k: string, d?: any) => (_k === 'EMAIL_COST_PER_RECIPIENT_MICRO' ? 370 : d) } },
       ],
     }).compile();
@@ -124,6 +126,67 @@ describe('PlatformService', () => {
       db.limit.mockResolvedValueOnce([{ id: 'existing' }]);
 
       await expect(service.createTenant(dto)).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ── updateTenant (siteUrl) ───────────────────────────────────────────────
+
+  describe('updateTenant — siteUrl', () => {
+    const TENANT_ID = 'tenant-uuid-1';
+    const existing = { id: TENANT_ID, slug: 'ferma-test' };
+
+    function setupExisting() {
+      // First select returns the existing tenant row
+      db.limit.mockResolvedValueOnce([existing]);
+    }
+
+    /** Walk a drizzle SQL queryChunks tree and collect all string-like leaf values. */
+    function flatChunks(chunks: any[]): string {
+      return chunks.map((c: any) => {
+        if (typeof c === 'string') return c;
+        if (Array.isArray(c)) return flatChunks(c);
+        // StringChunk: { value: string[] }; Param: { value: unknown }; SQL: { queryChunks: [] }
+        if (Array.isArray(c?.value)) return c.value.join('');
+        if (c?.queryChunks) return flatChunks(c.queryChunks);
+        if (c?.value !== undefined) return String(c.value);
+        return '';
+      }).join('');
+    }
+
+    it('writes sanitized siteUrl into settings.siteUrl (trailing slash stripped) and busts cache', async () => {
+      setupExisting();
+
+      // Capture the set() call to inspect the drizzle sql template
+      let capturedSet: any;
+      db.set.mockImplementationOnce((val: any) => { capturedSet = val; return db; });
+
+      await service.updateTenant(TENANT_ID, { siteUrl: 'https://x.test/' });
+
+      // settings must be a drizzle SQL expression containing the sanitized URL
+      expect(capturedSet?.settings?.queryChunks).toBeDefined();
+      const text = flatChunks(capturedSet.settings.queryChunks);
+      // sanitizeSiteUrl('https://x.test/') === 'https://x.test' (trailing slash stripped)
+      expect(text).toContain('https://x.test');
+      // The sanitized value must NOT retain the trailing slash
+      expect(text).not.toContain('https://x.test/');
+      // cache must be busted with the slug key
+      expect(cacheDel).toHaveBeenCalledWith('tenant:ferma-test');
+    });
+
+    it('writes empty string for a non-http(s) siteUrl (javascript:1 → sanitized to "")', async () => {
+      setupExisting();
+
+      let capturedSet: any;
+      db.set.mockImplementationOnce((val: any) => { capturedSet = val; return db; });
+
+      await service.updateTenant(TENANT_ID, { siteUrl: 'javascript:1' });
+
+      expect(capturedSet?.settings?.queryChunks).toBeDefined();
+      const text = flatChunks(capturedSet.settings.queryChunks);
+      // sanitizeSiteUrl('javascript:1') === '' → JSON.stringify('') = '""'
+      expect(text).toContain('""');
+      // must not contain 'javascript'
+      expect(text).not.toContain('javascript');
     });
   });
 

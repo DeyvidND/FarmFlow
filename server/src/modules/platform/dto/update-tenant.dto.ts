@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsOptional, IsString, MinLength, Matches } from 'class-validator';
+import { IsBoolean, IsEmail, IsOptional, IsString, MaxLength, MinLength, Matches } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 /** Super-admin edit of a farm's core profile + feature flags. All fields optional
@@ -40,4 +40,10 @@ export class UpdateTenantDto {
   @IsOptional()
   @IsBoolean()
   multiSubcat?: boolean;
+
+  @ApiPropertyOptional({ example: 'https://pazarchaika.farmsteadflow.com', description: 'Адрес на онлайн магазина (за бутона „Редактирай сайта")' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  siteUrl?: string;
 }
