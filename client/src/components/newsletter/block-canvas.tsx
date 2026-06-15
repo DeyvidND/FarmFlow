@@ -18,16 +18,23 @@ const field =
 
 type BlockType = NewsletterBlock['type'];
 
-const ADD_MENU: { type: BlockType; label: string; icon: typeof Type }[] = [
-  { type: 'hero', label: 'Голяма снимка', icon: ImageIcon },
-  { type: 'heading', label: 'Заглавие', icon: Heading },
-  { type: 'text', label: 'Текст', icon: Type },
-  { type: 'image', label: 'Снимка', icon: ImageIcon },
-  { type: 'button', label: 'Бутон', icon: MousePointerClick },
-  { type: 'columns', label: '2 колони', icon: Columns2 },
-  { type: 'divider', label: 'Разделител', icon: Minus },
-  { type: 'spacer', label: 'Отстъп', icon: MoveVertical },
-];
+const BLOCK_META: Record<BlockType, { label: string; icon: typeof Type }> = {
+  hero: { label: 'Голяма снимка', icon: ImageIcon },
+  heading: { label: 'Заглавие', icon: Heading },
+  text: { label: 'Текст', icon: Type },
+  image: { label: 'Снимка', icon: ImageIcon },
+  button: { label: 'Бутон', icon: MousePointerClick },
+  columns: { label: '2 колони', icon: Columns2 },
+  divider: { label: 'Разделител', icon: Minus },
+  spacer: { label: 'Отстъп', icon: MoveVertical },
+};
+
+// Quick-add menu: only the elements the rich-text body can't already produce.
+// Headings, inline images, lists, colour and spacing all live inside the text
+// block's Quill editor, so the farmer writes those inline instead of stacking
+// blocks. hero/heading/divider/spacer remain valid types (used by templates and
+// older campaigns) but stay out of the menu to keep adding simple.
+const ADD_TYPES: BlockType[] = ['text', 'image', 'button', 'columns'];
 
 function emptyBlock(type: BlockType): NewsletterBlock {
   switch (type) {
@@ -143,7 +150,7 @@ export function BlockCanvas({
         <div key={i} className="rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm">
           <div className="mb-2.5 flex items-center justify-between">
             <span className="text-[12px] font-extrabold uppercase tracking-wide text-ff-muted">
-              {ADD_MENU.find((m) => m.type === b.type)?.label ?? b.type}
+              {BLOCK_META[b.type]?.label ?? b.type}
             </span>
             <div className="flex items-center gap-1">
               <IconBtn onClick={() => move(i, -1)} disabled={i === 0} title="Нагоре"><ArrowUp size={15} /></IconBtn>
@@ -165,16 +172,19 @@ export function BlockCanvas({
         </button>
         {addOpen && (
           <div className="absolute z-20 mt-1 grid w-full grid-cols-2 gap-1 rounded-xl border border-ff-border bg-ff-surface p-2 shadow-ff-lg sm:grid-cols-4">
-            {ADD_MENU.map(({ type, label, icon: Icon }) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => add(type)}
-                className="flex flex-col items-center gap-1.5 rounded-sm px-2 py-3 text-[12.5px] font-semibold text-ff-ink-2 hover:bg-ff-green-50"
-              >
-                <Icon size={18} className="text-ff-green-700" /> {label}
-              </button>
-            ))}
+            {ADD_TYPES.map((type) => {
+              const { label, icon: Icon } = BLOCK_META[type];
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => add(type)}
+                  className="flex flex-col items-center gap-1.5 rounded-sm px-2 py-3 text-[12.5px] font-semibold text-ff-ink-2 hover:bg-ff-green-50"
+                >
+                  <Icon size={18} className="text-ff-green-700" /> {label}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

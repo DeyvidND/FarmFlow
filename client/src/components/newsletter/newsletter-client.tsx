@@ -12,6 +12,7 @@ import {
 } from '@/lib/api-client';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
 import type { Paginated } from '@/lib/types';
+import { NEWSLETTER_TEMPLATES, type NewsletterTemplate } from './newsletter-templates';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -32,15 +33,17 @@ export function NewsletterClient({ initialCampaigns, initialSubscribers, activeC
   const [tab, setTab] = useState<'campaigns' | 'subscribers'>('campaigns');
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [creating, setCreating] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  async function newCampaign() {
+  async function createFrom(template: NewsletterTemplate) {
     setCreating(true);
     try {
-      const c = await createCampaign({ subject: '', blocks: [] });
+      const c = await createCampaign({ subject: '', blocks: template.blocks });
       router.push(`/newsletters/${c.id}`);
     } catch (e) {
       toast.error(errMsg(e));
       setCreating(false);
+      setPickerOpen(false);
     }
   }
 
@@ -65,11 +68,19 @@ export function NewsletterClient({ initialCampaigns, initialSubscribers, activeC
           </TabBtn>
         </div>
         {tab === 'campaigns' && (
-          <Button variant="primary" onClick={newCampaign} disabled={creating} className="rounded-sm">
+          <Button variant="primary" onClick={() => setPickerOpen(true)} disabled={creating} className="rounded-sm">
             <Plus size={17} /> {creating ? 'Създаване…' : 'Ново съобщение'}
           </Button>
         )}
       </div>
+
+      {pickerOpen && (
+        <TemplatePicker
+          creating={creating}
+          onPick={createFrom}
+          onClose={() => !creating && setPickerOpen(false)}
+        />
+      )}
 
       {tab === 'campaigns' ? (
         <CampaignsTable campaigns={campaigns} onOpen={(id) => router.push(`/newsletters/${id}`)} onDelete={remove} />
@@ -90,6 +101,50 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
     >
       {children}
     </button>
+  );
+}
+
+function TemplatePicker({
+  creating, onPick, onClose,
+}: {
+  creating: boolean;
+  onPick: (t: NewsletterTemplate) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="animate-ff-fade fixed inset-0 z-[80] grid place-items-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="animate-ff-pop w-[640px] max-w-full rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="mb-1 text-[18px] font-extrabold">Започни от шаблон</h2>
+        <p className="mb-4 text-[13.5px] text-ff-muted">
+          Избери оформление — после редактираш текста и снимките направо в имейла.
+        </p>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+          {NEWSLETTER_TEMPLATES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              disabled={creating}
+              onClick={() => onPick(t)}
+              className="flex flex-col gap-1.5 rounded-xl border border-ff-border bg-ff-surface-2 p-4 text-left transition hover:border-ff-green-500 hover:bg-ff-green-50 disabled:opacity-60"
+            >
+              <span className="text-[14.5px] font-extrabold text-ff-ink">{t.name}</span>
+              <span className="text-[12.5px] leading-snug text-ff-muted">{t.description}</span>
+            </button>
+          ))}
+        </div>
+        <div className="mt-5 flex justify-end">
+          <Button variant="ghost" type="button" onClick={onClose} disabled={creating} className="rounded-sm">
+            Откажи
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

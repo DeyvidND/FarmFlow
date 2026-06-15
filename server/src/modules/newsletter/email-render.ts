@@ -19,6 +19,28 @@ const esc = (s: string): string =>
 
 const isHttps = (u: string): boolean => /^https:\/\//i.test(u ?? '');
 
+/**
+ * Quill inline images carry no width — the sanitizer's allowlist drops the
+ * width/height attributes and only keeps `text-align`/`color` styles. Left
+ * alone, an embedded photo renders at its natural pixel size and overflows the
+ * 600px email column (and breaks badly on phones). Force every body <img> to
+ * fit its container. Applied to the rich-text (text block + column text) paths
+ * where users embed images directly; the dedicated image/hero blocks already
+ * set width:100% themselves.
+ */
+function clampBodyImgs(html: string): string {
+  return html.replace(/<img\b([^>]*?)\/?>/gi, (_m, raw: string) => {
+    const attrs = raw.replace(/\s+$/, '');
+    if (/\bstyle\s*=/i.test(attrs)) {
+      return `<img${attrs.replace(
+        /style\s*=\s*"([^"]*)"/i,
+        (_x, css: string) => `style="${css};max-width:100%;height:auto"`,
+      )} />`;
+    }
+    return `<img${attrs} style="max-width:100%;height:auto;display:block" />`;
+  });
+}
+
 const SPACER = { sm: 12, md: 24, lg: 40 } as const;
 
 function img(src: string, alt = '', href?: string, caption?: string): string {
@@ -33,8 +55,8 @@ function img(src: string, alt = '', href?: string, caption?: string): string {
 
 function col(c: NewsletterColumn): string {
   if (c.kind === 'text') {
-    return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333">${sanitizeNewsletterHtml(
-      c.html,
+    return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333">${clampBodyImgs(
+      sanitizeNewsletterHtml(c.html),
     )}</div>`;
   }
   return isHttps(c.image)
@@ -53,8 +75,8 @@ function block(b: NewsletterBlock, theme: string): string {
       )}</td></tr>`;
     }
     case 'text':
-      return `<tr><td style="padding:8px 24px;font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#333">${sanitizeNewsletterHtml(
-        b.html,
+      return `<tr><td style="padding:8px 24px;font-family:Arial,sans-serif;font-size:15px;line-height:1.6;color:#333">${clampBodyImgs(
+        sanitizeNewsletterHtml(b.html),
       )}</td></tr>`;
     case 'image':
       return img(b.image, b.alt, b.href, b.caption);

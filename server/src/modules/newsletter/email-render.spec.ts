@@ -45,4 +45,31 @@ describe('renderEmail', () => {
     const html = renderEmail([{ type: 'image', image: 'http://x/a.png', alt: 'a' }], opts);
     expect(html).not.toContain('http://x/a.png');
   });
+
+  it('clamps inline images inside a text block so they cannot overflow the 600px column', () => {
+    const html = renderEmail(
+      [{ type: 'text', html: '<p>Виж <img src="https://cdn.x/inline.jpg" alt="x"></p>' }],
+      opts,
+    );
+    expect(html).toContain('https://cdn.x/inline.jpg');
+    // the rendered <img> must carry a fit-to-container style
+    const tag = html.match(/<img[^>]*cdn\.x\/inline\.jpg[^>]*>/i)?.[0] ?? '';
+    expect(tag).toMatch(/max-width:\s*100%/);
+    expect(tag).toMatch(/height:\s*auto/);
+  });
+
+  it('clamps inline images inside column text too', () => {
+    const html = renderEmail(
+      [
+        {
+          type: 'columns',
+          left: { kind: 'text', html: '<img src="https://cdn.x/c.jpg" alt="">' },
+          right: { kind: 'text', html: '<p>ok</p>' },
+        },
+      ],
+      opts,
+    );
+    const tag = html.match(/<img[^>]*cdn\.x\/c\.jpg[^>]*>/i)?.[0] ?? '';
+    expect(tag).toMatch(/max-width:\s*100%/);
+  });
 });
