@@ -105,33 +105,6 @@ export const assignProducts = (data: {
 // ---- Async image-processing helpers ----
 
 /**
- * Poll a resource's GET-by-id until `imageUrl` differs from `prevUrl`
- * (i.e. the background worker finished) or ~6 s elapses.
- * Resolves with the freshest entity — either the updated one or the last
- * seen after the timeout (so callers always get something useful back).
- */
-async function waitForImageUrl<T extends { imageUrl: string | null }>(
-  path: string, // e.g. "products/abc123"
-  prevUrl: string | null,
-  maxMs = 6000,
-  intervalMs = 600,
-): Promise<T> {
-  const deadline = Date.now() + maxMs;
-  let last: T | null = null;
-  while (Date.now() < deadline) {
-    await new Promise<void>((r) => setTimeout(r, intervalMs));
-    try {
-      const entity = await apiFetch<T>(path);
-      last = entity;
-      if (entity.imageUrl !== prevUrl) return entity;
-    } catch {
-      // swallow transient errors during polling
-    }
-  }
-  return last ?? (await apiFetch<T>(path));
-}
-
-/**
  * Poll listMedia for a resource until every item has a non-empty url
  * (the background worker may insert a placeholder row before the R2 url is ready)
  * or ~6 s elapses.  Resolves with the final media list.
@@ -155,20 +128,6 @@ export async function waitForMediaItems(
     }
   }
   return last;
-}
-
-export async function uploadProductImage(id: string, file: File): Promise<Product> {
-  const fd = new FormData();
-  fd.append('image', file);
-  const result = await apiFetch<Product & { imageProcessing?: boolean }>(
-    `products/${id}/image`,
-    { method: 'POST', body: fd },
-    'Неуспешно качване',
-  );
-  if (result.imageProcessing) {
-    return waitForImageUrl<Product>(`products/${id}`, result.imageUrl);
-  }
-  return result;
 }
 
 /** One `{ id, position }` pair for a catalog reorder. */
@@ -196,20 +155,6 @@ export const updateFarmer = (id: string, data: Partial<Farmer>) =>
 export const deleteFarmer = (id: string) =>
   apiFetch<{ id: string }>(`farmers/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
 
-export async function uploadFarmerImage(id: string, file: File): Promise<Farmer> {
-  const fd = new FormData();
-  fd.append('image', file);
-  const result = await apiFetch<Farmer & { imageProcessing?: boolean }>(
-    `farmers/${id}/image`,
-    { method: 'POST', body: fd },
-    'Неуспешно качване',
-  );
-  if (result.imageProcessing) {
-    return waitForImageUrl<Farmer>(`farmers/${id}`, result.imageUrl);
-  }
-  return result;
-}
-
 // ---- Subcategories ----
 export const listSubcategories = () => apiFetch<Subcategory[]>('subcategories');
 
@@ -221,20 +166,6 @@ export const updateSubcategory = (id: string, data: Partial<Subcategory>) =>
 
 export const deleteSubcategory = (id: string) =>
   apiFetch<{ id: string }>(`subcategories/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
-
-export async function uploadSubcategoryImage(id: string, file: File): Promise<Subcategory> {
-  const fd = new FormData();
-  fd.append('image', file);
-  const result = await apiFetch<Subcategory & { imageProcessing?: boolean }>(
-    `subcategories/${id}/image`,
-    { method: 'POST', body: fd },
-    'Неуспешно качване',
-  );
-  if (result.imageProcessing) {
-    return waitForImageUrl<Subcategory>(`subcategories/${id}`, result.imageUrl);
-  }
-  return result;
-}
 
 // ---- Media galleries (products / farmers / subcategories) ----
 // All three resources share the same media endpoints + shape, so one generic set
