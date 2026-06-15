@@ -91,3 +91,18 @@ describe('ProductsService.uploadImage (queue path)', () => {
     expect(result.imageProcessing).toBe(true);
   });
 });
+
+describe('ProductsService.addMedia (queue path)', () => {
+  it('addMedia enqueues a product-media job and returns processing=true', async () => {
+    const db = makeDb({ id: 'p1', tenantId: 't1', imageUrl: null });
+    const queue = makeQueue();
+    const svc = await buildSvc(db, queue);
+    const file = { buffer: Buffer.from('abc'), mimetype: 'image/jpeg' } as any;
+    const res: any = await svc.addMedia('p1', 't1', file);
+    expect(queue.add).toHaveBeenCalledWith(
+      'process',
+      expect.objectContaining({ entityType: 'product-media', entityId: 'p1' }),
+    );
+    expect(res.imageProcessing).toBe(true);
+  });
+});

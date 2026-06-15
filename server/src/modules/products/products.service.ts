@@ -284,12 +284,27 @@ export class ProductsService {
       .orderBy(asc(productMedia.position));
   }
 
-  /** Append an uploaded photo to the gallery; keeps `imageUrl` synced to the cover. */
+  /** Append an uploaded photo to the gallery (async path): validates ownership
+   *  then enqueues the heavy optimize+upload work; returns immediately so the
+   *  HTTP response is fast. The worker calls `finishProductMedia` once done. */
   async addMedia(
     id: string,
     tenantId: string,
     file: Express.Multer.File,
-  ): Promise<ProductMedia> {
+  ): Promise<{ imageProcessing: boolean }> {
+    await this.findOne(id, tenantId);
+    await this.imageQueue.add('process', encodeImageJob('product-media', id, tenantId, file));
+    return { imageProcessing: true };
+  }
+
+  /** Worker finisher: runs the full synchronous optimize → upload → insert → syncCover
+   *  pipeline for a gallery photo after the queue has decoded the raw bytes. */
+  async finishProductMedia(
+    id: string,
+    tenantId: string,
+    buffer: Buffer,
+    mime: string,
+  ): Promise<void> {
     const product = await this.findOne(id, tenantId);
 
     const existing = await this.db
@@ -309,22 +324,21 @@ export class ProductsService {
     }
 
     const img = await optimizeImage(
-      file.buffer,
-      file.mimetype,
-      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+      buffer,
+      mime,
+      PRODUCT_IMAGE_EXT_BY_MIME[mime] ?? 'bin',
     );
     const slug = await tenantSlug(this.db, tenantId);
     const key = `tenants/${slug}/products/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
-    const [row] = await this.db
+    await this.db
       .insert(productMedia)
       .values({ productId: id, tenantId, url, position: existing.length })
       .returning();
 
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
-    return row;
   }
 
   /** Remove one gallery photo (DB row + R2 object), then re-sync the cover. */
