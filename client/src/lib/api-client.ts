@@ -102,10 +102,73 @@ export const assignProducts = (data: {
     'Неуспешно свързване',
   );
 
-export function uploadProductImage(id: string, file: File) {
+// ---- Async image-processing helpers ----
+
+/**
+ * Poll a resource's GET-by-id until `imageUrl` differs from `prevUrl`
+ * (i.e. the background worker finished) or ~6 s elapses.
+ * Resolves with the freshest entity — either the updated one or the last
+ * seen after the timeout (so callers always get something useful back).
+ */
+async function waitForImageUrl<T extends { imageUrl: string | null }>(
+  path: string, // e.g. "products/abc123"
+  prevUrl: string | null,
+  maxMs = 6000,
+  intervalMs = 600,
+): Promise<T> {
+  const deadline = Date.now() + maxMs;
+  let last: T | null = null;
+  while (Date.now() < deadline) {
+    await new Promise<void>((r) => setTimeout(r, intervalMs));
+    try {
+      const entity = await apiFetch<T>(path);
+      last = entity;
+      if (entity.imageUrl !== prevUrl) return entity;
+    } catch {
+      // swallow transient errors during polling
+    }
+  }
+  return last ?? (await apiFetch<T>(path));
+}
+
+/**
+ * Poll listMedia for a resource until every item has a non-empty url
+ * (the background worker may insert a placeholder row before the R2 url is ready)
+ * or ~6 s elapses.  Resolves with the final media list.
+ */
+export async function waitForMediaItems(
+  resource: MediaResource,
+  id: string,
+  maxMs = 6000,
+  intervalMs = 600,
+): Promise<MediaItem[]> {
+  const deadline = Date.now() + maxMs;
+  let last: MediaItem[] = [];
+  while (Date.now() < deadline) {
+    await new Promise<void>((r) => setTimeout(r, intervalMs));
+    try {
+      const items = await apiFetch<MediaItem[]>(`${resource}/${id}/media`);
+      last = items;
+      if (items.every((m) => m.url)) return items;
+    } catch {
+      // swallow transient errors during polling
+    }
+  }
+  return last;
+}
+
+export async function uploadProductImage(id: string, file: File): Promise<Product> {
   const fd = new FormData();
   fd.append('image', file);
-  return apiFetch<Product>(`products/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
+  const result = await apiFetch<Product & { imageProcessing?: boolean }>(
+    `products/${id}/image`,
+    { method: 'POST', body: fd },
+    'Неуспешно качване',
+  );
+  if (result.imageProcessing) {
+    return waitForImageUrl<Product>(`products/${id}`, result.imageUrl);
+  }
+  return result;
 }
 
 /** One `{ id, position }` pair for a catalog reorder. */
@@ -133,10 +196,18 @@ export const updateFarmer = (id: string, data: Partial<Farmer>) =>
 export const deleteFarmer = (id: string) =>
   apiFetch<{ id: string }>(`farmers/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
 
-export function uploadFarmerImage(id: string, file: File) {
+export async function uploadFarmerImage(id: string, file: File): Promise<Farmer> {
   const fd = new FormData();
   fd.append('image', file);
-  return apiFetch<Farmer>(`farmers/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
+  const result = await apiFetch<Farmer & { imageProcessing?: boolean }>(
+    `farmers/${id}/image`,
+    { method: 'POST', body: fd },
+    'Неуспешно качване',
+  );
+  if (result.imageProcessing) {
+    return waitForImageUrl<Farmer>(`farmers/${id}`, result.imageUrl);
+  }
+  return result;
 }
 
 // ---- Subcategories ----
@@ -151,10 +222,18 @@ export const updateSubcategory = (id: string, data: Partial<Subcategory>) =>
 export const deleteSubcategory = (id: string) =>
   apiFetch<{ id: string }>(`subcategories/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
 
-export function uploadSubcategoryImage(id: string, file: File) {
+export async function uploadSubcategoryImage(id: string, file: File): Promise<Subcategory> {
   const fd = new FormData();
   fd.append('image', file);
-  return apiFetch<Subcategory>(`subcategories/${id}/image`, { method: 'POST', body: fd }, 'Неуспешно качване');
+  const result = await apiFetch<Subcategory & { imageProcessing?: boolean }>(
+    `subcategories/${id}/image`,
+    { method: 'POST', body: fd },
+    'Неуспешно качване',
+  );
+  if (result.imageProcessing) {
+    return waitForImageUrl<Subcategory>(`subcategories/${id}`, result.imageUrl);
+  }
+  return result;
 }
 
 // ---- Media galleries (products / farmers / subcategories) ----
@@ -165,10 +244,59 @@ export type MediaResource = 'products' | 'farmers' | 'subcategories';
 export const listMedia = (resource: MediaResource, id: string) =>
   apiFetch<MediaItem[]>(`${resource}/${id}/media`);
 
-export function addMedia(resource: MediaResource, id: string, file: File) {
+/**
+ * Upload one gallery photo.  When the server moves to the async queue the
+ * response is `{ imageProcessing: true }` (no url yet).  In that case we
+ * snapshot the current media list, then poll until a NEW item with a
+ * populated url appears (or ~6 s), then return that item — so existing
+ * callers that read `item.url` still get a real url.
+ */
+export async function addMedia(
+  resource: MediaResource,
+  id: string,
+  file: File,
+): Promise<MediaItem & { imageProcessing?: boolean }> {
+  // Snapshot existing ids so we can detect the newly inserted row.
+  let existingIds: Set<string>;
+  try {
+    const before = await apiFetch<MediaItem[]>(`${resource}/${id}/media`);
+    existingIds = new Set(before.map((m) => m.id));
+  } catch {
+    existingIds = new Set();
+  }
+
   const fd = new FormData();
   fd.append('image', file);
-  return apiFetch<MediaItem>(`${resource}/${id}/media`, { method: 'POST', body: fd }, 'Неуспешно качване');
+  const raw = await apiFetch<MediaItem | { imageProcessing: boolean }>(
+    `${resource}/${id}/media`,
+    { method: 'POST', body: fd },
+    'Неуспешно качване',
+  );
+
+  // Sync path (old server behaviour): the upload returned a MediaItem directly.
+  if ((raw as MediaItem).id && (raw as MediaItem).url !== undefined) {
+    return raw as MediaItem;
+  }
+
+  // Async path: worker will insert the row later; poll until it appears.
+  const deadline = Date.now() + 6000;
+  let lastNew: MediaItem | undefined;
+  while (Date.now() < deadline) {
+    await new Promise<void>((r) => setTimeout(r, 600));
+    try {
+      const items = await apiFetch<MediaItem[]>(`${resource}/${id}/media`);
+      const newWithUrl = items.find((m) => !existingIds.has(m.id) && m.url);
+      if (newWithUrl) return { ...newWithUrl, imageProcessing: true };
+      // Track newest row even without url yet (for fallback)
+      lastNew = items.find((m) => !existingIds.has(m.id)) ?? lastNew;
+    } catch {
+      // swallow transient polling errors
+    }
+  }
+  // Timeout — return whatever we found (url may be empty)
+  return lastNew
+    ? { ...lastNew, imageProcessing: true }
+    : { id: '', url: '', position: 0, imageProcessing: true };
 }
 
 export const deleteMedia = (resource: MediaResource, id: string, mediaId: string) =>
