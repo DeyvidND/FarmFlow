@@ -103,6 +103,7 @@ export interface PlatformTenantDetail {
   multiSubcat: boolean;
   econtConfigured: boolean;
   stripeConnected: boolean;
+  siteUrl: string;
   orders: {
     total: number;
     pending: number;
@@ -369,6 +370,7 @@ export class PlatformService {
       multiSubcat: t.multiSubcat,
       econtConfigured,
       stripeConnected: !!t.stripeAccountId,
+      siteUrl: sanitizeSiteUrl(settings.siteUrl),
       orders: o,
       products: p,
       subscribers: s,

@@ -190,6 +190,86 @@ describe('PlatformService', () => {
     });
   });
 
+  // ── tenantDetail ─────────────────────────────────────────────────────────
+
+  describe('tenantDetail', () => {
+    const TENANT_ID = 'tenant-detail-uuid';
+
+    function makeTenantRow(overrides: Record<string, any> = {}) {
+      return {
+        id: TENANT_ID,
+        name: 'Ферма Тест',
+        slug: 'ferma-test',
+        email: 'test@farm.bg',
+        phone: null,
+        subscriptionStatus: 'active',
+        premium: false,
+        graceUntil: null,
+        createdAt: new Date('2024-01-01'),
+        deliveryEnabled: false,
+        multiFarmer: false,
+        multiSubcat: false,
+        stripeAccountId: null,
+        settings: {},
+        ...overrides,
+      };
+    }
+
+    /** Set up DB mock chain for tenantDetail.
+     *
+     * Call sequence in tenantDetail:
+     *  1. select().from(tenants).where().limit(1)           → [tenantRow]
+     *  2-6. oP/pP/sP/rP/eP: select().from().where()        → each must resolve to [{...}]
+     *  7. recentOrdersP: select().from().where().orderBy().limit(8) → []
+     *
+     * The default `where` mock returns `db` (chainable but not iterable). For calls 2-6 we
+     * need `await where()` to yield an array so `[[o],[p],...] = await Promise.all(...)` works.
+     * We override `where` with a sequence: call 1 → db (limit() continues chain), calls 2-6 →
+     * Promise.resolve([{}]) (aggregate placeholders), call 7 → db (orderBy().limit() continues).
+     */
+    function setupChain(tenantRow: ReturnType<typeof makeTenantRow>) {
+      const emptyAgg = Promise.resolve([{}]);
+      db.where
+        .mockReturnValueOnce(db)            // call 1: tenant lookup → chain to limit()
+        .mockReturnValueOnce(emptyAgg)      // call 2: oP aggregate
+        .mockReturnValueOnce(emptyAgg)      // call 3: pP aggregate
+        .mockReturnValueOnce(emptyAgg)      // call 4: sP aggregate
+        .mockReturnValueOnce(emptyAgg)      // call 5: rP aggregate
+        .mockReturnValueOnce(emptyAgg)      // call 6: eP aggregate
+        .mockReturnValueOnce(db);           // call 7: recentOrdersP → chain to orderBy().limit()
+      // 1st limit() call = tenant row lookup
+      db.limit.mockResolvedValueOnce([tenantRow]);
+      // recentOrdersP ends with .orderBy().limit(8); orderBy must return db so limit() is reachable
+      db.orderBy.mockReturnValueOnce(db);
+      // 2nd limit() call = recentOrdersP resolves to []
+      db.limit.mockResolvedValueOnce([]);
+    }
+
+    it('returns siteUrl from settings.siteUrl (sanitized — trailing slash stripped)', async () => {
+      setupChain(makeTenantRow({ settings: { siteUrl: 'https://mysite.bg/' } }));
+
+      const result = await service.tenantDetail(TENANT_ID);
+
+      expect(result.siteUrl).toBe('https://mysite.bg');
+    });
+
+    it('returns empty string when settings.siteUrl is absent', async () => {
+      setupChain(makeTenantRow({ settings: {} }));
+
+      const result = await service.tenantDetail(TENANT_ID);
+
+      expect(result.siteUrl).toBe('');
+    });
+
+    it('returns empty string when settings.siteUrl is a non-http(s) value', async () => {
+      setupChain(makeTenantRow({ settings: { siteUrl: 'javascript:alert(1)' } }));
+
+      const result = await service.tenantDetail(TENANT_ID);
+
+      expect(result.siteUrl).toBe('');
+    });
+  });
+
   // ── platformChangePassword ────────────────────────────────────────────────
 
   describe('platformChangePassword', () => {
