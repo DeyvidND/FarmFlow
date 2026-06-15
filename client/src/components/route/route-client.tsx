@@ -18,6 +18,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { setStopLocation } from '@/lib/api-client';
 import type { RouteResult, RouteStop, RouteEndMode, RouteOrderMode } from '@/lib/types';
 import { StopList } from './stop-list';
 import { RouteMap } from './route-map';
@@ -128,6 +129,8 @@ export function RouteClient({
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
   const [showHelp, setShowHelp] = useState(false);
   const [showLoc, setShowLoc] = useState(false);
+  // The un-geocoded stop awaiting a manual pin (set by clicking the map).
+  const [placingId, setPlacingId] = useState<string | null>(null);
   // Remaining legs of a long (>9-waypoint) route — opened one-by-one on click so
   // each is a real user gesture (a burst of window.open() gets popup-blocked).
   const [extraLegs, setExtraLegs] = useState<string[]>([]);
@@ -177,12 +180,35 @@ export function RouteClient({
     window.open(stopUrl(origin, s), '_blank', 'noopener');
   };
   const onCall = (s: RouteStop) => {
-    if (s.phone) window.open(`tel:${s.phone.replace(/\s+/g, '')}`, '_self');
+    if (!s.phone) {
+      toast.error('Няма телефон за този клиент');
+      return;
+    }
+    window.open(`tel:${s.phone.replace(/\s+/g, '')}`, '_self');
     toast.info(`Обаждане до ${s.customer ?? 'клиента'}…`);
   };
   const onEmail = (s: RouteStop) => {
     if (s.email) window.open(`mailto:${s.email}`, '_self');
   };
+
+  // Manual-pin flow: the stop being placed + the map-click handler that saves it.
+  const placingStop = placingId ? (stops.find((s) => s.id === placingId) ?? null) : null;
+  const onPlaceOnMap = async (lat: number, lng: number) => {
+    if (!placingId) return;
+    try {
+      await setStopLocation(placingId, { lat, lng });
+      toast.success('Пинът е поставен на картата');
+      setPlacingId(null);
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Неуспешно записване');
+    }
+  };
+
+  // Stops whose address couldn't be geocoded — no map pin. They're still in the
+  // list (nothing dropped), but the farmer must be told so a delivery isn't
+  // silently missed just because it never showed up on the map.
+  const unlocated = stops.filter((s) => s.lat == null || s.lng == null);
 
   // Buyer emails for the day's stops — for a one-shot batch notice (BCC keeps
   // addresses private from each other).
@@ -211,6 +237,20 @@ export function RouteClient({
           >
             Опитай пак
           </button>
+        </div>
+      )}
+
+      {/* guard: some addresses couldn't be placed on the map — they're still in
+          the list, but have no pin. Tell the farmer so a stop isn't missed. */}
+      {unlocated.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
+          <AlertTriangle size={16} className="shrink-0 text-ff-amber-600" />
+          <span className="text-[12.5px] font-bold text-ff-amber-600">
+            {unlocated.length === 1
+              ? '1 адрес не е намерен на картата'
+              : `${unlocated.length} адреса не са намерени на картата`}{' '}
+            — показани са в списъка (с ⚠), но без пин. Провери адреса или се обади на клиента.
+          </span>
         </div>
       )}
 
@@ -364,7 +404,14 @@ export function RouteClient({
               <b>Старт</b> — пуска навигация „завой по завой“ в Google Maps на телефона.
             </li>
             <li>
-              При всяка спирка: <b>Карти</b> отваря само нея, <b>Обади</b> звъни на клиента.
+              При всяка спирка виждаш <b>телефон и имейл</b> — натисни ги за обаждане/писмо, или
+              иконата за копиране. <b>Карти</b> отваря само тази спирка.
+            </li>
+            <li>
+              <b>⚠ не е на картата</b> — адресът не можа да се намери, затова няма пин. Спирката пак
+              е в списъка. Натисни <b>Намери / постави на картата</b> при спирката: въведи по-точен
+              адрес (<b>Намери</b>), или избери <b>Постави на картата</b> и кликни точното място на
+              картата. Така пинът се запазва и спирката влиза в маршрута.
             </li>
             <li>
               Много спирки? Google показва до 9 на компютър и до 3 на телефон — затова при дълъг
@@ -409,12 +456,38 @@ export function RouteClient({
             onOpenMaps={onOpenMaps}
             onCall={onCall}
             onEmail={onEmail}
+            onFixed={() => router.refresh()}
+            placingId={placingId}
+            onStartPlace={(id) => {
+              setActiveId(id);
+              setPlacingId(id);
+            }}
+            onCancelPlace={() => setPlacingId(null)}
           />
         </div>
 
         {/* map */}
         <div className="relative overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:order-[-1] max-[900px]:h-[340px]">
-          <RouteMap stops={stops} origin={origin} end={end} activeId={activeId} onPick={setActiveId} />
+          {placingStop && (
+            <div className="absolute inset-x-0 top-0 z-[2] flex flex-wrap items-center justify-center gap-2 bg-ff-amber-600/95 px-3 py-2 text-center text-[12.5px] font-bold text-white">
+              Кликни на картата, за да поставиш пин за {placingStop.customer ?? 'клиента'}
+              <button
+                onClick={() => setPlacingId(null)}
+                className="rounded-md bg-white/20 px-2 py-0.5 transition hover:bg-white/30"
+              >
+                Отказ
+              </button>
+            </div>
+          )}
+          <RouteMap
+            stops={stops}
+            origin={origin}
+            end={end}
+            activeId={activeId}
+            onPick={setActiveId}
+            placing={placingId != null}
+            onMapClick={onPlaceOnMap}
+          />
         </div>
       </div>
     </div>

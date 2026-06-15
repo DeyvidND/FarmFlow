@@ -13,7 +13,7 @@ import {
   type PublicSubcategory,
   type PublicAvailabilityWindow,
 } from '@/lib/api';
-import { formatDate, readingTime } from '@/lib/format';
+import { formatDate, readingTime, inlineToHtml, stripHtml } from '@/lib/format';
 import {
   farmerProductCount,
   farmerSubcatCount,
@@ -231,7 +231,7 @@ export default async function HomePage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={p.coverImageUrl}
-                      alt={p.title}
+                      alt={stripHtml(p.title)}
                       loading="lazy"
                       decoding="async"
                       style={{ width: '100%', aspectRatio: '16 / 10', objectFit: 'cover' }}
@@ -243,9 +243,10 @@ export default async function HomePage() {
                   )}
                   <div style={{ padding: '20px 20px 24px' }}>
                     {p.category && <span className="tag">{p.category}</span>}
-                    <h3 style={{ fontSize: 21, margin: p.category ? '12px 0 10px' : '0 0 10px' }}>
-                      {p.title}
-                    </h3>
+                    <h3
+                      style={{ fontSize: 21, margin: p.category ? '12px 0 10px' : '0 0 10px' }}
+                      dangerouslySetInnerHTML={{ __html: inlineToHtml(p.title) }}
+                    />
                     <div className="muted" style={{ fontSize: 13.5 }}>
                       {formatDate(p.publishedAt)} · {readingTime(p.body)}
                     </div>

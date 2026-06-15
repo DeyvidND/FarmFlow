@@ -65,3 +65,32 @@ export function sanitizeArticleHtml(html: string): string {
   const hasImg = /<img\b/i.test(clean);
   return hasText || hasImg ? clean : '';
 }
+
+/**
+ * Plain text from inline article HTML (title / excerpt) — used for slug bases and
+ * anywhere a tag-free string is needed. Drops tags, collapses whitespace.
+ */
+export function stripHtml(html: string | null | undefined): string {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Sanitize a single-line rich field (article title / excerpt). The allowlist is
+ * the lightweight toolbar — bold/italic/underline/strike only. No blocks, links,
+ * images, colours or alignment. Paragraph + line breaks collapse to spaces so the
+ * result is always inline-safe (e.g. injected inside an <h1>).
+ */
+export function sanitizeInlineHtml(html: string | null | undefined): string {
+  if (!html) return '';
+  const flattened = html
+    .replace(/<\/p>\s*<p[^>]*>/gi, ' ') // paragraph breaks → space (no word-join)
+    .replace(/<br\s*\/?>/gi, ' ');
+  const clean = sanitizeHtml(flattened, {
+    allowedTags: ['b', 'strong', 'i', 'em', 'u', 's'],
+    allowedAttributes: {},
+    allowedSchemes: [],
+  }).replace(/\s+/g, ' ').trim();
+  // Drop to '' when no visible text survives (e.g. Quill's empty <p><br></p>).
+  return stripHtml(clean) ? clean : '';
+}

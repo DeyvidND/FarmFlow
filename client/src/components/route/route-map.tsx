@@ -25,6 +25,10 @@ interface RouteMapProps {
   end: RouteEnd;
   activeId: string | null;
   onPick: (id: string) => void;
+  /** Map-pin placement mode: a map click drops a pin for the placing stop. */
+  placing?: boolean;
+  /** Called with the clicked coords while `placing` is on. */
+  onMapClick?: (lat: number, lng: number) => void;
 }
 
 /**
@@ -32,7 +36,15 @@ interface RouteMapProps {
  * Google map (farm origin + numbered stop pins + a connecting route line);
  * otherwise it falls back to the styled demo placeholder.
  */
-export function RouteMap({ stops, origin, end, activeId, onPick }: RouteMapProps) {
+export function RouteMap({
+  stops,
+  origin,
+  end,
+  activeId,
+  onPick,
+  placing = false,
+  onMapClick,
+}: RouteMapProps) {
   const located = stops.filter((s) => s.lat != null && s.lng != null);
   const hasOrigin = origin.lat != null && origin.lng != null;
   // A real map renders whenever we have a Maps key — even with zero stops it
@@ -64,6 +76,12 @@ export function RouteMap({ stops, origin, end, activeId, onPick }: RouteMapProps
         defaultZoom={11}
         gestureHandling="greedy"
         disableDefaultUI={false}
+        draggableCursor={placing ? 'crosshair' : undefined}
+        onClick={(e) => {
+          if (!placing || !onMapClick) return;
+          const ll = e.detail.latLng;
+          if (ll) onMapClick(ll.lat, ll.lng);
+        }}
         style={{ width: '100%', height: '100%' }}
       >
         <FitBounds origin={origin} stops={located} end={customEnd} />

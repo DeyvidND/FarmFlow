@@ -25,3 +25,31 @@ export function bodyToHtml(body: string | null | undefined): string {
     .map((p) => `<p>${esc(p)}</p>`)
     .join('');
 }
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const decodeEntities = (s: string) =>
+  s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+
+/**
+ * Render-ready HTML for an inline rich field (article title / excerpt).
+ * Server-sanitized values already contain only safe inline tags → passthrough.
+ * Legacy plain-text values are escaped so a stray `<`/`&` renders literally.
+ */
+export function inlineToHtml(value: string | null | undefined): string {
+  if (!value) return '';
+  return /<[a-z][\s\S]*>/i.test(value) ? value : escapeHtml(value);
+}
+
+/** Plain text from an inline rich field — for list cards, alt text, page titles. */
+export function stripHtml(value: string | null | undefined): string {
+  if (!value) return '';
+  return decodeEntities(value.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+}

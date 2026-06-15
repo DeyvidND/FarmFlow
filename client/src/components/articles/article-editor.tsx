@@ -9,14 +9,13 @@ import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ArticleRenderer } from './article-renderer';
 import { ArticleStatusBadge } from './articles-client';
 import { ArticleBodyEditor } from './article-body-editor';
+import { ArticleInlineEditor } from './article-inline-editor';
 import { cn } from '@/lib/utils';
 import { ApiError, updateArticle, deleteArticle, uploadArticleCover } from '@/lib/api-client';
 import type { Article } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
-const field =
-  'rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
 export function ArticleEditor({ initial }: { initial: Article }) {
@@ -54,8 +53,9 @@ export function ArticleEditor({ initial }: { initial: Article }) {
         excerpt,
         body,
       });
-      setTitle(updated.title);
-      setBody(updated.body ?? ''); // reflect server-sanitized HTML
+      setTitle(updated.title); // reflect server-sanitized inline HTML
+      setExcerpt(updated.excerpt ?? '');
+      setBody(updated.body ?? '');
       toast.success('Статията е запазена');
     } catch (e) {
       toast.error(errMsg(e));
@@ -141,14 +141,14 @@ export function ArticleEditor({ initial }: { initial: Article }) {
         <div className="grid grid-cols-[1fr_340px] gap-5 max-lg:grid-cols-1">
           {/* main column */}
           <div className="flex flex-col gap-4">
-            <label className={labelCls}>
+            <div className={labelCls}>
               Заглавие
-              <input value={title} onChange={(e) => setTitle(e.target.value)} className={cn(field, 'text-[17px] font-bold')} placeholder="Заглавие на статията" />
-            </label>
-            <label className={labelCls}>
+              <ArticleInlineEditor value={title} onChange={setTitle} className="article-inline-quill--title" placeholder="Заглавие на статията" />
+            </div>
+            <div className={labelCls}>
               Кратко описание
-              <textarea value={excerpt} onChange={(e) => setExcerpt(e.target.value)} rows={2} className={field} placeholder="Едно-две изречения за изданието/новината" />
-            </label>
+              <ArticleInlineEditor value={excerpt} onChange={setExcerpt} placeholder="Едно-две изречения за изданието/новината" />
+            </div>
             <div className={labelCls}>
               Съдържание
               <ArticleBodyEditor articleId={initial.id} value={body} onChange={setBody} />

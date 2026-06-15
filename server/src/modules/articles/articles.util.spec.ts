@@ -1,4 +1,4 @@
-import { slugify, sanitizeArticleHtml } from './articles.util';
+import { slugify, sanitizeArticleHtml, sanitizeInlineHtml, stripHtml } from './articles.util';
 
 describe('slugify', () => {
   it('transliterates Bulgarian Cyrillic to a Latin slug', () => {
@@ -84,5 +84,51 @@ describe('sanitizeArticleHtml', () => {
   it('returns empty string for nullish/empty', () => {
     expect(sanitizeArticleHtml('')).toBe('');
     expect(sanitizeArticleHtml(null as unknown as string)).toBe('');
+  });
+});
+
+describe('stripHtml', () => {
+  it('drops tags and collapses whitespace', () => {
+    expect(stripHtml('Ягоди <strong>узряха</strong>')).toBe('Ягоди узряха');
+    expect(stripHtml('<p>a</p>\n<p>b</p>')).toBe('a b');
+  });
+  it('returns empty for nullish', () => {
+    expect(stripHtml('')).toBe('');
+    expect(stripHtml(null)).toBe('');
+    expect(stripHtml(undefined)).toBe('');
+  });
+});
+
+describe('sanitizeInlineHtml (title / excerpt — text marks only)', () => {
+  it('keeps bold/italic/underline/strike', () => {
+    expect(sanitizeInlineHtml('<strong>a</strong> <em>b</em> <u>c</u> <s>d</s>')).toBe(
+      '<strong>a</strong> <em>b</em> <u>c</u> <s>d</s>',
+    );
+  });
+
+  it('strips blocks, headings, links, images, colour and alignment to plain text', () => {
+    expect(sanitizeInlineHtml('<h2>Big</h2>')).toBe('Big');
+    expect(sanitizeInlineHtml('<a href="https://x">l</a>')).toBe('l');
+    expect(sanitizeInlineHtml('<img src="https://x/y.jpg">')).toBe('');
+    expect(sanitizeInlineHtml('<span style="color:#f00">c</span>')).toBe('c');
+    expect(sanitizeInlineHtml('<p style="text-align:center">c</p>')).toBe('c');
+    expect(sanitizeInlineHtml('<ul><li>a</li></ul>')).toBe('a');
+  });
+
+  it('strips scripts and event handlers', () => {
+    expect(sanitizeInlineHtml('hi<script>alert(1)</script>')).toBe('hi');
+    expect(sanitizeInlineHtml('<b onclick="evil()">x</b>')).toBe('<b>x</b>');
+  });
+
+  it('flattens paragraph + line breaks to spaces (no word-join)', () => {
+    expect(sanitizeInlineHtml('<p>Едно</p><p>две</p>')).toBe('Едно две');
+    expect(sanitizeInlineHtml('a<br>b')).toBe('a b');
+  });
+
+  it('collapses empty editor output to an empty string', () => {
+    expect(sanitizeInlineHtml('<p><br></p>')).toBe('');
+    expect(sanitizeInlineHtml('   ')).toBe('');
+    expect(sanitizeInlineHtml('')).toBe('');
+    expect(sanitizeInlineHtml(null)).toBe('');
   });
 });

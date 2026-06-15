@@ -24,7 +24,7 @@ import { UpdateArticleDto } from './dto/update-article.dto';
 import { ARTICLE_MEDIA_EXT_BY_MIME } from './dto/upload-media.dto';
 import { optimizeImage } from '../storage/image.util';
 import { tenantSlug } from '../../common/tenant-slug.util';
-import { slugify, sanitizeArticleHtml } from './articles.util';
+import { slugify, sanitizeArticleHtml, sanitizeInlineHtml, stripHtml } from './articles.util';
 
 @Injectable()
 export class ArticlesService {
@@ -78,14 +78,14 @@ export class ArticlesService {
   // ---- Admin writes ----
 
   async create(tenantId: string, dto: CreateArticleDto): Promise<ArticleWithMedia> {
-    const slug = await this.uniqueSlug(tenantId, dto.slug?.trim() || dto.title);
+    const slug = await this.uniqueSlug(tenantId, dto.slug?.trim() || stripHtml(dto.title));
     const [row] = await this.db
       .insert(articles)
       .values({
         tenantId,
-        title: dto.title.trim(),
+        title: sanitizeInlineHtml(dto.title),
         slug,
-        excerpt: dto.excerpt ?? null,
+        excerpt: dto.excerpt != null ? sanitizeInlineHtml(dto.excerpt) : null,
         body: dto.body != null ? sanitizeArticleHtml(dto.body) : null,
       })
       .returning();
@@ -97,11 +97,13 @@ export class ArticlesService {
     const existing = await this.findOne(id, tenantId); // 404 if missing / cross-tenant
 
     const patch: Partial<NewArticle> = { updatedAt: new Date() };
-    if (dto.title !== undefined) patch.title = dto.title.trim();
-    if (dto.excerpt !== undefined) patch.excerpt = dto.excerpt;
+    if (dto.title !== undefined) patch.title = sanitizeInlineHtml(dto.title);
+    if (dto.excerpt !== undefined) {
+      patch.excerpt = dto.excerpt == null ? null : sanitizeInlineHtml(dto.excerpt);
+    }
     if (dto.body !== undefined) patch.body = dto.body == null ? null : sanitizeArticleHtml(dto.body);
     if (dto.slug !== undefined) {
-      patch.slug = await this.uniqueSlug(tenantId, dto.slug.trim() || existing.title, id);
+      patch.slug = await this.uniqueSlug(tenantId, dto.slug.trim() || stripHtml(existing.title), id);
     }
     if (dto.status !== undefined) {
       patch.status = dto.status;

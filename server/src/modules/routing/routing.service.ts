@@ -1,4 +1,11 @@
-import { Injectable, Inject, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { type Database, orders, orderItems, deliverySlots, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -427,5 +434,71 @@ export class RoutingService {
       i += seg.length - 1;
     }
     return { distanceM, durationS };
+  }
+
+  /**
+   * Fix a stop that never got a map pin. Two ways in:
+   *  - `lat`+`lng`  → a manual pin the farmer dropped on the map; saved as-is.
+   *  - `address`    → re-geocoded (biased to the farm) and the result is saved.
+   * Either way the order's delivery coords (+ address) are updated so the stop
+   * shows on the map and joins distance optimization on the next load.
+   * Tenant-scoped: an order from another farm is "not found" (no IDOR).
+   */
+  async setStopLocation(
+    tenantId: string,
+    orderId: string,
+    input: { address?: string; lat?: number; lng?: number },
+  ): Promise<{ lat: number; lng: number; address: string | null }> {
+    const [order] = await this.db
+      .select({
+        id: orders.id,
+        address: orders.deliveryAddress,
+        deliveryType: orders.deliveryType,
+      })
+      .from(orders)
+      .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
+      .limit(1);
+    if (!order) throw new NotFoundException('Поръчката не е намерена');
+    if (order.deliveryType !== 'address') {
+      throw new BadRequestException('Тази поръчка не е с доставка до адрес');
+    }
+
+    let lat = input.lat ?? null;
+    let lng = input.lng ?? null;
+    const typed = input.address?.trim();
+    let address: string | null = typed || order.address;
+
+    // No manual pin → geocode the (corrected) address. Bias to the farm so an
+    // ambiguous street resolves near the farm, mirroring order creation.
+    if (lat == null || lng == null) {
+      const query = typed || order.address;
+      if (!query) throw new BadRequestException('Няма адрес за търсене');
+
+      const [tenant] = await this.db
+        .select({ farmLat: tenants.farmLat, farmLng: tenants.farmLng })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+      const fLat = toNum(tenant?.farmLat ?? null);
+      const fLng = toNum(tenant?.farmLng ?? null);
+      const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
+
+      const geo = await this.maps.geocode(query, bias);
+      if (!geo) {
+        throw new UnprocessableEntityException(
+          'Адресът не е намерен. Опитай по-точен адрес или постави точка на картата.',
+        );
+      }
+      lat = geo.lat;
+      lng = geo.lng;
+      address = query;
+    }
+
+    await this.db
+      .update(orders)
+      .set({ deliveryLat: String(lat), deliveryLng: String(lng), deliveryAddress: address })
+      .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)));
+
+    return { lat, lng, address };
   }
 }

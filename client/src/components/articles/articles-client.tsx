@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ApiError, createArticle, deleteArticle, listArticles } from '@/lib/api-client';
+import { stripHtml } from '@/lib/article-html';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
 import type { Article, Paginated } from '@/lib/types';
 
@@ -56,7 +57,7 @@ export function ArticlesClient({ initial }: { initial: Paginated<Article> }) {
 
   async function onDelete(a: Article, e: React.MouseEvent) {
     e.stopPropagation();
-    if (!window.confirm(`Изтриване на „${a.title}“?`)) return;
+    if (!window.confirm(`Изтриване на „${stripHtml(a.title)}“?`)) return;
     setBusyId(a.id);
     try {
       await deleteArticle(a.id);
@@ -98,10 +99,10 @@ export function ArticlesClient({ initial }: { initial: Paginated<Article> }) {
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2.5">
-                  <h3 className="truncate text-[15.5px] font-extrabold">{a.title || 'Без заглавие'}</h3>
+                  <h3 className="truncate text-[15.5px] font-extrabold">{stripHtml(a.title) || 'Без заглавие'}</h3>
                   <ArticleStatusBadge status={a.status} />
                 </div>
-                {a.excerpt && <p className="mt-1 truncate text-[13px] text-ff-muted">{a.excerpt}</p>}
+                {a.excerpt && <p className="mt-1 truncate text-[13px] text-ff-muted">{stripHtml(a.excerpt)}</p>}
                 <div className="mt-1.5 flex items-center gap-3 text-[12px] font-semibold text-ff-muted">
                   <span>{a.status === 'published' ? shortDate(a.publishedAt) : 'не е публикувана'}</span>
                   <span className="inline-flex items-center gap-1">

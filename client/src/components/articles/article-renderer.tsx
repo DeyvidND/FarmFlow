@@ -1,7 +1,7 @@
 'use client';
 
 import type { Article, ArticleMedia } from '@/lib/types';
-import { bodyToHtml } from '@/lib/article-html';
+import { bodyToHtml, inlineToHtml } from '@/lib/article-html';
 
 /**
  * Renders an article + its ordered media exactly as the storefront does — the
@@ -26,12 +26,16 @@ export function ArticleRenderer({ article }: { article: Article }) {
         />
       )}
 
-      <h1 className="font-display text-[30px] font-extrabold leading-[1.15] tracking-[-0.02em] max-sm:text-[24px]">
-        {article.title || 'Без заглавие'}
-      </h1>
+      <h1
+        className="font-display text-[30px] font-extrabold leading-[1.15] tracking-[-0.02em] max-sm:text-[24px]"
+        dangerouslySetInnerHTML={{ __html: inlineToHtml(article.title) || 'Без заглавие' }}
+      />
 
       {article.excerpt && (
-        <p className="mt-3 text-[17px] leading-[1.55] text-ff-ink-2">{article.excerpt}</p>
+        <p
+          className="mt-3 text-[17px] leading-[1.55] text-ff-ink-2"
+          dangerouslySetInnerHTML={{ __html: inlineToHtml(article.excerpt) }}
+        />
       )}
 
       {html && (

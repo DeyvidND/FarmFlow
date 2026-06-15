@@ -41,3 +41,28 @@ export function bodyToHtml(body: string | null | undefined): string {
 export function readingTime(body: string | null | undefined): string {
   return `${readingMinutes(body)} мин четене`;
 }
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const decodeEntities = (s: string) =>
+  s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+
+/** Inline rich field (article title / excerpt) → render-ready HTML. Sanitized
+ *  values (with safe inline tags) pass through; legacy plain text is escaped. */
+export function inlineToHtml(value: string | null | undefined): string {
+  if (!value) return '';
+  return /<[a-z][\s\S]*>/i.test(value) ? value : escapeHtml(value);
+}
+
+/** Inline rich field → plain text. For <title>/meta, alt text and aria labels. */
+export function stripHtml(value: string | null | undefined): string {
+  if (!value) return '';
+  return decodeEntities(value.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+}

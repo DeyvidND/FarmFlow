@@ -10,7 +10,7 @@ import {
   type PublicArticle,
 } from '@/lib/api';
 import { SITE } from '@/lib/site';
-import { formatDate, readingTime, bodyToHtml } from '@/lib/format';
+import { formatDate, readingTime, bodyToHtml, inlineToHtml, stripHtml } from '@/lib/format';
 import { Facebook, Instagram, TikTok } from '@/components/icons';
 
 type MediaItem = PublicArticle['media'][number];
@@ -22,7 +22,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   try {
     const a = await getArticle(resolveSlug(), params.slug);
-    return { title: a.title, description: a.excerpt ?? undefined };
+    return { title: stripHtml(a.title), description: a.excerpt ? stripHtml(a.excerpt) : undefined };
   } catch {
     return { title: 'Статия' };
   }
@@ -162,9 +162,10 @@ export default async function ArticlePage({
           </nav>
           <header style={{ margin: '8px 0 26px' }}>
             {article.category && <span className="tag">{article.category}</span>}
-            <h1 style={{ fontSize: 'clamp(32px,5vw,56px)', margin: '14px 0 16px' }}>
-              {article.title}
-            </h1>
+            <h1
+              style={{ fontSize: 'clamp(32px,5vw,56px)', margin: '14px 0 16px' }}
+              dangerouslySetInnerHTML={{ __html: inlineToHtml(article.title) }}
+            />
             <div
               style={{
                 display: 'flex',
@@ -189,7 +190,7 @@ export default async function ArticlePage({
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={article.coverImageUrl}
-              alt={article.title}
+              alt={stripHtml(article.title)}
               style={{
                 width: '100%',
                 aspectRatio: '16 / 8',
@@ -263,7 +264,7 @@ export default async function ArticlePage({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={p.coverImageUrl}
-                      alt={p.title}
+                      alt={stripHtml(p.title)}
                       style={{ width: '100%', aspectRatio: '16 / 10', objectFit: 'cover' }}
                     />
                   ) : (
@@ -273,7 +274,10 @@ export default async function ArticlePage({
                   )}
                   <div style={{ padding: '18px 18px 22px' }}>
                     {p.category && <span className="tag">{p.category}</span>}
-                    <h3 style={{ fontSize: 19, marginTop: p.category ? 12 : 0 }}>{p.title}</h3>
+                    <h3
+                      style={{ fontSize: 19, marginTop: p.category ? 12 : 0 }}
+                      dangerouslySetInnerHTML={{ __html: inlineToHtml(p.title) }}
+                    />
                   </div>
                 </Link>
               ))}

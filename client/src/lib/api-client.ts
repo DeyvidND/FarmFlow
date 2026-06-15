@@ -276,6 +276,21 @@ export const updateTenant = (data: {
   routing?: { endMode?: 'home' | 'last' | 'custom'; endAddress?: string | null };
 }) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
+// ---- Route stops ----
+/**
+ * Fix a route stop with no map pin: send `address` to re-geocode it, or
+ * `lat`+`lng` for a pin dropped manually on the map. Returns the saved point.
+ */
+export const setStopLocation = (
+  orderId: string,
+  data: { address?: string; lat?: number; lng?: number },
+) =>
+  apiFetch<{ lat: number; lng: number; address: string | null }>(
+    `orders/route/stop/${orderId}`,
+    { method: 'PATCH', ...json(data) },
+    'Неуспешно записване на адреса',
+  );
+
 // ---- Site editor ----
 export const createEditSession = () =>
   apiFetch<{ token: string; siteUrl: string; expiresIn: number }>(

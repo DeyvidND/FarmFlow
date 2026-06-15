@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getArticles, getStorefront, resolveSlug, type PublicArticle } from '@/lib/api';
-import { formatDate, readingTime } from '@/lib/format';
+import { formatDate, readingTime, inlineToHtml, stripHtml } from '@/lib/format';
 import { BlogGrid } from '@/components/blog-grid';
 
 export const metadata: Metadata = { title: 'Влог' };
@@ -74,7 +74,7 @@ export default async function BlogPage({
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={featured.coverImageUrl}
-                    alt={featured.title}
+                    alt={stripHtml(featured.title)}
                     style={{ width: '100%', height: '100%', minHeight: 280, objectFit: 'cover' }}
                   />
                 ) : (
@@ -93,10 +93,13 @@ export default async function BlogPage({
                   <span className="tag" style={{ alignSelf: 'flex-start' }}>
                     Препоръчано{featured.category ? ` · ${featured.category}` : ''}
                   </span>
-                  <h3 style={{ fontSize: 'clamp(24px,3vw,34px)', margin: '14px 0 12px' }}>
-                    {featured.title}
-                  </h3>
-                  {featured.excerpt && <p className="muted">{featured.excerpt}</p>}
+                  <h3
+                    style={{ fontSize: 'clamp(24px,3vw,34px)', margin: '14px 0 12px' }}
+                    dangerouslySetInnerHTML={{ __html: inlineToHtml(featured.title) }}
+                  />
+                  {featured.excerpt && (
+                    <p className="muted" dangerouslySetInnerHTML={{ __html: inlineToHtml(featured.excerpt) }} />
+                  )}
                   <div className="muted" style={{ fontSize: 13.5, marginTop: 16 }}>
                     {formatDate(featured.publishedAt)} · {readingTime(featured.body)}
                   </div>

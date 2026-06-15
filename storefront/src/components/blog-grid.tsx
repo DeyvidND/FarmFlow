@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import type { PublicArticle } from '@/lib/api';
-import { formatDate, readingTime } from '@/lib/format';
+import { formatDate, readingTime, inlineToHtml, stripHtml } from '@/lib/format';
 
 const ALL = 'Всички';
 
@@ -45,7 +45,7 @@ export function BlogGrid({ posts }: { posts: PublicArticle[] }) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={p.coverImageUrl}
-                  alt={p.title}
+                  alt={stripHtml(p.title)}
                   loading="lazy"
                   decoding="async"
                   style={{ width: '100%', aspectRatio: '16 / 10', objectFit: 'cover' }}
@@ -68,13 +68,16 @@ export function BlogGrid({ posts }: { posts: PublicArticle[] }) {
                     {p.category}
                   </span>
                 )}
-                <h3 style={{ fontSize: 20, margin: p.category ? '12px 0 10px' : '0 0 10px' }}>
-                  {p.title}
-                </h3>
+                <h3
+                  style={{ fontSize: 20, margin: p.category ? '12px 0 10px' : '0 0 10px' }}
+                  dangerouslySetInnerHTML={{ __html: inlineToHtml(p.title) }}
+                />
                 {p.excerpt && (
-                  <p className="muted" style={{ fontSize: 14.5 }}>
-                    {p.excerpt}
-                  </p>
+                  <p
+                    className="muted"
+                    style={{ fontSize: 14.5 }}
+                    dangerouslySetInnerHTML={{ __html: inlineToHtml(p.excerpt) }}
+                  />
                 )}
                 <div className="muted" style={{ fontSize: 13, marginTop: 14 }}>
                   {formatDate(p.publishedAt)} · {readingTime(p.body)}
