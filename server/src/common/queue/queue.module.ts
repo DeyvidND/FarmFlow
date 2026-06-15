@@ -28,7 +28,6 @@ let bullConnection: IORedis | undefined;
         // Cast to any: pnpm resolves two ioredis minor versions (5.10 for bullmq,
         // 5.11 for server/) whose TS types diverge structurally on internal fields
         // while being runtime-compatible. Safe — BullMQ calls .on()/.quit() only.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return { connection: bullConnection as any };
       },
     }),
