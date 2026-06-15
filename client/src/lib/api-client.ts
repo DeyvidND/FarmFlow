@@ -253,6 +253,30 @@ export const deleteSiteMedia = (slotKey: string) =>
     'Неуспешно изтриване',
   );
 
+// ---- Site copy (editable storefront text + FAQ) ----
+export interface SiteCopySlotDef {
+  key: string;
+  label: string;
+  page: string;
+  default: string;
+  multiline?: boolean;
+}
+export interface SiteFaqItem { q: string; a: string; }
+export interface SiteCopyResponse {
+  catalog: SiteCopySlotDef[];
+  copy: Record<string, string>;
+  faq: SiteFaqItem[];
+}
+
+export const getSiteCopy = () => apiFetch<SiteCopyResponse>('tenants/me/site-copy');
+
+export const updateSiteCopy = (data: { copy: Record<string, string>; faq: SiteFaqItem[] }) =>
+  apiFetch<{ copy: Record<string, string>; faq: SiteFaqItem[] }>(
+    'tenants/me/site-copy',
+    { method: 'PATCH', ...json(data) },
+    'Неуспешно записване',
+  );
+
 // ---- Site contact + website icon ----
 export interface SocialLink {
   // Known network key ('fb'|'ig'|'yt'|'tt'|'viber'|'telegram'|'whatsapp'|'x'|'other').
