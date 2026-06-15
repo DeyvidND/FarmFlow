@@ -453,6 +453,7 @@ export class RoutingService {
       .select({
         id: orders.id,
         address: orders.deliveryAddress,
+        city: orders.deliveryCity,
         deliveryType: orders.deliveryType,
       })
       .from(orders)
@@ -483,7 +484,7 @@ export class RoutingService {
       const fLng = toNum(tenant?.farmLng ?? null);
       const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
 
-      const geo = await this.maps.geocode(query, bias);
+      const geo = await this.maps.geocode(query, bias, { locality: order.city ?? undefined });
       if (!geo) {
         throw new UnprocessableEntityException(
           'Адресът не е намерен. Опитай по-точен адрес или постави точка на картата.',

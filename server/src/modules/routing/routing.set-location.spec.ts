@@ -31,7 +31,7 @@ function makeDb(selectResults: any[][]) {
   return db;
 }
 
-const ORDER = { id: 'o1', address: 'ул. Шипка 5, Варна', deliveryType: 'address' };
+const ORDER = { id: 'o1', address: 'ул. Шипка 5, Варна', city: 'Варна', deliveryType: 'address' };
 const TENANT = { farmLat: '43.1729', farmLng: '27.8456' };
 
 function makeService(db: any, geocode: jest.Mock) {
@@ -62,7 +62,11 @@ describe('RoutingService.setStopLocation', () => {
 
     const out = await svc.setStopLocation('t1', 'o1', { address: 'ул. Шипка 15, Варна' });
 
-    expect(geocode).toHaveBeenCalledWith('ул. Шипка 15, Варна', { lat: 43.1729, lng: 27.8456 });
+    expect(geocode).toHaveBeenCalledWith(
+      'ул. Шипка 15, Варна',
+      { lat: 43.1729, lng: 27.8456 },
+      { locality: 'Варна' },
+    );
     expect(out).toEqual({ lat: 43.2, lng: 27.9, address: 'ул. Шипка 15, Варна' });
     expect(db.__updates[0]).toEqual({
       deliveryLat: '43.2',

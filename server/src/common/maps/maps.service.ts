@@ -35,6 +35,16 @@ const MAX_BIAS_DISTANCE_KM = 120;
  * stop-set, with zero quality loss. Road-network drift over a week is negligible.
  */
 const ROUTE_CACHE_TTL = 7 * 24 * 60 * 60;
+/**
+ * Cache geocode results for 30 days. Address→coords is as pure a function as a
+ * route, and far more repeated (every customer on the same street, every repeat
+ * order resolves the same point). Without this, each local order re-bills a
+ * Geocoding call; with it, a street is billed once a month. The key folds in the
+ * address, the farm bias and the component filters, so any of those changing
+ * misses (recompute). Only successful hits are cached — a transient failure (or
+ * a fixable typo) must not be remembered as "no such place".
+ */
+const GEOCODE_CACHE_TTL = 30 * 24 * 60 * 60;
 
 /** Straight-line distance (km) between two points. */
 function distKm(a: LatLng, b: LatLng): number {
@@ -95,11 +105,11 @@ export class MapsService {
 
   /** Cache write that never throws — a Redis fault must not discard an already
    *  computed (billed) route. */
-  private async cachedSet(key: string, value: unknown): Promise<void> {
+  private async cachedSet(key: string, value: unknown, ttl: number = ROUTE_CACHE_TTL): Promise<void> {
     try {
-      await this.cache.set(key, value, ROUTE_CACHE_TTL);
+      await this.cache.set(key, value, ttl);
     } catch (err) {
-      this.logger.warn(`route cache set failed: ${(err as Error).message}`);
+      this.logger.warn(`cache set failed: ${(err as Error).message}`);
     }
   }
 
@@ -107,70 +117,133 @@ export class MapsService {
    * Resolve a free-text address to coordinates (restricted to Bulgaria).
    * Pass `bias` (the farm's coords) to prefer matches near the delivery region:
    * an ambiguous street with no city ("ул. Шипка 5") otherwise snaps to the
-   * largest city (Sofia) instead of the farm's town. Returns `null` when
-   * disabled, on no match, on a too-coarse match, or on any error.
+   * largest city (Sofia) instead of the farm's town. Pass `opts.locality` /
+   * `opts.postalCode` (the storefront's structured city/postal fields) to add
+   * Geocoding `components` filters — these disambiguate same-named streets in
+   * different towns better than the soft bias box alone. Successful results are
+   * cached for {@link GEOCODE_CACHE_TTL}. Returns `null` when disabled, on no
+   * match, on a too-coarse match, or on any error.
    */
-  async geocode(address: string, bias?: LatLng): Promise<LatLng | null> {
+  async geocode(
+    address: string,
+    bias?: LatLng,
+    opts?: { locality?: string; postalCode?: string },
+  ): Promise<LatLng | null> {
     const query = address?.trim();
     if (!this.enabled || !query) return null;
 
-    let url =
-      `${GEOCODE_URL}?address=${encodeURIComponent(query)}` +
-      `&components=country:BG&language=bg&key=${this.apiKey}`;
-    if (bias) {
-      // ~65km box around the farm — biases (not restricts) results to its region.
-      const dLat = 0.6;
-      const dLng = 0.8;
-      const sw = `${(bias.lat - dLat).toFixed(4)},${(bias.lng - dLng).toFixed(4)}`;
-      const ne = `${(bias.lat + dLat).toFixed(4)},${(bias.lng + dLng).toFixed(4)}`;
-      url += `&bounds=${sw}|${ne}`;
-    }
+    const key = this.geoKey(query, bias, opts);
+    const cached = await this.cachedGet<LatLng>(key);
+    if (cached) return cached;
+
+    const bounds = bias ? this.biasBounds(bias) : undefined;
+    const components = this.componentsParam(opts);
 
     try {
-      const res = await this.fetchJson(url);
-      if (res?.status !== 'OK' || !Array.isArray(res.results) || !res.results.length) {
-        if (res?.status && res.status !== 'ZERO_RESULTS') {
-          this.logger.warn(`Geocode failed (${res.status}) for "${query}".`);
-        }
-        return null;
+      // Try with the structured component filters first.
+      let pick = await this.geocodePick(query, components, bounds, bias);
+      // A `locality`/`postal_code` filter is a HARD constraint: an imperfect
+      // city string (typo, abbreviation, diacritics mismatch) can over-filter to
+      // ZERO_RESULTS where the bias box alone would have matched. Retry with just
+      // country:BG so #structured-components never regresses the pre-existing
+      // free-text behaviour.
+      if (!pick && components !== 'country:BG') {
+        pick = await this.geocodePick(query, 'country:BG', bounds, bias);
       }
-      // Drop too-coarse matches. With components=country:BG, an unmatchable or
-      // gibberish address doesn't return ZERO_RESULTS — Google falls back to the
-      // country (or region) centroid (~200km off). Keep only town/postal/street
-      // precision; anything coarser counts as "no match".
-      const candidates = res.results.filter((r: any) => {
-        const t: string[] = Array.isArray(r?.types) ? r.types : [];
-        return !t.includes('country') && !t.includes('administrative_area_level_1');
-      });
-      if (!candidates.length) {
-        this.logger.warn(`Geocode too coarse for "${query}" — ignoring.`);
-        return null;
-      }
-      // With a bias, pick the candidate nearest the delivery region — resolves
-      // same-name streets in different towns ("Цар Освободител" in Варна vs a
-      // neighbouring town). Without bias, trust Google's top result.
-      const pick =
-        bias != null
-          ? candidates.reduce((best: any, r: any) =>
-              distKm(bias, r.geometry.location) < distKm(bias, best.geometry.location) ? r : best,
-            )
-          : candidates[0];
-      const loc = pick?.geometry?.location;
-      if (typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') return null;
-      const out: LatLng = { lat: loc.lat, lng: loc.lng };
+      if (!pick) return null;
       // Backstop: a match far outside the delivery region is almost certainly
       // the wrong place — drop it (shows un-mapped for the farmer to fix).
-      if (bias != null && distKm(bias, out) > MAX_BIAS_DISTANCE_KM) {
+      if (bias != null && distKm(bias, pick) > MAX_BIAS_DISTANCE_KM) {
         this.logger.warn(
-          `Geocode "${query}" resolved ${Math.round(distKm(bias, out))}km from region — ignoring.`,
+          `Geocode "${query}" resolved ${Math.round(distKm(bias, pick))}km from region — ignoring.`,
         );
         return null;
       }
-      return out;
+      await this.cachedSet(key, pick, GEOCODE_CACHE_TTL);
+      return pick;
     } catch (err) {
       this.logger.warn(`Geocode error for "${query}": ${(err as Error).message}`);
       return null;
     }
+  }
+
+  /** Stable cache key for a geocode — folds in the normalized address, the farm
+   *  bias and the component filters so any change misses. */
+  private geoKey(address: string, bias?: LatLng, opts?: { locality?: string; postalCode?: string }): string {
+    const sig = [
+      address.toLowerCase().replace(/\s+/g, ' '),
+      bias ? `${bias.lat.toFixed(4)},${bias.lng.toFixed(4)}` : '',
+      (opts?.locality ?? '').trim().toLowerCase(),
+      (opts?.postalCode ?? '').trim(),
+    ].join('|');
+    return `maps:geocode:${createHash('sha1').update(sig).digest('hex')}`;
+  }
+
+  /** `&bounds` value: a ~65km box around the farm — biases (not restricts)
+   *  results to its region. */
+  private biasBounds(bias: LatLng): string {
+    const dLat = 0.6;
+    const dLng = 0.8;
+    const sw = `${(bias.lat - dLat).toFixed(4)},${(bias.lng - dLng).toFixed(4)}`;
+    const ne = `${(bias.lat + dLat).toFixed(4)},${(bias.lng + dLng).toFixed(4)}`;
+    return `${sw}|${ne}`;
+  }
+
+  /** `components` filter: always country:BG, plus the structured locality/postal
+   *  when the storefront supplied them. */
+  private componentsParam(opts?: { locality?: string; postalCode?: string }): string {
+    const parts = ['country:BG'];
+    const locality = opts?.locality?.trim();
+    const postal = opts?.postalCode?.trim();
+    if (locality) parts.push(`locality:${locality}`);
+    if (postal) parts.push(`postal_code:${postal}`);
+    return parts.join('|');
+  }
+
+  /** One Geocoding request → the best LatLng (or null on no/too-coarse match).
+   *  Throws on a network/HTTP fault so the caller can decide (no retry on those).*/
+  private async geocodePick(
+    query: string,
+    components: string,
+    bounds: string | undefined,
+    bias?: LatLng,
+  ): Promise<LatLng | null> {
+    let url =
+      `${GEOCODE_URL}?address=${encodeURIComponent(query)}` +
+      `&components=${encodeURIComponent(components)}&language=bg&key=${this.apiKey}`;
+    if (bounds) url += `&bounds=${bounds}`;
+
+    const res = await this.fetchJson(url);
+    if (res?.status !== 'OK' || !Array.isArray(res.results) || !res.results.length) {
+      if (res?.status && res.status !== 'ZERO_RESULTS') {
+        this.logger.warn(`Geocode failed (${res.status}) for "${query}".`);
+      }
+      return null;
+    }
+    // Drop too-coarse matches. With components=country:BG, an unmatchable or
+    // gibberish address doesn't return ZERO_RESULTS — Google falls back to the
+    // country (or region) centroid (~200km off). Keep only town/postal/street
+    // precision; anything coarser counts as "no match".
+    const candidates = res.results.filter((r: any) => {
+      const t: string[] = Array.isArray(r?.types) ? r.types : [];
+      return !t.includes('country') && !t.includes('administrative_area_level_1');
+    });
+    if (!candidates.length) {
+      this.logger.warn(`Geocode too coarse for "${query}" — ignoring.`);
+      return null;
+    }
+    // With a bias, pick the candidate nearest the delivery region — resolves
+    // same-name streets in different towns ("Цар Освободител" in Варна vs a
+    // neighbouring town). Without bias, trust Google's top result.
+    const pick =
+      bias != null
+        ? candidates.reduce((best: any, r: any) =>
+            distKm(bias, r.geometry.location) < distKm(bias, best.geometry.location) ? r : best,
+          )
+        : candidates[0];
+    const loc = pick?.geometry?.location;
+    if (typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') return null;
+    return { lat: loc.lat, lng: loc.lng };
   }
 
   /**

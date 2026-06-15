@@ -855,7 +855,13 @@ export class OrdersService {
       const fLat = tenant.farmLat == null ? null : Number(tenant.farmLat);
       const fLng = tenant.farmLng == null ? null : Number(tenant.farmLng);
       const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
-      const geo = await this.maps.geocode(dto.deliveryAddress, bias);
+      // Pass the structured city/postal as Geocoding component filters — they
+      // disambiguate same-named streets in different towns better than the bias
+      // box alone (the service falls back to country-only if they over-filter).
+      const geo = await this.maps.geocode(dto.deliveryAddress, bias, {
+        locality: dto.deliveryCity,
+        postalCode: dto.deliveryPostal,
+      });
       if (geo) {
         lat = geo.lat;
         lng = geo.lng;

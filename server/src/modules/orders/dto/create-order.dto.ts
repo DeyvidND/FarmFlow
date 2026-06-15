@@ -69,6 +69,14 @@ export class CreateOrderDto {
   @IsNotEmpty({ message: 'Населеното място е задължително за доставка до адрес с Еконт' })
   deliveryCity?: string;
 
+  // Postal code from the storefront's structured address field. Optional — used
+  // only to sharpen geocoding (passed as a `postal_code` component) for local
+  // farm delivery; not stored. Absent for free-typed addresses.
+  @ApiPropertyOptional({ description: 'Postal code (sharpens geocoding for local delivery)' })
+  @IsOptional()
+  @IsString()
+  deliveryPostal?: string;
+
   // Precise delivery coordinates from the storefront map/autocomplete. Optional:
   // when absent (e.g. free-typed address), the server geocodes deliveryAddress.
   @ApiPropertyOptional({ description: 'Delivery latitude (storefront map pin)' })
