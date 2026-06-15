@@ -323,14 +323,13 @@ export interface Article {
   media: ArticleMedia[];
 }
 
-/** Delivery slot with its live `booked` count (GET /slots). */
+/** Delivery slot with its live `booked` count (GET /slots). A slot holds one
+ *  order → `booked` is 0 (free) or ≥1 (taken). */
 export interface Slot {
   id: string;
   date: string; // YYYY-MM-DD
   timeFrom: string; // HH:MM:SS
   timeTo: string; // HH:MM:SS
-  maxOrders: number;
-  currentOrders: number | null;
   isActive: boolean;
   booked: number;
   customerNote: string | null;
@@ -338,11 +337,10 @@ export interface Slot {
   generated: boolean;
 }
 
-/** One delivery window: hours + capacity. */
+/** One delivery window (hours only — a slot holds exactly one order). */
 export interface SlotWindow {
   timeFrom: string; // HH:MM
   timeTo: string; // HH:MM
-  maxOrders: number;
 }
 
 /** A window bound to a weekday (0=Sun..6=Sat). */
@@ -383,7 +381,6 @@ export interface DashboardSlot {
   id: string;
   timeFrom: string;
   timeTo: string;
-  maxOrders: number;
   booked: number;
 }
 

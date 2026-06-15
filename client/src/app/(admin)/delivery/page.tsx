@@ -25,10 +25,8 @@ async function load(): Promise<{
 
   const tenant = tRes.ok ? await tRes.json() : {};
   const slots: Slot[] = sRes.ok ? await sRes.json() : [];
-  const slotFreeCount = slots.reduce(
-    (sum, s) => sum + Math.max(0, s.maxOrders - (s.booked ?? 0)),
-    0,
-  );
+  // Each slot holds one order → free = no live booking.
+  const slotFreeCount = slots.reduce((sum, s) => sum + ((s.booked ?? 0) >= 1 ? 0 : 1), 0);
 
   return {
     enabled: !!tenant.deliveryEnabled,

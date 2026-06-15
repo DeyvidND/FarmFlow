@@ -1,6 +1,6 @@
 import { slotRuleSlots, normalizeRule, migrateRule, type SlotRule } from './slot-rule';
 
-const win = { timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 };
+const win = { timeFrom: '10:00', timeTo: '12:00' };
 
 const base: SlotRule = {
   active: true,
@@ -28,19 +28,19 @@ describe('slotRuleSlots', () => {
     expect(s[s.length - 1].date <= '2026-06-22').toBe(true);
   });
 
-  it('uses each weekday its own window + capacity', () => {
+  it('uses each weekday its own window', () => {
     const r: SlotRule = {
       ...base,
       days: [
-        { dow: 1, timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 },
-        { dow: 3, timeFrom: '16:00', timeTo: '18:00', maxOrders: 3 },
+        { dow: 1, timeFrom: '10:00', timeTo: '12:00' },
+        { dow: 3, timeFrom: '16:00', timeTo: '18:00' },
       ],
     };
     const s = slotRuleSlots(r, '2026-06-08');
     const mon = s.find((g) => g.date === '2026-06-08')!; // Monday
     const wed = s.find((g) => g.date === '2026-06-10')!; // Wednesday
-    expect(mon).toMatchObject({ timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 });
-    expect(wed).toMatchObject({ timeFrom: '16:00', timeTo: '18:00', maxOrders: 3 });
+    expect(mon).toMatchObject({ timeFrom: '10:00', timeTo: '12:00' });
+    expect(wed).toMatchObject({ timeFrom: '16:00', timeTo: '18:00' });
     // Friday is not configured → no slot.
     expect(s.some((g) => g.date === '2026-06-12')).toBe(false);
   });
@@ -51,7 +51,7 @@ describe('slotRuleSlots', () => {
       repeat: 'interval',
       intervalDays: 3,
       anchorDate: '2026-06-02',
-      intervalWindow: { timeFrom: '09:00', timeTo: '11:00', maxOrders: 2 },
+      intervalWindow: { timeFrom: '09:00', timeTo: '11:00' },
     };
     const s = slotRuleSlots(r, '2026-06-08');
     expect(s.map((g) => g.date)).toEqual([
@@ -61,7 +61,7 @@ describe('slotRuleSlots', () => {
       '2026-06-17',
       '2026-06-20',
     ]);
-    expect(s[0]).toMatchObject({ timeFrom: '09:00', timeTo: '11:00', maxOrders: 2 });
+    expect(s[0]).toMatchObject({ timeFrom: '09:00', timeTo: '11:00' });
   });
 
   it('excludes skipDates', () => {
@@ -75,7 +75,7 @@ describe('slotRuleSlots', () => {
 });
 
 describe('migrateRule', () => {
-  it('upgrades a legacy single-window rule to per-weekday days', () => {
+  it('upgrades a legacy single-window rule to per-weekday days (dropping capacity)', () => {
     const legacy = {
       active: true,
       repeat: 'weekdays' as const,
@@ -84,16 +84,16 @@ describe('migrateRule', () => {
       anchorDate: '2026-06-01',
       timeFrom: '08:00',
       timeTo: '10:00',
-      maxOrders: 4,
+      maxOrders: 4, // legacy capacity — must be dropped, not carried into the window
       horizonDays: 14,
       skipDates: [],
     };
     const m = migrateRule(legacy)!;
     expect(m.days).toEqual([
-      { dow: 1, timeFrom: '08:00', timeTo: '10:00', maxOrders: 4 },
-      { dow: 5, timeFrom: '08:00', timeTo: '10:00', maxOrders: 4 },
+      { dow: 1, timeFrom: '08:00', timeTo: '10:00' },
+      { dow: 5, timeFrom: '08:00', timeTo: '10:00' },
     ]);
-    expect(m.intervalWindow).toEqual({ timeFrom: '08:00', timeTo: '10:00', maxOrders: 4 });
+    expect(m.intervalWindow).toEqual({ timeFrom: '08:00', timeTo: '10:00' });
   });
 
   it('passes a current rule through unchanged', () => {
@@ -111,23 +111,22 @@ describe('normalizeRule', () => {
     expect(normalizeRule(base, prev).skipDates).toEqual(['2026-06-10']);
   });
 
-  it('sorts + dedupes days by weekday', () => {
+  it('sorts + dedupes days by weekday (last write wins)', () => {
     const r = normalizeRule({
       ...base,
       days: [
         { dow: 5, ...win },
         { dow: 1, ...win },
-        { dow: 1, timeFrom: '14:00', timeTo: '16:00', maxOrders: 9 },
+        { dow: 1, timeFrom: '14:00', timeTo: '16:00' },
       ],
     });
     expect(r.days.map((d) => d.dow)).toEqual([1, 5]);
-    // last write wins for the duplicated weekday (its times survive); capacity is
-    // always clamped to 1 (each slot = one delivery), regardless of the input 9.
-    expect(r.days[0]).toMatchObject({ timeFrom: '14:00', timeTo: '16:00', maxOrders: 1 });
+    // Last write wins for the duplicated weekday (its times survive).
+    expect(r.days[0]).toMatchObject({ timeFrom: '14:00', timeTo: '16:00' });
   });
 
   it('rejects a day with timeTo <= timeFrom', () => {
-    expect(() => normalizeRule({ ...base, days: [{ dow: 1, timeFrom: '12:00', timeTo: '10:00', maxOrders: 5 }] })).toThrow();
+    expect(() => normalizeRule({ ...base, days: [{ dow: 1, timeFrom: '12:00', timeTo: '10:00' }] })).toThrow();
   });
 
   it('rejects empty days in weekday mode', () => {
@@ -136,7 +135,7 @@ describe('normalizeRule', () => {
 
   it('rejects an invalid interval window', () => {
     expect(() =>
-      normalizeRule({ ...base, repeat: 'interval', intervalWindow: { timeFrom: '10:00', timeTo: '09:00', maxOrders: 5 } }),
+      normalizeRule({ ...base, repeat: 'interval', intervalWindow: { timeFrom: '10:00', timeTo: '09:00' } }),
     ).toThrow();
   });
 
@@ -144,10 +143,10 @@ describe('normalizeRule', () => {
     const r = normalizeRule({
       ...base,
       repeat: 'weekdays',
-      intervalWindow: { timeFrom: '10:00', timeTo: '09:00', maxOrders: 5 },
+      intervalWindow: { timeFrom: '10:00', timeTo: '09:00' },
     });
-    // Falls back to DEFAULT_WINDOW's times; capacity normalised to the always-1 rule.
-    expect(r.intervalWindow).toEqual({ timeFrom: '10:00', timeTo: '12:00', maxOrders: 1 });
+    // Falls back to DEFAULT_WINDOW's times.
+    expect(r.intervalWindow).toEqual({ timeFrom: '10:00', timeTo: '12:00' });
     expect(r.days.length).toBeGreaterThan(0);
   });
 
@@ -155,8 +154,8 @@ describe('normalizeRule', () => {
     const r = normalizeRule({
       ...base,
       repeat: 'interval',
-      days: [{ dow: 1, timeFrom: '12:00', timeTo: '10:00', maxOrders: 5 }],
-      intervalWindow: { timeFrom: '09:00', timeTo: '11:00', maxOrders: 2 },
+      days: [{ dow: 1, timeFrom: '12:00', timeTo: '10:00' }],
+      intervalWindow: { timeFrom: '09:00', timeTo: '11:00' },
     });
     expect(r.days).toEqual([]);
     expect(r.intervalWindow).toMatchObject({ timeFrom: '09:00', timeTo: '11:00' });
@@ -184,7 +183,7 @@ describe('slotMinutes (slot length splitting)', () => {
   it('splits each day window into back-to-back slots of the given length', () => {
     const r: SlotRule = {
       ...base,
-      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00', maxOrders: 2 }],
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00' }],
       slotMinutes: 60,
     };
     const s = slotRuleSlots(r, '2026-06-08'); // Monday
@@ -195,14 +194,12 @@ describe('slotMinutes (slot length splitting)', () => {
       '12:00-13:00',
       '13:00-14:00',
     ]);
-    // Capacity applies per sub-slot.
-    for (const g of mon) expect(g.maxOrders).toBe(2);
   });
 
   it('drops a trailing partial chunk', () => {
     const r: SlotRule = {
       ...base,
-      days: [{ dow: 1, timeFrom: '10:00', timeTo: '11:30', maxOrders: 5 }],
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '11:30' }],
       slotMinutes: 60,
     };
     const mon = slotRuleSlots(r, '2026-06-08').filter((g) => g.date === '2026-06-08');
@@ -212,7 +209,7 @@ describe('slotMinutes (slot length splitting)', () => {
   it('window shorter than the slot length falls back to the whole window', () => {
     const r: SlotRule = {
       ...base,
-      days: [{ dow: 1, timeFrom: '10:00', timeTo: '10:45', maxOrders: 5 }],
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '10:45' }],
       slotMinutes: 60,
     };
     const mon = slotRuleSlots(r, '2026-06-08').filter((g) => g.date === '2026-06-08');
@@ -232,7 +229,7 @@ describe('slotMinutes (slot length splitting)', () => {
       repeat: 'interval',
       intervalDays: 3,
       anchorDate: '2026-06-08',
-      intervalWindow: { timeFrom: '09:00', timeTo: '12:00', maxOrders: 4 },
+      intervalWindow: { timeFrom: '09:00', timeTo: '12:00' },
       slotMinutes: 90,
     };
     const first = slotRuleSlots(r, '2026-06-08').filter((g) => g.date === '2026-06-08');
@@ -242,29 +239,12 @@ describe('slotMinutes (slot length splitting)', () => {
   it('normalizeRule clamps slotMinutes (0 off, 15..480 when set)', () => {
     const input = {
       ...base,
-      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00', maxOrders: 2 }],
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00' }],
     };
     expect(normalizeRule({ ...input, slotMinutes: 60 }).slotMinutes).toBe(60);
     expect(normalizeRule({ ...input, slotMinutes: 5 }).slotMinutes).toBe(15);
     expect(normalizeRule({ ...input, slotMinutes: 9999 }).slotMinutes).toBe(480);
     expect(normalizeRule({ ...input, slotMinutes: 0 }).slotMinutes).toBe(0);
     expect(normalizeRule(input).slotMinutes).toBe(0);
-  });
-
-  it('normalizeRule always forces capacity 1 (each slot = one delivery), with or without a duration', () => {
-    const input = {
-      ...base,
-      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00', maxOrders: 5 }],
-      intervalWindow: { timeFrom: '09:00', timeTo: '12:00', maxOrders: 4 },
-    };
-    // With a duration set, every sub-slot carries capacity 1…
-    const r = normalizeRule({ ...input, slotMinutes: 60 });
-    expect(r.days.every((d) => d.maxOrders === 1)).toBe(true);
-    expect(r.intervalWindow.maxOrders).toBe(1);
-    // …and so does a no-duration rule — the capacity field was removed from the UI;
-    // a slot holds exactly one delivery either way (commit a30decb).
-    const r0 = normalizeRule({ ...input, slotMinutes: 0 });
-    expect(r0.days[0].maxOrders).toBe(1);
-    expect(r0.intervalWindow.maxOrders).toBe(1);
   });
 });

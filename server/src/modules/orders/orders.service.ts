@@ -898,11 +898,12 @@ export class OrdersService {
         slotFrom = slot.timeFrom;
         slotTo = slot.timeTo;
 
+        // A slot holds exactly one order — any live order means it's taken.
         const [{ count }] = await tx
           .select({ count: sql<number>`count(*)::int` })
           .from(orders)
           .where(and(eq(orders.slotId, slotId), ne(orders.status, 'cancelled')));
-        if (count >= slot.maxOrders) throw new ConflictException('Слотът е запълнен');
+        if (count >= 1) throw new ConflictException('Слотът е запълнен');
       }
 
       // Per-item availability-window enforcement. A product with an active window

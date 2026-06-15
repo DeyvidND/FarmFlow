@@ -19,8 +19,6 @@ export class SlotWindowDto {
   @ApiProperty({ example: '10:00' }) @IsString() @Matches(/^\d{2}:\d{2}$/) timeFrom: string;
 
   @ApiProperty({ example: '12:00' }) @IsString() @Matches(/^\d{2}:\d{2}$/) timeTo: string;
-
-  @ApiProperty({ example: 5 }) @IsInt() @Min(1) maxOrders: number;
 }
 
 export class SlotDayDto extends SlotWindowDto {

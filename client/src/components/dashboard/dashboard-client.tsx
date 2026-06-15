@@ -51,7 +51,7 @@ export function DashboardClient({
     { Icon: Package, label: 'Поръчки днес', value: summary.orderCount, sub: `${delta >= 0 ? '+' : ''}${delta} спрямо вчера`, tone: 'green' as const },
     { Icon: Coins, label: 'Оборот днес', value: moneyFromStotinki(summary.revenueStotinki), sub: 'без отказани', tone: 'amber' as const },
     { Icon: Hourglass, label: 'Чакат потвърждение', value: summary.pendingCount, sub: summary.pendingCount ? 'изискват действие' : 'всичко чисто', tone: 'amber' as const },
-    { Icon: Clock, label: 'Следващ слот', value: ns ? `${ns.booked}/${ns.maxOrders}` : '—', sub: ns ? `${hhmm(ns.timeFrom)} – ${hhmm(ns.timeTo)}` : 'няма свободни', tone: 'green' as const },
+    { Icon: Clock, label: 'Следващ свободен слот', value: ns ? `${hhmm(ns.timeFrom)} – ${hhmm(ns.timeTo)}` : '—', sub: ns ? 'свободен' : 'няма свободни', tone: 'green' as const },
   ];
 
   const weekday = WEEKDAYS[new Date(`${summary.date}T00:00:00`).getDay()];
@@ -247,39 +247,32 @@ export function DashboardClient({
             </div>
           </div>
 
-          {/* capacity */}
+          {/* slots — each holds one order, so it's simply free or taken */}
           <div className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
             <div className="mb-3.5 flex items-center justify-between">
-              <h2 className="text-[16.5px] font-extrabold">Капацитет днес</h2>
+              <h2 className="text-[16.5px] font-extrabold">Слотове днес</h2>
               <span className="text-[12.5px] font-bold capitalize text-ff-muted">{weekday}</span>
             </div>
             {summary.slots.length === 0 ? (
               <p className="text-[13px] text-ff-muted">Няма слотове за деня.</p>
             ) : (
               summary.slots.map((s) => {
-                const ratio = s.maxOrders ? s.booked / s.maxOrders : 0;
-                const tone =
-                  s.booked >= s.maxOrders
-                    ? { bar: 'bg-ff-muted-2', txt: 'text-ff-muted-2' }
-                    : ratio >= 0.8
-                      ? { bar: 'bg-ff-amber', txt: 'text-ff-amber' }
-                      : { bar: 'bg-ff-green-500', txt: 'text-ff-green-500' };
+                const taken = s.booked >= 1;
                 return (
-                  <div key={s.id} className="mb-3 last:mb-0">
-                    <div className="mb-[5px] flex justify-between text-[13px]">
-                      <span className="font-semibold text-ff-ink-2">
-                        {hhmm(s.timeFrom)} – {hhmm(s.timeTo)}
-                      </span>
-                      <span className={cn('font-bold', tone.txt)}>
-                        {s.booked}/{s.maxOrders}
-                      </span>
-                    </div>
-                    <div className="h-[7px] overflow-hidden rounded-full bg-ff-border-2">
-                      <div
-                        className={cn('h-full rounded-full transition-[width] duration-300', tone.bar)}
-                        style={{ width: `${Math.round(ratio * 100)}%` }}
-                      />
-                    </div>
+                  <div key={s.id} className="mb-2.5 flex items-center justify-between text-[13px] last:mb-0">
+                    <span className="font-semibold text-ff-ink-2">
+                      {hhmm(s.timeFrom)} – {hhmm(s.timeTo)}
+                    </span>
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[11.5px] font-bold',
+                        taken
+                          ? 'bg-ff-gray-badge-bg text-ff-muted-2'
+                          : 'bg-ff-green-50 text-ff-green-700',
+                      )}
+                    >
+                      {taken ? 'Зает' : 'Свободен'}
+                    </span>
                   </div>
                 );
               })

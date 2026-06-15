@@ -44,7 +44,7 @@ function todayIso() {
   }).format(new Date());
 }
 
-const DEFAULT_WIN: SlotWindow = { timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 };
+const DEFAULT_WIN: SlotWindow = { timeFrom: '10:00', timeTo: '12:00' };
 
 // How long one delivery takes. 0 = the whole window is a single slot.
 const SLOT_LEN = [
@@ -66,7 +66,7 @@ const sameWin = (a: SlotWindow, b: SlotWindow) =>
 const withValue = (opts: string[], v: string) =>
   opts.includes(v) ? opts : [...opts, v].sort();
 
-/** Start/end (24h selects, end always after start). Capacity is always 1 — derived from slotMinutes. */
+/** Start/end (24h selects, end always after start). Each slot holds one order — no capacity. */
 function WindowFields({
   win,
   onChange,
@@ -142,7 +142,7 @@ function initialState(initial: SlotRule | null): State {
     };
   }
   const days = initial.days?.length ? initial.days : [{ dow: 1, ...DEFAULT_WIN }];
-  const shared: SlotWindow = { timeFrom: days[0].timeFrom, timeTo: days[0].timeTo, maxOrders: days[0].maxOrders };
+  const shared: SlotWindow = { timeFrom: days[0].timeFrom, timeTo: days[0].timeTo };
   return {
     active: initial.active,
     repeat: initial.repeat,
@@ -194,15 +194,13 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
   async function save() {
     setSaving(true);
     try {
-      const days = (s.sameHours ? [...pickedDows].map((dow) => ({ dow, ...s.shared })) : s.days)
-        .map((d) => ({ ...d, maxOrders: 1 }));
-      const intervalWindow = { ...s.intervalWindow, maxOrders: 1 };
+      const days = s.sameHours ? [...pickedDows].map((dow) => ({ dow, ...s.shared })) : s.days;
       const rule: SlotRuleInput = {
         active: s.active,
         repeat: s.repeat,
         days,
         intervalDays: s.intervalDays,
-        intervalWindow,
+        intervalWindow: s.intervalWindow,
         anchorDate: s.anchorDate,
         slotMinutes: s.slotMinutes,
         customerNote: s.customerNote || undefined,
@@ -239,8 +237,8 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
       {/* Configurability is the whole point — say it plainly. */}
       <p className="mb-3 rounded-lg border border-ff-green-100 bg-ff-green-50/60 px-3 py-2 text-[12.5px] leading-relaxed text-ff-ink-2">
         Нагласи го според <b>реалната си наличност</b>: избери само дните, в които доставяш, и дай на всеки ден
-        собствени часове и капацитет. Не можеш в някой ден? Просто не го избирай. Клиентите в магазина виждат
-        точно тези часове — само свободните.
+        собствени часове. Всеки час е за 1 поръчка. Не можеш в някой ден? Просто не го избирай. Клиентите в
+        магазина виждат точно тези часове — само свободните.
       </p>
 
       <div className={cn('flex flex-col gap-3', !s.active && 'pointer-events-none opacity-50')}>

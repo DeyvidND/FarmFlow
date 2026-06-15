@@ -3,14 +3,14 @@
  * date math + validation — no db. The generator (slots.service) turns the slots
  * this produces into concrete `generated` slot rows.
  *
- * weekdays mode carries a per-weekday window (its own hours + capacity), so a
- * farmer can deliver Mon 10–12 cap 5 but Wed 16–18 cap 3, and skip the rest.
- * interval mode ("every N days") has no per-day concept, so it uses one window.
+ * weekdays mode carries a per-weekday window (its own hours), so a farmer can
+ * deliver Mon 10–12 but Wed 16–18, and skip the rest. interval mode ("every N
+ * days") has no per-day concept, so it uses one window. Each slot holds exactly
+ * one delivery — there is no capacity.
  */
 export interface SlotWindow {
   timeFrom: string; // HH:MM
   timeTo: string; // HH:MM
-  maxOrders: number;
 }
 
 export interface SlotDay extends SlotWindow {
@@ -43,7 +43,6 @@ export interface GenSlot {
   date: string; // YYYY-MM-DD
   timeFrom: string; // HH:MM
   timeTo: string; // HH:MM
-  maxOrders: number;
 }
 
 /** Add `n` days to an ISO date (UTC-stable, no TZ drift). */
@@ -88,6 +87,7 @@ interface LegacyRule {
   weekdays?: number[];
   timeFrom?: string;
   timeTo?: string;
+  /** Capacity was removed — a slot now holds exactly one order. Ignored on migrate. */
   maxOrders?: number;
 }
 
@@ -103,7 +103,6 @@ export function migrateRule(raw: (Partial<SlotRule> & LegacyRule) | null | undef
   const win: SlotWindow = {
     timeFrom: raw.timeFrom ?? '10:00',
     timeTo: raw.timeTo ?? '12:00',
-    maxOrders: typeof raw.maxOrders === 'number' ? raw.maxOrders : 5,
   };
   const days: SlotDay[] = Array.isArray(raw.days)
     ? raw.days
@@ -128,7 +127,7 @@ export function slotRuleSlots(rule: SlotRule, today: string): GenSlot[] {
   const out: GenSlot[] = [];
   const pushDay = (date: string, win: SlotWindow) => {
     for (const part of splitWindow(win, slotMinutes)) {
-      out.push({ date, timeFrom: part.timeFrom, timeTo: part.timeTo, maxOrders: win.maxOrders });
+      out.push({ date, timeFrom: part.timeFrom, timeTo: part.timeTo });
     }
   };
 
@@ -159,18 +158,17 @@ export function slotRuleSlots(rule: SlotRule, today: string): GenSlot[] {
 const HHMM = /^\d{2}:\d{2}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Validate + clamp one window. Throws Error('<bg message>') on invalid input. */
+/** Validate one window (hours only — slots hold one order, no capacity). Throws
+ *  Error('<bg message>') on invalid input. */
 function normalizeWindow(input: Partial<SlotWindow> | undefined, where: string): SlotWindow {
   const timeFrom = input?.timeFrom ?? '';
   const timeTo = input?.timeTo ?? '';
-  const maxOrders = Math.floor(input?.maxOrders ?? 0);
   if (!HHMM.test(timeFrom) || !HHMM.test(timeTo)) throw new Error(`Часът трябва да е ЧЧ:ММ${where}`);
   if (timeTo <= timeFrom) throw new Error(`Краят трябва да е след началото${where}`);
-  if (maxOrders < 1) throw new Error(`Капацитетът трябва да е поне 1${where}`);
-  return { timeFrom, timeTo, maxOrders };
+  return { timeFrom, timeTo };
 }
 
-const DEFAULT_WINDOW: SlotWindow = { timeFrom: '10:00', timeTo: '12:00', maxOrders: 5 };
+const DEFAULT_WINDOW: SlotWindow = { timeFrom: '10:00', timeTo: '12:00' };
 
 /** Like normalizeWindow but returns `fallback` instead of throwing — used for the
  *  mode that isn't active, whose window is stored but isn't the user's choice. */
@@ -232,17 +230,12 @@ export function normalizeRule(input: Partial<SlotRule> & LegacyRule, prev?: Slot
   const rawSlotMin = Math.floor(migrated.slotMinutes ?? 0);
   const slotMinutes = rawSlotMin > 0 ? Math.min(480, Math.max(15, rawSlotMin)) : 0;
 
-  // Each slot holds exactly one delivery — capacity is always 1.
-  const cap1 = <T extends SlotWindow>(w: T): T => ({ ...w, maxOrders: 1 });
-  const finalDays = days.map(cap1);
-  const finalIntervalWindow = cap1(intervalWindow);
-
   return {
     active: migrated.active !== false,
     repeat,
-    days: finalDays,
+    days,
     intervalDays,
-    intervalWindow: finalIntervalWindow,
+    intervalWindow,
     anchorDate,
     slotMinutes,
     customerNote: migrated.customerNote?.slice(0, 280) || undefined,

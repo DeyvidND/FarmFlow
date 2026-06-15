@@ -38,7 +38,7 @@ async function loadNotifs(): Promise<Notif[]> {
       });
     }
     for (const s of dash.slots) {
-      if (s.maxOrders > 0 && s.booked >= s.maxOrders) {
+      if (s.booked >= 1) {
         list.push({
           id: `slot-${s.id}`,
           title: `Слот ${hhmm(s.timeFrom)} – ${hhmm(s.timeTo)} е запълнен`,

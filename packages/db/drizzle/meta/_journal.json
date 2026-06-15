@@ -330,6 +330,13 @@
       "when": 1781537691990,
       "tag": "0046_drop_availability_section_toggle",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1781566104612,
+      "tag": "0047_drop_slot_capacity",
+      "breakpoints": true
     }
   ]
 }

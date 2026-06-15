@@ -106,15 +106,15 @@ async function main() {
     .returning();
 
   // Full week of slots (25–31 May 2026) from docs/farmflow/project/data.js.
-  // `booked` is computed live from orders, so only capacity is seeded here.
-  const SLOT_WEEK: Array<[string, Array<[string, string, number]>]> = [
-    ['2026-05-25', [['09:00', '10:00', 5], ['10:00', '11:00', 5], ['11:00', '12:00', 5], ['17:00', '18:00', 4]]],
-    ['2026-05-26', [['09:00', '10:00', 5], ['10:00', '11:00', 5], ['17:00', '18:00', 4]]],
-    ['2026-05-27', [['10:00', '11:00', 5], ['11:00', '12:00', 5], ['12:00', '13:00', 5]]],
-    ['2026-05-28', [['09:00', '10:00', 5], ['10:00', '11:00', 5], ['11:00', '12:00', 5], ['17:00', '18:00', 4]]],
-    ['2026-05-29', [['09:00', '10:00', 5], ['10:00', '11:00', 5], ['12:00', '13:00', 5]]],
-    ['2026-05-30', [['09:00', '10:00', 5], ['10:00', '11:00', 5], ['11:00', '12:00', 5], ['12:00', '13:00', 5], ['13:00', '14:00', 5]]],
-    ['2026-05-31', [['10:00', '11:00', 4], ['11:00', '12:00', 4]]],
+  // Each slot holds one order; `booked` is computed live from orders.
+  const SLOT_WEEK: Array<[string, Array<[string, string]>]> = [
+    ['2026-05-25', [['09:00', '10:00'], ['10:00', '11:00'], ['11:00', '12:00'], ['17:00', '18:00']]],
+    ['2026-05-26', [['09:00', '10:00'], ['10:00', '11:00'], ['17:00', '18:00']]],
+    ['2026-05-27', [['10:00', '11:00'], ['11:00', '12:00'], ['12:00', '13:00']]],
+    ['2026-05-28', [['09:00', '10:00'], ['10:00', '11:00'], ['11:00', '12:00'], ['17:00', '18:00']]],
+    ['2026-05-29', [['09:00', '10:00'], ['10:00', '11:00'], ['12:00', '13:00']]],
+    ['2026-05-30', [['09:00', '10:00'], ['10:00', '11:00'], ['11:00', '12:00'], ['12:00', '13:00'], ['13:00', '14:00']]],
+    ['2026-05-31', [['10:00', '11:00'], ['11:00', '12:00']]],
   ];
 
   // Rolling storefront window: standard slots for the next 7 days (today..+6),
@@ -122,12 +122,12 @@ async function main() {
   // real date. The storefront date pills compute the same window from the
   // browser clock, so seed and UI always line up. Dates already covered by the
   // fixed demo week above are skipped to avoid duplicate slots.
-  const DAY_TEMPLATE: Array<[string, string, number]> = [
-    ['09:00', '10:00', 5],
-    ['10:00', '11:00', 5],
-    ['11:00', '12:00', 5],
-    ['12:00', '13:00', 5],
-    ['17:00', '18:00', 4],
+  const DAY_TEMPLATE: Array<[string, string]> = [
+    ['09:00', '10:00'],
+    ['10:00', '11:00'],
+    ['11:00', '12:00'],
+    ['12:00', '13:00'],
+    ['17:00', '18:00'],
   ];
   const seededDates = new Set(SLOT_WEEK.map(([date]) => date));
   const windowBase = new Date();
@@ -139,12 +139,11 @@ async function main() {
   })
     .filter((date) => !seededDates.has(date))
     .flatMap((date) =>
-      DAY_TEMPLATE.map(([timeFrom, timeTo, maxOrders]) => ({
+      DAY_TEMPLATE.map(([timeFrom, timeTo]) => ({
         tenantId: tenant.id,
         date,
         timeFrom,
         timeTo,
-        maxOrders,
       })),
     );
 
@@ -152,12 +151,11 @@ async function main() {
     .insert(deliverySlots)
     .values([
       ...SLOT_WEEK.flatMap(([date, daySlots]) =>
-        daySlots.map(([timeFrom, timeTo, maxOrders]) => ({
+        daySlots.map(([timeFrom, timeTo]) => ({
           tenantId: tenant.id,
           date,
           timeFrom,
           timeTo,
-          maxOrders,
         })),
       ),
       ...ROLLING_SLOTS,

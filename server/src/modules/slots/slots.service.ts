@@ -17,15 +17,15 @@ type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
 
 /**
  * Public-facing slot shape for the storefront picker. Internal columns
- * (`tenantId`, `maxOrders`, `currentOrders`, `isActive`, `createdAt`) are
- * dropped; times are trimmed `HH:MM` and `remaining` is precomputed.
+ * (`tenantId`, `isActive`, `createdAt`) are dropped and times are trimmed to
+ * `HH:MM`. A slot holds exactly one order, so only free slots (no live order)
+ * are returned — there is no capacity to expose.
  */
 export interface PublicSlot {
   id: string;
   date: string; // YYYY-MM-DD
   startTime: string; // HH:MM
   endTime: string; // HH:MM
-  remaining: number;
   customerNote: string | null;
 }
 
@@ -35,7 +35,6 @@ export const PUBLIC_SLOT_COLUMNS = [
   'date',
   'startTime',
   'endTime',
-  'remaining',
   'customerNote',
 ] as const;
 
@@ -77,7 +76,6 @@ export class SlotsService {
       tenantId,
       timeFrom: dto.timeFrom,
       timeTo: dto.timeTo,
-      maxOrders: dto.maxOrders,
       customerNote: dto.customerNote ?? null,
       driverNote: dto.driverNote ?? null,
     };
@@ -104,7 +102,7 @@ export class SlotsService {
     // Explicit allow-list: a partial slot edit must not inject recurrence-only
     // keys (date range / weekdays) or the generated flag into the row.
     const patch: Record<string, unknown> = {};
-    for (const k of ['timeFrom', 'timeTo', 'maxOrders', 'customerNote', 'driverNote'] as const) {
+    for (const k of ['timeFrom', 'timeTo', 'customerNote', 'driverNote'] as const) {
       if (dto[k] !== undefined) patch[k] = dto[k];
     }
     const [row] = await this.db
@@ -218,7 +216,6 @@ export class SlotsService {
         // pg `time` serializes as HH:MM:SS — trim to HH:MM for the UI.
         startTime: sql<string>`substring(${deliverySlots.timeFrom}::text from 1 for 5)`,
         endTime: sql<string>`substring(${deliverySlots.timeTo}::text from 1 for 5)`,
-        remaining: sql<number>`(${deliverySlots.maxOrders} - count(${orders.id}))::int`,
         customerNote: deliverySlots.customerNote,
       })
       .from(deliverySlots)
@@ -228,7 +225,8 @@ export class SlotsService {
       )
       .where(and(...filters))
       .groupBy(deliverySlots.id)
-      .having(sql`${deliverySlots.maxOrders} - count(${orders.id}) > 0`)
+      // A slot holds one order — return only the free ones (no live order).
+      .having(sql`count(${orders.id}) = 0`)
       .orderBy(deliverySlots.date, deliverySlots.timeFrom);
   }
 
@@ -340,7 +338,6 @@ export class SlotsService {
           date: w.date,
           timeFrom: w.timeFrom,
           timeTo: w.timeTo,
-          maxOrders: w.maxOrders,
           generated: true,
           customerNote: rule.customerNote ?? null,
           driverNote: rule.driverNote ?? null,

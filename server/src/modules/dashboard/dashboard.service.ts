@@ -8,7 +8,7 @@ export interface DashboardSlot {
   id: string;
   timeFrom: string;
   timeTo: string;
-  maxOrders: number;
+  /** Live count of non-cancelled orders. A slot holds one order → 0 = free, ≥1 = taken. */
   booked: number;
 }
 
@@ -19,7 +19,7 @@ export interface DashboardSummary {
   orderDelta: number;
   revenueStotinki: number;
   pendingCount: number;
-  /** First active slot today still under capacity, or null. */
+  /** First free (un-booked) active slot today, or null. */
   nextSlot: DashboardSlot | null;
   slots: DashboardSlot[];
   /** false → show the storefront "subscription inactive" banner; history limited to 7 days. */
@@ -30,7 +30,7 @@ export interface DashboardSummary {
 export class DashboardService {
   constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
 
-  /** Today's summary: counts, revenue (non-cancelled), pending, next slot + capacity bars. */
+  /** Today's summary: counts, revenue (non-cancelled), pending, next free slot + slot list. */
   async summary(tenantId: string, date?: string): Promise<DashboardSummary> {
     const day = date ?? bgToday();
     // Index-served day windows (vs the non-sargable `::date` cast that scanned the
@@ -76,7 +76,6 @@ export class DashboardService {
         id: deliverySlots.id,
         timeFrom: deliverySlots.timeFrom,
         timeTo: deliverySlots.timeTo,
-        maxOrders: deliverySlots.maxOrders,
         booked: sql<number>`count(${orders.id}) filter (where ${orders.status} <> 'cancelled')::int`,
       })
       .from(deliverySlots)
@@ -88,12 +87,7 @@ export class DashboardService {
           eq(deliverySlots.isActive, true),
         )!,
       )
-      .groupBy(
-        deliverySlots.id,
-        deliverySlots.timeFrom,
-        deliverySlots.timeTo,
-        deliverySlots.maxOrders,
-      )
+      .groupBy(deliverySlots.id, deliverySlots.timeFrom, deliverySlots.timeTo)
       .orderBy(deliverySlots.timeFrom);
 
     const [[agg], [{ yesterday }], [tenant], slotRows] = await Promise.all([
@@ -107,7 +101,6 @@ export class DashboardService {
       id: s.id,
       timeFrom: s.timeFrom,
       timeTo: s.timeTo,
-      maxOrders: s.maxOrders,
       booked: s.booked,
     }));
 
@@ -117,7 +110,7 @@ export class DashboardService {
       orderDelta: agg.orderCount - yesterday,
       revenueStotinki: agg.revenueStotinki,
       pendingCount: agg.pendingCount,
-      nextSlot: slots.find((s) => s.booked < s.maxOrders) ?? null,
+      nextSlot: slots.find((s) => s.booked === 0) ?? null,
       slots,
       subscriptionActive: tenant?.status !== 'inactive',
     };

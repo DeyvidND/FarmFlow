@@ -16,8 +16,8 @@ export function SlotPill({
   onEdit: () => void;
   busy?: boolean;
 }) {
-  const c = slotColor(slot.booked, slot.maxOrders);
-  const pct = slot.maxOrders > 0 ? Math.round((slot.booked / slot.maxOrders) * 100) : 0;
+  const c = slotColor(slot.booked);
+  const taken = slot.booked >= 1;
   const hasNote = !!(slot.customerNote || slot.driverNote);
 
   return (
@@ -45,15 +45,9 @@ export function SlotPill({
             />
           )}
         </div>
-        <div className="mt-1 flex items-center justify-between">
-          <div
-            className="mr-[7px] h-[5px] flex-1 overflow-hidden rounded-full"
-            style={{ background: 'rgba(0,0,0,0.07)' }}
-          >
-            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: c.bar }} />
-          </div>
+        <div className="mt-1 flex items-center justify-end">
           <span className="text-[11.5px] font-extrabold" style={{ color: c.ink }}>
-            {slot.booked}/{slot.maxOrders}
+            {taken ? 'Зает' : 'Свободен'}
           </span>
         </div>
       </button>

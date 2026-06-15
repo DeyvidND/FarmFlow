@@ -27,11 +27,6 @@ export class CreateSlotDto {
   @Matches(/^\d{2}:\d{2}$/, { message: 'timeTo must be HH:MM' })
   timeTo: string;
 
-  @ApiProperty({ example: 20 })
-  @IsInt()
-  @Min(1)
-  maxOrders: number;
-
   @ApiPropertyOptional({
     example: '2026-06-30',
     description: 'Range end — set together with weekdays to bulk-create across [date, dateTo].',

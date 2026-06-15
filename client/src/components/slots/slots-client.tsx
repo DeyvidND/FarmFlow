@@ -90,7 +90,6 @@ export function SlotsClient({
             date: d,
             timeFrom: c.timeFrom,
             timeTo: c.timeTo,
-            maxOrders: 1,
           });
           createdN++;
         }
@@ -153,8 +152,7 @@ export function SlotsClient({
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3 text-[12.5px] font-semibold text-ff-muted max-sm:hidden">
             <Legend c="var(--ff-green-500)" t="свободно" />
-            <Legend c="var(--ff-amber)" t="почти пълно" />
-            <Legend c="var(--ff-muted-2)" t="пълно" />
+            <Legend c="var(--ff-muted-2)" t="заето" />
           </div>
           <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
             <Info size={16} /> Обяснения

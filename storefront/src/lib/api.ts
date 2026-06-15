@@ -53,14 +53,14 @@ export interface PublicAvailabilityWindow {
   remaining: number;
 }
 
-/** Available delivery slot as returned by `GET /public/:slug/slots`. Times may
- *  arrive as `HH:MM:SS` (pg `time`); trim to `HH:MM` for display. */
+/** Available delivery slot as returned by `GET /public/:slug/slots`. Only free
+ *  slots come back (each holds one order). Times may arrive as `HH:MM:SS` (pg
+ *  `time`); trim to `HH:MM` for display. */
 export interface PublicSlot {
   id: string;
   date: string; // YYYY-MM-DD
   startTime: string;
   endTime: string;
-  remaining: number;
 }
 
 export type DeliveryType = 'address' | 'econt' | 'econt_address' | 'pickup';

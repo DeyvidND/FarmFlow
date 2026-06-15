@@ -242,8 +242,6 @@ export const deliverySlots = pgTable(
     date: date('date').notNull(),
     timeFrom: time('time_from').notNull(),
     timeTo: time('time_to').notNull(),
-    maxOrders: integer('max_orders').notNull(),
-    currentOrders: integer('current_orders').default(0),
     isActive: boolean('is_active').default(true),
     // Customer-facing note shown in the storefront slot picker (e.g. "ще се обадя
     // преди доставка"). Safe to expose publicly.
