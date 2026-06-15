@@ -9,42 +9,56 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AvailabilityService } from './availability.service';
 import { CreateWindowDto } from './dto/create-window.dto';
 import { UpdateWindowDto } from './dto/update-window.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
+import type { TenantRequestUser } from '@farmflow/types';
 
 @ApiTags('availability')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
+@Roles('admin', 'farmer')
 @Controller('availability-windows')
 export class AvailabilityController {
   constructor(private readonly svc: AvailabilityService) {}
 
   @Get()
-  list(@CurrentTenant() tenantId: string, @Query('productId') productId?: string) {
-    return this.svc.list(tenantId, productId);
+  @ApiQuery({ name: 'productId', required: false })
+  @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
+  list(
+    @CurrentUser() user: TenantRequestUser,
+    @Query('productId') productId?: string,
+    @Query('farmerId') farmerId?: string,
+  ) {
+    const farmerScope = effectiveFarmerId(user.role, user.farmerId, farmerId);
+    return this.svc.list(user.tenantId, { productId, farmerId: farmerScope });
   }
 
   @Post()
-  create(@CurrentTenant() tenantId: string, @Body() dto: CreateWindowDto) {
-    return this.svc.create(tenantId, dto);
+  create(@CurrentUser() user: TenantRequestUser, @Body() dto: CreateWindowDto) {
+    const farmerScope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.svc.create(user.tenantId, dto, farmerScope);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
     @Body() dto: UpdateWindowDto,
   ) {
-    return this.svc.update(id, tenantId, dto);
+    const farmerScope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.svc.update(id, user.tenantId, dto, farmerScope);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.svc.remove(id, tenantId);
+  remove(@Param('id') id: string, @CurrentUser() user: TenantRequestUser) {
+    const farmerScope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.svc.remove(id, user.tenantId, farmerScope);
   }
 }
 

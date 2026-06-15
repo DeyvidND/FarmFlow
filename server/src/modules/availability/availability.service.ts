@@ -2,10 +2,11 @@ import {
   Injectable,
   Inject,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, asc, eq, gte, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm';
 import { type Database, productAvailabilityWindows, products } from '@farmflow/db';
 import type { AvailabilityWindow, PublicAvailabilityWindow } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -24,9 +25,40 @@ export class AvailabilityService {
     private readonly publicCache: PublicCacheService,
   ) {}
 
-  /** All windows for the tenant (optionally filtered to one product), current +
-   *  upcoming + past, ordered by start date. */
-  list(tenantId: string, productId?: string): Promise<AvailabilityWindow[]> {
+  /** All windows for the tenant, ordered by start date.
+   *  opts.productId — optional product filter (any caller).
+   *  opts.farmerId  — when non-null, only windows whose product belongs to that
+   *                   farmer are returned (producer scope); null = whole tenant. */
+  async list(
+    tenantId: string,
+    opts: { productId?: string; farmerId?: string | null },
+  ): Promise<AvailabilityWindow[]> {
+    const { productId, farmerId } = opts;
+
+    // When a farmerScope is active, restrict to product ids owned by that farmer.
+    if (farmerId) {
+      const farmerProducts = await this.db
+        .select({ id: products.id })
+        .from(products)
+        .where(and(eq(products.tenantId, tenantId), eq(products.farmerId, farmerId)));
+      const ids = farmerProducts.map((p) => p.id);
+      if (!ids.length) return [];
+
+      const productFilter = productId && ids.includes(productId) ? productId : undefined;
+      const effectiveIds = productFilter ? [productFilter] : ids;
+
+      return this.db
+        .select()
+        .from(productAvailabilityWindows)
+        .where(
+          and(
+            eq(productAvailabilityWindows.tenantId, tenantId),
+            inArray(productAvailabilityWindows.productId, effectiveIds),
+          ),
+        )
+        .orderBy(asc(productAvailabilityWindows.startsAt));
+    }
+
     const where = productId
       ? and(
           eq(productAvailabilityWindows.tenantId, tenantId),
@@ -40,16 +72,28 @@ export class AvailabilityService {
       .orderBy(asc(productAvailabilityWindows.startsAt));
   }
 
-  async create(tenantId: string, dto: CreateWindowDto): Promise<AvailabilityWindow> {
+  /** Create a new availability window.
+   *  farmerScope — when non-null (producer caller), the target product must also
+   *                belong to that farmer; null = owner, no extra restriction. */
+  async create(
+    tenantId: string,
+    dto: CreateWindowDto,
+    farmerScope: string | null,
+  ): Promise<AvailabilityWindow> {
     // Ownership guard: a window may only be created for a product owned by the
     // caller's tenant. Without this, a tenant could attach windows to (and read
     // `remaining` of) another tenant's product — a cross-tenant IDOR.
     const [owned] = await this.db
-      .select({ id: products.id })
+      .select({ id: products.id, farmerId: products.farmerId })
       .from(products)
       .where(and(eq(products.id, dto.productId), eq(products.tenantId, tenantId)))
       .limit(1);
     if (!owned) throw new NotFoundException('Продуктът не е намерен');
+
+    // Producer sub-account: also verify the product belongs to *their* farm.
+    if (farmerScope !== null && owned.farmerId !== farmerScope) {
+      throw new ForbiddenException('Нямате достъп до този продукт');
+    }
 
     if (dto.endsAt < dto.startsAt) {
       throw new BadRequestException('Крайната дата е преди началната');
@@ -85,10 +129,13 @@ export class AvailabilityService {
     return row;
   }
 
+  /** Update an existing window.
+   *  farmerScope — when non-null, the window's product must belong to that farmer. */
   async update(
     id: string,
     tenantId: string,
     dto: UpdateWindowDto,
+    farmerScope: string | null,
   ): Promise<AvailabilityWindow> {
     const [cur] = await this.db
       .select()
@@ -101,6 +148,18 @@ export class AvailabilityService {
       )
       .limit(1);
     if (!cur) throw new NotFoundException('Периодът не е намерен');
+
+    // Producer sub-account: verify the window belongs to their farm.
+    if (farmerScope !== null) {
+      const [prod] = await this.db
+        .select({ farmerId: products.farmerId })
+        .from(products)
+        .where(and(eq(products.id, cur.productId!), eq(products.tenantId, tenantId)))
+        .limit(1);
+      if (!prod || prod.farmerId !== farmerScope) {
+        throw new ForbiddenException('Нямате достъп до този период');
+      }
+    }
 
     const startsAt = dto.startsAt ?? cur.startsAt;
     const endsAt = dto.endsAt ?? cur.endsAt;
@@ -144,7 +203,37 @@ export class AvailabilityService {
     return row;
   }
 
-  async remove(id: string, tenantId: string): Promise<{ id: string }> {
+  /** Delete a window.
+   *  farmerScope — when non-null, the window's product must belong to that farmer. */
+  async remove(
+    id: string,
+    tenantId: string,
+    farmerScope: string | null,
+  ): Promise<{ id: string }> {
+    // Producer sub-account: verify ownership before deleting.
+    if (farmerScope !== null) {
+      const [cur] = await this.db
+        .select({ productId: productAvailabilityWindows.productId })
+        .from(productAvailabilityWindows)
+        .where(
+          and(
+            eq(productAvailabilityWindows.id, id),
+            eq(productAvailabilityWindows.tenantId, tenantId),
+          ),
+        )
+        .limit(1);
+      if (!cur) throw new NotFoundException('Периодът не е намерен');
+
+      const [prod] = await this.db
+        .select({ farmerId: products.farmerId })
+        .from(products)
+        .where(and(eq(products.id, cur.productId!), eq(products.tenantId, tenantId)))
+        .limit(1);
+      if (!prod || prod.farmerId !== farmerScope) {
+        throw new ForbiddenException('Нямате достъп до този период');
+      }
+    }
+
     const res = await this.db
       .delete(productAvailabilityWindows)
       .where(
@@ -161,9 +250,15 @@ export class AvailabilityService {
 
   /** Active windows (today within range) for a storefront slug — the overlay the
    *  storefront merges onto the cached catalog by productId. Not long-cached:
-   *  `remaining` is volatile (changes per order). */
+   *  `remaining` is volatile (changes per order).
+   *  Returns [] immediately when the tenant's availabilitySectionEnabled toggle is
+   *  off — no DB query needed. */
   async findPublicActiveBySlug(slug: string): Promise<PublicAvailabilityWindow[]> {
     const tenant = await this.publicCache.resolveTenant(this.db, slug);
+
+    // Gated by the «Наличност» section toggle — if off, show nothing to the storefront.
+    if (!tenant.availabilitySectionEnabled) return [];
+
     const today = bgToday();
     // Push the active-today predicate into SQL so it's served by the
     // (product_id, starts_at, ends_at) index instead of scanning all tenant
