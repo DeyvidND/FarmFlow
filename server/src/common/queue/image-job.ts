@@ -1,18 +1,24 @@
-/** Which upload a job services — maps 1:1 to a service finisher method. */
+/**
+ * Which upload a job services — maps 1:1 to a service finisher method.
+ *
+ * Scope is limited to entity images that are STORED to a column/table and
+ * displayed later (cover + gallery for products / farmers / subcategories), so an
+ * upload can return immediately and the optimize happens on a worker. Inline
+ * editor uploads (article WYSIWYG, newsletter block images) and slot-keyed tenant
+ * site media are intentionally NOT queued — their callers need the final URL
+ * synchronously to embed it, so they stay synchronous.
+ */
 export type ImageEntityType =
   | 'product-cover'
   | 'product-media'
   | 'farmer-cover'
-  | 'farmer-secondary'
+  | 'farmer-media'
   | 'subcategory-cover'
-  | 'subcategory-secondary'
-  | 'tenant-image'
-  | 'article-image'
-  | 'newsletter-image';
+  | 'subcategory-media';
 
 export interface ImageJobPayload {
   entityType: ImageEntityType;
-  /** The owning row id (product/farmer/... id). */
+  /** The owning row id (product/farmer/subcategory id). */
   entityId: string;
   tenantId: string;
   /** Original upload bytes, base64. Decoded by the worker, then optimized. */
