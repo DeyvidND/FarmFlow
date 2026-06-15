@@ -138,6 +138,33 @@ describe('MapsService.geocode', () => {
     expect(await make('k').geocode('гибериш', undefined, {})).toBeNull();
     expect(calls).toHaveLength(1); // components already country-only → no retry
   });
+
+  it('rejects a town-centre (locality) centroid — a gibberish street must not pin to the city centre', async () => {
+    // With a locality component, Google falls back to the town centre for an
+    // unmatchable street (types=['locality']). That is not street-precise → null
+    // (then a country-only retry, which here also yields the same coarse match).
+    const calls = mockFetchSeq([geoOk(43.21, 27.91, ['locality', 'political'])]);
+    expect(await make('k').geocode('пълни глупости 123', undefined, { locality: 'Варна' })).toBeNull();
+    expect(calls).toHaveLength(2); // attempt with locality → coarse → country-only retry
+  });
+
+  it('keeps a street-precise (route) match — many rural BG addresses resolve only to street level', async () => {
+    mockFetch(geoOk(43.0, 25.6, ['route']));
+    expect(await make('k').geocode('ул. Дунав, някое село', undefined, { locality: 'Севлиево' })).toEqual({
+      lat: 43.0,
+      lng: 25.6,
+    });
+  });
+
+  it('keeps a neighbourhood (sublocality) match — a real district beats a precise match in the wrong town', async () => {
+    // кв. Чайка resolves to a sublocality centroid in the RIGHT place; dropping it
+    // (as a too-strict street-only rule would) sent the retry to a same-named
+    // street ~38km away. A finer-than-town type must be kept.
+    mockFetch(geoOk(43.2146, 27.9408, ['sublocality', 'sublocality_level_1', 'political']));
+    expect(
+      await make('k').geocode('ул. Цар Освободител 12, кв. Чайка, Варна', { lat: 43.21, lng: 27.91 }, { locality: 'Варна' }),
+    ).toEqual({ lat: 43.2146, lng: 27.9408 });
+  });
 });
 
 describe('MapsService.routeFixed', () => {

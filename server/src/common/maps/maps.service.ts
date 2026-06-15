@@ -45,6 +45,30 @@ const ROUTE_CACHE_TTL = 7 * 24 * 60 * 60;
  * a fixable typo) must not be remembered as "no such place".
  */
 const GEOCODE_CACHE_TTL = 30 * 24 * 60 * 60;
+/**
+ * Too-coarse Google geocode result types: town/postal/region/country centroids
+ * and the `political` area tag. A match is rejected only when EVERY one of its
+ * types is in this set — i.e. Google could not resolve anything finer than a
+ * whole town/area and fell back to its centroid. With a `locality` component
+ * even a gibberish street collapses to the town centre (type `locality`), so we
+ * drop it (→ null → the farmer sets the pin) instead of silently routing to a
+ * town centre. Anything with a finer type — `sublocality`/`neighborhood` (a real
+ * district like кв. Чайка), `route`, `street_address`, `premise`, a plus code,
+ * even a POI — is kept, because a correct neighbourhood pin beats a street-precise
+ * match in the wrong town. Type-based, so it holds everywhere in BG, not one town.
+ */
+const COARSE_GEOCODE_TYPES = new Set([
+  'country',
+  'administrative_area_level_1',
+  'administrative_area_level_2',
+  'administrative_area_level_3',
+  'administrative_area_level_4',
+  'locality',
+  'postal_town',
+  'postal_code',
+  'postal_code_prefix',
+  'political',
+]);
 
 /** Straight-line distance (km) between two points. */
 function distKm(a: LatLng, b: LatLng): number {
@@ -220,13 +244,16 @@ export class MapsService {
       }
       return null;
     }
-    // Drop too-coarse matches. With components=country:BG, an unmatchable or
-    // gibberish address doesn't return ZERO_RESULTS — Google falls back to the
-    // country (or region) centroid (~200km off). Keep only town/postal/street
-    // precision; anything coarser counts as "no match".
+    // Drop town/postal/region centroids. An unmatchable / gibberish address does
+    // NOT return ZERO_RESULTS — Google falls back to a centroid: the country or
+    // region (~200km off) with country:BG alone, or the TOWN centre when a
+    // `locality` component is supplied (so even garbage in the street field would
+    // otherwise resolve to the city centre). Reject a candidate only when EVERY
+    // type it has is coarse; keep anything with a finer type (a real district,
+    // street, building, plus code) → null only when there is no real match.
     const candidates = res.results.filter((r: any) => {
       const t: string[] = Array.isArray(r?.types) ? r.types : [];
-      return !t.includes('country') && !t.includes('administrative_area_level_1');
+      return t.some((x) => !COARSE_GEOCODE_TYPES.has(x));
     });
     if (!candidates.length) {
       this.logger.warn(`Geocode too coarse for "${query}" — ignoring.`);
