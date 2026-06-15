@@ -1,9 +1,13 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { and, eq, asc, inArray } from 'drizzle-orm';
 import { type Database, farmers, farmerMedia } from '@farmflow/db';
 import type { Farmer, FarmerMedia, PublicFarmer } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
+import { encodeImageJob } from '../../common/queue/image-job';
 import { CreateFarmerDto } from './dto/create-farmer.dto';
 import { UpdateFarmerDto } from './dto/update-farmer.dto';
 import { StorageService } from '../storage/storage.service';
@@ -23,6 +27,7 @@ export class FarmersService {
     private readonly storage: StorageService,
     private readonly cache: CatalogCacheService,
     private readonly publicCache: PublicCacheService,
+    @InjectQueue(IMAGE_QUEUE) private readonly imageQueue: Queue,
   ) {}
 
   /** All farmers for the tenant, ordered by display position then age. */
@@ -101,25 +106,36 @@ export class FarmersService {
     id: string,
     tenantId: string,
     file: Express.Multer.File,
-  ): Promise<Farmer> {
+  ): Promise<Farmer & { imageProcessing: boolean }> {
+    const farmer = await this.findOne(id, tenantId);
+    await this.imageQueue.add('process', encodeImageJob('farmer-cover', id, tenantId, file));
+    return { ...farmer, imageProcessing: true };
+  }
+
+  /** Called by the image worker after it has decoded and optimized the bytes. */
+  async finishFarmerCover(
+    id: string,
+    tenantId: string,
+    buffer: Buffer,
+    mime: string,
+  ): Promise<void> {
     const farmer = await this.findOne(id, tenantId);
     const img = await optimizeImage(
-      file.buffer,
-      file.mimetype,
-      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+      buffer,
+      mime,
+      PRODUCT_IMAGE_EXT_BY_MIME[mime] ?? 'bin',
     );
     const slug = await tenantSlug(this.db, tenantId);
     const key = `tenants/${slug}/farmers/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
     if (farmer.imageUrl) await this.deleteObject(farmer.imageUrl);
-    const [row] = await this.db
+    await this.db
       .update(farmers)
       .set({ imageUrl: url, coverCrop: await smartFocal(img.buffer) })
       .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
       .returning();
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
-    return row;
   }
 
   // ---- Gallery (multi-image) ----
@@ -134,12 +150,27 @@ export class FarmersService {
       .orderBy(asc(farmerMedia.position));
   }
 
-  /** Append an uploaded photo to the gallery; keeps `imageUrl` synced to the cover. */
+  /** Append an uploaded photo to the gallery (async path): validates ownership
+   *  then enqueues the heavy optimize+upload work; returns immediately so the
+   *  HTTP response is fast. The worker calls `finishFarmerMedia` once done. */
   async addMedia(
     id: string,
     tenantId: string,
     file: Express.Multer.File,
-  ): Promise<FarmerMedia> {
+  ): Promise<{ imageProcessing: boolean }> {
+    await this.findOne(id, tenantId);
+    await this.imageQueue.add('process', encodeImageJob('farmer-media', id, tenantId, file));
+    return { imageProcessing: true };
+  }
+
+  /** Worker finisher: runs the full synchronous optimize → upload → insert → syncCover
+   *  pipeline for a gallery photo after the queue has decoded the raw bytes. */
+  async finishFarmerMedia(
+    id: string,
+    tenantId: string,
+    buffer: Buffer,
+    mime: string,
+  ): Promise<void> {
     const farmer = await this.findOne(id, tenantId);
 
     const existing = await this.db
@@ -158,15 +189,15 @@ export class FarmersService {
     }
 
     const img = await optimizeImage(
-      file.buffer,
-      file.mimetype,
-      PRODUCT_IMAGE_EXT_BY_MIME[file.mimetype] ?? 'bin',
+      buffer,
+      mime,
+      PRODUCT_IMAGE_EXT_BY_MIME[mime] ?? 'bin',
     );
     const slug = await tenantSlug(this.db, tenantId);
     const key = `tenants/${slug}/farmers/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
-    const [row] = await this.db
+    await this.db
       .insert(farmerMedia)
       .values({ farmerId: id, tenantId, url, position: existing.length })
       .returning();
@@ -174,7 +205,6 @@ export class FarmersService {
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
-    return row;
   }
 
   /** Remove one gallery photo (DB row + R2 object), then re-sync the cover. */

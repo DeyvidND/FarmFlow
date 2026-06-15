@@ -14,7 +14,7 @@ describe('FarmersService.reorder', () => {
     const { db, tx } = makeDb();
     const cache = { invalidate: jest.fn() };
     const publicCache = { del: jest.fn() };
-    const svc = new FarmersService(db, {} as never, cache as never, publicCache as never);
+    const svc = new FarmersService(db, {} as never, cache as never, publicCache as never, {} as never);
 
     const out = await svc.reorder('t1', {
       items: [
