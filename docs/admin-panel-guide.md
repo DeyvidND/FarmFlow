@@ -14,9 +14,9 @@ Both talk to the same API (`http://localhost:3000`, Swagger at `/docs`). Each fa
 
 > Demo logins (seed): super-admin `admin@farmflow.bg` / `admin1234`; farm owner `ivan@ferma-petrovi.bg` / `ferma1234`.
 
-> **What's new in this guide.** The Farmer Admin nav is now **grouped by function** — **Продажби** (the everyday order pipeline), **Каталог**, **Маркетинг**, and **Доставка и плащане** (set-once config). The guide below follows the same order. It now also covers the screens that were missing: **Методи и цени** (`/setup` — the quick delivery+payment switchboard), **Функции на магазина** (turn whole store parts on/off), **Отзиви** (customer-review moderation), **Снимки на сайта** (storefront photo slots) and **Контакти** (contact info + favicon + theme colour), plus the rebuilt **Доставка / Еконт** (manual *or* automatic courier), the recurring **Часове за доставка** scheduler (per-weekday hours, delivery-duration splitting, close-a-day), the **Начална страница** landing-blocks tab in Настройки, and the catalog **reorder / Продукт на седмицата / cover-framing** tools. A screen now reads the **same name** in the sidebar, the top bar and this guide.
+> **What's new in this guide.** The Farmer Admin nav is now **grouped by function** — **Продажби** (the everyday order pipeline), **Каталог**, **Маркетинг**, and **Доставка и плащане** (set-once config). The guide below follows the same order. It now also covers the screens that were missing: **Методи и цени** (`/setup` — the quick delivery+payment switchboard), **Функции на магазина** (turn whole store parts on/off), **Отзиви** (customer-review moderation), **Промени сайта** (storefront photo slots and body copy/FAQ) and **Контакти** (contact info + favicon + theme colour), plus the rebuilt **Доставка / Еконт** (manual *or* automatic courier), the recurring **Часове за доставка** scheduler (per-weekday hours, delivery-duration splitting, close-a-day), the **Начална страница** landing-blocks tab in Настройки, and the catalog **reorder / Продукт на седмицата / cover-framing** tools. A screen now reads the **same name** in the sidebar, the top bar and this guide.
 >
-> *Screenshots for the newest screens (Методи и цени, Функции на магазина, Отзиви, Снимки на сайта, Контакти) are pending and described in text for now.*
+> *Screenshots for the newest screens (Методи и цени, Функции на магазина, Отзиви, Промени сайта, Контакти) are pending and described in text for now.*
 
 > **In-app help (for the farmers themselves).** Beyond this guide, the panel hand-holds users directly: first login opens a **blocking, self-explaining password modal**; every busy screen has an **„Обяснения"** button (top-right) that opens a short, plain-language help modal for *that* screen (Табло, Поръчки, Продукти, Часове за доставка, Доставка/Еконт); and **Документация** inside the panel opens with a **„Първи стъпки"** quick-start. Keep those in sync when screens change — the in-app copy lives in `client/src/lib/help-content.ts`, `client/src/lib/delivery-data.ts`, and `client/src/app/(admin)/help/page.tsx`.
 
@@ -112,7 +112,7 @@ The nav is **grouped by what you're doing**, so the everyday work stays at the t
 - **Табло** — pinned on top, always visible (the landing page).
 - **Продажби** *(the everyday order pipeline)* — **Поръчки · Производство · Маршрут · Плащания**.
 - **Каталог** *(what you sell)* — **Продукти · Фермери · Подкатегории**.
-- **Маркетинг** *(storefront content)* — **Статии · Отзиви · Снимки на сайта · Контакти · Имейл клиенти**.
+- **Маркетинг** *(storefront content)* — **Статии · Отзиви · Промени сайта · Контакти · Имейл клиенти**.
 - **Доставка и плащане** *(set once)* — **Методи и цени · Доставка · Часове за доставка · Функции на магазина**.
 
 The **Каталог · Маркетинг · Доставка и плащане** group headers are collapsible (click to fold). Tabs marked **🔒 needs active subscription** are blocked (by the operator via A4, or automatically when a subscription lapses) when the farm is disabled. The **Поръчки** item shows a badge with the count of pending orders.
@@ -316,9 +316,11 @@ A new review never appears automatically — it waits in **Чакащи** for yo
 </details>
 
 <details>
-<summary><b>Снимки на сайта (Site photos)</b></summary>
+<summary><b>Промени сайта (Site photos &amp; copy)</b></summary>
 
-The decorative photos for the storefront's fixed spots (hero, section banners…). Each **slot** is a specific place on the public site; an empty slot shows a neutral placeholder — exactly as the site renders it until you add a photo. Slots are grouped by page/section.
+One screen with **two tabs**: **Снимки** (decorative photos) and **Текстове** (body copy + FAQ). Header/footer text and contact details remain in their own screens (**Контакти**).
+
+**Таб „Снимки"** — the decorative photos for the storefront's fixed spots (hero, section banners…). Each **slot** is a specific place on the public site; an empty slot shows a neutral placeholder — exactly as the site renders it until you add a photo. Slots are grouped by page/section.
 
 Per slot:
 
@@ -326,6 +328,8 @@ Per slot:
 - **Премахни снимката** — clears it back to the neutral placeholder.
 
 Changes go **live immediately** after upload — there's no extra Save. (Empty catalog: „Няма декоративни места за този сайт.")
+
+**Таб „Текстове"** — edit the body headings and paragraphs shown on the storefront pages (e.g. the hero title, section intros) and manage the **FAQ** list (questions + answers displayed on `/faq`). Each field shows the default text and a **Върни оригинала** button to revert to it. Save all changes with **Запази промените**.
 
 </details>
 
@@ -488,7 +492,8 @@ Everything a farmer creates here is served to their storefront through the publi
 | Reorder / Product of the Week | Farmer (3005) → **Каталог → Продукти** (Подреди / star) |
 | Manage farmers / sections | Farmer (3005) → **Каталог → Фермери / Подкатегории** |
 | Moderate reviews | Farmer (3005) → **Маркетинг → Отзиви** |
-| Storefront photos / contacts / favicon | Farmer (3005) → **Маркетинг → Снимки на сайта / Контакти** |
+| Storefront photos / body copy / FAQ | Farmer (3005) → **Маркетинг → Промени сайта** (Снимки or Текстове tab) |
+| Contacts / favicon | Farmer (3005) → **Маркетинг → Контакти** |
 | Email the subscribers | Farmer (3005) → **Маркетинг → Имейл клиенти** |
 | Turn delivery/payment methods on/off | Farmer (3005) → **Доставка и плащане → Методи и цени** |
 | Configure courier / Econt | Farmer (3005) → **Доставка и плащане → Доставка** |
