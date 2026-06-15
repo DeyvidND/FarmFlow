@@ -259,6 +259,7 @@ export const reorderMedia = (
 export const getTenant = () => apiFetch<TenantProfile>('tenants/me');
 
 export const updateTenant = (data: {
+  name?: string;
   multiFarmer?: boolean;
   multiSubcat?: boolean;
   articlesEnabled?: boolean;

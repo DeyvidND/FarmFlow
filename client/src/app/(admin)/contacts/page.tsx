@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Upload, Trash2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,8 @@ import { LocationPicker } from '@/components/maps/location-picker';
 import {
   getSiteContact,
   updateSiteContact,
+  getTenant,
+  updateTenant,
   uploadFavicon,
   deleteFavicon,
   type SocialLink,
@@ -62,6 +65,7 @@ function guessNetwork(url: string): string {
 }
 
 type Form = {
+  name: string;
   address: string;
   hours: string;
   tagline: string;
@@ -75,10 +79,11 @@ type Form = {
 };
 
 const EMPTY: Form = {
-  address: '', hours: '', tagline: '', phone: '', email: '', social: [], custom: [], mapLat: '', mapLng: '', themeColor: '',
+  name: '', address: '', hours: '', tagline: '', phone: '', email: '', social: [], custom: [], mapLat: '', mapLng: '', themeColor: '',
 };
 
 export default function ContactsPage() {
+  const router = useRouter();
   const [form, setForm] = useState<Form>(EMPTY);
   const [favicon, setFavicon] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,9 +92,11 @@ export default function ContactsPage() {
   const iconRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    getSiteContact()
-      .then((res) => {
+    // The site name lives on the tenant row, contact/brand in settings — load both.
+    Promise.all([getSiteContact(), getTenant()])
+      .then(([res, tenant]) => {
         setForm({
+          name: tenant.name ?? '',
           address: res.contact.address ?? '',
           hours: res.contact.hours ?? '',
           tagline: res.contact.tagline ?? '',
@@ -148,23 +155,36 @@ export default function ContactsPage() {
   }
 
   async function save() {
+    // The site name is required (mirrors the server @MinLength(2)). Guard before
+    // any write so a blank name can't 400 the name save while the contact save lands.
+    const name = form.name.trim();
+    if (name.length < 2) {
+      toast.error('Името на сайта трябва да е поне 2 символа');
+      return;
+    }
     setSaving(true);
     try {
-      await updateSiteContact({
-        address: form.address,
-        hours: form.hours,
-        tagline: form.tagline,
-        phone: form.phone,
-        email: form.email,
-        // Drop rows without a url — the API rejects non-url social links.
-        social: form.social.filter((s) => s.url.trim()),
-        // Drop rows without a value.
-        custom: form.custom.filter((c) => c.value.trim()),
-        mapLat: form.mapLat,
-        mapLng: form.mapLng,
-        themeColor: form.themeColor,
-      });
+      await Promise.all([
+        updateSiteContact({
+          address: form.address,
+          hours: form.hours,
+          tagline: form.tagline,
+          phone: form.phone,
+          email: form.email,
+          // Drop rows without a url — the API rejects non-url social links.
+          social: form.social.filter((s) => s.url.trim()),
+          // Drop rows without a value.
+          custom: form.custom.filter((c) => c.value.trim()),
+          mapLat: form.mapLat,
+          mapLng: form.mapLng,
+          themeColor: form.themeColor,
+        }),
+        updateTenant({ name }),
+      ]);
       toast.success('Запазено');
+      // The topbar name comes from the server-rendered admin layout — refresh so
+      // the new site name shows without a manual reload.
+      router.refresh();
     } catch {
       toast.error('Неуспешно записване');
     } finally {
@@ -227,6 +247,14 @@ export default function ContactsPage() {
         <section className={card}>
           <h2 className="mb-3 text-[15px] font-extrabold">Информация за контакт</h2>
           <div className="flex flex-col gap-3">
+            <div>
+              <label className={label}>Име на сайта</label>
+              <input className={input} value={form.name} onChange={(e) => set('name', e.target.value)}
+                placeholder="Фермерски пазар „Чайка“" />
+              <p className="mt-1 text-[12px] text-ff-muted">
+                Показва се в заглавието на сайта, в раздела на браузъра и в администрацията.
+              </p>
+            </div>
             <div>
               <label className={label}>Адрес / място на пазара</label>
               <input className={input} value={form.address} onChange={(e) => set('address', e.target.value)}
