@@ -37,6 +37,9 @@ import {
   normalizeSiteContact,
   type PublicContact,
 } from './site-contact';
+import { getCopyCatalog, type CopySlotDef } from './copy-slots.catalog';
+import { buildPublicCopy, buildPublicFaq, cleanCopy, normalizeFaq, type PublicFaqItem } from './site-copy';
+import { SiteCopyDto } from './dto/site-copy.dto';
 
 /** One stored site-media value. `key` is the R2 object key (for replace/delete);
  *  only `url` is ever exposed publicly. */
@@ -92,6 +95,11 @@ export interface PublicStorefront {
   // Per-vendor ad/analytics tracking IDs (settings.marketing). Empty → all-null
   // (no scripts injected). The storefront templates the loader from the id.
   marketing: PublicMarketing;
+  // Editable body copy (settings.copy) — slot key → override text. Empty/missing
+  // slot → the storefront renders its inline default. Theme-cleaned.
+  copy: Record<string, string>;
+  // Editable FAQ list (settings.faq). Empty → storefront falls back to DEFAULT_FAQ.
+  faq: PublicFaqItem[];
 }
 
 @Injectable()
@@ -295,6 +303,48 @@ export class TenantsService {
     if (prev.key) await this.storage.delete(prev.key).catch(() => undefined);
     await this.publicCache.del(publicCacheKeys.tenant(slug));
     return { ok: true };
+  }
+
+  // ---- Site copy (editable storefront text + FAQ) ----
+
+  /** Catalog + current overrides + FAQ list for the „Текстове" admin editor. */
+  async getSiteCopy(tenantId: string): Promise<{
+    catalog: CopySlotDef[];
+    copy: Record<string, string>;
+    faq: PublicFaqItem[];
+  }> {
+    const settings = await this.loadSettings(tenantId);
+    const theme = this.themeOf(settings);
+    return {
+      catalog: getCopyCatalog(theme),
+      copy: buildPublicCopy(theme, settings.copy),
+      faq: buildPublicFaq(settings.faq),
+    };
+  }
+
+  /** Replace settings.copy (cleaned against the catalog) and settings.faq in a
+   *  single atomic write, then bust the cached public profile. */
+  async setSiteCopy(
+    tenantId: string,
+    dto: SiteCopyDto,
+  ): Promise<{ copy: Record<string, string>; faq: PublicFaqItem[] }> {
+    const { slug, settings } = await this.loadTenantForMedia(tenantId);
+    const copy = cleanCopy(this.themeOf(settings), dto.copy);
+    const faq = normalizeFaq(dto.faq);
+
+    // One UPDATE writes both leaves so a crash can't persist one without the other.
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(
+          jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['copy'], ${JSON.stringify(copy)}::jsonb, true),
+          array['faq'], ${JSON.stringify(faq)}::jsonb, true
+        )`,
+      })
+      .where(eq(tenants.id, tenantId));
+
+    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    return { copy, faq };
   }
 
   // ---- Site contact + website icon ----

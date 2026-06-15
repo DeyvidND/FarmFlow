@@ -10,6 +10,7 @@ import {
   deleteSiteMedia,
   type SiteMediaSlotDef,
 } from '@/lib/api-client';
+import { CopyTab } from './copy-tab';
 
 const ACCEPT = 'image/jpeg,image/png,image/webp';
 
@@ -108,7 +109,7 @@ function SlotCard({
   );
 }
 
-export default function SiteMediaPage() {
+function MediaTab() {
   const [catalog, setCatalog] = useState<SiteMediaSlotDef[]>([]);
   const [values, setValues] = useState<Record<string, { url: string }>>({});
   const [loading, setLoading] = useState(true);
@@ -165,44 +166,69 @@ export default function SiteMediaPage() {
     g.slots.push(slot);
   }
 
+  if (loading) return <p className="text-[14px] text-ff-muted">Зареждане…</p>;
+
+  if (catalog.length === 0) {
+    return (
+      <div className="flex items-center gap-3 rounded-2xl border border-ff-border bg-ff-surface p-6 text-[14px] text-ff-muted shadow-ff-sm">
+        <ImageOff size={20} /> Няма декоративни места за този сайт.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      {groups.map((group) => (
+        <section key={group.page}>
+          <h2 className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2">
+            {group.page}
+          </h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {group.slots.map((slot) => (
+              <SlotCard
+                key={slot.key}
+                slot={slot}
+                url={values[slot.key]?.url}
+                busy={!!busy[slot.key]}
+                onPick={(file) => upload(slot.key, file)}
+                onRemove={() => remove(slot.key)}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+export default function SiteMediaPage() {
+  const [tab, setTab] = useState<'media' | 'copy'>('media');
+
   return (
     <div className="max-w-[1100px]">
       <div className="mb-6">
-        <h1 className="mb-1 text-[22px] font-extrabold tracking-[-0.01em]">Снимки на сайта</h1>
+        <h1 className="mb-1 text-[22px] font-extrabold tracking-[-0.01em]">Промени сайта</h1>
         <p className="text-[13.5px] text-ff-muted">
-          Качи снимки за декоративните места на сайта. Без снимка местата показват сив макет.
+          Смени снимките и текстовете на сайта. Текстовете под хедъра и над футъра — заглавия, описания и въпроси.
         </p>
       </div>
 
-      {loading ? (
-        <p className="text-[14px] text-ff-muted">Зареждане…</p>
-      ) : catalog.length === 0 ? (
-        <div className="flex items-center gap-3 rounded-2xl border border-ff-border bg-ff-surface p-6 text-[14px] text-ff-muted shadow-ff-sm">
-          <ImageOff size={20} /> Няма декоративни места за този сайт.
-        </div>
-      ) : (
-        <div className="flex flex-col gap-8">
-          {groups.map((group) => (
-            <section key={group.page}>
-              <h2 className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2">
-                {group.page}
-              </h2>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {group.slots.map((slot) => (
-                  <SlotCard
-                    key={slot.key}
-                    slot={slot}
-                    url={values[slot.key]?.url}
-                    busy={!!busy[slot.key]}
-                    onPick={(file) => upload(slot.key, file)}
-                    onRemove={() => remove(slot.key)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+      <div className="mb-6 inline-flex rounded-full border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
+        {([['media', 'Снимки'], ['copy', 'Текстове']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`rounded-full px-5 py-1.5 text-[13.5px] font-semibold transition ${
+              tab === key ? 'bg-ff-ink text-white' : 'text-ff-muted hover:text-ff-ink'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'media' ? <MediaTab /> : <CopyTab />}
     </div>
   );
 }

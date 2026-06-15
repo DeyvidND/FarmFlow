@@ -21,6 +21,7 @@ import {
 import { SiteContactDto } from './dto/site-contact.dto';
 import { SiteMarketingDto } from './dto/site-marketing.dto';
 import { LandingDto } from './dto/landing.dto';
+import { SiteCopyDto } from './dto/site-copy.dto';
 
 @ApiTags('tenants')
 @ApiBearerAuth()
@@ -75,6 +76,22 @@ export class TenantsController {
   @Delete('me/media/:slotKey')
   deleteMedia(@CurrentTenant() tenantId: string, @Param('slotKey') slotKey: string) {
     return this.tenantsService.deleteSiteMedia(tenantId, slotKey);
+  }
+
+  // ---- Site copy (editable storefront text + FAQ) ----
+
+  @ApiOperation({ summary: 'Editable text slots: catalog + current overrides + FAQ' })
+  @Roles('admin')
+  @Get('me/site-copy')
+  getSiteCopy(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.getSiteCopy(tenantId);
+  }
+
+  @ApiOperation({ summary: 'Replace storefront text overrides + FAQ list' })
+  @Roles('admin')
+  @Patch('me/site-copy')
+  updateSiteCopy(@CurrentTenant() tenantId: string, @Body() dto: SiteCopyDto) {
+    return this.tenantsService.setSiteCopy(tenantId, dto);
   }
 
   // ---- Site contact + website icon ----
