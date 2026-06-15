@@ -316,19 +316,19 @@ A new review never appears automatically — it waits in **Чакащи** for yo
 </details>
 
 <details>
-<summary><b>Промени сайта (Unified site editor)</b></summary>
+<summary><b>Промени сайта (Inline site editor)</b></summary>
 
-One unified editor — texts **and** photos together, organised by page → section, with a **live preview** of the farm's own site on the right. Header/footer text and contact details remain in their own screen (**Контакти**).
+Press **Редактирай сайта** — your live storefront opens in a new tab in edit mode. Click any heading, paragraph, or photo directly on the site to change it in place, then press **Запази** in the bar at the bottom of the page. Header/footer text and contact details remain in their own screen (**Контакти**).
 
-**Адрес на сайта** — set the farm's storefront URL once (e.g. `https://moqta-ferma.bg`). The preview iframe loads the site there; focus any field and the preview scrolls and outlines that section automatically.
+**Edit mode** is activated by a short-lived token embedded in the URL. The token expires after 30 minutes; if it has expired, return to the admin panel and click **Редактирай сайта** again to get a fresh one.
 
-**Editable structure** — the list of pages, sections, slots (text fields and image slots) comes directly from the storefront. If a new section or photo is added to the live site it appears here automatically — no admin update needed.
+**Text** — click any highlighted text area to type directly. The change is held locally until you press **Запази**.
 
-Per **text slot**: edit the heading or paragraph; the placeholder shows the built-in default. Use **Върни оригинала** to revert a field. Save all text changes with **Запази промените**.
+**Photos** — click **Смени снимка** on any image slot to pick a file from your device (JPEG, PNG, or WebP). The photo uploads immediately and the preview updates; press **Запази** to make it permanent.
 
-Per **image slot**: each slot is a specific decorative place on the public site (aspect ratio shown). Upload a JPEG, PNG, or WebP with **Качи** / **Смени**; remove it with the trash icon. Photo changes go **live immediately** — no extra Save step.
+**FAQ** — on the `/faq` page each question and answer is editable inline. Use the ↑/↓ buttons to reorder and ✕ to remove an item; **+ Добави въпрос** adds a new row. Save all changes with **Запази**.
 
-**FAQ** — on the `/faq` page the editor shows a list of question + answer pairs. Add, reorder (↑/↓), and delete rows; save with **Запази промените**.
+The storefront URL is set once by the operator — the farmer does not enter it.
 
 </details>
 
