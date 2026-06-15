@@ -277,56 +277,13 @@ export const updateTenant = (data: {
   routing?: { endMode?: 'home' | 'last' | 'custom'; endAddress?: string | null };
 }) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
-// ---- Site media (editable storefront photos) ----
-export function uploadSiteMedia(slotKey: string, file: File) {
-  const fd = new FormData();
-  fd.append('image', file);
-  return apiFetch<{ slotKey: string; url: string }>(
-    `tenants/me/media/${encodeURIComponent(slotKey)}`,
-    { method: 'POST', body: fd },
-    'Неуспешно качване',
+// ---- Site editor ----
+export const createEditSession = () =>
+  apiFetch<{ token: string; siteUrl: string; expiresIn: number }>(
+    'tenants/me/edit-session',
+    { method: 'POST' },
+    'Неуспешно отваряне на редактора',
   );
-}
-
-export const deleteSiteMedia = (slotKey: string) =>
-  apiFetch<{ ok: true }>(
-    `tenants/me/media/${encodeURIComponent(slotKey)}`,
-    { method: 'DELETE' },
-    'Неуспешно изтриване',
-  );
-
-// ---- Unified site editor (manifest + overrides) ----
-export interface ManifestTextSlot { kind: 'text'; key: string; label: string; default: string; multiline?: boolean }
-export interface ManifestImageSlot { kind: 'image'; key: string; label: string; ratio: string; rounded?: boolean; note?: string }
-export type ManifestSlot = ManifestTextSlot | ManifestImageSlot;
-export interface ManifestSection { id: string; label: string; slots: ManifestSlot[] }
-export interface ManifestPage { route: string; label: string; sections: ManifestSection[]; faq?: boolean }
-export interface EditableManifest { theme: string; pages: ManifestPage[] }
-
-export interface SiteFaqItem { q: string; a: string; }
-export interface SiteCopyData {
-  copy: Record<string, string>;
-  media: Record<string, { url: string }>;
-  faq: SiteFaqItem[];
-  siteUrl: string;
-}
-
-export const getSiteCopy = () => apiFetch<SiteCopyData>('tenants/me/site-copy');
-
-export const updateSiteCopy = (data: { copy: Record<string, string>; faq: SiteFaqItem[]; siteUrl: string }) =>
-  apiFetch<{ copy: Record<string, string>; faq: SiteFaqItem[]; siteUrl: string }>(
-    'tenants/me/site-copy',
-    { method: 'PATCH', ...json(data) },
-    'Неуспешно записване',
-  );
-
-/** Fetch the storefront's editable manifest directly (cross-origin, CORS-gated).
- *  Throws on network/HTTP error so the caller can show a friendly fallback. */
-export async function getEditableManifest(siteUrl: string): Promise<EditableManifest> {
-  const res = await fetch(`${siteUrl.replace(/\/$/, '')}/editable-manifest.json`, { mode: 'cors', signal: AbortSignal.timeout(10000) });
-  if (!res.ok) throw new Error(`manifest ${res.status}`);
-  return (await res.json()) as EditableManifest;
-}
 
 // ---- Site contact + website icon ----
 export interface SocialLink {
