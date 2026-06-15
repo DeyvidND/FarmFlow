@@ -134,6 +134,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
     slug: d.slug,
     email: d.email ?? '',
     phone: d.phone ?? '',
+    siteUrl: d.siteUrl ?? '',
     deliveryEnabled: d.deliveryEnabled,
     multiFarmer: d.multiFarmer,
     multiSubcat: d.multiSubcat,
@@ -145,6 +146,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
       slug: d.slug,
       email: d.email ?? '',
       phone: d.phone ?? '',
+      siteUrl: d.siteUrl ?? '',
       deliveryEnabled: d.deliveryEnabled,
       multiFarmer: d.multiFarmer,
       multiSubcat: d.multiSubcat,
@@ -165,6 +167,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
           slug: form.slug.trim(),
           email: form.email.trim() || undefined,
           phone: form.phone.trim() || undefined,
+          siteUrl: form.siteUrl.trim() || undefined,
           deliveryEnabled: form.deliveryEnabled,
           multiFarmer: form.multiFarmer,
           multiSubcat: form.multiSubcat,
@@ -260,6 +263,18 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
                 className={INPUT}
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+            </Field>
+            <Field
+              label="Адрес на сайта"
+              hint={'За бутона „Редактирай сайта“ в панела на фермера'}
+            >
+              <input
+                className={INPUT}
+                type="url"
+                placeholder="https://ferma.farmsteadflow.com"
+                value={form.siteUrl}
+                onChange={(e) => setForm({ ...form, siteUrl: e.target.value })}
               />
             </Field>
           </div>

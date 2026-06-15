@@ -71,6 +71,8 @@ export interface PlatformTenantDetail {
   multiSubcat: boolean;
   econtConfigured: boolean;
   stripeConnected: boolean;
+  /** Set by the super-admin — used by the farm's „Редактирай сайта" button. */
+  siteUrl?: string | null;
   orders: {
     total: number;
     pending: number;
