@@ -10,7 +10,6 @@ async function load(): Promise<FeatureFlags> {
     multiSubcat: false,
     articlesEnabled: true,
     reviewsEnabled: true,
-    availabilitySectionEnabled: false,
   };
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return fallback;
@@ -25,7 +24,6 @@ async function load(): Promise<FeatureFlags> {
     multiSubcat: !!t.multiSubcat,
     articlesEnabled: t.articlesEnabled ?? true,
     reviewsEnabled: t.reviewsEnabled ?? true,
-    availabilitySectionEnabled: t.availabilitySectionEnabled ?? false,
   };
 }
 

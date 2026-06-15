@@ -210,9 +210,7 @@ export interface StorefrontProfile {
   delivery: StorefrontDelivery;
   /** Which delivery methods are switched on — show only these. */
   methods: DeliveryMethods;
-  /** „Задай наличност" section opt-in toggle. Default false (absent older API). */
-  availabilitySectionEnabled?: boolean;
-  /** Optional section title. NULL / absent → storefront default „Налично сега". */
+  /** Optional availability-section title. NULL / absent → default „Налично сега". */
   availabilityTitle?: string | null;
 }
 

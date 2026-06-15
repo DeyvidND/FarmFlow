@@ -363,14 +363,10 @@ export class AvailabilityService {
 
   /** Active windows (today within range) for a storefront slug — the overlay the
    *  storefront merges onto the cached catalog by productId. Not long-cached:
-   *  `remaining` is volatile (changes per order).
-   *  Returns [] immediately when the tenant's availabilitySectionEnabled toggle is
-   *  off — no DB query needed. */
+   *  `remaining` is volatile (changes per order). Always queried: availability is
+   *  on for every farm, so any active window the farmer recorded is shown. */
   async findPublicActiveBySlug(slug: string): Promise<PublicAvailabilityWindow[]> {
     const tenant = await this.publicCache.resolveTenant(this.db, slug);
-
-    // Gated by the «Наличност» section toggle — if off, show nothing to the storefront.
-    if (!tenant.availabilitySectionEnabled) return [];
 
     const today = bgToday();
     // Push the active-today predicate into SQL so it's served by the

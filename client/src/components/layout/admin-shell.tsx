@@ -14,7 +14,6 @@ export function AdminShell({
   subscriptionActive = true,
   tenantName,
   articlesEnabled = true,
-  availabilitySectionEnabled = true,
   hiddenNav = [],
   mustChangePassword = false,
   role = 'admin',
@@ -24,8 +23,6 @@ export function AdminShell({
   tenantName?: string;
   /** «Статии» feature flag — hides the Статии nav item when off. */
   articlesEnabled?: boolean;
-  /** «Задай наличност» feature flag — hides the nav item when off. */
-  availabilitySectionEnabled?: boolean;
   /** Per-user hidden side-nav keys (users.hiddenNav). */
   hiddenNav?: string[];
   /** First login with the temporary password → block the panel with the modal. */
@@ -40,7 +37,6 @@ export function AdminShell({
       <Sidebar
         subscriptionActive={subscriptionActive}
         articlesEnabled={articlesEnabled}
-        availabilitySectionEnabled={availabilitySectionEnabled}
         hiddenNav={hiddenNav}
         role={role}
       />

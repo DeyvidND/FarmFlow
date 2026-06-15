@@ -34,7 +34,6 @@ export default async function AvailabilityPage() {
     // Scoped picker endpoint — owner gets all active products, producer gets only theirs.
     fetchJson<PickerProduct[]>('availability-windows/products', []),
     fetchJson<{
-      availabilitySectionEnabled?: boolean;
       availabilityTitle?: string | null;
       multiFarmer?: boolean;
     }>('tenants/me', {}),

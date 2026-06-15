@@ -170,7 +170,6 @@ export function Sidebar({
   pendingCount = 0,
   subscriptionActive = true,
   articlesEnabled = true,
-  availabilitySectionEnabled = true,
   hiddenNav = [],
   role = 'admin',
 }: {
@@ -178,8 +177,6 @@ export function Sidebar({
   subscriptionActive?: boolean;
   /** «Статии» feature flag — hides the Статии nav item when the section is off. */
   articlesEnabled?: boolean;
-  /** «Задай наличност» feature flag — hides the item when the section is off. */
-  availabilitySectionEnabled?: boolean;
   /** Per-user hidden nav keys (item hrefs + group keys) from users.hiddenNav. */
   hiddenNav?: string[];
   role?: string;
@@ -210,7 +207,6 @@ export function Sidebar({
     g.items.filter(
       (i) =>
         (i.href === '/articles' ? articlesEnabled : true) &&
-        (i.href === '/availability' ? availabilitySectionEnabled : true) &&
         !hidden.has(i.href),
     );
   const groupHasActive = (g: NavGroup) => visibleItems(g).some((i) => isActive(i.href));
@@ -296,11 +292,7 @@ export function Sidebar({
 
       <nav className="ff-nav-scroll mt-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
         {role === 'farmer' ? (
-          <div className="flex flex-col gap-1">
-            {FARMER_NAV.filter(
-              (i) => i.href === '/availability' ? availabilitySectionEnabled : true,
-            ).map(renderItem)}
-          </div>
+          <div className="flex flex-col gap-1">{FARMER_NAV.map(renderItem)}</div>
         ) : (
           <>
             {/* Home — always on top, no group header */}

@@ -96,9 +96,9 @@ function makeDbForRemove(windowRow: any, productRow: any) {
 }
 
 const cacheStub = { invalidate: async () => {} } as any;
-const publicCacheStub = (meta: Partial<{ id: string; availabilitySectionEnabled: boolean }> = {}) => ({
+const publicCacheStub = (meta: Partial<{ id: string }> = {}) => ({
   del: async () => {},
-  resolveTenant: async () => ({ id: 't1', availabilitySectionEnabled: true, ...meta }),
+  resolveTenant: async () => ({ id: 't1', ...meta }),
   get: async () => null,
   set: async () => {},
 }) as any;
@@ -335,24 +335,11 @@ describe('AvailabilityService.remove farmer-scope guard', () => {
 });
 
 // ---------------------------------------------------------------------------
-// findPublicActiveBySlug() — toggle gate
+// findPublicActiveBySlug() — always on (no section toggle)
 // ---------------------------------------------------------------------------
 
-describe('AvailabilityService.findPublicActiveBySlug toggle gate', () => {
-  it('returns [] immediately when availabilitySectionEnabled is false', async () => {
-    const db = {
-      select: () => { throw new Error('should not query DB when toggle is off'); },
-    } as any;
-    const svc = new AvailabilityService(
-      db,
-      cacheStub,
-      publicCacheStub({ availabilitySectionEnabled: false }),
-    );
-    const result = await svc.findPublicActiveBySlug('some-slug');
-    expect(result).toEqual([]);
-  });
-
-  it('queries the DB and returns rows when availabilitySectionEnabled is true', async () => {
+describe('AvailabilityService.findPublicActiveBySlug', () => {
+  it('always queries active windows — availability is on for every farm', async () => {
     const fakeRow = {
       productId: 'p1',
       startsAt: '2026-06-01',
@@ -369,11 +356,7 @@ describe('AvailabilityService.findPublicActiveBySlug toggle gate', () => {
         return chain;
       },
     } as any;
-    const svc = new AvailabilityService(
-      db,
-      cacheStub,
-      publicCacheStub({ availabilitySectionEnabled: true }),
-    );
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
     const result = await svc.findPublicActiveBySlug('some-slug');
     expect(result).toHaveLength(1);
     expect(result[0].productId).toBe('p1');

@@ -54,11 +54,9 @@ export const tenants = pgTable('tenants', {
   // on — preserves the historic always-visible behavior for existing farms.
   articlesEnabled: boolean('articles_enabled').notNull().default(true),
   reviewsEnabled: boolean('reviews_enabled').notNull().default(true),
-  // Opt-in „Задай наличност" section: farmers declare time-bounded availability
-  // windows per product. Default OFF (new feature, preserves existing storefronts).
-  availabilitySectionEnabled: boolean('availability_section_enabled').notNull().default(false),
-  // Optional storefront title for that section. NULL → the storefront default
-  // („Налично сега").
+  // „Задай наличност" is always on: any active per-product availability window the
+  // farmer records is shown on the storefront (no on/off toggle). `availabilityTitle`
+  // is the optional storefront heading for that section. NULL → default („Налично сега").
   availabilityTitle: text('availability_title'),
   // Optional «Продукт на седмицата» storefront highlight. `enabled` is the gate;
   // mode 'manual' features `productOfWeekId` (one product), mode 'auto' resolves a

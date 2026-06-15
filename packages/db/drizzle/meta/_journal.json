@@ -323,6 +323,13 @@
       "when": 1781481206115,
       "tag": "0045_products_deleted_at",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1781537691990,
+      "tag": "0046_drop_availability_section_toggle",
+      "breakpoints": true
     }
   ]
 }

@@ -264,7 +264,6 @@ export const updateTenant = (data: {
   articlesEnabled?: boolean;
   reviewsEnabled?: boolean;
   deliveryEnabled?: boolean;
-  availabilitySectionEnabled?: boolean;
   availabilityTitle?: string | null;
   productOfWeekEnabled?: boolean;
   productOfWeekMode?: 'manual' | 'auto';
