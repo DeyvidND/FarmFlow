@@ -1,6 +1,6 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { type Database, products, productMedia, farmers, subcategories } from '@farmflow/db';
 import type { Product, ProductMedia, PublicProduct } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -49,7 +49,9 @@ export class ProductsService {
   ): Promise<Paginated<Product>> {
     const lim = clampLimit(opts.limit);
     const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
-    const conds = [eq(products.tenantId, tenantId)];
+    // `deleted_at IS NULL` hides soft-deleted products (a removed product, unlike a
+    // hidden/inactive one, must disappear from the admin list — see remove()).
+    const conds = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
     if (cur) conds.push(keysetAfter(products.createdAt, products.id, cur, 'asc'));
 
     const rows = await this.db
@@ -64,13 +66,15 @@ export class ProductsService {
       const [{ total }] = await this.db
         .select({ total: sql<number>`count(*)::int` })
         .from(products)
-        .where(eq(products.tenantId, tenantId));
+        .where(and(eq(products.tenantId, tenantId), isNull(products.deletedAt)));
       page.total = total;
     }
     return page;
   }
 
-  /** Lean full list for cross-page consumers (no pagination — ids + a few fields). */
+  /** Lean full list for cross-page consumers (no pagination — ids + a few fields).
+   *  Soft-deleted products are excluded so they don't inflate farmer/section counts
+   *  or trip low-stock notifications. */
   listOptions(tenantId: string): Promise<ProductOption[]> {
     return this.db
       .select({
@@ -84,7 +88,7 @@ export class ProductsService {
         subcategoryId: products.subcategoryId,
       })
       .from(products)
-      .where(eq(products.tenantId, tenantId))
+      .where(and(eq(products.tenantId, tenantId), isNull(products.deletedAt)))
       .orderBy(asc(products.position), asc(products.createdAt));
   }
 
@@ -182,15 +186,18 @@ export class ProductsService {
     return row;
   }
 
-  /** Soft delete via is_active=false. The image + gallery are kept intact so
-   *  re-activating the product restores its photos — the cover object is now owned
-   *  by the gallery, so dropping it here would orphan/corrupt the media rows. */
+  /** Soft delete: stamp `deleted_at` so the product leaves every admin read and the
+   *  catalog for good. The row stays (its order_items / reviews FKs are ON DELETE no
+   *  action — a hard delete would fail for any product ever ordered) and its
+   *  image + gallery are untouched. We also clear `is_active` so the storefront,
+   *  which filters on `is_active = true`, drops it too. Distinct from the is_active
+   *  hide/show toggle, which keeps a product visible (greyed) in the admin list. */
   async remove(id: string, tenantId: string): Promise<{ id: string }> {
     await this.findOne(id, tenantId);
 
     await this.db
       .update(products)
-      .set({ isActive: false })
+      .set({ isActive: false, deletedAt: new Date() })
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)));
 
     await this.cache.invalidate(tenantId);

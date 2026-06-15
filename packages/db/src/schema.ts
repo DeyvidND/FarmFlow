@@ -184,6 +184,11 @@ export const products = pgTable(
     // tenant; per-category sections sort by the same field, filtered. Backfilled
     // from createdAt on migration so existing order is preserved.
     position: integer('position').notNull().default(0),
+    // Soft delete. NULL = live; a timestamp = removed from the catalog. Kept as a
+    // separate flag (not `is_active`, which is the user's hide/show toggle and must
+    // stay visible in the admin list) so the row — and its order_items / reviews FKs
+    // (both ON DELETE no action) — survive while the product leaves every admin read.
+    deletedAt: timestamp('deleted_at'),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({

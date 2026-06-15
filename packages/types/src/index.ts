@@ -85,7 +85,7 @@ export type PublicArticle = Omit<Article, 'tenantId' | 'sentAt'> & {
 
 export type PublicProduct = Omit<
   Product,
-  'tenantId' | 'stockQuantity' | 'stripeProductId' | 'stripePriceId'
+  'tenantId' | 'stockQuantity' | 'stripeProductId' | 'stripePriceId' | 'deletedAt'
 > & {
   // Ordered gallery (cover first). Falls back to [imageUrl] for legacy single-image
   // items, or [] when the item has no photo. `imageUrl` stays the cover for back-compat.

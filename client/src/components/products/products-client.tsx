@@ -189,7 +189,7 @@ export function ProductsClient({
     try {
       await deleteProduct(p.id);
       setProducts((prev) => prev.filter((x) => x.id !== p.id));
-      toast.success('Продуктът е скрит');
+      toast.success('Продуктът е изтрит');
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
