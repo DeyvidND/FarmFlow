@@ -88,7 +88,14 @@ async function bootstrap() {
   app.use((req: any, res: any, next: () => void) => {
     const origin = req.headers.origin;
     const isPublic = req.path.startsWith('/public/');
-    if (isPublic) {
+    // The storefront inline-edit overlay (`/tenants/me/site-edit/*`) is called
+    // from arbitrary client-factory storefront origins and is authorized by a
+    // short-lived Bearer edit-token (NOT cookies) — so the origin isn't the
+    // security boundary and locking it to the CORS_ORIGIN allowlist would have to
+    // be maintained per storefront. Treat it like `/public/*`: any origin, no
+    // credentials. The EditSessionGuard (valid token required) is the real gate.
+    const isTokenEdit = req.path.startsWith('/tenants/me/site-edit/');
+    if (isPublic || isTokenEdit) {
       res.header('Access-Control-Allow-Origin', '*');
     } else if (origin && corsOrigins.includes(origin)) {
       res.header('Access-Control-Allow-Origin', origin);
