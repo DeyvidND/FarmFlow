@@ -4,10 +4,12 @@ import {
   getProducts,
   getSubcategories,
   getFarmers,
+  getAvailability,
   resolveSlug,
   type PublicProduct,
   type PublicSubcategory,
   type PublicFarmer,
+  type PublicAvailabilityWindow,
 } from '@/lib/api';
 import { StorefrontCatalog } from '@/components/storefront-catalog';
 
@@ -23,17 +25,22 @@ export default async function ProductsPage({
   let products: PublicProduct[] = [];
   let subcategories: PublicSubcategory[] = [];
   let farmers: PublicFarmer[] = [];
+  let availability: PublicAvailabilityWindow[] = [];
   let failed = false;
   try {
     // Bundles (category='bundle') live on their own /bundles page.
-    [products, subcategories, farmers] = await Promise.all([
+    [products, subcategories, farmers, availability] = await Promise.all([
       getProducts(slug).then((ps) => ps.filter((p) => p.category !== 'bundle')),
       getSubcategories(slug),
       getFarmers(slug),
+      getAvailability(slug).catch(() => [] as PublicAvailabilityWindow[]),
     ]);
   } catch {
     failed = true;
   }
+
+  // Per-product availability map: productId → remaining (defensive: empty when feature off).
+  const availMap = new Map((availability ?? []).map((w) => [w.productId, w.remaining]));
 
   return (
     <main data-screen-label="Catalog">
@@ -59,7 +66,7 @@ export default async function ProductsPage({
               Каталогът е временно недостъпен. Опитайте отново по-късно.
             </p>
           ) : (
-            <StorefrontCatalog products={products} subcategories={subcategories} farmers={farmers} />
+            <StorefrontCatalog products={products} subcategories={subcategories} farmers={farmers} availMap={availMap} />
           )}
         </div>
       </section>

@@ -13,9 +13,11 @@ import { ProductCard } from './product-card';
 export function CatalogClient({
   products,
   farmers = [],
+  availMap = new Map(),
 }: {
   products: PublicProduct[];
   farmers?: PublicFarmer[];
+  availMap?: Map<string, number>;
 }) {
   const tabs = useMemo(() => buildCategoryTabs(products), [products]);
   const farmerById = useMemo(() => new Map(farmers.map((f) => [f.id, f])), [farmers]);
@@ -47,7 +49,12 @@ export function CatalogClient({
       ) : (
         <div className="grid grid--4">
           {shown.map((p) => (
-            <ProductCard key={p.id} product={p} farmer={p.farmerId ? farmerById.get(p.farmerId) : undefined} />
+            <ProductCard
+              key={p.id}
+              product={p}
+              farmer={p.farmerId ? farmerById.get(p.farmerId) : undefined}
+              remaining={availMap.has(p.id) ? (availMap.get(p.id) ?? null) : null}
+            />
           ))}
         </div>
       )}

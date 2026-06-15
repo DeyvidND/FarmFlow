@@ -22,9 +22,11 @@ const MODES: { mode: Mode; label: string }[] = [
 export function HomeListing({
   featured,
   categories,
+  availMap = new Map(),
 }: {
   featured: PublicProduct[];
   categories: { subcat: PublicSubcategory; count: number }[];
+  availMap?: Map<string, number>;
 }) {
   const hasSubs = categories.length > 0;
   const [mode, setMode] = useState<Mode>('products');
@@ -92,7 +94,12 @@ export function HomeListing({
         <div className="home-block" hidden={!showProducts}>
           <div className="grid grid--4">
             {featured.map((p) => (
-              <ProductCard key={p.id} product={p} withStepper={false} />
+              <ProductCard
+                key={p.id}
+                product={p}
+                withStepper={false}
+                remaining={availMap.has(p.id) ? (availMap.get(p.id) ?? null) : null}
+              />
             ))}
           </div>
         </div>

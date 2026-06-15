@@ -5,11 +5,13 @@ import {
   getProduct,
   getProducts,
   getFarmers,
+  getAvailability,
   resolveSlug,
   money,
   ApiError,
   type PublicProduct,
   type PublicFarmer,
+  type PublicAvailabilityWindow,
 } from '@/lib/api';
 import { categoryMeta } from '@/lib/categories';
 import { ProductBuy } from '@/components/product-buy';
@@ -72,6 +74,16 @@ export default async function ProductPage({ params, searchParams }: Props) {
     }
   }
 
+  // Availability window for this product (non-fatal; empty = no window).
+  let availability: PublicAvailabilityWindow[] = [];
+  try {
+    availability = await getAvailability(tenantSlug);
+  } catch {
+    availability = [];
+  }
+  const availMap = new Map((availability ?? []).map((w) => [w.productId, w.remaining]));
+  const productRemaining = availMap.has(product.id) ? (availMap.get(product.id) ?? null) : null;
+
   const meta = [product.weight, product.unit].filter(Boolean).join(' · ');
 
   return (
@@ -125,7 +137,7 @@ export default async function ProductPage({ params, searchParams }: Props) {
               <Leaf /> Берем в деня на доставката
             </div>
 
-            <ProductBuy product={product} />
+            <ProductBuy product={product} remaining={productRemaining} />
 
             <div className="card" style={{ marginTop: 26, padding: 20, boxShadow: 'none' }}>
               <div
@@ -160,7 +172,7 @@ export default async function ProductPage({ params, searchParams }: Props) {
             <h2 style={{ fontSize: 28, marginBottom: 22 }}>Може да харесаш още</h2>
             <div className="grid grid--4">
               {related.map((p) => (
-                <ProductCard key={p.id} product={p} withStepper={false} />
+                <ProductCard key={p.id} product={p} withStepper={false} remaining={availMap.has(p.id) ? (availMap.get(p.id) ?? null) : null} />
               ))}
             </div>
           </div>

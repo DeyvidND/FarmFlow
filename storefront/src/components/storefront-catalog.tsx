@@ -15,17 +15,20 @@ export function StorefrontCatalog({
   products,
   subcategories,
   farmers,
+  availMap = new Map(),
 }: {
   products: PublicProduct[];
   subcategories: PublicSubcategory[];
   farmers: PublicFarmer[];
+  availMap?: Map<string, number>;
 }) {
   const farmerById = new Map(farmers.map((f) => [f.id, f]));
   const farmerFor = (p: PublicProduct) => (p.farmerId ? farmerById.get(p.farmerId) : undefined);
+  const remainingFor = (p: PublicProduct) => availMap.has(p.id) ? (availMap.get(p.id) ?? null) : null;
 
   // No subcategory grouping → existing flat catalog with category chips.
   if (subcategories.length === 0) {
-    return <CatalogClient products={products} farmers={farmers} />;
+    return <CatalogClient products={products} farmers={farmers} availMap={availMap} />;
   }
 
   const sections = subcategories
@@ -73,7 +76,7 @@ export function StorefrontCatalog({
           </div>
           <div className="grid grid--4">
             {items.map((p) => (
-              <ProductCard key={p.id} product={p} farmer={farmerFor(p)} />
+              <ProductCard key={p.id} product={p} farmer={farmerFor(p)} remaining={remainingFor(p)} />
             ))}
           </div>
         </section>
@@ -86,7 +89,7 @@ export function StorefrontCatalog({
           </div>
           <div className="grid grid--4">
             {ungrouped.map((p) => (
-              <ProductCard key={p.id} product={p} farmer={farmerFor(p)} />
+              <ProductCard key={p.id} product={p} farmer={farmerFor(p)} remaining={remainingFor(p)} />
             ))}
           </div>
         </section>

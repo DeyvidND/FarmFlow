@@ -23,7 +23,6 @@ import { NewsletterForm } from '@/components/newsletter-form';
 import { HomeListing } from '@/components/home-listing';
 import { FarmerCard } from '@/components/farmer-card';
 import { ProductOfWeekHighlight } from '@/components/product-of-week';
-import { AvailabilitySection } from '@/components/availability-section';
 import { resolveProductOfWeek } from '@/lib/product-of-week';
 import { Leaf, Truck, Heart } from '@/components/icons';
 
@@ -64,6 +63,9 @@ export default async function HomePage() {
 
   // Farmers teaser — first three producers (multi-farmer mode only).
   const teaserFarmers = farmers.slice(0, 3);
+
+  // Per-product availability map: productId → remaining (defensive: empty when feature off).
+  const availMap = new Map((availability ?? []).map((w) => [w.productId, w.remaining]));
 
   return (
     <main>
@@ -117,22 +119,8 @@ export default async function HomePage() {
       {/* PRODUCT OF THE WEEK · optional highlight */}
       {potw && <ProductOfWeekHighlight product={potw} note={profile?.productOfWeekNote} />}
 
-      {/* „НАЛИЧНО СЕГА" · time-bounded availability windows (opt-in toggle) */}
-      {profile?.availabilitySectionEnabled && (
-        <AvailabilitySection
-          title={
-            (profile.availabilityTitle && profile.availabilityTitle.trim())
-              ? profile.availabilityTitle
-              : 'Налично сега'
-          }
-          products={sellable}
-          windows={availability}
-          farmers={farmers}
-        />
-      )}
-
       {/* FEATURED LISTING · products / subsections (toggleable home layout) */}
-      {featured.length > 0 && <HomeListing featured={featured} categories={categories} />}
+      {featured.length > 0 && <HomeListing featured={featured} categories={categories} availMap={availMap} />}
 
       {/* FARMERS teaser — multi-farmer mode only */}
       {teaserFarmers.length > 0 && (
