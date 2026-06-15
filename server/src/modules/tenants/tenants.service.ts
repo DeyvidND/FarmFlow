@@ -35,7 +35,7 @@ import {
   type PublicContact,
 } from './site-contact';
 import { buildPublicCopy, buildPublicFaq, cleanCopy, normalizeFaq, sanitizeSiteUrl, isValidSlotKey, type PublicFaqItem } from './site-copy';
-import { SiteCopyDto } from './dto/site-copy.dto';
+import { SiteEditContentDto } from './dto/site-edit-content.dto';
 
 /** One stored site-media value. `key` is the R2 object key (for replace/delete);
  *  only `url` is ever exposed publicly. */
@@ -318,45 +318,38 @@ export class TenantsService {
 
   // ---- Site copy (editable storefront text + FAQ) ----
 
-  /** Current overrides for the unified „Промени сайта" editor. Slot definitions
-   *  come from the storefront manifest (admin fetches it client-side). */
-  async getSiteCopy(tenantId: string): Promise<{
+  /** Current overrides for the inline editor (no siteUrl — operator-managed). */
+  async getSiteEditData(tenantId: string): Promise<{
     copy: Record<string, string>;
     media: Record<string, { url: string }>;
     faq: PublicFaqItem[];
-    siteUrl: string;
   }> {
     const settings = await this.loadSettings(tenantId);
     return {
       copy: buildPublicCopy(settings.copy),
       media: toPublicMedia(settings.media),
       faq: buildPublicFaq(settings.faq),
-      siteUrl: sanitizeSiteUrl(settings.siteUrl),
     };
   }
 
-  /** Replace settings.copy + settings.faq + settings.siteUrl in a single atomic
-   *  write, then bust the cached public profile. */
-  async setSiteCopy(
+  /** Write copy + faq (slot content only) atomically; siteUrl untouched. */
+  async setSiteCopyContent(
     tenantId: string,
-    dto: SiteCopyDto,
-  ): Promise<{ copy: Record<string, string>; faq: PublicFaqItem[]; siteUrl: string }> {
+    dto: SiteEditContentDto,
+  ): Promise<{ copy: Record<string, string>; faq: PublicFaqItem[] }> {
     const { slug } = await this.loadTenantForMedia(tenantId);
     const copy = cleanCopy(dto.copy);
     const faq = normalizeFaq(dto.faq);
-    const siteUrl = sanitizeSiteUrl(dto.siteUrl);
     await this.db
       .update(tenants)
       .set({
         settings: sql`jsonb_set(
-          jsonb_set(
-            jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['copy'], ${JSON.stringify(copy)}::jsonb, true),
-            array['faq'], ${JSON.stringify(faq)}::jsonb, true),
-          array['siteUrl'], ${JSON.stringify(siteUrl)}::jsonb, true)`,
+          jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['copy'], ${JSON.stringify(copy)}::jsonb, true),
+          array['faq'], ${JSON.stringify(faq)}::jsonb, true)`,
       })
       .where(eq(tenants.id, tenantId));
     await this.publicCache.del(publicCacheKeys.tenant(slug));
-    return { copy, faq, siteUrl };
+    return { copy, faq };
   }
 
   // ---- Site contact + website icon ----
