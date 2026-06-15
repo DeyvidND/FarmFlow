@@ -42,6 +42,7 @@ import { DigestModule } from './modules/digest/digest.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
 import { QueueModule } from './common/queue/queue.module';
 import { HealthModule } from './common/health/health.module';
+import { ImageQueueModule } from './modules/image-queue/image-queue.module';
 
 @Module({
   imports: [
@@ -123,6 +124,7 @@ import { HealthModule } from './common/health/health.module';
     NewsletterModule,
     // After the feature modules it composes (Tenants/Products/Farmers/Subcategories).
     PublicBootstrapModule,
+    ImageQueueModule,
   ],
   controllers: [AppController],
   providers: [
