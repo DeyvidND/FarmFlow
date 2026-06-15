@@ -17,7 +17,7 @@ export function SiteEditor() {
   const [manifestErr, setManifestErr] = useState(false);
   const [copy, setCopy] = useState<Record<string, string>>({});
   const [media, setMedia] = useState<Record<string, { url: string }>>({});
-  const [faq, setFaq] = useState<SiteFaqItem[]>([]);
+  const [faq, setFaq] = useState<(SiteFaqItem & { _id: number })[]>([]);
   const [siteUrl, setSiteUrl] = useState('');
   const [urlDraft, setUrlDraft] = useState('');
   const [loading, setLoading] = useState(true);
@@ -26,26 +26,32 @@ export function SiteEditor() {
   const [busyMedia, setBusyMedia] = useState<Record<string, boolean>>({});
   const [showPreview, setShowPreview] = useState(false); // mobile toggle
   const preview = useRef<PreviewHandle>(null);
+  const faqIdRef = useRef(0);
+  const withId = (it: { q: string; a: string }) => ({ ...it, _id: faqIdRef.current++ });
+
+  function loadManifest(url: string) {
+    setManifestErr(false);
+    getEditableManifest(url)
+      .then((m) => { setManifest(m); try { localStorage.setItem('ff-manifest:' + url, JSON.stringify(m)); } catch {} })
+      .catch(() => {
+        const cached = (() => { try { return JSON.parse(localStorage.getItem('ff-manifest:' + url) || 'null'); } catch { return null; } })();
+        if (cached) setManifest(cached); else setManifestErr(true);
+      });
+  }
 
   // Load overrides, then the manifest from the storefront.
   useEffect(() => {
     getSiteCopy().then((d) => {
-      setCopy(d.copy); setMedia(d.media); setFaq(d.faq); setSiteUrl(d.siteUrl); setUrlDraft(d.siteUrl);
-      if (d.siteUrl) {
-        getEditableManifest(d.siteUrl)
-          .then((m) => { setManifest(m); try { localStorage.setItem('ff-manifest:' + d.siteUrl, JSON.stringify(m)); } catch {} })
-          .catch(() => {
-            const cached = (() => { try { return JSON.parse(localStorage.getItem('ff-manifest:' + d.siteUrl) || 'null'); } catch { return null; } })();
-            if (cached) setManifest(cached); else setManifestErr(true);
-          });
-      }
+      setCopy(d.copy); setMedia(d.media); setFaq(d.faq.map(withId)); setSiteUrl(d.siteUrl); setUrlDraft(d.siteUrl);
+      if (d.siteUrl) loadManifest(d.siteUrl);
     }).catch(() => toast.error('Неуспешно зареждане')).finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function setField(key: string, value: string) { setCopy((c) => ({ ...c, [key]: value })); setDirty(true); }
   function resetField(key: string) { setCopy((c) => { const n = { ...c }; delete n[key]; return n; }); setDirty(true); }
   function setFaqItem(i: number, patch: Partial<SiteFaqItem>) { setFaq((f) => f.map((it, idx) => idx === i ? { ...it, ...patch } : it)); setDirty(true); }
-  function addFaq() { setFaq((f) => [...f, { q: '', a: '' }]); setDirty(true); }
+  function addFaq() { setFaq((f) => [...f, withId({ q: '', a: '' })]); setDirty(true); }
   function removeFaq(i: number) { setFaq((f) => f.filter((_, idx) => idx !== i)); setDirty(true); }
   function moveFaq(i: number, dir: -1 | 1) {
     setFaq((f) => { const j = i + dir; if (j < 0 || j >= f.length) return f; const n = [...f]; [n[i], n[j]] = [n[j], n[i]]; return n; });
@@ -91,7 +97,7 @@ export function SiteEditor() {
       for (const [k, v] of Object.entries(copy)) if (v.trim()) cleanCopy[k] = v.trim();
       const cleanFaq = faq.map((f) => ({ q: f.q.trim(), a: f.a.trim() })).filter((f) => f.q || f.a);
       const res = await updateSiteCopy({ copy: cleanCopy, faq: cleanFaq, siteUrl: urlDraft.trim() });
-      setCopy(res.copy); setFaq(res.faq); setSiteUrl(res.siteUrl); setUrlDraft(res.siteUrl);
+      setCopy(res.copy); setFaq(res.faq.map(withId)); setSiteUrl(res.siteUrl); setUrlDraft(res.siteUrl);
       setDirty(false);
       toast.success('Промените са запазени');
       preview.current?.reload();
@@ -117,6 +123,7 @@ export function SiteEditor() {
         {manifestErr && (
           <div className="rounded-2xl border border-ff-border bg-ff-surface p-4 text-[13.5px] text-ff-muted shadow-ff-sm">
             Структурата на сайта не можа да се зареди. Провери адреса и опитай пак.
+            <button type="button" onClick={() => loadManifest(siteUrl)} className="ml-2 font-semibold text-ff-ink underline">Опитай пак</button>
           </div>
         )}
 
@@ -201,14 +208,14 @@ function SlotField({ slot, sectionId, value, mediaUrl, busy, onText, onReset, on
 }
 
 function FaqEditor({ faq, onItem, onAdd, onRemove, onMove }: {
-  faq: SiteFaqItem[]; onItem: (i: number, p: Partial<SiteFaqItem>) => void; onAdd: () => void; onRemove: (i: number) => void; onMove: (i: number, d: -1 | 1) => void;
+  faq: (SiteFaqItem & { _id: number })[]; onItem: (i: number, p: Partial<SiteFaqItem>) => void; onAdd: () => void; onRemove: (i: number) => void; onMove: (i: number, d: -1 | 1) => void;
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-ff-border bg-ff-surface p-4 shadow-ff-sm">
       <div className="text-[12px] font-bold uppercase tracking-[0.04em] text-ff-muted-2">Въпроси и отговори</div>
       {faq.length === 0 && <p className="text-[13px] text-ff-muted">Няма въпроси. Добави първия.</p>}
       {faq.map((item, i) => (
-        <div key={i} className="flex flex-col gap-2 rounded-sm border border-ff-border p-3">
+        <div key={item._id} className="flex flex-col gap-2 rounded-sm border border-ff-border p-3">
           <div className="flex items-center justify-between">
             <span className="text-[12px] font-semibold text-ff-muted-2">Въпрос {i + 1}</span>
             <div className="flex gap-1">

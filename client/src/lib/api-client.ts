@@ -323,7 +323,7 @@ export const updateSiteCopy = (data: { copy: Record<string, string>; faq: SiteFa
 /** Fetch the storefront's editable manifest directly (cross-origin, CORS-gated).
  *  Throws on network/HTTP error so the caller can show a friendly fallback. */
 export async function getEditableManifest(siteUrl: string): Promise<EditableManifest> {
-  const res = await fetch(`${siteUrl.replace(/\/$/, '')}/editable-manifest.json`, { mode: 'cors' });
+  const res = await fetch(`${siteUrl.replace(/\/$/, '')}/editable-manifest.json`, { mode: 'cors', signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`manifest ${res.status}`);
   return (await res.json()) as EditableManifest;
 }

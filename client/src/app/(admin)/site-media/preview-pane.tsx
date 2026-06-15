@@ -45,6 +45,8 @@ export const PreviewPane = forwardRef<PreviewHandle, { siteUrl: string }>(functi
     return () => window.removeEventListener('message', onMsg);
   }, [origin]);
 
+  useEffect(() => { setRoute('/'); }, [siteUrl]);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useImperativeHandle(ref, () => ({
     focusSection(r, section) {
