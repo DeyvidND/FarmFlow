@@ -46,15 +46,14 @@ describe('PublicCacheService.resolveTenant — copy/faq projection', () => {
     const row = {
       ...BASE_ROW,
       settings: {
-        siteTheme: 'pazar',
-        copy: { 'home.hero.title': ' Hi ', bogus: 'x' },
+        copy: { 'home.hero.title': ' Hi ', 'bad key!': 'x' },
         faq: [{ q: 'Q', a: 'A' }, { q: '', a: '' }],
       },
     };
     const svc = new PublicCacheService(makeRedis() as never);
     const meta = await svc.resolveTenant(makeDb([row]), 'ferma-test');
 
-    // Only known pazar slot key kept; trimmed; bogus key dropped.
+    // Pattern-valid keys kept; trimmed; keys with spaces/special chars dropped.
     expect(meta.copy).toEqual({ 'home.hero.title': 'Hi' });
     // Empty row dropped.
     expect(meta.faq).toEqual([{ q: 'Q', a: 'A' }]);

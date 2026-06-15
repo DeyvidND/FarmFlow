@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsObject, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsObject, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 
 export class FaqItemDto {
   @IsString()
@@ -21,4 +21,9 @@ export class SiteCopyDto {
   @ValidateNested({ each: true })
   @Type(() => FaqItemDto)
   faq: FaqItemDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  siteUrl?: string;
 }

@@ -28,17 +28,11 @@ import {
   type PublicMarketing,
 } from './site-marketing';
 import {
-  getMediaCatalog,
-  isValidSlot,
-  type MediaSlotDef,
-} from './media-slots.catalog';
-import {
   buildPublicContact,
   normalizeSiteContact,
   type PublicContact,
 } from './site-contact';
-import { getCopyCatalog, type CopySlotDef } from './copy-slots.catalog';
-import { buildPublicCopy, buildPublicFaq, cleanCopy, normalizeFaq, type PublicFaqItem } from './site-copy';
+import { buildPublicCopy, buildPublicFaq, cleanCopy, normalizeFaq, sanitizeSiteUrl, isValidSlotKey, type PublicFaqItem } from './site-copy';
 import { SiteCopyDto } from './dto/site-copy.dto';
 
 /** One stored site-media value. `key` is the R2 object key (for replace/delete);
@@ -223,29 +217,17 @@ export class TenantsService {
 
   // ---- Site media (editable storefront photos) ----
 
-  /** Catalog + current values for the admin editor. `key` is stripped from the
-   *  values — the admin only needs the public url. */
-  async getSiteMedia(
-    tenantId: string,
-  ): Promise<{ catalog: MediaSlotDef[]; values: PublicMediaMap }> {
-    const settings = await this.loadSettings(tenantId);
-    return {
-      catalog: getMediaCatalog(this.themeOf(settings)),
-      values: toPublicMedia(settings.media),
-    };
-  }
-
-  /** Upload (or replace) the photo for one slot. Validates the slot against the
-   *  tenant's catalog, stores under a tenant-scoped R2 key, drops any previous
-   *  object, and busts the public profile cache. */
+  /** Upload (or replace) the photo for one slot. Validates the slot key by pattern,
+   *  stores under a tenant-scoped R2 key, drops any previous object, and busts the
+   *  public profile cache. */
   async setSiteMedia(
     tenantId: string,
     slotKey: string,
     file: Express.Multer.File,
   ): Promise<{ slotKey: string; url: string }> {
     const { slug, settings } = await this.loadTenantForMedia(tenantId);
-    if (!isValidSlot(this.themeOf(settings), slotKey)) {
-      throw new BadRequestException('Непознат слот за снимка');
+    if (!isValidSlotKey(slotKey)) {
+      throw new BadRequestException('Непознат слот');
     }
 
     const img = await optimizeImage(
@@ -307,44 +289,45 @@ export class TenantsService {
 
   // ---- Site copy (editable storefront text + FAQ) ----
 
-  /** Catalog + current overrides + FAQ list for the „Текстове" admin editor. */
+  /** Current overrides for the unified „Промени сайта" editor. Slot definitions
+   *  come from the storefront manifest (admin fetches it client-side). */
   async getSiteCopy(tenantId: string): Promise<{
-    catalog: CopySlotDef[];
     copy: Record<string, string>;
+    media: Record<string, { url: string }>;
     faq: PublicFaqItem[];
+    siteUrl: string;
   }> {
     const settings = await this.loadSettings(tenantId);
-    const theme = this.themeOf(settings);
     return {
-      catalog: getCopyCatalog(theme),
-      copy: buildPublicCopy(theme, settings.copy),
+      copy: buildPublicCopy(settings.copy),
+      media: toPublicMedia(settings.media),
       faq: buildPublicFaq(settings.faq),
+      siteUrl: sanitizeSiteUrl(settings.siteUrl),
     };
   }
 
-  /** Replace settings.copy (cleaned against the catalog) and settings.faq in a
-   *  single atomic write, then bust the cached public profile. */
+  /** Replace settings.copy + settings.faq + settings.siteUrl in a single atomic
+   *  write, then bust the cached public profile. */
   async setSiteCopy(
     tenantId: string,
     dto: SiteCopyDto,
-  ): Promise<{ copy: Record<string, string>; faq: PublicFaqItem[] }> {
-    const { slug, settings } = await this.loadTenantForMedia(tenantId);
-    const copy = cleanCopy(this.themeOf(settings), dto.copy);
+  ): Promise<{ copy: Record<string, string>; faq: PublicFaqItem[]; siteUrl: string }> {
+    const { slug } = await this.loadTenantForMedia(tenantId);
+    const copy = cleanCopy(dto.copy);
     const faq = normalizeFaq(dto.faq);
-
-    // One UPDATE writes both leaves so a crash can't persist one without the other.
+    const siteUrl = sanitizeSiteUrl(dto.siteUrl);
     await this.db
       .update(tenants)
       .set({
         settings: sql`jsonb_set(
-          jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['copy'], ${JSON.stringify(copy)}::jsonb, true),
-          array['faq'], ${JSON.stringify(faq)}::jsonb, true
-        )`,
+          jsonb_set(
+            jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['copy'], ${JSON.stringify(copy)}::jsonb, true),
+            array['faq'], ${JSON.stringify(faq)}::jsonb, true),
+          array['siteUrl'], ${JSON.stringify(siteUrl)}::jsonb, true)`,
       })
       .where(eq(tenants.id, tenantId));
-
     await this.publicCache.del(publicCacheKeys.tenant(slug));
-    return { copy, faq };
+    return { copy, faq, siteUrl };
   }
 
   // ---- Site contact + website icon ----
@@ -530,10 +513,6 @@ export class TenantsService {
       .limit(1);
     if (!row) throw new NotFoundException('Фермата не е намерена');
     return { slug: row.slug, settings: (row.settings as Record<string, unknown> | null) ?? {} };
-  }
-
-  private themeOf(settings: Record<string, unknown>): string | undefined {
-    return typeof settings.siteTheme === 'string' ? settings.siteTheme : undefined;
   }
 
   /**

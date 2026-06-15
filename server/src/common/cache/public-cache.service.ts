@@ -214,10 +214,7 @@ export class PublicCacheService {
       themeColor,
       landing: resolveLanding(settingsObj?.landing),
       marketing: buildPublicMarketing(settingsObj?.marketing),
-      copy: buildPublicCopy(
-        typeof settingsObj?.siteTheme === 'string' ? settingsObj.siteTheme : undefined,
-        settingsObj?.copy,
-      ),
+      copy: buildPublicCopy(settingsObj?.copy),
       faq: buildPublicFaq(settingsObj?.faq),
     };
 

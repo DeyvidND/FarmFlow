@@ -45,12 +45,6 @@ export class TenantsController {
 
   // ---- Site media (editable storefront photos) ----
 
-  @ApiOperation({ summary: 'Editable site-photo slots: catalog + current values' })
-  @Get('me/media')
-  getMedia(@CurrentTenant() tenantId: string) {
-    return this.tenantsService.getSiteMedia(tenantId);
-  }
-
   @ApiOperation({ summary: 'Upload/replace the photo for one site slot' })
   @Post('me/media/:slotKey')
   @ApiConsumes('multipart/form-data')
