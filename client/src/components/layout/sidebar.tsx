@@ -127,6 +127,7 @@ export const NAV: NavItem[] = [HOME, ...NAV_GROUPS.flatMap((g) => g.items)];
 export const FARMER_NAV: NavItem[] = [
   { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Твоят личен оборот, поръчки и тренд.' },
   { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Плащанията за твоите продукти.' },
+  { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, desc: 'Обяви наличност за твоите продукти за определен период.' },
 ];
 
 const NAV_ORDER_PREFIX = 'navorder:';
@@ -294,7 +295,11 @@ export function Sidebar({
 
       <nav className="ff-nav-scroll mt-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
         {role === 'farmer' ? (
-          <div className="flex flex-col gap-1">{FARMER_NAV.map(renderItem)}</div>
+          <div className="flex flex-col gap-1">
+            {FARMER_NAV.filter(
+              (i) => i.href === '/availability' ? availabilitySectionEnabled : true,
+            ).map(renderItem)}
+          </div>
         ) : (
           <>
             {/* Home — always on top, no group header */}

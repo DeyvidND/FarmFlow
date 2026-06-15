@@ -121,12 +121,13 @@ describe('AuthService', () => {
   // ── getMe ─────────────────────────────────────────────────────────────────
 
   describe('getMe', () => {
-    it('returns email, role, mustChangePassword and hiddenNav for the given userId', async () => {
+    it('returns email, role, mustChangePassword, hiddenNav and farmerId for the given userId', async () => {
       const userRow = {
         email: 'u@farm.bg',
         role: 'admin' as const,
         mustChangePassword: true,
         hiddenNav: ['/orders', 'group:Каталог'],
+        farmerId: null,
       };
       db.limit.mockResolvedValueOnce([userRow]);
 
@@ -137,12 +138,23 @@ describe('AuthService', () => {
         role: 'admin',
         mustChangePassword: true,
         hiddenNav: ['/orders', 'group:Каталог'],
+        farmerId: null,
       });
+    });
+
+    it('includes farmerId for a producer sub-account', async () => {
+      db.limit.mockResolvedValueOnce([
+        { email: 'p@farm.bg', role: 'farmer' as const, mustChangePassword: false, hiddenNav: [], farmerId: 'farmer-1' },
+      ]);
+
+      const result = await service.getMe(USER_ID);
+
+      expect(result.farmerId).toBe('farmer-1');
     });
 
     it('defaults hiddenNav to an empty array when the column is null', async () => {
       db.limit.mockResolvedValueOnce([
-        { email: 'u@farm.bg', role: 'admin' as const, mustChangePassword: false, hiddenNav: null },
+        { email: 'u@farm.bg', role: 'admin' as const, mustChangePassword: false, hiddenNav: null, farmerId: null },
       ]);
 
       const result = await service.getMe(USER_ID);

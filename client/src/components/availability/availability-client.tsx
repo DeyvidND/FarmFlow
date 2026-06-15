@@ -9,7 +9,8 @@ import {
   deleteAvailabilityWindow,
   updateTenant,
 } from '@/lib/api-client';
-import type { AvailabilityWindow, Product } from '@/lib/types';
+import type { AvailabilityWindow } from '@/lib/types';
+import type { PickerProduct } from '@/app/(admin)/availability/page';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { HelpModal } from '@/components/delivery/ui';
 import { Button } from '@/components/ui/button';
@@ -32,9 +33,16 @@ const isActive = (w: AvailabilityWindow) => {
 export function AvailabilityClient({
   products,
   title,
+  role = 'admin',
+  farmers = [],
+  multiFarmer = false,
 }: {
-  products: Product[];
+  products: PickerProduct[];
   title: string | null;
+  role?: 'admin' | 'farmer';
+  /** Owner-only: list of producers for the farmer-filter dropdown. */
+  farmers?: { id: string; name: string }[];
+  multiFarmer?: boolean;
 }) {
   const [windows, setWindows] = React.useState<AvailabilityWindow[]>([]);
   const [editing, setEditing] = React.useState<{
@@ -45,6 +53,10 @@ export function AvailabilityClient({
   const [help, setHelp] = React.useState(false);
   const [sectionTitle, setSectionTitle] = React.useState(title ?? '');
   const [savingTitle, setSavingTitle] = React.useState(false);
+
+  // Owner + multiFarmer: client-side farmer filter (products already carry farmerId).
+  const [selectedFarmerId, setSelectedFarmerId] = React.useState<string>('');
+  const showFarmerPicker = role === 'admin' && multiFarmer && farmers.length > 0;
 
   const reload = React.useCallback(async () => {
     try {
@@ -57,6 +69,12 @@ export function AvailabilityClient({
   React.useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Filter products client-side when the owner has a farmer selected.
+  const visibleProducts =
+    showFarmerPicker && selectedFarmerId
+      ? products.filter((p) => p.farmerId === selectedFarmerId)
+      : products;
 
   const byProduct = (id: string) =>
     windows
@@ -85,6 +103,8 @@ export function AvailabilityClient({
     }
   };
 
+  const isProducer = role === 'farmer';
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -94,9 +114,9 @@ export function AvailabilityClient({
               Задай наличност
             </h1>
             <p className="mt-1 text-[14px] text-ff-ink-2">
-              Обяви каква наличност имаш за определен период. Докато периодът е
-              активен, количеството е реалната наличност в магазина — клиентът
-              поръчва и то намалява.
+              {isProducer
+                ? 'Задавай наличност за своите продукти. Докато периодът е активен, количеството е реалната наличност в магазина — клиентът поръчва и то намалява.'
+                : 'Обяви каква наличност имаш за определен период. Докато периодът е активен, количеството е реалната наличност в магазина — клиентът поръчва и то намалява.'}
             </p>
           </div>
           <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
@@ -104,41 +124,74 @@ export function AvailabilityClient({
           </Button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-[12.5px] font-bold text-ff-ink-2">
-            Заглавие на секцията в онлайн магазина
-            <input
-              type="text"
-              value={sectionTitle}
-              onChange={(e) => setSectionTitle(e.target.value)}
-              placeholder="Налично сега"
-              className="rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2 text-[14px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500 w-72 max-w-full font-normal"
-            />
-          </label>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={savingTitle}
-            onClick={saveTitle}
-            className="mb-0.5"
-          >
-            {savingTitle ? 'Запазвам…' : 'Запази заглавието'}
-          </Button>
-        </div>
+        {/* Owner + multiFarmer: farmer filter dropdown */}
+        {showFarmerPicker && (
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <label className="inline-flex items-center gap-2 text-[13px] font-bold text-ff-ink-2">
+              Фермер:
+              <select
+                value={selectedFarmerId}
+                onChange={(e) => setSelectedFarmerId(e.target.value)}
+                className="h-11 rounded-xl border border-ff-border bg-ff-surface px-2.5 text-[13px] font-semibold text-ff-ink-2 shadow-ff-sm outline-none focus:border-ff-green-500"
+              >
+                <option value="">Всички</option>
+                {farmers.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+
+        {/* Owner only: section title editor (producers don't control the storefront title) */}
+        {!isProducer && (
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-[12.5px] font-bold text-ff-ink-2">
+              Заглавие на секцията в онлайн магазина
+              <input
+                type="text"
+                value={sectionTitle}
+                onChange={(e) => setSectionTitle(e.target.value)}
+                placeholder="Налично сега"
+                className="rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2 text-[14px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500 w-72 max-w-full font-normal"
+              />
+            </label>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={savingTitle}
+              onClick={saveTitle}
+              className="mb-0.5"
+            >
+              {savingTitle ? 'Запазвам…' : 'Запази заглавието'}
+            </Button>
+          </div>
+        )}
       </div>
 
-      {products.length === 0 && (
+      {visibleProducts.length === 0 && (
         <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 text-sm text-ff-muted-2">
-          Все още нямаш добавени продукти. Добави продукти от{' '}
-          <a href="/products" className="font-semibold text-ff-green-700 hover:underline">
-            Продукти
-          </a>{' '}
-          и се върни тук.
+          {isProducer ? (
+            'Все още нямаш добавени активни продукти. Добави продукти и се върни тук.'
+          ) : (
+            <>
+              Все още нямаш добавени продукти. Добави продукти от{' '}
+              <a
+                href="/products"
+                className="font-semibold text-ff-green-700 hover:underline"
+              >
+                Продукти
+              </a>{' '}
+              и се върни тук.
+            </>
+          )}
         </div>
       )}
 
       <div className="flex flex-col gap-3">
-        {products.map((p) => (
+        {visibleProducts.map((p) => (
           <div
             key={p.id}
             className="rounded-2xl border border-ff-border bg-ff-surface p-4"

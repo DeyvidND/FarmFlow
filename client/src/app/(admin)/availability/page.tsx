@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { AvailabilityClient } from '@/components/availability/availability-client';
-import type { Paginated, Product } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,22 +15,44 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
   return res.json();
 }
 
+/** Lean product shape returned by the availability picker endpoint. */
+export type PickerProduct = {
+  id: string;
+  name: string;
+  weight: string | null;
+  farmerId: string | null;
+};
+
 export default async function AvailabilityPage() {
-  const [products, tenant] = await Promise.all([
-    fetchJson<Paginated<Product>>('products?limit=200', {
-      items: [],
-      nextCursor: null,
-    }),
-    fetchJson<{ availabilitySectionEnabled?: boolean; availabilityTitle?: string | null }>(
-      'tenants/me',
-      {},
-    ),
+  const me = await fetchJson<{ role?: string; farmerId?: string | null }>(
+    'auth/me',
+    {},
+  );
+  const role = (me.role ?? 'admin') as 'admin' | 'farmer';
+
+  const [products, tenant, farmers] = await Promise.all([
+    // Scoped picker endpoint — owner gets all active products, producer gets only theirs.
+    fetchJson<PickerProduct[]>('availability-windows/products', []),
+    fetchJson<{
+      availabilitySectionEnabled?: boolean;
+      availabilityTitle?: string | null;
+      multiFarmer?: boolean;
+    }>('tenants/me', {}),
+    // Farmers list only needed for the owner farmer-filter dropdown.
+    role === 'admin'
+      ? fetchJson<{ id: string; name: string }[]>('farmers', [])
+      : Promise.resolve([]),
   ]);
+
+  const multiFarmer = tenant.multiFarmer === true;
 
   return (
     <AvailabilityClient
-      products={products.items}
+      products={products}
       title={tenant.availabilityTitle ?? null}
+      role={role}
+      farmers={multiFarmer ? farmers : []}
+      multiFarmer={multiFarmer}
     />
   );
 }

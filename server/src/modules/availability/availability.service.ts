@@ -248,6 +248,34 @@ export class AvailabilityService {
     return { id };
   }
 
+  /** Lean product list for the admin picker in «Задай наличност».
+   *  Returns only active products for the tenant; when farmerScope is non-null
+   *  (producer sub-account), restricts to that farmer's products only.
+   *  Owner (farmerScope=null) gets all active products, optionally filtered if
+   *  they pass a farmerId query param (handled in the controller). */
+  async listPickerProducts(
+    tenantId: string,
+    farmerScope: string | null,
+  ): Promise<{ id: string; name: string; weight: string | null; farmerId: string | null }[]> {
+    const conditions = [
+      eq(products.tenantId, tenantId),
+      eq(products.isActive, true),
+    ] as ReturnType<typeof eq>[];
+    if (farmerScope !== null) {
+      conditions.push(eq(products.farmerId, farmerScope));
+    }
+    return this.db
+      .select({
+        id: products.id,
+        name: products.name,
+        weight: products.weight,
+        farmerId: products.farmerId,
+      })
+      .from(products)
+      .where(and(...conditions))
+      .orderBy(asc(products.name));
+  }
+
   /** Active windows (today within range) for a storefront slug — the overlay the
    *  storefront merges onto the cached catalog by productId. Not long-cached:
    *  `remaining` is volatile (changes per order).

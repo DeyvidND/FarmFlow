@@ -107,6 +107,7 @@ export class AuthService {
     role: string;
     mustChangePassword: boolean;
     hiddenNav: string[];
+    farmerId: string | null;
   }> {
     const [user] = await this.db
       .select({
@@ -114,6 +115,7 @@ export class AuthService {
         role: users.role,
         mustChangePassword: users.mustChangePassword,
         hiddenNav: users.hiddenNav,
+        farmerId: users.farmerId,
       })
       .from(users)
       .where(eq(users.id, userId))
@@ -126,6 +128,7 @@ export class AuthService {
       role: user.role,
       mustChangePassword: user.mustChangePassword,
       hiddenNav: user.hiddenNav ?? [],
+      farmerId: user.farmerId ?? null,
     };
   }
 

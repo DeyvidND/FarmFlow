@@ -39,6 +39,20 @@ export class AvailabilityController {
     return this.svc.list(user.tenantId, { productId, farmerId: farmerScope });
   }
 
+  /** Scoped product picker for the «Задай наличност» screen.
+   *  Placed before `:id` routes to avoid Express route capture.
+   *  Owner: all active products (or ?farmerId-filtered).
+   *  Producer: only their own active products (server-enforced). */
+  @Get('products')
+  @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
+  listPickerProducts(
+    @CurrentUser() user: TenantRequestUser,
+    @Query('farmerId') farmerId?: string,
+  ) {
+    const farmerScope = effectiveFarmerId(user.role, user.farmerId, farmerId);
+    return this.svc.listPickerProducts(user.tenantId, farmerScope);
+  }
+
   @Post()
   create(@CurrentUser() user: TenantRequestUser, @Body() dto: CreateWindowDto) {
     const farmerScope = effectiveFarmerId(user.role, user.farmerId, undefined);
