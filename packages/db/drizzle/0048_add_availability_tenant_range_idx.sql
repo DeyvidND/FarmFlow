@@ -1,0 +1,1 @@
+CREATE INDEX "product_availability_windows_tenant_range_idx" ON "product_availability_windows" USING btree ("tenant_id","ends_at","starts_at");

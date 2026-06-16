@@ -10,6 +10,10 @@ import { and, eq, ne } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { type Database, orders, tenants, stripeEvents } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import {
+  PublicCacheService,
+  publicCacheKeys,
+} from '../../common/cache/public-cache.service';
 import { BillingService } from '../billing/billing.service';
 import { EcontService } from '../econt/econt.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
@@ -98,6 +102,7 @@ export class StripeService {
     private readonly billing: BillingService,
     private readonly econt: EcontService,
     private readonly orderEmail: OrderConfirmationService,
+    private readonly publicCache: PublicCacheService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
@@ -153,6 +158,7 @@ export class StripeService {
     const [tenant] = await this.db
       .select({
         id: tenants.id,
+        slug: tenants.slug,
         stripeAccountId: tenants.stripeAccountId,
         email: tenants.email,
         name: tenants.name,
@@ -185,6 +191,9 @@ export class StripeService {
       .update(tenants)
       .set({ stripeAccountId: account.id })
       .where(eq(tenants.id, tenantId));
+    // Connecting flips the cached `stripeEnabled` flag in the storefront profile;
+    // bust `tenant:{slug}` so the card-payment toggle isn't stale for up to the TTL.
+    await this.publicCache.del(publicCacheKeys.tenant(tenant.slug));
     return account.id;
   }
 
@@ -589,7 +598,7 @@ export class StripeService {
   /** Drop a connected account's link + cached flags when the farm deauthorizes us. */
   private async clearConnectedAccount(account: string | null): Promise<void> {
     if (!account) return;
-    await this.db
+    const rows = await this.db
       .update(tenants)
       .set({
         stripeAccountId: null,
@@ -598,7 +607,10 @@ export class StripeService {
         stripeDetailsSubmitted: false,
         stripeStatusUpdatedAt: new Date(),
       })
-      .where(eq(tenants.stripeAccountId, account));
+      .where(eq(tenants.stripeAccountId, account))
+      .returning({ slug: tenants.slug });
+    // Disconnecting flips the cached `stripeEnabled` flag — bust `tenant:{slug}`.
+    if (rows[0]?.slug) await this.publicCache.del(publicCacheKeys.tenant(rows[0].slug));
   }
 
   private idOf(ref: string | { id: string } | null | undefined): string | null {

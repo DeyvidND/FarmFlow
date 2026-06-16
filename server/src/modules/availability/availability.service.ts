@@ -370,8 +370,9 @@ export class AvailabilityService {
 
     const today = bgToday();
     // Push the active-today predicate into SQL so it's served by the
-    // (product_id, starts_at, ends_at) index instead of scanning all tenant
-    // windows and filtering in JS (mirrors the checkout-path query).
+    // (tenant_id, ends_at, starts_at) index instead of scanning all tenant
+    // windows and filtering in JS. ends_at >= today leads so expired windows
+    // drop out before the starts_at <= today filter applies.
     const rows = await this.db
       .select()
       .from(productAvailabilityWindows)

@@ -12,7 +12,9 @@ describe('StripeService (Stripe disabled)', () => {
   const billing = { handleBillingEvent: jest.fn() } as never;
   const econt = { autoCreateForOrder: jest.fn() } as never;
   const orderEmail = { sendForOrder: jest.fn() } as never;
-  const svc = new StripeService({} as never, config, billing, econt, orderEmail);
+  const svc = new StripeService({} as never, config, billing, econt, orderEmail, {
+    del: jest.fn(),
+  } as never);
 
   it('reports disabled when no secret key is set', () => {
     expect(svc.isEnabled()).toBe(false);
@@ -83,7 +85,9 @@ describe('StripeService webhook — cross-tenant order authorization', () => {
     const billing = { handleBillingEvent: jest.fn() } as never;
     const econt = { autoCreateForOrder: jest.fn() } as never;
     const orderEmail = { sendForOrder: jest.fn() } as never;
-    const svc = new StripeService(db as never, config, billing, econt, orderEmail);
+    const svc = new StripeService(db as never, config, billing, econt, orderEmail, {
+      del: jest.fn(),
+    } as never);
     // The constructor leaves client=null with no secret key; inject a stub whose
     // constructEvent returns a forged-but-"signed" payment_intent.succeeded for a
     // victim order, originating on the attacker's account.
@@ -173,7 +177,9 @@ describe('StripeService webhook — verifies against either configured secret', 
     const billing = { handleBillingEvent: jest.fn() } as never;
     const econt = { autoCreateForOrder: jest.fn() } as never;
     const orderEmail = { sendForOrder: jest.fn() } as never;
-    const svc = new StripeService(db as never, config, billing, econt, orderEmail);
+    const svc = new StripeService(db as never, config, billing, econt, orderEmail, {
+      del: jest.fn(),
+    } as never);
     const tried: string[] = [];
     const event = {
       id: 'evt_1',
@@ -244,6 +250,7 @@ describe('StripeService webhook — checkout.session.expired frees the slot', ()
       { handleBillingEvent: jest.fn() } as never,
       { autoCreateForOrder: jest.fn() } as never,
       { sendForOrder: jest.fn() } as never,
+      { del: jest.fn() } as never,
     );
     const event = {
       id: 'evt_x',
@@ -317,6 +324,7 @@ describe('StripeService webhook — releases the idempotency claim when a handle
       { handleBillingEvent: jest.fn() } as never,
       { autoCreateForOrder: jest.fn() } as never,
       { sendForOrder: jest.fn() } as never,
+      { del: jest.fn() } as never,
     );
     const event = {
       id: 'evt_fail',

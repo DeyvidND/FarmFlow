@@ -231,6 +231,15 @@ export const productAvailabilityWindows = pgTable(
     productRangeIdx: index('product_availability_windows_product_range_idx').on(t.productId, t.startsAt, t.endsAt),
     // Tenant-scoped admin list.
     tenantIdx: index('product_availability_windows_tenant_idx').on(t.tenantId),
+    // Storefront "active windows for this farm today" overlay: tenant_id eq +
+    // ends_at >= today (range) leads so expired windows are skipped before the
+    // starts_at <= today filter. The product_range_idx above can't serve this —
+    // it leads with product_id, absent from this WHERE.
+    tenantRangeIdx: index('product_availability_windows_tenant_range_idx').on(
+      t.tenantId,
+      t.endsAt,
+      t.startsAt,
+    ),
   }),
 );
 

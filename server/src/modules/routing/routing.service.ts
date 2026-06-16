@@ -6,11 +6,12 @@ import {
   BadRequestException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { type Database, orders, orderItems, deliverySlots, tenants } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
-import { bgToday, bgDate } from '../../common/time/bg-time';
+import { bgToday } from '../../common/time/bg-time';
+import { scheduledForDay } from '../orders/order-scheduling';
 
 export interface RouteOrigin {
   address: string | null;
@@ -221,12 +222,12 @@ export class RoutingService {
           eq(orders.status, 'confirmed'),
           eq(orders.deliveryType, 'address'),
           // The route is "stops to DELIVER on this date" — key off the chosen
-          // delivery slot's date, not when the order was placed. Orders with no
-          // slot fall back to creation date so they still surface somewhere.
-          // Both branches must share a type or Postgres rejects the COALESCE
-          // ("text and date cannot be matched"). slot.date is `date` and bgDate()
-          // yields `::date`, so compare as dates (the bound `day` text is cast).
-          sql`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)}) = ${day}`,
+          // delivery slot's date, not when the order was placed. Shared with the
+          // digest/prep queries: a slotted order matches its slot.date; a slotless
+          // order falls back to its creation day via the sargable bgDayBounds range
+          // (so the slotless branch stays index-served — no bgDate() cast on the
+          // column, which the old COALESCE form did and which defeated the index).
+          scheduledForDay(day),
         )!,
       )
       .orderBy(orders.createdAt);

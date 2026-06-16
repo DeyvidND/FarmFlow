@@ -6,7 +6,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { and, desc, eq, getTableColumns, gte, ilike, inArray, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   type Database,
   orders,
@@ -667,27 +667,39 @@ export class OrdersService {
           .from(orderItems)
           .where(eq(orderItems.orderId, id));
         const today = bgToday();
+        const restoreProductIds = items
+          .map((it) => it.productId)
+          .filter((p): p is string => !!p);
+        // Lock every restorable product's active window in one ordered statement
+        // (deadlock-free, no N+1). Expired windows simply aren't returned.
+        const activeWindows = restoreProductIds.length
+          ? await tx
+              .select()
+              .from(productAvailabilityWindows)
+              .where(
+                and(
+                  inArray(productAvailabilityWindows.productId, restoreProductIds),
+                  eq(productAvailabilityWindows.tenantId, tenantId),
+                  lte(productAvailabilityWindows.startsAt, today),
+                  gte(productAvailabilityWindows.endsAt, today),
+                ),
+              )
+              .for('update')
+              .orderBy(asc(productAvailabilityWindows.productId))
+          : [];
+        const winByProduct = new Map(activeWindows.map((w) => [w.productId, w]));
         for (const it of items) {
           if (!it.productId) continue;
-          const [win] = await tx
-            .select()
-            .from(productAvailabilityWindows)
-            .where(
-              and(
-                eq(productAvailabilityWindows.productId, it.productId),
-                eq(productAvailabilityWindows.tenantId, tenantId),
-                lte(productAvailabilityWindows.startsAt, today),
-                gte(productAvailabilityWindows.endsAt, today),
-              ),
-            )
-            .for('update')
-            .limit(1);
-          if (win) {
-            await tx
-              .update(productAvailabilityWindows)
-              .set({ remaining: restoreRemaining(win, it.quantity) })
-              .where(eq(productAvailabilityWindows.id, win.id));
-          }
+          const win = winByProduct.get(it.productId);
+          // Mutate in memory so repeated line items for the same product chain
+          // their restores (and the cap re-applies each step).
+          if (win) win.remaining = restoreRemaining(win, it.quantity);
+        }
+        for (const w of activeWindows) {
+          await tx
+            .update(productAvailabilityWindows)
+            .set({ remaining: w.remaining })
+            .where(eq(productAvailabilityWindows.id, w.id));
         }
       });
     }
@@ -907,36 +919,46 @@ export class OrdersService {
       }
 
       // Per-item availability-window enforcement. A product with an active window
-      // (today within range) sells from that window's `remaining`; the row is
-      // locked so concurrent intakes serialize, mirroring the slot-capacity guard
-      // above. Products with no active window are unaffected (today's behavior).
+      // (today within range) sells from that window's `remaining`. Lock every
+      // ordered product's active window in ONE statement (ordered by product_id so
+      // concurrent intakes acquire locks in a consistent order — deadlock-free),
+      // mirroring the slot-capacity guard above. Products with no active window are
+      // unaffected (today's behavior).
       const today = bgToday();
+      const orderedProductIds = dto.items.map((it) => it.productId);
+      const activeWindows = orderedProductIds.length
+        ? await tx
+            .select()
+            .from(productAvailabilityWindows)
+            .where(
+              and(
+                inArray(productAvailabilityWindows.productId, orderedProductIds),
+                eq(productAvailabilityWindows.tenantId, tenant.id),
+                lte(productAvailabilityWindows.startsAt, today),
+                gte(productAvailabilityWindows.endsAt, today),
+              ),
+            )
+            .for('update')
+            .orderBy(asc(productAvailabilityWindows.productId))
+        : [];
+      // Non-overlap guarantee: at most one active window per product.
+      const winByProduct = new Map(activeWindows.map((w) => [w.productId, w]));
       for (const it of dto.items) {
-        const [win] = await tx
-          .select()
-          .from(productAvailabilityWindows)
-          .where(
-            and(
-              eq(productAvailabilityWindows.productId, it.productId),
-              eq(productAvailabilityWindows.tenantId, tenant.id),
-              lte(productAvailabilityWindows.startsAt, today),
-              gte(productAvailabilityWindows.endsAt, today),
-            ),
-          )
-          .for('update')
-          .limit(1);
-        const active = win ?? null;
+        const active = winByProduct.get(it.productId) ?? null;
         const decision = decideDecrement(active, it.quantity);
         if (!decision.ok) {
           const p = byId.get(it.productId);
           throw new ConflictException(`Няма достатъчна наличност: ${p?.name ?? 'продукт'}`);
         }
-        if (active && decision.newRemaining != null) {
-          await tx
-            .update(productAvailabilityWindows)
-            .set({ remaining: decision.newRemaining })
-            .where(eq(productAvailabilityWindows.id, active.id));
-        }
+        // Mutate the locked window in memory so repeated line items for the same
+        // product chain their decrements (matches the old per-item re-read).
+        if (active && decision.newRemaining != null) active.remaining = decision.newRemaining;
+      }
+      for (const w of activeWindows) {
+        await tx
+          .update(productAvailabilityWindows)
+          .set({ remaining: w.remaining })
+          .where(eq(productAvailabilityWindows.id, w.id));
       }
 
       let total = 0;
