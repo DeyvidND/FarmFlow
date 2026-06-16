@@ -17,7 +17,7 @@
 
 services:
   farmflow-postgres:
-    image: postgres:16
+    image: postgres:16@sha256:081f1bc7bd5e143dbb6e487b710bbc27712cdcfaced4c071b8e47349aa1b4171
     restart: unless-stopped
     networks: [dokploy-network]
     environment:
@@ -33,7 +33,7 @@ services:
       retries: 5
 
   farmflow-redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     restart: unless-stopped
     networks: [dokploy-network]
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in the Dokploy env}"]

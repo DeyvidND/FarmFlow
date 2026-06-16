@@ -95,12 +95,15 @@ async function bootstrap() {
     // be maintained per storefront. Treat it like `/public/*`: any origin, no
     // credentials. The EditSessionGuard (valid token required) is the real gate.
     const isTokenEdit = req.path.startsWith('/tenants/me/site-edit/');
+    // The ACAO value varies by request Origin on every branch (wildcard vs the
+    // reflected allowlisted origin vs nothing), so always advertise that to shared
+    // caches — otherwise a CDN could serve one origin's response to another.
+    res.header('Vary', 'Origin');
     if (isPublic || isTokenEdit) {
       res.header('Access-Control-Allow-Origin', '*');
     } else if (origin && corsOrigins.includes(origin)) {
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Vary', 'Origin');
     }
     res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');

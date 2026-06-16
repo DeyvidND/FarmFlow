@@ -17,8 +17,8 @@ export default function SettingsPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setFieldErr('');
-    if (newPassword.length < 6) {
-      setFieldErr('Новата парола трябва да е поне 6 символа.');
+    if (newPassword.length < 12) {
+      setFieldErr('Новата парола трябва да е поне 12 символа.');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -73,7 +73,7 @@ export default function SettingsPage() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={12}
               autoComplete="new-password"
               className="h-10 rounded-xl border border-ff-border bg-ff-bg px-3 text-[14px] outline-none focus:border-ff-green-500"
             />

@@ -8,31 +8,39 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   ValidateIf,
   ValidateNested,
   ArrayMinSize,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CreateOrderItemDto } from './create-order-item.dto';
 
 export class CreateOrderDto {
+  // Cap the array so an anonymous order can't carry thousands of items (each
+  // triggers a product lookup + an order_items row insert) — cheap amplification
+  // otherwise, since the only outer bound is the ~100kb JSON body limit.
   @ApiProperty({ type: [CreateOrderItemDto] })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemDto)
   @ArrayMinSize(1)
+  @ArrayMaxSize(100)
   items: CreateOrderItemDto[];
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   customerName?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(40)
   customerPhone?: string;
 
   @ApiPropertyOptional()
@@ -57,6 +65,7 @@ export class CreateOrderDto {
   @ValidateIf((o) => (o.deliveryType ?? 'address') === 'address' || o.deliveryType === 'econt_address')
   @IsString()
   @IsNotEmpty({ message: 'Адресът за доставка е задължителен' })
+  @MaxLength(300)
   deliveryAddress?: string;
 
   // Settlement (city/village) for Econt door delivery — the structured city Econt
@@ -67,6 +76,7 @@ export class CreateOrderDto {
   @ValidateIf((o) => o.deliveryType === 'econt_address')
   @IsString()
   @IsNotEmpty({ message: 'Населеното място е задължително за доставка до адрес с Еконт' })
+  @MaxLength(120)
   deliveryCity?: string;
 
   // Postal code from the storefront's structured address field. Optional — used
@@ -75,6 +85,7 @@ export class CreateOrderDto {
   @ApiPropertyOptional({ description: 'Postal code (sharpens geocoding for local delivery)' })
   @IsOptional()
   @IsString()
+  @MaxLength(20)
   deliveryPostal?: string;
 
   // Precise delivery coordinates from the storefront map/autocomplete. Optional:
@@ -98,11 +109,13 @@ export class CreateOrderDto {
   @ValidateIf((o) => o.deliveryType === 'econt')
   @IsString()
   @IsNotEmpty({ message: 'Изборът на офис на Еконт е задължителен' })
+  @MaxLength(200)
   econtOffice?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   notes?: string;
 
   @ApiPropertyOptional({ enum: ['online', 'cod'], default: 'online' })

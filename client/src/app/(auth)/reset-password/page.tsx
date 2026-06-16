@@ -26,8 +26,8 @@ export default function ResetPasswordPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    if (pw.length < 6) {
-      setError('Паролата трябва да е поне 6 символа.');
+    if (pw.length < 8) {
+      setError('Паролата трябва да е поне 8 символа.');
       return;
     }
     if (pw !== pw2) {

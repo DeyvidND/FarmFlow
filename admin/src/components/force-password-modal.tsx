@@ -28,8 +28,8 @@ export function ForcePasswordModal() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    if (next.length < 6) {
-      setError('Новата парола трябва да е поне 6 символа.');
+    if (next.length < 12) {
+      setError('Новата парола трябва да е поне 12 символа.');
       return;
     }
     if (next === current) {
@@ -124,7 +124,7 @@ export function ForcePasswordModal() {
                   <input type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} className={inputCls} />
                 </label>
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[13px] font-bold text-ff-ink-2">Нова парола (поне 6 символа)</span>
+                  <span className="text-[13px] font-bold text-ff-ink-2">Нова парола (поне 12 символа)</span>
                   <input type="password" autoComplete="new-password" required value={next} onChange={(e) => setNext(e.target.value)} className={inputCls} />
                 </label>
                 <label className="flex flex-col gap-1.5">

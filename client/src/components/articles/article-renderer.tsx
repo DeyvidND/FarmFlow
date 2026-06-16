@@ -1,7 +1,18 @@
 'use client';
 
+import DOMPurify from 'isomorphic-dompurify';
 import type { Article, ArticleMedia } from '@/lib/types';
 import { bodyToHtml, inlineToHtml } from '@/lib/article-html';
+
+/**
+ * Defense-in-depth: article body/title/excerpt are sanitized by the API on write
+ * (the sanitize-html allowlist), but we re-sanitize here before injecting raw
+ * HTML so the panel never depends solely on that single boundary — a future
+ * write path or sanitizer regression can't turn stored HTML into live XSS.
+ * isomorphic-dompurify runs identically on the server (SSR) and client, so no
+ * hydration mismatch. Empty string in → empty string out.
+ */
+const clean = (html: string): string => (html ? DOMPurify.sanitize(html) : '');
 
 /**
  * Renders an article + its ordered media exactly as the storefront does — the
@@ -28,20 +39,20 @@ export function ArticleRenderer({ article }: { article: Article }) {
 
       <h1
         className="font-display text-[30px] font-extrabold leading-[1.15] tracking-[-0.02em] max-sm:text-[24px]"
-        dangerouslySetInnerHTML={{ __html: inlineToHtml(article.title) || 'Без заглавие' }}
+        dangerouslySetInnerHTML={{ __html: clean(inlineToHtml(article.title)) || 'Без заглавие' }}
       />
 
       {article.excerpt && (
         <p
           className="mt-3 text-[17px] leading-[1.55] text-ff-ink-2"
-          dangerouslySetInnerHTML={{ __html: inlineToHtml(article.excerpt) }}
+          dangerouslySetInnerHTML={{ __html: clean(inlineToHtml(article.excerpt)) }}
         />
       )}
 
       {html && (
         <div
           className="article-content mt-5"
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={{ __html: clean(html) }}
         />
       )}
 

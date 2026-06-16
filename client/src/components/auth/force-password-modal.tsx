@@ -75,8 +75,8 @@ export function ForcePasswordModal() {
     e.preventDefault();
     setError('');
 
-    if (next.length < 6) {
-      setError('Новата парола трябва да е поне 6 символа.');
+    if (next.length < 8) {
+      setError('Новата парола трябва да е поне 8 символа.');
       return;
     }
     if (next === current) {
@@ -173,7 +173,7 @@ export function ForcePasswordModal() {
 
               <form onSubmit={onSubmit} className="mt-5 flex flex-col gap-4">
                 <PwField label="Временна парола" value={current} onChange={setCurrent} autoComplete="current-password" />
-                <PwField label="Нова парола (поне 6 символа)" value={next} onChange={setNext} autoComplete="new-password" />
+                <PwField label="Нова парола (поне 8 символа)" value={next} onChange={setNext} autoComplete="new-password" />
                 <PwField label="Повтори новата парола" value={confirm} onChange={setConfirm} autoComplete="new-password" />
 
                 {error && <p className="text-[13px] font-semibold text-ff-red">{error}</p>}

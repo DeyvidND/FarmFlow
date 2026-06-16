@@ -36,6 +36,28 @@ describe('renderEmail', () => {
     expect(html).toContain('#2d6a4f');
   });
 
+  it('neutralizes a javascript: button href to "#"', () => {
+    const html = renderEmail([{ type: 'button', label: 'X', href: 'javascript:alert(1)' }], opts);
+    expect(html).not.toContain('javascript:');
+    expect(html).toContain('href="#"');
+  });
+
+  it('drops the link wrapper around an image when its href uses an unsafe scheme', () => {
+    const html = renderEmail(
+      [{ type: 'image', image: 'https://cdn.x/a.png', alt: 'a', href: 'javascript:alert(1)' }],
+      opts,
+    );
+    expect(html).not.toContain('javascript:');
+    // image still rendered, just not wrapped in an <a>
+    expect(html).toContain('https://cdn.x/a.png');
+    expect(html).not.toMatch(/<a [^>]*href="javascript/i);
+  });
+
+  it('keeps a mailto: link on a button', () => {
+    const html = renderEmail([{ type: 'button', label: 'Пиши', href: 'mailto:a@b.bg' }], opts);
+    expect(html).toContain('mailto:a@b.bg');
+  });
+
   it('uses farm-name text header when no logo', () => {
     const html = renderEmail([], { ...opts, brand: { ...opts.brand, logoUrl: undefined } });
     expect(html).toContain('Ферма Х');

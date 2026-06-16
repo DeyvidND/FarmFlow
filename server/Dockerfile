@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Production image for the NestJS API (@farmflow/api).
 # Build from the repo ROOT: `docker build -f server/Dockerfile -t farmflow-api .`
-FROM node:20-alpine AS base
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS base
 ENV PNPM_HOME=/pnpm PATH="/pnpm:$PATH"
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /app

@@ -6,8 +6,8 @@ export class ResetPasswordDto {
   @IsString()
   token: string;
 
-  @ApiProperty({ minLength: 6 })
+  @ApiProperty({ minLength: 8 })
   @IsString()
-  @MinLength(6, { message: 'Паролата трябва да е поне 6 символа' })
+  @MinLength(8, { message: 'Паролата трябва да е поне 8 символа' })
   newPassword: string;
 }

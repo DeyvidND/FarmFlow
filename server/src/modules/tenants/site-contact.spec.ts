@@ -42,6 +42,24 @@ describe('buildPublicContact', () => {
     });
     expect(out.custom).toHaveLength(12);
   });
+
+  it('drops social rows with an active-content scheme but keeps tel/viber/http', () => {
+    const out = buildPublicContact({
+      social: [
+        { network: 'x', label: 'evil', url: 'javascript:alert(1)' },
+        { network: 'x', label: 'evil2', url: 'JavaScript:alert(1)' },
+        { network: 'x', label: 'evil3', url: ' data:text/html,x' },
+        { network: 'fb', label: 'ok', url: 'https://fb.com/x' },
+        { network: 'viber', label: 'v', url: 'viber://chat?number=1' },
+        { network: 'phone', label: 't', url: 'tel:+359' },
+      ],
+    });
+    expect(out.social.map((s) => s.url)).toEqual([
+      'https://fb.com/x',
+      'viber://chat?number=1',
+      'tel:+359',
+    ]);
+  });
 });
 
 describe('normalizeSiteContact', () => {
@@ -58,5 +76,15 @@ describe('normalizeSiteContact', () => {
   it('maps empty themeColor string to null (clear)', () => {
     expect(normalizeSiteContact({ themeColor: '' }).themeColor).toBeNull();
     expect(normalizeSiteContact({ themeColor: '#abcdef' }).themeColor).toBe('#abcdef');
+  });
+
+  it('strips social rows with a javascript:/data: scheme on write', () => {
+    const { contact } = normalizeSiteContact({
+      social: [
+        { label: 'evil', url: 'javascript:alert(1)' },
+        { label: 'ok', url: 'https://ig.com/x' },
+      ],
+    });
+    expect(contact.social).toEqual([{ network: '', label: 'ok', url: 'https://ig.com/x' }]);
   });
 });

@@ -22,8 +22,8 @@ export function PasswordCard() {
     setError('');
     setDone(false);
 
-    if (next.length < 6) {
-      setError('Новата парола трябва да е поне 6 символа');
+    if (next.length < 8) {
+      setError('Новата парола трябва да е поне 8 символа');
       return;
     }
     if (next !== confirm) {
