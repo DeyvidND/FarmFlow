@@ -145,7 +145,10 @@ export class AvailabilityService {
     created: AvailabilityWindow[];
     skipped: { productId: string; reason: 'not-found' | 'overlap' }[];
   }> {
-    const requested = [...new Set(dto.productIds)];
+    // Per-product quantities (last entry wins on a duplicate productId).
+    const qtyById = new Map<string, number>();
+    for (const it of dto.items) qtyById.set(it.productId, it.quantity);
+    const requested = [...qtyById.keys()];
     const skipped: { productId: string; reason: 'not-found' | 'overlap' }[] = [];
 
     // Owned products in this tenant (and, when scoped, this producer's farm).
@@ -200,8 +203,8 @@ export class AvailabilityService {
           productId,
           startsAt: OPEN_START,
           endsAt: OPEN_END,
-          quantity: dto.quantity,
-          remaining: dto.quantity,
+          quantity: qtyById.get(productId)!,
+          remaining: qtyById.get(productId)!,
         })),
       )
       .returning();

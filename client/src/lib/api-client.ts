@@ -879,8 +879,7 @@ export const createAvailabilityWindow = (body: {
   );
 
 export const createBulkAvailabilityWindows = (body: {
-  productIds: string[];
-  quantity: number;
+  items: { productId: string; quantity: number }[];
 }): Promise<{
   created: AvailabilityWindow[];
   skipped: { productId: string; reason: 'not-found' | 'overlap' }[];

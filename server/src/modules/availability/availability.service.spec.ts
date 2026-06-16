@@ -186,7 +186,11 @@ describe('AvailabilityService.createBulk', () => {
   it('sets stock on every eligible product', async () => {
     const db = makeDbForBulk([{ id: 'p1' }, { id: 'p2' }], [], [{ id: 'w1' }, { id: 'w2' }]);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], quantity: 5 }, null);
+    const res = await svc.createBulk(
+      't1',
+      { items: [{ productId: 'p1', quantity: 5 }, { productId: 'p2', quantity: 8 }] },
+      null,
+    );
     expect(res.created).toHaveLength(2);
     expect(res.skipped).toEqual([]);
   });
@@ -198,7 +202,11 @@ describe('AvailabilityService.createBulk', () => {
       [{ id: 'w2' }],
     );
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], quantity: 5 }, null);
+    const res = await svc.createBulk(
+      't1',
+      { items: [{ productId: 'p1', quantity: 5 }, { productId: 'p2', quantity: 5 }] },
+      null,
+    );
     expect(res.created).toHaveLength(1);
     expect(res.skipped).toEqual([{ productId: 'p1', reason: 'overlap' }]);
   });
@@ -207,7 +215,11 @@ describe('AvailabilityService.createBulk', () => {
     // Scoped ownership query returns only p1 → p2 is foreign.
     const db = makeDbForBulk([{ id: 'p1' }], [], [{ id: 'w1' }]);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], quantity: 5 }, 'farmerA');
+    const res = await svc.createBulk(
+      't1',
+      { items: [{ productId: 'p1', quantity: 5 }, { productId: 'p2', quantity: 5 }] },
+      'farmerA',
+    );
     expect(res.created).toHaveLength(1);
     expect(res.skipped).toEqual([{ productId: 'p2', reason: 'not-found' }]);
   });
@@ -215,7 +227,11 @@ describe('AvailabilityService.createBulk', () => {
   it('writes nothing when no product is eligible', async () => {
     const db = makeDbForBulk([], [], [], /* allowInsert */ false);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const res = await svc.createBulk('t1', { productIds: ['p1'], quantity: 5 }, 'farmerA');
+    const res = await svc.createBulk(
+      't1',
+      { items: [{ productId: 'p1', quantity: 5 }] },
+      'farmerA',
+    );
     expect(res.created).toEqual([]);
     expect(res.skipped).toEqual([{ productId: 'p1', reason: 'not-found' }]);
   });
