@@ -340,7 +340,7 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
           return (
             <div className="flex flex-col gap-1.5">
               <label className={lbl}>
-                Колко трае една доставка
+                Колко трае една доставка <span className="font-normal text-ff-muted">(по избор)</span>
                 <select
                   value={String(s.slotMinutes)}
                   onChange={(e) => set({ slotMinutes: parseInt(e.target.value, 10) || 0 })}
@@ -359,7 +359,7 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
         })()}
 
         <label className={cn(lbl, 'max-w-[14rem]')}>
-          Започва от
+          Започва от <span className="font-normal text-ff-muted">(по избор · по подразбиране днес)</span>
           <input
             type="date"
             value={s.anchorDate}
@@ -369,7 +369,7 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
         </label>
 
         <label className={lbl}>
-          Бележка за клиента <span className="font-normal text-ff-muted">(в магазина)</span>
+          Бележка за клиента <span className="font-normal text-ff-muted">(по избор · в магазина)</span>
           <input
             value={s.customerNote}
             onChange={(e) => set({ customerNote: e.target.value })}
@@ -379,7 +379,7 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
           />
         </label>
         <label className={lbl}>
-          Бележка за доставчика <span className="font-normal text-ff-muted">(само за теб)</span>
+          Бележка за доставчика <span className="font-normal text-ff-muted">(по избор · само за теб)</span>
           <input
             value={s.driverNote}
             onChange={(e) => set({ driverNote: e.target.value })}

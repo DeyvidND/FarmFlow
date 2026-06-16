@@ -98,7 +98,7 @@ export function AddSlotDialog({
             </label>
           </div>
           <label className={labelCls}>
-            Бележка за клиента <span className="font-normal text-ff-muted">(вижда се в магазина)</span>
+            Бележка за клиента <span className="font-normal text-ff-muted">(по избор · вижда се в магазина)</span>
             <input
               value={cNote}
               onChange={(e) => setCNote(e.target.value)}
@@ -108,7 +108,7 @@ export function AddSlotDialog({
             />
           </label>
           <label className={labelCls}>
-            Бележка за доставчика <span className="font-normal text-ff-muted">(само за теб)</span>
+            Бележка за доставчика <span className="font-normal text-ff-muted">(по избор · само за теб)</span>
             <input
               value={dNote}
               onChange={(e) => setDNote(e.target.value)}
