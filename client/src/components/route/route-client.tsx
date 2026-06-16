@@ -210,6 +210,10 @@ export function RouteClient({
   // silently missed just because it never showed up on the map.
   const unlocated = stops.filter((s) => s.lat == null || s.lng == null);
 
+  // No base address yet — the route starts from the farm, so without it nothing
+  // can be computed. Point the farmer straight at the location card.
+  const noOrigin = !origin.address && origin.lat == null && origin.lng == null;
+
   // Buyer emails for the day's stops — for a one-shot batch notice (BCC keeps
   // addresses private from each other).
   const emails = stops.map((s) => s.email).filter((e): e is string => !!e);
@@ -223,6 +227,21 @@ export function RouteClient({
 
   return (
     <div className="animate-ff-fade-up">
+      {noOrigin && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
+          <AlertTriangle size={16} className="shrink-0 text-ff-amber-600" />
+          <span className="text-[12.5px] font-bold text-ff-amber-600">
+            Още нямаш зададен адрес на базата — маршрутът тръгва оттам, затова не може да се изчисли.
+          </span>
+          <button
+            onClick={() => setShowLoc(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12.5px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2"
+          >
+            Задай адрес
+          </button>
+        </div>
+      )}
+
       {/* route fetch failed — make it explicit; an empty list must not read as
           "no deliveries today" when the real cause is a server error */}
       {loadError && (

@@ -97,6 +97,10 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
       toast.error('Добави тема на имейла.');
       return;
     }
+    if (quote && quote.activeCount === 0) {
+      toast.error('Нямаш активни абонати още — няма на кого да изпратиш.');
+      return;
+    }
     setSending(true);
     try {
       // Make sure the latest edits are persisted before sending.

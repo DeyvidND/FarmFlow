@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Check, SlidersHorizontal } from 'lucide-react';
+import { Check, SlidersHorizontal, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -98,6 +98,14 @@ export function DeliveryClient({
 
       <div className="flex flex-col gap-4">
         <MethodsSection cfg={cfg} mut={mut} slotFreeCount={slotFreeCount} />
+        {econtMode !== 'off' && !econtReady && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
+            <AlertTriangle size={16} className="shrink-0 text-ff-amber-600" />
+            <span className="text-[12.5px] font-bold text-ff-amber-600">
+              Куриерът е включен, но Еконт още не е свързан — клиентите няма да виждат доставка с куриер, докато не въведеш данните по-долу и не провериш връзката.
+            </span>
+          </div>
+        )}
         {econtMode !== 'off' && <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />}
         {econtMode === 'auto' && <OfficePickerPreview configured={econtReady} />}
         {econtMode === 'auto' && <ShipmentsTable toast={toastAdapter} />}
