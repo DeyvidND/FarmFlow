@@ -157,6 +157,52 @@ async function applyFavicon(tenantId, token, faviconPath) {
   } catch (e) { hook(`favicon apply error: ${e.message}`); }
 }
 
+// ── deploy: register the client in the templates factory (clients.json → CI →
+//    GHCR → Dokploy). Writing the entry is safe; pushing (which triggers the
+//    build/deploy) is gated behind --deploy-push. ──────────────────────────────
+function deployStorefront(tenant) {
+  const repo = (args['templates-repo'] !== true && args['templates-repo']) || process.env.TEMPLATES_REPO;
+  const domain = args.domain !== true && args.domain;
+  if (!repo || !domain) { hook('pass --templates-repo <FarmFlow-Templates path> and --domain to register the storefront for deploy'); return; }
+  const clientsPath = path.join(repo, 'clients.json');
+  let clients;
+  try { clients = JSON.parse(fs.readFileSync(clientsPath, 'utf8')); }
+  catch { hook(`cannot read ${clientsPath}`); return; }
+  clients[tenant.slug] = {
+    baseTheme: (args.theme !== true && args.theme) || process.env.PUBLIC_THEME || 'svezho',
+    tenantSlug: tenant.slug,
+    domain,
+    apiBase: (args['public-api'] !== true && args['public-api']) || cfg.api,
+    adminUrl: cfg.adminUrl,
+  };
+  fs.writeFileSync(clientsPath, JSON.stringify(clients, null, 2) + '\n');
+  ok(`registered "${tenant.slug}" in clients.json → ${domain}`);
+  if (args['deploy-push']) {
+    const g = (a) => spawnSync('git', a, { cwd: repo, stdio: 'inherit' });
+    g(['add', 'clients.json']);
+    g(['commit', '-m', `chore(clients): add ${tenant.slug}`]);
+    const r = g(['push']);
+    ok(r.status === 0 ? 'pushed → CI builds the image (GHCR), Dokploy deploys' : 'push failed — push FarmFlow-Templates manually to trigger CI');
+  } else {
+    hook('review clients.json, then push FarmFlow-Templates to trigger the build (or pass --deploy-push)');
+  }
+}
+
+// ── dns: point the client domain at the storefront via the Cloudflare API. ────
+async function dns(domain) {
+  const token = process.env.CLOUDFLARE_API_TOKEN, zone = process.env.CLOUDFLARE_ZONE_ID, target = process.env.DEPLOY_TARGET;
+  if (!token || !zone || !target) { hook('set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ZONE_ID + DEPLOY_TARGET to auto-create the DNS record'); return; }
+  const r = await fetch(`https://api.cloudflare.com/client/v4/zones/${zone}/dns_records`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ type: 'CNAME', name: domain, content: target, proxied: true, ttl: 1 }),
+  });
+  const b = await r.json().catch(() => ({}));
+  if (r.ok && b.success) ok(`DNS: ${domain} → ${target} (CNAME, proxied)`);
+  else if ((b.errors ?? []).some((e) => e.code === 81057 || /already exists/i.test(e.message || ''))) ok(`DNS: ${domain} already set`);
+  else hook(`DNS create failed: ${JSON.stringify(b.errors ?? b).slice(0, 200)}`);
+}
+
 // ── 4. smoke: storefront acceptance (catalog renders + add-to-cart present) ──
 async function smoke(storeUrl) {
   if (!storeUrl || !cfg.smoke) { hook('pass --store-url --smoke to run the acceptance E2E — skipping'); return null; }
@@ -196,27 +242,32 @@ function welcomePacket(tenant) {
 async function main() {
   console.log(`\n🌿 Onboarding "${cfg.farm}"\n`);
 
-  log('1/5 brand-extract');
+  log('1/6 brand-extract');
   const brand = await brandExtract(cfg.logo);
   if (brand.themeColor) ok(`theme colour ${brand.themeColor}`);
   if (brand.favicon) ok(`favicon → ${brand.favicon}`);
 
-  log('2/5 provision');
+  log('2/6 provision');
   const tenant = await provision(brand);
   if (tenant) ok(`tenant "${tenant.name}" slug=${tenant.slug}`);
 
-  log('3/5 AI import + brand');
+  log('3/6 AI import + brand');
   if (tenant) {
     runImports(tenant);
     if (brand.favicon) await applyFavicon(tenant.id, tenant.token, brand.favicon);
   }
-  hook(`deploy a storefront bound to slug "${tenant?.slug ?? '<slug>'}" via the templates factory (Dokploy/CI), then point DNS.`);
 
-  log('4/5 smoke');
+  log('4/6 deploy storefront + DNS');
+  if (tenant) {
+    deployStorefront(tenant);
+    if (args.domain && args.domain !== true) await dns(args.domain);
+  }
+
+  log('5/6 smoke');
   const sm = await smoke(cfg.storeUrl);
   if (sm) ok(`smoke ${sm.pass ? 'PASS' : 'FAIL'} — products=${sm.products} add-to-cart=${sm.addBtns}`);
 
-  log('5/5 welcome');
+  log('6/6 welcome');
   console.log('\n' + welcomePacket(tenant) + '\n');
   console.log('Done. Review the imported catalog + flip DNS, then go live.\n');
 }
