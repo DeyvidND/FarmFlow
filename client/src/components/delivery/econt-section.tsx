@@ -84,7 +84,9 @@ export function EcontConnectionSection({
       // Validates the credentials live against Econt, then stores them (password
       // encrypted server-side). Flipping `configured` is what makes the storefront
       // offer the Econt delivery options.
-      await saveEcontCredentials({ env: e.env, username: e.username, password: pw });
+      // Always the real Econt account — the demo/test environment is dev-only and
+      // a footgun for farmers (live labels silently fail on it).
+      await saveEcontCredentials({ env: 'prod', username: e.username, password: pw });
       setCheck('ok');
       setPwChanging(false);
       setPw('');
@@ -213,18 +215,6 @@ export function EcontConnectionSection({
                   className={fieldCls}
                 />
               )}
-            </DLabel>
-          </div>
-          <div className="mt-3.5 max-w-[260px]">
-            <DLabel label="Вид акаунт" hint="„Реален“ за истински пратки.">
-              <Segmented
-                value={e.env}
-                onChange={(v) => mut((d) => (d.econt.env = v))}
-                options={[
-                  { value: 'prod', label: 'Реален' },
-                  { value: 'demo', label: 'Тест' },
-                ]}
-              />
             </DLabel>
           </div>
           <div className="mt-3.5 flex items-center">

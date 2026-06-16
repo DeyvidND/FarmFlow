@@ -21,7 +21,6 @@ export function ProductOfWeekPanel() {
   const [mode, setMode] = useState<'manual' | 'auto'>('manual');
   const [productId, setProductId] = useState<string>('');
   const [note, setNote] = useState('');
-  const [placement, setPlacement] = useState<'section' | 'bar'>('section');
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
@@ -35,7 +34,6 @@ export function ProductOfWeekPanel() {
         setMode(t.productOfWeekMode ?? 'manual');
         setProductId(t.productOfWeekId ?? '');
         setNote(t.productOfWeekNote ?? '');
-        setPlacement(t.productOfWeekPlacement ?? 'section');
         setProducts(opts);
         setLoaded(true);
       })
@@ -64,7 +62,6 @@ export function ProductOfWeekPanel() {
         productOfWeekMode: mode,
         productOfWeekId: mode === 'manual' ? productId || null : undefined,
         productOfWeekNote: note.trim() || null,
-        productOfWeekPlacement: placement,
       });
       toast.success('Записано');
       setOpen(false);
@@ -123,18 +120,6 @@ export function ProductOfWeekPanel() {
               </button>
             ))}
           </div>
-
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[13px] font-bold text-ff-ink-2">Къде да се показва</span>
-            <select
-              value={placement}
-              onChange={(e) => setPlacement(e.target.value as 'section' | 'bar')}
-              className="rounded-lg border border-ff-border bg-ff-surface px-3 py-2.5 text-[14px] font-semibold"
-            >
-              <option value="section">Голяма секция (под заглавието)</option>
-              <option value="bar">Лента в хедъра (тънка, най-горе)</option>
-            </select>
-          </label>
 
           {mode === 'manual' && (
             <label className="flex flex-col gap-1.5">

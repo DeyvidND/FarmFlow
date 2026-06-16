@@ -384,24 +384,10 @@ export default function ContactsPage() {
         <section className={card}>
           <h2 className="mb-3 text-[15px] font-extrabold">Локация на картата</h2>
           <p className="mb-3 text-[13px] text-ff-muted">
-            Кликни на картата, за да поставиш точката, или въведи координати ръчно.
+            Кликни на картата, за да поставиш точката на твоето място.
           </p>
-          <div className="mb-3">
-            <LocationPicker lat={lat} lng={lng}
-              onPick={(la, ln) => setForm((f) => ({ ...f, mapLat: la.toFixed(6), mapLng: ln.toFixed(6) }))} />
-          </div>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className={label}>Ширина (lat)</label>
-              <input className={input} value={form.mapLat} onChange={(e) => set('mapLat', e.target.value)}
-                placeholder="43.21" />
-            </div>
-            <div className="flex-1">
-              <label className={label}>Дължина (lng)</label>
-              <input className={input} value={form.mapLng} onChange={(e) => set('mapLng', e.target.value)}
-                placeholder="27.91" />
-            </div>
-          </div>
+          <LocationPicker lat={lat} lng={lng}
+            onPick={(la, ln) => setForm((f) => ({ ...f, mapLat: la.toFixed(6), mapLng: ln.toFixed(6) }))} />
         </section>
 
         {/* Иконка на сайта */}
