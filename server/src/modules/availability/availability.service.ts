@@ -4,7 +4,6 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { and, asc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
 import { type Database, productAvailabilityWindows, products } from '@farmflow/db';
@@ -17,6 +16,13 @@ import { CreateWindowDto } from './dto/create-window.dto';
 import { CreateWindowsBulkDto } from './dto/create-windows-bulk.dto';
 import { UpdateWindowDto } from './dto/update-window.dto';
 import { rangesOverlap, applyQuantityDelta } from './availability.util';
+
+// Availability has no date window anymore: a product just has a stock count that
+// is live until depleted or deleted. We still persist an open-ended date range so
+// the existing "active today" reads (orders checkout + public storefront) keep
+// selecting the row with zero query changes.
+const OPEN_START = '2000-01-01';
+const OPEN_END = '9999-12-31';
 
 @Injectable()
 export class AvailabilityService {
@@ -96,11 +102,7 @@ export class AvailabilityService {
       throw new ForbiddenException('Нямате достъп до този продукт');
     }
 
-    if (dto.endsAt < dto.startsAt) {
-      throw new BadRequestException('Крайната дата е преди началната');
-    }
-
-    // Fetch existing windows for this product (under this tenant) to check overlap.
+    // One stock entry per product — if it already has one, the farmer edits it.
     const existing = await this.db
       .select()
       .from(productAvailabilityWindows)
@@ -111,8 +113,8 @@ export class AvailabilityService {
         ),
       );
 
-    if (existing.some((w) => rangesOverlap(dto.startsAt, dto.endsAt, w.startsAt, w.endsAt))) {
-      throw new ConflictException('Периодът се застъпва с друг за този продукт');
+    if (existing.some((w) => rangesOverlap(OPEN_START, OPEN_END, w.startsAt, w.endsAt))) {
+      throw new ConflictException('Този продукт вече има зададена наличност. Промени я вместо да добавяш нова.');
     }
 
     const [row] = await this.db
@@ -120,8 +122,8 @@ export class AvailabilityService {
       .values({
         tenantId,
         productId: dto.productId,
-        startsAt: dto.startsAt,
-        endsAt: dto.endsAt,
+        startsAt: OPEN_START,
+        endsAt: OPEN_END,
         quantity: dto.quantity,
         remaining: dto.quantity,
       })
@@ -143,10 +145,6 @@ export class AvailabilityService {
     created: AvailabilityWindow[];
     skipped: { productId: string; reason: 'not-found' | 'overlap' }[];
   }> {
-    if (dto.endsAt < dto.startsAt) {
-      throw new BadRequestException('Крайната дата е преди началната');
-    }
-
     const requested = [...new Set(dto.productIds)];
     const skipped: { productId: string; reason: 'not-found' | 'overlap' }[] = [];
 
@@ -186,7 +184,7 @@ export class AvailabilityService {
     const toInsert: string[] = [];
     for (const id of eligible) {
       const windows = byProduct.get(id) ?? [];
-      if (windows.some((w) => rangesOverlap(dto.startsAt, dto.endsAt, w.startsAt, w.endsAt))) {
+      if (windows.some((w) => rangesOverlap(OPEN_START, OPEN_END, w.startsAt, w.endsAt))) {
         skipped.push({ productId: id, reason: 'overlap' });
       } else {
         toInsert.push(id);
@@ -200,8 +198,8 @@ export class AvailabilityService {
         toInsert.map((productId) => ({
           tenantId,
           productId,
-          startsAt: dto.startsAt,
-          endsAt: dto.endsAt,
+          startsAt: OPEN_START,
+          endsAt: OPEN_END,
           quantity: dto.quantity,
           remaining: dto.quantity,
         })),
@@ -243,37 +241,15 @@ export class AvailabilityService {
       }
     }
 
-    const startsAt = dto.startsAt ?? cur.startsAt;
-    const endsAt = dto.endsAt ?? cur.endsAt;
-    if (endsAt < startsAt) {
-      throw new BadRequestException('Крайната дата е преди началната');
-    }
-
-    // Overlap check against this product's *other* windows.
-    const siblings = await this.db
-      .select()
-      .from(productAvailabilityWindows)
-      .where(
-        and(
-          eq(productAvailabilityWindows.tenantId, tenantId),
-          eq(productAvailabilityWindows.productId, cur.productId!),
-        ),
-      );
-    if (
-      siblings.some(
-        (w) => w.id !== id && rangesOverlap(startsAt, endsAt, w.startsAt, w.endsAt),
-      )
-    ) {
-      throw new ConflictException('Периодът се застъпва с друг за този продукт');
-    }
-
+    // Quantity-only edit. Editing down preserves what was already sold
+    // (applyQuantityDelta), so `remaining` never exceeds the new stock.
     const quantity = dto.quantity ?? cur.quantity;
     const remaining =
       dto.quantity == null ? cur.remaining : applyQuantityDelta(cur, dto.quantity);
 
     const [row] = await this.db
       .update(productAvailabilityWindows)
-      .set({ startsAt, endsAt, quantity, remaining })
+      .set({ quantity, remaining })
       .where(
         and(
           eq(productAvailabilityWindows.id, id),

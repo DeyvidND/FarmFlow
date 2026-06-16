@@ -6,23 +6,13 @@ import { UpdateWindowDto } from './update-window.dto';
 const make = (over: Partial<CreateWindowDto>) =>
   plainToInstance(CreateWindowDto, {
     productId: '11111111-1111-4111-a111-111111111111',
-    startsAt: '2026-06-14',
-    endsAt: '2026-06-20',
     quantity: 10,
     ...over,
   });
 
 describe('CreateWindowDto', () => {
-  it('accepts a valid window', async () => {
+  it('accepts a valid stock entry', async () => {
     expect(await validate(make({}))).toHaveLength(0);
-  });
-  it('rejects a non-date startsAt', async () => {
-    expect((await validate(make({ startsAt: 'nope' as any }))).length).toBeGreaterThan(0);
-  });
-  it('rejects a full datetime startsAt (date-only guard)', async () => {
-    expect(
-      (await validate(make({ startsAt: '2026-06-14T10:00:00Z' as any }))).length,
-    ).toBeGreaterThan(0);
   });
   it('rejects quantity < 1', async () => {
     expect((await validate(make({ quantity: 0 }))).length).toBeGreaterThan(0);
@@ -33,8 +23,12 @@ describe('CreateWindowDto', () => {
 });
 
 describe('UpdateWindowDto', () => {
-  it('accepts an empty body (all fields optional)', async () => {
+  it('accepts an empty body (quantity optional)', async () => {
     const dto = plainToInstance(UpdateWindowDto, {});
     expect(await validate(dto)).toHaveLength(0);
+  });
+  it('rejects quantity < 1', async () => {
+    const dto = plainToInstance(UpdateWindowDto, { quantity: 0 });
+    expect((await validate(dto)).length).toBeGreaterThan(0);
   });
 });

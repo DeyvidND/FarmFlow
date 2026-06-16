@@ -854,8 +854,6 @@ export const listAvailabilityWindows = (productId?: string): Promise<Availabilit
 
 export const createAvailabilityWindow = (body: {
   productId: string;
-  startsAt: string;
-  endsAt: string;
   quantity: number;
 }): Promise<AvailabilityWindow> =>
   apiFetch<AvailabilityWindow>(
@@ -866,8 +864,6 @@ export const createAvailabilityWindow = (body: {
 
 export const createBulkAvailabilityWindows = (body: {
   productIds: string[];
-  startsAt: string;
-  endsAt: string;
   quantity: number;
 }): Promise<{
   created: AvailabilityWindow[];
@@ -881,7 +877,7 @@ export const createBulkAvailabilityWindows = (body: {
 
 export const updateAvailabilityWindow = (
   id: string,
-  body: Partial<{ startsAt: string; endsAt: string; quantity: number }>,
+  body: Partial<{ quantity: number }>,
 ): Promise<AvailabilityWindow> =>
   apiFetch<AvailabilityWindow>(
     `availability-windows/${id}`,

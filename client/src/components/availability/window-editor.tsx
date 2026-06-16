@@ -26,8 +26,6 @@ interface Props {
 
 export function WindowEditor({ productId, existingWindow, onClose, onSaved }: Props) {
   const isEdit = !!existingWindow;
-  const [startsAt, setStartsAt] = React.useState(existingWindow?.startsAt ?? '');
-  const [endsAt, setEndsAt] = React.useState(existingWindow?.endsAt ?? '');
   const [quantity, setQuantity] = React.useState(
     existingWindow ? String(existingWindow.quantity) : '',
   );
@@ -35,29 +33,16 @@ export function WindowEditor({ productId, existingWindow, onClose, onSaved }: Pr
 
   const save = async () => {
     const qty = parseInt(quantity, 10);
-    if (!startsAt || !endsAt || !qty || qty < 1) {
-      toast.error('Попълни период и количество (поне 1)');
-      return;
-    }
-    if (endsAt < startsAt) {
-      toast.error('Крайната дата е преди началната');
+    if (!qty || qty < 1) {
+      toast.error('Въведи количество (поне 1)');
       return;
     }
     setSaving(true);
     try {
       if (isEdit) {
-        await updateAvailabilityWindow(existingWindow!.id, {
-          startsAt,
-          endsAt,
-          quantity: qty,
-        });
+        await updateAvailabilityWindow(existingWindow!.id, { quantity: qty });
       } else {
-        await createAvailabilityWindow({
-          productId,
-          startsAt,
-          endsAt,
-          quantity: qty,
-        });
+        await createAvailabilityWindow({ productId, quantity: qty });
       }
       toast.success('Запазено');
       onSaved();
@@ -79,27 +64,9 @@ export function WindowEditor({ productId, existingWindow, onClose, onSaved }: Pr
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="mb-4 font-display text-lg font-bold text-ff-ink">
-          {isEdit ? 'Промени период' : 'Нов период с наличност'}
+          {isEdit ? 'Промени наличност' : 'Задай наличност'}
         </h2>
         <div className="flex flex-col gap-4">
-          <label className={labelCls}>
-            От
-            <input
-              type="date"
-              value={startsAt}
-              onChange={(e) => setStartsAt(e.target.value)}
-              className={field}
-            />
-          </label>
-          <label className={labelCls}>
-            До
-            <input
-              type="date"
-              value={endsAt}
-              onChange={(e) => setEndsAt(e.target.value)}
-              className={field}
-            />
-          </label>
           <label className={labelCls}>
             Количество (бр.)
             <input
@@ -108,6 +75,7 @@ export function WindowEditor({ productId, existingWindow, onClose, onSaved }: Pr
               inputMode="numeric"
               placeholder="напр. 20"
               className={field}
+              autoFocus
             />
           </label>
         </div>

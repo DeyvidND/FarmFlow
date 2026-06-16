@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AvailabilityService } from './availability.service';
 
 // ---------------------------------------------------------------------------
@@ -107,57 +107,47 @@ const publicCacheStub = (meta: Partial<{ id: string }> = {}) => ({
 // create() — overlap + IDOR + farmer-scope
 // ---------------------------------------------------------------------------
 
-describe('AvailabilityService.create overlap guard', () => {
-  it('rejects a window overlapping an existing one for the same product', async () => {
+describe('AvailabilityService.create one-per-product guard', () => {
+  it('rejects a second stock entry when the product already has one', async () => {
     const db = makeDbReturning([
-      { id: 'x', productId: 'p1', startsAt: '2026-06-10', endsAt: '2026-06-20' },
+      { id: 'x', productId: 'p1', startsAt: '2000-01-01', endsAt: '9999-12-31' },
     ]);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
     await expect(
-      svc.create('t1', { productId: 'p1', startsAt: '2026-06-15', endsAt: '2026-06-25', quantity: 5 }, null),
+      svc.create('t1', { productId: 'p1', quantity: 5 }, null),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('allows a non-overlapping window', async () => {
-    const db = makeDbReturning([
-      { id: 'x', productId: 'p1', startsAt: '2026-06-10', endsAt: '2026-06-20' },
-    ]);
+  it('allows setting stock when the product has none', async () => {
+    const db = makeDbReturning([]);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const row = await svc.create('t1', { productId: 'p1', startsAt: '2026-06-21', endsAt: '2026-06-25', quantity: 5 }, null);
+    const row = await svc.create('t1', { productId: 'p1', quantity: 5 }, null);
     expect(row).toEqual({ id: 'new' });
   });
 
-  it('rejects creating a window for a product owned by another tenant (IDOR)', async () => {
+  it('rejects setting stock for a product owned by another tenant (IDOR)', async () => {
     // Ownership select returns empty → product is not under this tenant.
     const db = makeDbReturning([], []);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
     await expect(
-      svc.create('t1', { productId: 'p1', startsAt: '2026-06-15', endsAt: '2026-06-25', quantity: 5 }, null),
+      svc.create('t1', { productId: 'p1', quantity: 5 }, null),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('allows a producer to create a window on their own product', async () => {
+  it('allows a producer to set stock on their own product', async () => {
     // owned row has farmerId matching the scope
     const db = makeDbReturning([], [{ id: 'p1', farmerId: 'farmerA' }]);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const row = await svc.create(
-      't1',
-      { productId: 'p1', startsAt: '2026-06-21', endsAt: '2026-06-25', quantity: 5 },
-      'farmerA',
-    );
+    const row = await svc.create('t1', { productId: 'p1', quantity: 5 }, 'farmerA');
     expect(row).toEqual({ id: 'new' });
   });
 
-  it('rejects a producer creating a window on another producers product (cross-farmer IDOR)', async () => {
+  it('rejects a producer setting stock on another producers product (cross-farmer IDOR)', async () => {
     // owned row has farmerId 'farmerB', but scope is 'farmerA'
     const db = makeDbReturning([], [{ id: 'p1', farmerId: 'farmerB' }]);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
     await expect(
-      svc.create(
-        't1',
-        { productId: 'p1', startsAt: '2026-06-21', endsAt: '2026-06-25', quantity: 5 },
-        'farmerA',
-      ),
+      svc.create('t1', { productId: 'p1', quantity: 5 }, 'farmerA'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
@@ -193,24 +183,22 @@ function makeDbForBulk(owned: any[], existing: any[], created: any[], allowInser
 }
 
 describe('AvailabilityService.createBulk', () => {
-  const dates = { startsAt: '2026-07-01', endsAt: '2026-07-10', quantity: 5 };
-
-  it('creates a window on every eligible product', async () => {
+  it('sets stock on every eligible product', async () => {
     const db = makeDbForBulk([{ id: 'p1' }, { id: 'p2' }], [], [{ id: 'w1' }, { id: 'w2' }]);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], ...dates }, null);
+    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], quantity: 5 }, null);
     expect(res.created).toHaveLength(2);
     expect(res.skipped).toEqual([]);
   });
 
-  it('skips (not fatal) a product that already has an overlapping window', async () => {
+  it('skips (not fatal) a product that already has stock', async () => {
     const db = makeDbForBulk(
       [{ id: 'p1' }, { id: 'p2' }],
-      [{ id: 'x', productId: 'p1', startsAt: '2026-07-05', endsAt: '2026-07-15' }],
+      [{ id: 'x', productId: 'p1', startsAt: '2000-01-01', endsAt: '9999-12-31' }],
       [{ id: 'w2' }],
     );
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], ...dates }, null);
+    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], quantity: 5 }, null);
     expect(res.created).toHaveLength(1);
     expect(res.skipped).toEqual([{ productId: 'p1', reason: 'overlap' }]);
   });
@@ -219,7 +207,7 @@ describe('AvailabilityService.createBulk', () => {
     // Scoped ownership query returns only p1 → p2 is foreign.
     const db = makeDbForBulk([{ id: 'p1' }], [], [{ id: 'w1' }]);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], ...dates }, 'farmerA');
+    const res = await svc.createBulk('t1', { productIds: ['p1', 'p2'], quantity: 5 }, 'farmerA');
     expect(res.created).toHaveLength(1);
     expect(res.skipped).toEqual([{ productId: 'p2', reason: 'not-found' }]);
   });
@@ -227,17 +215,9 @@ describe('AvailabilityService.createBulk', () => {
   it('writes nothing when no product is eligible', async () => {
     const db = makeDbForBulk([], [], [], /* allowInsert */ false);
     const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    const res = await svc.createBulk('t1', { productIds: ['p1'], ...dates }, 'farmerA');
+    const res = await svc.createBulk('t1', { productIds: ['p1'], quantity: 5 }, 'farmerA');
     expect(res.created).toEqual([]);
     expect(res.skipped).toEqual([{ productId: 'p1', reason: 'not-found' }]);
-  });
-
-  it('rejects an inverted date range before touching the DB', async () => {
-    const db = makeDbForBulk([], [], [], false);
-    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
-    await expect(
-      svc.createBulk('t1', { productIds: ['p1'], startsAt: '2026-07-10', endsAt: '2026-07-01', quantity: 5 }, null),
-    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 

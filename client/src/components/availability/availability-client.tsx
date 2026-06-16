@@ -22,16 +22,6 @@ import { Layers } from 'lucide-react';
 const errMsg = (e: unknown) =>
   e instanceof ApiError ? e.message : 'Възникна грешка';
 
-const todaySofia = () =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Sofia' }).format(
-    new Date(),
-  );
-
-const isActive = (w: AvailabilityWindow) => {
-  const t = todaySofia();
-  return w.startsAt <= t && t <= w.endsAt;
-};
-
 export function AvailabilityClient({
   products,
   title,
@@ -79,10 +69,7 @@ export function AvailabilityClient({
       ? products.filter((p) => p.farmerId === selectedFarmerId)
       : products;
 
-  const byProduct = (id: string) =>
-    windows
-      .filter((w) => w.productId === id)
-      .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const byProduct = (id: string) => windows.filter((w) => w.productId === id);
 
   const remove = async (id: string) => {
     setConfirming(null);
@@ -118,8 +105,8 @@ export function AvailabilityClient({
             </h1>
             <p className="mt-1 text-[14px] text-ff-ink-2">
               {isProducer
-                ? 'Задавай наличност за своите продукти. Докато периодът е активен, количеството е реалната наличност в магазина — клиентът поръчва и то намалява.'
-                : 'Обяви каква наличност имаш за определен период. Докато периодът е активен, количеството е реалната наличност в магазина — клиентът поръчва и то намалява.'}
+                ? 'Задавай наличност за своите продукти. Количеството е реалната наличност в магазина — клиентът поръчва и то намалява. Изтрий я, когато продуктът свърши.'
+                : 'Задай каква наличност имаш. Количеството е реалната наличност в магазина — клиентът поръчва и то намалява. Изтрий я, когато продуктът свърши.'}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -210,18 +197,20 @@ export function AvailabilityClient({
               <div className="font-semibold text-ff-ink">
                 {[p.name, p.weight].filter(Boolean).join(' ')}
               </div>
-              <button
-                onClick={() => setEditing({ productId: p.id })}
-                className="shrink-0 rounded-lg bg-ff-green-50 px-3 py-1.5 text-sm font-bold text-ff-green-700 hover:bg-ff-green-100"
-              >
-                + Период
-              </button>
+              {byProduct(p.id).length === 0 && (
+                <button
+                  onClick={() => setEditing({ productId: p.id })}
+                  className="shrink-0 rounded-lg bg-ff-green-50 px-3 py-1.5 text-sm font-bold text-ff-green-700 hover:bg-ff-green-100"
+                >
+                  + Задай наличност
+                </button>
+              )}
             </div>
 
             <div className="mt-3 flex flex-col gap-1.5">
               {byProduct(p.id).length === 0 && (
                 <div className="text-sm text-ff-muted-2">
-                  Няма зададени периоди.
+                  Няма зададена наличност.
                 </div>
               )}
               {byProduct(p.id).map((w) => (
@@ -229,18 +218,10 @@ export function AvailabilityClient({
                   key={w.id}
                   className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg bg-ff-surface-2 px-3 py-2 text-sm"
                 >
-                  <span className="text-ff-ink-2">
-                    {w.startsAt} → {w.endsAt}
-                    {isActive(w) && (
-                      <span className="ml-2 rounded bg-ff-green-100 px-1.5 py-0.5 text-[11px] font-bold text-ff-green-700">
-                        активен
-                      </span>
-                    )}
+                  <span className="font-semibold text-ff-ink">
+                    остават {w.remaining}/{w.quantity} бр.
                   </span>
                   <span className="flex items-center gap-3">
-                    <span className="font-semibold text-ff-ink">
-                      остават {w.remaining}/{w.quantity}
-                    </span>
                     <button
                       onClick={() =>
                         setEditing({ productId: p.id, existingWindow: w })
@@ -283,8 +264,8 @@ export function AvailabilityClient({
       {confirming && (
         <ConfirmDialog
           tone="danger"
-          title="Изтриване на период"
-          message="Сигурен ли си? Този период с наличност ще бъде премахнат."
+          title="Изтриване на наличност"
+          message="Сигурен ли си? Зададената наличност за този продукт ще бъде премахната."
           confirmLabel="Изтрий"
           onCancel={() => setConfirming(null)}
           onConfirm={() => remove(confirming)}

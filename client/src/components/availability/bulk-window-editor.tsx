@@ -11,9 +11,9 @@ const field =
   'rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500 mt-1 w-full';
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
-/** «Задай за всички» — one period (dates + quantity) applied to many products at
- *  once. Pick dates, tick the products, save: the server creates a window per
- *  ticked product and skips any that already have an overlapping one. */
+/** «Задай за всички» — one quantity applied to many products at once. Pick a
+ *  quantity, tick the products, save: the server sets the stock per ticked
+ *  product and skips any that already have stock. */
 export function BulkWindowEditor({
   products,
   onClose,
@@ -23,8 +23,6 @@ export function BulkWindowEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [startsAt, setStartsAt] = React.useState('');
-  const [endsAt, setEndsAt] = React.useState('');
   const [quantity, setQuantity] = React.useState('');
   // Default: every product selected — the common case is "same stock for all".
   const [selected, setSelected] = React.useState<Set<string>>(
@@ -45,12 +43,8 @@ export function BulkWindowEditor({
 
   const save = async () => {
     const qty = parseInt(quantity, 10);
-    if (!startsAt || !endsAt || !qty || qty < 1) {
-      toast.error('Попълни период и количество (поне 1)');
-      return;
-    }
-    if (endsAt < startsAt) {
-      toast.error('Крайната дата е преди началната');
+    if (!qty || qty < 1) {
+      toast.error('Въведи количество (поне 1)');
       return;
     }
     if (selected.size === 0) {
@@ -61,8 +55,6 @@ export function BulkWindowEditor({
     try {
       const res = await createBulkAvailabilityWindows({
         productIds: [...selected],
-        startsAt,
-        endsAt,
         quantity: qty,
       });
       if (res.created.length) {
@@ -70,7 +62,7 @@ export function BulkWindowEditor({
       }
       const overlaps = res.skipped.filter((s) => s.reason === 'overlap').length;
       if (overlaps) {
-        toast(`${overlaps} продукта вече имат период за тези дати — прескочени`);
+        toast(`${overlaps} продукта вече имат наличност — прескочени`);
       }
       if (!res.created.length && !overlaps) {
         toast.error('Нищо не бе зададено');
@@ -92,21 +84,11 @@ export function BulkWindowEditor({
       >
         <h2 className="mb-1 font-display text-lg font-bold text-ff-ink">Задай за всички</h2>
         <p className="mb-4 text-[13px] text-ff-ink-2">
-          Избери период и количество, после маркирай продуктите. Един и същ период се
+          Въведи количество, после маркирай продуктите. Едно и също количество се
           задава наведнъж за всички избрани.
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label className={labelCls}>
-            От
-            <input type="date" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className={field} />
-          </label>
-          <label className={labelCls}>
-            До
-            <input type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className={field} />
-          </label>
-        </div>
-        <label className={`${labelCls} mt-3`}>
+        <label className={labelCls}>
           Количество за всеки продукт (бр.)
           <input
             value={quantity}
