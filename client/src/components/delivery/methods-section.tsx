@@ -157,11 +157,17 @@ function MethodCard({
                     <CalendarDays size={20} />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[14.5px] font-extrabold text-ff-ink">
-                      <span className="ff-fig">{slotFreeCount}</span> свободни часа тази седмица
+                    <div className={`text-[14.5px] font-extrabold ${slotFreeCount === 0 ? 'text-ff-amber' : 'text-ff-ink'}`}>
+                      {slotFreeCount === 0 ? (
+                        'Още нямаш свободни часове тази седмица'
+                      ) : (
+                        <><span className="ff-fig">{slotFreeCount}</span> свободни часа тази седмица</>
+                      )}
                     </div>
                     <div className="mt-px text-[12.5px] text-ff-muted">
-                      Клиентите избират от тези часове при поръчка.
+                      {slotFreeCount === 0
+                        ? 'Клиентите не могат да изберат час — задай часове, иначе личната доставка не работи.'
+                        : 'Клиентите избират от тези часове при поръчка.'}
                     </div>
                   </div>
                   <Button variant="soft" size="sm" onClick={() => router.push('/slots')}>

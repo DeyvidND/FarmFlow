@@ -7,6 +7,7 @@
  * /tenants/me/landing; the chaika storefront reads the resolved config.
  */
 import * as React from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
@@ -130,7 +131,16 @@ export function LandingCard() {
                   <div className="min-w-0 flex-1">
                     <div className="text-[14.5px] font-extrabold text-ff-ink">{row.title}</div>
                     <div className="mt-0.5 text-[12.5px] leading-snug text-ff-muted">
-                      {farmersBlocked ? 'Само при мулти-фермер режим.' : row.desc}
+                      {farmersBlocked ? (
+                        <>
+                          Включва се само при мулти-фермер режим.{' '}
+                          <Link href="/features" className="font-bold text-ff-green-700 hover:underline">
+                            Включи „Фермери“ →
+                          </Link>
+                        </>
+                      ) : (
+                        row.desc
+                      )}
                     </div>
                   </div>
                   <ToggleSwitch

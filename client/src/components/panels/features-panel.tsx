@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Users, Tags, Newspaper, Star, LayoutGrid, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
@@ -89,6 +90,15 @@ export function FeaturesPanel({ initial }: { initial: FeatureFlags }) {
           configLink={{ href: '/reviews', label: 'Управлявай отзивите' }}
         />
       </CardGroup>
+
+      <p className="text-[12.5px] leading-snug text-ff-ink-2">
+        Включеното тук става достъпно в магазина. Кои блокове да се показват на началната
+        страница (и колко неща във всеки) се избира в{' '}
+        <Link href="/settings" className="font-bold text-ff-green-700 hover:underline">
+          Настройки → Начална страница
+        </Link>
+        .
+      </p>
 
       {dirty && <SaveBar saving={saving} onSave={save} onDiscard={() => setVal(saved)} />}
     </div>
