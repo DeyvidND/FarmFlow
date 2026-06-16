@@ -1,22 +1,25 @@
 #!/usr/bin/env node
 /**
- * import-products.mjs — AI product import (the onboarding time-saver).
+ * import-products.mjs — AI catalog import (the onboarding time-saver).
+ * Imports PRODUCTS, FARMERS, or CATEGORIES from messy text.
  *
- * Messy price list (Excel/CSV paste, OCR of a price board, Facebook post, notes)
- *   → Claude extracts structured products (forced tool call)
- *   → preview (human review gate — prices especially)
- *   → optional bulk-create via the existing tenant Products API.
+ * Messy source (Excel/CSV paste, OCR of a price board, Facebook post, notes)
+ *   → Claude extracts structured rows (forced tool call)
+ *   → preview (human review gate)
+ *   → optional bulk-create via the existing tenant API.
  *
  * Structured extraction uses the documented Messages REST endpoint with a forced
- * tool call (tool_choice), so Claude must return JSON matching the product schema.
+ * tool call (tool_choice), so Claude must return JSON matching the schema.
  *
  * Usage:
- *   node scripts/import-products.mjs --file pricelist.txt            # preview only
- *   node scripts/import-products.mjs --file pricelist.txt --apply \
+ *   node scripts/import-products.mjs --file list.txt                       # products (default), preview
+ *   node scripts/import-products.mjs --type farmers --file farmers.txt
+ *   node scripts/import-products.mjs --type categories --text "Зеленчуци, Млечни, Мед"
+ *   node scripts/import-products.mjs --file list.txt --apply \
  *     --api http://localhost:3001 --email owner@farm.bg --password '…'
- *   node scripts/import-products.mjs --file pricelist.txt --dry-run  # show the request, no API call
+ *   node scripts/import-products.mjs --file list.txt --dry-run             # show request, no API call
  *
- * Env: ANTHROPIC_API_KEY (required unless --dry-run); ANTHROPIC_MODEL (default claude-opus-4-8).
+ * Env: ANTHROPIC_API_KEY (required unless --dry-run); ANTHROPIC_MODEL (default claude-haiku-4-5).
  */
 import fs from 'node:fs';
 
@@ -29,65 +32,113 @@ for (let i = 2; i < process.argv.length; i++) {
   if (!next || next.startsWith('--')) args[a.slice(2)] = true;
   else { args[a.slice(2)] = next; i++; }
 }
-const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8';
+// Haiku 4.5 = cheap + fast for extraction. The `effort` param 400s on Haiku 4.5
+// (it's Opus/Sonnet-only), so "low effort" here = Haiku with no extended thinking;
+// effort:low is only sent when the model actually supports it (override via env).
+const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
+const EFFORT_OK = /opus-4-[5-8]|sonnet-4-6|fable-5/.test(MODEL);
 const api = args.api ?? process.env.API_BASE ?? 'http://localhost:3001';
 const log = (...a) => console.log('•', ...a);
 const ok = (...a) => console.log('  ✓', ...a);
 
+const pad = (s, n) => String(s ?? '').padEnd(n).slice(0, n);
+const money = (st) => (st / 100).toFixed(2).replace('.', ',') + ' €';
+
+// ── per-type config: extraction schema + create body + preview ───────────────
+const TYPES = {
+  products: {
+    endpoint: 'products',
+    label: 'продукти',
+    tool: 'extract_products',
+    toolDesc: "Record every product found in the farm's price list / catalog text.",
+    item: {
+      name: { type: 'string', description: 'Product name in Bulgarian, e.g. "Домати".' },
+      priceStotinki: { type: 'integer', description: 'Unit price in stotinki (euro-cents). 6,50 → 650. Multiply a decimal price by 100 and round.' },
+      unit: { type: 'string', description: 'Unit of sale: "кг", "бр", "връзка", "литър", "пакет"… Best guess; default "бр".' },
+      weight: { type: 'string', description: 'Pack size / weight if shown, e.g. "500 г". Empty string if none.' },
+      category: { type: 'string', description: 'Section/category if discernible. Empty string if unknown.' },
+      description: { type: 'string', description: 'Short note if present. Empty string if none.' },
+    },
+    intro: 'Извади ВСЕКИ продукт от ценоразписа по-долу. За всеки дай: име (български), цена в стотинки (числото × 100, напр. 6,50 → 650), мерна единица, разфасовка, категория, описание. Пропусни редове, които не са продукти (заглавия, телефони, адреси).',
+    body: (p) => ({ name: p.name, priceStotinki: p.priceStotinki, unit: p.unit || 'бр', ...(p.weight ? { weight: p.weight } : {}), ...(p.category ? { category: p.category } : {}), ...(p.description ? { description: p.description } : {}), isActive: true }),
+    head: 'Име                          Цена     Ед.    Разфасовка   Категория',
+    row: (p) => `${pad(p.name, 28)} ${money(p.priceStotinki).padStart(8)}  ${pad(p.unit, 5)}  ${pad(p.weight, 11)}  ${p.category || ''}`,
+  },
+  farmers: {
+    endpoint: 'farmers',
+    label: 'фермери',
+    tool: 'extract_farmers',
+    toolDesc: 'Record every producer/farmer described in the text.',
+    item: {
+      name: { type: 'string', description: 'Producer / farmer name (person or farm), Bulgarian.' },
+      role: { type: 'string', description: 'Specialty / role, e.g. "Пчелар", "Зеленчукопроизводител". Empty string if none.' },
+      bio: { type: 'string', description: 'Short bio / description. Empty string if none.' },
+      phone: { type: 'string', description: 'Phone if present. Empty string if none.' },
+      email: { type: 'string', description: 'Valid email if present, else empty string (do not invent one).' },
+      since: { type: 'string', description: 'Year started, e.g. "2015". Empty string if none.' },
+    },
+    intro: 'Извади ВСЕКИ производител/фермер от текста по-долу. За всеки дай: име, специалност/роля, кратко описание, телефон, имейл (само ако е реален), от коя година.',
+    body: (f) => ({ name: f.name, ...(f.role ? { role: f.role } : {}), ...(f.bio ? { bio: f.bio } : {}), ...(f.phone ? { phone: f.phone } : {}), ...(f.email ? { email: f.email } : {}), ...(f.since ? { since: f.since } : {}) }),
+    head: 'Име                          Роля                    Телефон',
+    row: (f) => `${pad(f.name, 28)} ${pad(f.role, 22)}  ${f.phone || ''}`,
+  },
+  categories: {
+    endpoint: 'subcategories',
+    label: 'категории',
+    tool: 'extract_categories',
+    toolDesc: 'Record every product category / section named in the text.',
+    item: {
+      name: { type: 'string', description: 'Category / section name, Bulgarian, e.g. "Зеленчуци", "Млечни".' },
+      description: { type: 'string', description: 'Short description. Empty string if none.' },
+    },
+    intro: 'Извади ВСЯКА категория/раздел за групиране на продукти от текста по-долу. За всяка дай: име и кратко описание (ако има).',
+    body: (c) => ({ name: c.name, ...(c.description ? { description: c.description } : {}) }),
+    head: 'Име                          Описание',
+    row: (c) => `${pad(c.name, 28)} ${c.description || ''}`,
+  },
+};
+
+const type = args.type && args.type !== true ? args.type : 'products';
+const T = TYPES[type];
+if (!T) { console.error(`--type must be one of: ${Object.keys(TYPES).join(', ')}`); process.exit(1); }
+
 function readInput() {
   if (args.text && args.text !== true) return String(args.text);
   if (args.file && args.file !== true) return fs.readFileSync(args.file, 'utf8');
-  if (!process.stdin.isTTY) return fs.readFileSync(0, 'utf8'); // piped stdin
+  if (!process.stdin.isTTY) return fs.readFileSync(0, 'utf8');
   console.error('Provide --file <path>, --text "…", or pipe text on stdin.');
   process.exit(1);
 }
 
-// ── extraction tool (forces JSON shaped like a product) ──────────────────────
-const TOOL = {
-  name: 'extract_products',
-  description: "Record every product found in the farm's price list / catalog text.",
-  input_schema: {
-    type: 'object',
-    properties: {
-      products: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Product name in Bulgarian, e.g. "Домати".' },
-            priceStotinki: { type: 'integer', description: 'Unit price in stotinki (euro-cents). 6,50 → 650. Multiply a decimal price by 100 and round.' },
-            unit: { type: 'string', description: 'Unit of sale: "кг", "бр", "връзка", "литър", "пакет"… Best guess from context; default "бр".' },
-            weight: { type: 'string', description: 'Pack size / weight if shown, e.g. "500 г", "1 кг". Empty string if none.' },
-            category: { type: 'string', description: 'Section/category if discernible (e.g. "Зеленчуци", "Млечни"). Empty string if unknown.' },
-            description: { type: 'string', description: 'Short note if present. Empty string if none.' },
-          },
-          required: ['name', 'priceStotinki', 'unit', 'weight', 'category', 'description'],
-        },
+function buildTool() {
+  return {
+    name: T.tool,
+    description: T.toolDesc,
+    input_schema: {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: { type: 'object', properties: T.item, required: Object.keys(T.item), additionalProperties: false } },
       },
+      required: ['items'],
     },
-    required: ['products'],
-  },
-};
+  };
+}
 
 const PROMPT = (text) =>
-  'Извади ВСЕКИ продукт от ценоразписа на фермера по-долу. Текстът може да е разхвърлян ' +
-  '(Excel paste, OCR на табела, Facebook пост, бележки). За всеки продукт дай: име (български), ' +
-  'цена в стотинки (числото × 100, напр. 6,50 → 650), мерна единица, разфасовка, категория, описание. ' +
-  'Пропусни редове, които не са продукти (заглавия, телефони, адреси, поздрави). ' +
-  'Ако цените са в лева вместо евро, пак ги извади — операторът ще ги прегледа. ' +
-  'Извикай инструмента extract_products с всички продукти.\n\nЦЕНОРАЗПИС:\n"""\n' + text + '\n"""';
+  `${T.intro} Извикай инструмента ${T.tool} с всички намерени.\n\nТЕКСТ:\n"""\n${text}\n"""`;
 
 async function extract(text) {
   const body = {
     model: MODEL,
     max_tokens: 8000,
-    tools: [TOOL],
-    tool_choice: { type: 'tool', name: 'extract_products' },
+    tools: [buildTool()],
+    tool_choice: { type: 'tool', name: T.tool },
     messages: [{ role: 'user', content: PROMPT(text) }],
   };
+  if (EFFORT_OK) body.output_config = { effort: 'low' };
   if (args['dry-run']) {
-    console.log('— DRY RUN — request that would be sent to POST /v1/messages:');
-    console.log(JSON.stringify({ ...body, messages: [{ role: 'user', content: PROMPT('…').slice(0, 120) + '…' }] }, null, 2));
+    console.log(`— DRY RUN (${type}) — request to POST /v1/messages:`);
+    console.log(JSON.stringify({ ...body, messages: [{ role: 'user', content: PROMPT('…').slice(0, 100) + '…' }] }, null, 2));
     return null;
   }
   const key = process.env.ANTHROPIC_API_KEY;
@@ -99,13 +150,12 @@ async function extract(text) {
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const msg = await res.json();
-  const tool = (msg.content ?? []).find((b) => b.type === 'tool_use' && b.name === 'extract_products');
-  if (!tool) throw new Error('No extract_products tool call in the response.');
-  return tool.input.products ?? [];
+  const tool = (msg.content ?? []).find((b) => b.type === 'tool_use' && b.name === T.tool);
+  if (!tool) throw new Error(`No ${T.tool} tool call in the response.`);
+  return tool.input.items ?? [];
 }
 
-// ── bulk-create via the tenant Products API ──────────────────────────────────
-async function apply(products) {
+async function apply(rows) {
   let token = args.token && args.token !== true ? args.token : null;
   if (!token && args.email && args.password) {
     const r = await fetch(`${api}/auth/login`, {
@@ -117,45 +167,32 @@ async function apply(products) {
   }
   if (!token) { log('apply: pass --token or --email/--password (owner) — skipping create'); return; }
   let created = 0; const failed = [];
-  for (const p of products) {
-    const r = await fetch(`${api}/products`, {
+  for (const row of rows) {
+    const r = await fetch(`${api}/${T.endpoint}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        name: p.name,
-        priceStotinki: p.priceStotinki,
-        unit: p.unit || 'бр',
-        ...(p.weight ? { weight: p.weight } : {}),
-        ...(p.category ? { category: p.category } : {}),
-        ...(p.description ? { description: p.description } : {}),
-        isActive: true,
-      }),
+      body: JSON.stringify(T.body(row)),
     });
     if (r.ok) created++;
-    else failed.push(`${p.name} (${r.status})`);
+    else failed.push(`${row.name} (${r.status})`);
   }
-  ok(`created ${created}/${products.length}`);
+  ok(`created ${created}/${rows.length} ${T.label}`);
   if (failed.length) log('failed:', failed.slice(0, 8).join(', '));
 }
 
-// ── run ──────────────────────────────────────────────────────────────────────
 async function main() {
   const text = readInput();
-  log(`extracting products (${MODEL})…`);
-  const products = await extract(text);
-  if (products == null) return; // dry-run
-  ok(`extracted ${products.length} products`);
-  console.log('\nИме                          Цена     Ед.    Разфасовка   Категория');
+  log(`extracting ${T.label} (${MODEL}${EFFORT_OK ? ', effort:low' : ''})…`);
+  const rows = await extract(text);
+  if (rows == null) return; // dry-run
+  ok(`extracted ${rows.length} ${T.label}`);
+  console.log('\n' + T.head);
   console.log('─'.repeat(74));
-  for (const p of products) {
-    const price = (p.priceStotinki / 100).toFixed(2).replace('.', ',') + ' €';
-    console.log(
-      `${String(p.name).padEnd(28).slice(0, 28)} ${price.padStart(8)}  ${String(p.unit || '').padEnd(5).slice(0, 5)}  ${String(p.weight || '').padEnd(11).slice(0, 11)}  ${p.category || ''}`,
-    );
-  }
-  fs.writeFileSync('imported-products.json', JSON.stringify(products, null, 2));
-  ok('saved imported-products.json (review before applying)');
-  if (args.apply) await apply(products);
+  for (const row of rows) console.log(T.row(row));
+  const out = `imported-${type}.json`;
+  fs.writeFileSync(out, JSON.stringify(rows, null, 2));
+  ok(`saved ${out} (review before applying)`);
+  if (args.apply) await apply(rows);
   else log('preview only — re-run with --apply --email/--password (or --token) to create');
 }
 
