@@ -6,6 +6,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { OrdersService } from './orders.service';
 import { StripeService, type CheckoutLine } from '../stripe/stripe.service';
 import { EcontService } from '../econt/econt.service';
+import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import {
   localFeeStotinki,
@@ -40,6 +41,7 @@ export class CheckoutService {
     private readonly ordersService: OrdersService,
     private readonly stripe: StripeService,
     private readonly econt: EcontService,
+    private readonly orderConfirmation: OrderConfirmationService,
     private readonly config: ConfigService,
   ) {}
 
@@ -74,6 +76,9 @@ export class CheckoutService {
    */
   async placeOrder(slug: string, dto: CreateOrderDto): Promise<PlacedOrder> {
     const { order } = await this.createAndFold(slug, dto);
+    // Cash path → the order is final now (no online payment to wait for). Tell the
+    // buyer we received it; the "confirmed" mail follows when the farm confirms.
+    void this.orderConfirmation.sendReceived(order.id);
     return order;
   }
 
@@ -114,6 +119,9 @@ export class CheckoutService {
           .set({ paymentMethod: 'cod' })
           .where(eq(orders.id, order.id));
       }
+      // Cash path → final now; send the "received" mail (Stripe orders instead get
+      // their mail after payment succeeds).
+      void this.orderConfirmation.sendReceived(order.id);
       return { orderId: order.id, checkoutUrl: null };
     }
 

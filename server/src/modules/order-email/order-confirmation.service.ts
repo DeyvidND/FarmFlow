@@ -68,12 +68,21 @@ export class OrderConfirmationService {
       .replace(/\/+$/, '');
   }
 
+  /** Email the buyer that we RECEIVED their order — fired on placement (cash path). */
+  async sendReceived(orderId: string): Promise<void> {
+    return this.send(orderId, 'received');
+  }
+
   /**
-   * Email the buyer their confirmation. Fire-and-forget from callers (the
-   * confirm transition must never block on mail) — so this swallows its own
-   * errors and no-ops when the order carries no email address.
+   * Email the buyer their confirmation when the order becomes `confirmed`.
+   * Fire-and-forget from callers (the confirm transition must never block on
+   * mail) — so this swallows its own errors and no-ops when there's no email.
    */
   async sendForOrder(orderId: string): Promise<void> {
+    return this.send(orderId, 'confirmed');
+  }
+
+  private async send(orderId: string, phase: 'received' | 'confirmed'): Promise<void> {
     try {
       const [order] = await this.db
         .select()
@@ -107,18 +116,21 @@ export class OrderConfirmationService {
       // Strip CR/LF from the tenant-controlled farm name before it enters the
       // email subject — defense-in-depth against header injection.
       const safeFarmName = farmName.replace(/[\r\n]+/g, ' ').trim();
-      const subject = `Поръчката ти е потвърдена — ${safeFarmName}`.trim();
+      const subject = (phase === 'received'
+        ? `Получихме поръчката ти — ${safeFarmName}`
+        : `Поръчката ти е потвърдена — ${safeFarmName}`
+      ).trim();
 
       await this.email.sendMail({
         to,
         subject,
-        html: this.renderHtml(order, items, farmName),
-        text: this.renderText(order, items, farmName),
+        html: this.renderHtml(order, items, farmName, phase),
+        text: this.renderText(order, items, farmName, phase),
         stream: 'transactional',
       });
     } catch (err) {
       this.logger.error(
-        `order-confirmation email failed for ${orderId}: ${
+        `order-${phase} email failed for ${orderId}: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
@@ -179,7 +191,7 @@ export class OrderConfirmationService {
     return where ? `${label} — ${where}` : label;
   }
 
-  private renderHtml(order: OrderRow, items: EmailItem[], farmName: string): string {
+  private renderHtml(order: OrderRow, items: EmailItem[], farmName: string, phase: 'received' | 'confirmed'): string {
     const subtotal = items.reduce((s, it) => s + it.priceStotinki * it.quantity, 0);
     const total = order.totalStotinki ?? subtotal;
     const shipping = Math.max(0, total - subtotal);
@@ -216,9 +228,13 @@ export class OrderConfirmationService {
       <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fffdf7;border:1px solid #e7e3d6;border-radius:16px;overflow:hidden">
         <tr><td style="background:#2d6a4f;padding:22px 28px;color:#eaf1e4;font-size:20px;font-weight:bold">🌿 ${esc(farmName)}</td></tr>
         <tr><td style="padding:28px">
-          <h1 style="margin:0 0 6px;font-size:22px;color:#23210f">Благодарим за поръчката!${greetingName ? '' : ''}</h1>
+          <h1 style="margin:0 0 6px;font-size:22px;color:#23210f">Благодарим за поръчката!</h1>
           <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#4a4733">
-            ${greetingName ? `Здравей, ${greetingName}! ` : ''}Поръчката ти е <strong>потвърдена</strong> и вече я приготвяме.
+            ${greetingName ? `Здравей, ${greetingName}! ` : ''}${
+              phase === 'received'
+                ? '<strong>Получихме поръчката ти!</strong> Ще се свържем по телефона, ако трябва да уточним нещо, и ще ти пишем пак, щом я потвърдим.'
+                : 'Поръчката ти е <strong>потвърдена</strong> и вече я приготвяме.'
+            }
           </p>
 
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
@@ -247,7 +263,7 @@ export class OrderConfirmationService {
 </body></html>`;
   }
 
-  private renderText(order: OrderRow, items: EmailItem[], farmName: string): string {
+  private renderText(order: OrderRow, items: EmailItem[], farmName: string, phase: 'received' | 'confirmed'): string {
     const subtotal = items.reduce((s, it) => s + it.priceStotinki * it.quantity, 0);
     const total = order.totalStotinki ?? subtotal;
     const shipping = Math.max(0, total - subtotal);
@@ -255,7 +271,9 @@ export class OrderConfirmationService {
       (it) => `- ${it.name} × ${it.quantity} = ${money(it.priceStotinki * it.quantity)}`,
     );
     return [
-      `${farmName} — Поръчката ти е потвърдена.`,
+      phase === 'received'
+        ? `${farmName} — Получихме поръчката ти.`
+        : `${farmName} — Поръчката ти е потвърдена.`,
       order.customerName ? `Здравей, ${order.customerName}!` : '',
       '',
       ...lines,

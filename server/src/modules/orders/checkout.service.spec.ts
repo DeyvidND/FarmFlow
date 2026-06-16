@@ -48,14 +48,16 @@ function build(order: any, opts: { canCard?: boolean } = {}) {
       .mockResolvedValue({ checkoutUrl: 'https://stripe/cs', checkoutSessionId: 'cs_1' }),
   };
   const econt = { estimateShipping: jest.fn().mockResolvedValue(null) };
+  const orderConfirmation = { sendReceived: jest.fn().mockResolvedValue(undefined) };
   const svc = new CheckoutService(
     db as never,
     ordersService as never,
     stripe as never,
     econt as never,
+    orderConfirmation as never,
     cfg({ STOREFRONT_URL: 'https://shop' }) as never,
   );
-  return { svc, db, ordersService, stripe, econt };
+  return { svc, db, ordersService, stripe, econt, orderConfirmation };
 }
 
 const dto = (over: Record<string, any> = {}) =>
