@@ -10,16 +10,40 @@ import {
   updateCampaign, previewCampaign, sendCampaign, getNewsletterQuote,
   type NewsletterCampaign, type NewsletterBlock, type NewsletterQuote,
 } from '@/lib/api-client';
-import { BlockCanvas } from './block-canvas';
+import { QuillBlock } from './quill-block';
 
 const field =
   'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[15px] font-bold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
+
+// New campaigns store the whole email as a single rich-text body. Older drafts
+// (made with the previous block builder) are collapsed to one HTML string on
+// open so no content is lost — the result is re-sanitized server-side on save.
+function blocksToHtml(blocks: NewsletterBlock[] | undefined): string {
+  if (!blocks?.length) return '';
+  if (blocks.length === 1 && blocks[0].type === 'text') return blocks[0].html; // common case
+  const img = (src: string, alt = '') => (src ? `<p><img src="${src}" alt="${alt}"></p>` : '');
+  return blocks
+    .map((b): string => {
+      switch (b.type) {
+        case 'text': return b.html;
+        case 'heading': { const h = b.level === 2 ? 3 : 2; return `<h${h}>${b.text}</h${h}>`; }
+        case 'hero':
+        case 'image': return img(b.image, b.alt);
+        case 'button': return b.href ? `<p><a href="${b.href}">${b.label}</a></p>` : `<p>${b.label}</p>`;
+        case 'columns': return [b.left, b.right].map((c) => (c.kind === 'text' ? c.html : img(c.image, c.alt))).join('');
+        case 'divider': return '<hr>';
+        case 'spacer': return '';
+      }
+    })
+    .filter(Boolean)
+    .join('');
+}
 
 export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
   const router = useRouter();
   const sent = initial.status === 'sent';
   const [subject, setSubject] = useState(initial.subject);
-  const [blocks, setBlocks] = useState<NewsletterBlock[]>(initial.blocks ?? []);
+  const [body, setBody] = useState<string>(() => blocksToHtml(initial.blocks));
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [previewHtml, setPreviewHtml] = useState('');
   const [quote, setQuote] = useState<NewsletterQuote | null>(null);
@@ -27,7 +51,10 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
   const [sending, setSending] = useState(false);
   const dirty = useRef(false);
 
-  // Cost preview (active count + this-send cost + month-to-date).
+  // The whole email is one rich-text block.
+  const payloadBlocks = (html: string): NewsletterBlock[] => [{ type: 'text', html }];
+
+  // Cost preview (active count + this-send cost).
   useEffect(() => {
     getNewsletterQuote().then(setQuote).catch(() => undefined);
   }, []);
@@ -45,13 +72,13 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
     void refreshPreview();
   }, [refreshPreview]);
 
-  // Debounced autosave whenever subject/blocks change (drafts only).
+  // Debounced autosave whenever subject/body change (drafts only).
   useEffect(() => {
     if (sent || !dirty.current) return;
     setSaving('saving');
     const t = setTimeout(async () => {
       try {
-        await updateCampaign(initial.id, { subject, blocks });
+        await updateCampaign(initial.id, { subject, blocks: payloadBlocks(body) });
         setSaving('saved');
         void refreshPreview();
       } catch {
@@ -60,10 +87,10 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
       }
     }, 800);
     return () => clearTimeout(t);
-  }, [subject, blocks, sent, initial.id, refreshPreview]);
+  }, [subject, body, sent, initial.id, refreshPreview]);
 
   const onSubject = (v: string) => { dirty.current = true; setSubject(v); };
-  const onBlocks = (b: NewsletterBlock[]) => { dirty.current = true; setBlocks(b); };
+  const onBody = (html: string) => { dirty.current = true; setBody(html); };
 
   async function confirmSend() {
     if (!subject.trim()) {
@@ -73,7 +100,7 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
     setSending(true);
     try {
       // Make sure the latest edits are persisted before sending.
-      await updateCampaign(initial.id, { subject, blocks });
+      await updateCampaign(initial.id, { subject, blocks: payloadBlocks(body) });
       const res = await sendCampaign(initial.id);
       toast.success(`Изпратено до ${res.sent} ${res.sent === 1 ? 'клиент' : 'клиента'}`);
       router.push('/newsletters');
@@ -84,8 +111,6 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
       setConfirmOpen(false);
     }
   }
-
-  const perK = quote ? (quote.perRecipientMicro / 1000).toFixed(2) : '0.56';
 
   return (
     <div className="animate-ff-fade-up">
@@ -115,21 +140,16 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
         </div>
       </div>
 
-      {/* cost bar */}
+      {/* cost bar — one clear price */}
       {quote && !sent && (
         <div className="mb-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-ff-green-100 bg-ff-green-50 px-4 py-3 text-[13.5px] text-ff-green-800">
           <Users size={16} className="shrink-0" />
           {quote.premium ? (
-            <span>Имаш <b>{quote.activeCount}</b> активни абоната. Изпращането е <b>безплатно</b> (премиум).</span>
+            <span>Имаш <b>{quote.activeCount}</b> активни абоната. Изпращането е <b>безплатно</b>.</span>
           ) : (
             <span>
-              Имаш <b>{quote.activeCount}</b> активни абоната. Това изпращане ще ти струва{' '}
-              <b>{moneyFromStotinki(quote.sendCostStotinki)}</b> (€{perK} на 1000 имейла).
-            </span>
-          )}
-          {quote.monthToDateCount > 0 && (
-            <span className="text-ff-green-700">
-              · Този месец: {quote.monthToDateCount} имейла ≈ {moneyFromStotinki(quote.monthToDateStotinki)}
+              Имаш <b>{quote.activeCount}</b> активни абоната. Това изпращане струва{' '}
+              <b>{moneyFromStotinki(quote.sendCostStotinki)}</b>.
             </span>
           )}
         </div>
@@ -150,7 +170,12 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
               Този бюлетин е изпратен и не може да се променя. Направи копие, ако искаш да го пратиш пак.
             </p>
           ) : (
-            <BlockCanvas campaignId={initial.id} blocks={blocks} onChange={onBlocks} />
+            <QuillBlock
+              campaignId={initial.id}
+              value={body}
+              onChange={onBody}
+              placeholder="Напиши съобщението си тук. Можеш да добавяш снимки, заглавия и връзки от лентата отгоре."
+            />
           )}
         </div>
 
