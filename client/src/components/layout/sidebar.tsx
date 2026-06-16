@@ -13,8 +13,6 @@ import {
   Package,
   Users,
   Tags,
-  CalendarDays,
-  Truck,
   Route as RouteIcon,
   Newspaper,
   Mail,
@@ -23,13 +21,10 @@ import {
   Lock,
   LogOut,
   Settings,
-  SlidersHorizontal,
-  ToggleRight,
   BookOpen,
   Contact,
   ChevronDown,
   MessageSquare,
-  Megaphone,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -78,20 +73,9 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/orders', label: 'Поръчки', Icon: ClipboardList, desc: 'Входящи поръчки от клиенти.' },
       { href: '/production', label: 'Производство', Icon: ShoppingBasket, gated: true, desc: 'Дневен списък какво да приготвиш за доставките.' },
+      { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true, desc: 'Маршрут за разнасяне на поръчките.' },
       { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите — наложен платеж и карти.' },
       { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Оборот, поръчки, топ продукти и тренд през времето.' },
-    ],
-  },
-  {
-    title: 'Доставка и плащане',
-    collapsible: true,
-    desc: 'Начини на доставка и плащане, маршрут, часове за доставка и функции на магазина.',
-    items: [
-      { href: '/setup', label: 'Методи и цени', Icon: SlidersHorizontal, desc: 'Кои начини на доставка и плащане приемаш и на каква цена.' },
-      { href: '/delivery', label: 'Доставка', Icon: Truck, desc: 'Настройки на куриер (Еконт) и зони на доставка.' },
-      { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true, desc: 'Маршрут за разнасяне на поръчките.' },
-      { href: '/slots', label: 'Часове за доставка', Icon: CalendarDays, gated: true, desc: 'Часове и дни за лична доставка, които клиентът избира.' },
-      { href: '/features', label: 'Функции на магазина', Icon: ToggleRight, desc: 'Включи/изключи цели части от магазина.' },
     ],
   },
   {
@@ -102,7 +86,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоят каталог с продукти и цени.' },
       { href: '/farmers', label: 'Фермери', Icon: Users, desc: 'Производителите, чиято стока продаваш.' },
       { href: '/subcategories', label: 'Категории', Icon: Tags, desc: 'Раздели, в които групираш продуктите.' },
-      { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, gated: true, desc: 'Обяви наличност за определен период (ден/седмица/месец).' },
+      { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, gated: true, desc: 'Колко имаш налично от всеки продукт — намалява при поръчка.' },
     ],
   },
   {
@@ -114,7 +98,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/reviews', label: 'Отзиви', Icon: MessageSquare, desc: 'Преглед и одобрение на отзивите от клиенти.' },
       { href: '/site-media', label: 'Промени сайта', Icon: ImageIcon, desc: 'Снимки и текстове на сайта — смени какво пише и какви снимки стоят.' },
       { href: '/contacts', label: 'Контакти', Icon: Contact, desc: 'Контактна информация, социални мрежи, локация и иконка на сайта.' },
-      { href: '/marketing-tracking', label: 'Маркетинг и проследяване', Icon: Megaphone, desc: 'Google Analytics, Google Ads, Meta Pixel — кодове за реклами и статистика.' },
       { href: '/newsletters', label: 'Имейл клиенти', Icon: Mail, desc: 'Списък с имейли за бюлетин.' },
     ],
   },
@@ -128,7 +111,7 @@ export const FARMER_NAV: NavItem[] = [
   { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Твоят личен оборот, поръчки и тренд.' },
   { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоите продукти — добавяй, променяй цени, снимки и наличност.' },
   { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Плащанията за твоите продукти.' },
-  { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, desc: 'Обяви наличност за твоите продукти за определен период.' },
+  { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, desc: 'Колко имаш налично от всеки продукт — намалява при поръчка.' },
 ];
 
 const NAV_ORDER_PREFIX = 'navorder:';

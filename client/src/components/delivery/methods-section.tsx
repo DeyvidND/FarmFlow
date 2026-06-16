@@ -33,7 +33,7 @@ const PRICE_OPTS: { value: PricingType; label: string }[] = [
 
 /**
  * Per-method **configuration** (label, price, eta, payer, pickup address). The
- * on/off switch lives in the «Доставка и плащане» panel — so this only renders
+ * on/off switch lives in „Методи и цени" (/setup) — so this only renders
  * the config for methods that are switched on, in the order set by the config.
  */
 export function MethodsSection({
@@ -68,7 +68,7 @@ export function MethodsSection({
         <div className="flex flex-col items-start gap-2.5 rounded-xl border border-ff-border-2 bg-ff-surface-2 px-4 py-4 text-[13.5px] text-ff-ink-2">
           Няма включени методи за доставка.
           <Link href="/setup" className="text-[13px] font-bold text-ff-green-700 hover:underline">
-            Включи метод от «Доставка и плащане» →
+            Включи метод от „Методи и цени” →
           </Link>
         </div>
       ) : (

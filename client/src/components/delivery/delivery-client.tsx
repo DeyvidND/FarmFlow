@@ -20,8 +20,8 @@ const toastAdapter = { success: toast.success, info: toast.info, error: toast.er
 
 /**
  * Доставка — **configuration only**. The on/off switches (which methods + COD are
- * offered, whether the courier is on) live in the «Доставка и плащане» panel
- * (`/setup`); this page sets up the details of the methods that are switched on:
+ * offered, whether the courier is on) live in „Методи и цени"
+ * (`/setup`, под Настройки → Конфигурации); this page sets up the details of the methods that are switched on:
  * prices, the Econt connection/sender/package, the office map and shipments. The
  * tenant's `deliveryEnabled` flag is carried through unchanged on save.
  */
@@ -90,7 +90,7 @@ export function DeliveryClient({
           <SlidersHorizontal size={18} />
         </span>
         <div className="min-w-0 flex-1 text-[13px] leading-snug text-ff-ink-2">
-          Кои методи и плащания се предлагат се избира от <b className="text-ff-ink">«Доставка и плащане»</b>.
+          Кои методи и плащания се предлагат се избира от <b className="text-ff-ink">„Методи и цени”</b> (Настройки → Конфигурации).
           Тук задаваш само настройките им.
         </div>
         <span className="shrink-0 text-[13px] font-bold text-ff-green-700">Към панела →</span>

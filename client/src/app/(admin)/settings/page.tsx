@@ -2,20 +2,22 @@
 
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { ConfigurationsCard } from '@/components/settings/configurations-card';
 import { PasswordCard } from '@/components/settings/password-card';
 import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
 import { LandingCard } from '@/components/settings/landing-card';
 
-type Section = 'password' | 'nav' | 'landing';
+type Section = 'configurations' | 'password' | 'nav' | 'landing';
 
 const SECTIONS: { id: Section; label: string }[] = [
+  { id: 'configurations', label: 'Конфигурации' },
   { id: 'password', label: 'Смяна на парола' },
   { id: 'nav', label: 'Странична навигация' },
   { id: 'landing', label: 'Начална страница' },
 ];
 
 export default function SettingsPage() {
-  const [section, setSection] = useState<Section>('password');
+  const [section, setSection] = useState<Section>('configurations');
 
   return (
     <div>
@@ -48,6 +50,7 @@ export default function SettingsPage() {
             key={section}
             className="animate-[ff-slide-in-right_0.26s_cubic-bezier(.32,.72,0,1)]"
           >
+            {section === 'configurations' && <ConfigurationsCard />}
             {section === 'password' && <PasswordCard />}
             {section === 'nav' && <NavVisibilityCard />}
             {section === 'landing' && <LandingCard />}
