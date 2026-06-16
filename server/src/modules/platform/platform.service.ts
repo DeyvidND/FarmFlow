@@ -476,6 +476,9 @@ export class PlatformService {
         email: dto.email,
         subscriptionStatus: 'active',
         subscriptionSince: new Date(),
+        // Seed the brand colour (e.g. auto-extracted from the logo at onboarding)
+        // so the storefront theme is set the moment the farm goes live.
+        ...(dto.themeColor ? { settings: { themeColor: dto.themeColor } } : {}),
       })
       .returning();
 
