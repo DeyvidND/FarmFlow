@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Menu, Bell } from 'lucide-react';
 import { cn, bgDateLabel } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
-import { getDashboard, listProductOptions, listAvailabilityWindows } from '@/lib/api-client';
+import { getDashboard, listProductOptions, listAvailabilityWindows, listReviews } from '@/lib/api-client';
 
 /** One notification derived from live data (pending orders, full slots, low stock). */
 interface Notif {
@@ -19,10 +19,11 @@ const hhmm = (t: string) => t.slice(0, 5);
 
 /** Build the notification feed from the dashboard summary + product stock. */
 async function loadNotifs(): Promise<Notif[]> {
-  const [dash, products, windows] = await Promise.all([
+  const [dash, products, windows, pendingReviews] = await Promise.all([
     getDashboard().catch(() => null),
     listProductOptions().catch(() => null),
     listAvailabilityWindows().catch(() => null),
+    listReviews('pending').catch(() => null),
   ]);
   const list: Notif[] = [];
 
@@ -64,6 +65,19 @@ async function loadNotifs(): Promise<Notif[]> {
         meta: 'Наличност',
       });
     }
+  }
+
+  if (pendingReviews && pendingReviews.items.length) {
+    const n = pendingReviews.items.length;
+    list.push({
+      id: 'reviews-pending',
+      amber: true,
+      title:
+        n === 1
+          ? '1 отзив чака одобрение'
+          : `${n}${pendingReviews.nextCursor ? '+' : ''} отзива чакат одобрение`,
+      meta: 'Отзиви',
+    });
   }
 
   return list.slice(0, 8);

@@ -56,6 +56,10 @@ export function NewsletterClient({ initialCampaigns, initialSubscribers, activeC
 
   return (
     <div className="animate-ff-fade-up">
+      <p className="mb-4 text-[13.5px] text-ff-muted">
+        Пращай имейл бюлетин до клиентите, които са се записали в сайта ти. „Бюлетини“ са твоите съобщения, „Абонати“ — записаните имейли.
+      </p>
+
       {/* header */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 rounded-lg bg-ff-surface-2 p-1">
@@ -154,7 +158,9 @@ function SubscribersTable({ initial, total }: { initial: Paginated<Subscriber>; 
     return (
       <div className="mt-10 flex flex-col items-center gap-3 text-center">
         <Users size={40} className="text-ff-muted-2" />
-        <p className="text-sm text-ff-muted">Все още няма абонати.</p>
+        <p className="text-sm text-ff-muted">
+          Все още няма абонати. Клиентите се записват сами от формата за бюлетин на сайта ти.
+        </p>
       </div>
     );
   }
