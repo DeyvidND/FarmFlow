@@ -6,6 +6,7 @@ import { FarmersService } from '../farmers/farmers.service';
 import { SubcategoriesService } from '../subcategories/subcategories.service';
 import { ReviewsService } from '../reviews/reviews.service';
 import { AvailabilityService } from '../availability/availability.service';
+import { RecommendationsService } from '../recommendations/recommendations.service';
 import { resolveProductOfWeek } from './product-of-week';
 
 /**
@@ -24,6 +25,7 @@ export class PublicBootstrapController {
     private readonly subcategories: SubcategoriesService,
     private readonly reviews: ReviewsService,
     private readonly availability: AvailabilityService,
+    private readonly recommendations: RecommendationsService,
   ) {}
 
   @ApiOperation({
@@ -31,7 +33,7 @@ export class PublicBootstrapController {
   })
   @Get()
   async bootstrap(@Param('slug') slug: string) {
-    const [storefront, products, farmers, subcategories, homeReviews, availability] =
+    const [storefront, products, farmers, subcategories, homeReviews, availability, bestSellerIds] =
       await Promise.all([
         this.tenants.findPublicProfileBySlug(slug),
         this.products.findPublicBySlug(slug),
@@ -39,10 +41,22 @@ export class PublicBootstrapController {
         this.subcategories.findPublicBySlug(slug),
         this.reviews.findHomeReviews(slug),
         this.availability.findPublicActiveBySlug(slug),
+        // Sales-ranked ids for the „Най-продавани" chip — self-gated on the
+        // merchandising toggle (returns [] when the chip is off).
+        this.recommendations.bestSellerIdsBySlug(slug),
       ]);
     // Resolve the optional «Продукт на седмицата» highlight from the tenant config
     // against the (already active, ordered) public catalog.
     const productOfWeek = resolveProductOfWeek(storefront, products, new Date());
-    return { storefront, products, farmers, subcategories, productOfWeek, homeReviews, availability };
+    return {
+      storefront,
+      products,
+      farmers,
+      subcategories,
+      productOfWeek,
+      homeReviews,
+      availability,
+      bestSellerIds,
+    };
   }
 }

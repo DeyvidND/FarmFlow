@@ -6,6 +6,7 @@ import { FarmersModule } from '../farmers/farmers.module';
 import { SubcategoriesModule } from '../subcategories/subcategories.module';
 import { ReviewsModule } from '../reviews/reviews.module';
 import { AvailabilityModule } from '../availability/availability.module';
+import { RecommendationsModule } from '../recommendations/recommendations.module';
 
 /**
  * Composes the existing public read services behind a single `/bootstrap`
@@ -20,6 +21,7 @@ import { AvailabilityModule } from '../availability/availability.module';
     SubcategoriesModule,
     ReviewsModule,
     AvailabilityModule,
+    RecommendationsModule,
   ],
   controllers: [PublicBootstrapController],
 })

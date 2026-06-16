@@ -400,6 +400,23 @@ export const updateLanding = (landing: LandingConfig) =>
     'Неуспешна промяна',
   );
 
+// ---- Merchandising toggles (settings.merchandising) ----
+
+export interface MerchandisingConfig {
+  bestSellers: { show: boolean };
+  recommendations: { show: boolean };
+}
+
+export const getMerchandising = () =>
+  apiFetch<{ merchandising: MerchandisingConfig }>('tenants/me/merchandising');
+
+export const updateMerchandising = (merchandising: MerchandisingConfig) =>
+  apiFetch<{ merchandising: MerchandisingConfig }>(
+    'tenants/me/merchandising',
+    { method: 'PATCH', ...json(merchandising) },
+    'Неуспешна промяна',
+  );
+
 export function uploadFavicon(file: File) {
   const fd = new FormData();
   fd.append('image', file);

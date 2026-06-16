@@ -35,6 +35,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CatalogCacheModule } from './modules/catalog-cache/catalog-cache.module';
 import { PublicCacheModule } from './common/cache/public-cache.module';
 import { PublicBootstrapModule } from './modules/public-bootstrap/public-bootstrap.module';
+import { RecommendationsModule } from './modules/recommendations/recommendations.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { ArticlesModule } from './modules/articles/articles.module';
 import { EcontModule } from './modules/econt/econt.module';
@@ -126,6 +127,7 @@ import { ImageQueueModule } from './modules/image-queue/image-queue.module';
     AvailabilityModule,
     // After the feature modules it composes (Tenants/Products/Farmers/Subcategories).
     PublicBootstrapModule,
+    RecommendationsModule,
     ImageQueueModule,
   ],
   controllers: [AppController],

@@ -21,6 +21,7 @@ import {
 import { SiteContactDto } from './dto/site-contact.dto';
 import { SiteMarketingDto } from './dto/site-marketing.dto';
 import { LandingDto } from './dto/landing.dto';
+import { MerchandisingDto } from './dto/merchandising.dto';
 
 @ApiTags('tenants')
 @ApiBearerAuth()
@@ -120,6 +121,20 @@ export class TenantsController {
   @Patch('me/landing')
   updateLanding(@CurrentTenant() tenantId: string, @Body() dto: LandingDto) {
     return this.tenantsService.updateLanding(tenantId, dto);
+  }
+
+  // ---- Merchandising (best-sellers chip + cart recommendations) ----
+
+  @ApiOperation({ summary: 'Storefront merchandising toggles (best-sellers + cart recs)' })
+  @Get('me/merchandising')
+  getMerchandising(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.getMerchandising(tenantId);
+  }
+
+  @ApiOperation({ summary: 'Update storefront merchandising toggles' })
+  @Patch('me/merchandising')
+  updateMerchandising(@CurrentTenant() tenantId: string, @Body() dto: MerchandisingDto) {
+    return this.tenantsService.updateMerchandising(tenantId, dto);
   }
 
   @ApiOperation({ summary: 'Upload/replace the website icon (PNG or ICO)' })

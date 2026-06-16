@@ -24,6 +24,8 @@ import { SiteContactDto } from './dto/site-contact.dto';
 import { SiteMarketingDto } from './dto/site-marketing.dto';
 import { LandingDto } from './dto/landing.dto';
 import { resolveLanding, type PublicLanding } from './landing';
+import { MerchandisingDto } from './dto/merchandising.dto';
+import { resolveMerchandising, type PublicMerchandising } from './merchandising';
 import {
   buildPublicMarketing,
   normalizeMarketing,
@@ -87,6 +89,9 @@ export interface PublicStorefront {
   // Configurable landing blocks (settings.landing) — which of the three dynamic
   // home blocks show and how many items each shows. Always present (resolved).
   landing: PublicLanding;
+  // Merchandising toggles (settings.merchandising) — the „Най-продавани" shop chip
+  // and the „Често купувано заедно" cart picks. Always present (resolved).
+  merchandising: PublicMerchandising;
   // Per-vendor ad/analytics tracking IDs (settings.marketing). Empty → all-null
   // (no scripts injected). The storefront templates the loader from the id.
   marketing: PublicMarketing;
@@ -431,6 +436,33 @@ export class TenantsService {
       publicCacheKeys.homeReviews(tenantId),
     );
     return { landing };
+  }
+
+  // ---- Merchandising toggles (settings.merchandising) ----
+
+  /** Current merchandising config for the admin editor (resolved). */
+  async getMerchandising(tenantId: string): Promise<{ merchandising: PublicMerchandising }> {
+    const settings = await this.loadSettings(tenantId);
+    return { merchandising: resolveMerchandising(settings.merchandising) };
+  }
+
+  /** Replace settings.merchandising with the resolved incoming config in a single
+   *  atomic per-path write, then bust the cached public profile so the storefront
+   *  shows/hides the best-sellers chip + cart recs on its next render. */
+  async updateMerchandising(
+    tenantId: string,
+    dto: MerchandisingDto,
+  ): Promise<{ merchandising: PublicMerchandising }> {
+    const { slug } = await this.loadTenantForMedia(tenantId);
+    const merchandising = resolveMerchandising(dto);
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['merchandising'], ${JSON.stringify(merchandising)}::jsonb, true)`,
+      })
+      .where(eq(tenants.id, tenantId));
+    await this.publicCache.del(publicCacheKeys.tenant(slug));
+    return { merchandising };
   }
 
   // ---- Marketing / tracking IDs (settings.marketing) ----

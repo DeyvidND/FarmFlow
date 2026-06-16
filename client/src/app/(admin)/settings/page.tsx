@@ -6,14 +6,16 @@ import { ConfigurationsCard } from '@/components/settings/configurations-card';
 import { PasswordCard } from '@/components/settings/password-card';
 import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
 import { LandingCard } from '@/components/settings/landing-card';
+import { MerchandisingCard } from '@/components/settings/merchandising-card';
 
-type Section = 'configurations' | 'password' | 'nav' | 'landing';
+type Section = 'configurations' | 'password' | 'nav' | 'landing' | 'merchandising';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'configurations', label: 'Конфигурации' },
   { id: 'password', label: 'Смяна на парола' },
   { id: 'nav', label: 'Странична навигация' },
   { id: 'landing', label: 'Начална страница' },
+  { id: 'merchandising', label: 'Най-продавани и препоръки' },
 ];
 
 export default function SettingsPage() {
@@ -54,6 +56,7 @@ export default function SettingsPage() {
             {section === 'password' && <PasswordCard />}
             {section === 'nav' && <NavVisibilityCard />}
             {section === 'landing' && <LandingCard />}
+            {section === 'merchandising' && <MerchandisingCard />}
           </div>
         </div>
       </div>

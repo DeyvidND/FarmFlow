@@ -17,6 +17,10 @@ import {
 import { buildPublicContact, type PublicContact } from '../../modules/tenants/site-contact';
 import { resolveLanding, type PublicLanding } from '../../modules/tenants/landing';
 import {
+  resolveMerchandising,
+  type PublicMerchandising,
+} from '../../modules/tenants/merchandising';
+import {
   buildPublicMarketing,
   type PublicMarketing,
 } from '../../modules/tenants/site-marketing';
@@ -82,6 +86,9 @@ export interface TenantMeta {
   // Configurable landing blocks (settings.landing) — which of the three dynamic
   // home blocks show and how many items each shows. Resolved+clamped, always present.
   landing: PublicLanding;
+  // Merchandising toggles (settings.merchandising) — the „Най-продавани" shop chip
+  // and the „Често купувано заедно" cart picks. Resolved, always present.
+  merchandising: PublicMerchandising;
   // Per-vendor ad/analytics tracking IDs (settings.marketing). Derived here so a
   // warm storefront render needs no extra read; empty → all-null.
   marketing: PublicMarketing;
@@ -179,6 +186,7 @@ export class PublicCacheService {
           contact?: unknown;
           brand?: { favicon?: { url?: unknown }; themeColor?: unknown };
           landing?: unknown;
+          merchandising?: unknown;
           marketing?: unknown;
           copy?: unknown;
           faq?: unknown;
@@ -211,6 +219,7 @@ export class PublicCacheService {
       faviconUrl,
       themeColor,
       landing: resolveLanding(settingsObj?.landing),
+      merchandising: resolveMerchandising(settingsObj?.merchandising),
       marketing: buildPublicMarketing(settingsObj?.marketing),
       copy: buildPublicCopy(settingsObj?.copy),
       faq: buildPublicFaq(settingsObj?.faq),
