@@ -96,6 +96,26 @@ const TYPES = {
     head: 'Име                          Описание',
     row: (c) => `${pad(c.name, 28)} ${c.description || ''}`,
   },
+  // Single object (not a list): the farm's contact/business info.
+  contact: {
+    endpoint: 'tenants/me/site-contact', // owner-mode path (PATCH)
+    method: 'PATCH',
+    single: true,
+    label: 'контакти',
+    tool: 'extract_contact',
+    toolDesc: "Record the farm's contact + business info from the text.",
+    item: {
+      address: { type: 'string', description: 'Street / market address. Empty string if none.' },
+      hours: { type: 'string', description: 'Working hours, e.g. "Пон–Пет 9–18". Empty string if none.' },
+      phone: { type: 'string', description: 'Phone. Empty string if none.' },
+      email: { type: 'string', description: 'Valid email if present, else empty string.' },
+      tagline: { type: 'string', description: 'Short footer tagline / slogan. Empty string if none.' },
+    },
+    intro: 'Извади контактната и бизнес информация на фермата от текста по-долу: адрес, работно време, телефон, имейл, кратко мото. Върни ЕДИН ред (един обект в items).',
+    body: (c) => ({ ...(c.address ? { address: c.address } : {}), ...(c.hours ? { hours: c.hours } : {}), ...(c.phone ? { phone: c.phone } : {}), ...(c.email ? { email: c.email } : {}), ...(c.tagline ? { tagline: c.tagline } : {}) }),
+    head: 'Контакти',
+    row: (c) => `адрес: ${c.address || '—'} · часове: ${c.hours || '—'} · тел: ${c.phone || '—'} · имейл: ${c.email || '—'}`,
+  },
 };
 
 const type = args.type && args.type !== true ? args.type : 'products';
@@ -156,25 +176,44 @@ async function extract(text) {
 }
 
 async function apply(rows) {
+  const tenantId = args['tenant-id'] && args['tenant-id'] !== true ? args['tenant-id'] : null;
+
+  // PLATFORM mode (onboarding): super-admin seed via POST /platform/tenants/:id/import.
+  // Bypasses the new tenant's mustChangePassword lock, which blocks every owner-side
+  // write until the farmer sets their password. This is the path for fresh tenants.
+  if (tenantId) {
+    const ae = process.env.PLATFORM_ADMIN_EMAIL;
+    const ap = process.env.PLATFORM_ADMIN_PASSWORD;
+    if (!ae || !ap) { log('apply: set PLATFORM_ADMIN_EMAIL + PLATFORM_ADMIN_PASSWORD for platform import — skipping'); return; }
+    const lr = await fetch(`${api}/platform/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: ae, password: ap }) });
+    if (!lr.ok) throw new Error(`platform login failed (${lr.status})`);
+    const token = (await lr.json()).accessToken;
+    const payload = { [type]: T.single ? T.body(rows[0]) : rows.map(T.body) }; // key (products/farmers/categories/contact) matches PlatformImportDto
+    const r = await fetch(`${api}/platform/tenants/${tenantId}/import`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error(`platform import failed (${r.status}): ${(await r.text()).slice(0, 200)}`);
+    ok(`platform import → ${JSON.stringify(await r.json())}`);
+    return;
+  }
+
+  // OWNER mode (post-handoff; the farmer must have cleared mustChangePassword).
   let token = args.token && args.token !== true ? args.token : null;
   if (!token && args.email && args.password) {
-    const r = await fetch(`${api}/auth/login`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: args.email, password: args.password }),
-    });
+    const r = await fetch(`${api}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: args.email, password: args.password }) });
     if (!r.ok) throw new Error(`login failed (${r.status})`);
     token = (await r.json()).accessToken;
   }
-  if (!token) { log('apply: pass --token or --email/--password (owner) — skipping create'); return; }
+  if (!token) { log('apply: pass --tenant-id (platform) or --token / --email+--password (owner) — skipping'); return; }
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+
+  if (T.single) {
+    const r = await fetch(`${api}/${T.endpoint}`, { method: T.method ?? 'POST', headers, body: JSON.stringify(T.body(rows[0])) });
+    ok(r.ok ? `updated ${T.label}` : `${T.label} failed (${r.status})`);
+    return;
+  }
   let created = 0; const failed = [];
   for (const row of rows) {
-    const r = await fetch(`${api}/${T.endpoint}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify(T.body(row)),
-    });
-    if (r.ok) created++;
-    else failed.push(`${row.name} (${r.status})`);
+    const r = await fetch(`${api}/${T.endpoint}`, { method: 'POST', headers, body: JSON.stringify(T.body(row)) });
+    if (r.ok) created++; else failed.push(`${row.name} (${r.status})`);
   }
   ok(`created ${created}/${rows.length} ${T.label}`);
   if (failed.length) log('failed:', failed.slice(0, 8).join(', '));

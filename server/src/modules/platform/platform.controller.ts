@@ -19,6 +19,7 @@ import { PlatformLoginDto } from './dto/platform-login.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import { SetPremiumDto } from './dto/set-premium.dto';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { PlatformImportDto } from './dto/platform-import.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
@@ -100,6 +101,13 @@ export class PlatformController {
   @HttpCode(201)
   createTenant(@Body() dto: CreateTenantDto) {
     return this.platform.createTenant(dto);
+  }
+
+  /** Super-admin onboarding seed — bulk-create catalog (products/farmers/categories)
+   *  + contact + favicon for a tenant. Bypasses the tenant's mustChangePassword lock. */
+  @Post('tenants/:id/import')
+  importTenant(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PlatformImportDto) {
+    return this.platform.importTenant(id, dto);
   }
 
   /** Edit a farm's core profile + feature flags. */

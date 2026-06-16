@@ -3,6 +3,10 @@ import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { BillingService } from '../billing/billing.service';
 import { PlatformService } from './platform.service';
+import { ProductsService } from '../products/products.service';
+import { FarmersService } from '../farmers/farmers.service';
+import { SubcategoriesService } from '../subcategories/subcategories.service';
+import { TenantsService } from '../tenants/tenants.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ConfigService } from '@nestjs/config';
@@ -56,6 +60,10 @@ describe('PlatformService', () => {
         { provide: BillingService, useValue: { setPremium: jest.fn().mockResolvedValue(undefined) } },
         { provide: PublicCacheService, useValue: { del: cacheDel } },
         { provide: ConfigService, useValue: { get: (_k: string, d?: any) => (_k === 'EMAIL_COST_PER_RECIPIENT_MICRO' ? 370 : d) } },
+        { provide: ProductsService, useValue: { create: jest.fn().mockResolvedValue({ id: 'p' }) } },
+        { provide: FarmersService, useValue: { create: jest.fn().mockResolvedValue({ id: 'f' }) } },
+        { provide: SubcategoriesService, useValue: { create: jest.fn().mockResolvedValue({ id: 'c' }) } },
+        { provide: TenantsService, useValue: { updateSiteContact: jest.fn(), setFavicon: jest.fn() } },
       ],
     }).compile();
 

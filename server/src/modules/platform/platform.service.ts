@@ -12,6 +12,11 @@ import * as argon2 from 'argon2';
 import { asc, eq, sql, desc } from 'drizzle-orm';
 import { BillingService } from '../billing/billing.service';
 import { emailCostStotinki } from '../billing/billing.pricing';
+import { ProductsService } from '../products/products.service';
+import { FarmersService } from '../farmers/farmers.service';
+import { SubcategoriesService } from '../subcategories/subcategories.service';
+import { TenantsService } from '../tenants/tenants.service';
+import { PlatformImportDto } from './dto/platform-import.dto';
 import {
   type Database,
   tenants,
@@ -134,6 +139,10 @@ export class PlatformService {
     private readonly billing: BillingService,
     private readonly publicCache: PublicCacheService,
     private readonly config: ConfigService,
+    private readonly productsSvc: ProductsService,
+    private readonly farmersSvc: FarmersService,
+    private readonly subcategoriesSvc: SubcategoriesService,
+    private readonly tenantsSvc: TenantsService,
   ) {}
 
   /** Platform admin login → platform-typed JWT. */
@@ -476,9 +485,24 @@ export class PlatformService {
         email: dto.email,
         subscriptionStatus: 'active',
         subscriptionSince: new Date(),
-        // Seed the brand colour (e.g. auto-extracted from the logo at onboarding)
-        // so the storefront theme is set the moment the farm goes live.
-        ...(dto.themeColor ? { settings: { themeColor: dto.themeColor } } : {}),
+        // Make the shop sellable the moment it goes live: cash-on-delivery + market
+        // pickup ON. Seed the brand colour under settings.brand (where the storefront
+        // and Контакти read it) when auto-extracted from the logo at onboarding.
+        deliveryEnabled: true,
+        settings: {
+          ...(dto.themeColor ? { brand: { themeColor: dto.themeColor } } : {}),
+          delivery: {
+            methods: {
+              pickup: { enabled: true },
+              ownSlots: { enabled: false },
+              econtOffice: { enabled: false },
+              econtAddress: { enabled: false },
+            },
+            cod: { enabled: true },
+            card: { enabled: true },
+            econt: { mode: 'off' },
+          },
+        },
       })
       .returning();
 
@@ -494,6 +518,37 @@ export class PlatformService {
       .returning();
 
     return { id: tenant.id, name: tenant.name, slug: tenant.slug, email: tenant.email ?? dto.email };
+  }
+
+  /** Super-admin onboarding seed: bulk-create catalog + contact + favicon for a
+   *  tenant by id. Runs as the operator, so it bypasses the new tenant's
+   *  mustChangePassword lock (which blocks every owner-side write pre-handoff).
+   *  Reuses the tenant-facing create/site-contact/favicon services for the same
+   *  validation, slug generation and cache busting as a manual create. */
+  async importTenant(
+    tenantId: string,
+    dto: PlatformImportDto,
+  ): Promise<{ products: number; farmers: number; categories: number; contact: boolean; favicon: boolean }> {
+    const [tenant] = await this.db
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!tenant) throw new NotFoundException('Фермата не е намерена');
+
+    const counts = { products: 0, farmers: 0, categories: 0, contact: false, favicon: false };
+
+    // Categories before products so the farmer can group them afterwards.
+    for (const c of dto.categories ?? []) { await this.subcategoriesSvc.create(tenantId, c); counts.categories++; }
+    for (const f of dto.farmers ?? []) { await this.farmersSvc.create(tenantId, f); counts.farmers++; }
+    for (const p of dto.products ?? []) { await this.productsSvc.create(tenantId, p); counts.products++; }
+
+    if (dto.contact) { await this.tenantsSvc.updateSiteContact(tenantId, dto.contact); counts.contact = true; }
+    if (dto.faviconBase64) {
+      await this.tenantsSvc.setFavicon(tenantId, { buffer: Buffer.from(dto.faviconBase64, 'base64') } as Express.Multer.File);
+      counts.favicon = true;
+    }
+    return counts;
   }
 
   /** Platform admin changes own password → fresh token (old sessions revoked). */

@@ -23,7 +23,11 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── tiny arg parser ──────────────────────────────────────────────────────────
 const args = {};
@@ -101,7 +105,7 @@ async function provision({ themeColor }) {
     hook('set PLATFORM_ADMIN_EMAIL + PLATFORM_ADMIN_PASSWORD to auto-provision — skipping');
     return null;
   }
-  const loginRes = await fetch(`${cfg.api}/platform/login`, {
+  const loginRes = await fetch(`${cfg.api}/platform/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ email: cfg.adminEmail, password: cfg.adminPassword }),
@@ -121,7 +125,36 @@ async function provision({ themeColor }) {
     }),
   });
   if (!res.ok) throw new Error(`createTenant failed (${res.status}): ${await res.text()}`);
-  return { ...(await res.json()), tempPassword };
+  return { ...(await res.json()), tempPassword, token: accessToken };
+}
+
+// ── 3. AI import: each --*-source → import-products.mjs in platform mode ──────
+function runImports(tenant) {
+  const jobs = [
+    ['products', args['products-source']],
+    ['farmers', args['farmers-source']],
+    ['categories', args['categories-source']],
+    ['contact', args['contact-source']],
+  ].filter(([, src]) => src && src !== true);
+  if (!jobs.length) { hook('pass --products-source / --farmers-source / --categories-source / --contact-source to auto-import'); return; }
+  const script = path.join(__dirname, 'import-products.mjs');
+  for (const [t, src] of jobs) {
+    log(`import ${t} ← ${src}`);
+    const r = spawnSync(process.execPath, [script, '--type', t, '--file', String(src), '--tenant-id', tenant.id, '--apply', '--api', cfg.api], { stdio: 'inherit', env: process.env });
+    if (r.status !== 0) hook(`import ${t} exited ${r.status}`);
+  }
+}
+
+async function applyFavicon(tenantId, token, faviconPath) {
+  if (!token) { hook('no platform token — skipping favicon apply'); return; }
+  try {
+    const b64 = fs.readFileSync(faviconPath).toString('base64');
+    const r = await fetch(`${cfg.api}/platform/tenants/${tenantId}/import`, {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ faviconBase64: b64 }),
+    });
+    ok(r.ok ? 'favicon applied' : `favicon apply failed (${r.status})`);
+  } catch (e) { hook(`favicon apply error: ${e.message}`); }
 }
 
 // ── 4. smoke: storefront acceptance (catalog renders + add-to-cart present) ──
@@ -172,13 +205,12 @@ async function main() {
   const tenant = await provision(brand);
   if (tenant) ok(`tenant "${tenant.name}" slug=${tenant.slug}`);
 
-  log('3/5 deploy storefront');
-  hook(`build+deploy a storefront bound to slug "${tenant?.slug ?? '<slug>'}" via the templates factory (Dokploy/CI), then point DNS.`);
-  if (brand.favicon) hook(`upload ${brand.favicon} in Контакти → Иконка (or wire a platform favicon endpoint).`);
-
-  // NEXT PLUG-IN: AI product import — feed the farm's price list / FB / photos to
-  // Claude → structured products → bulk POST. Slots in right here, post-provision.
-  hook('AI product-import (paste/file → Claude → bulk create) plugs in here.');
+  log('3/5 AI import + brand');
+  if (tenant) {
+    runImports(tenant);
+    if (brand.favicon) await applyFavicon(tenant.id, tenant.token, brand.favicon);
+  }
+  hook(`deploy a storefront bound to slug "${tenant?.slug ?? '<slug>'}" via the templates factory (Dokploy/CI), then point DNS.`);
 
   log('4/5 smoke');
   const sm = await smoke(cfg.storeUrl);
