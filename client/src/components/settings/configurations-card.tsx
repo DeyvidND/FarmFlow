@@ -2,11 +2,19 @@
 
 import {
   SlidersHorizontal, Truck, CalendarDays, ToggleRight, Megaphone, ChevronRight,
+  TrendingUp, Home,
   type LucideIcon,
 } from 'lucide-react';
 
 /** The configuration sub-screens, opened inline inside Настройки. */
-export type ConfigKey = 'setup' | 'delivery' | 'slots' | 'features' | 'marketing';
+export type ConfigKey =
+  | 'setup'
+  | 'delivery'
+  | 'slots'
+  | 'features'
+  | 'merchandising'
+  | 'landing'
+  | 'marketing';
 
 interface ConfigItem {
   key: ConfigKey;
@@ -33,6 +41,8 @@ const GROUPS: { title: string; desc: string; items: ConfigItem[] }[] = [
     desc: 'Кои части от сайта да се показват.',
     items: [
       { key: 'features', label: 'Функции на магазина', Icon: ToggleRight, desc: 'Включи или изключи цели страници — фермери, отзиви, статии, категории.' },
+      { key: 'merchandising', label: 'Най-продавани и препоръки', Icon: TrendingUp, desc: 'Бутон „Най-продавани“ в магазина и блок „Често купувано заедно“ в количката.' },
+      { key: 'landing', label: 'Начална страница', Icon: Home, desc: 'Избери кои блокове (категории, фермери, най-актуални, отзиви) да се показват на началната страница и колко.' },
     ],
   },
   {

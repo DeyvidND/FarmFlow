@@ -16,13 +16,12 @@ import {
   MarketingSection,
 } from '@/components/settings/config-sections';
 
-type Section = 'configurations' | 'password' | 'nav' | 'landing';
+type Section = 'configurations' | 'password' | 'nav';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'configurations', label: 'Конфигурации' },
   { id: 'password', label: 'Смяна на парола' },
   { id: 'nav', label: 'Странична навигация' },
-  { id: 'landing', label: 'Начална страница' },
 ];
 
 function ConfigSection({ view }: { view: ConfigKey }) {
@@ -35,6 +34,10 @@ function ConfigSection({ view }: { view: ConfigKey }) {
       return <SlotsSection />;
     case 'features':
       return <FeaturesSection />;
+    case 'merchandising':
+      return <MerchandisingCard />;
+    case 'landing':
+      return <LandingCard />;
     case 'marketing':
       return <MarketingSection />;
   }
@@ -95,14 +98,10 @@ export default function SettingsPage() {
                   <ConfigSection view={configView} />
                 </div>
               ) : (
-                <div className="flex flex-col gap-6">
-                  <ConfigurationsCard onOpen={setConfigView} />
-                  <MerchandisingCard />
-                </div>
+                <ConfigurationsCard onOpen={setConfigView} />
               ))}
             {section === 'password' && <PasswordCard />}
             {section === 'nav' && <NavVisibilityCard />}
-            {section === 'landing' && <LandingCard />}
           </div>
         </div>
       </div>
