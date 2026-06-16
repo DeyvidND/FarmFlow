@@ -8,14 +8,13 @@ import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
 import { LandingCard } from '@/components/settings/landing-card';
 import { MerchandisingCard } from '@/components/settings/merchandising-card';
 
-type Section = 'configurations' | 'password' | 'nav' | 'landing' | 'merchandising';
+type Section = 'configurations' | 'password' | 'nav' | 'landing';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'configurations', label: 'Конфигурации' },
   { id: 'password', label: 'Смяна на парола' },
   { id: 'nav', label: 'Странична навигация' },
   { id: 'landing', label: 'Начална страница' },
-  { id: 'merchandising', label: 'Най-продавани и препоръки' },
 ];
 
 export default function SettingsPage() {
@@ -52,11 +51,15 @@ export default function SettingsPage() {
             key={section}
             className="animate-[ff-slide-in-right_0.26s_cubic-bezier(.32,.72,0,1)]"
           >
-            {section === 'configurations' && <ConfigurationsCard />}
+            {section === 'configurations' && (
+              <div className="flex flex-col gap-6">
+                <ConfigurationsCard />
+                <MerchandisingCard />
+              </div>
+            )}
             {section === 'password' && <PasswordCard />}
             {section === 'nav' && <NavVisibilityCard />}
             {section === 'landing' && <LandingCard />}
-            {section === 'merchandising' && <MerchandisingCard />}
           </div>
         </div>
       </div>
