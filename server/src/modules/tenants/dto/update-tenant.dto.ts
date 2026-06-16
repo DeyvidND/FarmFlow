@@ -88,11 +88,6 @@ export class UpdateTenantDto {
   @IsBoolean()
   reviewsEnabled?: boolean;
 
-  @ApiPropertyOptional({ description: 'Storefront title for the availability section (null → default)' })
-  @IsOptional()
-  @IsString()
-  availabilityTitle?: string | null;
-
   @ApiPropertyOptional({ example: false, description: 'Show the «Продукт на седмицата» highlight' })
   @IsOptional()
   @IsBoolean()

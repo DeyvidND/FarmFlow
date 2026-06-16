@@ -30,7 +30,6 @@ const BASE_ROW = {
   multiSubcat: false,
   articlesEnabled: false,
   reviewsEnabled: false,
-  availabilityTitle: null,
   productOfWeekEnabled: false,
   productOfWeekMode: 'off',
   productOfWeekId: null,

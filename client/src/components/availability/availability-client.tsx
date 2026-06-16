@@ -7,7 +7,6 @@ import {
   ApiError,
   listAvailabilityWindows,
   deleteAvailabilityWindow,
-  updateTenant,
 } from '@/lib/api-client';
 import type { AvailabilityWindow } from '@/lib/types';
 import type { PickerProduct } from '@/app/(admin)/availability/page';
@@ -24,13 +23,11 @@ const errMsg = (e: unknown) =>
 
 export function AvailabilityClient({
   products,
-  title,
   role = 'admin',
   farmers = [],
   multiFarmer = false,
 }: {
   products: PickerProduct[];
-  title: string | null;
   role?: 'admin' | 'farmer';
   /** Owner-only: list of producers for the farmer-filter dropdown. */
   farmers?: { id: string; name: string }[];
@@ -44,8 +41,6 @@ export function AvailabilityClient({
   const [confirming, setConfirming] = React.useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const [help, setHelp] = React.useState(false);
-  const [sectionTitle, setSectionTitle] = React.useState(title ?? '');
-  const [savingTitle, setSavingTitle] = React.useState(false);
 
   // Owner + multiFarmer: client-side farmer filter (products already carry farmerId).
   const [selectedFarmerId, setSelectedFarmerId] = React.useState<string>('');
@@ -78,18 +73,6 @@ export function AvailabilityClient({
       await reload();
     } catch (e) {
       toast.error(errMsg(e));
-    }
-  };
-
-  const saveTitle = async () => {
-    setSavingTitle(true);
-    try {
-      await updateTenant({ availabilityTitle: sectionTitle.trim() || '' });
-      toast.success('Запазено');
-    } catch (e) {
-      toast.error(errMsg(e));
-    } finally {
-      setSavingTitle(false);
     }
   };
 
@@ -142,30 +125,6 @@ export function AvailabilityClient({
           </div>
         )}
 
-        {/* Owner only: section title editor (producers don't control the storefront title) */}
-        {!isProducer && (
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-[12.5px] font-bold text-ff-ink-2">
-              Заглавие на секцията в онлайн магазина
-              <input
-                type="text"
-                value={sectionTitle}
-                onChange={(e) => setSectionTitle(e.target.value)}
-                placeholder="Налично сега"
-                className="rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2 text-[14px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500 w-72 max-w-full font-normal"
-              />
-            </label>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={savingTitle}
-              onClick={saveTitle}
-              className="mb-0.5"
-            >
-              {savingTitle ? 'Запазвам…' : 'Запази заглавието'}
-            </Button>
-          </div>
-        )}
       </div>
 
       {visibleProducts.length === 0 && (

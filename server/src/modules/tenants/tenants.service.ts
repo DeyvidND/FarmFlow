@@ -60,8 +60,6 @@ export interface PublicStorefront {
   multiSubcat: boolean;
   articlesEnabled: boolean;
   reviewsEnabled: boolean;
-  // Optional custom title for the always-on availability-windows section.
-  availabilityTitle: string | null;
   econtEnabled: boolean;
   econtMode: EcontMode;
   codEnabled: boolean;

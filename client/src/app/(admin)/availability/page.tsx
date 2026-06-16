@@ -33,10 +33,7 @@ export default async function AvailabilityPage() {
   const [products, tenant, farmers] = await Promise.all([
     // Scoped picker endpoint — owner gets all active products, producer gets only theirs.
     fetchJson<PickerProduct[]>('availability-windows/products', []),
-    fetchJson<{
-      availabilityTitle?: string | null;
-      multiFarmer?: boolean;
-    }>('tenants/me', {}),
+    fetchJson<{ multiFarmer?: boolean }>('tenants/me', {}),
     // Farmers list only needed for the owner farmer-filter dropdown.
     role === 'admin'
       ? fetchJson<{ id: string; name: string }[]>('farmers', [])
@@ -48,7 +45,6 @@ export default async function AvailabilityPage() {
   return (
     <AvailabilityClient
       products={products}
-      title={tenant.availabilityTitle ?? null}
       role={role}
       farmers={multiFarmer ? farmers : []}
       multiFarmer={multiFarmer}

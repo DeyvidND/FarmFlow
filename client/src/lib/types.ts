@@ -123,8 +123,6 @@ export interface TenantProfile {
   articlesEnabled: boolean;
   reviewsEnabled: boolean;
   deliveryEnabled: boolean;
-  /** Optional title for the always-on „Налично сега" availability section. */
-  availabilityTitle: string | null;
   /** «Продукт на седмицата» highlight config. */
   productOfWeekEnabled: boolean;
   productOfWeekMode: 'manual' | 'auto';
