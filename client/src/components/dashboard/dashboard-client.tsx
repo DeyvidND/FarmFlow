@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { HelpModal } from '@/components/delivery/ui';
 import { DASHBOARD_HELP } from '@/lib/help-content';
 import { StatCard } from './stat-card';
+import { StoreReadinessCard, type StoreReadiness } from './store-readiness-card';
 import { OrdersFeed } from './orders-feed';
 import { OrderPanel } from '@/components/orders/order-panel';
 import { CodReviewDrawer } from '@/components/orders/cod-review-drawer';
@@ -23,11 +24,14 @@ export function DashboardClient({
   summary: initialSummary,
   initialOrders,
   nudgeCard = false,
+  readiness,
 }: {
   summary: DashboardSummary;
   initialOrders: Order[];
   /** Standard plan, billing live, no card yet — nudge them to add one. */
   nudgeCard?: boolean;
+  /** First-run store-readiness signals — drives the getting-started checklist. */
+  readiness?: StoreReadiness;
 }) {
   const router = useRouter();
   // Local so a status action can refresh ONLY the summary (one lean /dashboard
@@ -175,6 +179,8 @@ export function DashboardClient({
           <Info size={16} /> Обяснения
         </Button>
       </div>
+
+      {readiness && <StoreReadinessCard readiness={readiness} />}
 
       {!summary.subscriptionActive && (
         <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3">

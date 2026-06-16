@@ -1,7 +1,8 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { DashboardClient } from '@/components/dashboard/dashboard-client';
-import type { DashboardSummary, Order } from '@/lib/types';
+import type { StoreReadiness } from '@/components/dashboard/store-readiness-card';
+import type { DashboardSummary, DeliveryConfig, Order } from '@/lib/types';
 import type { BillingSummary } from '@/lib/api-client';
 
 export const dynamic = 'force-dynamic';
@@ -46,12 +47,43 @@ async function shouldNudgeCard(): Promise<boolean> {
   return b.enabled && b.plan === 'standard' && !b.hasCard && b.status !== 'inactive';
 }
 
+/** Store-readiness signals for the first-run checklist — all derived from data
+ *  the owner already controls. Any fetch failure just leaves a step unchecked. */
+async function loadReadiness(): Promise<StoreReadiness> {
+  const fallback: StoreReadiness = { hasProducts: false, hasPayment: false, hasDelivery: false, hasContact: false };
+  const token = cookies().get(SESSION_COOKIE)?.value;
+  if (!token) return fallback;
+  const headers = { Authorization: `Bearer ${token}` };
+  const j = async <T,>(path: string, fb: T): Promise<T> => {
+    const r = await fetch(`${API_BASE}/${path}`, { headers, cache: 'no-store' }).catch(() => null);
+    return r && r.ok ? ((await r.json()) as T) : fb;
+  };
+  const [opts, tenant, contactRes] = await Promise.all([
+    j<unknown[]>('products/options', []),
+    j<{ delivery: DeliveryConfig | null }>('tenants/me', { delivery: null }),
+    j<{ contact: { phone?: string; address?: string } }>('tenants/me/site-contact', { contact: {} }),
+  ]);
+  const m = tenant.delivery?.methods;
+  return {
+    hasProducts: (opts?.length ?? 0) > 0,
+    hasPayment: !!(tenant.delivery?.cod?.enabled || tenant.delivery?.card?.enabled),
+    hasDelivery: !!(m?.pickup?.enabled || m?.ownSlots?.enabled || m?.econtOffice?.enabled || m?.econtAddress?.enabled),
+    hasContact: !!(contactRes.contact?.phone || contactRes.contact?.address),
+  };
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
   searchParams: { date?: string };
 }) {
   const date = searchParams.date ?? new Date().toISOString().slice(0, 10);
-  const [{ summary, orders }, nudgeCard] = await Promise.all([load(date), shouldNudgeCard()]);
-  return <DashboardClient summary={summary} initialOrders={orders} nudgeCard={nudgeCard} />;
+  const [{ summary, orders }, nudgeCard, readiness] = await Promise.all([
+    load(date),
+    shouldNudgeCard(),
+    loadReadiness(),
+  ]);
+  return (
+    <DashboardClient summary={summary} initialOrders={orders} nudgeCard={nudgeCard} readiness={readiness} />
+  );
 }
