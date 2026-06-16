@@ -5,12 +5,14 @@ import { Pencil, Trash2, Link2, Star } from 'lucide-react';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ProductThumb } from './product-thumb';
 import { moneyFromStotinki } from '@/lib/utils';
-import { stockMeta } from '@/lib/products';
+import { availabilityMeta } from '@/lib/products';
 import type { Product } from '@/lib/types';
 
 interface Props {
   product: Product;
   index: number;
+  /** Remaining stock from «Задай наличност» (undefined/null = no stock set = unlimited). */
+  remaining?: number | null;
   busy?: boolean;
   onToggle: (on: boolean) => void;
   onUpload: (file: File) => void;
@@ -29,6 +31,7 @@ interface Props {
 export function ProductCard({
   product,
   index,
+  remaining,
   busy,
   onToggle,
   onUpload,
@@ -41,7 +44,7 @@ export function ProductCard({
   onToggleFeatured,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const sm = stockMeta(product.stockQuantity);
+  const sm = availabilityMeta(remaining);
 
   return (
     <div

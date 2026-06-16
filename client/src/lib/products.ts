@@ -1,7 +1,8 @@
-/** Stock pill label + color, mirroring pages2.jsx stockMeta. */
-export function stockMeta(stock: number | null): { label: string; color: string } {
-  if (stock === null) return { label: 'В наличност', color: 'var(--ff-green-700)' };
-  if (stock === 0) return { label: 'Изчерпан', color: 'var(--ff-muted)' };
-  if (stock <= 6) return { label: `Ниска наличност · ${stock}`, color: 'var(--ff-amber-600)' };
-  return { label: `В наличност · ${stock}`, color: 'var(--ff-green-700)' };
+/** Stock pill label + color, driven by the product's «Задай наличност» count.
+ *  `remaining` null/undefined = no stock set → unlimited (always available). */
+export function availabilityMeta(remaining: number | null | undefined): { label: string; color: string } {
+  if (remaining == null) return { label: 'В наличност', color: 'var(--ff-green-700)' };
+  if (remaining === 0) return { label: 'Изчерпан', color: 'var(--ff-muted)' };
+  if (remaining <= 6) return { label: `Ниска наличност · ${remaining}`, color: 'var(--ff-amber-600)' };
+  return { label: `В наличност · ${remaining}`, color: 'var(--ff-green-700)' };
 }

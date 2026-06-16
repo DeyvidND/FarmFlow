@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { ImagePlus, Trash2, X } from 'lucide-react';
+import { ImagePlus, Trash2, X, PackageOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
@@ -41,7 +41,6 @@ export function ProductDialog({
   const isEdit = !!product;
   const [name, setName] = useState(product?.name ?? '');
   const [price, setPrice] = useState(product ? (product.priceStotinki / 100).toFixed(2).replace('.', ',') : '');
-  const [stock, setStock] = useState(product?.stockQuantity == null ? '' : String(product.stockQuantity));
   const [unit, setUnit] = useState(product?.unit ?? 'бр');
   const [weight, setWeight] = useState(product?.weight ?? '');
   const [farmerId, setFarmerId] = useState(product?.farmerId ?? farmers[0]?.id ?? '');
@@ -98,9 +97,6 @@ export function ProductDialog({
           priceStotinki,
           unit: unit.trim() || 'бр',
           weight: weight.trim() || undefined,
-          // Empty = unlimited stock → send null explicitly (the column defaults to 0
-          // = out of stock, which would contradict the "неограничено" placeholder).
-          stockQuantity: stock === '' ? null : parseInt(stock, 10) || 0,
           ...(isEdit ? { coverCrop } : { isActive: true }),
           ...(multiFarmer ? { farmerId: farmerId || null } : {}),
           ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
@@ -211,16 +207,18 @@ export function ProductDialog({
             </label>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className={labelCls}>
-              Цена (€)
-              <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="6,50" className={field} />
-            </label>
-            <label className={labelCls}>
-              Наличност (бр.)
-              <input value={stock} onChange={(e) => setStock(e.target.value)} inputMode="numeric" placeholder="неогранич." className={field} />
-              <span className="text-[10.5px] font-semibold text-ff-muted-2">празно = без лимит</span>
-            </label>
+          <label className={labelCls}>
+            Цена (€)
+            <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="6,50" className={field} />
+          </label>
+
+          <div className="flex items-start gap-2 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[12px] text-ff-ink-2">
+            <PackageOpen size={15} className="mt-0.5 shrink-0 text-ff-green-700" />
+            <span>
+              Наличността се задава от{' '}
+              <a href="/availability" className="font-bold text-ff-green-700 hover:underline">„Задай наличност“</a>
+              {' '}— там казваш колко имаш от всеки продукт.
+            </span>
           </div>
 
           {multiFarmer && farmers.length > 0 && (

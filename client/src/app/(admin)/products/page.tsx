@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { ProductsClient } from '@/components/products/products-client';
-import type { Farmer, Paginated, Product, Subcategory } from '@/lib/types';
+import type { AvailabilityWindow, Farmer, Paginated, Product, Subcategory } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +20,7 @@ export default async function ProductsPage() {
   const me = await fetchJson<{ role?: string }>('auth/me', {});
   const isFarmer = me.role === 'farmer';
 
-  const [products, farmers, subcats, tenant] = await Promise.all([
+  const [products, farmers, subcats, tenant, windows] = await Promise.all([
     // The server scopes this list to the producer's own products for role='farmer'.
     fetchJson<Paginated<Product>>('products?limit=50', { items: [], nextCursor: null }),
     // A producer manages only their own products — the farmer column/filter is moot.
@@ -33,10 +33,19 @@ export default async function ProductsPage() {
       productOfWeekMode?: 'manual' | 'auto';
       productOfWeekId?: string | null;
     }>('tenants/me', { multiFarmer: false, multiSubcat: false }),
+    // Stock now lives in «Задай наличност» — map productId → remaining for the card pills.
+    fetchJson<AvailabilityWindow[]>('availability-windows', []),
   ]);
+
+  const availability: Record<string, number> = {};
+  for (const w of windows) {
+    if (w.productId) availability[w.productId] = Math.max(availability[w.productId] ?? 0, w.remaining);
+  }
+
   return (
     <ProductsClient
       initial={products}
+      availability={availability}
       farmers={farmers}
       subcats={subcats}
       // Producers never pick a farmer (it's always themselves) and don't control the

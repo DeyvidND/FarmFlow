@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Menu, Bell } from 'lucide-react';
 import { cn, bgDateLabel } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
-import { getDashboard, listProductOptions } from '@/lib/api-client';
+import { getDashboard, listProductOptions, listAvailabilityWindows } from '@/lib/api-client';
 
 /** One notification derived from live data (pending orders, full slots, low stock). */
 interface Notif {
@@ -19,9 +19,10 @@ const hhmm = (t: string) => t.slice(0, 5);
 
 /** Build the notification feed from the dashboard summary + product stock. */
 async function loadNotifs(): Promise<Notif[]> {
-  const [dash, products] = await Promise.all([
+  const [dash, products, windows] = await Promise.all([
     getDashboard().catch(() => null),
     listProductOptions().catch(() => null),
+    listAvailabilityWindows().catch(() => null),
   ]);
   const list: Notif[] = [];
 
@@ -48,15 +49,18 @@ async function loadNotifs(): Promise<Notif[]> {
     }
   }
 
-  if (products) {
-    for (const p of products) {
-      if (!p.isActive || p.stockQuantity === null || p.stockQuantity > 6) continue;
-      const name = [p.name, p.weight].filter(Boolean).join(' ');
-      const out = p.stockQuantity === 0;
+  // Low-stock signal now comes from «Задай наличност» (a product without a window
+  // is unlimited → never alerts). Names come from the product-options list.
+  if (products && windows) {
+    const nameById = new Map(products.map((p) => [p.id, [p.name, p.weight].filter(Boolean).join(' ')]));
+    for (const w of windows) {
+      if (w.remaining > 6) continue;
+      const name = nameById.get(w.productId) ?? 'Продукт';
+      const out = w.remaining === 0;
       list.push({
-        id: `stock-${p.id}`,
+        id: `stock-${w.productId}`,
         amber: out,
-        title: out ? `Изчерпан: ${name}` : `Ниска наличност: ${name} (${p.stockQuantity} бр.)`,
+        title: out ? `Изчерпан: ${name}` : `Ниска наличност: ${name} (${w.remaining} бр.)`,
         meta: 'Наличност',
       });
     }

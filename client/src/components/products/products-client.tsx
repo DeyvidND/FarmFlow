@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { Plus, Info, ArrowUpDown, Check } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { Plus, Info, ArrowUpDown, Check, PackageOpen, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -32,6 +33,7 @@ const catKey = (p: Product) => p.subcategoryId ?? NO_CAT;
 
 export function ProductsClient({
   initial,
+  availability = {},
   farmers = [],
   subcats = [],
   multiFarmer = false,
@@ -42,6 +44,8 @@ export function ProductsClient({
   role = 'admin',
 }: {
   initial: Paginated<Product>;
+  /** productId → remaining stock from «Задай наличност» (absent = unlimited). */
+  availability?: Record<string, number>;
   farmers?: Farmer[];
   subcats?: Subcategory[];
   multiFarmer?: boolean;
@@ -72,6 +76,25 @@ export function ProductsClient({
   const [q, setQ] = useState('');
   const [farmerFilter, setFarmerFilter] = useState<string>('all');
   const [subcatFilter, setSubcatFilter] = useState<string>('all');
+
+  // One-time pointer: the static «Наличност» field moved to «Задай наличност».
+  // Show on first visit, dismiss persisted in localStorage (no server state).
+  const [showHint, setShowHint] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('ff:hint:stock-moved') !== '1') setShowHint(true);
+    } catch {
+      /* localStorage unavailable — skip the hint */
+    }
+  }, []);
+  const dismissHint = () => {
+    try {
+      localStorage.setItem('ff:hint:stock-moved', '1');
+    } catch {
+      /* ignore */
+    }
+    setShowHint(false);
+  };
 
   const activeCount = products.filter((p) => p.isActive).length;
   // `total` (full count) comes from the first page; fall back to the loaded count.
@@ -237,6 +260,24 @@ export function ProductsClient({
 
   return (
     <div className="animate-ff-fade-up">
+      {showHint && (
+        <div className="mb-5 flex items-start gap-3 rounded-xl border border-ff-green-200 bg-ff-green-50 px-4 py-3">
+          <PackageOpen size={18} className="mt-0.5 shrink-0 text-ff-green-700" />
+          <div className="flex-1 text-[13.5px] text-ff-green-900">
+            <b>Ново:</b> наличността вече се задава от{' '}
+            <Link href="/availability" className="font-bold text-ff-green-700 underline">„Задай наличност“</Link>{' '}
+            — там казваш колко имаш от всеки продукт. Полето „Наличност“ тук вече го няма.
+          </div>
+          <button
+            onClick={dismissHint}
+            aria-label="Затвори"
+            className="shrink-0 text-ff-green-700 hover:text-ff-green-900"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {!reorderMode && !isFarmer && (
         <div className="mb-5">
           <ProductOfWeekPanel />
@@ -365,6 +406,7 @@ export function ProductsClient({
               key={p.id}
               product={p}
               index={i}
+              remaining={availability[p.id] ?? null}
               busy={busyId === p.id}
               onToggle={(on) => onToggle(p, on)}
               onUpload={(f) => onUpload(p, f)}
