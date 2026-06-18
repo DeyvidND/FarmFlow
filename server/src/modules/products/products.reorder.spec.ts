@@ -15,7 +15,7 @@ describe('ProductsService.reorder', () => {
   it('persists each position in one transaction and busts the catalog cache', async () => {
     const { db, tx } = makeDb();
     const cache = { invalidate: jest.fn() };
-    const svc = new ProductsService(db, {} as never, cache as never, {} as never, {} as never);
+    const svc = new ProductsService(db, {} as never, cache as never, {} as never, {} as never, {} as never);
 
     const out = await svc.reorder('t1', {
       items: [

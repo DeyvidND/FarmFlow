@@ -1,5 +1,5 @@
 import {
-  IsString, IsInt, IsOptional, IsBoolean, IsUrl, IsUUID, Min, ValidateIf, ValidateNested,
+  IsString, IsInt, IsOptional, IsBoolean, IsUrl, IsUUID, Min, Max, MaxLength, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -8,11 +8,13 @@ import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
 export class CreateProductDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(200)
   name: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
   description?: string;
 
   @ApiProperty({ description: 'Price in stotinki (integer)', example: 350 })
@@ -22,21 +24,25 @@ export class CreateProductDto {
 
   @ApiProperty({ example: 'kg' })
   @IsString()
+  @MaxLength(40)
   unit: string;
 
   @ApiPropertyOptional({ example: '500 г' })
   @IsOptional()
   @IsString()
+  @MaxLength(40)
   weight?: string;
 
   @ApiPropertyOptional({ example: 'Плодове' })
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   category?: string;
 
   @ApiPropertyOptional({ example: '#D94A4A', description: 'Hex accent for the thumbnail' })
   @IsOptional()
   @IsString()
+  @MaxLength(40)
   tint?: string;
 
   @ApiPropertyOptional({ description: 'NULL = unlimited stock' })
@@ -44,6 +50,20 @@ export class CreateProductDto {
   @IsInt()
   @Min(0)
   stockQuantity?: number;
+
+  // Virtual field (not a products column): the „Наличност" number from the product
+  // dialog. A number upserts the product's open-ended availability window; `null`
+  // clears it (→ unlimited); absent leaves stock untouched. Stripped before the
+  // products row is written; the window write happens in ProductsService.
+  @ApiPropertyOptional({
+    description: 'Stock count → availability window. number = set, null = unlimited, absent = untouched',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000)
+  stock?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()

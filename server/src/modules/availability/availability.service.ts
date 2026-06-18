@@ -340,6 +340,60 @@ export class AvailabilityService {
       .orderBy(asc(products.name));
   }
 
+  /** Upsert-or-clear the single open-ended stock window for a product — what the
+   *  product dialog's „Наличност" field writes. `quantity` number → create the
+   *  window (or edit its `quantity`, preserving what's already sold so `remaining`
+   *  never exceeds the new stock); `null` → delete it, leaving the product
+   *  unlimited. The caller (ProductsService) owns the product it just created /
+   *  updated, so ownership is already proven here; every query is still
+   *  tenant-scoped as defence in depth. */
+  async setProductStock(
+    tenantId: string,
+    productId: string,
+    quantity: number | null,
+  ): Promise<void> {
+    const existing = await this.db
+      .select()
+      .from(productAvailabilityWindows)
+      .where(
+        and(
+          eq(productAvailabilityWindows.tenantId, tenantId),
+          eq(productAvailabilityWindows.productId, productId),
+        ),
+      );
+    const open =
+      existing.find((w) => rangesOverlap(OPEN_START, OPEN_END, w.startsAt, w.endsAt)) ?? null;
+
+    if (quantity === null) {
+      if (!open) return; // nothing to clear — already unlimited
+      await this.db
+        .delete(productAvailabilityWindows)
+        .where(eq(productAvailabilityWindows.id, open.id));
+      await this.bust(tenantId);
+      return;
+    }
+
+    if (open) {
+      // Editing down preserves what was already sold (applyQuantityDelta), so
+      // `remaining` never exceeds the new stock.
+      const remaining = applyQuantityDelta(open, quantity);
+      await this.db
+        .update(productAvailabilityWindows)
+        .set({ quantity, remaining })
+        .where(eq(productAvailabilityWindows.id, open.id));
+    } else {
+      await this.db.insert(productAvailabilityWindows).values({
+        tenantId,
+        productId,
+        startsAt: OPEN_START,
+        endsAt: OPEN_END,
+        quantity,
+        remaining: quantity,
+      });
+    }
+    await this.bust(tenantId);
+  }
+
   /** Active windows (today within range) for a storefront slug — the overlay the
    *  storefront merges onto the cached catalog by productId. Not long-cached:
    *  `remaining` is volatile (changes per order). Always queried: availability is

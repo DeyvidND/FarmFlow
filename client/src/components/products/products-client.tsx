@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
-import { Plus, Info, ArrowUpDown, Check, PackageOpen, X } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Plus, Info, ArrowUpDown, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -21,6 +20,7 @@ import {
   reorderProducts,
   updateProduct,
   updateTenant,
+  type ProductWrite,
 } from '@/lib/api-client';
 import { moneyFromStotinki } from '@/lib/utils';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
@@ -77,23 +77,19 @@ export function ProductsClient({
   const [farmerFilter, setFarmerFilter] = useState<string>('all');
   const [subcatFilter, setSubcatFilter] = useState<string>('all');
 
-  // One-time pointer: the static «Наличност» field moved to «Задай наличност».
-  // Show on first visit, dismiss persisted in localStorage (no server state).
-  const [showHint, setShowHint] = useState(false);
-  useEffect(() => {
-    try {
-      if (localStorage.getItem('ff:hint:stock-moved') !== '1') setShowHint(true);
-    } catch {
-      /* localStorage unavailable — skip the hint */
-    }
-  }, []);
-  const dismissHint = () => {
-    try {
-      localStorage.setItem('ff:hint:stock-moved', '1');
-    } catch {
-      /* ignore */
-    }
-    setShowHint(false);
+  // Local copy of the productId → remaining-stock map so the card badge updates
+  // the moment stock is set/cleared from the dialog, without a full page refetch.
+  const [avail, setAvail] = useState<Record<string, number>>(availability);
+  // Reflect a just-saved stock value on the card badge. `null` = cleared → unlimited
+  // (drop the key); a number ≈ remaining right after a set (sold-this-session ~0).
+  const patchAvail = (id: string, stock: number | null | undefined) => {
+    if (stock === undefined) return; // stock wasn't touched
+    setAvail((prev) => {
+      const next = { ...prev };
+      if (stock === null) delete next[id];
+      else next[id] = stock;
+      return next;
+    });
   };
 
   const activeCount = products.filter((p) => p.isActive).length;
@@ -226,9 +222,10 @@ export function ProductsClient({
     }
   }
 
-  async function onCreate(data: Partial<Product>, files?: File[]) {
+  async function onCreate(data: ProductWrite, files?: File[]) {
     const created = await createProduct(data);
     setProducts((prev) => [created, ...prev]);
+    patchAvail(created.id, data.stock);
     setCreateOpen(false);
     if (files && files.length) {
       // Photos were picked in the create dialog — upload them now that we have an
@@ -251,32 +248,16 @@ export function ProductsClient({
     }
   }
 
-  async function onFullUpdate(data: Partial<Product>) {
+  async function onFullUpdate(data: ProductWrite) {
     if (!fullEdit) return;
     const updated = await updateProduct(fullEdit.id, data);
     patchLocal(fullEdit.id, updated);
+    patchAvail(fullEdit.id, data.stock);
     toast.success('Продуктът е обновен');
   }
 
   return (
     <div className="animate-ff-fade-up">
-      {showHint && (
-        <div className="mb-5 flex items-start gap-3 rounded-xl border border-ff-green-200 bg-ff-green-50 px-4 py-3">
-          <PackageOpen size={18} className="mt-0.5 shrink-0 text-ff-green-700" />
-          <div className="flex-1 text-[13.5px] text-ff-green-900">
-            <b>Ново:</b> наличността вече се задава от{' '}
-            <Link href="/availability" className="font-bold text-ff-green-700 underline">„Задай наличност“</Link>{' '}
-            — там казваш колко имаш от всеки продукт. Полето „Наличност“ тук вече го няма.
-          </div>
-          <button
-            onClick={dismissHint}
-            aria-label="Затвори"
-            className="shrink-0 text-ff-green-700 hover:text-ff-green-900"
-          >
-            <X size={16} />
-          </button>
-        </div>
-      )}
 
       {!reorderMode && !isFarmer && (
         <div className="mb-5">
@@ -406,7 +387,7 @@ export function ProductsClient({
               key={p.id}
               product={p}
               index={i}
-              remaining={availability[p.id] ?? null}
+              remaining={avail[p.id] ?? null}
               busy={busyId === p.id}
               onToggle={(on) => onToggle(p, on)}
               onUpload={(f) => onUpload(p, f)}

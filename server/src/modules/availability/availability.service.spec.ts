@@ -331,6 +331,104 @@ describe('AvailabilityService.remove farmer-scope guard', () => {
 });
 
 // ---------------------------------------------------------------------------
+// setProductStock() — drives the product dialog's „Наличност" field
+// ---------------------------------------------------------------------------
+
+/** Db stub for setProductStock(): one awaited select (existing windows for the
+ *  product), then captures whatever write fires (insert / update / delete). None
+ *  of the writes use .returning() — they're fire-and-await. */
+function makeDbForStock(existing: any[]) {
+  const captured: { inserted?: any; updated?: any; deleted?: boolean } = {};
+  const db: any = {
+    select: () => {
+      const chain: any = {
+        from: () => chain,
+        where: () => chain,
+        then: (resolve: any, reject: any) => Promise.resolve(existing).then(resolve, reject),
+      };
+      return chain;
+    },
+    insert: () => ({
+      values: (v: any) => {
+        captured.inserted = v;
+        return Promise.resolve(undefined);
+      },
+    }),
+    update: () => ({
+      set: (s: any) => {
+        captured.updated = s;
+        return { where: () => Promise.resolve(undefined) };
+      },
+    }),
+    delete: () => ({
+      where: () => {
+        captured.deleted = true;
+        return Promise.resolve(undefined);
+      },
+    }),
+  };
+  return { db, captured };
+}
+
+const OPEN = { startsAt: '2000-01-01', endsAt: '9999-12-31' };
+
+describe('AvailabilityService.setProductStock', () => {
+  it('inserts an open-ended window when the product has no stock yet', async () => {
+    const { db, captured } = makeDbForStock([]);
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    await svc.setProductStock('t1', 'p1', 5);
+    expect(captured.inserted).toMatchObject({
+      tenantId: 't1',
+      productId: 'p1',
+      startsAt: '2000-01-01',
+      endsAt: '9999-12-31',
+      quantity: 5,
+      remaining: 5,
+    });
+  });
+
+  it('updates quantity and preserves already-sold on an existing window', async () => {
+    // 10 set, 7 remaining → 3 already sold. New quantity 5 → remaining max(0,5-3)=2.
+    const { db, captured } = makeDbForStock([
+      { id: 'w1', productId: 'p1', quantity: 10, remaining: 7, ...OPEN },
+    ]);
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    await svc.setProductStock('t1', 'p1', 5);
+    expect(captured.updated).toEqual({ quantity: 5, remaining: 2 });
+    expect(captured.inserted).toBeUndefined();
+  });
+
+  it('floors remaining at 0 when new quantity is below what is already sold', async () => {
+    const { db, captured } = makeDbForStock([
+      { id: 'w1', productId: 'p1', quantity: 10, remaining: 7, ...OPEN },
+    ]);
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    await svc.setProductStock('t1', 'p1', 0);
+    expect(captured.updated).toEqual({ quantity: 0, remaining: 0 });
+  });
+
+  it('deletes the window when quantity is null (back to unlimited)', async () => {
+    const { db, captured } = makeDbForStock([
+      { id: 'w1', productId: 'p1', quantity: 10, remaining: 10, ...OPEN },
+    ]);
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    await svc.setProductStock('t1', 'p1', null);
+    expect(captured.deleted).toBe(true);
+    expect(captured.inserted).toBeUndefined();
+    expect(captured.updated).toBeUndefined();
+  });
+
+  it('is a no-op when clearing stock on a product that has none', async () => {
+    const { db, captured } = makeDbForStock([]);
+    const svc = new AvailabilityService(db, cacheStub, publicCacheStub());
+    await svc.setProductStock('t1', 'p1', null);
+    expect(captured.deleted).toBeUndefined();
+    expect(captured.inserted).toBeUndefined();
+    expect(captured.updated).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // findPublicActiveBySlug() — always on (no section toggle)
 // ---------------------------------------------------------------------------
 

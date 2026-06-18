@@ -1,11 +1,11 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { ImagePlus, Trash2, X, PackageOpen } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ImagePlus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
-import { ApiError } from '@/lib/api-client';
+import { ApiError, listAvailabilityWindows, type ProductWrite } from '@/lib/api-client';
 import type { CoverCrop, Farmer, Product, Subcategory } from '@/lib/types';
 
 const field =
@@ -34,7 +34,7 @@ export function ProductDialog({
   multiFarmer: boolean;
   multiSubcat: boolean;
   onClose: () => void;
-  onSubmit: (data: Partial<Product>, files?: File[]) => Promise<void>;
+  onSubmit: (data: ProductWrite, files?: File[]) => Promise<void>;
   /** Edit mode only: fired when the gallery cover (photo 0) changes. */
   onCoverChange?: (url: string | null) => void;
 }) {
@@ -43,6 +43,10 @@ export function ProductDialog({
   const [price, setPrice] = useState(product ? (product.priceStotinki / 100).toFixed(2).replace('.', ',') : '');
   const [unit, setUnit] = useState(product?.unit ?? 'бр');
   const [weight, setWeight] = useState(product?.weight ?? '');
+  // Stock = the product's availability-window quantity (digits only; '' = unlimited).
+  // On edit we load the existing window so the field shows what „Задай наличност"
+  // would — the two screens edit the same number, never desync.
+  const [stock, setStock] = useState('');
   const [farmerId, setFarmerId] = useState(product?.farmerId ?? farmers[0]?.id ?? '');
   const [subcatId, setSubcatId] = useState(product?.subcategoryId ?? subcats[0]?.id ?? '');
   const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? null);
@@ -54,6 +58,23 @@ export function ProductDialog({
   const fileRef = useRef<HTMLInputElement>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Edit mode: load the product's current stock (its availability-window quantity)
+  // so the field is pre-filled. One window per product → windows[0] is it.
+  useEffect(() => {
+    if (!isEdit || !product) return;
+    let alive = true;
+    listAvailabilityWindows(product.id)
+      .then((windows) => {
+        if (alive) setStock(windows[0] ? String(windows[0].quantity) : '');
+      })
+      .catch(() => {
+        /* stock prefill is best-effort — leave the field empty on failure */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isEdit, product]);
 
   if (!open) return null;
 
@@ -89,6 +110,9 @@ export function ProductDialog({
       setErr('Въведи валидна цена');
       return;
     }
+    // Stock is digit-filtered on input. Empty → null clears the window (unlimited);
+    // a number upserts it. Sent on create too (null is a harmless no-op there).
+    const stockValue: number | null = stock.trim() === '' ? null : parseInt(stock, 10);
     setLoading(true);
     try {
       await onSubmit(
@@ -97,6 +121,7 @@ export function ProductDialog({
           priceStotinki,
           unit: unit.trim() || 'бр',
           weight: weight.trim() || undefined,
+          stock: stockValue,
           ...(isEdit ? { coverCrop } : { isActive: true }),
           ...(multiFarmer ? { farmerId: farmerId || null } : {}),
           ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
@@ -212,14 +237,23 @@ export function ProductDialog({
             <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="6,50" className={field} />
           </label>
 
-          <div className="flex items-start gap-2 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[12px] text-ff-ink-2">
-            <PackageOpen size={15} className="mt-0.5 shrink-0 text-ff-green-700" />
-            <span>
-              Наличността се задава от{' '}
-              <a href="/availability" className="font-bold text-ff-green-700 hover:underline">„Задай наличност“</a>
-              {' '}— там казваш колко имаш от всеки продукт.
+          <label className={labelCls}>
+            Наличност
+            <input
+              value={stock}
+              onChange={(e) => setStock(e.target.value.replace(/[^0-9]/g, ''))}
+              inputMode="numeric"
+              placeholder="напр. 20"
+              className={field}
+            />
+            <span className="text-[11.5px] font-normal text-ff-muted">
+              Остави празно = неограничено · винаги налично. Намалява при всяка поръчка.
             </span>
-          </div>
+          </label>
+
+          <a href="/availability" className="-mt-1 text-[12px] font-semibold text-ff-green-700 hover:underline">
+            Задай наличност на много продукти наведнъж →
+          </a>
 
           {multiFarmer && farmers.length > 0 && (
             <label className={labelCls}>

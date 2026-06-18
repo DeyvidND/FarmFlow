@@ -31,7 +31,7 @@ describe('ProductsService.remove', () => {
   it('soft-deletes by stamping deleted_at (and hiding via is_active) + busts cache', async () => {
     const { db, calls } = makeDb([{ id: 'p1', tenantId: 't1' }]);
     const cache = { invalidate: jest.fn() };
-    const svc = new ProductsService(db, {} as never, cache as never, {} as never, {} as never);
+    const svc = new ProductsService(db, {} as never, cache as never, {} as never, {} as never, {} as never);
 
     const out = await svc.remove('p1', 't1');
 

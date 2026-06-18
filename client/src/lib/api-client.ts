@@ -83,10 +83,15 @@ export const listProducts = (cursor?: string) =>
 
 export const listProductOptions = () => apiFetch<ProductOption[]>('products/options');
 
-export const createProduct = (data: Partial<Product>) =>
+/** Product write payload: the editable product fields plus the virtual `stock`
+ *  number (drives the availability window — number sets it, null clears it back to
+ *  unlimited, absent leaves it untouched). `stock` is not a Product column. */
+export type ProductWrite = Partial<Product> & { stock?: number | null };
+
+export const createProduct = (data: ProductWrite) =>
   apiFetch<Product>('products', { method: 'POST', ...json(data) }, 'Неуспешно създаване');
 
-export const updateProduct = (id: string, data: Partial<Product>) =>
+export const updateProduct = (id: string, data: ProductWrite) =>
   apiFetch<Product>(`products/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешно записване');
 
 export const deleteProduct = (id: string) =>

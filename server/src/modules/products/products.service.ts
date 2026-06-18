@@ -25,6 +25,7 @@ export interface ProductOption {
 }
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { AvailabilityService } from '../availability/availability.service';
 import { StorageService } from '../storage/storage.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -44,6 +45,7 @@ export class ProductsService {
     private readonly cache: CatalogCacheService,
     private readonly publicCache: PublicCacheService,
     @InjectQueue(IMAGE_QUEUE) private readonly imageQueue: Queue,
+    private readonly availability: AvailabilityService,
   ) {}
 
   /** Admin list: tenant-scoped, oldest first, keyset-paginated. `total` is included
@@ -173,8 +175,11 @@ export class ProductsService {
     dto: CreateProductDto,
     farmerScope: string | null = null,
   ): Promise<Product> {
+    // `stock` is virtual — it drives the availability window, not a products
+    // column — so strip it before the row is written.
+    const { stock, ...productDto } = dto;
     // A producer's products always belong to them — ignore any client-supplied farmer.
-    const values = farmerScope !== null ? { ...dto, farmerId: farmerScope } : dto;
+    const values = farmerScope !== null ? { ...productDto, farmerId: farmerScope } : productDto;
     await this.assertRefsInTenant(tenantId, values);
     // Storefront product pages key off `slug`. The admin form doesn't collect
     // one, so derive a tenant-unique slug from the name (Cyrillic-aware).
@@ -183,6 +188,11 @@ export class ProductsService {
       .insert(products)
       .values({ ...values, tenantId, slug })
       .returning();
+    // A stock number sets the product's availability window straight away; null /
+    // absent leaves it unlimited (no window).
+    if (typeof stock === 'number') {
+      await this.availability.setProductStock(tenantId, row.id, stock);
+    }
     await this.cache.invalidate(tenantId);
     return row;
   }
@@ -213,8 +223,12 @@ export class ProductsService {
     farmerScope: string | null = null,
   ): Promise<Product> {
     if (farmerScope !== null) await this.findOne(id, tenantId, farmerScope);
+    // `stock` is virtual (drives the availability window); keep it out of the
+    // products write. `undefined` = caller didn't touch stock (e.g. a hide/show
+    // toggle) → leave the window alone.
+    const { stock, ...rest } = dto;
     // Producers can edit their own product's fields but not its ownership.
-    const data = farmerScope !== null ? { ...dto, farmerId: undefined } : dto;
+    const data = farmerScope !== null ? { ...rest, farmerId: undefined } : rest;
     await this.assertRefsInTenant(tenantId, data);
     const [row] = await this.db
       .update(products)
@@ -222,6 +236,10 @@ export class ProductsService {
       .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Продуктът не е намерен');
+    // number = set stock, null = clear (→ unlimited), undefined = untouched.
+    if (stock !== undefined) {
+      await this.availability.setProductStock(tenantId, id, stock);
+    }
     await this.cache.invalidate(tenantId);
     return row;
   }
