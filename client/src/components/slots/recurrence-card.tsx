@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Repeat, Check } from 'lucide-react';
+import { Repeat, Check, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -165,6 +165,12 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
   const [saving, setSaving] = useState(false);
   const set = (p: Partial<State>) => setS((prev) => ({ ...prev, ...p }));
 
+  // The everyday form is just days + hours. Slot length, start date and notes are
+  // optional — fold them away, but auto-open if an existing rule already uses them.
+  const [showAdvanced, setShowAdvanced] = useState(
+    () => !!initial && ((initial.slotMinutes ?? 0) !== 0 || !!initial.customerNote || !!initial.driverNote),
+  );
+
   const pickedDows = useMemo(() => new Set(s.days.map((d) => d.dow)), [s.days]);
 
   const toggleDay = (dow: number) => {
@@ -323,6 +329,17 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
           </>
         )}
 
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="flex items-center gap-1.5 self-start text-[12.5px] font-bold text-ff-green-700 hover:underline"
+        >
+          {showAdvanced ? 'Скрий разширените настройки' : 'Разширени настройки (по избор)'}
+          <ChevronDown size={15} className={cn('transition-transform', showAdvanced && 'rotate-180')} />
+        </button>
+
+        {showAdvanced && (
+          <>
         {(() => {
           // Live preview of what the chosen slot length produces, so the farmer
           // sees the result before saving. Per-day hours → generic hint instead.
@@ -388,6 +405,8 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
             className={field}
           />
         </label>
+          </>
+        )}
       </div>
 
       <div className="mt-4 flex justify-end">

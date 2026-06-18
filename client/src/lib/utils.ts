@@ -19,7 +19,7 @@ export function moneyFromStotinki(cents: number): string {
 export type OrderStatus = 'pending' | 'confirmed' | 'delivered' | 'cancelled';
 
 export const statusMeta: Record<OrderStatus, { label: string; cls: OrderStatus }> = {
-  pending: { label: 'Чакаща', cls: 'pending' },
+  pending: { label: 'Очаква потвърждение', cls: 'pending' },
   confirmed: { label: 'Потвърдена', cls: 'confirmed' },
   delivered: { label: 'Доставена', cls: 'delivered' },
   cancelled: { label: 'Отказана', cls: 'cancelled' },

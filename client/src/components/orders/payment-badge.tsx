@@ -4,7 +4,7 @@ import type { PaymentStatus } from '@/lib/types';
 const META: Record<PaymentStatus, { label: string; bg: string; ink: string; dot: string }> = {
   paid: { label: 'Платена', bg: 'bg-ff-green-100', ink: 'text-ff-green-700', dot: 'bg-ff-green-500' },
   pending_online: {
-    label: 'Чака плащане',
+    label: 'Неплатена',
     bg: 'bg-ff-amber-soft',
     ink: 'text-ff-amber-600',
     dot: 'bg-ff-amber',

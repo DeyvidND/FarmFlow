@@ -36,13 +36,13 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
 
-  const filtered = orders.filter(
-    (o) =>
-      (filter === 'all' || o.status === filter) &&
-      (!q ||
-        (o.customerName ?? '').toLowerCase().includes(q.toLowerCase()) ||
-        o.id.toLowerCase().includes(q.toLowerCase())),
-  );
+  const filtered = orders.filter((o) => {
+    if (filter !== 'all' && o.status !== filter) return false;
+    if (!q) return true;
+    const needle = q.toLowerCase();
+    return [o.customerName, o.customerPhone, o.customerEmail, o.id]
+      .some((f) => (f ?? '').toLowerCase().includes(needle));
+  });
   const active = orders.find((o) => o.id === activeId) ?? null;
 
   async function revertStatus(id: string, to: OrderStatus) {
@@ -100,7 +100,7 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Търси клиент или № поръчка…"
+            placeholder="Търси име, телефон, имейл или № поръчка…"
             className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface pl-11 pr-3 text-[14.5px] shadow-ff-sm outline-none focus:border-ff-green-500"
           />
         </div>

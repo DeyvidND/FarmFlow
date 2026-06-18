@@ -9,7 +9,7 @@ import type { RouteEndMode, RoutingConfig } from '@/lib/types';
 
 const END_LABELS: { mode: RouteEndMode; label: string; hint: string }[] = [
   { mode: 'home', label: 'Към дома', hint: 'обратно до базата' },
-  { mode: 'last', label: 'Едностранно', hint: 'край при последната доставка' },
+  { mode: 'last', label: 'Край при клиента', hint: 'край при последната доставка' },
   { mode: 'custom', label: 'По избор', hint: 'друг адрес' },
 ];
 

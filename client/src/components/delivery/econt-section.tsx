@@ -66,6 +66,22 @@ export function EcontConnectionSection({
     };
   }, [e.configured, e.sender.cityId]);
 
+  // Pull the cities/offices list from Econt. `silent` skips the toasts so it can
+  // run in the background right after the first successful connect.
+  const syncNomenclature = async (silent = false) => {
+    try {
+      const r = await syncEcontNomenclature();
+      mut((d) => {
+        d.econt.nomenclature.lastSyncedAt = 'току-що';
+        d.econt.nomenclature.cities = r.cities;
+        d.econt.nomenclature.offices = r.offices;
+      });
+      if (!silent) toast.success(`Обновени: ${r.cities} населени места, ${r.offices} офиса`);
+    } catch (err) {
+      if (!silent) toast.error(err instanceof ApiError ? err.message : 'Неуспешно обновяване');
+    }
+  };
+
   const runCheck = async () => {
     // Already connected and not changing the password — nothing to re-validate
     // (the server holds the encrypted password).
@@ -94,6 +110,9 @@ export function EcontConnectionSection({
         d.econt.configured = true;
       });
       toast.success('Връзката с Еконт е успешна и запазена');
+      // First connect with no city list yet → fetch it in the background so the
+      // офиси are ready at checkout without the farmer hunting for „Обнови".
+      if (!e.nomenclature.cities) void syncNomenclature(true);
     } catch (err) {
       setCheck('fail');
       toast.error(err instanceof ApiError ? err.message : 'Невалидни данни за Еконт');
@@ -177,8 +196,9 @@ export function EcontConnectionSection({
         <div>
           <h3 className={subHeadCls}>1. Свържи акаунта си в Еконт</h3>
           <p className={subDescCls}>
-            Въведи потребителя и паролата, които Еконт ти е дал за онлайн заявки. Намираш ги в
-            профила си на econt.com или в договора — нямаш ли ги, обади се на Еконт.
+            Това са специални данни за <b>онлайн заявки</b>, които Еконт ти дава — различни от
+            обикновената ти парола за econt.com. Намираш ги в профила си или в договора. Нямаш ли ги,
+            обади се на Еконт и поискай достъп за онлайн заявки.
           </p>
           <div className="grid items-end gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
             <DLabel label="Потребител за Еконт" hint="От профила ти в Еконт.">
@@ -423,23 +443,7 @@ export function EcontConnectionSection({
               <span className="ff-fig">{e.nomenclature.offices.toLocaleString('bg')}</span> офиса
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={async () => {
-              try {
-                const r = await syncEcontNomenclature();
-                mut((d) => {
-                  d.econt.nomenclature.lastSyncedAt = 'току-що';
-                  d.econt.nomenclature.cities = r.cities;
-                  d.econt.nomenclature.offices = r.offices;
-                });
-                toast.success(`Обновени: ${r.cities} населени места, ${r.offices} офиса`);
-              } catch (err) {
-                toast.error(err instanceof ApiError ? err.message : 'Неуспешно обновяване');
-              }
-            }}
-          >
+          <Button variant="ghost" size="sm" onClick={() => syncNomenclature()}>
             <RefreshCw size={16} /> Обнови градове и офиси
           </Button>
         </div>

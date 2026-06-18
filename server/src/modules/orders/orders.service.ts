@@ -236,6 +236,9 @@ export interface ProductionItem {
 export interface ProductionSummary {
   date: string;
   confirmedOrders: number;
+  /** Orders still pending (unconfirmed) for the day — they are NOT in the prep
+   *  list yet, so the UI nudges the farmer to confirm them. */
+  pendingOrders: number;
   multiFarmer: boolean;
   items: ProductionItem[];
 }
@@ -725,8 +728,16 @@ export class OrdersService {
       scheduledForDay(day),
     )!;
 
-    // The three reads are independent — run concurrently (one admin page load).
-    const [rows, [{ count }], [tenant]] = await Promise.all([
+    // Pending (unconfirmed) orders for the same day — these aren't in the prep
+    // list, so the UI warns the farmer to confirm them.
+    const pendingOnDay = and(
+      eq(orders.tenantId, tenantId),
+      eq(orders.status, 'pending'),
+      scheduledForDay(day),
+    )!;
+
+    // The four reads are independent — run concurrently (one admin page load).
+    const [rows, [{ count }], [{ pending }], [tenant]] = await Promise.all([
       this.db
         .select({
           productName: orderItems.productName,
@@ -749,6 +760,11 @@ export class OrdersService {
         .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
         .where(onDay),
       this.db
+        .select({ pending: sql<number>`count(*)::int` })
+        .from(orders)
+        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+        .where(pendingOnDay),
+      this.db
         .select({ multiFarmer: tenants.multiFarmer })
         .from(tenants)
         .where(eq(tenants.id, tenantId))
@@ -758,6 +774,7 @@ export class OrdersService {
     return {
       date: day,
       confirmedOrders: count,
+      pendingOrders: pending,
       multiFarmer: tenant?.multiFarmer ?? false,
       items: rows.map((r) => ({
         productName: r.productName ?? '',

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ShoppingBasket, Clock } from 'lucide-react';
+import Link from 'next/link';
+import { Check, ShoppingBasket, Clock, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DateNavBar } from './date-nav-bar';
 import type { ProductionSummary } from '@/lib/types';
@@ -73,6 +74,25 @@ export function PrepList({
 
   return (
     <div className="animate-ff-fade-up">
+      {/* Silent-failure guard: pending orders aren't in the prep list. Nudge the
+          farmer to confirm them so nothing is forgotten before harvest. */}
+      {summary.pendingOrders > 0 && (
+        <Link
+          href="/orders"
+          className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5 transition hover:brightness-[0.98]"
+        >
+          <AlertTriangle size={16} className="shrink-0 text-ff-amber-600" />
+          <span className="text-[12.5px] font-bold text-ff-amber-600">
+            {summary.pendingOrders === 1
+              ? '1 поръчка чака потвърждение — не е в списъка за бране. Потвърди я.'
+              : `${summary.pendingOrders} поръчки чакат потвърждение — не са в списъка за бране. Потвърди ги.`}
+          </span>
+          <span className="ml-auto whitespace-nowrap text-[12.5px] font-extrabold text-ff-amber-600 underline">
+            Към поръчките →
+          </span>
+        </Link>
+      )}
+
       {/* summary + date pick */}
       <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3">
         <p className="text-[15px] font-semibold text-ff-ink-2">

@@ -83,7 +83,7 @@ function moneyStatus(o: PaymentOrder): { label: string; cls: string } {
     };
   }
   return {
-    label: o.paymentMethod === 'cod' ? 'Очаквано' : 'Чака плащане',
+    label: o.paymentMethod === 'cod' ? 'Очаквано' : 'Неплатена',
     cls: 'bg-ff-amber-softer text-ff-amber-600',
   };
 }

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useRole } from '@/components/layout/role-context';
 import { ConfigurationsCard, type ConfigKey } from '@/components/settings/configurations-card';
 import { PasswordCard } from '@/components/settings/password-card';
 import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
@@ -44,6 +45,13 @@ function ConfigSection({ view }: { view: ConfigKey }) {
 }
 
 export default function SettingsPage() {
+  const role = useRole();
+  // A producer sub-account has none of the shop-wide config (the server
+  // default-denies every config write) and their sidebar is the fixed FARMER_NAV
+  // (nav customization has no effect), so both those tabs are dead ends for them —
+  // collapse Настройки to just the password change.
+  const isFarmer = role === 'farmer';
+
   const [section, setSection] = useState<Section>('configurations');
   // Which configuration screen is open inline (null = the Конфигурации hub).
   const [configView, setConfigView] = useState<ConfigKey | null>(null);
@@ -52,6 +60,16 @@ export default function SettingsPage() {
     setSection(id);
     setConfigView(null); // leaving/entering a tab always returns to the hub
   };
+
+  if (isFarmer) {
+    return (
+      <div>
+        <h1 className="mb-1 text-[22px] font-extrabold tracking-[-0.01em]">Настройки</h1>
+        <p className="mb-6 text-[13.5px] text-ff-muted">Смени паролата за достъп до панела.</p>
+        <PasswordCard />
+      </div>
+    );
+  }
 
   return (
     <div>

@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { ForcePasswordModal } from '@/components/auth/force-password-modal';
 import { FarmerRouteGuard } from '@/components/layout/farmer-route-guard';
+import { RoleProvider } from '@/components/layout/role-context';
 import { useUiStore } from '@/stores/ui-store';
 
 /** Client chrome for the admin panel (sidebar + topbar + drawer + toasts).
@@ -51,7 +52,9 @@ export function AdminShell({
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar tenantName={tenantName} />
         <main className="ff-main flex-1 overflow-y-auto px-8 pb-10 pt-8 max-sm:px-4 max-sm:pb-8 max-sm:pt-4">
-          <div className="mx-auto max-w-[1200px]">{children}</div>
+          <div className="mx-auto max-w-[1200px]">
+            <RoleProvider role={role}>{children}</RoleProvider>
+          </div>
         </main>
       </div>
 

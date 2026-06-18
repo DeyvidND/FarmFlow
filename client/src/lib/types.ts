@@ -498,6 +498,8 @@ export interface ProductionItem {
 export interface ProductionSummary {
   date: string; // YYYY-MM-DD
   confirmedOrders: number;
+  /** Still-pending orders for the day — not yet in the prep list (nudge to confirm). */
+  pendingOrders: number;
   multiFarmer: boolean;
   items: ProductionItem[];
 }
