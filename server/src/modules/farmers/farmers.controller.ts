@@ -4,6 +4,7 @@ import {
   ParseFilePipe, FileTypeValidator, MaxFileSizeValidator,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FarmersService } from './farmers.service';
 import { CreateFarmerDto } from './dto/create-farmer.dto';
@@ -67,6 +68,8 @@ export class FarmersController {
 
   // ---- Farmer sub-account access (admin-only — no @Roles) ----
 
+  // Tight cap -- each call sends an invite email; limits invite-spam / probing.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post(':id/access')
   grantAccess(
     @Param('id') id: string,

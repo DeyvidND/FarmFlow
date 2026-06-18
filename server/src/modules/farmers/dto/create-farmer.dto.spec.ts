@@ -23,6 +23,32 @@ describe('CreateFarmerDto — email', () => {
   });
 });
 
+describe('CreateFarmerDto — string length caps', () => {
+  it('accepts strings within bounds', async () => {
+    const errs = await errorsFor({
+      name: 'П'.repeat(200),
+      role: 'Р'.repeat(120),
+      bio: 'Б'.repeat(5000),
+      phone: '0'.repeat(40),
+      since: '2'.repeat(40),
+      tint: '#'.repeat(40),
+    });
+    expect(errs).toHaveLength(0);
+  });
+
+  it.each([
+    ['name', 201],
+    ['role', 121],
+    ['bio', 5001],
+    ['phone', 41],
+    ['since', 41],
+    ['tint', 41],
+  ])('rejects an over-long %s', async (field, len) => {
+    const errs = await errorsFor({ name: 'Петър', [field]: 'x'.repeat(len) });
+    expect(errs.some((e) => e.property === field)).toBe(true);
+  });
+});
+
 describe('CreateFarmerDto — coverCrop', () => {
   it('accepts a valid focal point + zoom', async () => {
     const errs = await errorsFor({ name: 'Петър', coverCrop: { x: 0.2, y: 0.8, zoom: 1.5 } });

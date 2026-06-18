@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsInt, IsUrl, IsEmail, Min, ValidateNested,
+  IsString, IsOptional, IsInt, IsUrl, IsEmail, Min, MaxLength, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -8,21 +8,25 @@ import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
 export class CreateFarmerDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(200)
   name: string;
 
   @ApiPropertyOptional({ example: 'Пчелар — мед' })
   @IsOptional()
   @IsString()
+  @MaxLength(120)
   role?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   bio?: string;
 
   @ApiPropertyOptional({ example: '+359 88 412 0001' })
   @IsOptional()
   @IsString()
+  @MaxLength(40)
   phone?: string;
 
   @ApiPropertyOptional({ example: 'petar@ferma.bg' })
@@ -33,11 +37,13 @@ export class CreateFarmerDto {
   @ApiPropertyOptional({ example: '2014' })
   @IsOptional()
   @IsString()
+  @MaxLength(40)
   since?: string;
 
   @ApiPropertyOptional({ example: '#2C5530' })
   @IsOptional()
   @IsString()
+  @MaxLength(40)
   tint?: string;
 
   @ApiPropertyOptional()

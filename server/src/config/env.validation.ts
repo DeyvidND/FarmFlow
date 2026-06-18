@@ -107,4 +107,13 @@ export const envValidationSchema = Joi.object({
   // the single-box behavior), 'web' (HTTP + enqueue only), 'worker' (drains queues
   // + runs scheduled jobs). Scale horizontally by running copies with different roles.
   APP_ROLE: Joi.string().valid('all', 'web', 'worker').default('all'),
+  // --- Error monitoring (Sentry) ---
+  // Empty → disabled (the app boots and runs identically; no events are sent).
+  // Set to the project DSN from sentry.io to turn on error capture.
+  SENTRY_DSN: Joi.string().optional().allow(''),
+  // Event tag to separate prod from staging/dev. Falls back to NODE_ENV.
+  SENTRY_ENVIRONMENT: Joi.string().optional().allow(''),
+  // Performance-tracing sample rate 0..1. Default 0 (errors only). Bump to ~0.1
+  // to also sample request/query latency spans.
+  SENTRY_TRACES_SAMPLE_RATE: Joi.number().min(0).max(1).default(0),
 });

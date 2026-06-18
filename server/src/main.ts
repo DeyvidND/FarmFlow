@@ -1,3 +1,6 @@
+// MUST be first: initializes Sentry (when SENTRY_DSN is set) before any other
+// module loads, so its auto-instrumentation can hook the http/pg layers.
+import './instrument';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
