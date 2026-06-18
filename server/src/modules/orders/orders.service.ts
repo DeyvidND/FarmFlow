@@ -713,6 +713,38 @@ export class OrdersService {
   }
 
   /**
+   * Producer-scoped status change: a sub-account (role='farmer') may mark its OWN
+   * COD order as «delivered» (= cash received) from the Плащания screen. Two
+   * server-side gates, defence-in-depth:
+   *  1. Transition guard — only `delivered` is allowed; confirming/cancelling and
+   *     any other transition stay owner-only (a producer can't reopen or void).
+   *  2. Ownership (IDOR) — the order must carry at least one line item whose
+   *     product belongs to this producer, scoped to the tenant. Same line-item
+   *     attribution as {@link paymentsForFarmer}.
+   * Once both pass it delegates to the shared {@link updateStatus} (cache bust,
+   * stock restore on cancel — moot here — and the same NotFound handling).
+   */
+  async updateStatusForFarmer(
+    id: string,
+    tenantId: string,
+    farmerId: string,
+    dto: UpdateOrderStatusDto,
+  ): Promise<OrderRow> {
+    if (dto.status !== 'delivered') {
+      throw new ForbiddenException('Производител може само да отбележи поръчка като доставена.');
+    }
+    const [owned] = await this.db
+      .select({ id: orders.id })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId), eq(products.farmerId, farmerId)))
+      .limit(1);
+    if (!owned) throw new ForbiddenException('Нямате достъп до тази поръчка.');
+    return this.updateStatus(id, tenantId, dto);
+  }
+
+  /**
    * Daily prep list: aggregate confirmed orders for a date into per-product
    * totals (sum qty, distinct order count), most-to-prepare first. One grouped
    * query for the rows + one scalar for the confirmed-order count (no N+1).

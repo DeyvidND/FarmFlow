@@ -74,13 +74,21 @@ export class OrdersController {
     return this.ordersService.findOne(id, tenantId);
   }
 
+  // Opened to producer sub-accounts (role='farmer') so they can mark their OWN COD
+  // order as «доставена» (= cash received) from the Плащания screen. Owner edits
+  // any order; a producer is forced to its own farmerId and routed to the
+  // IDOR-scoped method (verifies ownership + restricts to the delivered transition).
   @Patch(':id/status')
+  @Roles('admin', 'farmer')
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
     @Body() dto: UpdateOrderStatusDto,
   ) {
-    return this.ordersService.updateStatus(id, tenantId, dto);
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return scope
+      ? this.ordersService.updateStatusForFarmer(id, user.tenantId, scope, dto)
+      : this.ordersService.updateStatus(id, user.tenantId, dto);
   }
 }
 

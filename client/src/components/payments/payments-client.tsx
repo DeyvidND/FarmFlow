@@ -13,6 +13,7 @@ import {
   Phone,
   Mail,
   Loader2,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ import {
 import {
   startStripeOnboarding,
   getPayments,
+  updateOrderStatus,
   type StripeSummary,
   type PaymentsPage,
   type PaymentTotals,
@@ -181,6 +183,26 @@ export function PaymentsClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, dq, farmerId]);
 
+  // Mark a наложен-платеж order's cash as received — flips its badge «Очаквано»
+  // → «Получено». COD "collected" is modelled as the order reaching `delivered`
+  // (see toPaymentOrder), so this marks the order доставена. Optimistic: patch
+  // the row locally; on error revert by refetching is overkill — just re-toast.
+  const [collectingId, setCollectingId] = useState<string | null>(null);
+  const onCollect = useCallback(async (id: string) => {
+    setCollectingId(id);
+    try {
+      await updateOrderStatus(id, 'delivered');
+      setOrders((prev) =>
+        prev.map((o) => (o.id === id ? { ...o, status: 'delivered', collected: true } : o)),
+      );
+      toast.success('Отбелязано като получено.');
+    } catch {
+      toast.error('Грешка при отбелязването.');
+    } finally {
+      setCollectingId(null);
+    }
+  }, []);
+
   const loadMore = useCallback(async () => {
     if (!cursor || loadingMore) return;
     setLoadingMore(true);
@@ -312,6 +334,8 @@ export function PaymentsClient({
           cursor={cursor}
           loadingMore={loadingMore}
           onLoadMore={loadMore}
+          onCollect={onCollect}
+          collectingId={collectingId}
         />
       )}
       {tab === 'card' && role !== 'farmer' && (
@@ -457,7 +481,16 @@ function Contact({ o }: { o: PaymentOrder }) {
 
 /* ─────────────────────────────  Наложен платеж (grouped by day)  ───────────────────────────── */
 
-function CodView({ rows, loading, searching, cursor, loadingMore, onLoadMore }: ListProps) {
+function CodView({
+  rows,
+  loading,
+  searching,
+  cursor,
+  loadingMore,
+  onLoadMore,
+  onCollect,
+  collectingId,
+}: ListProps & { onCollect: (id: string) => void; collectingId: string | null }) {
   const days = useMemo(() => groupByDay(rows), [rows]);
   return (
     <>
@@ -510,7 +543,23 @@ function CodView({ rows, loading, searching, cursor, loadingMore, onLoadMore }: 
                             )}
                           </div>
                         </div>
-                        <StatusPill {...s} />
+                        {o.collected ? (
+                          <StatusPill {...s} />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onCollect(o.id)}
+                            disabled={collectingId === o.id}
+                            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-ff-green-100 bg-ff-green-50 px-2.5 py-1 text-[11px] font-extrabold text-ff-green-700 hover:bg-ff-green-100 disabled:opacity-60"
+                          >
+                            {collectingId === o.id ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Check size={12} />
+                            )}
+                            Получих парите
+                          </button>
+                        )}
                         <div className="ff-fig w-[84px] shrink-0 text-right text-[14px] font-extrabold">
                           {moneyFromStotinki(o.totalStotinki)}
                         </div>
