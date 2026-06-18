@@ -11,6 +11,7 @@ import { HelpModal } from '@/components/delivery/ui';
 import { DASHBOARD_HELP } from '@/lib/help-content';
 import { StatCard } from './stat-card';
 import { StoreReadinessCard, type StoreReadiness } from './store-readiness-card';
+import { OnboardingModal } from './onboarding-modal';
 import { OrdersFeed } from './orders-feed';
 import { OrderPanel } from '@/components/orders/order-panel';
 import { CodReviewDrawer } from '@/components/orders/cod-review-drawer';
@@ -181,6 +182,7 @@ export function DashboardClient({
       </div>
 
       {readiness && <StoreReadinessCard readiness={readiness} />}
+      {readiness && <OnboardingModal readiness={readiness} />}
 
       {!summary.subscriptionActive && (
         <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3">
