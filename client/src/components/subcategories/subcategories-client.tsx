@@ -96,7 +96,7 @@ export function SubcategoriesClient({
         <div className="min-w-[220px] flex-1">
           <div className="text-[15.5px] font-extrabold">Категории в магазина</div>
           <div className="mt-0.5 max-w-[580px] text-[13px] leading-snug text-ff-ink-2">
-            Включи това, ако искаш да групираш продуктите си в собствени секции — всяка със снимка, заглавие и кратко описание.
+            Включи това, ако искаш да групираш продуктите си в собствени категории — всяка със снимка, заглавие и кратко описание.
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2.5">
@@ -114,13 +114,14 @@ export function SubcategoriesClient({
           </div>
           <h2 className="mb-2 text-[19px] font-extrabold">Без категории</h2>
           <p className="mx-auto max-w-[430px] text-sm leading-relaxed text-ff-ink-2">
-            В момента продуктите се показват без допълнително групиране. Включи опцията горе, за да подредиш магазина в секции.
+            В момента продуктите се показват без допълнително групиране. Включи опцията горе, за да групираш магазина в категории.
+            Не е задължително — повечето малки магазини работят добре и без категории.
           </p>
         </div>
       ) : (
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-ff-muted">{subcats.length} категории · показват се като секции в магазина</p>
+            <p className="text-sm text-ff-muted">{subcats.length} категории · показват се в магазина</p>
             <div className="flex items-center gap-2">
               {subcats.length > 1 && (
                 <Button
@@ -130,7 +131,7 @@ export function SubcategoriesClient({
                     if (reorderMode) void persistReorder(); // leaving → save once
                     setReorderMode((v) => !v);
                   }}
-                  title="Подреди реда на секциите в сайта"
+                  title="Подреди реда на категориите в сайта"
                 >
                   {reorderMode ? <Check size={16} /> : <ArrowUpDown size={16} />}
                   {reorderMode ? 'Готово' : 'Подреди'}

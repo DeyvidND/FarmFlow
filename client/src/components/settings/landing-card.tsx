@@ -225,7 +225,7 @@ export function LandingCard() {
                       {farmersBlocked ? (
                         <>
                           Включва се само при мулти-фермер режим.{' '}
-                          <Link href="/features" className="font-bold text-ff-green-700 hover:underline">
+                          <Link href="/settings?config=features" className="font-bold text-ff-green-700 hover:underline">
                             Включи „Фермери“ →
                           </Link>
                         </>

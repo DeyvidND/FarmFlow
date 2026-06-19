@@ -124,7 +124,7 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
           onClick={() => router.push('/newsletters')}
           className="inline-flex items-center gap-1.5 text-[14px] font-bold text-ff-ink-2 hover:text-ff-ink"
         >
-          <ArrowLeft size={17} /> Бюлетини
+          <ArrowLeft size={17} /> Имейл клиенти
         </button>
         <div className="flex items-center gap-3">
           {!sent && (

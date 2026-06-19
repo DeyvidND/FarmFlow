@@ -384,7 +384,7 @@ export default function ContactsPage() {
         <section className={card}>
           <h2 className="mb-3 text-[15px] font-extrabold">Локация на картата</h2>
           <p className="mb-3 text-[13px] text-ff-muted">
-            Кликни на картата, за да поставиш точката на твоето място.
+            Кликни на картата, за да поставиш точката на твоето място. По избор.
           </p>
           <LocationPicker lat={lat} lng={lng}
             onPick={(la, ln) => setForm((f) => ({ ...f, mapLat: la.toFixed(6), mapLng: ln.toFixed(6) }))} />

@@ -52,7 +52,7 @@ export function SectionPhoto({
       </svg>
       {label && (
         <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-white/80 px-[7px] py-0.5 text-[10.5px] font-semibold text-ff-muted">
-          <ImageIcon size={12} /> снимка на секцията
+          <ImageIcon size={12} /> снимка на категорията
         </span>
       )}
     </div>

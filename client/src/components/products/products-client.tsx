@@ -351,7 +351,7 @@ export function ProductsClient({
                 </option>
               ))}
             </select>
-            <span className="text-ff-muted">— редът е уникален за всяка подкатегория и за „Всички&quot;</span>
+            <span className="text-ff-muted">— редът е уникален за всяка категория и за „Всички&quot;</span>
           </div>
           {reorderScope.length === 0 ? (
             <p className="text-sm text-ff-muted">Няма продукти в тази категория.</p>

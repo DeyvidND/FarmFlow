@@ -157,9 +157,10 @@ export function SlotsClient({
           <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
             <Info size={16} /> Обяснения
           </Button>
-          {/* Read-only mirror of the master toggle + a jump to where it's changed. */}
+          {/* Read-only mirror of the master toggle + a jump to where it's changed
+              (the „Лична доставка + слотове" switch lives in Методи и цени). */}
           <Link
-            href="/delivery"
+            href="/settings?config=setup"
             className="inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3 py-2 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2"
           >
             <Truck size={15} className={delivery ? 'text-ff-green-700' : 'text-ff-muted'} />
@@ -182,9 +183,10 @@ export function SlotsClient({
 
       {!delivery && (
         <div className="mb-4 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3 text-[13.5px] font-semibold text-ff-amber-600">
-          Доставката е изключена — слотовете не се показват в онлайн магазина. Включи я от{' '}
-          <Link href="/delivery" className="underline">
-            страница „Доставка“
+          Доставката е изключена — слотовете не се показват в онлайн магазина. Включи
+          „Лична доставка + слотове“ от{' '}
+          <Link href="/settings?config=setup" className="underline">
+            „Методи и цени“
           </Link>
           , за да ги активираш.
         </div>

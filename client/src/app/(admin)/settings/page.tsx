@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRole } from '@/components/layout/role-context';
@@ -18,6 +19,16 @@ import {
 } from '@/components/settings/config-sections';
 
 type Section = 'configurations' | 'password' | 'nav';
+
+const CONFIG_KEYS: ConfigKey[] = [
+  'setup',
+  'delivery',
+  'slots',
+  'features',
+  'merchandising',
+  'landing',
+  'marketing',
+];
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'configurations', label: 'Конфигурации' },
@@ -52,13 +63,34 @@ export default function SettingsPage() {
   // collapse Настройки to just the password change.
   const isFarmer = role === 'farmer';
 
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const configParam = searchParams.get('config');
+
   const [section, setSection] = useState<Section>('configurations');
   // Which configuration screen is open inline (null = the Конфигурации hub).
   const [configView, setConfigView] = useState<ConfigKey | null>(null);
 
+  // Deep-link support: /settings?config=slots opens that config screen INLINE
+  // (keeping the Settings shell + „Назад към Конфигурации" back button) instead
+  // of bouncing to the standalone /slots route with no way back. Re-runs when the
+  // param changes so cross-links between config screens work too.
+  useEffect(() => {
+    if (configParam && (CONFIG_KEYS as string[]).includes(configParam)) {
+      setSection('configurations');
+      setConfigView(configParam as ConfigKey);
+    }
+  }, [configParam]);
+
   const go = (id: Section) => {
     setSection(id);
     setConfigView(null); // leaving/entering a tab always returns to the hub
+    if (configParam) router.replace('/settings'); // drop a stale ?config=
+  };
+
+  const backToHub = () => {
+    setConfigView(null);
+    if (configParam) router.replace('/settings'); // keep URL in sync with the hub
   };
 
   if (isFarmer) {
@@ -107,7 +139,7 @@ export default function SettingsPage() {
                 <div>
                   <button
                     type="button"
-                    onClick={() => setConfigView(null)}
+                    onClick={backToHub}
                     className="mb-5 inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-3 py-2 text-[13px] font-bold text-ff-ink-2 transition hover:border-ff-green-500 hover:bg-ff-green-50 hover:text-ff-green-800"
                   >
                     <ArrowLeft size={16} />

@@ -26,6 +26,15 @@ export function OnboardingModal({ readiness }: { readiness: StoreReadiness }) {
     readiness.hasContact,
   ].filter(Boolean).length;
 
+  // The primary button does the next productive thing, not "go look at settings".
+  const firstTodo = !readiness.hasProducts
+    ? { href: '/products', label: 'Добави първия продукт' }
+    : !readiness.hasPayment
+      ? { href: '/settings?config=setup', label: 'Настрой плащане' }
+      : !readiness.hasDelivery
+        ? { href: '/settings?config=setup', label: 'Настрой доставка' }
+        : { href: '/contacts', label: 'Попълни контакти' };
+
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -83,11 +92,10 @@ export function OnboardingModal({ readiness }: { readiness: StoreReadiness }) {
               <Settings size={18} className="mt-0.5 shrink-0 text-ff-green-700" />
               <div>
                 <div className="text-[14px] font-extrabold text-ff-ink">
-                  Всички настройки са в „Настройки“
+                  Всичко се настройва от „Настройки → Конфигурации“
                 </div>
                 <div className="mt-0.5 text-[13px] leading-relaxed text-ff-ink-2">
-                  Плащане, доставка, функции на магазина и реклама — всичко е там, в „Конфигурации“.
-                  Едно място, винаги.
+                  Плащане, доставка, функции на магазина и реклама — всичко е на едно място там.
                 </div>
               </div>
             </div>
@@ -115,8 +123,8 @@ export function OnboardingModal({ readiness }: { readiness: StoreReadiness }) {
               Разбрах
             </Button>
             <Button asChild variant="primary" className="w-full rounded-sm sm:w-auto">
-              <Link href="/settings" onClick={dismiss}>
-                Разгледай настройките <ArrowRight size={16} />
+              <Link href={firstTodo.href} onClick={dismiss}>
+                {firstTodo.label} <ArrowRight size={16} />
               </Link>
             </Button>
           </div>

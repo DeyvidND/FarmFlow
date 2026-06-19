@@ -33,10 +33,13 @@ export function SetupPanel({
   initialEnabled,
   initialDelivery,
   stripe,
+  slotFreeCount,
 }: {
   initialEnabled: boolean;
   initialDelivery: DeliveryConfig | null;
   stripe: StripeStatus;
+  /** Free delivery-slot count this week. `undefined` = unknown (don't warn). */
+  slotFreeCount?: number;
 }) {
   const router = useRouter();
   const base = React.useMemo(() => hydrateDelivery(initialDelivery), [initialDelivery]);
@@ -176,7 +179,7 @@ export function SetupPanel({
           desc={PICKUP_COPY}
           on={pickupOn}
           onToggle={(v) => mut((d) => (d.methods.pickup.enabled = v))}
-          configLink={{ href: '/delivery', label: 'Настрой адрес и работно време' }}
+          configLink={{ href: '/settings?config=delivery', label: 'Настрой адрес и работно време' }}
         />
         <ToggleCard
           icon={CalendarDays}
@@ -187,7 +190,12 @@ export function SetupPanel({
             setEnabled(v);
             mut((d) => (d.methods.ownSlots.enabled = v));
           }}
-          configLink={{ href: '/slots', label: 'Управлявай слотовете' }}
+          badge={
+            selfOn && slotFreeCount === 0 ? (
+              <DBadge tone="amber">Няма часове</DBadge>
+            ) : undefined
+          }
+          configLink={{ href: '/settings?config=slots', label: 'Управлявай слотовете' }}
         />
         <ToggleCard
           icon={Truck}
@@ -195,7 +203,7 @@ export function SetupPanel({
           desc={COURIER_COPY}
           on={courierOn}
           onToggle={toggleCourier}
-          configLink={{ href: '/delivery', label: 'Настрой Еконт (ръчно / онлайн)' }}
+          configLink={{ href: '/settings?config=delivery', label: 'Настрой Еконт (ръчно / онлайн)' }}
         />
       </CardGroup>
 

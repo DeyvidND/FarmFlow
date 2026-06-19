@@ -38,19 +38,26 @@ export function SetupSection() {
     enabled: boolean;
     delivery: DeliveryConfig | null;
     stripe: StripeStatus;
+    slotFreeCount: number;
   } | null>(null);
 
   React.useEffect(() => {
     let on = true;
-    Promise.all([getTenant(), getStripeSummary().catch(() => null)])
-      .then(([t, stripe]) => {
+    Promise.all([
+      getTenant(),
+      getStripeSummary().catch(() => null),
+      listSlots(DEMO_WEEK_FROM, DEMO_WEEK_TO).catch(() => [] as Slot[]),
+    ])
+      .then(([t, stripe, slots]) => {
         if (!on) return;
+        const slotFreeCount = slots.reduce((sum, sl) => sum + ((sl.booked ?? 0) >= 1 ? 0 : 1), 0);
         setS({
           enabled: !!t.deliveryEnabled,
           delivery: t.delivery ?? null,
           stripe: stripe
             ? { enabled: stripe.enabled, connected: stripe.connected, chargesEnabled: stripe.chargesEnabled }
             : null,
+          slotFreeCount,
         });
       })
       .catch(() => on && loadErr());
@@ -60,7 +67,14 @@ export function SetupSection() {
   }, []);
 
   if (!s) return <Loading />;
-  return <SetupPanel initialEnabled={s.enabled} initialDelivery={s.delivery} stripe={s.stripe} />;
+  return (
+    <SetupPanel
+      initialEnabled={s.enabled}
+      initialDelivery={s.delivery}
+      stripe={s.stripe}
+      slotFreeCount={s.slotFreeCount}
+    />
+  );
 }
 
 // ---- Доставка (/delivery) ----

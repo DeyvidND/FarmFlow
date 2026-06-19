@@ -83,7 +83,7 @@ export function DeliveryClient({
 
       {/* The on/off lives in the panel — point there. */}
       <Link
-        href="/setup"
+        href="/settings?config=setup"
         className="flex items-center gap-3 rounded-[14px] border border-ff-border bg-ff-surface-2 px-4 py-3 transition-colors hover:border-ff-green-100 hover:bg-ff-green-50"
       >
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">

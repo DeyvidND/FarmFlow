@@ -84,9 +84,7 @@ export function ProductCard({
       <div className="mt-[13px] flex items-start justify-between gap-2">
         <div>
           <div className="text-[15.5px] font-extrabold leading-tight">{product.name}</div>
-          <div className="mt-0.5 text-[12.5px] text-ff-muted">
-            {[product.weight, product.category].filter(Boolean).join(' · ')}
-          </div>
+          <div className="mt-0.5 text-[12.5px] text-ff-muted">{product.weight}</div>
         </div>
         <ToggleSwitch small checked={product.isActive} disabled={busy} onChange={onToggle} />
       </div>
@@ -100,7 +98,7 @@ export function ProductCard({
           )}
           {subcatLabel !== undefined && (
             <span className="inline-flex items-center gap-1 rounded-full border border-ff-border bg-ff-surface-2 px-2 py-0.5 text-[11.5px] font-bold text-ff-ink-2">
-              {subcatLabel ?? 'Без секция'}
+              {subcatLabel ?? 'Без категория'}
             </span>
           )}
         </div>

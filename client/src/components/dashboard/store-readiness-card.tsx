@@ -12,8 +12,8 @@ export interface StoreReadiness {
 
 const STEPS: { key: keyof StoreReadiness; label: string; href: string; cta: string }[] = [
   { key: 'hasProducts', label: 'Добави продукти в магазина', href: '/products', cta: 'Продукти' },
-  { key: 'hasPayment', label: 'Включи начин на плащане (наложен платеж или карта)', href: '/setup', cta: 'Плащане' },
-  { key: 'hasDelivery', label: 'Избери начин на доставка', href: '/setup', cta: 'Доставка' },
+  { key: 'hasPayment', label: 'Включи начин на плащане (наложен платеж или карта)', href: '/settings?config=setup', cta: 'Плащане' },
+  { key: 'hasDelivery', label: 'Избери начин на доставка', href: '/settings?config=setup', cta: 'Доставка' },
   { key: 'hasContact', label: 'Попълни контакти (телефон / адрес)', href: '/contacts', cta: 'Контакти' },
 ];
 

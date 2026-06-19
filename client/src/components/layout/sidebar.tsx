@@ -90,9 +90,9 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: 'Маркетинг',
+    title: 'Съдържание и сайт',
     collapsible: true,
-    desc: 'Съдържание и комуникация с клиентите.',
+    desc: 'Текстове, снимки, статии и контакти на магазина.',
     items: [
       { href: '/articles', label: 'Статии', Icon: Newspaper, gated: true, desc: 'Блог/новини секция в магазина.' },
       { href: '/reviews', label: 'Отзиви', Icon: MessageSquare, desc: 'Преглед и одобрение на отзивите от клиенти.' },

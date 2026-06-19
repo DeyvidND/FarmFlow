@@ -77,6 +77,7 @@ export function ConfigurationsCard({ onOpen }: { onOpen: (key: ConfigKey) => voi
     <div className="flex flex-col gap-7">
       <p className="text-[13.5px] text-ff-ink-2">
         Тук активираш и настройваш магазина — плащане, доставка, функции и реклама.
+        Текстовете, снимките и контактите на сайта се променят от „Съдържание и сайт“ в менюто вляво.
       </p>
       {GROUPS.map((g) => {
         const items = g.items.filter((it) => !it.requiresDelivery || deliveryEnabled);

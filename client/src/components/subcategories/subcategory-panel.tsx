@@ -47,7 +47,7 @@ export function SubcategoryPanel({
 
   async function save() {
     if (!name.trim()) {
-      toast.error('Въведи име на подкатегорията');
+      toast.error('Въведи име на категорията');
       return;
     }
     setSaving(true);
@@ -70,7 +70,7 @@ export function SubcategoryPanel({
         }
         if (updates.length) onProductsChanged?.(updates);
       }
-      toast.success(isNew ? 'Подкатегорията е добавена' : 'Подкатегорията е обновена');
+      toast.success(isNew ? 'Категорията е добавена' : 'Категорията е обновена');
       onSaved(saved);
       onClose();
     } catch (e) {
@@ -103,8 +103,8 @@ export function SubcategoryPanel({
       <div className="ff-order-panel fixed right-0 top-0 z-50 flex h-full w-[440px] max-w-full flex-col bg-ff-surface shadow-ff-lg">
         <div className="flex items-center justify-between border-b border-ff-border-2 px-6 pb-[18px] pt-[22px]">
           <div>
-            <div className="mb-0.5 text-[12.5px] font-bold text-ff-muted">{isNew ? 'НОВА ПОДКАТЕГОРИЯ' : 'РЕДАКЦИЯ'}</div>
-            <h2 className="text-[22px] font-extrabold tracking-[-0.015em]">{isNew ? 'Добави подкатегория' : subcat.name}</h2>
+            <div className="mb-0.5 text-[12.5px] font-bold text-ff-muted">{isNew ? 'НОВА КАТЕГОРИЯ' : 'РЕДАКЦИЯ'}</div>
+            <h2 className="text-[22px] font-extrabold tracking-[-0.015em]">{isNew ? 'Добави категория' : subcat.name}</h2>
           </div>
           <button
             onClick={onClose}
@@ -117,10 +117,10 @@ export function SubcategoryPanel({
 
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
           <div>
-            <div className="mb-1.5 text-[12.5px] font-bold text-ff-ink-2">Снимка на секцията</div>
+            <div className="mb-1.5 text-[12.5px] font-bold text-ff-ink-2">Снимка на категорията</div>
             <SectionPhoto tint={tint} imageUrl={imageUrl} coverCrop={coverCrop} aspect="4 / 3" />
             {isNew ? (
-              <p className="mt-2 text-[12.5px] text-ff-muted-2">Първо запази секцията, после добави снимка.</p>
+              <p className="mt-2 text-[12.5px] text-ff-muted-2">Първо запази категорията, после добави снимка.</p>
             ) : (
               <div className="mt-3 flex flex-col gap-3">
                 <MediaManager resource="subcategories" ownerId={subcat.id!} onCoverChange={onCoverChange} maxPhotos={1} />
@@ -137,12 +137,12 @@ export function SubcategoryPanel({
           </div>
 
           <label className={labelCls}>
-            Заглавие на секцията
+            Заглавие на категорията
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="напр. Сезонни плодове" className={field} autoFocus />
           </label>
           <label className={labelCls}>
             Кратко описание <span className="font-semibold text-ff-muted">(опционално)</span>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Какво обединява тази секция…" className={`${field} resize-y leading-relaxed`} />
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Какво обединява тази категория…" className={`${field} resize-y leading-relaxed`} />
           </label>
           {!isNew && subcat.id && products.length > 0 && (
             <ProductAssignPicker
@@ -157,7 +157,7 @@ export function SubcategoryPanel({
 
         <div className="flex gap-2.5 border-t border-ff-border-2 px-6 pb-[22px] pt-4">
           <Button variant="primary" onClick={save} disabled={saving} className="flex-1 rounded-sm">
-            <Check size={18} /> {isNew ? 'Добави подкатегория' : 'Запази промените'}
+            <Check size={18} /> {isNew ? 'Добави категория' : 'Запази промените'}
           </Button>
           <Button variant="ghost" onClick={onClose} className="rounded-sm">Отказ</Button>
         </div>

@@ -127,6 +127,7 @@ export function FarmersClient({
           <h2 className="mb-2 text-[19px] font-extrabold">Един производител</h2>
           <p className="mx-auto max-w-[430px] text-sm leading-relaxed text-ff-ink-2">
             В момента всички продукти са на едно стопанство. Ако започнете да продавате продукти от няколко фермери под един магазин, включете опцията горе.
+            Не е задължително — повечето малки магазини нямат нужда от това.
           </p>
         </div>
       ) : (

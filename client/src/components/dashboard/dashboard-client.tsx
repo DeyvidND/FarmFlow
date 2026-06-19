@@ -26,6 +26,7 @@ export function DashboardClient({
   initialOrders,
   nudgeCard = false,
   readiness,
+  deliveryEnabled = false,
 }: {
   summary: DashboardSummary;
   initialOrders: Order[];
@@ -33,6 +34,8 @@ export function DashboardClient({
   nudgeCard?: boolean;
   /** First-run store-readiness signals — drives the getting-started checklist. */
   readiness?: StoreReadiness;
+  /** Personal-delivery flag — hides the route quick-action when the farm doesn't deliver. */
+  deliveryEnabled?: boolean;
 }) {
   const router = useRouter();
   // Local so a status action can refresh ONLY the summary (one lean /dashboard
@@ -240,18 +243,20 @@ export function DashboardClient({
                 </span>
               </button>
 
-              <button
-                onClick={() => router.push('/route')}
-                className="flex w-full items-center gap-[13px] rounded-[13px] border border-ff-border bg-ff-surface-2 p-[13px] text-left transition hover:brightness-95"
-              >
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
-                  <RouteIcon size={22} />
-                </span>
-                <span className="flex min-w-0 flex-col gap-0.5 leading-[1.3]">
-                  <span className="text-[14.5px] font-extrabold text-ff-ink">Виж маршрута за днес</span>
-                  <span className="text-[12.5px] text-ff-muted">Планирай доставките за деня</span>
-                </span>
-              </button>
+              {deliveryEnabled && (
+                <button
+                  onClick={() => router.push('/route')}
+                  className="flex w-full items-center gap-[13px] rounded-[13px] border border-ff-border bg-ff-surface-2 p-[13px] text-left transition hover:brightness-95"
+                >
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
+                    <RouteIcon size={22} />
+                  </span>
+                  <span className="flex min-w-0 flex-col gap-0.5 leading-[1.3]">
+                    <span className="text-[14.5px] font-extrabold text-ff-ink">Виж маршрута за днес</span>
+                    <span className="text-[12.5px] text-ff-muted">Планирай доставките за деня</span>
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 

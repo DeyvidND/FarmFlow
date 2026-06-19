@@ -65,10 +65,10 @@ export function FeaturesPanel({ initial }: { initial: FeatureFlags }) {
         <ToggleCard
           icon={Tags}
           title="Категории"
-          desc="Групирай продуктите в раздели (напр. „Млечни“, „Зеленчуци“). Без това всичко е в общ списък."
+          desc="Групирай продуктите в категории (напр. „Млечни“, „Зеленчуци“). Без това всичко е в общ списък."
           on={val.multiSubcat}
           onToggle={(v) => set('multiSubcat', v)}
-          configLink={{ href: '/subcategories', label: 'Управлявай подкатегориите' }}
+          configLink={{ href: '/subcategories', label: 'Управлявай категориите' }}
         />
       </CardGroup>
 
@@ -94,7 +94,7 @@ export function FeaturesPanel({ initial }: { initial: FeatureFlags }) {
       <p className="text-[12.5px] leading-snug text-ff-ink-2">
         Включеното тук става достъпно в магазина. Кои блокове да се показват на началната
         страница (и колко неща във всеки) се избира в{' '}
-        <Link href="/settings" className="font-bold text-ff-green-700 hover:underline">
+        <Link href="/settings?config=landing" className="font-bold text-ff-green-700 hover:underline">
           Настройки → Начална страница
         </Link>
         .
