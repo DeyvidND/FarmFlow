@@ -54,6 +54,11 @@ export const tenants = pgTable('tenants', {
   // on — preserves the historic always-visible behavior for existing farms.
   articlesEnabled: boolean('articles_enabled').notNull().default(true),
   reviewsEnabled: boolean('reviews_enabled').notNull().default(true),
+  // Disposable demo shop created from the super-admin „Създай демо" button. `isDemo`
+  // is the only tenant the hard-delete path will remove; a daily cleanup job deletes
+  // demos past `demoExpiresAt`. Both default off so real tenants are unaffected.
+  isDemo: boolean('is_demo').notNull().default(false),
+  demoExpiresAt: timestamp('demo_expires_at', { withTimezone: true }),
   // „Задай наличност" is always on: any active per-product availability window the
   // farmer records is shown on the storefront (no on/off toggle). `availabilityTitle`
   // is the optional storefront heading for that section. NULL → default („Налично сега").
