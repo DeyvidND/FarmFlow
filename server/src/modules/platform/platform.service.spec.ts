@@ -360,6 +360,23 @@ describe('PlatformService', () => {
     });
   });
 
+  // ── deleteExpiredDemos ──────────────────────────────────────────────────────
+  describe('deleteExpiredDemos', () => {
+    it('deletes each expired demo and returns the count', async () => {
+      // initial select of expired demo ids
+      db.where.mockReturnValueOnce(Promise.resolve([{ id: 'd1' }, { id: 'd2' }]) as any);
+      const spy = jest.spyOn(service, 'deleteTenant').mockResolvedValue({ id: 'x' });
+
+      const res = await service.deleteExpiredDemos();
+
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenCalledWith('d1');
+      expect(spy).toHaveBeenCalledWith('d2');
+      expect(res).toEqual({ deleted: 2 });
+      spy.mockRestore();
+    });
+  });
+
   // ── platformChangePassword ────────────────────────────────────────────────
 
   describe('platformChangePassword', () => {

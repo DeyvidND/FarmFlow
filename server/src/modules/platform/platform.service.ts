@@ -541,6 +541,26 @@ export class PlatformService {
     return { id };
   }
 
+  /** Daily cleanup: hard-delete every demo whose lifetime has elapsed. Per-tenant
+   *  failures are swallowed so one bad row doesn't block the rest. */
+  async deleteExpiredDemos(): Promise<{ deleted: number }> {
+    const expired = await this.db
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(sql`${tenants.isDemo} = true and ${tenants.demoExpiresAt} is not null and ${tenants.demoExpiresAt} < now()`);
+
+    let deleted = 0;
+    for (const { id } of expired) {
+      try {
+        await this.deleteTenant(id);
+        deleted++;
+      } catch {
+        /* skip & continue; next run retries */
+      }
+    }
+    return { deleted };
+  }
+
   /** Onboard a new farm: tenant + owner user with mustChangePassword=true. */
   async createTenant(dto: CreateTenantDto): Promise<{ id: string; name: string; slug: string; email: string }> {
     // Reject duplicate email
