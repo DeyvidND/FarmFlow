@@ -84,12 +84,9 @@ services:
       # Backend base for the web app's server-side fetches (BFF proxy + session
       # route handlers) — internal service DNS, no public hop.
       API_URL: http://api:3000
-      # Sentry (farmer panel) — runtime DSN from Dokploy, no-op unless set. Read
-      # server-side (sentry.{server,edge}.config.ts) and injected into the browser
-      # by src/app/layout.tsx → sentry.client.config.ts.
-      SENTRY_DSN: ${SENTRY_DSN_PANEL:-}
-      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
-      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+      # Sentry (farmer panel): DSN is baked into the image at BUILD time from the
+      # GitHub repo variable FF_SENTRY_DSN_PANEL (deploy.yml → NEXT_PUBLIC_SENTRY_DSN),
+      # not set here. Changing it requires a rebuild, not just a redeploy.
     depends_on: [api]
     labels:
       - "traefik.enable=true"
@@ -107,10 +104,8 @@ services:
     environment:
       NODE_ENV: production
       API_URL: http://api:3000
-      # Sentry (super-admin panel) — runtime DSN from Dokploy, no-op unless set.
-      SENTRY_DSN: ${SENTRY_DSN_ADMIN:-}
-      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
-      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+      # Sentry (super-admin panel): DSN baked at BUILD time from the GitHub repo
+      # variable FF_SENTRY_DSN_ADMIN (deploy.yml → NEXT_PUBLIC_SENTRY_DSN), not here.
     depends_on: [api]
     labels:
       - "traefik.enable=true"

@@ -8,8 +8,10 @@ WORKDIR /app
 
 FROM base AS build
 ENV NEXT_OUTPUT_STANDALONE=1
-# Sentry DSN is NOT baked — it is read at runtime from the container env
-# (SENTRY_DSN, set in Dokploy). See sentry.*.config.ts + src/app/layout.tsx.
+# NEXT_PUBLIC_* are inlined into the bundle at build time, so they arrive as a
+# build arg from CI (FF_SENTRY_DSN_ADMIN), not runtime env.
+ARG NEXT_PUBLIC_SENTRY_DSN=""
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 RUN pnpm --filter "@farmflow/admin..." run build

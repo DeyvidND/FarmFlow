@@ -1,28 +1,18 @@
 // Sentry — browser init for the super-admin panel (@farmflow/admin). Auto-injected
 // into the client bundle by withSentryConfig (next.config.mjs).
 //
-// The DSN is provided at RUNTIME, not build time: the root layout reads
-// process.env.SENTRY_DSN on the server and writes it to window.__SENTRY_DSN__ via
-// an inline <head> script that runs before this bundle. That keeps every DSN in
-// Dokploy env only — nothing baked into the image, no rebuild to rotate.
-//
-// (A browser DSN is necessarily visible in the shipped JS — that is how any
-// client-side error reporter works — but it still lives only in Dokploy.)
+// DSN is baked into the bundle at build time from NEXT_PUBLIC_SENTRY_DSN (CI
+// build-arg, GitHub repo variable FF_SENTRY_DSN_ADMIN). No-op unless set. The
+// browser DSN ships in the JS by design — that is how the browser SDK reports
+// errors — it is a public value, not a secret.
 import * as Sentry from '@sentry/nextjs';
 
-declare global {
-  interface Window {
-    __SENTRY_DSN__?: string;
-    __SENTRY_ENV__?: string;
-  }
-}
-
-const dsn = typeof window !== 'undefined' ? window.__SENTRY_DSN__ : undefined;
+const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
 if (dsn) {
   Sentry.init({
     dsn,
-    environment: window.__SENTRY_ENV__ || 'production',
+    environment: process.env.NODE_ENV || 'development',
     // Error monitoring only — tracing and replay OFF (zero extra payload / cost).
     tracesSampleRate: 0,
   });

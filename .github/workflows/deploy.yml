@@ -33,10 +33,12 @@ jobs:
             build_args: |
               NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ vars.FF_MAPS_BROWSER_KEY }}
               NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ vars.FF_STRIPE_PUBLISHABLE_KEY }}
+              NEXT_PUBLIC_SENTRY_DSN=${{ vars.FF_SENTRY_DSN_PANEL }}
           - app: admin
             image: ghcr.io/deyvidnd/farmflow-admin
             dockerfile: admin/Dockerfile
-            build_args: ''
+            build_args: |
+              NEXT_PUBLIC_SENTRY_DSN=${{ vars.FF_SENTRY_DSN_ADMIN }}
           # NOTE: the monorepo Next.js storefront is NOT deployed — the public
           # shop is the separate Astro repo (fermerski-pazar-chaika), which has
           # its own build → GHCR → Dokploy pipeline. The storefront/ workspace is
