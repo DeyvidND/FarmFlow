@@ -375,6 +375,22 @@ describe('PlatformService', () => {
       expect(res).toEqual({ deleted: 2 });
       spy.mockRestore();
     });
+
+    it('continues past a failing tenant and counts only successful deletes', async () => {
+      db.where.mockReturnValueOnce(Promise.resolve([{ id: 'd1' }, { id: 'd2' }]) as any);
+      const spy = jest
+        .spyOn(service, 'deleteTenant')
+        .mockRejectedValueOnce(new Error('boom')) // d1 fails
+        .mockResolvedValueOnce({ id: 'd2' });      // d2 succeeds
+
+      const res = await service.deleteExpiredDemos();
+
+      expect(spy).toHaveBeenCalledTimes(2);        // both attempted despite d1 failing
+      expect(spy).toHaveBeenCalledWith('d1');
+      expect(spy).toHaveBeenCalledWith('d2');
+      expect(res).toEqual({ deleted: 1 });         // only the successful one counted
+      spy.mockRestore();
+    });
   });
 
   // ── platformChangePassword ────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import {
   Injectable,
   Inject,
+  Logger,
   UnauthorizedException,
   NotFoundException,
   ConflictException,
@@ -146,6 +147,8 @@ export interface PlatformTenantDetail {
 
 @Injectable()
 export class PlatformService {
+  private readonly logger = new Logger(PlatformService.name);
+
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly jwt: JwtService,
@@ -550,14 +553,20 @@ export class PlatformService {
       .where(sql`${tenants.isDemo} = true and ${tenants.demoExpiresAt} is not null and ${tenants.demoExpiresAt} < now()`);
 
     let deleted = 0;
+    let failed = 0;
     for (const { id } of expired) {
       try {
         await this.deleteTenant(id);
         deleted++;
-      } catch {
-        /* skip & continue; next run retries */
+      } catch (err) {
+        failed++;
+        this.logger.warn(
+          `[cleanup] failed to delete expired demo ${id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        // skip & continue; next run retries
       }
     }
+    if (failed) this.logger.warn(`[cleanup] ${failed} expired demo(s) failed to delete`);
     return { deleted };
   }
 
