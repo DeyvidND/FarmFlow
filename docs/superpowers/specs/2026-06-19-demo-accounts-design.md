@@ -56,20 +56,29 @@ Real tenants default to `is_demo=false`, `demo_expires_at=NULL` — no behavior 
 ### Create demo — `POST /platform/tenants/demo`
 
 Body: `{ days?: 7 | 14 | 30 }` (default 14). Guarded by `PlatformAdminGuard`.
+As-built: the admin UI is one-click (always default 14); the `days` param is
+supported by the endpoint but not yet surfaced in the UI.
 
 `PlatformService.createDemoTenant(days)`:
 1. Auto-generate farm name `Демо ферма {short-id}`, unique email
-   `demo-{rand}@demo.farmflow.bg` (retry on collision), 14-char temp password
-   (crypto-random).
-2. In one `this.db.transaction`:
-   - Insert tenant: same defaults as `createTenant` **plus** `is_demo=true`,
-     `demo_expires_at = now + days`.
-   - Insert owner user: `role='admin'`, `mustChangePassword=false`, argon2 hash.
-   - Seed the fixed sample catalog (reuse `importTenant` insert logic): ~3
-     subcategories (Зеленчуци / Плодове / Млечни), 2 farmers, ~8 products with stock.
-3. Return `{ email, password, expiresAt, slug, panelUrl }`.
+   `demo-{rand}@demo.farmflow.bg` (uniqueness pre-check, throws on the
+   astronomically-rare collision), 14-char crypto-random password.
+2. Insert tenant: same defaults as `createTenant` **plus** `is_demo=true`,
+   `demo_expires_at = now + days`.
+3. Insert owner user: `role='admin'`, `mustChangePassword=false`, argon2 hash.
+4. Seed the fixed sample catalog by reusing `importTenant`: 3 subcategories
+   (Зеленчуци / Плодове / Млечни), 2 farmers, 8 products with stock.
+5. Return `{ id, name, slug, email, password, expiresAt }`.
 
-The seed dataset is defined once as a constant (e.g. `demo-seed.ts`) so create-demo
+**As-built deviation (intentional):** these steps are NOT wrapped in a single
+`this.db.transaction` — they run as sequential awaits, mirroring the existing
+non-transactional `createTenant`. A mid-seed failure leaves a half-seeded demo,
+which is harmless: it is flagged `is_demo=true`, so the daily cleanup job and the
+manual hard-delete both reclaim it. (See the code comment in `createDemoTenant`.)
+The return shape omits `panelUrl` (the UI's credentials modal needs only
+email/password/expiry).
+
+The seed dataset is defined once as a constant (`demo-seed.ts`) so create-demo
 and tests share it.
 
 ### Delete tenant — `DELETE /platform/tenants/:id`
