@@ -56,10 +56,9 @@ export default withSentryConfig(nextConfig, {
   silent: !process.env.CI,
   widenClientFileUpload: true,
   disableLogger: true,
-  // Tunnel browser events through our own domain instead of sentry.io, so
-  // ad-blockers don't drop real users' error reports. The path is an obscure
-  // custom slug ON PURPOSE: uBlock's filter lists block the common defaults
-  // (/monitoring, /telemetry, /tracking…), so a neutral slug is what slips
-  // through. Not auth-gated: middleware.ts matcher doesn't cover /api/ff-rt.
-  tunnelRoute: '/api/ff-rt',
+  // NOTE: we do NOT use Sentry's `tunnelRoute` (Next external-rewrite proxy) — it
+  // 500s under output:'standalone' in Docker. Instead a custom route handler at
+  // src/app/api/ff-rt/route.ts forwards envelopes via plain fetch, and the client
+  // SDK targets it via `tunnel` in sentry.client.config.ts. Same-origin obscure
+  // slug = ad-blockers don't drop real users' error reports.
 });
