@@ -342,42 +342,47 @@ export function Sidebar({
         )}
       </nav>
 
-      <div className="shrink-0 pt-4">
-        <Link
-          href="/help"
-          onClick={closeDrawer}
-          data-on={helpActive}
-          className={cn(
-            'ff-nav-item flex items-center gap-[13px] rounded-[10px] border-l-[3px] px-[13px] py-2.5 text-[14.5px] transition-colors',
-            helpActive
-              ? 'border-ff-green-600 bg-ff-green-50 font-bold text-ff-green-800'
-              : 'border-transparent font-semibold text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
-          )}
-        >
-          <BookOpen size={20} strokeWidth={helpActive ? 2 : 1.8} />
-          Помощ
-        </Link>
+      {/* Slim quick-reach row — the full labelled entries live in the topbar
+          avatar menu. Kept to one short row so it doesn't cap the scroll area. */}
+      <div className="mt-2 flex shrink-0 items-center justify-around gap-1 border-t border-ff-border pt-2.5">
         <Link
           href="/settings"
           onClick={closeDrawer}
           data-on={settingsActive}
+          title="Настройки"
+          aria-label="Настройки"
           className={cn(
-            'ff-nav-item mt-1.5 flex items-center gap-[13px] rounded-[10px] border-l-[3px] px-[13px] py-2.5 text-[14.5px] transition-colors',
+            'grid h-10 w-10 place-items-center rounded-[10px] transition-colors',
             settingsActive
-              ? 'border-ff-green-600 bg-ff-green-50 font-bold text-ff-green-800'
-              : 'border-transparent font-semibold text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
+              ? 'bg-ff-green-50 text-ff-green-800'
+              : 'text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
           )}
         >
           <Settings size={20} strokeWidth={settingsActive ? 2 : 1.8} />
-          Настройки
         </Link>
-
+        <Link
+          href="/help"
+          onClick={closeDrawer}
+          data-on={helpActive}
+          title="Помощ"
+          aria-label="Помощ"
+          className={cn(
+            'grid h-10 w-10 place-items-center rounded-[10px] transition-colors',
+            helpActive
+              ? 'bg-ff-green-50 text-ff-green-800'
+              : 'text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
+          )}
+        >
+          <BookOpen size={20} strokeWidth={helpActive ? 2 : 1.8} />
+        </Link>
         <button
           type="button"
           onClick={onLogout}
-          className="ff-nav-item mt-1.5 flex w-full items-center gap-[13px] rounded-[10px] px-[13px] py-2.5 text-left text-[14.5px] font-semibold text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink"
+          title="Изход"
+          aria-label="Изход"
+          className="grid h-10 w-10 place-items-center rounded-[10px] text-ff-muted transition-colors hover:bg-ff-green-50 hover:text-ff-ink"
         >
-          <LogOut size={20} /> Изход
+          <LogOut size={20} />
         </button>
       </div>
     </aside>

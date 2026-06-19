@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { usePathname } from 'next/navigation';
-import { Menu, Bell } from 'lucide-react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { Menu, Bell, ChevronDown, Settings, BookOpen, LogOut } from 'lucide-react';
 import { cn, bgDateLabel } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
 import { getDashboard, listProductOptions, listAvailabilityWindows, listReviews } from '@/lib/api-client';
@@ -129,11 +130,21 @@ interface TopbarProps {
 
 export function Topbar({ tenantName }: TopbarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const openDrawer = useUiStore((s) => s.openDrawer);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [tenant, setTenant] = useState(tenantName ?? '');
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  async function onLogout() {
+    await fetch('/api/session/logout', { method: 'POST' }).catch(() => {});
+    setMenuOpen(false);
+    router.push('/login');
+    router.refresh();
+  }
 
   const refreshNotifs = useCallback(() => {
     loadNotifs()
@@ -154,6 +165,20 @@ export function Topbar({ tenantName }: TopbarProps) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [notifOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
+
+  // Close the account menu on navigation so it never lingers over a new page.
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (tenantName) return;
@@ -220,8 +245,54 @@ export function Topbar({ tenantName }: TopbarProps) {
           )}
         </div>
 
-        <div className="grid h-11 w-11 place-items-center rounded-xl bg-ff-green-100 text-[15px] font-extrabold text-ff-green-800">
-          {toInitials(display)}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="Профил и настройки"
+            aria-expanded={menuOpen}
+            className="flex items-center gap-1.5 rounded-xl pl-0.5 pr-1.5 transition-colors hover:bg-ff-surface-2"
+          >
+            <span className="grid h-11 w-11 place-items-center rounded-xl bg-ff-green-100 text-[15px] font-extrabold text-ff-green-800">
+              {toInitials(display)}
+            </span>
+            <ChevronDown
+              size={16}
+              className={cn('shrink-0 text-ff-muted transition-transform', menuOpen && 'rotate-180')}
+            />
+          </button>
+          {menuOpen && (
+            <div className="fixed inset-x-3 top-[72px] z-[31] animate-ff-pop rounded-2xl border border-ff-border bg-ff-surface p-2 shadow-ff-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-[52px] sm:w-60">
+              <div className="truncate px-2.5 pb-2 pt-1 text-[13px] font-bold text-ff-muted">{display}</div>
+              <Link
+                href="/settings"
+                onClick={() => setMenuOpen(false)}
+                className={cn(
+                  'flex items-center gap-3 rounded-[11px] px-2.5 py-2.5 text-[14.5px] font-semibold transition-colors hover:bg-ff-surface-2',
+                  pathname.startsWith('/settings') ? 'text-ff-green-800' : 'text-ff-ink',
+                )}
+              >
+                <Settings size={19} /> Настройки
+              </Link>
+              <Link
+                href="/help"
+                onClick={() => setMenuOpen(false)}
+                className={cn(
+                  'flex items-center gap-3 rounded-[11px] px-2.5 py-2.5 text-[14.5px] font-semibold transition-colors hover:bg-ff-surface-2',
+                  pathname.startsWith('/help') ? 'text-ff-green-800' : 'text-ff-ink',
+                )}
+              >
+                <BookOpen size={19} /> Помощ
+              </Link>
+              <div className="my-1 border-t border-ff-border" />
+              <button
+                type="button"
+                onClick={onLogout}
+                className="flex w-full items-center gap-3 rounded-[11px] px-2.5 py-2.5 text-left text-[14.5px] font-semibold text-ff-ink transition-colors hover:bg-ff-green-50"
+              >
+                <LogOut size={19} /> Изход
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>
