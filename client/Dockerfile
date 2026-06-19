@@ -14,6 +14,8 @@ ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
 ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=""
 ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY \
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+# Sentry DSN is NOT baked — it is read at runtime from the container env
+# (SENTRY_DSN, set in Dokploy). See sentry.*.config.ts + src/app/layout.tsx.
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 # Builds @farmflow/web plus its workspace deps in topo order.

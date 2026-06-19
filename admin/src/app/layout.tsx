@@ -22,8 +22,26 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // Hand the runtime Sentry DSN (from Dokploy env, read server-side per request)
+  // to the browser SDK in sentry.client.config.ts via an inline <head> script
+  // that runs before the app bundle. Keeps the DSN in Dokploy only — never baked
+  // into the image. NOTE: statically-prerendered pages (login) get it empty (no
+  // env at build); the server-rendered admin screens get it at request time.
+  const sentryDsn = process.env.SENTRY_DSN;
+  const sentryEnv = process.env.SENTRY_ENVIRONMENT || 'production';
   return (
     <html lang="bg" className={`${commissioner.variable} ${bitter.variable}`}>
+      {sentryDsn ? (
+        <head>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `window.__SENTRY_DSN__=${JSON.stringify(
+                sentryDsn,
+              )};window.__SENTRY_ENV__=${JSON.stringify(sentryEnv)};`,
+            }}
+          />
+        </head>
+      ) : null}
       <body>{children}</body>
     </html>
   );

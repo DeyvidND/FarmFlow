@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { withSentryConfig } from '@sentry/nextjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -43,4 +44,16 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+// Wrap with Sentry. The bundler plugin injects sentry.client.config.ts into the
+// browser bundle and wires source-map upload. Upload only runs when SENTRY_ORG /
+// SENTRY_PROJECT / SENTRY_AUTH_TOKEN are set — otherwise the build still succeeds
+// and errors are captured with minified stack traces. SDK init itself is a no-op
+// unless NEXT_PUBLIC_SENTRY_DSN is present, so local builds are unchanged.
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,
+  widenClientFileUpload: true,
+  disableLogger: true,
+});

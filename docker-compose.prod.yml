@@ -61,6 +61,11 @@ services:
       RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET}
       EMAIL_WEBHOOK_SECRET: ${EMAIL_WEBHOOK_SECRET}
       EMAIL_WEBHOOK_VERIFY: ${EMAIL_WEBHOOK_VERIFY:-true}
+      # Sentry error monitoring — runtime, no-op unless set (see instrument.ts).
+      # Each app gets its OWN Sentry project DSN; all set in the Dokploy env.
+      SENTRY_DSN: ${SENTRY_DSN_API:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.ff-api.rule=Host(`${API_DOMAIN}`)"
@@ -79,6 +84,12 @@ services:
       # Backend base for the web app's server-side fetches (BFF proxy + session
       # route handlers) — internal service DNS, no public hop.
       API_URL: http://api:3000
+      # Sentry (farmer panel) — runtime DSN from Dokploy, no-op unless set. Read
+      # server-side (sentry.{server,edge}.config.ts) and injected into the browser
+      # by src/app/layout.tsx → sentry.client.config.ts.
+      SENTRY_DSN: ${SENTRY_DSN_PANEL:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
     depends_on: [api]
     labels:
       - "traefik.enable=true"
@@ -96,6 +107,10 @@ services:
     environment:
       NODE_ENV: production
       API_URL: http://api:3000
+      # Sentry (super-admin panel) — runtime DSN from Dokploy, no-op unless set.
+      SENTRY_DSN: ${SENTRY_DSN_ADMIN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
     depends_on: [api]
     labels:
       - "traefik.enable=true"
