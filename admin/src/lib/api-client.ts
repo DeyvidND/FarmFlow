@@ -48,6 +48,8 @@ export interface PlatformTenant {
   createdAt: string | null;
   orderCount: number;
   lastOrderAt: string | null;
+  isDemo: boolean;
+  demoExpiresAt: string | null;
 }
 
 /** Next page of tenants for "load more" (client-side, via the BFF proxy). */
@@ -235,6 +237,26 @@ export const createTenant = (data: {
       body: JSON.stringify(data),
     },
     'Неуспешно създаване на ферма',
+  );
+
+/** One-click demo account → returns shareable credentials. */
+export const createDemoTenant = (days?: number) =>
+  apiFetch<{ id: string; name: string; slug: string; email: string; password: string; expiresAt: string }>(
+    'platform/tenants/demo',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(days ? { days } : {}),
+    },
+    'Неуспешно създаване на демо',
+  );
+
+/** Hard-delete a demo tenant + all its data. */
+export const deleteTenant = (id: string) =>
+  apiFetch<{ id: string }>(
+    `platform/tenants/${id}`,
+    { method: 'DELETE' },
+    'Неуспешно изтриване',
   );
 
 /**
