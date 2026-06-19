@@ -64,6 +64,8 @@ export interface PlatformTenantRow {
   createdAt: Date | null;
   orderCount: number;
   lastOrderAt: Date | null;
+  isDemo: boolean;
+  demoExpiresAt: Date | null;
 }
 
 /** Per-farm email usage → revenue, Resend cost, and the platform's margin. */
@@ -228,6 +230,8 @@ export class PlatformService {
         createdAt: tenants.createdAt,
         orderCount: sql<number>`count(${orders.id})::int`,
         lastOrderAt: sql<Date | null>`max(${orders.createdAt})`,
+        isDemo: tenants.isDemo,
+        demoExpiresAt: tenants.demoExpiresAt,
       })
       .from(tenants)
       .leftJoin(orders, eq(orders.tenantId, tenants.id));

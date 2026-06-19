@@ -393,6 +393,21 @@ describe('PlatformService', () => {
     });
   });
 
+  // ── listTenants (demo fields) ───────────────────────────────────────────────
+  describe('listTenants', () => {
+    it('selects isDemo and demoExpiresAt for each row', async () => {
+      // listTenants chain: .select().from().leftJoin() → .groupBy().orderBy().limit(lim+1)
+      // orderBy must be chainable (returns this); limit is the terminal awaited call.
+      db.orderBy.mockReturnValueOnce(db);
+      db.limit.mockResolvedValueOnce([
+        { id: 't1', name: 'A', slug: 'a', email: null, phone: null, subscriptionStatus: 'active', premium: false, graceUntil: null, createdAt: new Date('2024-01-01'), orderCount: 0, lastOrderAt: null, isDemo: true, demoExpiresAt: new Date('2099-01-01') },
+      ]);
+      const page = await service.listTenants({});
+      expect(page.items[0]).toMatchObject({ isDemo: true });
+      expect(page.items[0].demoExpiresAt).toBeInstanceOf(Date);
+    });
+  });
+
   // ── platformChangePassword ────────────────────────────────────────────────
 
   describe('platformChangePassword', () => {
