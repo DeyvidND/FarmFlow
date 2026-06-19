@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { BillingService } from '../billing/billing.service';
 import { PlatformService } from './platform.service';
@@ -7,6 +7,7 @@ import { ProductsService } from '../products/products.service';
 import { FarmersService } from '../farmers/farmers.service';
 import { SubcategoriesService } from '../subcategories/subcategories.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { StorageService } from '../storage/storage.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ConfigService } from '@nestjs/config';
@@ -34,6 +35,8 @@ function makeDb() {
     innerJoin: jest.fn().mockReturnThis(),
     groupBy: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockResolvedValue([]),
+    delete: jest.fn().mockReturnThis(),
+    transaction: jest.fn(),
   };
 }
 
@@ -47,6 +50,7 @@ describe('PlatformService', () => {
   const productsCreate = jest.fn().mockResolvedValue({ id: 'p' });
   const farmersCreate = jest.fn().mockResolvedValue({ id: 'f' });
   const subcategoriesCreate = jest.fn().mockResolvedValue({ id: 'c' });
+  const storageDeleteByPrefix = jest.fn().mockResolvedValue(undefined);
 
   beforeEach(async () => {
     db = makeDb();
@@ -55,6 +59,9 @@ describe('PlatformService', () => {
     productsCreate.mockClear().mockResolvedValue({ id: 'p' });
     farmersCreate.mockClear().mockResolvedValue({ id: 'f' });
     subcategoriesCreate.mockClear().mockResolvedValue({ id: 'c' });
+    storageDeleteByPrefix.mockClear().mockResolvedValue(undefined);
+    db.where.mockReturnValue(db); // chainable for delete().where()
+    db.transaction.mockImplementation(async (cb: (tx: typeof db) => Promise<unknown>) => cb(db));
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -71,6 +78,7 @@ describe('PlatformService', () => {
         { provide: FarmersService, useValue: { create: farmersCreate } },
         { provide: SubcategoriesService, useValue: { create: subcategoriesCreate } },
         { provide: TenantsService, useValue: { updateSiteContact: jest.fn(), setFavicon: jest.fn() } },
+        { provide: StorageService, useValue: { deleteByPrefix: storageDeleteByPrefix } },
       ],
     }).compile();
 
@@ -313,6 +321,29 @@ describe('PlatformService', () => {
       const result = await service.tenantDetail(TENANT_ID);
 
       expect(result.siteUrl).toBe('');
+    });
+  });
+
+  // ── deleteTenant ────────────────────────────────────────────────────────────
+  describe('deleteTenant', () => {
+    it('refuses to hard-delete a non-demo tenant', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 't1', slug: 'real-farm', isDemo: false }]);
+      await expect(service.deleteTenant('t1')).rejects.toThrow(/демо/i);
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(storageDeleteByPrefix).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFound when the tenant does not exist', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      await expect(service.deleteTenant('missing')).rejects.toThrow(NotFoundException);
+    });
+
+    it('hard-deletes a demo tenant in a transaction and sweeps its R2 prefix', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 'demo-1', slug: 'demo-ferma-ab12', isDemo: true }]);
+      await service.deleteTenant('demo-1');
+      expect(db.transaction).toHaveBeenCalledTimes(1);
+      expect(db.delete.mock.calls.length).toBeGreaterThanOrEqual(15);
+      expect(storageDeleteByPrefix).toHaveBeenCalledWith('tenants/demo-ferma-ab12/');
     });
   });
 

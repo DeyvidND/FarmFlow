@@ -17,12 +17,23 @@ import { ProductsService } from '../products/products.service';
 import { FarmersService } from '../farmers/farmers.service';
 import { SubcategoriesService } from '../subcategories/subcategories.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { StorageService } from '../storage/storage.service';
 import { PlatformImportDto } from './dto/platform-import.dto';
 import {
   type Database,
   tenants,
   users,
   orders,
+  orderItems,
+  shipments,
+  productAvailabilityWindows,
+  subcategories,
+  farmers,
+  articles,
+  deliverySlots,
+  contactMessages,
+  auditLogs,
+  newsletterCampaigns,
   platformAdmins,
   emailPushes,
   products,
@@ -145,6 +156,7 @@ export class PlatformService {
     private readonly farmersSvc: FarmersService,
     private readonly subcategoriesSvc: SubcategoriesService,
     private readonly tenantsSvc: TenantsService,
+    private readonly storage: StorageService,
   ) {}
 
   /** Platform admin login → platform-typed JWT. */
@@ -462,6 +474,68 @@ export class PlatformService {
         .where(eq(tenants.id, id));
       await this.publicCache.del(publicCacheKeys.tenant(existing.slug));
     }
+
+    return { id };
+  }
+
+  /** Hard-delete a DEMO tenant and ALL its data. Refuses non-demo tenants — this is
+   *  the only hard-delete in the system, fenced to disposable demos. Deletes children
+   *  in FK-safe order inside one transaction, then sweeps the tenant's R2 prefix. */
+  async deleteTenant(id: string): Promise<{ id: string }> {
+    const [t] = await this.db
+      .select({ id: tenants.id, slug: tenants.slug, isDemo: tenants.isDemo })
+      .from(tenants)
+      .where(eq(tenants.id, id))
+      .limit(1);
+    if (!t) throw new NotFoundException('Фермата не е намерена');
+    if (!t.isDemo) {
+      throw new BadRequestException('Само демо акаунти могат да се изтриват напълно');
+    }
+
+    await this.db.transaction(async (tx) => {
+      // Clear the self-reference first so deleting products can't violate
+      // tenants.product_of_week_id (NO ACTION).
+      await tx
+        .update(tenants)
+        .set({ productOfWeekId: null, productOfWeekEnabled: false })
+        .where(eq(tenants.id, id));
+
+      // Order matters: delete children before parents (most FKs are NO ACTION).
+      await tx.delete(emailPushes).where(eq(emailPushes.tenantId, id));
+      await tx.delete(newsletterCampaigns).where(eq(newsletterCampaigns.tenantId, id));
+      // order_items has no tenant_id — scope via its parent orders.
+      await tx
+        .delete(orderItems)
+        .where(sql`${orderItems.orderId} in (select ${orders.id} from ${orders} where ${orders.tenantId} = ${id})`);
+      await tx.delete(shipments).where(eq(shipments.tenantId, id)); // before orders (shipments.orderId NOT NULL)
+      await tx.delete(orders).where(eq(orders.tenantId, id));
+      await tx.delete(productAvailabilityWindows).where(eq(productAvailabilityWindows.tenantId, id));
+      await tx.delete(reviews).where(eq(reviews.tenantId, id));
+      await tx.delete(products).where(eq(products.tenantId, id)); // productMedia cascades
+      await tx.delete(subcategories).where(eq(subcategories.tenantId, id)); // subcategoryMedia cascades
+      await tx.delete(users).where(eq(users.tenantId, id));
+      await tx.delete(farmers).where(eq(farmers.tenantId, id)); // farmerMedia cascades
+      await tx.delete(articles).where(eq(articles.tenantId, id)); // articleMedia cascades
+      await tx.delete(deliverySlots).where(eq(deliverySlots.tenantId, id));
+      await tx.delete(contactMessages).where(eq(contactMessages.tenantId, id));
+      await tx.delete(newsletterSubscribers).where(eq(newsletterSubscribers.tenantId, id));
+      await tx.delete(auditLogs).where(eq(auditLogs.tenantId, id));
+      await tx.delete(tenants).where(eq(tenants.id, id));
+    });
+
+    // Sweep all R2 objects for this tenant (best-effort; never block the delete).
+    try {
+      await this.storage.deleteByPrefix(`tenants/${t.slug}/`);
+    } catch {
+      /* logged by the provider; orphaned objects are harmless */
+    }
+
+    // Bust storefront caches (the slug/tenant payloads).
+    await this.publicCache.del(
+      publicCacheKeys.tenant(t.slug),
+      publicCacheKeys.farmers(id),
+      publicCacheKeys.subcategories(id),
+    );
 
     return { id };
   }
