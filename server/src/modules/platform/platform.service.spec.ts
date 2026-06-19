@@ -11,6 +11,7 @@ import { StorageService } from '../storage/storage.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ConfigService } from '@nestjs/config';
+import { auditLogs, users, orderItems, orders, products, emailPushes, newsletterCampaigns, shipments } from '@farmflow/db';
 
 // Mock argon2 at module level so native bindings are not called.
 jest.mock('argon2', () => ({
@@ -344,6 +345,18 @@ describe('PlatformService', () => {
       expect(db.transaction).toHaveBeenCalledTimes(1);
       expect(db.delete.mock.calls.length).toBeGreaterThanOrEqual(15);
       expect(storageDeleteByPrefix).toHaveBeenCalledWith('tenants/demo-ferma-ab12/');
+
+      // Assert FK-safe delete ordering — the property this test exists to enforce.
+      const deleteOrder = db.delete.mock.calls.map((c) => c[0]);
+      const idx = (tbl: unknown) => deleteOrder.indexOf(tbl);
+      // audit_logs.user_id → users is NO ACTION: audit rows must go before users.
+      expect(idx(auditLogs)).toBeGreaterThanOrEqual(0);
+      expect(idx(auditLogs)).toBeLessThan(idx(users));
+      // other NO ACTION FK precedences that must hold:
+      expect(idx(orderItems)).toBeLessThan(idx(orders));
+      expect(idx(orderItems)).toBeLessThan(idx(products));
+      expect(idx(shipments)).toBeLessThan(idx(orders));
+      expect(idx(emailPushes)).toBeLessThan(idx(newsletterCampaigns));
     });
   });
 

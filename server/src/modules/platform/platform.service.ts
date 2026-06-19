@@ -501,6 +501,8 @@ export class PlatformService {
         .where(eq(tenants.id, id));
 
       // Order matters: delete children before parents (most FKs are NO ACTION).
+      // audit_logs.user_id → users is NO ACTION: audit rows must be removed before users.
+      await tx.delete(auditLogs).where(eq(auditLogs.tenantId, id));
       await tx.delete(emailPushes).where(eq(emailPushes.tenantId, id));
       await tx.delete(newsletterCampaigns).where(eq(newsletterCampaigns.tenantId, id));
       // order_items has no tenant_id — scope via its parent orders.
@@ -519,7 +521,6 @@ export class PlatformService {
       await tx.delete(deliverySlots).where(eq(deliverySlots.tenantId, id));
       await tx.delete(contactMessages).where(eq(contactMessages.tenantId, id));
       await tx.delete(newsletterSubscribers).where(eq(newsletterSubscribers.tenantId, id));
-      await tx.delete(auditLogs).where(eq(auditLogs.tenantId, id));
       await tx.delete(tenants).where(eq(tenants.id, id));
     });
 
