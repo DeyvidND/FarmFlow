@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   Query,
@@ -133,6 +134,13 @@ export class PlatformController {
   @Patch('tenants/:id/premium')
   setPremium(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetPremiumDto) {
     return this.platform.setPremium(id, dto.premium);
+  }
+
+  /** Hard-delete a demo tenant + all its data. Refuses non-demo tenants (service-guarded). */
+  @Delete('tenants/:id')
+  @HttpCode(200)
+  deleteTenant(@Param('id', ParseUUIDPipe) id: string) {
+    return this.platform.deleteTenant(id);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
