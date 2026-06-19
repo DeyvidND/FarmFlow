@@ -1,6 +1,7 @@
 import {
   Injectable,
   Inject,
+  Logger,
   UnauthorizedException,
   NotFoundException,
   ConflictException,
@@ -17,12 +18,23 @@ import { ProductsService } from '../products/products.service';
 import { FarmersService } from '../farmers/farmers.service';
 import { SubcategoriesService } from '../subcategories/subcategories.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { StorageService } from '../storage/storage.service';
 import { PlatformImportDto } from './dto/platform-import.dto';
 import {
   type Database,
   tenants,
   users,
   orders,
+  orderItems,
+  shipments,
+  productAvailabilityWindows,
+  subcategories,
+  farmers,
+  articles,
+  deliverySlots,
+  contactMessages,
+  auditLogs,
+  newsletterCampaigns,
   platformAdmins,
   emailPushes,
   products,
@@ -52,6 +64,8 @@ export interface PlatformTenantRow {
   createdAt: Date | null;
   orderCount: number;
   lastOrderAt: Date | null;
+  isDemo: boolean;
+  demoExpiresAt: Date | null;
 }
 
 /** Per-farm email usage → revenue, Resend cost, and the platform's margin. */
@@ -135,6 +149,8 @@ export interface PlatformTenantDetail {
 
 @Injectable()
 export class PlatformService {
+  private readonly logger = new Logger(PlatformService.name);
+
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly jwt: JwtService,
@@ -145,6 +161,7 @@ export class PlatformService {
     private readonly farmersSvc: FarmersService,
     private readonly subcategoriesSvc: SubcategoriesService,
     private readonly tenantsSvc: TenantsService,
+    private readonly storage: StorageService,
   ) {}
 
   /** Platform admin login → platform-typed JWT. */
@@ -213,6 +230,8 @@ export class PlatformService {
         createdAt: tenants.createdAt,
         orderCount: sql<number>`count(${orders.id})::int`,
         lastOrderAt: sql<Date | null>`max(${orders.createdAt})`,
+        isDemo: tenants.isDemo,
+        demoExpiresAt: tenants.demoExpiresAt,
       })
       .from(tenants)
       .leftJoin(orders, eq(orders.tenantId, tenants.id));
@@ -464,6 +483,95 @@ export class PlatformService {
     }
 
     return { id };
+  }
+
+  /** Hard-delete a DEMO tenant and ALL its data. Refuses non-demo tenants — this is
+   *  the only hard-delete in the system, fenced to disposable demos. Deletes children
+   *  in FK-safe order inside one transaction, then sweeps the tenant's R2 prefix. */
+  async deleteTenant(id: string): Promise<{ id: string }> {
+    const [t] = await this.db
+      .select({ id: tenants.id, slug: tenants.slug, isDemo: tenants.isDemo })
+      .from(tenants)
+      .where(eq(tenants.id, id))
+      .limit(1);
+    if (!t) throw new NotFoundException('Фермата не е намерена');
+    if (!t.isDemo) {
+      throw new BadRequestException('Само демо акаунти могат да се изтриват напълно');
+    }
+
+    await this.db.transaction(async (tx) => {
+      // Clear the self-reference first so deleting products can't violate
+      // tenants.product_of_week_id (NO ACTION).
+      await tx
+        .update(tenants)
+        .set({ productOfWeekId: null, productOfWeekEnabled: false })
+        .where(eq(tenants.id, id));
+
+      // Order matters: delete children before parents (most FKs are NO ACTION).
+      // audit_logs.user_id → users is NO ACTION: audit rows must be removed before users.
+      await tx.delete(auditLogs).where(eq(auditLogs.tenantId, id));
+      await tx.delete(emailPushes).where(eq(emailPushes.tenantId, id));
+      await tx.delete(newsletterCampaigns).where(eq(newsletterCampaigns.tenantId, id));
+      // order_items has no tenant_id — scope via its parent orders.
+      await tx
+        .delete(orderItems)
+        .where(sql`${orderItems.orderId} in (select ${orders.id} from ${orders} where ${orders.tenantId} = ${id})`);
+      await tx.delete(shipments).where(eq(shipments.tenantId, id)); // before orders (shipments.orderId NOT NULL)
+      await tx.delete(orders).where(eq(orders.tenantId, id));
+      await tx.delete(productAvailabilityWindows).where(eq(productAvailabilityWindows.tenantId, id));
+      await tx.delete(reviews).where(eq(reviews.tenantId, id));
+      await tx.delete(products).where(eq(products.tenantId, id)); // productMedia cascades
+      await tx.delete(subcategories).where(eq(subcategories.tenantId, id)); // subcategoryMedia cascades
+      await tx.delete(users).where(eq(users.tenantId, id));
+      await tx.delete(farmers).where(eq(farmers.tenantId, id)); // farmerMedia cascades
+      await tx.delete(articles).where(eq(articles.tenantId, id)); // articleMedia cascades
+      await tx.delete(deliverySlots).where(eq(deliverySlots.tenantId, id));
+      await tx.delete(contactMessages).where(eq(contactMessages.tenantId, id));
+      await tx.delete(newsletterSubscribers).where(eq(newsletterSubscribers.tenantId, id));
+      await tx.delete(tenants).where(eq(tenants.id, id));
+    });
+
+    // Sweep all R2 objects for this tenant (best-effort; never block the delete).
+    try {
+      await this.storage.deleteByPrefix(`tenants/${t.slug}/`);
+    } catch {
+      /* logged by the provider; orphaned objects are harmless */
+    }
+
+    // Bust storefront caches (the slug/tenant payloads).
+    await this.publicCache.del(
+      publicCacheKeys.tenant(t.slug),
+      publicCacheKeys.farmers(id),
+      publicCacheKeys.subcategories(id),
+    );
+
+    return { id };
+  }
+
+  /** Daily cleanup: hard-delete every demo whose lifetime has elapsed. Per-tenant
+   *  failures are swallowed so one bad row doesn't block the rest. */
+  async deleteExpiredDemos(): Promise<{ deleted: number }> {
+    const expired = await this.db
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(sql`${tenants.isDemo} = true and ${tenants.demoExpiresAt} is not null and ${tenants.demoExpiresAt} < now()`);
+
+    let deleted = 0;
+    let failed = 0;
+    for (const { id } of expired) {
+      try {
+        await this.deleteTenant(id);
+        deleted++;
+      } catch (err) {
+        failed++;
+        this.logger.warn(
+          `[cleanup] failed to delete expired demo ${id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        // skip & continue; next run retries
+      }
+    }
+    if (failed) this.logger.warn(`[cleanup] ${failed} expired demo(s) failed to delete`);
+    return { deleted };
   }
 
   /** Onboard a new farm: tenant + owner user with mustChangePassword=true. */

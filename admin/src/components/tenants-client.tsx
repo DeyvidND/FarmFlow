@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Search, AlertTriangle, Plus, Copy, Check, RefreshCw, ChevronRight, Sparkles } from 'lucide-react';
+import { Search, AlertTriangle, Plus, Copy, Check, RefreshCw, ChevronRight, Sparkles, FlaskConical, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
@@ -10,6 +10,8 @@ import {
   setTenantStatus,
   setTenantPremium,
   createTenant,
+  createDemoTenant,
+  deleteTenant,
   listTenants,
   type PlatformTenant,
   type Paginated,
@@ -76,6 +78,15 @@ function PlanBadge({ premium }: { premium: boolean }) {
   ) : (
     <span className="inline-flex items-center rounded-full bg-ff-surface-2 px-2.5 py-1 text-[12px] font-bold text-ff-ink-2">
       Стандартен
+    </span>
+  );
+}
+
+function DemoBadge({ expiresAt }: { expiresAt: string | null }) {
+  const d = daysUntil(expiresAt);
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2.5 py-1 text-[12px] font-bold text-[#3457B1]">
+      <FlaskConical size={12} /> ДЕМО{expiresAt ? ` · ${d}д` : ''}
     </span>
   );
 }
@@ -150,6 +161,8 @@ function AddFarmerDialog({ onClose, onCreated }: AddFarmerDialogProps) {
         createdAt: new Date().toISOString(),
         orderCount: 0,
         lastOrderAt: null,
+        isDemo: false,
+        demoExpiresAt: null,
       };
       onCreated(newTenant);
       setCreated({ name: res.name, email: res.email, tempPassword });
@@ -283,12 +296,17 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState<PlatformTenant | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [onlyDemo, setOnlyDemo] = useState(false);
+  const [creatingDemo, setCreatingDemo] = useState(false);
+  const [demoCreds, setDemoCreds] = useState<{ name: string; email: string; password: string; expiresAt: string } | null>(null);
+  const [confirmDel, setConfirmDel] = useState<PlatformTenant | null>(null);
 
   const filtered = tenants.filter(
     (t) =>
-      !q ||
-      t.name.toLowerCase().includes(q.toLowerCase()) ||
-      (t.email ?? '').toLowerCase().includes(q.toLowerCase()),
+      (!onlyDemo || t.isDemo) &&
+      (!q ||
+        t.name.toLowerCase().includes(q.toLowerCase()) ||
+        (t.email ?? '').toLowerCase().includes(q.toLowerCase())),
   );
 
   async function apply(t: PlatformTenant, status: 'active' | 'inactive') {
@@ -331,6 +349,48 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
     setTenants((p) => [t, ...p]);
   }
 
+  async function makeDemo() {
+    setCreatingDemo(true);
+    try {
+      const res = await createDemoTenant();
+      const row: PlatformTenant = {
+        id: res.id,
+        name: res.name,
+        slug: res.slug,
+        email: res.email,
+        phone: null,
+        subscriptionStatus: 'active',
+        premium: false,
+        graceUntil: null,
+        createdAt: new Date().toISOString(),
+        orderCount: 0,
+        lastOrderAt: null,
+        isDemo: true,
+        demoExpiresAt: res.expiresAt,
+      };
+      setTenants((p) => [row, ...p]);
+      setDemoCreds({ name: res.name, email: res.email, password: res.password, expiresAt: res.expiresAt });
+      toast.success('Демо акаунтът е създаден');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setCreatingDemo(false);
+    }
+  }
+
+  async function removeDemo(t: PlatformTenant) {
+    setBusyId(t.id);
+    try {
+      await deleteTenant(t.id);
+      setTenants((p) => p.filter((x) => x.id !== t.id));
+      toast.success(`${t.name}: изтрит`);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const activeCount = tenants.filter((t) => t.subscriptionStatus === 'active').length;
 
   return (
@@ -354,6 +414,24 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
               className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface pl-11 pr-3 text-[14.5px] shadow-ff-sm outline-none focus:border-ff-green-500"
             />
           </div>
+          <button
+            onClick={() => setOnlyDemo((v) => !v)}
+            className={cn(
+              'inline-flex h-11 items-center gap-2 rounded-xl border px-3.5 text-[13.5px] font-bold shadow-ff-sm',
+              onlyDemo ? 'border-ff-green-500 bg-ff-green-50 text-ff-green-700' : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+            )}
+          >
+            <FlaskConical size={16} />
+            Само демо
+          </button>
+          <button
+            onClick={makeDemo}
+            disabled={creatingDemo}
+            className="inline-flex h-11 items-center gap-2 rounded-xl border border-ff-green-600 bg-ff-surface px-4 text-[13.5px] font-bold text-ff-green-700 shadow-ff-sm hover:bg-ff-green-50 disabled:opacity-60"
+          >
+            <FlaskConical size={17} />
+            {creatingDemo ? 'Създаване…' : 'Създай демо'}
+          </button>
           <button
             onClick={() => setShowAdd(true)}
             className="inline-flex h-11 items-center gap-2 rounded-xl bg-ff-green-700 px-4 text-[13.5px] font-bold text-white shadow-ff-sm hover:brightness-95"
@@ -380,13 +458,16 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
             {filtered.map((t) => (
               <tr key={t.id} className="border-b border-ff-border-2 last:border-0">
                 <td className="px-5 py-3.5">
-                  <Link
-                    href={`/tenants/${t.id}`}
-                    className="inline-flex items-center gap-1 text-[14.5px] font-bold text-ff-ink no-underline hover:text-ff-green-700 hover:underline"
-                  >
-                    {t.name}
-                    <ChevronRight size={15} className="text-ff-muted-2" />
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/tenants/${t.id}`}
+                      className="inline-flex items-center gap-1 text-[14.5px] font-bold text-ff-ink no-underline hover:text-ff-green-700 hover:underline"
+                    >
+                      {t.name}
+                      <ChevronRight size={15} className="text-ff-muted-2" />
+                    </Link>
+                    {t.isDemo && <DemoBadge expiresAt={t.demoExpiresAt} />}
+                  </div>
                   <div className="text-xs text-ff-muted-2">/{t.slug}</div>
                 </td>
                 <td className="px-5 py-3.5 text-[13.5px] text-ff-ink-2">{t.email ?? '—'}</td>
@@ -401,11 +482,24 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
                   <StatusBadge t={t} />
                 </td>
                 <td className="px-5 py-3.5">
-                  <Toggle
-                    on={t.subscriptionStatus !== 'inactive'}
-                    disabled={busyId === t.id}
-                    onChange={(next) => onToggle(t, next)}
-                  />
+                  <div className="flex items-center gap-2.5">
+                    <Toggle
+                      on={t.subscriptionStatus !== 'inactive'}
+                      disabled={busyId === t.id}
+                      onChange={(next) => onToggle(t, next)}
+                    />
+                    {t.isDemo && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDel(t)}
+                        disabled={busyId === t.id}
+                        title="Изтрий демо"
+                        className="grid h-9 w-9 place-items-center rounded-lg border border-ff-border text-ff-red hover:bg-[#FBE9E7] disabled:opacity-50"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -426,6 +520,7 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
                     <ChevronRight size={16} className="text-ff-muted-2" />
                   </Link>
                   <div className="text-[12.5px] text-ff-muted">{t.email ?? '—'}</div>
+                  {t.isDemo && <div className="mt-1"><DemoBadge expiresAt={t.demoExpiresAt} /></div>}
                 </div>
                 <StatusBadge t={t} />
               </div>
@@ -441,6 +536,17 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
                     disabled={busyId === t.id}
                     onChange={(next) => onToggle(t, next)}
                   />
+                  {t.isDemo && (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDel(t)}
+                      disabled={busyId === t.id}
+                      title="Изтрий демо"
+                      className="grid h-9 w-9 place-items-center rounded-lg border border-ff-border text-ff-red hover:bg-[#FBE9E7] disabled:opacity-50"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -510,6 +616,79 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
             onCreated(t);
           }}
         />
+      )}
+
+      {/* demo credentials */}
+      {demoCreds && (
+        <>
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setDemoCreds(null)} />
+          <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
+            <div className="mb-3 flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-green-50 text-ff-green-700">
+                <FlaskConical size={20} />
+              </span>
+              <div>
+                <h2 className="text-[17px] font-extrabold">Демо акаунтът е готов</h2>
+                <p className="mt-0.5 text-[13.5px] text-ff-ink-2">
+                  <strong>{demoCreds.name}</strong> — дайте тези данни на приятел. Изтрива се автоматично на{' '}
+                  {new Date(demoCreds.expiresAt).toLocaleDateString('bg-BG')}.
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-col gap-2.5">
+              <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+                <p className="mb-1.5 text-[12px] font-bold uppercase tracking-[0.04em] text-ff-muted">Имейл</p>
+                <div className="flex items-center gap-2.5">
+                  <code className="flex-1 break-all font-mono text-[14px] font-bold">{demoCreds.email}</code>
+                  <CopyButton text={demoCreds.email} />
+                </div>
+              </div>
+              <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+                <p className="mb-1.5 text-[12px] font-bold uppercase tracking-[0.04em] text-ff-muted">Парола</p>
+                <div className="flex items-center gap-2.5">
+                  <code className="flex-1 break-all font-mono text-[15px] font-bold">{demoCreds.password}</code>
+                  <CopyButton text={demoCreds.password} />
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setDemoCreds(null)} className="rounded-xl bg-ff-green-700 px-4 py-2.5 text-[13.5px] font-bold text-white hover:brightness-95">
+                Затвори
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* confirm demo delete */}
+      {confirmDel && (
+        <>
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setConfirmDel(null)} />
+          <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[400px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
+            <div className="mb-3 flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-[#FBE9E7] text-ff-red">
+                <AlertTriangle size={20} />
+              </span>
+              <div>
+                <h2 className="text-[17px] font-extrabold">Изтриване на демо</h2>
+                <p className="mt-0.5 text-[13.5px] leading-[1.45] text-ff-ink-2">
+                  Изтриване на <strong>{confirmDel.name}</strong> и всичките му данни? Това е необратимо.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2.5">
+              <button onClick={() => setConfirmDel(null)} className="rounded-xl border border-ff-border bg-ff-surface px-4 py-2.5 text-[13.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2">
+                Откажи
+              </button>
+              <button
+                onClick={() => { const t = confirmDel; setConfirmDel(null); removeDemo(t); }}
+                className="rounded-xl bg-ff-red px-4 py-2.5 text-[13.5px] font-bold text-white hover:brightness-95"
+              >
+                Изтрий
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

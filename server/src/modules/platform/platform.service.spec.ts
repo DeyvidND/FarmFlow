@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { BillingService } from '../billing/billing.service';
 import { PlatformService } from './platform.service';
@@ -7,9 +7,11 @@ import { ProductsService } from '../products/products.service';
 import { FarmersService } from '../farmers/farmers.service';
 import { SubcategoriesService } from '../subcategories/subcategories.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { StorageService } from '../storage/storage.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ConfigService } from '@nestjs/config';
+import { auditLogs, users, orderItems, orders, products, emailPushes, newsletterCampaigns, shipments } from '@farmflow/db';
 
 // Mock argon2 at module level so native bindings are not called.
 jest.mock('argon2', () => ({
@@ -34,6 +36,8 @@ function makeDb() {
     innerJoin: jest.fn().mockReturnThis(),
     groupBy: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockResolvedValue([]),
+    delete: jest.fn().mockReturnThis(),
+    transaction: jest.fn(),
   };
 }
 
@@ -47,6 +51,7 @@ describe('PlatformService', () => {
   const productsCreate = jest.fn().mockResolvedValue({ id: 'p' });
   const farmersCreate = jest.fn().mockResolvedValue({ id: 'f' });
   const subcategoriesCreate = jest.fn().mockResolvedValue({ id: 'c' });
+  const storageDeleteByPrefix = jest.fn().mockResolvedValue(undefined);
 
   beforeEach(async () => {
     db = makeDb();
@@ -55,6 +60,9 @@ describe('PlatformService', () => {
     productsCreate.mockClear().mockResolvedValue({ id: 'p' });
     farmersCreate.mockClear().mockResolvedValue({ id: 'f' });
     subcategoriesCreate.mockClear().mockResolvedValue({ id: 'c' });
+    storageDeleteByPrefix.mockClear().mockResolvedValue(undefined);
+    db.where.mockReturnValue(db); // chainable for delete().where()
+    db.transaction.mockImplementation(async (cb: (tx: typeof db) => Promise<unknown>) => cb(db));
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -71,6 +79,7 @@ describe('PlatformService', () => {
         { provide: FarmersService, useValue: { create: farmersCreate } },
         { provide: SubcategoriesService, useValue: { create: subcategoriesCreate } },
         { provide: TenantsService, useValue: { updateSiteContact: jest.fn(), setFavicon: jest.fn() } },
+        { provide: StorageService, useValue: { deleteByPrefix: storageDeleteByPrefix } },
       ],
     }).compile();
 
@@ -313,6 +322,89 @@ describe('PlatformService', () => {
       const result = await service.tenantDetail(TENANT_ID);
 
       expect(result.siteUrl).toBe('');
+    });
+  });
+
+  // ── deleteTenant ────────────────────────────────────────────────────────────
+  describe('deleteTenant', () => {
+    it('refuses to hard-delete a non-demo tenant', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 't1', slug: 'real-farm', isDemo: false }]);
+      await expect(service.deleteTenant('t1')).rejects.toThrow(/демо/i);
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(storageDeleteByPrefix).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFound when the tenant does not exist', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      await expect(service.deleteTenant('missing')).rejects.toThrow(NotFoundException);
+    });
+
+    it('hard-deletes a demo tenant in a transaction and sweeps its R2 prefix', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 'demo-1', slug: 'demo-ferma-ab12', isDemo: true }]);
+      await service.deleteTenant('demo-1');
+      expect(db.transaction).toHaveBeenCalledTimes(1);
+      expect(db.delete.mock.calls.length).toBeGreaterThanOrEqual(15);
+      expect(storageDeleteByPrefix).toHaveBeenCalledWith('tenants/demo-ferma-ab12/');
+
+      // Assert FK-safe delete ordering — the property this test exists to enforce.
+      const deleteOrder = db.delete.mock.calls.map((c) => c[0]);
+      const idx = (tbl: unknown) => deleteOrder.indexOf(tbl);
+      // audit_logs.user_id → users is NO ACTION: audit rows must go before users.
+      expect(idx(auditLogs)).toBeGreaterThanOrEqual(0);
+      expect(idx(auditLogs)).toBeLessThan(idx(users));
+      // other NO ACTION FK precedences that must hold:
+      expect(idx(orderItems)).toBeLessThan(idx(orders));
+      expect(idx(orderItems)).toBeLessThan(idx(products));
+      expect(idx(shipments)).toBeLessThan(idx(orders));
+      expect(idx(emailPushes)).toBeLessThan(idx(newsletterCampaigns));
+    });
+  });
+
+  // ── deleteExpiredDemos ──────────────────────────────────────────────────────
+  describe('deleteExpiredDemos', () => {
+    it('deletes each expired demo and returns the count', async () => {
+      // initial select of expired demo ids
+      db.where.mockReturnValueOnce(Promise.resolve([{ id: 'd1' }, { id: 'd2' }]) as any);
+      const spy = jest.spyOn(service, 'deleteTenant').mockResolvedValue({ id: 'x' });
+
+      const res = await service.deleteExpiredDemos();
+
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenCalledWith('d1');
+      expect(spy).toHaveBeenCalledWith('d2');
+      expect(res).toEqual({ deleted: 2 });
+      spy.mockRestore();
+    });
+
+    it('continues past a failing tenant and counts only successful deletes', async () => {
+      db.where.mockReturnValueOnce(Promise.resolve([{ id: 'd1' }, { id: 'd2' }]) as any);
+      const spy = jest
+        .spyOn(service, 'deleteTenant')
+        .mockRejectedValueOnce(new Error('boom')) // d1 fails
+        .mockResolvedValueOnce({ id: 'd2' });      // d2 succeeds
+
+      const res = await service.deleteExpiredDemos();
+
+      expect(spy).toHaveBeenCalledTimes(2);        // both attempted despite d1 failing
+      expect(spy).toHaveBeenCalledWith('d1');
+      expect(spy).toHaveBeenCalledWith('d2');
+      expect(res).toEqual({ deleted: 1 });         // only the successful one counted
+      spy.mockRestore();
+    });
+  });
+
+  // ── listTenants (demo fields) ───────────────────────────────────────────────
+  describe('listTenants', () => {
+    it('selects isDemo and demoExpiresAt for each row', async () => {
+      // listTenants chain: .select().from().leftJoin() → .groupBy().orderBy().limit(lim+1)
+      // orderBy must be chainable (returns this); limit is the terminal awaited call.
+      db.orderBy.mockReturnValueOnce(db);
+      db.limit.mockResolvedValueOnce([
+        { id: 't1', name: 'A', slug: 'a', email: null, phone: null, subscriptionStatus: 'active', premium: false, graceUntil: null, createdAt: new Date('2024-01-01'), orderCount: 0, lastOrderAt: null, isDemo: true, demoExpiresAt: new Date('2099-01-01') },
+      ]);
+      const page = await service.listTenants({});
+      expect(page.items[0]).toMatchObject({ isDemo: true });
+      expect(page.items[0].demoExpiresAt).toBeInstanceOf(Date);
     });
   });
 
