@@ -219,7 +219,7 @@ export function FarmersClient({
                   <div className="border-t border-ff-border-2 bg-ff-surface-2 px-[18px] pb-4 pt-3">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="inline-flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
-                        <Link2 size={14} /> Свързани продукти
+                        <Link2 size={14} /> Продукти от този фермер
                       </span>
                       <span className="text-[12.5px] font-extrabold text-ff-green-700">{prods.length}</span>
                     </div>
@@ -242,7 +242,7 @@ export function FarmersClient({
                         )}
                       </div>
                     ) : (
-                      <div className="text-[12.5px] text-ff-muted">Още няма продукти. Свържи от „Продукти&rdquo;.</div>
+                      <div className="text-[12.5px] text-ff-muted">Още няма продукти. Добави този фермер към продукт от формата за продукт.</div>
                     )}
                   </div>
                   <AccessControl

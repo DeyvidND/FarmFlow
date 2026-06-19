@@ -72,7 +72,7 @@ export function SubscriptionCard({ summary }: { summary: BillingSummary }) {
       {/* status row */}
       {summary.status === 'inactive' ? (
         <Banner tone="danger" title="Абонаментът е спрян">
-          Плати, за да възстановиш достъпа до производство, маршрут, слотове и статии.
+          Плати, за да възстановиш достъпа до производство, маршрут, часове за доставка и статии.
         </Banner>
       ) : summary.status === 'past_due' ? (
         <Banner tone="warn" title={`Просрочено плащане — спира след ${graceDays} ${graceDays === 1 ? 'ден' : 'дни'}`}>

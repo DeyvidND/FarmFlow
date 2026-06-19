@@ -32,7 +32,7 @@ export function ProductAssignPicker({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <span className="text-[12.5px] font-bold text-ff-ink-2">Свързани продукти</span>
+        <span className="text-[12.5px] font-bold text-ff-ink-2">Избрани продукти</span>
         <span className="text-[12px] font-extrabold text-ff-green-700">{checked.size}</span>
       </div>
 

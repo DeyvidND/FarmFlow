@@ -48,7 +48,7 @@ const DEFAULT_WIN: SlotWindow = { timeFrom: '10:00', timeTo: '12:00' };
 
 // How long one delivery takes. 0 = the whole window is a single slot.
 const SLOT_LEN = [
-  { v: 0, l: 'Без разделяне — целият прозорец е един слот' },
+  { v: 0, l: 'Без разделяне — целият прозорец е един час' },
   { v: 30, l: '30 минути' },
   { v: 45, l: '45 минути' },
   { v: 60, l: '1 час' },
@@ -214,7 +214,7 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
         horizonDays: s.horizonDays,
       };
       await saveSlotRule(rule);
-      toast.success(s.active ? 'Правилото е запазено — слотовете се попълват' : 'Правилото е изключено');
+      toast.success(s.active ? 'Правилото е запазено — часовете се попълват' : 'Правилото е изключено');
       onSaved();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
@@ -231,9 +231,9 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
             <Repeat size={18} />
           </span>
           <div>
-            <div className="text-[15px] font-extrabold text-ff-ink">Повтарящи се слотове</div>
+            <div className="text-[15px] font-extrabold text-ff-ink">Повтарящи се часове</div>
             <div className="text-[12.5px] text-ff-muted">
-              Задай веднъж — слотовете се появяват напред автоматично.
+              Задай веднъж — часовете се появяват напред автоматично.
             </div>
           </div>
         </div>
@@ -348,12 +348,12 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
           const fits = toMin(win.timeTo) - toMin(win.timeFrom) >= s.slotMinutes;
           const parts = splitWindowChunks(win, s.slotMinutes).map((c) => `${c.timeFrom}–${c.timeTo}`);
           const preview = perDay
-            ? 'Прозорецът на всеки ден се разделя според собствените му часове — по 1 поръчка на слот.'
+            ? 'Прозорецът на всеки ден се разделя според собствените му часове — по 1 поръчка на час.'
             : s.slotMinutes === 0
-              ? `Един слот на ден: ${win.timeFrom}–${win.timeTo} — 1 поръчка.`
+              ? `Един час на ден: ${win.timeFrom}–${win.timeTo} — 1 поръчка.`
               : !fits
-                ? `Прозорецът е по-къс от времетраенето — остава един слот ${parts[0]} (1 поръчка).`
-                : `${parts.length} ${parts.length === 1 ? 'слот' : 'слота'} на ден: ${parts.slice(0, 6).join(' · ')}${parts.length > 6 ? ' …' : ''} — по 1 поръчка на слот.`;
+                ? `Прозорецът е по-къс от времетраенето — остава един час ${parts[0]} (1 поръчка).`
+                : `${parts.length} ${parts.length === 1 ? 'час' : 'часа'} на ден: ${parts.slice(0, 6).join(' · ')}${parts.length > 6 ? ' …' : ''} — по 1 поръчка на час.`;
           return (
             <div className="flex flex-col gap-1.5">
               <label className={lbl}>

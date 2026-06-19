@@ -73,7 +73,7 @@ export function AddSlotDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-[18px] font-extrabold">{editing ? 'Редактирай слот' : 'Нов слот'}</h2>
+          <h2 className="text-[18px] font-extrabold">{editing ? 'Редактирай час' : 'Нов час'}</h2>
           <button
             onClick={onClose}
             aria-label="Затвори"

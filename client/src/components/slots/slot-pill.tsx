@@ -25,7 +25,7 @@ export function SlotPill({
       <button
         onClick={onDelete}
         disabled={busy}
-        aria-label="Изтрий слот"
+        aria-label="Изтрий час"
         className="absolute right-1 top-1 hidden h-4 w-4 place-items-center rounded-full bg-white/70 text-ff-muted hover:text-ff-red group-hover:grid [@media(hover:none)]:grid"
       >
         <X size={11} />
@@ -34,7 +34,7 @@ export function SlotPill({
         <div className="flex items-center gap-1 whitespace-nowrap text-[11.5px] font-bold text-ff-ink">
           {hhmm(slot.timeFrom)} – {hhmm(slot.timeTo)}
           {slot.generated && (
-            <span title="Автоматичен слот (от правило)" className="text-[10px] font-extrabold text-ff-green-700">
+            <span title="Автоматичен час (от правило)" className="text-[10px] font-extrabold text-ff-green-700">
               ↻
             </span>
           )}

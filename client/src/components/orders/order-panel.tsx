@@ -133,7 +133,7 @@ export function OrderDetailBody({ order }: { order: Order }) {
           label={deliveryLabel}
           value={deliveryVal}
         />
-        <InfoRow icon={<CalendarClock size={18} />} label="Слот за доставка" value={slotLabel} />
+        <InfoRow icon={<CalendarClock size={18} />} label="Час за доставка" value={slotLabel} />
         <InfoRow icon={<CreditCard size={18} />} label="Плащане" value={paymentValue} />
       </div>
 

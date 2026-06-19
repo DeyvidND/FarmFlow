@@ -59,11 +59,11 @@ export function SlotsClient({
     if (editingId) {
       const updated = await updateSlot(editingId, data);
       setSlots((prev) => prev.map((s) => (s.id === editingId ? updated : s)));
-      toast.success('Слотът е обновен');
+      toast.success('Часът е обновен');
     } else {
       const created = await createSlot(data);
       setSlots((prev) => [...prev, created]);
-      toast.success('Слотът е добавен');
+      toast.success('Часът е добавен');
     }
   }
 
@@ -133,7 +133,7 @@ export function SlotsClient({
     setSlots((prev) => prev.filter((x) => x.id !== s.id)); // optimistic
     try {
       await deleteSlot(s.id);
-      toast.success('Слотът е изтрит');
+      toast.success('Часът е изтрит');
     } catch (e) {
       setSlots((prev) => [...prev, s]); // rollback
       toast.error(errMsg(e));
@@ -158,7 +158,7 @@ export function SlotsClient({
             <Info size={16} /> Обяснения
           </Button>
           {/* Read-only mirror of the master toggle + a jump to where it's changed
-              (the „Лична доставка + слотове" switch lives in Методи и цени). */}
+              (the „Лична доставка + часове" switch lives in Методи и цени). */}
           <Link
             href="/settings?config=setup"
             className="inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3 py-2 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2"
@@ -183,8 +183,8 @@ export function SlotsClient({
 
       {!delivery && (
         <div className="mb-4 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3 text-[13.5px] font-semibold text-ff-amber-600">
-          Доставката е изключена — слотовете не се показват в онлайн магазина. Включи
-          „Лична доставка + слотове“ от{' '}
+          Доставката е изключена — часовете не се показват в онлайн магазина. Включи
+          „Лична доставка + часове“ от{' '}
           <Link href="/settings?config=setup" className="underline">
             „Методи и цени“
           </Link>
@@ -237,7 +237,7 @@ export function SlotsClient({
                   onClick={() => setAddDate(d)}
                   className="mt-0.5 flex items-center justify-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed border-ff-border px-2 py-2 text-xs font-bold text-ff-muted transition-colors hover:border-ff-green-500 hover:bg-ff-green-50 hover:text-ff-green-700"
                 >
-                  <Plus size={15} /> Слот
+                  <Plus size={15} /> Час
                 </button>
                 {/* Per-day override dialog: "няма да доставям на 15.06" or
                     "този ден работя в други часове". */}
@@ -402,7 +402,7 @@ function DayScheduleDialog({
                 <p className="text-[12.5px] leading-relaxed text-ff-muted">
                   {slotMinutes > 0
                     ? `${chunks.length} ${chunks.length === 1 ? 'час' : 'часа'} по ${slotMinutes} мин: ${chunks.slice(0, 6).map((c) => `${c.timeFrom}–${c.timeTo}`).join(' · ')}${chunks.length > 6 ? ' …' : ''} — по 1 поръчка на час.`
-                    : `Един слот: ${from}–${to} — 1 поръчка.`}
+                    : `Един час: ${from}–${to} — 1 поръчка.`}
                 </p>
               )}
             </>

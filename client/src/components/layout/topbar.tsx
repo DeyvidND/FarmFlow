@@ -43,8 +43,8 @@ async function loadNotifs(): Promise<Notif[]> {
       if (s.booked >= 1) {
         list.push({
           id: `slot-${s.id}`,
-          title: `Слот ${hhmm(s.timeFrom)} – ${hhmm(s.timeTo)} е запълнен`,
-          meta: 'Слотове',
+          title: `Часът ${hhmm(s.timeFrom)} – ${hhmm(s.timeTo)} е запълнен`,
+          meta: 'Часове',
         });
       }
     }

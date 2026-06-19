@@ -477,12 +477,12 @@ export const createSlot = (data: {
   timeTo: string;
   customerNote?: string;
   driverNote?: string;
-}) => apiFetch<Slot>('slots', { method: 'POST', ...json(data) }, 'Неуспешно създаване на слот');
+}) => apiFetch<Slot>('slots', { method: 'POST', ...json(data) }, 'Неуспешно създаване на час за доставка');
 
 export const updateSlot = (
   id: string,
   data: { timeFrom?: string; timeTo?: string; customerNote?: string; driverNote?: string },
-) => apiFetch<Slot>(`slots/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешна промяна на слот');
+) => apiFetch<Slot>(`slots/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешна промяна на час за доставка');
 
 export const deleteSlot = (id: string) =>
   apiFetch<{ id: string }>(`slots/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');

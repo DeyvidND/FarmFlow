@@ -159,7 +159,7 @@ function MethodCard({
               <div className="sm:col-span-2">
                 <InfoNote tone="green">
                   Личната доставка <b>не минава през Еконт</b>. Клиентът избира свободен час от твоите
-                  слотове, а ти доставяш сам. Часовете се задават в „Часове за доставка“.
+                  часове, а ти доставяш сам. Часовете се задават в „Часове за доставка“.
                 </InfoNote>
                 <div className="flex items-center gap-3 rounded-[10px] border border-ff-border bg-ff-surface-2 px-3.5 py-3">
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
@@ -180,7 +180,7 @@ function MethodCard({
                     </div>
                   </div>
                   <Button variant="soft" size="sm" onClick={() => router.push('/settings?config=slots')}>
-                    <ExternalLink size={15} /> Управлявай слотовете
+                    <ExternalLink size={15} /> Управлявай часовете
                   </Button>
                 </div>
               </div>

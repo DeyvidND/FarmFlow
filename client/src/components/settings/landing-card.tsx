@@ -47,11 +47,11 @@ const ROWS: {
   {
     key: 'categories',
     title: 'Категории',
-    desc: 'Плочки с разделите в магазина (напр. Зеленчуци, Млечни). Клиентът цъка плочка и стига право до раздела.',
+    desc: 'Категориите в магазина (напр. Зеленчуци, Млечни). Клиентът избира категория и отива право в нея.',
     allowAll: true,
     pickKind: 'subcategories',
-    pickLabel: 'Кои раздели да се показват',
-    pickEmpty: 'Няма раздели за избор. Добави ги от „Категории“.',
+    pickLabel: 'Кои категории да се показват',
+    pickEmpty: 'Няма категории за избор. Добави ги от „Категории“.',
   },
   {
     key: 'farmers',
@@ -65,7 +65,7 @@ const ROWS: {
   {
     key: 'latest',
     title: 'Най-актуални',
-    desc: 'Лента с продукти на видно място горе на началната страница — грабва окото веднага.',
+    desc: 'Лента с продукти на видно място горе на началната страница — клиентите ги виждат веднага.',
     allowAll: false,
     pickKind: 'products',
     pickLabel: 'Кои продукти да се показват',
@@ -305,7 +305,10 @@ export function LandingCard() {
             );
           })}
 
-          {/* Reviews — pick specific published reviews to feature on the home page */}
+          {/* Reviews — pick specific published reviews to feature on the home page.
+              Hidden entirely when the shop has no published reviews: the storefront
+              block can't render without picks, so the option would be dead weight. */}
+          {pubReviews.length > 0 && (
           <div className="rounded-xl border border-ff-border bg-ff-surface-2 px-[15px] py-3">
             <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
@@ -363,6 +366,7 @@ export function LandingCard() {
               </div>
             )}
           </div>
+          )}
         </div>
       )}
 
