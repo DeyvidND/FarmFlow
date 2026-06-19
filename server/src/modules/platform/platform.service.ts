@@ -584,6 +584,9 @@ export class PlatformService {
       .returning();
 
     // Seed the sample catalog via the same path super-admin onboarding uses.
+    // Deliberately NOT transactional with the inserts above (mirrors createTenant):
+    // a mid-seed failure leaves a half-seeded demo, which the hard-delete / daily
+    // cleanup reaps — acceptable for a disposable account.
     await this.importTenant(tenant.id, DEMO_SEED);
 
     return { id: tenant.id, name: tenant.name, slug: tenant.slug, email, password, expiresAt: expiresAt.toISOString() };
