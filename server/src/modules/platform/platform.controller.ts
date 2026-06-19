@@ -19,6 +19,7 @@ import { PlatformLoginDto } from './dto/platform-login.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import { SetPremiumDto } from './dto/set-premium.dto';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { CreateDemoDto } from './dto/create-demo.dto';
 import { PlatformImportDto } from './dto/platform-import.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
@@ -101,6 +102,13 @@ export class PlatformController {
   @HttpCode(201)
   createTenant(@Body() dto: CreateTenantDto) {
     return this.platform.createTenant(dto);
+  }
+
+  /** One-click disposable demo account (auto creds + seeded catalog, auto-expiry). */
+  @Post('tenants/demo')
+  @HttpCode(201)
+  createDemo(@Body() dto: CreateDemoDto) {
+    return this.platform.createDemoTenant(dto.days);
   }
 
   /** Super-admin onboarding seed — bulk-create catalog (products/farmers/categories)
