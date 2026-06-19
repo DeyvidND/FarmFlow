@@ -1,10 +1,12 @@
 'use client';
 
+import * as React from 'react';
 import {
   SlidersHorizontal, Truck, CalendarDays, ToggleRight, Megaphone, ChevronRight,
   TrendingUp, Home,
   type LucideIcon,
 } from 'lucide-react';
+import { getTenant } from '@/lib/api-client';
 
 /** The configuration sub-screens, opened inline inside Настройки. */
 export type ConfigKey =
@@ -21,6 +23,8 @@ interface ConfigItem {
   label: string;
   Icon: LucideIcon;
   desc: string;
+  /** Only relevant when the farm does personal delivery — hidden otherwise. */
+  requiresDelivery?: boolean;
 }
 
 // All set-up-once configuration lives here so it stays out of the everyday
@@ -33,7 +37,7 @@ const GROUPS: { title: string; desc: string; items: ConfigItem[] }[] = [
     items: [
       { key: 'setup', label: 'Методи и цени', Icon: SlidersHorizontal, desc: 'Активирай наложен платеж или плащане с карта и задай цени на доставката.' },
       { key: 'delivery', label: 'Доставка', Icon: Truck, desc: 'Куриер Еконт и зони на доставка.' },
-      { key: 'slots', label: 'Часове за доставка', Icon: CalendarDays, desc: 'Часове и дни за лична доставка, които клиентът избира.' },
+      { key: 'slots', label: 'Часове за доставка', Icon: CalendarDays, desc: 'Часове и дни за лична доставка, които клиентът избира.', requiresDelivery: true },
     ],
   },
   {
@@ -55,17 +59,34 @@ const GROUPS: { title: string; desc: string; items: ConfigItem[] }[] = [
 ];
 
 export function ConfigurationsCard({ onOpen }: { onOpen: (key: ConfigKey) => void }) {
+  // Personal-delivery flag — when off, the «Часове за доставка» tile is useless
+  // (the farm doesn't run delivery slots), so it's hidden until delivery is on.
+  // Default true so the tile isn't flashed away before the tenant loads.
+  const [deliveryEnabled, setDeliveryEnabled] = React.useState(true);
+  React.useEffect(() => {
+    let on = true;
+    getTenant()
+      .then((t) => on && setDeliveryEnabled(!!t.deliveryEnabled))
+      .catch(() => {});
+    return () => {
+      on = false;
+    };
+  }, []);
+
   return (
     <div className="flex flex-col gap-7">
       <p className="text-[13.5px] text-ff-ink-2">
         Тук активираш и настройваш магазина — плащане, доставка, функции и реклама.
       </p>
-      {GROUPS.map((g) => (
+      {GROUPS.map((g) => {
+        const items = g.items.filter((it) => !it.requiresDelivery || deliveryEnabled);
+        if (items.length === 0) return null;
+        return (
         <section key={g.title}>
           <h2 className="text-[15px] font-extrabold text-ff-ink">{g.title}</h2>
           <p className="mb-3 mt-0.5 text-[13px] text-ff-muted">{g.desc}</p>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            {g.items.map((it) => (
+            {items.map((it) => (
               <button
                 key={it.key}
                 type="button"
@@ -88,7 +109,8 @@ export function ConfigurationsCard({ onOpen }: { onOpen: (key: ConfigKey) => voi
             ))}
           </div>
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }

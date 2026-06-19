@@ -386,7 +386,11 @@ export const updateSiteMarketing = (data: {
 
 export interface LandingBlock {
   show: boolean;
+  /** Auto = show the first/newest N (count); manual = show the picked `ids`. */
+  mode: 'auto' | 'manual';
   count: number;
+  /** Hand-picked item ids (manual mode), ordered. */
+  ids: string[];
 }
 export interface LandingConfig {
   categories: LandingBlock;

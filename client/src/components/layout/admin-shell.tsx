@@ -15,6 +15,7 @@ export function AdminShell({
   subscriptionActive = true,
   tenantName,
   articlesEnabled = true,
+  deliveryEnabled = true,
   hiddenNav = [],
   mustChangePassword = false,
   role = 'admin',
@@ -24,6 +25,8 @@ export function AdminShell({
   tenantName?: string;
   /** «Статии» feature flag — hides the Статии nav item when off. */
   articlesEnabled?: boolean;
+  /** Personal-delivery flag — hides «Маршрут» when the farm doesn't deliver. */
+  deliveryEnabled?: boolean;
   /** Per-user hidden side-nav keys (users.hiddenNav). */
   hiddenNav?: string[];
   /** First login with the temporary password → block the panel with the modal. */
@@ -38,6 +41,7 @@ export function AdminShell({
       <Sidebar
         subscriptionActive={subscriptionActive}
         articlesEnabled={articlesEnabled}
+        deliveryEnabled={deliveryEnabled}
         hiddenNav={hiddenNav}
         role={role}
       />

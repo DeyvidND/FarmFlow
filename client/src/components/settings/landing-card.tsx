@@ -2,8 +2,11 @@
 
 /**
  * Settings → начална страница. Lets the farm choose which of the three dynamic
- * home blocks (категории / фермери / най-актуални) appear on the storefront home
- * and how many items each shows. Stored in settings.landing via PATCH
+ * home blocks (категории / фермери / най-актуални) appear on the storefront home.
+ * Each block runs in one of two modes:
+ *   • Автоматично — show the first/newest N items (a «Брой» dropdown), and
+ *   • Избери ръчно — hand-pick exactly which items show (a checklist).
+ * Plus a curated reviews block. Stored in settings.landing via PATCH
  * /tenants/me/landing; the chaika storefront reads the resolved config.
  */
 import * as React from 'react';
@@ -18,6 +21,9 @@ import {
   updateLanding,
   getTenant,
   listReviews,
+  listFarmers,
+  listSubcategories,
+  listProductOptions,
   type LandingConfig,
 } from '@/lib/api-client';
 import type { AdminReview } from '@/lib/types';
@@ -25,14 +31,50 @@ import type { AdminReview } from '@/lib/types';
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
 type BlockKey = 'categories' | 'farmers' | 'latest';
+type PickKind = 'subcategories' | 'farmers' | 'products';
+type PickItem = { id: string; name: string };
 
-const ROWS: { key: BlockKey; title: string; desc: string; allowAll: boolean }[] = [
-  { key: 'categories', title: 'Категории', desc: 'Плочки „Какво ще намериш“.', allowAll: true },
-  { key: 'farmers', title: 'Фермери', desc: 'Блок „Запознай се с фермерите“.', allowAll: false },
-  { key: 'latest', title: 'Най-актуални', desc: 'Блок „Най-актуални предложения“.', allowAll: false },
+const ROWS: {
+  key: BlockKey;
+  title: string;
+  desc: string;
+  /** Categories allow «Всички» (count 0); farmers/latest are >= 1. */
+  allowAll: boolean;
+  pickKind: PickKind;
+  pickLabel: string;
+  pickEmpty: string;
+}[] = [
+  {
+    key: 'categories',
+    title: 'Категории',
+    desc: 'Плочки с разделите в магазина (напр. Зеленчуци, Млечни). Клиентът цъка плочка и стига право до раздела.',
+    allowAll: true,
+    pickKind: 'subcategories',
+    pickLabel: 'Кои раздели да се показват',
+    pickEmpty: 'Няма раздели за избор. Добави ги от „Категории“.',
+  },
+  {
+    key: 'farmers',
+    title: 'Фермери',
+    desc: 'Показва производителите, чиято стока продаваш — снимка и кратко описание. Клиентът вижда кой стои зад продуктите.',
+    allowAll: false,
+    pickKind: 'farmers',
+    pickLabel: 'Кои фермери да се показват',
+    pickEmpty: 'Няма фермери за избор. Добави ги от „Фермери“.',
+  },
+  {
+    key: 'latest',
+    title: 'Най-актуални',
+    desc: 'Лента с продукти на видно място горе на началната страница — грабва окото веднага.',
+    allowAll: false,
+    pickKind: 'products',
+    pickLabel: 'Кои продукти да се показват',
+    pickEmpty: 'Няма продукти за избор. Добави ги от „Продукти“.',
+  },
 ];
 
 const range1to12 = Array.from({ length: 12 }, (_, i) => i + 1);
+const MAX_PICKS = 12;
 
 const same = (a: LandingConfig, b: LandingConfig) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -44,6 +86,31 @@ export function LandingCard() {
   const [cfg, setCfg] = React.useState<LandingConfig | null>(null);
   const [pubReviews, setPubReviews] = React.useState<AdminReview[]>([]);
 
+  // Pick-lists for manual mode, lazily fetched the first time a block needs one.
+  // `undefined` = not loaded yet, `[]` = loaded but empty.
+  const [options, setOptions] = React.useState<Partial<Record<PickKind, PickItem[]>>>({});
+  const loadingKinds = React.useRef<Set<PickKind>>(new Set());
+
+  const ensureOptions = React.useCallback((kind: PickKind) => {
+    if (loadingKinds.current.has(kind)) return;
+    setOptions((prev) => {
+      if (prev[kind] !== undefined) return prev; // already loaded
+      loadingKinds.current.add(kind);
+      const req =
+        kind === 'subcategories'
+          ? listSubcategories()
+          : kind === 'farmers'
+            ? listFarmers()
+            : listProductOptions();
+      req
+        .then((items: { id: string; name: string }[]) =>
+          setOptions((o) => ({ ...o, [kind]: items.map((it) => ({ id: it.id, name: it.name })) })),
+        )
+        .catch(() => setOptions((o) => ({ ...o, [kind]: [] })));
+      return prev;
+    });
+  }, []);
+
   React.useEffect(() => {
     let active = true;
     Promise.all([getLanding(), getTenant(), listReviews('published')])
@@ -53,13 +120,17 @@ export function LandingCard() {
         setCfg(l.landing);
         setMultiFarmer(Boolean(t.multiFarmer));
         setPubReviews(rv.items);
+        // Preload pick-lists for any block already in manual mode.
+        ROWS.forEach((r) => {
+          if (l.landing[r.key].mode === 'manual') ensureOptions(r.pickKind);
+        });
       })
       .catch(() => active && toast.error('Неуспешно зареждане на настройките'))
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, []);
+  }, [ensureOptions]);
 
   const dirty = !!cfg && !!saved && !same(cfg, saved);
 
@@ -67,6 +138,24 @@ export function LandingCard() {
     setCfg((p) => (p ? { ...p, [key]: { ...p[key], show } } : p));
   const setCount = (key: BlockKey, count: number) =>
     setCfg((p) => (p ? { ...p, [key]: { ...p[key], count } } : p));
+  const setMode = (key: BlockKey, mode: 'auto' | 'manual') => {
+    setCfg((p) => (p ? { ...p, [key]: { ...p[key], mode } } : p));
+    if (mode === 'manual') {
+      const row = ROWS.find((r) => r.key === key);
+      if (row) ensureOptions(row.pickKind);
+    }
+  };
+  const togglePick = (key: BlockKey, id: string) =>
+    setCfg((p) => {
+      if (!p) return p;
+      const cur = p[key].ids;
+      const ids = cur.includes(id)
+        ? cur.filter((x) => x !== id)
+        : cur.length < MAX_PICKS
+          ? [...cur, id]
+          : cur;
+      return { ...p, [key]: { ...p[key], ids } };
+    });
 
   const MAX_REVIEW_PICKS = 12;
   const setReviewsShow = (show: boolean) =>
@@ -106,8 +195,9 @@ export function LandingCard() {
     >
       <h2 className="text-[16px] font-extrabold">Начална страница</h2>
       <p className="mt-1 text-[13px] leading-snug text-ff-muted">
-        Избери кои блокове да се показват на началната страница на магазина и колко неща да
-        стоят във всеки. Останалите секции (заглавие, локация, бюлетин) остават непроменени.
+        Избери кои блокове да се показват на началната страница на магазина. За всеки
+        блок може да оставиш магазина да реди автоматично, или сам да избереш кои неща да
+        стоят. Останалите секции (заглавие, локация, бюлетин) остават непроменени.
       </p>
 
       {loading || !cfg ? (
@@ -119,6 +209,7 @@ export function LandingCard() {
             const farmersBlocked = row.key === 'farmers' && !multiFarmer;
             const on = block.show && !farmersBlocked;
             const opts = row.allowAll ? [0, ...range1to12] : range1to12;
+            const items = options[row.pickKind];
             return (
               <div
                 key={row.key}
@@ -152,23 +243,63 @@ export function LandingCard() {
 
                 <div
                   className={cn(
-                    'mt-3 flex items-center gap-2 transition-opacity',
+                    'mt-3 transition-opacity',
                     (!on || farmersBlocked) && 'pointer-events-none opacity-45',
                   )}
                 >
-                  <label className="text-[12.5px] font-bold text-ff-ink-2">Брой:</label>
-                  <select
-                    value={block.count}
-                    disabled={!on || farmersBlocked}
-                    onChange={(e) => setCount(row.key, Number(e.target.value))}
-                    className="rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13.5px] font-bold text-ff-ink"
-                  >
-                    {opts.map((n) => (
-                      <option key={n} value={n}>
-                        {n === 0 ? 'Всички' : n}
-                      </option>
-                    ))}
-                  </select>
+                  {/* mode toggle: auto (count) vs manual (pick) */}
+                  <div className="inline-flex rounded-lg border border-ff-border bg-ff-surface p-0.5 text-[12.5px] font-bold">
+                    <ModeButton
+                      active={block.mode !== 'manual'}
+                      onClick={() => setMode(row.key, 'auto')}
+                    >
+                      Автоматично
+                    </ModeButton>
+                    <ModeButton
+                      active={block.mode === 'manual'}
+                      onClick={() => setMode(row.key, 'manual')}
+                    >
+                      Избери ръчно
+                    </ModeButton>
+                  </div>
+
+                  {block.mode === 'manual' ? (
+                    <div className="mt-3">
+                      <div className="mb-1.5 text-[12.5px] font-bold text-ff-ink-2">
+                        {row.pickLabel}{' '}
+                        <span className="font-extrabold text-ff-muted">
+                          ({block.ids.length}/{MAX_PICKS})
+                        </span>
+                      </div>
+                      <PickList
+                        items={items}
+                        picked={block.ids}
+                        onToggle={(id) => togglePick(row.key, id)}
+                        emptyHint={row.pickEmpty}
+                      />
+                      {items && items.length > 0 && block.ids.length === 0 && (
+                        <div className="mt-1.5 text-[12px] font-semibold text-ff-amber-600">
+                          Не си избрал нищо — блокът ще е празен на сайта.
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-3 flex items-center gap-2">
+                      <label className="text-[12.5px] font-bold text-ff-ink-2">Брой:</label>
+                      <select
+                        value={block.count}
+                        disabled={!on || farmersBlocked}
+                        onChange={(e) => setCount(row.key, Number(e.target.value))}
+                        className="rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13.5px] font-bold text-ff-ink"
+                      >
+                        {opts.map((n) => (
+                          <option key={n} value={n}>
+                            {n === 0 ? 'Всички' : n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -237,5 +368,77 @@ export function LandingCard() {
 
       {dirty && <SaveBar saving={saving} onSave={save} onDiscard={() => setCfg(saved)} />}
     </section>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-md px-2.5 py-1 transition-colors',
+        active ? 'bg-ff-green-700 text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Generic checklist for hand-picking items (subcategories / farmers / products).
+ *  `items === undefined` → still loading. Picked order is the caller's. */
+function PickList({
+  items,
+  picked,
+  onToggle,
+  emptyHint,
+}: {
+  items: PickItem[] | undefined;
+  picked: string[];
+  onToggle: (id: string) => void;
+  emptyHint: string;
+}) {
+  if (items === undefined) {
+    return <div className="text-[12.5px] text-ff-muted">Зареждане…</div>;
+  }
+  if (items.length === 0) {
+    return <div className="text-[12.5px] text-ff-muted">{emptyHint}</div>;
+  }
+  return (
+    <div className="flex max-h-[280px] flex-col gap-1.5 overflow-y-auto">
+      {items.map((it) => {
+        const isPicked = picked.includes(it.id);
+        const atCap = !isPicked && picked.length >= MAX_PICKS;
+        return (
+          <label
+            key={it.id}
+            className={cn(
+              'flex cursor-pointer items-center gap-2.5 rounded-lg border border-ff-border bg-ff-surface px-3 py-2',
+              atCap && 'cursor-not-allowed opacity-45',
+            )}
+          >
+            <input
+              type="checkbox"
+              className="shrink-0"
+              checked={isPicked}
+              disabled={atCap}
+              onChange={() => onToggle(it.id)}
+            />
+            <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-ff-ink">
+              {it.name}
+            </span>
+          </label>
+        );
+      })}
+    </div>
   );
 }

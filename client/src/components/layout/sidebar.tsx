@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -106,6 +106,14 @@ export const NAV_GROUPS: NavGroup[] = [
 /** Flattened list (back-compat for any consumer that wants every item). */
 export const NAV: NavItem[] = [HOME, ...NAV_GROUPS.flatMap((g) => g.items)];
 
+/** Standalone set-up-once screens reached via deep links (not sidebar items).
+ *  They live under Настройки → Конфигурации, so when the user is on one of them
+ *  the «Настройки» entry should light up — otherwise nothing is active and the
+ *  farmer can't tell where they are or how to get back. */
+const CONFIG_ROUTES = ['/setup', '/delivery', '/slots', '/features', '/marketing-tracking'];
+const isConfigRoute = (pathname: string) =>
+  CONFIG_ROUTES.some((r) => pathname === r || pathname.startsWith(r + '/'));
+
 /** Reduced nav for a producer sub-account (role='farmer'). Grows in later phases. */
 export const FARMER_NAV: NavItem[] = [
   { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Твоят личен оборот, поръчки и тренд.' },
@@ -153,6 +161,7 @@ export function Sidebar({
   pendingCount = 0,
   subscriptionActive = true,
   articlesEnabled = true,
+  deliveryEnabled = true,
   hiddenNav = [],
   role = 'admin',
 }: {
@@ -160,12 +169,23 @@ export function Sidebar({
   subscriptionActive?: boolean;
   /** «Статии» feature flag — hides the Статии nav item when the section is off. */
   articlesEnabled?: boolean;
+  /** Personal-delivery flag — hides «Маршрут» when the farm doesn't deliver. */
+  deliveryEnabled?: boolean;
   /** Per-user hidden nav keys (item hrefs + group keys) from users.hiddenNav. */
   hiddenNav?: string[];
   role?: string;
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const navRef = useRef<HTMLElement>(null);
+
+  // Keep the active item visible: deep links can land on a screen that sits far
+  // down a scrolled nav (or on a config route → Настройки in the footer). Scroll
+  // whatever is active into view whenever the route changes.
+  useEffect(() => {
+    const el = navRef.current?.querySelector<HTMLElement>('[data-on="true"]');
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [pathname]);
   const drawerOpen = useUiStore((s) => s.drawerOpen);
   const closeDrawer = useUiStore((s) => s.closeDrawer);
 
@@ -182,6 +202,11 @@ export function Sidebar({
   }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
+  // Настройки owns the config sub-screens (/setup, /slots, …) — light it up there
+  // too, so deep links into a config page still anchor the user in the sidebar.
+  const settingsActive =
+    pathname === '/settings' || pathname.startsWith('/settings/') || isConfigRoute(pathname);
+  const helpActive = pathname === '/help' || pathname.startsWith('/help/');
   const { hidden: hiddenKeys, navOrder } = parseNavOrder(hiddenNav);
   const hidden = new Set(hiddenKeys);
   const sortedGroups = navOrder.map((t) => NAV_GROUPS.find((g) => g.title === t)).filter(Boolean) as NavGroup[];
@@ -190,6 +215,7 @@ export function Sidebar({
     g.items.filter(
       (i) =>
         (i.href === '/articles' ? articlesEnabled : true) &&
+        (i.href === '/route' ? deliveryEnabled : true) &&
         !hidden.has(i.href),
     );
   const groupHasActive = (g: NavGroup) => visibleItems(g).some((i) => isActive(i.href));
@@ -257,6 +283,7 @@ export function Sidebar({
 
   return (
     <aside
+      ref={navRef}
       data-open={drawerOpen}
       className={cn(
         'ff-sidebar relative z-[5] flex h-full w-[var(--sidebar-w)] shrink-0 flex-col border-r border-ff-border bg-ff-surface px-4 pb-[18px] pt-[22px]',
@@ -319,34 +346,32 @@ export function Sidebar({
         <Link
           href="/help"
           onClick={closeDrawer}
-          data-on={pathname === '/help' || pathname.startsWith('/help/')}
+          data-on={helpActive}
           className={cn(
             'ff-nav-item flex items-center gap-[13px] rounded-[10px] border-l-[3px] px-[13px] py-2.5 text-[14.5px] transition-colors',
-            pathname === '/help' || pathname.startsWith('/help/')
+            helpActive
               ? 'border-ff-green-600 bg-ff-green-50 font-bold text-ff-green-800'
               : 'border-transparent font-semibold text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
           )}
         >
-          <BookOpen
-            size={20}
-            strokeWidth={pathname === '/help' || pathname.startsWith('/help/') ? 2 : 1.8}
-          />
+          <BookOpen size={20} strokeWidth={helpActive ? 2 : 1.8} />
           Помощ
         </Link>
         <Link
           href="/settings"
           onClick={closeDrawer}
-          data-on={pathname === '/settings' || pathname.startsWith('/settings/')}
+          data-on={settingsActive}
           className={cn(
             'ff-nav-item mt-1.5 flex items-center gap-[13px] rounded-[10px] border-l-[3px] px-[13px] py-2.5 text-[14.5px] transition-colors',
-            pathname === '/settings' || pathname.startsWith('/settings/')
+            settingsActive
               ? 'border-ff-green-600 bg-ff-green-50 font-bold text-ff-green-800'
               : 'border-transparent font-semibold text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
           )}
         >
-          <Settings size={20} strokeWidth={pathname === '/settings' || pathname.startsWith('/settings/') ? 2 : 1.8} />
+          <Settings size={20} strokeWidth={settingsActive ? 2 : 1.8} />
           Настройки
         </Link>
+
         <button
           type="button"
           onClick={onLogout}

@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   IsUUID,
@@ -19,10 +20,20 @@ export class LandingBlockDto {
   show?: boolean;
 
   @IsOptional()
+  @IsIn(['auto', 'manual'])
+  mode?: 'auto' | 'manual';
+
+  @IsOptional()
   @IsInt()
   @Min(0)
   @Max(12)
   count?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(12)
+  @IsUUID('all', { each: true })
+  ids?: string[];
 }
 
 /** Reviews block: show flag + the farmer's picked review ids (uuids). Service-side
