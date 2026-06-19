@@ -131,7 +131,10 @@ export class ArticlesService {
     if (article.coverImageUrl) await this.deleteObject(article.coverImageUrl);
 
     // Sweep inline images (no per-row tracking) by wiping the article's R2 prefix.
-    await this.storage.deleteByPrefix(`tenants/${tenantId}/articles/${id}/`);
+    // Uploads key under the tenant SLUG (see store()), so the sweep must too —
+    // a tenantId prefix would never match and would orphan the images.
+    const slug = await tenantSlug(this.db, tenantId);
+    await this.storage.deleteByPrefix(`tenants/${slug}/articles/${id}/`);
 
     await this.db.delete(articleMedia).where(eq(articleMedia.articleId, id));
     await this.db
