@@ -46,12 +46,26 @@ export async function POST(req: NextRequest) {
     }
 
     const upstream = `https://${dsn.hostname}/api/${projectId}/envelope/`;
-    const res = await fetch(upstream, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-sentry-envelope' },
-      body: envelopeBytes,
-    });
-    return new Response(res.body, { status: res.status });
+    let res: Response;
+    try {
+      res = await fetch(upstream, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-sentry-envelope' },
+        body: envelopeBytes,
+        // Fail fast instead of hanging (which the edge masks as a generic 502)
+        // if the container can't reach Sentry's ingest host.
+        signal: AbortSignal.timeout(10000),
+      });
+    } catch (e) {
+      const err = e as Error;
+      return new Response(`tunnel fetch failed: ${err.name}: ${err.message}`, {
+        status: 502,
+      });
+    }
+    // Buffer the upstream response (avoid any streaming edge cases under
+    // output:'standalone') and pass it straight back to the SDK.
+    const respBody = await res.arrayBuffer();
+    return new Response(respBody, { status: res.status });
   } catch (e) {
     return new Response(`tunnel error: ${(e as Error).message}`, { status: 502 });
   }
