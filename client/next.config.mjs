@@ -56,4 +56,8 @@ export default withSentryConfig(nextConfig, {
   silent: !process.env.CI,
   widenClientFileUpload: true,
   disableLogger: true,
+  // Tunnel browser events through our own domain (/monitoring) instead of
+  // sentry.io, so ad-blockers (uBlock etc.) don't drop real users' error reports.
+  // Not auth-gated: middleware.ts matcher doesn't cover /monitoring.
+  tunnelRoute: '/monitoring',
 });
