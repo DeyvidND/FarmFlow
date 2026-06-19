@@ -58,9 +58,14 @@ export async function POST(req: NextRequest) {
       });
     } catch (e) {
       const err = e as Error;
-      return new Response(`tunnel fetch failed: ${err.name}: ${err.message}`, {
-        status: 502,
-      });
+      // TEMP DIAGNOSTIC: Cloudflare masks 5xx bodies, so return 200 to surface
+      // the real reason. Revert to 502 once the cause is known.
+      return new Response(
+        `DEBUG tunnel fetch failed: ${err.name}: ${err.message}${
+          err.cause ? ' | cause: ' + String(err.cause) : ''
+        }`,
+        { status: 200 },
+      );
     }
     // Buffer the upstream response (avoid any streaming edge cases under
     // output:'standalone') and pass it straight back to the SDK.
