@@ -44,10 +44,17 @@ describe('PlatformService', () => {
   let db: ReturnType<typeof makeDb>;
   let cacheDel: jest.Mock;
 
+  const productsCreate = jest.fn().mockResolvedValue({ id: 'p' });
+  const farmersCreate = jest.fn().mockResolvedValue({ id: 'f' });
+  const subcategoriesCreate = jest.fn().mockResolvedValue({ id: 'c' });
+
   beforeEach(async () => {
     db = makeDb();
     cacheDel = jest.fn().mockResolvedValue(undefined);
     jest.clearAllMocks();
+    productsCreate.mockClear().mockResolvedValue({ id: 'p' });
+    farmersCreate.mockClear().mockResolvedValue({ id: 'f' });
+    subcategoriesCreate.mockClear().mockResolvedValue({ id: 'c' });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -60,9 +67,9 @@ describe('PlatformService', () => {
         { provide: BillingService, useValue: { setPremium: jest.fn().mockResolvedValue(undefined) } },
         { provide: PublicCacheService, useValue: { del: cacheDel } },
         { provide: ConfigService, useValue: { get: (_k: string, d?: any) => (_k === 'EMAIL_COST_PER_RECIPIENT_MICRO' ? 370 : d) } },
-        { provide: ProductsService, useValue: { create: jest.fn().mockResolvedValue({ id: 'p' }) } },
-        { provide: FarmersService, useValue: { create: jest.fn().mockResolvedValue({ id: 'f' }) } },
-        { provide: SubcategoriesService, useValue: { create: jest.fn().mockResolvedValue({ id: 'c' }) } },
+        { provide: ProductsService, useValue: { create: productsCreate } },
+        { provide: FarmersService, useValue: { create: farmersCreate } },
+        { provide: SubcategoriesService, useValue: { create: subcategoriesCreate } },
         { provide: TenantsService, useValue: { updateSiteContact: jest.fn(), setFavicon: jest.fn() } },
       ],
     }).compile();
@@ -134,6 +141,37 @@ describe('PlatformService', () => {
       db.limit.mockResolvedValueOnce([{ id: 'existing' }]);
 
       await expect(service.createTenant(dto)).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ── createDemoTenant ────────────────────────────────────────────────────────
+  describe('createDemoTenant', () => {
+    it('creates an is_demo tenant with a future expiry, owner mustChangePassword=false, and seeds the demo catalog', async () => {
+      db.limit.mockResolvedValueOnce([]);           // email free
+      db.limit.mockResolvedValueOnce([]);           // slug free
+      const tenantRow = { id: 'demo-1', name: 'Демо ферма ab12', slug: 'demo-ferma-ab12', email: 'demo-x@demo.farmflow.bg' };
+      db.returning.mockResolvedValueOnce([tenantRow]);  // tenant insert
+      (argon2.hash as jest.Mock).mockResolvedValueOnce('hashed');
+      db.returning.mockResolvedValueOnce([{ id: 'user-1' }]); // user insert
+      db.limit.mockResolvedValueOnce([{ id: 'demo-1' }]);     // importTenant tenant-exists
+
+      const before = Date.now();
+      const res = await service.createDemoTenant(14);
+
+      const tenantValues = db.values.mock.calls[0]?.[0];
+      expect(tenantValues).toMatchObject({ isDemo: true });
+      expect(tenantValues.demoExpiresAt.getTime()).toBeGreaterThan(before);
+
+      const userValues = db.values.mock.calls[1]?.[0];
+      expect(userValues).toMatchObject({ role: 'admin', mustChangePassword: false });
+
+      expect(subcategoriesCreate).toHaveBeenCalledTimes(3);
+      expect(farmersCreate).toHaveBeenCalledTimes(2);
+      expect(productsCreate).toHaveBeenCalledTimes(8);
+
+      expect(res).toMatchObject({ id: 'demo-1', email: expect.stringContaining('@'), password: expect.any(String) });
+      expect(typeof res.expiresAt).toBe('string');
+      expect(res.password.length).toBeGreaterThanOrEqual(12);
     });
   });
 

@@ -9,6 +9,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
+import { randomBytes } from 'node:crypto';
 import { asc, eq, sql, desc } from 'drizzle-orm';
 import { BillingService } from '../billing/billing.service';
 import { emailCostStotinki } from '../billing/billing.pricing';
@@ -37,6 +38,7 @@ import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { sanitizeSiteUrl } from '../tenants/site-copy';
+import { DEMO_SEED } from './demo-seed';
 
 export interface PlatformTenantRow {
   id: string;
@@ -520,6 +522,73 @@ export class PlatformService {
     return { id: tenant.id, name: tenant.name, slug: tenant.slug, email: tenant.email ?? dto.email };
   }
 
+  /** One-click disposable demo: auto creds + fixed seed catalog. Owner can log in
+   *  immediately (no forced password change), and the account auto-deletes after
+   *  `days` (default 14). Returns the shareable credentials. */
+  async createDemoTenant(
+    days = 14,
+  ): Promise<{ id: string; name: string; slug: string; email: string; password: string; expiresAt: string }> {
+    const tag = randomBytes(3).toString('hex'); // 6 hex chars
+    const name = `Демо ферма ${tag}`;
+    const email = `demo-${tag}@demo.farmflow.bg`;
+    const password = genDemoPassword();
+
+    // Astronomically unlikely with a random tag, but keep the unique-email contract.
+    const existing = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+    if (existing.length) throw new ConflictException('Имейлът вече е зает — опитайте пак');
+
+    const slug = await this.uniqueSlug(name);
+    const expiresAt = new Date(Date.now() + days * 86_400_000);
+
+    const [tenant] = await this.db
+      .insert(tenants)
+      .values({
+        name,
+        slug,
+        email,
+        subscriptionStatus: 'active',
+        subscriptionSince: new Date(),
+        deliveryEnabled: true,
+        isDemo: true,
+        demoExpiresAt: expiresAt,
+        settings: {
+          delivery: {
+            methods: {
+              pickup: { enabled: true },
+              ownSlots: { enabled: false },
+              econtOffice: { enabled: false },
+              econtAddress: { enabled: false },
+            },
+            cod: { enabled: true },
+            card: { enabled: true },
+            econt: { mode: 'off' },
+          },
+        },
+      })
+      .returning();
+
+    await this.db
+      .insert(users)
+      .values({
+        tenantId: tenant.id,
+        email,
+        passwordHash: await argon2.hash(password),
+        role: 'admin',
+        // Demos skip the forced reset so a friend logs straight in with these creds.
+        mustChangePassword: false,
+      })
+      .returning();
+
+    // Seed the sample catalog via the same path super-admin onboarding uses.
+    await this.importTenant(tenant.id, DEMO_SEED);
+
+    return { id: tenant.id, name: tenant.name, slug: tenant.slug, email, password, expiresAt: expiresAt.toISOString() };
+  }
+
   /** Super-admin onboarding seed: bulk-create catalog + contact + favicon for a
    *  tenant by id. Runs as the operator, so it bypasses the new tenant's
    *  mustChangePassword lock (which blocks every owner-side write pre-handoff).
@@ -624,4 +693,13 @@ function slugify(input: string): string {
     .join('')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+const DEMO_PW_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+/** 14-char CSPRNG password for a demo owner (server-side; the UI never sees the hash). */
+function genDemoPassword(): string {
+  const bytes = randomBytes(14);
+  let p = '';
+  for (let i = 0; i < bytes.length; i++) p += DEMO_PW_CHARS[bytes[i] % DEMO_PW_CHARS.length];
+  return p;
 }
