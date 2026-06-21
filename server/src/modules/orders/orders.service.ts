@@ -1051,6 +1051,9 @@ export class OrdersService {
           // Address stored for local + Econt-to-address; only Econt-office omits it.
           deliveryAddress: isEcontOffice ? null : dto.deliveryAddress ?? null,
           deliveryCity: isEcontOffice ? null : dto.deliveryCity ?? null,
+          // Block/entrance detail — local delivery only (Econt keeps it inline in
+          // deliveryAddress; office delivery has no street).
+          deliveryNote: isLocal ? dto.deliveryNote ?? null : null,
           // Coords are for the farm's own route — local delivery only.
           deliveryLat: isLocal && lat != null ? String(lat) : null,
           deliveryLng: isLocal && lng != null ? String(lng) : null,
