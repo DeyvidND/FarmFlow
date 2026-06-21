@@ -523,6 +523,8 @@ export interface Order {
   totalStotinki: number;
   deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address';
   deliveryAddress: string | null;
+  /** Block/entrance/floor/flat detail (бл./вх.), kept separate from the street. */
+  deliveryNote: string | null;
   econtOffice: string | null;
   notes: string | null;
   createdAt: string;
