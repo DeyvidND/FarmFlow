@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete,
+  Controller, Get, Post, Patch, Delete, HttpCode,
   Param, Body, Query, UseGuards, Res,
   UploadedFile, UseInterceptors,
   ParseFilePipe, FileTypeValidator, MaxFileSizeValidator,
@@ -156,5 +156,19 @@ export class NewsletterController {
 </body>
 </html>`);
     }
+  }
+
+  /**
+   * RFC 8058 one-click unsubscribe — the `List-Unsubscribe-Post` target. Mailbox
+   * providers (Gmail/Yahoo) POST here with `List-Unsubscribe=One-Click` when the
+   * user clicks the native unsubscribe button; same effect as the GET link. No
+   * auth (token-verified), no HTML — just 200.
+   */
+  @Post('unsubscribe')
+  @HttpCode(200)
+  @ApiQuery({ name: 'token', required: true })
+  async oneClickUnsubscribe(@Query('token') token: string) {
+    await this.newsletterService.unsubscribe(token ?? '');
+    return { ok: true };
   }
 }

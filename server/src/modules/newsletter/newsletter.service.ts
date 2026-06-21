@@ -353,6 +353,12 @@ export class NewsletterService {
           text,
           stream: 'bulk', // newsletters ride the bulk reputation lane
           skipSuppressionCheck: true, // already filtered above (one batch query)
+          // Gmail/Yahoo bulk-sender rules: one-click unsubscribe. The GET URL is the
+          // human link; the POST (RFC 8058) is the mailbox provider's one-click button.
+          headers: {
+            'List-Unsubscribe': `<${unsubscribeUrl}>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+          },
         });
         sent++;
       } catch (err) {

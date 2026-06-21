@@ -28,6 +28,8 @@ describe('DemoRequestService', () => {
     expect(arg.html).toContain('ivan@example.bg');
     expect(arg.html).toContain('Слънчо');
     expect(arg.html).toContain('0888');
+    // Reply goes to the prospect, not no-reply@.
+    expect(arg.replyTo).toBe('ivan@example.bg');
   });
 
   it('prefers DEMO_LEADS_EMAIL over SUPER_ADMIN_EMAIL', async () => {

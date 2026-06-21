@@ -13,11 +13,42 @@ import { EMAIL_QUEUE } from '../queue/queue.constants';
  *  critical mail like password resets. */
 export type EmailStream = 'transactional' | 'bulk';
 
+/**
+ * Crude HTML → plain text for the multipart `text/plain` alternative. Its job is
+ * deliverability, not fidelity: HTML-only mail scores worse with spam filters, so
+ * every message gets a text part. Not exported for rendering — only as a fallback.
+ */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#3?9;/gi, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export interface SendMailOptions {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  /**
+   * Reply-To header. Falls back to the `EMAIL_REPLY_TO` env. A monitored, replyable
+   * address (vs the `no-reply` From) reads as legitimate to spam filters and lets
+   * recipients actually reply.
+   */
+  replyTo?: string;
+  /** Extra SMTP headers — e.g. `List-Unsubscribe` / `List-Unsubscribe-Post` for bulk. */
+  headers?: Record<string, string>;
   /** Defaults to 'transactional'. */
   stream?: EmailStream;
   /**
@@ -38,6 +69,7 @@ export class EmailService implements OnModuleInit {
   private readonly bulkFrom: string;
   private readonly previewDir: string;
   private readonly isDevMode: boolean;
+  private readonly defaultReplyTo: string | undefined;
 
   constructor(
     private readonly config: ConfigService,
@@ -53,6 +85,9 @@ export class EmailService implements OnModuleInit {
     this.previewDir =
       config.get<string>('MAIL_PREVIEW_DIR') ?? path.join(process.cwd(), '.mail-preview');
     this.isDevMode = !config.get<string>('SMTP_HOST');
+    // A monitored reply address (Email Routing forwards it) beats a bare no-reply
+    // From for deliverability. Per-call `replyTo` overrides this.
+    this.defaultReplyTo = config.get<string>('EMAIL_REPLY_TO') || undefined;
   }
 
   onModuleInit(): void {
@@ -104,6 +139,10 @@ export class EmailService implements OnModuleInit {
     }
 
     const from = this.streamFrom(stream);
+    // Every message ships a text/plain alternative (auto-derived from the HTML when
+    // a caller didn't supply one) — HTML-only mail scores worse with spam filters.
+    const text = options.text ?? htmlToText(options.html);
+    const replyTo = options.replyTo ?? this.defaultReplyTo;
 
     if (!this.isDevMode && this.transporter) {
       await this.transporter.sendMail({
@@ -111,7 +150,9 @@ export class EmailService implements OnModuleInit {
         to: options.to,
         subject: options.subject,
         html: options.html,
-        text: options.text,
+        text,
+        ...(replyTo ? { replyTo } : {}),
+        ...(options.headers ? { headers: options.headers } : {}),
       });
       return;
     }

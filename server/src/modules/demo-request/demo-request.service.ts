@@ -59,6 +59,8 @@ export class DemoRequestService {
       to,
       subject: `Нова заявка за демо — ${name}`,
       html,
+      // Operator hits "reply" → goes straight to the prospect, not no-reply@.
+      replyTo: dto.email.trim(),
     });
     this.logger.log(`demo-request lead from ${dto.email.trim()} → ${to}`);
     return { ok: true };

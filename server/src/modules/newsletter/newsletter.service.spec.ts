@@ -224,6 +224,9 @@ describe('NewsletterService', () => {
       expect(callArg.html).toContain('/unsubscribe?token=');
       expect(callArg.html).toContain('unsub-token-abc');
       expect(callArg.html).not.toContain('{{UNSUB}}');
+      // Gmail/Yahoo bulk rules: List-Unsubscribe header + one-click POST.
+      expect(callArg.headers['List-Unsubscribe']).toContain('/unsubscribe?token=');
+      expect(callArg.headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
     });
 
     it('rejects an already-sent campaign', async () => {
