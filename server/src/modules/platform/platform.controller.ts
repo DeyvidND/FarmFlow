@@ -23,7 +23,7 @@ import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CreateDemoDto } from './dto/create-demo.dto';
 import { PlatformImportDto } from './dto/platform-import.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
-import { ChangePasswordDto } from '../auth/dto/change-password.dto';
+import { PlatformChangePasswordDto } from './dto/platform-change-password.dto';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { RequestUser } from '@farmflow/types';
@@ -146,7 +146,7 @@ export class PlatformController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('change-password')
   @HttpCode(200)
-  platformChangePassword(@CurrentUser() user: RequestUser, @Body() dto: ChangePasswordDto) {
+  platformChangePassword(@CurrentUser() user: RequestUser, @Body() dto: PlatformChangePasswordDto) {
     const adminId = (user as { type: 'platform'; adminId: string }).adminId;
     return this.platform.platformChangePassword(adminId, dto);
   }

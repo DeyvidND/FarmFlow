@@ -39,6 +39,48 @@ const BASE_ROW = {
   settings: null,
 };
 
+describe('PublicCacheService.resolveTenant — negative sentinel caching', () => {
+  it('stores a sentinel and throws 404 when the slug is not in the DB', async () => {
+    const redis = makeRedis();
+    const svc = new PublicCacheService(redis as never);
+    await expect(svc.resolveTenant(makeDb([]), 'no-such-farm')).rejects.toMatchObject({
+      status: 404,
+    });
+    // Sentinel must have been written with a short TTL.
+    const [key, value, , ttl] = redis.set.mock.calls[0];
+    expect(key).toBe('tenant:no-such-farm');
+    expect(value).toBe('__404__');
+    expect(Number(ttl)).toBeLessThanOrEqual(60);
+  });
+
+  it('throws 404 immediately from cache on a sentinel hit (no DB query)', async () => {
+    const redis = {
+      get: jest.fn().mockResolvedValue('__404__'),
+      set: jest.fn().mockResolvedValue('OK'),
+      del: jest.fn().mockResolvedValue(1),
+    };
+    const db = makeDb([BASE_ROW]) as any; // would resolve if queried
+    const svc = new PublicCacheService(redis as never);
+    await expect(svc.resolveTenant(db, 'ghost-farm')).rejects.toMatchObject({ status: 404 });
+    // DB must NOT have been touched.
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('returns a real tenant when the cache holds a JSON object (not a sentinel)', async () => {
+    const meta = { id: 'tid-x', name: 'Real Farm', slug: 'real-farm' };
+    const redis = {
+      get: jest.fn().mockResolvedValue(JSON.stringify(meta)),
+      set: jest.fn().mockResolvedValue('OK'),
+      del: jest.fn().mockResolvedValue(1),
+    };
+    const db = makeDb([]) as any; // empty — would 404 if queried
+    const svc = new PublicCacheService(redis as never);
+    const result = await svc.resolveTenant(db, 'real-farm');
+    expect(result).toEqual(meta);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+});
+
 describe('PublicCacheService.resolveTenant — copy/faq projection', () => {
   it('derives cleaned copy + faq from settings', async () => {
     const row = {

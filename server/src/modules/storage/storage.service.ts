@@ -11,4 +11,10 @@ export abstract class StorageService {
   abstract deleteByPrefix(prefix: string): Promise<void>;
 
   abstract getPublicUrl(key: string): string;
+
+  /** Origin under which all stored objects are publicly served (e.g.
+   *  `https://cdn.example.com`), or '' when storage isn't configured. Used as the
+   *  SSRF allow-origin when re-fetching a stored cover by URL — see
+   *  {@link smartFocalFromUrl}. */
+  abstract getPublicBaseUrl(): string;
 }

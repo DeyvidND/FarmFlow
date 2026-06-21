@@ -1,4 +1,4 @@
-import { assembleCartPicks } from './recommendations.logic';
+import { assembleCartPicks, rankCartCoOccurrence } from './recommendations.logic';
 import type { PublicProduct } from '@farmflow/types';
 
 /** Minimal public product for the assembly logic (only id + featured matter). */
@@ -97,5 +97,30 @@ describe('assembleCartPicks', () => {
       bestSellerIds: ['c'],
     });
     expect(out).toEqual([]);
+  });
+});
+
+describe('rankCartCoOccurrence', () => {
+  it('ranks co-bought products of the cart by aggregated pairing strength', () => {
+    // anchor 'a' was most often bought with x then y; 'b' with y then z.
+    const map = { a: ['x', 'y'], b: ['y', 'z'] };
+    // cart = [a, b]. y is paired with BOTH a and b → should outrank x and z.
+    expect(rankCartCoOccurrence(map, ['a', 'b'])).toEqual(['y', 'x', 'z']);
+  });
+
+  it('is cart-aware: only co-occurrences of the cart anchors surface', () => {
+    const map = { a: ['x'], c: ['z'] };
+    // c is not in the cart, so z must not appear.
+    expect(rankCartCoOccurrence(map, ['a'])).toEqual(['x']);
+  });
+
+  it('never returns a product that is itself in the cart', () => {
+    const map = { a: ['b', 'x'] }; // a co-occurs with b, but b is also in the cart
+    expect(rankCartCoOccurrence(map, ['a', 'b'])).toEqual(['x']);
+  });
+
+  it('returns empty for an empty cart or an anchor with no co-occurrences', () => {
+    expect(rankCartCoOccurrence({ a: ['x'] }, [])).toEqual([]);
+    expect(rankCartCoOccurrence({}, ['a'])).toEqual([]);
   });
 });

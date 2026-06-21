@@ -24,21 +24,19 @@ export type PickerProduct = {
 };
 
 export default async function AvailabilityPage() {
-  const me = await fetchJson<{ role?: string; farmerId?: string | null }>(
-    'auth/me',
-    {},
-  );
-  const role = (me.role ?? 'admin') as 'admin' | 'farmer';
-
-  const [products, tenant, farmers] = await Promise.all([
+  // auth/me, the products picker, tenants/me, and the farmers list are all
+  // independent — fetch in a single parallel batch. For producers the farmers
+  // endpoint returns an empty array scoped by the tenant, so the unconditional
+  // call is safe and eliminates the serial auth/me round-trip.
+  const [me, products, tenant, farmers] = await Promise.all([
+    fetchJson<{ role?: string; farmerId?: string | null }>('auth/me', {}),
     // Scoped picker endpoint — owner gets all active products, producer gets only theirs.
     fetchJson<PickerProduct[]>('availability-windows/products', []),
     fetchJson<{ multiFarmer?: boolean }>('tenants/me', {}),
     // Farmers list only needed for the owner farmer-filter dropdown.
-    role === 'admin'
-      ? fetchJson<{ id: string; name: string }[]>('farmers', [])
-      : Promise.resolve([]),
+    fetchJson<{ id: string; name: string }[]>('farmers', []),
   ]);
+  const role = (me.role ?? 'admin') as 'admin' | 'farmer';
 
   const multiFarmer = tenant.multiFarmer === true;
 

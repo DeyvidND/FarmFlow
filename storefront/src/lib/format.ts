@@ -1,5 +1,7 @@
 /** Small formatting helpers for article/blog rendering. */
 
+import DOMPurify from 'isomorphic-dompurify';
+
 const MONTHS_FULL = [
   'януари', 'февруари', 'март', 'април', 'май', 'юни',
   'юли', 'август', 'септември', 'октомври', 'ноември', 'декември',
@@ -27,7 +29,10 @@ export function bodyToHtml(body: string | null | undefined): string {
   if (!body) return '';
   // HTML only when it BEGINS with a tag (server-sanitized bodies always do).
   // Legacy plain text containing a stray "<tag" mid-string is escaped below.
-  if (/^\s*<[a-z]/i.test(body)) return body;
+  // The API already strict-allowlists this HTML on write; DOMPurify here is a
+  // second barrier so a sanitizer regression / new write path can't become
+  // stored XSS on the public storefront (mirrors the client panel's renderer).
+  if (/^\s*<[a-z]/i.test(body)) return DOMPurify.sanitize(body);
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return body
     .split(/\n\s*\n/)
@@ -58,7 +63,8 @@ const decodeEntities = (s: string) =>
  *  values (with safe inline tags) pass through; legacy plain text is escaped. */
 export function inlineToHtml(value: string | null | undefined): string {
   if (!value) return '';
-  return /<[a-z][\s\S]*>/i.test(value) ? value : escapeHtml(value);
+  // Sanitized server-side on write; DOMPurify is the defense-in-depth second barrier.
+  return /<[a-z][\s\S]*>/i.test(value) ? DOMPurify.sanitize(value) : escapeHtml(value);
 }
 
 /** Inline rich field → plain text. For <title>/meta, alt text and aria labels. */

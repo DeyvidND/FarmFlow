@@ -115,7 +115,10 @@ export class StripeService {
       .split(',')[0]
       .trim()
       .replace(/\/+$/, '');
-    this.client = key ? new Stripe(key) : null;
+    // Таймаут 15 с + 2 автоматични retry (с Retry-After на 429) вместо SDK-дефолта 80 с / без retry.
+    this.client = key
+      ? new Stripe(key, { maxNetworkRetries: 2, timeout: 15000, apiVersion: '2026-05-27.dahlia' })
+      : null;
     if (!this.client) {
       this.logger.warn(
         'STRIPE_SECRET_KEY not set — Stripe disabled; storefront checkout uses the cash path.',
@@ -209,7 +212,9 @@ export class StripeService {
     return { url: link.url };
   }
 
-  /** Whether the farm can take card payments yet (onboarding complete + enabled). */
+  /** Whether the farm can take card payments yet (onboarding complete + enabled).
+   *  Reads the capability flags mirrored onto the tenant row by the account.updated
+   *  webhook (syncAccountStatus) — avoids a live Stripe call on every page load. */
   async accountStatus(tenantId: string): Promise<{
     connected: boolean;
     chargesEnabled: boolean;
@@ -217,19 +222,23 @@ export class StripeService {
     detailsSubmitted: boolean;
   }> {
     const [tenant] = await this.db
-      .select({ stripeAccountId: tenants.stripeAccountId })
+      .select({
+        stripeAccountId: tenants.stripeAccountId,
+        stripeChargesEnabled: tenants.stripeChargesEnabled,
+        stripePayoutsEnabled: tenants.stripePayoutsEnabled,
+        stripeDetailsSubmitted: tenants.stripeDetailsSubmitted,
+      })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
     if (!tenant?.stripeAccountId) {
       return { connected: false, chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false };
     }
-    const acct = await this.stripe.accounts.retrieve(tenant.stripeAccountId);
     return {
       connected: true,
-      chargesEnabled: !!acct.charges_enabled,
-      payoutsEnabled: !!acct.payouts_enabled,
-      detailsSubmitted: !!acct.details_submitted,
+      chargesEnabled: !!tenant.stripeChargesEnabled,
+      payoutsEnabled: !!tenant.stripePayoutsEnabled,
+      detailsSubmitted: !!tenant.stripeDetailsSubmitted,
     };
   }
 
@@ -238,6 +247,10 @@ export class StripeService {
    * Payments page. Never throws: returns a safe disconnected summary when Stripe
    * is disabled, the farm has no account, or any Stripe lookup fails — so the
    * page can render every state from this one call.
+   *
+   * Result is Redis-cached for 45 s (keyed `stripe:summary:{tenantId}`). The
+   * cache is busted by markOrderPaid, markOrderRefunded and syncAccountStatus
+   * so the screen is fresh after a payment or an account.updated webhook.
    */
   async connectSummary(tenantId: string): Promise<ConnectSummary> {
     const base: ConnectSummary = {
@@ -253,6 +266,11 @@ export class StripeService {
       feeBps: this.feeBps,
     };
     if (!this.client) return base;
+
+    // Cache hit — serve без Stripe calls.
+    const cacheKey = `stripe:summary:${tenantId}`;
+    const hit = await this.publicCache.get<ConnectSummary>(cacheKey);
+    if (hit) return hit;
 
     const [tenant] = await this.db
       .select({ stripeAccountId: tenants.stripeAccountId })
@@ -279,42 +297,50 @@ export class StripeService {
     }
 
     // A fresh, not-yet-active account can reject balance/payout reads — guard.
-    if (!base.chargesEnabled) return base;
-
-    try {
-      const balance = await this.client.balance.retrieve({}, { stripeAccount: accountId });
-      base.availableStotinki = this.sumByCurrency(balance.available, settleCcy);
-      base.pendingStotinki = this.sumByCurrency(balance.pending, settleCcy);
-    } catch (err) {
-      this.logger.warn(`Stripe balance read failed (${tenantId}): ${this.errText(err)}`);
+    if (!base.chargesEnabled) {
+      await this.publicCache.set(cacheKey, base, 45);
+      return base;
     }
 
-    try {
-      const payouts = await this.client.payouts.list({ limit: 1 }, { stripeAccount: accountId });
-      const p = payouts.data[0];
+    // Трите независими заявки — balance, payouts, charges — вървят паралелно.
+    const [balanceResult, payoutsResult, chargesResult] = await Promise.allSettled([
+      this.client.balance.retrieve({}, { stripeAccount: accountId }),
+      this.client.payouts.list({ limit: 1 }, { stripeAccount: accountId }),
+      this.client.charges.list({ limit: 5 }, { stripeAccount: accountId }),
+    ]);
+
+    if (balanceResult.status === 'fulfilled') {
+      base.availableStotinki = this.sumByCurrency(balanceResult.value.available, settleCcy);
+      base.pendingStotinki = this.sumByCurrency(balanceResult.value.pending, settleCcy);
+    } else {
+      this.logger.warn(`Stripe balance read failed (${tenantId}): ${this.errText(balanceResult.reason)}`);
+    }
+
+    if (payoutsResult.status === 'fulfilled') {
+      const p = payoutsResult.value.data[0];
       if (p && (p.status === 'pending' || p.status === 'in_transit')) {
         base.nextPayout = {
           amountStotinki: p.amount,
           arrivalDate: new Date(p.arrival_date * 1000).toISOString(),
         };
       }
-    } catch (err) {
-      this.logger.warn(`Stripe payout read failed (${tenantId}): ${this.errText(err)}`);
+    } else {
+      this.logger.warn(`Stripe payout read failed (${tenantId}): ${this.errText(payoutsResult.reason)}`);
     }
 
-    try {
-      const charges = await this.client.charges.list({ limit: 5 }, { stripeAccount: accountId });
-      base.recentPayments = charges.data.map((c) => ({
+    if (chargesResult.status === 'fulfilled') {
+      base.recentPayments = chargesResult.value.data.map((c) => ({
         amountStotinki: c.amount,
         currency: c.currency,
         status: c.status,
         created: new Date(c.created * 1000).toISOString(),
         description: c.description ?? c.billing_details?.email ?? null,
       }));
-    } catch (err) {
-      this.logger.warn(`Stripe charges read failed (${tenantId}): ${this.errText(err)}`);
+    } else {
+      this.logger.warn(`Stripe charges read failed (${tenantId}): ${this.errText(chargesResult.reason)}`);
     }
 
+    await this.publicCache.set(cacheKey, base, 45);
     return base;
   }
 
@@ -327,6 +353,19 @@ export class StripeService {
 
   private errText(err: unknown): string {
     return err instanceof Error ? err.message : 'unknown';
+  }
+
+  /**
+   * Изтрива кешираните ключове за Плащания на даден tenant — същите ключове,
+   * които управлява OrdersService.bustPayments. Използва се след webhook
+   * events, за да не показва старо салдо до изтичане на TTL-а.
+   */
+  private async bustPaymentsCache(tenantId: string): Promise<void> {
+    await this.publicCache.del(
+      `payments:totals:${tenantId}`,
+      `payments:list:${tenantId}:all`,
+      `payments:list:${tenantId}:cod`,
+    );
   }
 
   /* ------------------------------- checkout -------------------------------- */
@@ -593,11 +632,14 @@ export class StripeService {
         stripeStatusUpdatedAt: new Date(),
       })
       .where(eq(tenants.stripeAccountId, account.id))
-      .returning({ slug: tenants.slug });
+      .returning({ slug: tenants.slug, tenantId: tenants.id });
     // charges_enabled flipping (onboarding completed/lapsed) changes the storefront's
     // `stripeEnabled` card gate — bust `tenant:{slug}` so the card option isn't stale
     // for up to the cache TTL after the farm finishes connecting.
     if (rows[0]?.slug) await this.publicCache.del(publicCacheKeys.tenant(rows[0].slug));
+    // Bust connectSummary cache — account flags са се променили, страницата Плащания
+    // трябва да покаже новото стояние веднага.
+    if (rows[0]?.tenantId) await this.publicCache.del(`stripe:summary:${rows[0].tenantId}`);
   }
 
   /** Drop a connected account's link + cached flags when the farm deauthorizes us. */
@@ -691,6 +733,11 @@ export class StripeService {
       .returning({ id: orders.id });
     if (!flipped.length) return; // already confirmed by the sibling event
 
+    // Bust payments cache за този tenant — Плащания показва потвърдения превод веднага.
+    await this.bustPaymentsCache(tenantId);
+    // Bust connectSummary cache — balance/recent-payments са се променили.
+    await this.publicCache.del(`stripe:summary:${tenantId}`);
+
     // Fire-and-forget: auto-create the Econt waybill if the farm enabled it +
     // email the buyer their confirmation. Neither must block or fail the webhook
     // (both swallow their own errors).
@@ -721,6 +768,10 @@ export class StripeService {
       return;
     }
     await this.db.update(orders).set({ status: 'cancelled', paidAt: null }).where(cond);
+    // Bust payments cache за tenant — анулираният ред изчезва от Плащания.
+    await this.bustPaymentsCache(tenantId);
+    // Bust connectSummary cache — charge е refunded, balance/recent-payments са се променили.
+    await this.publicCache.del(`stripe:summary:${tenantId}`);
   }
 
   /** Cancel an order whose Stripe Checkout session expired unpaid — frees its slot.

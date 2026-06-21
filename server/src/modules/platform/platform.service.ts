@@ -166,10 +166,13 @@ export class PlatformService {
 
   /** Platform admin login → platform-typed JWT. */
   async login(email: string, password: string): Promise<{ accessToken: string }> {
+    // Case-insensitive match: the bootstrap super-admin and onboarded accounts are
+    // stored lowercased, but a legacy/mixed-case row must not lock the operator out.
+    const normalized = email.trim().toLowerCase();
     const [admin] = await this.db
       .select()
       .from(platformAdmins)
-      .where(eq(platformAdmins.email, email))
+      .where(sql`lower(${platformAdmins.email}) = ${normalized}`)
       .limit(1);
 
     const invalid = new UnauthorizedException('Грешен имейл или парола');
@@ -210,11 +213,38 @@ export class PlatformService {
       .catch(() => undefined);
   }
 
-  /** Every farm + order summary (count, last order). One grouped query, keyset-paginated. */
+  /**
+   * Every farm + order summary (count, last order). One grouped query,
+   * keyset-paginated, Redis-cached per (cursor, limit) for 60 s.
+   *
+   * Why cache instead of correlated subqueries: the correlated-subquery rewrite
+   * is theoretically faster on large tables but requires emitting raw SQL for
+   * Drizzle and risks breaking the keyset cursor shape. The cache approach is
+   * lower-risk and fully sufficient for a super-admin-only list: at most one
+   * operator refreshes this every few seconds, so a 60 s TTL absorbs all repeat
+   * loads with zero extra Postgres work, and a write-bust is not needed because
+   * staleness of 60 s is acceptable for a management overview.
+   */
   async listTenants(
     opts: { cursor?: string; limit?: number } = {},
   ): Promise<Paginated<PlatformTenantRow>> {
     const lim = clampLimit(opts.limit);
+    // Include both inputs in the cache key so different pages are separate entries.
+    const cacheKey = `platform:tenants:${opts.cursor ?? ''}:${lim}`;
+    const cached = await this.publicCache.get<Paginated<PlatformTenantRow>>(cacheKey);
+    if (cached) {
+      // Dates are serialised to strings in JSON — restore them so callers get
+      // real Date objects (same as a live DB row).
+      cached.items = cached.items.map((r) => ({
+        ...r,
+        createdAt: r.createdAt ? new Date(r.createdAt) : null,
+        lastOrderAt: r.lastOrderAt ? new Date(r.lastOrderAt) : null,
+        graceUntil: r.graceUntil ? new Date(r.graceUntil) : null,
+        demoExpiresAt: r.demoExpiresAt ? new Date(r.demoExpiresAt) : null,
+      }));
+      return cached;
+    }
+
     const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
 
     const base = this.db
@@ -243,7 +273,9 @@ export class PlatformService {
       .orderBy(asc(tenants.createdAt), asc(tenants.id))
       .limit(lim + 1)) as PlatformTenantRow[];
 
-    return buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    await this.publicCache.set(cacheKey, page, 60);
+    return page;
   }
 
   /**
@@ -576,11 +608,14 @@ export class PlatformService {
 
   /** Onboard a new farm: tenant + owner user with mustChangePassword=true. */
   async createTenant(dto: CreateTenantDto): Promise<{ id: string; name: string; slug: string; email: string }> {
+    // Store and match emails lowercased so login (also case-insensitive) can never
+    // miss the row, and a case-variant duplicate (Admin@x vs admin@x) is rejected.
+    const email = dto.email.trim().toLowerCase();
     // Reject duplicate email
     const existing = await this.db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.email, dto.email))
+      .where(sql`lower(${users.email}) = ${email}`)
       .limit(1);
     if (existing.length) throw new ConflictException('Имейлът вече е зает');
 
@@ -592,7 +627,7 @@ export class PlatformService {
         name: dto.farmName,
         slug,
         phone: dto.phone,
-        email: dto.email,
+        email,
         subscriptionStatus: 'active',
         subscriptionSince: new Date(),
         // Make the shop sellable the moment it goes live: cash-on-delivery + market
@@ -620,7 +655,7 @@ export class PlatformService {
       .insert(users)
       .values({
         tenantId: tenant.id,
-        email: dto.email,
+        email,
         passwordHash: await argon2.hash(dto.tempPassword),
         role: 'admin',
         mustChangePassword: true,

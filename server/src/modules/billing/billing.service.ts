@@ -62,7 +62,10 @@ export class BillingService {
     private readonly email: EmailService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
-    this.client = key ? new Stripe(key) : null;
+    // Таймаут 15 с + 2 автоматични retry (с Retry-After на 429) вместо SDK-дефолта 80 с / без retry.
+    this.client = key
+      ? new Stripe(key, { maxNetworkRetries: 2, timeout: 15000, apiVersion: '2026-05-27.dahlia' })
+      : null;
     this.priceId = config.get<string>('STRIPE_BILLING_PRICE_ID')?.trim() ?? '';
     this.basePrice = config.get<number>('BILLING_BASE_PRICE_STOTINKI', 3000);
     this.emailPerRecipientMicro = config.get<number>('EMAIL_PRICE_PER_RECIPIENT_MICRO', 555);

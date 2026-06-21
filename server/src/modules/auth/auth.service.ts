@@ -32,10 +32,14 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto): Promise<{ accessToken: string }> {
+    // Email is matched case-insensitively: accounts are stored lowercased on the
+    // write paths, but legacy rows (and operator typos) may differ in case, and a
+    // case mismatch must not lock a user out. lower(...) covers both.
+    const email = dto.email.trim().toLowerCase();
     const [user] = await this.db
       .select()
       .from(users)
-      .where(eq(users.email, dto.email))
+      .where(sql`lower(${users.email}) = ${email}`)
       .limit(1);
 
     const invalid = new UnauthorizedException('Грешен имейл или парола');

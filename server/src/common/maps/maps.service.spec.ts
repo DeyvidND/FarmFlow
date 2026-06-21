@@ -167,6 +167,76 @@ describe('MapsService.geocode', () => {
   });
 });
 
+describe('MapsService.fetchJson retry/backoff', () => {
+  // Speed up the back-off delay for all tests in this describe by replacing
+  // Promise-based sleep with an immediate resolver. This avoids touching global
+  // timers (which would break the AbortController timeout inside fetchOnce).
+  function makeRetryFetch(responses: Array<{ ok: boolean; status: number; headers?: Record<string, string>; json?: () => Promise<unknown> }>) {
+    let i = 0;
+    (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => {
+      const r = responses[Math.min(i, responses.length - 1)];
+      i++;
+      return {
+        ok: r.ok,
+        status: r.status,
+        headers: { get: (h: string) => r.headers?.[h.toLowerCase()] ?? null },
+        json: r.json ?? (async () => ({})),
+      } as unknown as Response;
+    });
+  }
+
+  it('retries once on 429 and returns the result from the second attempt', async () => {
+    makeRetryFetch([
+      { ok: false, status: 429 },
+      { ok: true, status: 200, json: async () => geoOk(42.1, 23.1) },
+    ]);
+    const result = await make('k').geocode('ул. Тест 1');
+    expect(result).toEqual({ lat: 42.1, lng: 23.1 });
+    expect((global as any).fetch).toHaveBeenCalledTimes(2);
+  }, 15000);
+
+  it('retries once on 503 and returns null when the second attempt also fails', async () => {
+    makeRetryFetch([
+      { ok: false, status: 503 },
+      { ok: false, status: 503 },
+    ]);
+    const result = await make('k').geocode('ул. Тест 2');
+    expect(result).toBeNull();
+    expect((global as any).fetch).toHaveBeenCalledTimes(2);
+  }, 15000);
+
+  it('does NOT retry on a 400 (permanent client error)', async () => {
+    makeRetryFetch([{ ok: false, status: 400 }]);
+    const result = await make('k').geocode('ул. Тест 3');
+    expect(result).toBeNull();
+    expect((global as any).fetch).toHaveBeenCalledTimes(1);
+  }, 10000);
+
+  it('honours a numeric Retry-After header (capped at 2 s) — verifies delay value', async () => {
+    const capturedDelays: number[] = [];
+    const origSetTimeout = globalThis.setTimeout;
+    // Intercept Promise-based sleep (delays > 100 ms) to capture the value,
+    // then run it immediately so the test doesn't block.
+    jest.spyOn(globalThis, 'setTimeout').mockImplementation((fn: any, ms?: number, ...args: any[]) => {
+      if (ms !== undefined && ms > 100) capturedDelays.push(ms);
+      // Always schedule immediately so neither the abort timer nor the back-off blocks.
+      return origSetTimeout(fn, 0, ...args);
+    });
+
+    try {
+      makeRetryFetch([
+        { ok: false, status: 429, headers: { 'retry-after': '5' } },
+        { ok: true, status: 200, json: async () => geoOk(42.0, 23.0) },
+      ]);
+      await make('k').geocode('ул. Тест 4');
+      // Retry-After 5 s must be capped to 2000 ms.
+      expect(capturedDelays.some((d) => d === 2000)).toBe(true);
+    } finally {
+      jest.restoreAllMocks();
+    }
+  }, 10000);
+});
+
 describe('MapsService.routeFixed', () => {
   it('sends first as origin, last as destination, the rest as intermediates', async () => {
     const calls = mockFetch({ routes: [{ distanceMeters: 5000, duration: '900s' }] });

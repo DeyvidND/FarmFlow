@@ -2,6 +2,7 @@ import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import { type Database, orders, orderItems, products } from '@farmflow/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { BG_TZ, bgToday, bgAddDays, bgDayBounds } from '../../common/time/bg-time';
 
 // ── Farmer-facing sales statistics. Everything here is derived from orders we
@@ -220,9 +221,16 @@ export function pickSlowProducts(active: TopProduct[], limit: number): TopProduc
     .slice(0, limit);
 }
 
+/** TTL for farmer stats cache (mirrors insights at 90 s). Analytics tolerate
+ *  this much staleness; the key expires naturally — no write-bust needed. */
+const STATS_TTL = 90;
+
 @Injectable()
 export class StatsService {
-  constructor(@Inject(DB_TOKEN) private readonly db: Database) {}
+  constructor(
+    @Inject(DB_TOKEN) private readonly db: Database,
+    private readonly cache: PublicCacheService,
+  ) {}
 
   async stats(
     tenantId: string,
@@ -230,6 +238,13 @@ export class StatsService {
   ): Promise<StatsSummary> {
     const today = bgToday();
     const { from, to, range } = resolveWindow(opts, today);
+
+    // Cache key: (tenantId, from, to) — `from`/`to` are the resolved BG-day
+    // strings, so preset aliases ('30d') map to the same key as the explicit
+    // date pair for the same window. Keyed per-tenant (never cross-tenant).
+    const cacheKey = `stats:${tenantId}:${from}:${to}`;
+    const cachedStats = await this.cache.get<StatsSummary>(cacheKey);
+    if (cachedStats) return cachedStats;
     const bucket = pickBucket(from, to);
     const cfg = BUCKETS[bucket];
     const axisKeys = buildAxis(bucket, from, to);
@@ -404,7 +419,7 @@ export class StatsService {
       return { t, orders: r?.orders ?? 0, revenueStotinki: r?.revenueStotinki ?? 0 };
     });
 
-    return {
+    const result: StatsSummary = {
       range,
       bucket,
       from,
@@ -427,6 +442,8 @@ export class StatsService {
       sparse: agg.orderCount < SPARSE_MIN,
       points,
     };
+    await this.cache.set(cacheKey, result, STATS_TTL);
+    return result;
   }
 
   /** Per-producer turnover for a multi-farmer shop. Same shape as {@link stats}, but
@@ -440,6 +457,13 @@ export class StatsService {
   ): Promise<StatsSummary> {
     const today = bgToday();
     const { from, to, range } = resolveWindow(opts, today);
+
+    // Farmer-scoped cache key — includes farmerId so a producer sub-account
+    // and the shop owner (who may pass a different farmerId) never share an entry.
+    const cacheKey = `stats:${tenantId}:farmer:${farmerId}:${from}:${to}`;
+    const cachedStats = await this.cache.get<StatsSummary>(cacheKey);
+    if (cachedStats) return cachedStats;
+
     const bucket = pickBucket(from, to);
     const cfg = BUCKETS[bucket];
     const axisKeys = buildAxis(bucket, from, to);
@@ -591,7 +615,7 @@ export class StatsService {
       return { t, orders: r?.orders ?? 0, revenueStotinki: r?.revenueStotinki ?? 0 };
     });
 
-    return {
+    const farmerResult: StatsSummary = {
       range, bucket, from, to,
       revenueStotinki: agg.revenue,
       orderCount: agg.orderCount,
@@ -611,5 +635,7 @@ export class StatsService {
       sparse: agg.orderCount < SPARSE_MIN,
       points,
     };
+    await this.cache.set(cacheKey, farmerResult, STATS_TTL);
+    return farmerResult;
   }
 }

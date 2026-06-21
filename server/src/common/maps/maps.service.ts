@@ -387,16 +387,53 @@ export class MapsService {
     }
   }
 
-  /** fetch + JSON parse with a hard timeout. Throws on non-2xx or timeout. */
-  private async fetchJson(url: string, init?: RequestInit): Promise<any> {
+  /**
+   * Attempt one fetch with a hard abort timeout. Returns the Response so the
+   * caller can inspect status/headers before consuming the body.
+   */
+  private async fetchOnce(url: string, init?: RequestInit): Promise<Response> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     try {
-      const res = await fetch(url, { ...init, signal: ctrl.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      return await fetch(url, { ...init, signal: ctrl.signal });
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * fetch + JSON parse with a hard per-attempt timeout and ONE bounded retry on
+   * transient failures (429 / 5xx). Honours the `Retry-After` response header
+   * (capped at 2 s so total latency stays bounded). 4xx errors other than 429
+   * are permanent — never retried. Throws on any unrecoverable error or
+   * timeout; callers catch and return null.
+   */
+  private async fetchJson(url: string, init?: RequestInit): Promise<any> {
+    const attempt = async (): Promise<{ res: Response; retryable: boolean }> => {
+      const res = await this.fetchOnce(url, init);
+      if (res.ok) return { res, retryable: false };
+      const retryable = res.status === 429 || res.status >= 500;
+      return { res, retryable };
+    };
+
+    let { res, retryable } = await attempt();
+
+    if (!res.ok && retryable) {
+      // Honour Retry-After (integer seconds or HTTP-date); cap at 2 s.
+      const retryAfterHeader = res.headers?.get('Retry-After');
+      let delayMs = 500; // default back-off
+      if (retryAfterHeader) {
+        const parsed = Number(retryAfterHeader);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          delayMs = Math.min(parsed * 1000, 2000);
+        }
+      }
+      await new Promise<void>((r) => setTimeout(r, delayMs));
+      const second = await attempt();
+      res = second.res;
+    }
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
   }
 }

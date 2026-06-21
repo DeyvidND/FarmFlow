@@ -73,7 +73,16 @@ describe('PlatformService', () => {
           useValue: { sign: jest.fn().mockReturnValue('platform-token') },
         },
         { provide: BillingService, useValue: { setPremium: jest.fn().mockResolvedValue(undefined) } },
-        { provide: PublicCacheService, useValue: { del: cacheDel } },
+        {
+          provide: PublicCacheService,
+          useValue: {
+            del: cacheDel,
+            // listTenants now checks the cache first; return a miss so tests
+            // continue to exercise the live DB path.
+            get: jest.fn().mockResolvedValue(null),
+            set: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: ConfigService, useValue: { get: (_k: string, d?: any) => (_k === 'EMAIL_COST_PER_RECIPIENT_MICRO' ? 370 : d) } },
         { provide: ProductsService, useValue: { create: productsCreate } },
         { provide: FarmersService, useValue: { create: farmersCreate } },

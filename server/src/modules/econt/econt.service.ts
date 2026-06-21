@@ -16,6 +16,17 @@ const DEMO_BASE = 'https://demo.econt.com/ee/services';
 const PROD_BASE = 'https://ee.econt.com/services';
 const COUNTRY = 'BGR';
 const NOMENCLATURE_TTL = 60 * 60 * 24; // 1 day
+// Short negative-cache TTL for an empty office list (transient Econt outage or
+// legitimately-empty nomenclature). 60s means a stampede is absorbed for 1 minute
+// while still recovering quickly when Econt comes back.
+const EMPTY_OFFICES_TTL = 60; // 60 seconds
+// Shipping estimate cache: Econt pricing is stable intraday; 8h balances freshness
+// against the checkout latency cost of a live API call.
+const ESTIMATE_TTL = 60 * 60 * 8; // 8 hours
+// Weight bucket size in kg. Orders within the same bucket share a cache entry so
+// near-identical baskets (e.g. 1.1kg and 1.4kg both round to 1.5kg) reuse the
+// same estimate rather than causing a live hit per unique weight.
+const WEIGHT_BUCKET_KG = 0.5;
 
 /** The stored, sanitized Econt config (never includes the decrypted password). */
 interface EcontStored {
@@ -295,9 +306,14 @@ export class EcontService {
   /** Storefront-facing office list for a slug (cached; live fallback). */
   async getPublicOffices(slug: string, city?: string): Promise<any[]> {
     const key = `econt:offices:${slug}`;
-    const cached = (await this.cache.get<any[]>(key)) ?? [];
-    let list = cached;
-    if (!list.length) {
+    // `null` = cache miss; `[]` = cached-empty (negative cache hit).
+    const cached = await this.cache.get<any[]>(key);
+    let list: any[];
+    if (cached !== null) {
+      // Cache hit — could be an empty array (negative cache) or a real list.
+      list = cached;
+    } else {
+      // Cache miss: fetch live from Econt.
       const [t] = await this.db
         .select({ id: tenants.id })
         .from(tenants)
@@ -314,7 +330,11 @@ export class EcontService {
       // Backfill the cache: without this the full-country Econt fetch above ran on
       // EVERY storefront office-picker request once the 24h TTL lapsed (or before
       // the farm ever pressed Sync) — multi-second + stampede risk on checkout.
-      if (list.length) await this.cache.set(key, list, NOMENCLATURE_TTL);
+      // Cache the empty result under a SHORT TTL so a transient Econt outage or a
+      // genuinely-empty nomenclature doesn't trigger a live round-trip on every
+      // request; a real list gets the full 24h TTL.
+      const ttl = list.length ? NOMENCLATURE_TTL : EMPTY_OFFICES_TTL;
+      await this.cache.set(key, list, ttl);
     }
     if (!city) return list.slice(0, 200);
     const q = city.toLowerCase();
@@ -480,6 +500,15 @@ export class EcontService {
     return label;
   }
 
+  /**
+   * Round a weight (kg) up to the nearest `WEIGHT_BUCKET_KG` bucket so nearby
+   * basket weights share a single cache entry. E.g. 1.1kg → 1.5kg, 1.5kg → 1.5kg,
+   * 1.6kg → 2.0kg with a 0.5kg bucket.
+   */
+  private bucketWeight(weightKg: number): number {
+    return Math.ceil(weightKg / WEIGHT_BUCKET_KG) * WEIGHT_BUCKET_KG;
+  }
+
   /** Price-only estimate (Econt `mode:calculate`). Returns stotinki, or null on any failure. */
   async estimateShipping(
     tenantId: string,
@@ -497,6 +526,24 @@ export class EcontService {
     try {
       const { econt } = await this.loadStored(tenantId);
       if (!econt.configured) return null;
+
+      // Build the cache key before calling Econt. Key dimensions:
+      //   - tenantId   : pricing/contract differs per farm (never cross-contaminate).
+      //   - destination: office code (econt) OR city name (econt_address).
+      //   - weightBucket: raw package weight rounded up to nearest 0.5kg so near-
+      //     identical baskets reuse the same entry without an extra live call.
+      // We deliberately exclude customerName/phone — those don't affect price.
+      const rawWeightKg = (econt.defaultPackage?.weightKg ?? 1);
+      const weightBucket = this.bucketWeight(rawWeightKg);
+      const destination =
+        order.deliveryType === 'econt_address'
+          ? `city:${(order.deliveryCity ?? '').toLowerCase()}`
+          : `office:${order.econtOffice ?? ''}`;
+      const estimateKey = `econt:estimate:${tenantId}:${destination}:${weightBucket}kg`;
+
+      const cachedEstimate = await this.cache.get<number>(estimateKey);
+      if (cachedEstimate !== null) return cachedEstimate;
+
       const label = this.buildLabel(econt, order, items);
       // Short timeout: this runs inline during checkout, so prefer the flat-fee
       // fallback over making the customer wait on a slow courier API.
@@ -508,7 +555,11 @@ export class EcontService {
       );
       const totalBgn = data?.label?.totalPrice ?? data?.label?.totalPriceVAT;
       if (typeof totalBgn !== 'number') return null;
-      return Math.round(totalBgn * 100);
+      const stotinki = Math.round(totalBgn * 100);
+      // Only cache a successful live estimate — never cache the null/fallback path so
+      // the next request retries Econt and may obtain a real price.
+      await this.cache.set(estimateKey, stotinki, ESTIMATE_TTL);
+      return stotinki;
     } catch (err) {
       this.logger.warn(`Econt estimate failed, using flat fee: ${err instanceof Error ? err.message : err}`);
       return null;

@@ -17,14 +17,16 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export default async function ProductsPage() {
-  const me = await fetchJson<{ role?: string }>('auth/me', {});
-  const isFarmer = me.role === 'farmer';
-
-  const [products, farmers, subcats, tenant, windows] = await Promise.all([
+  // auth/me is independent of all other calls. Fold it into a single parallel
+  // batch with the data fetches. The farmers endpoint is included unconditionally
+  // so producers and admins both resolve in one round-trip; the server already
+  // scopes the farmers list to the tenant, and producers just get an empty array.
+  const [me, products, farmers, subcats, tenant, windows] = await Promise.all([
+    fetchJson<{ role?: string }>('auth/me', {}),
     // The server scopes this list to the producer's own products for role='farmer'.
     fetchJson<Paginated<Product>>('products?limit=50', { items: [], nextCursor: null }),
     // A producer manages only their own products — the farmer column/filter is moot.
-    isFarmer ? Promise.resolve([] as Farmer[]) : fetchJson<Farmer[]>('farmers', []),
+    fetchJson<Farmer[]>('farmers', []),
     fetchJson<Subcategory[]>('subcategories', []),
     fetchJson<{
       multiFarmer: boolean;
@@ -36,6 +38,7 @@ export default async function ProductsPage() {
     // Stock now lives in «Задай наличност» — map productId → remaining for the card pills.
     fetchJson<AvailabilityWindow[]>('availability-windows', []),
   ]);
+  const isFarmer = me.role === 'farmer';
 
   const availability: Record<string, number> = {};
   for (const w of windows) {

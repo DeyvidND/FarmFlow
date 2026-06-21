@@ -51,9 +51,12 @@ export default async function PaymentsPage() {
   // Role decides both the subtitle and whether to fetch the Stripe summary.
   // A producer (role='farmer') never sees the Card tab, so skip the stripe
   // fetch entirely to avoid a pointless (and potentially 4xx) call.
-  const account = await getJson<{ role?: string }>('auth/me', {});
+  // auth/me and tenants/me are independent — fetch in parallel, then branch.
+  const [account, profile] = await Promise.all([
+    getJson<{ role?: string }>('auth/me', {}),
+    getJson<{ multiFarmer?: boolean }>('tenants/me', {}),
+  ]);
   const role = account.role === 'farmer' ? 'farmer' : 'admin';
-  const profile = await getJson<{ multiFarmer?: boolean }>('tenants/me', {});
   const multiFarmer = profile.multiFarmer === true;
 
   // Only the owner of a multi-farmer shop needs the producer picker (mirrors Статистика).

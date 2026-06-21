@@ -16,6 +16,34 @@ export interface AssembleInput {
 }
 
 /**
+ * Cart-aware ranking from a per-tenant co-occurrence map. For each product in the
+ * cart, look up its ranked list of co-bought products and award each a score by its
+ * rank position (earlier in the list = stronger pairing). Scores sum across all cart
+ * items, so a product paired with several cart items outranks one paired with a
+ * single item. A product already in the cart is never scored. Returns product ids,
+ * strongest co-occurrence first.
+ *
+ * This restores the "bought together with THIS cart" signal while the underlying
+ * map stays cart-independent and cacheable once per tenant — the per-cart work is
+ * this pure in-process pass.
+ */
+export function rankCartCoOccurrence(map: Record<string, string[]>, cartIds: string[]): string[] {
+  const cart = new Set(cartIds);
+  const score = new Map<string, number>();
+  for (const anchor of cartIds) {
+    const others = map[anchor];
+    if (!others) continue;
+    const n = others.length;
+    others.forEach((id, idx) => {
+      if (cart.has(id)) return; // a co-cart item is never itself a pick
+      score.set(id, (score.get(id) ?? 0) + (n - idx));
+    });
+  }
+  // Stable sort (Node ≥12): ties keep first-seen order, i.e. strongest anchor first.
+  return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+}
+
+/**
  * Pure assembly of the cart's „Често купувано заедно" picks. Merges the
  * bought-together ranking with two fallbacks — best-sellers, then featured/newest —
  * into a deduped, capped list. A pick is *eligible* only when it is in the

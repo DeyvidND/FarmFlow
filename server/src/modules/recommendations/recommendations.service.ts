@@ -1,12 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { type Database, orders, orderItems } from '@farmflow/db';
 import type { PublicProduct } from '@farmflow/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ProductsService } from '../products/products.service';
 import { AvailabilityService } from '../availability/availability.service';
-import { assembleCartPicks } from './recommendations.logic';
+import { assembleCartPicks, rankCartCoOccurrence } from './recommendations.logic';
 
 /** Best-seller chip caps at this many sales-ranked ids; the storefront pads the
  *  rest from featured/newest so the chip is never thin on a quiet shop. */
@@ -20,7 +21,17 @@ const MAX_CART_IDS = 50;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const BEST_SELLER_TTL = 600;
-const BOUGHT_TTL = 120;
+/** TTL for the per-tenant co-occurrence map (anchor → co-bought ids, no cart
+ *  context). 600 s matches best-sellers — both are derived from the same slow-
+ *  moving orders aggregate. */
+const COOCCUR_TTL = 600;
+/** Per-anchor cap on the co-occurrence map (how many co-bought ids we keep for
+ *  each product). RECS_LIMIT × 4 leaves headroom after sold-out / in-cart filtering. */
+const CO_PER_ANCHOR = RECS_LIMIT * 4;
+/** Safety backstop on the pairwise self-join row count, so a very large shop can't
+ *  pull an unbounded product-pair set into one cached aggregate. Generous — for a
+ *  typical farm catalog the real pair count is far below this. */
+const PAIR_SCAN_LIMIT = 20000;
 
 /** A sale counts unless the order was cancelled — same rule the stats screen uses
  *  (status may be NULL on legacy rows, hence `is distinct from`). */
@@ -56,36 +67,39 @@ export class RecommendationsService {
    *  cart. Ranked by how many past baskets paired them with a cart item, then by
    *  quantity. Falls back to best-sellers, then featured/newest, so it is never
    *  empty while the catalog can fill it. Excludes the cart's own items and
-   *  sold-out products. Empty when the feature is toggled off. */
+   *  sold-out products. Empty when the feature is toggled off.
+   *
+   *  Caching strategy: the expensive Postgres aggregate is the per-tenant
+   *  co-occurrence MAP (anchor → co-bought ids), cached under
+   *  `recos:cooccur:{tenantId}` at {@link COOCCUR_TTL}. The cart-aware ranking
+   *  ({@link rankCartCoOccurrence}) and pick assembly (exclude in-cart / sold-out)
+   *  run entirely in-process from that cached map — no per-cart Redis key, so the
+   *  hit rate stays high regardless of cart shape, yet the "bought together with
+   *  THIS cart" signal is preserved (not flattened to global popularity). */
   async boughtTogetherBySlug(slug: string, rawCartIds: string[]): Promise<PublicProduct[]> {
     const tenant = await this.publicCache.resolveTenant(this.db, slug);
     if (!tenant.merchandising.recommendations.show) return [];
 
     const cartIds = [...new Set(rawCartIds.filter((id) => UUID_RE.test(id)))].slice(0, MAX_CART_IDS);
-    const cacheKey = `recos:bought:${tenant.id}:${[...cartIds].sort().join(',')}`;
-    const cached = await this.publicCache.get<PublicProduct[]>(cacheKey);
-    if (cached) return cached;
 
-    // Candidate pool: the public catalog minus the cart's own items and anything
-    // sold out (remaining = 0 on an active availability window).
-    const [catalog, windows, bestSellerIds] = await Promise.all([
+    // Candidate pool: the public catalog minus sold-out products.
+    const [catalog, windows, bestSellerIds, coMap] = await Promise.all([
       this.products.findPublicBySlug(slug),
       this.availability.findPublicActiveBySlug(slug),
       this.rankedBestSellers(tenant.id),
+      // Per-tenant basket co-occurrence map, cached (not per-cart).
+      this.coOccurMap(tenant.id),
     ]);
-    // Basket co-occurrence — only when the cart has items to pair against.
-    const coRows = cartIds.length ? await this.coOccurring(tenant.id, cartIds) : [];
-    const coOccurringIds = coRows.map((r) => r.productId).filter((id): id is string => !!id);
 
     const result = assembleCartPicks({
       catalog,
       soldOutIds: new Set(windows.filter((w) => w.remaining === 0).map((w) => w.productId)),
       cartIds: new Set(cartIds),
-      coOccurringIds,
+      // Cart-aware: only products co-bought with THIS cart's items, strongest first.
+      coOccurringIds: rankCartCoOccurrence(coMap, cartIds),
       bestSellerIds,
       limit: RECS_LIMIT,
     });
-    await this.publicCache.set(cacheKey, result, BOUGHT_TTL);
     return result;
   }
 
@@ -112,35 +126,62 @@ export class RecommendationsService {
     return ids;
   }
 
-  /** Products that shared a (non-cancelled) basket with any cart item, ranked by
-   *  distinct-basket count then quantity, excluding the cart's own items. */
-  private async coOccurring(tenantId: string, cartIds: string[]) {
-    // Orders that contain at least one of the cart's products.
-    const baskets = this.db
-      .select({ orderId: orderItems.orderId })
-      .from(orderItems)
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .where(and(eq(orders.tenantId, tenantId), LIVE, inArray(orderItems.productId, cartIds)));
+  /**
+   * Per-tenant basket co-occurrence MAP: for each anchor product, the product ids
+   * most often bought in the SAME basket as it, ranked by distinct-basket count then
+   * quantity and capped at {@link CO_PER_ANCHOR}. Built from a pairwise self-join of
+   * order_items on order_id (excluding the anchor itself), scoped to non-cancelled
+   * baskets. Cart-independent, so the whole map is cached once per tenant under
+   * `recos:cooccur:{tenantId}`; the per-request cart-aware ranking
+   * ({@link rankCartCoOccurrence}) is assembled in-process from it. This keeps the
+   * "bought together with this cart" signal while collapsing the old unbounded
+   * per-cart Redis keys (near-zero hit rate) into one stable per-tenant key.
+   */
+  private async coOccurMap(tenantId: string): Promise<Record<string, string[]>> {
+    const key = `recos:cooccur:${tenantId}`;
+    const cached = await this.publicCache.get<Record<string, string[]>>(key);
+    if (cached) return cached;
 
-    return this.db
+    const co = alias(orderItems, 'co'); // the co-bought item in the same basket
+    const rows = await this.db
       .select({
-        productId: orderItems.productId,
+        anchor: orderItems.productId,
+        other: co.productId,
         baskets: sql<number>`count(distinct ${orderItems.orderId})::int`,
-        qty: sql<number>`sum(${orderItems.quantity})::int`,
+        qty: sql<number>`sum(${co.quantity})::int`,
       })
       .from(orderItems)
+      .innerJoin(
+        co,
+        and(eq(co.orderId, orderItems.orderId), sql`${co.productId} <> ${orderItems.productId}`),
+      )
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .where(
         and(
-          inArray(orderItems.orderId, baskets),
+          eq(orders.tenantId, tenantId),
+          LIVE,
           sql`${orderItems.productId} is not null`,
-          sql`${orderItems.productId} not in (${sql.join(
-            cartIds.map((id) => sql`${id}`),
-            sql`, `,
-          )})`,
+          sql`${co.productId} is not null`,
         ),
       )
-      .groupBy(orderItems.productId)
-      .orderBy(desc(sql`count(distinct ${orderItems.orderId})`), desc(sql`sum(${orderItems.quantity})`))
-      .limit(RECS_LIMIT * 4);
+      .groupBy(orderItems.productId, co.productId)
+      // anchor groups the rows; within each, strongest pairing (baskets, then qty) first.
+      .orderBy(
+        asc(orderItems.productId),
+        desc(sql`count(distinct ${orderItems.orderId})`),
+        desc(sql`sum(${co.quantity})`),
+      )
+      .limit(PAIR_SCAN_LIMIT);
+
+    // Rows arrive grouped by anchor and pre-ranked, so push in order and cap per anchor.
+    const map: Record<string, string[]> = {};
+    for (const r of rows) {
+      if (!r.anchor || !r.other) continue;
+      const list = (map[r.anchor] ??= []);
+      if (list.length < CO_PER_ANCHOR) list.push(r.other);
+    }
+
+    await this.publicCache.set(key, map, COOCCUR_TTL);
+    return map;
   }
 }

@@ -22,3 +22,39 @@ describe('OrdersService.updateStatusForFarmer transition guard', () => {
     }
   });
 });
+
+// «delivered» flips COD-collected for the WHOLE order, so a producer may only close
+// out an order that is entirely their own — never a shared multi-producer order.
+describe('OrdersService.updateStatusForFarmer ownership (multi-producer) guard', () => {
+  function makeSvc(lineItems: Array<{ farmerId: string | null }>) {
+    const chain: any = {};
+    chain.select = jest.fn(() => chain);
+    chain.from = jest.fn(() => chain);
+    chain.innerJoin = jest.fn(() => chain);
+    chain.where = jest.fn(() => Promise.resolve(lineItems));
+    return new OrdersService(chain as never, {} as never, {} as never, {} as never, {} as never);
+  }
+
+  it('rejects «delivered» on a shared order with a co-producer line item', async () => {
+    const svc = makeSvc([{ farmerId: 'farmer-1' }, { farmerId: 'farmer-2' }]);
+    await expect(
+      svc.updateStatusForFarmer('o', 't', 'farmer-1', { status: 'delivered' } as never),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('rejects «delivered» when no line items resolve (cross-tenant / not theirs)', async () => {
+    const svc = makeSvc([]);
+    await expect(
+      svc.updateStatusForFarmer('o', 't', 'farmer-1', { status: 'delivered' } as never),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('allows «delivered» when every line item belongs to the producer', async () => {
+    const svc = makeSvc([{ farmerId: 'farmer-1' }, { farmerId: 'farmer-1' }]);
+    const spy = jest
+      .spyOn(svc as never as { updateStatus: (...a: unknown[]) => unknown }, 'updateStatus')
+      .mockResolvedValue({ id: 'o' } as never);
+    await svc.updateStatusForFarmer('o', 't', 'farmer-1', { status: 'delivered' } as never);
+    expect(spy).toHaveBeenCalledWith('o', 't', { status: 'delivered' });
+  });
+});

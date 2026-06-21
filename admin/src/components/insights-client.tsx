@@ -131,14 +131,28 @@ function AdoptionBar({ r }: { r: AdoptionRow }) {
   );
 }
 
-export function InsightsClient({ initial }: { initial: PlatformInsights | null }) {
+export function InsightsClient({
+  initial,
+  initialSeries = null,
+}: {
+  initial: PlatformInsights | null;
+  initialSeries?: PlatformTimeseries | null;
+}) {
   const [range, setRange] = useState<TimeseriesRange>('30d');
   const [metric, setMetric] = useState<'orders' | 'revenue'>('orders');
   const [tenantId, setTenantId] = useState<string>('');
-  const [series, setSeries] = useState<PlatformTimeseries | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Init from SSR seed so the chart renders immediately without a spinner.
+  const [series, setSeries] = useState<PlatformTimeseries | null>(initialSeries);
+  const [loading, setLoading] = useState(false);
+  // Skip the first client fetch when the server already seeded the default range.
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    if (!hydrated) {
+      setHydrated(true);
+      // Server pre-fetched 30d without a tenant filter — don't refetch on mount.
+      if (initialSeries && range === '30d' && !tenantId) return;
+    }
     let live = true;
     setLoading(true);
     getInsightsTimeseries(range, tenantId || undefined)
@@ -154,7 +168,7 @@ export function InsightsClient({ initial }: { initial: PlatformInsights | null }
     return () => {
       live = false;
     };
-  }, [range, tenantId]);
+  }, [range, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const farmName = useMemo(
     () => initial?.farms.find((f) => f.id === tenantId)?.name,

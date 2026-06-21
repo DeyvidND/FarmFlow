@@ -351,6 +351,13 @@
       "when": 1781861585100,
       "tag": "0049_unusual_ultron",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1782049578218,
+      "tag": "0050_romantic_proudstar",
+      "breakpoints": true
     }
   ]
 }

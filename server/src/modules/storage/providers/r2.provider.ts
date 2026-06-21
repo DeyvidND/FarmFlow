@@ -128,4 +128,8 @@ export class R2StorageProvider extends StorageService {
   getPublicUrl(key: string): string {
     return `${this.publicUrl}/${key.replace(/^\/+/, '')}`;
   }
+
+  getPublicBaseUrl(): string {
+    return this.publicUrl;
+  }
 }

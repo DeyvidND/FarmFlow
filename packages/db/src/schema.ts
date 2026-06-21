@@ -140,6 +140,8 @@ export const users = pgTable(
     farmerIdUniq: uniqueIndex('users_farmer_id_uniq')
       .on(t.farmerId)
       .where(sql`${t.farmerId} is not null`),
+    // listAccess: WHERE tenant_id=? AND role='farmer' — currently a seq-scan.
+    tenantRoleIdx: index('users_tenant_role_idx').on(t.tenantId, t.role),
   }),
 );
 
@@ -341,6 +343,9 @@ export const orderItems = pgTable(
   // Production prep-list join + per-order item batch load.
   (t) => ({
     orderIdx: index('order_items_order_idx').on(t.orderId),
+    // Farmer stats / payments / recommendations: GROUP BY / JOIN on product_id.
+    // Composite (productId, orderId) also serves distinct-order counts per product.
+    productIdx: index('order_items_product_idx').on(t.productId, t.orderId),
   }),
 );
 
@@ -393,19 +398,27 @@ export const platformAdmins = pgTable('platform_admins', {
 });
 
 // Audit trail of admin mutations (who did what, when). Written by AuditInterceptor.
-export const auditLogs = pgTable('audit_logs', {
-  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  userId: uuid('user_id').references(() => users.id),
-  // Super-admin (platform) actor — mutually exclusive with userId. Separate FK
-  // because a platform admin is NOT a row in `users`; writing its id into user_id
-  // would violate that FK and silently drop the audit row.
-  adminId: uuid('admin_id').references(() => platformAdmins.id),
-  action: text('action').notNull(), // HTTP method
-  path: text('path').notNull(), // request path
-  statusCode: integer('status_code'),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+export const auditLogs = pgTable(
+  'audit_logs',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    userId: uuid('user_id').references(() => users.id),
+    // Super-admin (platform) actor — mutually exclusive with userId. Separate FK
+    // because a platform admin is NOT a row in `users`; writing its id into user_id
+    // would violate that FK and silently drop the audit row.
+    adminId: uuid('admin_id').references(() => platformAdmins.id),
+    action: text('action').notNull(), // HTTP method
+    path: text('path').notNull(), // request path
+    statusCode: integer('status_code'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    // revokeAccess looks up audit rows by user_id; deleteTenant deletes by tenant_id.
+    userIdx: index('audit_logs_user_idx').on(t.userId),
+    tenantIdx: index('audit_logs_tenant_idx').on(t.tenantId),
+  }),
+);
 
 export const articleStatusEnum = pgEnum('article_status', ['draft', 'published']);
 export const articleMediaTypeEnum = pgEnum('article_media_type', [

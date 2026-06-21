@@ -129,6 +129,12 @@ export class NewsletterController {
   async publicUnsubscribe(@Query('token') token: string, @Res() res: Response) {
     const result = await this.newsletterService.unsubscribe(token ?? '');
 
+    // Set imperatively, not via @Header: this handler uses a non-passthrough
+    // @Res(), so Nest's response pipeline (and the @Header decorator) is bypassed.
+    // The page carries a unique token — never let a shared cache or back/forward
+    // re-serve a stale "успешно"/"невалидна" result.
+    res.setHeader('Cache-Control', 'no-store');
+
     if (result.success) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(`<!DOCTYPE html>

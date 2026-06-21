@@ -290,6 +290,18 @@ export function computeInsights(input: InsightsInput, nowMs: number): PlatformIn
 
 @Injectable()
 export class PlatformInsightsService {
+  /**
+   * In-process single-flight guards: when the Redis TTL expires and several
+   * concurrent requests reach the cache-miss branch simultaneously, only one
+   * recompute runs; all others await the same shared Promise. Keys mirror the
+   * Redis cache keys so they are naturally namespaced (insights vs timeseries).
+   * The entry is deleted from the map once the promise settles so subsequent
+   * requests after the TTL expires get a fresh compute. This avoids the Redis-
+   * lock edge cases (lock holder crash, clock skew) while keeping the code
+   * simple — the audience is at most a handful of super-admin tabs.
+   */
+  private readonly inflight = new Map<string, Promise<unknown>>();
+
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly cache: PublicCacheService,
@@ -305,6 +317,17 @@ export class PlatformInsightsService {
   async insights(): Promise<PlatformInsights> {
     const cached = await this.cache.get<PlatformInsights>(INSIGHTS_KEY);
     if (cached) return cached;
+
+    // Single-flight: coalesce concurrent cache-miss recomputes into one.
+    const inflight = this.inflight.get(INSIGHTS_KEY) as Promise<PlatformInsights> | undefined;
+    if (inflight) return inflight;
+
+    const compute = this.computeInsights().finally(() => this.inflight.delete(INSIGHTS_KEY));
+    this.inflight.set(INSIGHTS_KEY, compute);
+    return compute;
+  }
+
+  private async computeInsights(): Promise<PlatformInsights> {
 
     // Independent aggregates — run concurrently, stitch in JS (mirrors tenantDetail).
     const tenantsP = this.db
@@ -423,6 +446,23 @@ export class PlatformInsightsService {
     const cached = await this.cache.get<PlatformTimeseries>(cacheKey);
     if (cached) return cached;
 
+    // Single-flight: coalesce concurrent cache-miss recomputes into one.
+    const inflight = this.inflight.get(cacheKey) as Promise<PlatformTimeseries> | undefined;
+    if (inflight) return inflight;
+
+    const compute = this.computeTimeseries(range, cfg, tenantId, cacheKey).finally(() =>
+      this.inflight.delete(cacheKey),
+    );
+    this.inflight.set(cacheKey, compute);
+    return compute;
+  }
+
+  private async computeTimeseries(
+    range: TimeseriesRange,
+    cfg: { bucket: TimeseriesBucket; trunc: 'day' | 'week' | 'month'; fmt: string },
+    tenantId: string | undefined,
+    cacheKey: string,
+  ): Promise<PlatformTimeseries> {
     // Bucket key produced in SQL — must match the JS axis keys below exactly.
     const localTs = sql`(${orders.createdAt} at time zone 'UTC' at time zone ${BG_TZ})`;
     const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${cfg.trunc}'`)}, ${localTs}), ${sql.raw(`'${cfg.fmt}'`)})`;

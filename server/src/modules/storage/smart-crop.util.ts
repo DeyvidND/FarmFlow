@@ -39,13 +39,50 @@ export async function smartFocal(buffer: Buffer): Promise<Focal | null> {
 }
 
 /**
+ * SSRF guard for {@link smartFocalFromUrl}. An entity's cover URL ultimately derives
+ * from a client-settable field (`imageUrl` on the create/update DTOs), so a tenant
+ * could point it at an internal address (`http://169.254.169.254/…`, a loopback
+ * service, an internal host) and have the server fetch it. We pin the fetch to the
+ * exact origin of our own storage's public base (R2/CDN): the only host ever
+ * contacted is the CDN, whose DNS the attacker cannot make resolve to an internal
+ * address. A non-matching origin (or unparseable URL, or missing base) → not allowed.
+ */
+export function isAllowedImageUrl(
+  url: string,
+  allowedBaseUrl: string | null | undefined,
+): boolean {
+  if (!allowedBaseUrl) return false;
+  let target: URL;
+  let base: URL;
+  try {
+    target = new URL(url);
+    base = new URL(allowedBaseUrl);
+  } catch {
+    return false;
+  }
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') return false;
+  // origin = protocol + host + port — pins all three to the storage base.
+  return target.origin === base.origin;
+}
+
+/**
  * Same as {@link smartFocal} but fetches the stored object first — used when only the
  * public URL is at hand (e.g. a gallery reorder/delete picks a new cover whose bytes
  * are no longer in memory). Times out fast and swallows errors → null on any hiccup.
+ *
+ * `allowedBaseUrl` is the storage public base (`StorageService.getPublicBaseUrl()`).
+ * The fetch is refused (→ null) unless the URL lives under that exact origin — an
+ * SSRF guard, since the URL can trace back to a client-settable `imageUrl`. Redirects
+ * are not followed (`redirect:'error'`) so a CDN-side open redirect can't be chained
+ * to an internal target.
  */
-export async function smartFocalFromUrl(url: string): Promise<Focal | null> {
+export async function smartFocalFromUrl(
+  url: string,
+  allowedBaseUrl: string | null | undefined,
+): Promise<Focal | null> {
+  if (!isAllowedImageUrl(url, allowedBaseUrl)) return null;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000), redirect: 'error' });
     if (!res.ok) return null;
     return await smartFocal(Buffer.from(await res.arrayBuffer()));
   } catch {

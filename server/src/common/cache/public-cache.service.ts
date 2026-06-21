@@ -120,6 +120,16 @@ export const publicCacheKeys = {
 export const PUBLIC_CACHE_TTL = 300;
 
 /**
+ * Sentinel stored under `tenant:{slug}` when the slug does not exist in the
+ * DB. Real cached payloads are always plain objects; this distinct string value
+ * is never confused with one. TTL is intentionally short (45 s) so a
+ * freshly-provisioned slug is visible within the minute without requiring a
+ * manual cache bust.
+ */
+const TENANT_NOT_FOUND_SENTINEL = '__404__';
+const TENANT_NOT_FOUND_TTL = 45;
+
+/**
  * Thin Redis JSON cache for the storefront's read-hot, write-rare public data
  * (tenant profile, farmers, subcategories, reviews). Mirrors the TTL +
  * invalidate-on-write pattern already used for products/articles.
@@ -150,8 +160,11 @@ export class PublicCacheService {
    */
   async resolveTenant(db: Database, slug: string): Promise<TenantMeta> {
     const key = publicCacheKeys.tenant(slug);
-    const cached = await this.get<TenantMeta>(key);
-    if (cached) return cached;
+    const raw = await this.redis.get(key);
+    if (raw !== null) {
+      if (raw === TENANT_NOT_FOUND_SENTINEL) throw new NotFoundException('Фермата не е намерена');
+      return JSON.parse(raw) as TenantMeta;
+    }
 
     const [row] = await db
       .select({
@@ -177,7 +190,10 @@ export class PublicCacheService {
       .from(tenants)
       .where(eq(tenants.slug, slug))
       .limit(1);
-    if (!row) throw new NotFoundException('Фермата не е намерена');
+    if (!row) {
+      await this.redis.set(key, TENANT_NOT_FOUND_SENTINEL, 'EX', TENANT_NOT_FOUND_TTL);
+      throw new NotFoundException('Фермата не е намерена');
+    }
 
     // Derive the Econt flag + public delivery pricing + site-media map, then drop
     // `settings` (secrets) before caching/returning.

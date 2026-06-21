@@ -721,9 +721,12 @@ export class OrdersService {
    * server-side gates, defence-in-depth:
    *  1. Transition guard — only `delivered` is allowed; confirming/cancelling and
    *     any other transition stay owner-only (a producer can't reopen or void).
-   *  2. Ownership (IDOR) — the order must carry at least one line item whose
-   *     product belongs to this producer, scoped to the tenant. Same line-item
-   *     attribution as {@link paymentsForFarmer}.
+   *  2. Ownership (IDOR) — EVERY line item on the order must belong to this
+   *     producer, scoped to the tenant. Marking the order «delivered» flips the
+   *     COD-collected state for the WHOLE order (see the `collected` derivation),
+   *     so on a shared multi-producer order one producer must not be able to mark
+   *     a co-producer's portion as collected — that stays owner-only. A producer
+   *     may only close out an order that is entirely their own.
    * Once both pass it delegates to the shared {@link updateStatus} (cache bust,
    * stock restore on cancel — moot here — and the same NotFound handling).
    */
@@ -736,14 +739,21 @@ export class OrdersService {
     if (dto.status !== 'delivered') {
       throw new ForbiddenException('Производител може само да отбележи поръчка като доставена.');
     }
-    const [owned] = await this.db
-      .select({ id: orders.id })
+    const lineItems = await this.db
+      .select({ farmerId: products.farmerId })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .innerJoin(products, eq(products.id, orderItems.productId))
-      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId), eq(products.farmerId, farmerId)))
-      .limit(1);
-    if (!owned) throw new ForbiddenException('Нямате достъп до тази поръчка.');
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
+    // No line items resolved → order isn't in this tenant / not theirs at all.
+    if (lineItems.length === 0) throw new ForbiddenException('Нямате достъп до тази поръчка.');
+    // Any item belonging to another producer → this is a shared order; only the
+    // shop owner may mark it delivered, to avoid collecting on a co-producer's behalf.
+    if (lineItems.some((li) => li.farmerId !== farmerId)) {
+      throw new ForbiddenException(
+        'Споделена поръчка с друг производител — само собственикът може да я отбележи като доставена.',
+      );
+    }
     return this.updateStatus(id, tenantId, dto);
   }
 

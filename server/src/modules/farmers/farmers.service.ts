@@ -399,7 +399,9 @@ export class FarmersService {
     if (cur?.imageUrl === newUrl) return;
     // New cover → recompute a content-aware focal default (the old framing belonged
     // to the previous image; the cover editor also resets it on a cover change).
-    const coverCrop = newUrl ? await smartFocalFromUrl(newUrl) : null;
+    const coverCrop = newUrl
+      ? await smartFocalFromUrl(newUrl, this.storage.getPublicBaseUrl())
+      : null;
     await this.db
       .update(farmers)
       .set({ imageUrl: newUrl, coverCrop })

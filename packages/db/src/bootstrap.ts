@@ -30,7 +30,9 @@ export async function ensureSuperAdmin(
       .limit(1);
     if (existing.length > 0) return;
     await db.insert(platformAdmins).values({
-      email,
+      // Store lowercased so the (case-insensitive) login lookup always matches,
+      // regardless of how SUPER_ADMIN_EMAIL was cased in the env.
+      email: email.trim().toLowerCase(),
       passwordHash: await argon2.hash(password),
       // Force a rotation on first login so the env-provided bootstrap password
       // (which may be weak, reused, or shared during setup) can't persist.

@@ -59,6 +59,10 @@ async function proxy(req: Request, { params }: Ctx) {
   const resHeaders = new Headers();
   const upCt = upstream.headers.get('content-type');
   if (upCt) resHeaders.set('content-type', upCt);
+  // Defense-in-depth: prevent any intermediary (CDN, shared proxy) from caching
+  // per-user authenticated responses. The session cookie already guards access,
+  // but an explicit no-store avoids accidental shared-cache poisoning.
+  resHeaders.set('cache-control', 'private, no-store');
   return new Response(buf, { status: upstream.status, headers: resHeaders });
 }
 
