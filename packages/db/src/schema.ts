@@ -294,6 +294,10 @@ export const orders = pgTable(
     // Settlement for Econt door delivery (the structured city Econt needs to route
     // a waybill to an address). NULL for office/local delivery.
     deliveryCity: text('delivery_city'),
+    // Block/entrance/floor/flat (бл./вх./ет./ап.) + courier hint, kept OUT of
+    // delivery_address so it never pollutes geocoding. Local-delivery orders only;
+    // econt_address keeps the full string in delivery_address (Econt needs it).
+    deliveryNote: text('delivery_note'),
     econtOffice: text('econt_office'),
     deliveryLat: numeric('delivery_lat', { precision: 10, scale: 7 }),
     deliveryLng: numeric('delivery_lng', { precision: 10, scale: 7 }),
