@@ -116,15 +116,17 @@ export function RouteClient({
   dateLabel,
   loadError = false,
   mapsKey,
+  placesKey,
 }: {
   route: RouteResult;
   dateLabel: string;
   /** The route fetch failed (server error / API down) — show an error banner
    *  instead of letting the empty list read as "no deliveries today". */
   loadError?: boolean;
-  /** Google Maps browser key, read server-side from the runtime env (Dokploy) and
-   *  passed down so the map + address autocomplete work without a rebuild. */
+  /** Map key (Maps JavaScript API) — runtime env, kept separate from `placesKey`. */
   mapsKey?: string;
+  /** Autocomplete key (Places API New) — runtime env, isolated from `mapsKey`. */
+  placesKey?: string;
 }) {
   const router = useRouter();
   const { stops, origin, end, orderMode } = route;
@@ -231,7 +233,7 @@ export function RouteClient({
   // from it. Until it's set, show ONLY the setup card (with Places autocomplete)
   // instead of an empty map that reads as "no deliveries".
   if (noOrigin) {
-    return <LocationRouteCard forced mapsKey={mapsKey} onSaved={() => router.refresh()} />;
+    return <LocationRouteCard forced placesKey={placesKey} onSaved={() => router.refresh()} />;
   }
 
   return (
@@ -367,7 +369,7 @@ export function RouteClient({
       {/* base address + default route-end — opened as a modal from the „Локация" button */}
       {showLoc && (
         <LocationRouteCard
-          mapsKey={mapsKey}
+          placesKey={placesKey}
           onClose={() => setShowLoc(false)}
           onSaved={() => {
             setShowLoc(false);
