@@ -31,6 +31,7 @@ import { PlatformModule } from './modules/platform/platform.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { IntakeModule } from './modules/intake/intake.module';
+import { DemoRequestModule } from './modules/demo-request/demo-request.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CatalogCacheModule } from './modules/catalog-cache/catalog-cache.module';
 import { PublicCacheModule } from './common/cache/public-cache.module';
@@ -116,6 +117,7 @@ import { ImageQueueModule } from './modules/image-queue/image-queue.module';
     StripeModule,
     BillingModule,
     IntakeModule,
+    DemoRequestModule,
     ReviewsModule,
     CatalogCacheModule,
     PublicCacheModule,
