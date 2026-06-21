@@ -11,8 +11,19 @@ const nextConfig = {
   // including on Windows, where standalone tracing can't create symlinks — work
   // unchanged. `outputFileTracingRoot` points at the monorepo root for tracing.
   output: process.env.NEXT_OUTPUT_STANDALONE === '1' ? 'standalone' : undefined,
-  outputFileTracingRoot: join(__dirname, '..'),
   transpilePackages: ['@farmflow/types'],
+  experimental: {
+    // isomorphic-dompurify pulls in jsdom. Bundling jsdom into the Next server
+    // build breaks SSG page-data collection (e.g. /article/[slug]): jsdom can't
+    // resolve its `browser/default-stylesheet.css` asset once webpack rewrites
+    // __dirname. Keep it external so it loads from node_modules with its files
+    // intact — at both build time and runtime.
+    serverComponentsExternalPackages: ['isomorphic-dompurify'],
+    // Monorepo root for output file tracing. Must live under `experimental` for
+    // Next 14.2 (top-level is unrecognized → silently ignored), so the standalone
+    // Docker output traces workspace + external package assets (incl. jsdom's).
+    outputFileTracingRoot: join(__dirname, '..'),
+  },
   async headers() {
     return [
       {
