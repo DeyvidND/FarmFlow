@@ -69,22 +69,18 @@ export default async function RoutePage({
   const order = searchParams.order === 'distance' ? 'distance' : undefined;
   const { route, failed } = await getRoute(date, end, order);
   const dateLabel = bgDateLabel(new Date(`${date}T00:00:00`)).replace(' г.', '');
-  // Two SEPARATE Maps keys, read at REQUEST time (force-dynamic) from the runtime
-  // Dokploy env — so neither is baked into the bundle and they stay isolated:
-  //  • GOOGLE_MAPS_API_KEY → the route MAP (Maps JavaScript API)
-  //  • GOOGLE_MAPS_KEY     → the address AUTOCOMPLETE (Places API New, REST only)
-  // They can coexist on one page precisely because the autocomplete uses REST, not
-  // the JS SDK (the JS SDK loads once per page with a single key). NEXT_PUBLIC_ is
-  // a build-time fallback for the map only.
+  // ONE Google Maps key for the whole route screen — the map (Maps JavaScript API)
+  // and the address autocomplete (Places API New). Read at REQUEST time (the page is
+  // force-dynamic) from the runtime env so Dokploy can supply it without a rebuild;
+  // build-time NEXT_PUBLIC_ is the fallback. The key needs both APIs enabled.
   const mapsKey = process.env.GOOGLE_MAPS_API_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
-  const placesKey = process.env.GOOGLE_MAPS_KEY ?? '';
   return (
     <RouteClient
       route={route}
       dateLabel={dateLabel}
       loadError={failed}
       mapsKey={mapsKey}
-      placesKey={placesKey}
+      placesKey={mapsKey}
     />
   );
 }
