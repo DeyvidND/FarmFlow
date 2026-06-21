@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
-import { moneyFromStotinki, hhmm, timeFromIso, type OrderStatus } from '@/lib/utils';
+import { moneyFromStotinki, hhmm, timeFromIso, relDayLabel, type OrderStatus } from '@/lib/utils';
 import type { Order } from '@/lib/types';
 
 export function OrderPanel({
@@ -90,7 +90,12 @@ export function OrderPanel({
 }
 
 export function OrderDetailBody({ order }: { order: Order }) {
-  const slotLabel = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '—';
+  const slotWindow = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '';
+  const slotLabel = slotWindow
+    ? order.slotDate
+      ? `${relDayLabel(order.slotDate)} · ${slotWindow}`
+      : slotWindow
+    : '—';
   const paymentValue =
     order.paymentStatus === 'paid'
       ? order.paidAt
@@ -133,7 +138,7 @@ export function OrderDetailBody({ order }: { order: Order }) {
           label={deliveryLabel}
           value={deliveryVal}
         />
-        <InfoRow icon={<CalendarClock size={18} />} label="Час за доставка" value={slotLabel} />
+        <InfoRow icon={<CalendarClock size={18} />} label="Ден и час за доставка" value={slotLabel} />
         <InfoRow icon={<CreditCard size={18} />} label="Плащане" value={paymentValue} />
       </div>
 

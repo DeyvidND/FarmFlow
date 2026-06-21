@@ -48,6 +48,16 @@ export function bgWeekdayShort(dateStr: string): string {
   return BG_DAYS_SHORT[new Date(`${dateStr}T00:00:00Z`).getUTCDay()];
 }
 
+/** Compact relative day for delivery slots: "Днес"/"Утре"/"Вчера", else "чт, 12 юни". */
+export function relDayLabel(iso: string): string {
+  const today = todayIso();
+  if (iso === today) return 'Днес';
+  if (iso === shiftIsoDate(today, -1)) return 'Вчера';
+  if (iso === shiftIsoDate(today, 1)) return 'Утре';
+  const [, m, d] = iso.split('-');
+  return `${bgWeekdayShort(iso)}, ${Number(d)} ${BG_MONTHS[Number(m) - 1]}`;
+}
+
 /** "2026-05-30" → "30.05". */
 export function ddmm(dateStr: string): string {
   const [, m, d] = dateStr.split('-');

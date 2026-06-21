@@ -69,9 +69,14 @@ function dayLabel(iso: string): string {
   return `${bgWeekdayShort(iso)}, ${Number(d)} ${BG_MONTHS[Number(m) - 1]}`;
 }
 
-/** Delivery method + slot time when set: "Доставка · 10:00". */
+/** Delivery method + slot. Local delivery shows the full day + window
+ *  ("Доставка · Утре 10:00–11:00"); other methods show the time if any. */
 function deliveryMeta(o: PaymentOrder): string {
   const dt = DELIVERY_LABEL[o.deliveryType] ?? 'Доставка';
+  if (o.deliveryType === 'address' && o.slotFrom) {
+    const win = o.slotTo ? `${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}` : hhmm(o.slotFrom);
+    return `${dt} · ${dayLabel(o.day)} ${win}`;
+  }
   return o.slotFrom ? `${dt} · ${hhmm(o.slotFrom)}` : dt;
 }
 

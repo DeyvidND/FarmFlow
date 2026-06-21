@@ -526,6 +526,8 @@ export interface Order {
   econtOffice: string | null;
   notes: string | null;
   createdAt: string;
+  /** Chosen delivery slot (local/address delivery): day + time window. */
+  slotDate: string | null;
   slotFrom: string | null;
   slotTo: string | null;
   items: OrderItem[];

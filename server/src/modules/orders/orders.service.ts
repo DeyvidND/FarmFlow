@@ -33,13 +33,16 @@ import { decideDecrement, restoreRemaining } from '../availability/availability.
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
-type SlotTimes = { slotFrom: string | null; slotTo: string | null };
+type SlotTimes = { slotFrom: string | null; slotTo: string | null; slotDate: string | null };
 type OrderWithItems = OrderRow & SlotTimes & { items: ItemRow[] };
 
 const orderWithSlot = {
   ...getTableColumns(orders),
   slotFrom: deliverySlots.timeFrom,
   slotTo: deliverySlots.timeTo,
+  // Delivery day for local-delivery orders (the chosen slot's date) — surfaced so
+  // the Orders screen can show "ден + час", not just the time window.
+  slotDate: deliverySlots.date,
 };
 
 export type PaymentStatus = 'paid' | 'pending_online' | 'cash';
@@ -947,6 +950,7 @@ export class OrdersService {
       const slotId = isLocal ? dto.slotId ?? null : null;
       let slotFrom: string | null = null;
       let slotTo: string | null = null;
+      let slotDate: string | null = null;
       if (slotId) {
         // Lock the slot row so concurrent intakes serialize on it.
         const [slot] = await tx
@@ -958,6 +962,7 @@ export class OrdersService {
         if (!slot) throw new BadRequestException('Слотът не е намерен');
         slotFrom = slot.timeFrom;
         slotTo = slot.timeTo;
+        slotDate = slot.date;
 
         // A slot holds exactly one order — any live order means it's taken.
         const [{ count }] = await tx
@@ -1062,7 +1067,7 @@ export class OrdersService {
         .values(items.map((i) => ({ ...i, orderId: order.id })))
         .returning();
 
-      return { ...order, slotFrom, slotTo, items: inserted };
+      return { ...order, slotFrom, slotTo, slotDate, items: inserted };
     });
   }
 

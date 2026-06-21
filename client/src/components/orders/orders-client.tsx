@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Search, MapPin, Package, Store, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn, moneyFromStotinki, timeFromIso, type OrderStatus } from '@/lib/utils';
+import { cn, moneyFromStotinki, timeFromIso, hhmm, relDayLabel, type OrderStatus } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { HelpModal } from '@/components/delivery/ui';
 import { ORDERS_HELP } from '@/lib/help-content';
@@ -74,20 +74,40 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
   }
 
   const itemsSummary = (o: Order) => o.items.map((i) => `${i.productName} × ${i.quantity}`).join(', ');
-  const deliveryCell = (o: Order) =>
-    o.deliveryType === 'econt' || o.deliveryType === 'econt_address' ? (
-      <span className="inline-flex items-center gap-1.5 font-semibold text-ff-amber-600">
-        <Package size={15} /> {o.deliveryType === 'econt_address' ? 'Еконт адрес' : 'Еконт офис'}
-      </span>
-    ) : o.deliveryType === 'pickup' ? (
-      <span className="inline-flex items-center gap-1.5 font-semibold text-ff-ink-2">
-        <Store size={15} /> Пазар
-      </span>
-    ) : (
-      <span className="inline-flex items-center gap-1.5 font-semibold text-ff-green-700">
-        <MapPin size={15} /> Адрес
+  const deliveryCell = (o: Order) => {
+    if (o.deliveryType === 'econt' || o.deliveryType === 'econt_address') {
+      return (
+        <span className="inline-flex items-center gap-1.5 font-semibold text-ff-amber-600">
+          <Package size={15} /> {o.deliveryType === 'econt_address' ? 'Еконт адрес' : 'Еконт офис'}
+        </span>
+      );
+    }
+    if (o.deliveryType === 'pickup') {
+      return (
+        <span className="inline-flex items-center gap-1.5 font-semibold text-ff-ink-2">
+          <Store size={15} /> Пазар
+        </span>
+      );
+    }
+    // Local (address) delivery — show the chosen delivery day + time window. Flag in
+    // amber when it's missing, since a local delivery must have a slot to be routed.
+    const slot =
+      o.slotDate && o.slotFrom && o.slotTo
+        ? `${relDayLabel(o.slotDate)} · ${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}`
+        : null;
+    return (
+      <span className="inline-flex flex-col gap-0.5">
+        <span className="inline-flex items-center gap-1.5 font-semibold text-ff-green-700">
+          <MapPin size={15} /> Адрес
+        </span>
+        {slot ? (
+          <span className="text-[12px] font-semibold text-ff-ink-2">{slot}</span>
+        ) : (
+          <span className="text-[12px] font-semibold text-ff-amber-600">няма зададен час</span>
+        )}
       </span>
     );
+  };
 
   return (
     <div className="animate-ff-fade-up">
