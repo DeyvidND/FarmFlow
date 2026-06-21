@@ -67,14 +67,27 @@ card's address block, distinct from general order notes.
 
 ### 2. chaika storefront (`src/scripts/checkout-page.ts`)
 
-- Remove `composeAddress()` merge. The address payload sends two fields:
-  - `deliveryAddress = trim(addrInput.value)` (street)
-  - `deliveryNote = trim(addrDetails.value)` (бл./вх.; omit/null when empty)
+**Split the local `address` branch only.** Geocoding runs solely for local
+`address` delivery (the `isLocal` gate in `orders.service.ts`); `econt_address`
+is never geocoded, and the Econt waybill builder puts the whole street string in
+its door label (`econt.service.ts: other: order.deliveryAddress`). So бл./вх.
+pollution is exclusively a local-delivery problem, and the block/entrance MUST
+stay inside `deliveryAddress` for Econt. Splitting only the local branch fixes
+the bug with zero Econt risk.
+
+- Local `address` branch:
+  - `deliveryAddress = trim(addrInput.value)` (street only)
+  - `deliveryNote = trim(addrDetails.value)` (бл./вх.; omit when empty)
+- `econt_address` branch: **unchanged** — keeps `composeAddress()` (Econt needs
+  the full string).
 - Pin capture (`lat/lng/city/postal` from a pick) — **unchanged**.
 - No hard block, no new required field. Submits with or without a pin exactly as
   today ("accept + clean").
 - Pickup path that currently sets `notes` (e.g. "Вземане от пазара") is
   unaffected — that's order `notes`, not `deliveryNote`.
+
+Consequence: `deliveryNote` is populated for local-delivery orders only — which
+is exactly where it's needed (the farmer's route shows only `address` orders).
 
 ### 3. Backend DTO (`server/src/modules/orders/dto/create-order.dto.ts`)
 
