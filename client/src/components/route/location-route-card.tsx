@@ -25,10 +25,13 @@ export function LocationRouteCard({
   onSaved,
   onClose,
   forced = false,
+  mapsKey,
 }: {
   onSaved?: () => void;
   onClose?: () => void;
   forced?: boolean;
+  /** Maps key from the server (Dokploy runtime env) for the address autocomplete. */
+  mapsKey?: string;
 }) {
   const [home, setHome] = useState('');
   // Precise coords from a Places pick — when set, sent as farmLat/farmLng so the
@@ -107,6 +110,7 @@ export function LocationRouteCard({
             value={home}
             onChange={setHome}
             onPick={setHomePin}
+            apiKey={mapsKey}
           />
 
           <div className="flex flex-col gap-1.5">

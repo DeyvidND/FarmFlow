@@ -29,6 +29,9 @@ interface RouteMapProps {
   placing?: boolean;
   /** Called with the clicked coords while `placing` is on. */
   onMapClick?: (lat: number, lng: number) => void;
+  /** Maps key from the server (Dokploy runtime env); falls back to the build-time
+   *  NEXT_PUBLIC_ constant when absent. */
+  apiKey?: string;
 }
 
 /**
@@ -44,13 +47,15 @@ export function RouteMap({
   onPick,
   placing = false,
   onMapClick,
+  apiKey,
 }: RouteMapProps) {
+  const key = apiKey || MAPS_KEY;
   const located = stops.filter((s) => s.lat != null && s.lng != null);
   const hasOrigin = origin.lat != null && origin.lng != null;
   // A real map renders whenever we have a Maps key — even with zero stops it
   // shows a genuine Google map (centred on the farm, or the country) instead of
   // the styled placeholder. The demo only stands in for a missing key (local dev).
-  const canRenderReal = !!MAPS_KEY;
+  const canRenderReal = !!key;
 
   // A distinct end marker only when the route ends somewhere other than home.
   const customEnd =
@@ -69,7 +74,7 @@ export function RouteMap({
       : BG_CENTROID;
 
   return (
-    <APIProvider apiKey={MAPS_KEY} language="bg" region="BG">
+    <APIProvider apiKey={key} language="bg" region="BG">
       <Map
         mapId={MAP_ID}
         defaultCenter={center}

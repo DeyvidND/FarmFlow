@@ -69,5 +69,11 @@ export default async function RoutePage({
   const order = searchParams.order === 'distance' ? 'distance' : undefined;
   const { route, failed } = await getRoute(date, end, order);
   const dateLabel = bgDateLabel(new Date(`${date}T00:00:00`)).replace(' г.', '');
-  return <RouteClient route={route} dateLabel={dateLabel} loadError={failed} />;
+  // Maps browser key. Read at REQUEST time (force-dynamic) so it can come from the
+  // runtime Dokploy env (GOOGLE_MAPS_KEY) instead of being baked at build time —
+  // NEXT_PUBLIC_ vars are inlined by `next build` and can't be set at runtime, so a
+  // server read + prop is the only way Dokploy can supply it. Falls back to the
+  // build-time NEXT_PUBLIC_ var if that's how it's configured.
+  const mapsKey = process.env.GOOGLE_MAPS_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+  return <RouteClient route={route} dateLabel={dateLabel} loadError={failed} mapsKey={mapsKey} />;
 }

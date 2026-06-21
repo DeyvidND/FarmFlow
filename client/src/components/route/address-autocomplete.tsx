@@ -24,6 +24,9 @@ interface Props {
   /** Precise coords on a Places pick, or null when the field is hand-edited after
    *  a pick (so the backend re-geocodes the final text instead of a stale pin). */
   onPick: (a: PickedAddress | null) => void;
+  /** Maps key passed from the server (Dokploy runtime env). Falls back to the
+   *  build-time NEXT_PUBLIC_ constant when absent. */
+  apiKey?: string;
 }
 
 /** Inner field — must sit inside an APIProvider so useMapsLibrary works. */
@@ -85,7 +88,8 @@ function Field({ label, placeholder, value, onChange, onPick }: Props) {
  * geocodes the typed address) — no regression.
  */
 export function AddressAutocomplete(props: Props) {
-  if (!MAPS_KEY) {
+  const key = props.apiKey || MAPS_KEY;
+  if (!key) {
     return (
       <label className="flex flex-col gap-1.5">
         <span className="text-[13px] font-bold text-ff-ink-2">{props.label}</span>
@@ -99,7 +103,7 @@ export function AddressAutocomplete(props: Props) {
     );
   }
   return (
-    <APIProvider apiKey={MAPS_KEY} language="bg" region="BG">
+    <APIProvider apiKey={key} language="bg" region="BG">
       <Field {...props} />
     </APIProvider>
   );
