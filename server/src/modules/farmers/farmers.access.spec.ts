@@ -4,7 +4,7 @@ import { FarmersService } from './farmers.service';
 jest.mock('argon2', () => ({ hash: jest.fn().mockResolvedValue('hash') }));
 
 function makeDb() {
-  return {
+  const db: Record<string, jest.Mock> = {
     select: jest.fn().mockReturnThis(),
     from: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
@@ -15,7 +15,11 @@ function makeDb() {
     update: jest.fn().mockReturnThis(),
     set: jest.fn().mockReturnThis(),
     delete: jest.fn().mockReturnThis(),
+    // revokeAccess runs inside a transaction — run the callback with the same
+    // chainable mock so update/delete calls are recorded on `db`.
+    transaction: jest.fn(async (cb: (tx: unknown) => unknown) => cb(db)),
   };
+  return db;
 }
 
 const TENANT = 'tenant-1';

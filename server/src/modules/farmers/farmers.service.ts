@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { and, eq, asc, inArray, sql } from 'drizzle-orm';
-import { type Database, farmers, farmerMedia, users } from '@farmflow/db';
+import { type Database, farmers, farmerMedia, users, auditLogs, orders } from '@farmflow/db';
 import * as argon2 from 'argon2';
 import { AuthService } from '../auth/auth.service';
 import type { Farmer, FarmerMedia, PublicFarmer } from '@farmflow/types';
@@ -154,11 +154,21 @@ export class FarmersService {
       .where(and(eq(users.farmerId, farmerId), eq(users.tenantId, tenantId)))
       .limit(1);
     if (!login) throw new NotFoundException('Този фермер няма достъп');
-    await this.db
-      .update(users)
-      .set({ tokenVersion: sql`${users.tokenVersion} + 1` })
-      .where(eq(users.id, login.id));
-    await this.db.delete(users).where(eq(users.id, login.id));
+    // Clear the FK references to this login BEFORE deleting it — audit_logs.user_id
+    // and orders.customer_id are ON DELETE NO ACTION, so a referenced user row can't
+    // be deleted (raw delete → FK violation → 500). Null them (keep the audit trail
+    // + any orders, just unlinked from the gone login) and bump tokenVersion so a
+    // live JWT is rejected at once. All in one transaction so a mid-way failure
+    // never leaves the login half-revoked.
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(users)
+        .set({ tokenVersion: sql`${users.tokenVersion} + 1` })
+        .where(eq(users.id, login.id));
+      await tx.update(auditLogs).set({ userId: null }).where(eq(auditLogs.userId, login.id));
+      await tx.update(orders).set({ customerId: null }).where(eq(orders.customerId, login.id));
+      await tx.delete(users).where(eq(users.id, login.id));
+    });
     return { ok: true };
   }
 
