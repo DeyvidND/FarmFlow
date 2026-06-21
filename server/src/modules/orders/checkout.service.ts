@@ -86,11 +86,22 @@ export class CheckoutService {
     // Resolve the farm ONCE — drives both the pre-flight payment check and the
     // Stripe branch below.
     const [tenant] = await this.db
-      .select({ settings: tenants.settings, stripeAccountId: tenants.stripeAccountId })
+      .select({
+        settings: tenants.settings,
+        stripeAccountId: tenants.stripeAccountId,
+        stripeChargesEnabled: tenants.stripeChargesEnabled,
+      })
       .from(tenants)
       .where(eq(tenants.slug, slug))
       .limit(1);
-    const canCard = !!tenant && this.stripe.isEnabledForAccount(tenant.stripeAccountId);
+    // Card requires a linked account that can actually charge (onboarding complete →
+    // charges_enabled), mirroring the storefront gate. An 'online' choice on a
+    // not-yet-live account falls back to COD below instead of opening a Checkout
+    // Session that Stripe would reject.
+    const canCard =
+      !!tenant &&
+      this.stripe.isEnabledForAccount(tenant.stripeAccountId) &&
+      tenant.stripeChargesEnabled;
 
     // Pre-flight: an 'online' choice on a farm that can't take cards silently
     // falls back to COD — but only if the farm actually offers COD. Reject here

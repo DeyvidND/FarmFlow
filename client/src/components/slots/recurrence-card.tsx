@@ -200,13 +200,22 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
   async function save() {
     setSaving(true);
     try {
-      const days = s.sameHours ? [...pickedDows].map((dow) => ({ dow, ...s.shared })) : s.days;
+      // Strip any field other than the window's hours. Legacy rules stored a
+      // per-window `maxOrders` (capacity, since removed); it survives in state
+      // (loaded raw from the saved rule, spread through edits) and the server's
+      // strict DTO rejects it ("intervalWindow.property maxOrders should not
+      // exist"). Send only timeFrom/timeTo. The first clean save lets the server
+      // rewrite the stored rule without the stale field, so this self-heals.
+      const cleanWin = (w: SlotWindow): SlotWindow => ({ timeFrom: w.timeFrom, timeTo: w.timeTo });
+      const days = (s.sameHours ? [...pickedDows].map((dow) => ({ dow, ...s.shared })) : s.days).map(
+        (d) => ({ dow: d.dow, ...cleanWin(d) }),
+      );
       const rule: SlotRuleInput = {
         active: s.active,
         repeat: s.repeat,
         days,
         intervalDays: s.intervalDays,
-        intervalWindow: s.intervalWindow,
+        intervalWindow: cleanWin(s.intervalWindow),
         anchorDate: s.anchorDate,
         slotMinutes: s.slotMinutes,
         customerNote: s.customerNote || undefined,

@@ -101,10 +101,21 @@ describe('CheckoutService.create (Stripe path)', () => {
 
   it('card farm + online → opens a Stripe Checkout session', async () => {
     const { svc, db, stripe } = build(makeOrder({ paymentMethod: 'online' }), { canCard: true });
-    db.limit.mockResolvedValueOnce([{ stripeAccountId: 'acct' }]);
+    // Card requires a linked account that can actually charge (onboarding complete).
+    db.limit.mockResolvedValueOnce([{ stripeAccountId: 'acct', stripeChargesEnabled: true }]);
     const out = await svc.create('slug', dto({ paymentMethod: 'online' }));
     expect(out.checkoutUrl).toBe('https://stripe/cs');
     expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
     expect(db.update).toHaveBeenCalled(); // persists stripeCheckoutSessionId
+  });
+
+  it('linked Stripe but onboarding incomplete (charges off) → cash path, no session', async () => {
+    // isEnabledForAccount is true (account linked) but charges_enabled is false, so
+    // the farm cannot actually take cards yet — online must fall back to COD.
+    const { svc, db, stripe } = build(makeOrder({ paymentMethod: 'online' }), { canCard: true });
+    db.limit.mockResolvedValueOnce([{ stripeAccountId: 'acct', stripeChargesEnabled: false }]);
+    const out = await svc.create('slug', dto({ paymentMethod: 'online' }));
+    expect(out.checkoutUrl).toBeNull();
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
   });
 });

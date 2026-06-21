@@ -132,15 +132,17 @@ export class TenantsService {
     // Reuses the shared, Redis-cached slug→tenant resolver. The cached meta IS
     // the profile shape plus internal `id`/`stripeAccountId` — strip them, and
     // derive the public `stripeEnabled` flag (same gate the checkout uses).
-    const { id: _id, stripeAccountId, cardEnabled, ...profile } = await this.publicCache.resolveTenant(
-      this.db,
-      slug,
-    );
-    // Card is offered only when Stripe can charge AND the farmer hasn't turned card
-    // off (the COD-only override). `cardEnabled` itself stays internal — stripped here.
+    const { id: _id, stripeAccountId, cardEnabled, stripeChargesEnabled, ...profile } =
+      await this.publicCache.resolveTenant(this.db, slug);
+    // Card is offered only when the Stripe account is linked AND actually able to
+    // charge (onboarding complete → charges_enabled) AND the farmer hasn't turned
+    // card off (the COD-only override). Linked-but-not-live accounts must NOT show
+    // card, or the buyer would pick it and the payment would fail. `cardEnabled`
+    // and `stripeChargesEnabled` stay internal — stripped here.
     return {
       ...profile,
-      stripeEnabled: this.stripe.isEnabledForAccount(stripeAccountId) && cardEnabled,
+      stripeEnabled:
+        this.stripe.isEnabledForAccount(stripeAccountId) && stripeChargesEnabled && cardEnabled,
     };
   }
 

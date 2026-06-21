@@ -321,6 +321,18 @@ export function RouteClient({
               type="date"
               value={route.date}
               aria-label="Избери дата за маршрута"
+              // The input is invisible (opacity-0) over a styled label, so its native
+              // calendar icon is hidden too. On desktop a plain click only focuses the
+              // field — the picker never opens — so the date button reads as dead. Force
+              // the native picker open on click (user gesture); optional-chain for the
+              // few browsers without showPicker (they still open on focus/keyboard).
+              onClick={(e) => {
+                try {
+                  (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.();
+                } catch {
+                  /* showPicker can throw if not allowed — ignore, fall back to native */
+                }
+              }}
               onChange={(e) => {
                 if (e.target.value) setDate(e.target.value);
               }}

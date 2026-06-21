@@ -67,6 +67,10 @@ export interface TenantMeta {
   // Internal: the farm's connected Stripe account id. Used to derive `stripeEnabled`
   // in TenantsService, then stripped — never sent to the storefront.
   stripeAccountId: string | null;
+  // Internal: whether the connected account has completed onboarding and can take
+  // charges (Stripe `charges_enabled`, persisted via the account.updated webhook).
+  // Folded into `stripeEnabled` so a linked-but-not-live account never offers card.
+  stripeChargesEnabled: boolean;
   // Read-only delivery pricing (free-over threshold + per-method fees) so the
   // storefront displays the farm's configured fees instead of hardcoded numbers.
   delivery: PublicDelivery;
@@ -168,6 +172,7 @@ export class PublicCacheService {
         productOfWeekPlacement: tenants.productOfWeekPlacement,
         settings: tenants.settings,
         stripeAccountId: tenants.stripeAccountId,
+        stripeChargesEnabled: tenants.stripeChargesEnabled,
       })
       .from(tenants)
       .where(eq(tenants.slug, slug))

@@ -584,7 +584,7 @@ export class StripeService {
     details_submitted?: boolean;
   }): Promise<void> {
     if (!account.id) return;
-    await this.db
+    const rows = await this.db
       .update(tenants)
       .set({
         stripeChargesEnabled: !!account.charges_enabled,
@@ -592,7 +592,12 @@ export class StripeService {
         stripeDetailsSubmitted: !!account.details_submitted,
         stripeStatusUpdatedAt: new Date(),
       })
-      .where(eq(tenants.stripeAccountId, account.id));
+      .where(eq(tenants.stripeAccountId, account.id))
+      .returning({ slug: tenants.slug });
+    // charges_enabled flipping (onboarding completed/lapsed) changes the storefront's
+    // `stripeEnabled` card gate — bust `tenant:{slug}` so the card option isn't stale
+    // for up to the cache TTL after the farm finishes connecting.
+    if (rows[0]?.slug) await this.publicCache.del(publicCacheKeys.tenant(rows[0].slug));
   }
 
   /** Drop a connected account's link + cached flags when the farm deauthorizes us. */
