@@ -9,7 +9,6 @@ import {
   Truck,
   Home,
   Flag,
-  MapPin,
   Clock,
   Route as RouteIcon,
   HelpCircle,
@@ -44,7 +43,6 @@ const ORDER_OPTIONS: { mode: RouteOrderMode; label: string; Icon: typeof Home; h
 const END_OPTIONS: { mode: RouteEndMode; label: string; Icon: typeof Home; hint: string }[] = [
   { mode: 'home', label: 'Към дома', Icon: Home, hint: 'След последната доставка се връщаш до базата.' },
   { mode: 'last', label: 'Край при клиента', Icon: Flag, hint: 'Маршрутът свършва при последната доставка — без връщане до базата.' },
-  { mode: 'custom', label: 'По избор', Icon: MapPin, hint: 'Завършваш на друг адрес (задава се в Настройки).' },
 ];
 
 // Google Maps consumer dir links cap waypoints PER PLATFORM: up to 9 on desktop
@@ -229,19 +227,7 @@ export function RouteClient({
   // from it. Until it's set, show ONLY the setup card (with Places autocomplete)
   // instead of an empty map that reads as "no deliveries".
   if (noOrigin) {
-    return (
-      <div className="animate-ff-fade-up mx-auto max-w-[560px]">
-        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3">
-          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-ff-amber-600" />
-          <div className="text-[13px] leading-relaxed text-ff-amber-600">
-            <b className="block text-[13.5px]">Първо задай адрес на базата</b>
-            Маршрутът тръгва от твоя адрес. Въведи го по-долу — избери от подсказките за
-            точна точка на картата — за да ползваш доставъчния маршрут.
-          </div>
-        </div>
-        <LocationRouteCard onSaved={() => router.refresh()} />
-      </div>
-    );
+    return <LocationRouteCard forced onSaved={() => router.refresh()} />;
   }
 
   return (
@@ -374,11 +360,15 @@ export function RouteClient({
         </div>
       </div>
 
-      {/* base address + default route-end — edited right here (moved from Настройки) */}
+      {/* base address + default route-end — opened as a modal from the „Локация" button */}
       {showLoc && (
-        <div className="mb-4 max-w-[520px]">
-          <LocationRouteCard onSaved={() => router.refresh()} />
-        </div>
+        <LocationRouteCard
+          onClose={() => setShowLoc(false)}
+          onSaved={() => {
+            setShowLoc(false);
+            router.refresh();
+          }}
+        />
       )}
 
       {/* plain-language hint for the active choices */}
