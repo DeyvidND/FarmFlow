@@ -8,13 +8,6 @@ import { AddressAutocomplete } from './address-autocomplete';
 import { getTenant, updateTenant } from '@/lib/api-client';
 import type { RouteEndMode, RoutingConfig } from '@/lib/types';
 
-// Only the two ends that need NO extra address. „По избор" (custom end address)
-// is intentionally left out to keep the first-run setup simple.
-const END_LABELS: { mode: RouteEndMode; label: string; hint: string }[] = [
-  { mode: 'home', label: 'Към дома', hint: 'обратно до базата' },
-  { mode: 'last', label: 'Край при клиента', hint: 'край при последната доставка' },
-];
-
 /**
  * Base-address setup, shown as a modal. The base address is the route's start
  * point. `forced` = the route can't be used yet (no address) → no close button,
@@ -113,27 +106,6 @@ export function LocationRouteCard({
             onPick={setHomePin}
             apiKey={placesKey}
           />
-
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[13px] font-bold text-ff-ink-2">Край на маршрута</span>
-            <div className="flex flex-wrap gap-2">
-              {END_LABELS.map(({ mode, label, hint }) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setEndMode(mode)}
-                  className={`flex-1 rounded-sm border px-3 py-2.5 text-left transition ${
-                    endMode === mode
-                      ? 'border-ff-green-500 bg-ff-green-100'
-                      : 'border-ff-border bg-ff-surface-2 hover:border-ff-green-500'
-                  }`}
-                >
-                  <span className="block text-[14px] font-bold text-ff-ink">{label}</span>
-                  <span className="block text-[12px] text-ff-muted">{hint}</span>
-                </button>
-              ))}
-            </div>
-          </div>
 
           <Button
             variant="primary"

@@ -84,6 +84,14 @@ services:
       # Backend base for the web app's server-side fetches (BFF proxy + session
       # route handlers) — internal service DNS, no public hop.
       API_URL: http://api:3000
+      # Google Maps (route screen) — RUNTIME vars, read server-side at request time
+      # (the route page is force-dynamic) and passed to the client as props, so they
+      # are NOT baked into the bundle and can be changed with a redeploy. Two separate
+      # keys so a leak of one doesn't expose the other:
+      #   GOOGLE_MAPS_API_KEY → the map (Maps JavaScript API)
+      #   GOOGLE_MAPS_KEY     → the address autocomplete (Places API New, REST)
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      GOOGLE_MAPS_KEY: ${GOOGLE_MAPS_KEY:-}
       # Sentry (farmer panel): DSN is baked into the image at BUILD time from the
       # GitHub repo variable FF_SENTRY_DSN_PANEL (deploy.yml → NEXT_PUBLIC_SENTRY_DSN),
       # not set here. Changing it requires a rebuild, not just a redeploy.
