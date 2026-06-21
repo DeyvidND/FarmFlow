@@ -457,6 +457,8 @@ export interface RouteStop {
   phone: string | null;
   email: string | null;
   address: string | null;
+  /** Block/entrance/floor/flat detail for the driver (бл./вх.). */
+  note: string | null;
   lat: number | null;
   lng: number | null;
   summary: string;

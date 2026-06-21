@@ -312,6 +312,9 @@ export function StopList({
                   <MapPin size={14} className="shrink-0" />
                   <span className="truncate">{s.address ?? 'Няма адрес'}</span>
                 </span>
+                {s.note && (
+                  <span className="w-full pl-[19px] text-[12px] text-ff-muted">{s.note}</span>
+                )}
                 {!located && (
                   <span
                     title="Адресът не е намерен на картата — няма пин. Провери адреса или се обади на клиента."
