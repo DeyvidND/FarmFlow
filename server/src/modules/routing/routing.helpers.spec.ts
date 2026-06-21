@@ -18,6 +18,7 @@ const stop = (
   phone: null,
   email: null,
   address: null,
+  note: null,
   lat,
   lng,
   summary: '',

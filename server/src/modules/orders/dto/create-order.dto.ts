@@ -88,6 +88,16 @@ export class CreateOrderDto {
   @MaxLength(20)
   deliveryPostal?: string;
 
+  // Block/entrance/floor/flat (бл./вх./ет./ап.) + courier hint. Stored for display
+  // and the farmer's route, but deliberately NOT geocoded — keeping it out of
+  // deliveryAddress is the whole point (a hand-typed "бл. 12 вх. А" otherwise makes
+  // Google reject the geocode or snap to the wrong point). Local delivery only.
+  @ApiPropertyOptional({ description: 'Block/entrance/floor/flat detail (display + route only)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  deliveryNote?: string;
+
   // Precise delivery coordinates from the storefront map/autocomplete. Optional:
   // when absent (e.g. free-typed address), the server geocodes deliveryAddress.
   @ApiPropertyOptional({ description: 'Delivery latitude (storefront map pin)' })

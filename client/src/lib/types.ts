@@ -457,6 +457,8 @@ export interface RouteStop {
   phone: string | null;
   email: string | null;
   address: string | null;
+  /** Block/entrance/floor/flat detail for the driver (бл./вх.). */
+  note: string | null;
   lat: number | null;
   lng: number | null;
   summary: string;
@@ -523,6 +525,8 @@ export interface Order {
   totalStotinki: number;
   deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address';
   deliveryAddress: string | null;
+  /** Block/entrance/floor/flat detail (бл./вх.), kept separate from the street. */
+  deliveryNote: string | null;
   econtOffice: string | null;
   notes: string | null;
   createdAt: string;

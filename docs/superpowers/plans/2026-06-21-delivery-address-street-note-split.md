@@ -123,7 +123,7 @@ describe('CreateOrderDto.deliveryNote', () => {
 
 - [ ] **Step 2: Run the test, verify it fails**
 
-Run: `pnpm --filter @farmflow/server exec jest src/modules/orders/dto/create-order.dto.spec.ts`
+Run: `pnpm --filter @farmflow/api exec jest src/modules/orders/dto/create-order.dto.spec.ts`
 Expected: the "rejects a note longer than 120 chars" test FAILS (no `MaxLength` yet, so no constraint error) — or all pass vacuously if the property is silently stripped. Either way, confirm the maxLength assertion is not yet satisfied before implementing.
 
 - [ ] **Step 3: Add the DTO field**
@@ -144,7 +144,7 @@ In `server/src/modules/orders/dto/create-order.dto.ts`, immediately after the `d
 
 - [ ] **Step 4: Run the test, verify it passes**
 
-Run: `pnpm --filter @farmflow/server exec jest src/modules/orders/dto/create-order.dto.spec.ts`
+Run: `pnpm --filter @farmflow/api exec jest src/modules/orders/dto/create-order.dto.spec.ts`
 Expected: all 3 tests PASS.
 
 - [ ] **Step 5: Commit**
@@ -178,12 +178,12 @@ In `orders.service.ts`, in the `tx.insert(orders).values({...})` block, right af
 
 - [ ] **Step 2: Typecheck the server**
 
-Run: `pnpm --filter @farmflow/server exec tsc --noEmit`
+Run: `pnpm --filter @farmflow/api exec tsc --noEmit`
 Expected: no errors (the column exists on the inferred insert type from the rebuilt `@farmflow/db`).
 
 - [ ] **Step 3: Run the orders test suites (regression)**
 
-Run: `pnpm --filter @farmflow/server exec jest src/modules/orders`
+Run: `pnpm --filter @farmflow/api exec jest src/modules/orders`
 Expected: all existing order/checkout specs still PASS.
 
 - [ ] **Step 4: Commit**
@@ -327,7 +327,7 @@ In the `rows.map((r) => ({...}))` building `stops` (~line 254), after `address: 
 
 - [ ] **Step 4: Typecheck the server**
 
-Run: `pnpm --filter @farmflow/server exec tsc --noEmit`
+Run: `pnpm --filter @farmflow/api exec tsc --noEmit`
 Expected: no errors.
 
 - [ ] **Step 5: Add `note` to the client `RouteStop` type**
@@ -376,7 +376,7 @@ git commit -m "feat(route): show delivery note (бл./вх.) on each route stop 
 
 - [ ] **Step 1: Server build + full test suite**
 
-Run: `pnpm --filter @farmflow/db build && pnpm --filter @farmflow/server build && pnpm --filter @farmflow/server test`
+Run: `pnpm --filter @farmflow/db build && pnpm --filter @farmflow/api build && pnpm --filter @farmflow/api test`
 Expected: db + server build clean; full Jest suite green (including the new DTO spec).
 
 - [ ] **Step 2: Client build**
@@ -401,7 +401,8 @@ Place an `econt_address` order; confirm `deliveryAddress` still carries the full
 
 ## Rollout notes
 
-- **Migration `0051` must run on PROD** (`pnpm db:migrate` via Dokploy) before/with the FarmFlow redeploy. The column is nullable → safe on existing rows.
-- chaika auto-deploys on push; FarmFlow needs a Dokploy redeploy.
-- Backend accepts the new optional field whether or not chaika sends it yet → the two repos can ship in any order.
+- **Migration must run on PROD** (`pnpm db:migrate` via Dokploy) before/with the FarmFlow redeploy. The column is nullable → safe on existing rows (metadata-only ADD COLUMN, no table rewrite).
+- **Migration number:** generated as `0050_wide_hedge_knight.sql` in the isolated worktree (last committed migration there was 0049). A concurrent session has an unrelated uncommitted `0050` on main — at integration, if that lands first, **renumber this migration to the next free number** (sql file + `meta/<n>_snapshot.json` + the `meta/_journal.json` entry) so the sequence stays contiguous.
+- **Deploy ordering — FarmFlow first.** The global ValidationPipe uses `forbidNonWhitelisted: true`, so if the chaika storefront ships `deliveryNote` in its POST *before* the FarmFlow DTO field exists in prod, the whole order request 400s. Deploy/redeploy FarmFlow (with the migration) **at or before** the chaika storefront — NOT after. (chaika auto-deploys on push to its main; keep the chaika merge until FarmFlow prod is live.)
 - No new dependencies. Existing orders keep their merged `deliveryAddress` + null `deliveryNote` (go-forward only; no backfill).
+- **Deferred (non-blocking):** the daily/production digest (`digest.service.ts`) and the customer confirmation email (`order-confirmation.service.ts`) still show the address without the new `deliveryNote`. The route screen — the primary driver tool — does show it. Adding the note to the digest is a worthwhile follow-up since it's farmer/driver-facing.

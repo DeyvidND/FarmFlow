@@ -358,6 +358,13 @@
       "when": 1782049578218,
       "tag": "0050_romantic_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1782055125007,
+      "tag": "0051_daily_titanium_man",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,8 @@ export interface RouteStop {
   phone: string | null;
   email: string | null;
   address: string | null;
+  /** Block/entrance/floor/flat detail for the driver (бл./вх.). */
+  note: string | null;
   lat: number | null;
   lng: number | null;
   summary: string;
@@ -209,6 +211,7 @@ export class RoutingService {
         phone: orders.customerPhone,
         email: orders.customerEmail,
         address: orders.deliveryAddress,
+        note: orders.deliveryNote,
         lat: orders.deliveryLat,
         lng: orders.deliveryLng,
         slotFrom: deliverySlots.timeFrom,
@@ -257,6 +260,7 @@ export class RoutingService {
       phone: r.phone,
       email: r.email,
       address: r.address,
+      note: r.note,
       lat: toNum(r.lat),
       lng: toNum(r.lng),
       summary: (itemsByOrder.get(r.id) ?? []).join(', '),

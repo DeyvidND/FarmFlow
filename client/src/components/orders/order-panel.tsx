@@ -105,12 +105,17 @@ export function OrderDetailBody({ order }: { order: Order }) {
         ? 'Чака онлайн плащане'
         : 'Наложен платеж / при доставка';
   const isEcont = order.deliveryType === 'econt' || order.deliveryType === 'econt_address';
-  const deliveryVal =
+  const deliveryBase =
     order.deliveryType === 'econt'
       ? order.econtOffice ?? 'Еконт офис'
       : order.deliveryType === 'pickup'
         ? 'Чайка, Варна'
         : order.deliveryAddress ?? '—';
+  // Append the block/entrance detail so the farmer/driver sees бл./вх. inline.
+  const deliveryVal =
+    order.deliveryType === 'address' && order.deliveryNote
+      ? `${deliveryBase} · ${order.deliveryNote}`
+      : deliveryBase;
   const deliveryLabel =
     order.deliveryType === 'econt'
       ? 'Еконт — до офис'
