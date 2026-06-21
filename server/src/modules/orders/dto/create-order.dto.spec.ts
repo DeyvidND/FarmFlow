@@ -25,6 +25,11 @@ describe('CreateOrderDto.deliveryNote', () => {
     expect(errs.find((e) => e.property === 'deliveryNote')).toBeUndefined();
   });
 
+  it('accepts a note of exactly 120 chars (boundary)', async () => {
+    const errs = await errorsFor({ deliveryNote: 'я'.repeat(120) });
+    expect(errs.find((e) => e.property === 'deliveryNote')).toBeUndefined();
+  });
+
   it('rejects a note longer than 120 chars', async () => {
     const errs = await errorsFor({ deliveryNote: 'я'.repeat(121) });
     const noteErr = errs.find((e) => e.property === 'deliveryNote');

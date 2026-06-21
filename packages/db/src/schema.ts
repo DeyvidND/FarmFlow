@@ -295,8 +295,9 @@ export const orders = pgTable(
     // a waybill to an address). NULL for office/local delivery.
     deliveryCity: text('delivery_city'),
     // Block/entrance/floor/flat (бл./вх./ет./ап.) + courier hint, kept OUT of
-    // delivery_address so it never pollutes geocoding. Local-delivery orders only;
-    // econt_address keeps the full string in delivery_address (Econt needs it).
+    // delivery_address so it never pollutes geocoding. Populated for local-delivery
+    // orders only (enforced in orders.service intake); econt_address keeps the full
+    // string in delivery_address (Econt needs it).
     deliveryNote: text('delivery_note'),
     econtOffice: text('econt_office'),
     deliveryLat: numeric('delivery_lat', { precision: 10, scale: 7 }),
