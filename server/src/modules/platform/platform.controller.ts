@@ -136,11 +136,22 @@ export class PlatformController {
     return this.platform.setPremium(id, dto.premium);
   }
 
-  /** Hard-delete a demo tenant + all its data. Refuses non-demo tenants (service-guarded). */
+  /** Hard-delete a tenant + all its data. Demos delete freely; a real farm requires
+   *  `?confirm=<slug>` matching its slug exactly (service-guarded). */
   @Delete('tenants/:id')
   @HttpCode(200)
-  deleteTenant(@Param('id', ParseUUIDPipe) id: string) {
-    return this.platform.deleteTenant(id);
+  @ApiQuery({ name: 'confirm', required: false })
+  deleteTenant(@Param('id', ParseUUIDPipe) id: string, @Query('confirm') confirm?: string) {
+    return this.platform.deleteTenant(id, confirm);
+  }
+
+  /** Reset a farm owner's password → returns a fresh temp password (forces change
+   *  on next login, revokes the owner's live sessions). */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Patch('tenants/:id/reset-password')
+  @HttpCode(200)
+  resetPassword(@Param('id', ParseUUIDPipe) id: string) {
+    return this.platform.resetOwnerPassword(id);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })

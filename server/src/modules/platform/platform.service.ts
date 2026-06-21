@@ -11,7 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
-import { asc, eq, sql, desc } from 'drizzle-orm';
+import { and, asc, eq, sql, desc } from 'drizzle-orm';
 import { BillingService } from '../billing/billing.service';
 import { emailCostStotinki } from '../billing/billing.pricing';
 import { ProductsService } from '../products/products.service';
@@ -459,6 +459,38 @@ export class PlatformService {
     return { id, premium };
   }
 
+  /** Reset a farm OWNER's password: mint a fresh temp password, force a change on
+   *  next login, and bump the owner's tokenVersion so any live session is revoked.
+   *  Targets the tenant's admin (owner) user(s); farmer sub-accounts are untouched.
+   *  Returns the plaintext temp password ONCE for the operator to hand over. */
+  async resetOwnerPassword(
+    id: string,
+  ): Promise<{ id: string; name: string; email: string | null; tempPassword: string }> {
+    const [t] = await this.db
+      .select({ id: tenants.id, name: tenants.name, email: tenants.email })
+      .from(tenants)
+      .where(eq(tenants.id, id))
+      .limit(1);
+    if (!t) throw new NotFoundException('Фермата не е намерена');
+
+    const tempPassword = genDemoPassword();
+    const passwordHash = await argon2.hash(tempPassword);
+
+    const updated = await this.db
+      .update(users)
+      .set({
+        passwordHash,
+        mustChangePassword: true,
+        // Revoke old sessions: tokens carry `tv` and are checked on every request.
+        tokenVersion: sql`${users.tokenVersion} + 1`,
+      })
+      .where(and(eq(users.tenantId, id), eq(users.role, 'admin')))
+      .returning({ id: users.id });
+    if (!updated.length) throw new NotFoundException('Фермата няма собственик');
+
+    return { id, name: t.name, email: t.email, tempPassword };
+  }
+
   /** Edit a farm's core profile + feature flags from the super-admin detail view.
    *  Partial: only the keys present in the DTO are written. */
   async updateTenant(id: string, dto: UpdateTenantDto): Promise<{ id: string }> {
@@ -517,18 +549,24 @@ export class PlatformService {
     return { id };
   }
 
-  /** Hard-delete a DEMO tenant and ALL its data. Refuses non-demo tenants — this is
-   *  the only hard-delete in the system, fenced to disposable demos. Deletes children
-   *  in FK-safe order inside one transaction, then sweeps the tenant's R2 prefix. */
-  async deleteTenant(id: string): Promise<{ id: string }> {
+  /** Hard-delete a tenant and ALL its data. Demos delete freely (disposable); a
+   *  REAL farm requires `confirmSlug` to exactly match its slug — the typed-slug
+   *  guard that prevents an accidental wipe of a live shop. This is the only
+   *  hard-delete in the system. Deletes children in FK-safe order inside one
+   *  transaction, then sweeps the tenant's R2 prefix. */
+  async deleteTenant(id: string, confirmSlug?: string): Promise<{ id: string }> {
     const [t] = await this.db
       .select({ id: tenants.id, slug: tenants.slug, isDemo: tenants.isDemo })
       .from(tenants)
       .where(eq(tenants.id, id))
       .limit(1);
     if (!t) throw new NotFoundException('Фермата не е намерена');
-    if (!t.isDemo) {
-      throw new BadRequestException('Само демо акаунти могат да се изтриват напълно');
+    // Real farms are irreversible: demand an exact slug echo as confirmation.
+    // Demos stay one-click (the daily cleanup + UI trash both call without a slug).
+    if (!t.isDemo && confirmSlug !== t.slug) {
+      throw new BadRequestException(
+        'За изтриване на истинска ферма въведете точно нейния slug за потвърждение',
+      );
     }
 
     await this.db.transaction(async (tx) => {

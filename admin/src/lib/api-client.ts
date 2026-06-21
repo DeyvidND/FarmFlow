@@ -251,12 +251,21 @@ export const createDemoTenant = (days?: number) =>
     'Неуспешно създаване на демо',
   );
 
-/** Hard-delete a demo tenant + all its data. */
-export const deleteTenant = (id: string) =>
+/** Hard-delete a tenant + all its data. Real farms require `confirmSlug` to match
+ *  the farm's slug exactly (server-enforced); demos delete without one. */
+export const deleteTenant = (id: string, confirmSlug?: string) =>
   apiFetch<{ id: string }>(
-    `platform/tenants/${id}`,
+    `platform/tenants/${id}${confirmSlug ? `?confirm=${encodeURIComponent(confirmSlug)}` : ''}`,
     { method: 'DELETE' },
     'Неуспешно изтриване',
+  );
+
+/** Reset a farm owner's password → returns a fresh one-time temp password. */
+export const resetTenantPassword = (id: string) =>
+  apiFetch<{ id: string; name: string; email: string | null; tempPassword: string }>(
+    `platform/tenants/${id}/reset-password`,
+    { method: 'PATCH' },
+    'Неуспешно нулиране на паролата',
   );
 
 /**

@@ -2,7 +2,22 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Search, AlertTriangle, Plus, Copy, Check, RefreshCw, ChevronRight, Sparkles, FlaskConical, Trash2 } from 'lucide-react';
+import {
+  Search,
+  AlertTriangle,
+  Plus,
+  Copy,
+  Check,
+  RefreshCw,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  ArrowUpDown,
+  Sparkles,
+  FlaskConical,
+  Trash2,
+  KeyRound,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
@@ -12,6 +27,7 @@ import {
   createTenant,
   createDemoTenant,
   deleteTenant,
+  resetTenantPassword,
   listTenants,
   type PlatformTenant,
   type Paginated,
@@ -43,6 +59,14 @@ function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean
 function daysUntil(iso: string | null): number {
   if (!iso) return 0;
   return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000));
+}
+
+/** Short `dd.mm.yy` date, or em-dash when null. */
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)}`;
 }
 
 function StatusBadge({ t }: { t: PlatformTenant }) {
@@ -287,6 +311,195 @@ function AddFarmerDialog({ onClose, onCreated }: AddFarmerDialogProps) {
   );
 }
 
+// ── Sorting ──────────────────────────────────────────────────────────────────
+type SortKey = 'name' | 'orders' | 'created' | 'lastOrder';
+interface SortState {
+  key: SortKey;
+  dir: 'asc' | 'desc';
+}
+
+const tms = (iso: string | null) => (iso ? new Date(iso).getTime() : 0);
+
+function compareBy(a: PlatformTenant, b: PlatformTenant, key: SortKey): number {
+  switch (key) {
+    case 'name':
+      return a.name.localeCompare(b.name, 'bg');
+    case 'orders':
+      return a.orderCount - b.orderCount;
+    case 'created':
+      return tms(a.createdAt) - tms(b.createdAt);
+    case 'lastOrder':
+      return tms(a.lastOrderAt) - tms(b.lastOrderAt);
+  }
+}
+
+// ── One farm table (desktop rows + mobile cards), shared by both sections ──────
+interface FarmTableProps {
+  rows: PlatformTenant[];
+  busyId: string | null;
+  sort: SortState;
+  onSort: (k: SortKey) => void;
+  onToggleAccess: (t: PlatformTenant, next: boolean) => void;
+  onTogglePremium: (t: PlatformTenant, v: boolean) => void;
+  onReset: (t: PlatformTenant) => void;
+  onDelete: (t: PlatformTenant) => void;
+  emptyText: string;
+}
+
+function FarmTable({ rows, busyId, sort, onSort, onToggleAccess, onTogglePremium, onReset, onDelete, emptyText }: FarmTableProps) {
+  const sortTh = (k: SortKey, label: string) => {
+    const active = sort.key === k;
+    return (
+      <th key={k} className="px-5 py-3.5 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
+        <button type="button" onClick={() => onSort(k)} className="inline-flex items-center gap-1 hover:text-ff-ink-2">
+          {label}
+          {active ? (
+            sort.dir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />
+          ) : (
+            <ArrowUpDown size={12} className="opacity-40" />
+          )}
+        </button>
+      </th>
+    );
+  };
+  const plainTh = (label: string) => (
+    <th key={label} className="px-5 py-3.5 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
+      {label}
+    </th>
+  );
+
+  const resetBtn = (t: PlatformTenant) => (
+    <button
+      type="button"
+      onClick={() => onReset(t)}
+      disabled={busyId === t.id}
+      title="Нулирай паролата"
+      className="grid h-9 w-9 place-items-center rounded-lg border border-ff-border text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-50"
+    >
+      <KeyRound size={16} />
+    </button>
+  );
+  const deleteBtn = (t: PlatformTenant) => (
+    <button
+      type="button"
+      onClick={() => onDelete(t)}
+      disabled={busyId === t.id}
+      title={t.isDemo ? 'Изтрий демо' : 'Изтрий фермата'}
+      className="grid h-9 w-9 place-items-center rounded-lg border border-ff-border text-ff-red hover:bg-[#FBE9E7] disabled:opacity-50"
+    >
+      <Trash2 size={16} />
+    </button>
+  );
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
+      {/* desktop table */}
+      <table className="w-full border-collapse max-[860px]:hidden">
+        <thead>
+          <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
+            {sortTh('name', 'Ферма')}
+            {plainTh('Имейл')}
+            {sortTh('orders', 'Поръчки')}
+            {sortTh('created', 'Създадена')}
+            {sortTh('lastOrder', 'Последна')}
+            {plainTh('План')}
+            {plainTh('Статус')}
+            {plainTh('Достъп')}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((t) => (
+            <tr key={t.id} className="border-b border-ff-border-2 last:border-0">
+              <td className="px-5 py-3.5">
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/tenants/${t.id}`}
+                    className="inline-flex items-center gap-1 text-[14.5px] font-bold text-ff-ink no-underline hover:text-ff-green-700 hover:underline"
+                  >
+                    {t.name}
+                    <ChevronRight size={15} className="text-ff-muted-2" />
+                  </Link>
+                  {t.isDemo && <DemoBadge expiresAt={t.demoExpiresAt} />}
+                </div>
+                <div className="text-xs text-ff-muted-2">/{t.slug}</div>
+              </td>
+              <td className="px-5 py-3.5 text-[13.5px] text-ff-ink-2">{t.email ?? '—'}</td>
+              <td className="ff-fig px-5 py-3.5 text-[14px] font-bold">{t.orderCount}</td>
+              <td className="ff-fig px-5 py-3.5 text-[13.5px] text-ff-ink-2 whitespace-nowrap">{fmtDate(t.createdAt)}</td>
+              <td className="ff-fig px-5 py-3.5 text-[13.5px] text-ff-ink-2 whitespace-nowrap">{fmtDate(t.lastOrderAt)}</td>
+              <td className="px-5 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <PlanBadge premium={t.premium} />
+                  <Toggle on={t.premium} disabled={busyId === t.id} onChange={(v) => onTogglePremium(t, v)} />
+                </div>
+              </td>
+              <td className="px-5 py-3.5">
+                <StatusBadge t={t} />
+              </td>
+              <td className="px-5 py-3.5">
+                <div className="flex items-center gap-2">
+                  <Toggle
+                    on={t.subscriptionStatus !== 'inactive'}
+                    disabled={busyId === t.id}
+                    onChange={(next) => onToggleAccess(t, next)}
+                  />
+                  {!t.isDemo && resetBtn(t)}
+                  {deleteBtn(t)}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* mobile cards */}
+      <div className="hidden flex-col max-[860px]:flex">
+        {rows.map((t) => (
+          <div key={t.id} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="min-w-0">
+                <Link
+                  href={`/tenants/${t.id}`}
+                  className="inline-flex items-center gap-1 text-[15.5px] font-extrabold text-ff-ink no-underline hover:text-ff-green-700"
+                >
+                  {t.name}
+                  <ChevronRight size={16} className="text-ff-muted-2" />
+                </Link>
+                <div className="text-[12.5px] text-ff-muted">{t.email ?? '—'}</div>
+                {t.isDemo && <div className="mt-1"><DemoBadge expiresAt={t.demoExpiresAt} /></div>}
+              </div>
+              <StatusBadge t={t} />
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ff-muted">
+              <span>Поръчки: <b className="ff-fig text-ff-ink-2">{t.orderCount}</b></span>
+              <span>Създадена: <span className="ff-fig text-ff-ink-2">{fmtDate(t.createdAt)}</span></span>
+              <span>Последна: <span className="ff-fig text-ff-ink-2">{fmtDate(t.lastOrderAt)}</span></span>
+            </div>
+            <div className="flex items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2">
+                <PlanBadge premium={t.premium} />
+                <Toggle on={t.premium} disabled={busyId === t.id} onChange={(v) => onTogglePremium(t, v)} />
+              </div>
+              <div className="flex items-center gap-2 text-[12px] text-ff-muted">
+                Достъп
+                <Toggle
+                  on={t.subscriptionStatus !== 'inactive'}
+                  disabled={busyId === t.id}
+                  onChange={(next) => onToggleAccess(t, next)}
+                />
+                {!t.isDemo && resetBtn(t)}
+                {deleteBtn(t)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {rows.length === 0 && <p className="px-5 py-12 text-center text-sm text-ff-muted">{emptyText}</p>}
+    </div>
+  );
+}
+
 export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> }) {
   const { items: tenants, setItems: setTenants, loadMore, hasMore, loading } = usePaginatedList<PlatformTenant>(
     initial,
@@ -296,18 +509,35 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState<PlatformTenant | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [onlyDemo, setOnlyDemo] = useState(false);
   const [creatingDemo, setCreatingDemo] = useState(false);
   const [demoCreds, setDemoCreds] = useState<{ name: string; email: string; password: string; expiresAt: string } | null>(null);
   const [confirmDel, setConfirmDel] = useState<PlatformTenant | null>(null);
+  const [delText, setDelText] = useState('');
+  const [confirmReset, setConfirmReset] = useState<PlatformTenant | null>(null);
+  const [resetCreds, setResetCreds] = useState<{ name: string; email: string; tempPassword: string } | null>(null);
+  const [sort, setSort] = useState<SortState>({ key: 'created', dir: 'desc' });
 
-  const filtered = tenants.filter(
+  function onSort(key: SortKey) {
+    setSort((s) =>
+      s.key === key
+        ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'name' ? 'asc' : 'desc' },
+    );
+  }
+
+  const needle = q.trim().toLowerCase();
+  const matched = tenants.filter(
     (t) =>
-      (!onlyDemo || t.isDemo) &&
-      (!q ||
-        t.name.toLowerCase().includes(q.toLowerCase()) ||
-        (t.email ?? '').toLowerCase().includes(q.toLowerCase())),
+      !needle ||
+      t.name.toLowerCase().includes(needle) ||
+      (t.email ?? '').toLowerCase().includes(needle) ||
+      t.slug.toLowerCase().includes(needle),
   );
+  const sorted = [...matched].sort((a, b) =>
+    sort.dir === 'asc' ? compareBy(a, b, sort.key) : compareBy(b, a, sort.key),
+  );
+  const realFarms = sorted.filter((t) => !t.isDemo);
+  const demoFarms = sorted.filter((t) => t.isDemo);
 
   async function apply(t: PlatformTenant, status: 'active' | 'inactive') {
     setBusyId(t.id);
@@ -378,10 +608,11 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
     }
   }
 
-  async function removeDemo(t: PlatformTenant) {
+  // Demos delete with no slug; real farms must pass the typed-slug confirmation.
+  async function removeTenant(t: PlatformTenant, confirmSlug?: string) {
     setBusyId(t.id);
     try {
-      await deleteTenant(t.id);
+      await deleteTenant(t.id, confirmSlug);
       setTenants((p) => p.filter((x) => x.id !== t.id));
       toast.success(`${t.name}: изтрит`);
     } catch (e) {
@@ -391,7 +622,26 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
     }
   }
 
+  function openDelete(t: PlatformTenant) {
+    setDelText('');
+    setConfirmDel(t);
+  }
+
+  async function doReset(t: PlatformTenant) {
+    setBusyId(t.id);
+    try {
+      const res = await resetTenantPassword(t.id);
+      setResetCreds({ name: res.name, email: res.email ?? t.email ?? '', tempPassword: res.tempPassword });
+      toast.success(`${t.name}: паролата е нулирана`);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const activeCount = tenants.filter((t) => t.subscriptionStatus === 'active').length;
+  const delReady = !confirmDel || confirmDel.isDemo || delText.trim() === confirmDel.slug;
 
   return (
     <div className="animate-ff-fade-up">
@@ -410,20 +660,10 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Търси по ферма или имейл…"
+              placeholder="Търси по ферма, имейл или slug…"
               className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface pl-11 pr-3 text-[14.5px] shadow-ff-sm outline-none focus:border-ff-green-500"
             />
           </div>
-          <button
-            onClick={() => setOnlyDemo((v) => !v)}
-            className={cn(
-              'inline-flex h-11 items-center gap-2 rounded-xl border px-3.5 text-[13.5px] font-bold shadow-ff-sm',
-              onlyDemo ? 'border-ff-green-500 bg-ff-green-50 text-ff-green-700' : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
-            )}
-          >
-            <FlaskConical size={16} />
-            Само демо
-          </button>
           <button
             onClick={makeDemo}
             disabled={creatingDemo}
@@ -442,118 +682,41 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
         </div>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
-        {/* desktop table */}
-        <table className="w-full border-collapse max-[760px]:hidden">
-          <thead>
-            <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-              {['Ферма', 'Имейл', 'Поръчки', 'План', 'Статус', 'Достъп'].map((h) => (
-                <th key={h} className="px-5 py-3.5 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((t) => (
-              <tr key={t.id} className="border-b border-ff-border-2 last:border-0">
-                <td className="px-5 py-3.5">
-                  <div className="flex items-center gap-2">
-                    <Link
-                      href={`/tenants/${t.id}`}
-                      className="inline-flex items-center gap-1 text-[14.5px] font-bold text-ff-ink no-underline hover:text-ff-green-700 hover:underline"
-                    >
-                      {t.name}
-                      <ChevronRight size={15} className="text-ff-muted-2" />
-                    </Link>
-                    {t.isDemo && <DemoBadge expiresAt={t.demoExpiresAt} />}
-                  </div>
-                  <div className="text-xs text-ff-muted-2">/{t.slug}</div>
-                </td>
-                <td className="px-5 py-3.5 text-[13.5px] text-ff-ink-2">{t.email ?? '—'}</td>
-                <td className="ff-fig px-5 py-3.5 text-[14px] font-bold">{t.orderCount}</td>
-                <td className="px-5 py-3.5">
-                  <div className="flex items-center gap-2.5">
-                    <PlanBadge premium={t.premium} />
-                    <Toggle on={t.premium} disabled={busyId === t.id} onChange={(v) => applyPremium(t, v)} />
-                  </div>
-                </td>
-                <td className="px-5 py-3.5">
-                  <StatusBadge t={t} />
-                </td>
-                <td className="px-5 py-3.5">
-                  <div className="flex items-center gap-2.5">
-                    <Toggle
-                      on={t.subscriptionStatus !== 'inactive'}
-                      disabled={busyId === t.id}
-                      onChange={(next) => onToggle(t, next)}
-                    />
-                    {t.isDemo && (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDel(t)}
-                        disabled={busyId === t.id}
-                        title="Изтрий демо"
-                        className="grid h-9 w-9 place-items-center rounded-lg border border-ff-border text-ff-red hover:bg-[#FBE9E7] disabled:opacity-50"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* real farms */}
+      <div className="mt-5">
+        <h2 className="mb-2 flex items-center gap-2 text-[15px] font-extrabold">
+          Ферми <span className="text-[13px] font-bold text-ff-muted">({realFarms.length})</span>
+        </h2>
+        <FarmTable
+          rows={realFarms}
+          busyId={busyId}
+          sort={sort}
+          onSort={onSort}
+          onToggleAccess={onToggle}
+          onTogglePremium={applyPremium}
+          onReset={(t) => setConfirmReset(t)}
+          onDelete={openDelete}
+          emptyText={needle ? 'Няма намерени ферми.' : 'Все още няма ферми.'}
+        />
+      </div>
 
-        {/* mobile cards */}
-        <div className="hidden flex-col max-[760px]:flex">
-          {filtered.map((t) => (
-            <div key={t.id} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
-              <div className="flex items-start justify-between gap-2.5">
-                <div className="min-w-0">
-                  <Link
-                    href={`/tenants/${t.id}`}
-                    className="inline-flex items-center gap-1 text-[15.5px] font-extrabold text-ff-ink no-underline hover:text-ff-green-700"
-                  >
-                    {t.name}
-                    <ChevronRight size={16} className="text-ff-muted-2" />
-                  </Link>
-                  <div className="text-[12.5px] text-ff-muted">{t.email ?? '—'}</div>
-                  {t.isDemo && <div className="mt-1"><DemoBadge expiresAt={t.demoExpiresAt} /></div>}
-                </div>
-                <StatusBadge t={t} />
-              </div>
-              <div className="flex items-center justify-between gap-2.5">
-                <div className="flex items-center gap-2">
-                  <PlanBadge premium={t.premium} />
-                  <Toggle on={t.premium} disabled={busyId === t.id} onChange={(v) => applyPremium(t, v)} />
-                </div>
-                <div className="flex items-center gap-2 text-[12px] text-ff-muted">
-                  Достъп
-                  <Toggle
-                    on={t.subscriptionStatus !== 'inactive'}
-                    disabled={busyId === t.id}
-                    onChange={(next) => onToggle(t, next)}
-                  />
-                  {t.isDemo && (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDel(t)}
-                      disabled={busyId === t.id}
-                      title="Изтрий демо"
-                      className="grid h-9 w-9 place-items-center rounded-lg border border-ff-border text-ff-red hover:bg-[#FBE9E7] disabled:opacity-50"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {filtered.length === 0 && <p className="px-5 py-12 text-center text-sm text-ff-muted">Няма намерени ферми.</p>}
+      {/* demo farms */}
+      <div className="mt-7">
+        <h2 className="mb-2 flex items-center gap-2 text-[15px] font-extrabold">
+          <FlaskConical size={16} className="text-[#3457B1]" />
+          Демо ферми <span className="text-[13px] font-bold text-ff-muted">({demoFarms.length})</span>
+        </h2>
+        <FarmTable
+          rows={demoFarms}
+          busyId={busyId}
+          sort={sort}
+          onSort={onSort}
+          onToggleAccess={onToggle}
+          onTogglePremium={applyPremium}
+          onReset={(t) => setConfirmReset(t)}
+          onDelete={openDelete}
+          emptyText={needle ? 'Няма намерени демо ферми.' : 'Няма активни демо акаунти.'}
+        />
       </div>
 
       {hasMore && (
@@ -660,29 +823,140 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
         </>
       )}
 
-      {/* confirm demo delete */}
+      {/* confirm reset password */}
+      {confirmReset && (
+        <>
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setConfirmReset(null)} />
+          <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
+            <div className="mb-3 flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-amber-softer text-ff-amber-600">
+                <KeyRound size={20} />
+              </span>
+              <div>
+                <h2 className="text-[17px] font-extrabold">Нулиране на паролата</h2>
+                <p className="mt-0.5 text-[13.5px] leading-[1.45] text-ff-ink-2">
+                  Нова временна парола за <strong>{confirmReset.name}</strong>? Текущата парола спира да работи, активните
+                  сесии се прекратяват, а фермерът ще зададе нова при следващо влизане.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2.5">
+              <button
+                onClick={() => setConfirmReset(null)}
+                className="rounded-xl border border-ff-border bg-ff-surface px-4 py-2.5 text-[13.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2"
+              >
+                Откажи
+              </button>
+              <button
+                onClick={() => {
+                  const t = confirmReset;
+                  setConfirmReset(null);
+                  doReset(t);
+                }}
+                className="rounded-xl bg-ff-green-700 px-4 py-2.5 text-[13.5px] font-bold text-white hover:brightness-95"
+              >
+                Нулирай
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* new password result */}
+      {resetCreds && (
+        <>
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setResetCreds(null)} />
+          <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
+            <div className="mb-3 flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-green-50 text-ff-green-700">
+                <KeyRound size={20} />
+              </span>
+              <div>
+                <h2 className="text-[17px] font-extrabold">Паролата е нулирана</h2>
+                <p className="mt-0.5 text-[13.5px] text-ff-ink-2">
+                  <strong>{resetCreds.name}</strong> — дайте новата временна парола на фермера. Той ще я смени при първо
+                  влизане. Показва се само сега.
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-col gap-2.5">
+              {resetCreds.email && (
+                <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+                  <p className="mb-1.5 text-[12px] font-bold uppercase tracking-[0.04em] text-ff-muted">Имейл</p>
+                  <div className="flex items-center gap-2.5">
+                    <code className="flex-1 break-all font-mono text-[14px] font-bold">{resetCreds.email}</code>
+                    <CopyButton text={resetCreds.email} />
+                  </div>
+                </div>
+              )}
+              <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+                <p className="mb-1.5 text-[12px] font-bold uppercase tracking-[0.04em] text-ff-muted">Нова временна парола</p>
+                <div className="flex items-center gap-2.5">
+                  <code className="flex-1 break-all font-mono text-[15px] font-bold">{resetCreds.tempPassword}</code>
+                  <CopyButton text={resetCreds.tempPassword} />
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setResetCreds(null)} className="rounded-xl bg-ff-green-700 px-4 py-2.5 text-[13.5px] font-bold text-white hover:brightness-95">
+                Затвори
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* confirm delete (demo = quick; real = type the slug) */}
       {confirmDel && (
         <>
           <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setConfirmDel(null)} />
-          <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[400px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
+          <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
             <div className="mb-3 flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-[#FBE9E7] text-ff-red">
                 <AlertTriangle size={20} />
               </span>
               <div>
-                <h2 className="text-[17px] font-extrabold">Изтриване на демо</h2>
+                <h2 className="text-[17px] font-extrabold">{confirmDel.isDemo ? 'Изтриване на демо' : 'Изтриване на ферма'}</h2>
                 <p className="mt-0.5 text-[13.5px] leading-[1.45] text-ff-ink-2">
-                  Изтриване на <strong>{confirmDel.name}</strong> и всичките му данни? Това е необратимо.
+                  {confirmDel.isDemo ? (
+                    <>
+                      Изтриване на <strong>{confirmDel.name}</strong> и всичките му данни? Това е необратимо.
+                    </>
+                  ) : (
+                    <>
+                      Това изтрива <strong>{confirmDel.name}</strong> завинаги — поръчки, продукти, клиенти и снимки.
+                      Необратимо е. За потвърждение въведете точно slug-а на фермата.
+                    </>
+                  )}
                 </p>
               </div>
             </div>
+            {!confirmDel.isDemo && (
+              <div className="mt-2">
+                <p className="mb-1.5 text-[12.5px] text-ff-muted">
+                  Въведете <code className="rounded bg-ff-surface-2 px-1.5 py-0.5 font-mono font-bold text-ff-ink">{confirmDel.slug}</code>
+                </p>
+                <input
+                  value={delText}
+                  onChange={(e) => setDelText(e.target.value)}
+                  autoFocus
+                  placeholder={confirmDel.slug}
+                  className="h-10 w-full rounded-xl border border-ff-border bg-ff-bg px-3 font-mono text-[13.5px] outline-none focus:border-ff-red"
+                />
+              </div>
+            )}
             <div className="mt-4 flex justify-end gap-2.5">
               <button onClick={() => setConfirmDel(null)} className="rounded-xl border border-ff-border bg-ff-surface px-4 py-2.5 text-[13.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2">
                 Откажи
               </button>
               <button
-                onClick={() => { const t = confirmDel; setConfirmDel(null); removeDemo(t); }}
-                className="rounded-xl bg-ff-red px-4 py-2.5 text-[13.5px] font-bold text-white hover:brightness-95"
+                disabled={!delReady}
+                onClick={() => {
+                  const t = confirmDel;
+                  setConfirmDel(null);
+                  removeTenant(t, t.isDemo ? undefined : t.slug);
+                }}
+                className="rounded-xl bg-ff-red px-4 py-2.5 text-[13.5px] font-bold text-white hover:brightness-95 disabled:opacity-40"
               >
                 Изтрий
               </button>

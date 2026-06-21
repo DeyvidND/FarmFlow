@@ -336,11 +336,24 @@ describe('PlatformService', () => {
 
   // ── deleteTenant ────────────────────────────────────────────────────────────
   describe('deleteTenant', () => {
-    it('refuses to hard-delete a non-demo tenant', async () => {
+    it('refuses to hard-delete a non-demo tenant without a matching slug', async () => {
       db.limit.mockResolvedValueOnce([{ id: 't1', slug: 'real-farm', isDemo: false }]);
-      await expect(service.deleteTenant('t1')).rejects.toThrow(/демо/i);
+      await expect(service.deleteTenant('t1')).rejects.toThrow(/slug/i);
       expect(db.transaction).not.toHaveBeenCalled();
       expect(storageDeleteByPrefix).not.toHaveBeenCalled();
+    });
+
+    it('refuses to hard-delete a non-demo tenant when the slug does not match exactly', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 't1', slug: 'real-farm', isDemo: false }]);
+      await expect(service.deleteTenant('t1', 'real-far')).rejects.toThrow(/slug/i);
+      expect(db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('hard-deletes a non-demo tenant when the confirm slug matches exactly', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 't1', slug: 'real-farm', isDemo: false }]);
+      await service.deleteTenant('t1', 'real-farm');
+      expect(db.transaction).toHaveBeenCalledTimes(1);
+      expect(storageDeleteByPrefix).toHaveBeenCalledWith('tenants/real-farm/');
     });
 
     it('throws NotFound when the tenant does not exist', async () => {
@@ -366,6 +379,37 @@ describe('PlatformService', () => {
       expect(idx(orderItems)).toBeLessThan(idx(products));
       expect(idx(shipments)).toBeLessThan(idx(orders));
       expect(idx(emailPushes)).toBeLessThan(idx(newsletterCampaigns));
+    });
+  });
+
+  // ── resetOwnerPassword ──────────────────────────────────────────────────────
+  describe('resetOwnerPassword', () => {
+    it('mints a temp password, forces a change, bumps tokenVersion, and returns the plaintext once', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 't1', name: 'Ферма А', email: 'a@farm.bg' }]); // tenant lookup
+      (argon2.hash as jest.Mock).mockResolvedValueOnce('hashed-temp');
+      db.returning.mockResolvedValueOnce([{ id: 'owner-1' }]); // user update
+
+      let capturedSet: any;
+      db.set.mockImplementationOnce((val: any) => { capturedSet = val; return db; });
+
+      const res = await service.resetOwnerPassword('t1');
+
+      expect(capturedSet).toMatchObject({ passwordHash: 'hashed-temp', mustChangePassword: true });
+      expect(capturedSet.tokenVersion).toBeDefined(); // sql`tokenVersion + 1`
+      expect(res).toMatchObject({ id: 't1', name: 'Ферма А', email: 'a@farm.bg' });
+      expect(res.tempPassword.length).toBeGreaterThanOrEqual(12);
+    });
+
+    it('throws NotFound when the tenant does not exist', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      await expect(service.resetOwnerPassword('missing')).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws NotFound when the farm has no owner user', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 't1', name: 'Ферма А', email: 'a@farm.bg' }]);
+      (argon2.hash as jest.Mock).mockResolvedValueOnce('hashed-temp');
+      db.returning.mockResolvedValueOnce([]); // no admin user updated
+      await expect(service.resetOwnerPassword('t1')).rejects.toThrow(NotFoundException);
     });
   });
 
