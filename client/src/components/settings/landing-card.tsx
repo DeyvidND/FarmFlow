@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { SaveBar } from '@/components/panels/panel-ui';
 import {
   ApiError,
@@ -43,6 +44,8 @@ const ROWS: {
   pickKind: PickKind;
   pickLabel: string;
   pickEmpty: string;
+  /** Plural noun for the turn-off confirm: „Имаш {n} {countNoun}". */
+  countNoun: string;
 }[] = [
   {
     key: 'categories',
@@ -52,6 +55,7 @@ const ROWS: {
     pickKind: 'subcategories',
     pickLabel: 'Кои категории да се показват',
     pickEmpty: 'Няма категории за избор. Добави ги от „Категории“.',
+    countNoun: 'категории',
   },
   {
     key: 'farmers',
@@ -61,6 +65,7 @@ const ROWS: {
     pickKind: 'farmers',
     pickLabel: 'Кои фермери да се показват',
     pickEmpty: 'Няма фермери за избор. Добави ги от „Фермери“.',
+    countNoun: 'фермери',
   },
   {
     key: 'latest',
@@ -70,6 +75,7 @@ const ROWS: {
     pickKind: 'products',
     pickLabel: 'Кои продукти да се показват',
     pickEmpty: 'Няма продукти за избор. Добави ги от „Продукти“.',
+    countNoun: 'продукта',
   },
 ];
 
@@ -85,6 +91,10 @@ export function LandingCard() {
   const [saved, setSaved] = React.useState<LandingConfig | null>(null);
   const [cfg, setCfg] = React.useState<LandingConfig | null>(null);
   const [pubReviews, setPubReviews] = React.useState<AdminReview[]>([]);
+  // Live item counts per pick-kind (undefined = not loaded → fail open, no guard).
+  const [counts, setCounts] = React.useState<Partial<Record<PickKind, number>>>({});
+  // Which block is awaiting a hide-confirmation (null = no modal).
+  const [pending, setPending] = React.useState<BlockKey | null>(null);
 
   // Pick-lists for manual mode, lazily fetched the first time a block needs one.
   // `undefined` = not loaded yet, `[]` = loaded but empty.
@@ -132,10 +142,33 @@ export function LandingCard() {
     };
   }, [ensureOptions]);
 
+  // Counts drive the hide-confirmation; fetched eagerly so the guard can decide
+  // synchronously when a toggle flips (independent of the lazy manual-mode lists).
+  React.useEffect(() => {
+    let active = true;
+    Promise.all([listSubcategories(), listFarmers(), listProductOptions()])
+      .then(([s, f, p]) => {
+        if (!active) return;
+        setCounts({ subcategories: s.length, farmers: f.length, products: p.length });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const dirty = !!cfg && !!saved && !same(cfg, saved);
 
   const setShow = (key: BlockKey, show: boolean) =>
     setCfg((p) => (p ? { ...p, [key]: { ...p[key], show } } : p));
+  // Gate a hide behind the confirm modal when the block has >1 item built.
+  const requestShow = (row: (typeof ROWS)[number], show: boolean) => {
+    if (!show && (counts[row.pickKind] ?? 0) > 1) {
+      setPending(row.key);
+      return;
+    }
+    setShow(row.key, show);
+  };
   const setCount = (key: BlockKey, count: number) =>
     setCfg((p) => (p ? { ...p, [key]: { ...p[key], count } } : p));
   const setMode = (key: BlockKey, mode: 'auto' | 'manual') => {
@@ -237,7 +270,7 @@ export function LandingCard() {
                   <ToggleSwitch
                     checked={on}
                     disabled={farmersBlocked}
-                    onChange={(v) => setShow(row.key, v)}
+                    onChange={(v) => requestShow(row, v)}
                   />
                 </div>
 
@@ -371,6 +404,29 @@ export function LandingCard() {
       )}
 
       {dirty && <SaveBar saving={saving} onSave={save} onDiscard={() => setCfg(saved)} />}
+
+      {pending &&
+        (() => {
+          const row = ROWS.find((r) => r.key === pending)!;
+          return (
+            <ConfirmDialog
+              title={`Скриване на „${row.title}“?`}
+              message={
+                <>
+                  Имаш {counts[row.pickKind]} {row.countNoun}. Ако изключиш този блок, той няма да
+                  се показва на началната страница. Може да го включиш пак по всяко време.
+                </>
+              }
+              confirmLabel="Скрий"
+              cancelLabel="Остави"
+              onConfirm={() => {
+                setShow(row.key, false);
+                setPending(null);
+              }}
+              onCancel={() => setPending(null)}
+            />
+          );
+        })()}
     </section>
   );
 }
