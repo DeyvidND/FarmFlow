@@ -64,7 +64,7 @@ export default async function PaymentsPage() {
     role === 'farmer'
       ? Promise.resolve(DISCONNECTED)
       : getJson<StripeSummary>('stripe/connect/summary', DISCONNECTED),
-    getJson<PaymentsPage>('orders/payments', EMPTY_PAGE),
+    getJson<PaymentsPage>('orders/payments?limit=100', EMPTY_PAGE),
     role === 'admin' && multiFarmer
       ? getJson<{ id: string; name: string }[]>('farmers', [])
       : Promise.resolve([] as { id: string; name: string }[]),

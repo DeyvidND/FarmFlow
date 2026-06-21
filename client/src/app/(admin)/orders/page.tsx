@@ -10,7 +10,7 @@ const EMPTY: Paginated<Order> = { items: [], nextCursor: null };
 async function getOrders(): Promise<Paginated<Order>> {
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return EMPTY;
-  const res = await fetch(`${API_BASE}/orders?limit=50`, {
+  const res = await fetch(`${API_BASE}/orders?limit=100`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: 'no-store',
   });

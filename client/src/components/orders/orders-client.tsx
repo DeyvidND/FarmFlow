@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search, MapPin, Package, Store, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, timeFromIso, hhmm, relDayLabel, type OrderStatus } from '@/lib/utils';
@@ -11,7 +11,8 @@ import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
 import { OrderPanel } from './order-panel';
 import { ApiError, listOrders, updateOrderStatus } from '@/lib/api-client';
-import { usePaginatedList } from '@/hooks/use-paginated-list';
+import { useLoadAllList } from '@/hooks/use-load-all-list';
+import { Pagination } from '@/components/ui/pagination';
 import type { Order, Paginated } from '@/lib/types';
 
 const FILTERS: [string, string][] = [
@@ -21,28 +22,44 @@ const FILTERS: [string, string][] = [
   ['delivered', 'Доставени'],
   ['cancelled', 'Отказани'],
 ];
+/** Orders shown per page in the numbered footer. */
+const PAGE_SIZE = 12;
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 /** Human order ref — the per-tenant number, falling back to a short id for legacy rows. */
 const orderNo = (o: Order) => (o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(0, 8)}`);
 
 export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
-  const { items: orders, setItems: setOrders, loadMore, hasMore, loading } = usePaginatedList<Order>(
-    initial,
-    listOrders,
-  );
+  // Load every page up front so search/filter/pagination cover *all* orders.
+  const { items: orders, setItems: setOrders, loading } = useLoadAllList<Order>(initial, listOrders);
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
+  const [page, setPage] = useState(1);
 
-  const filtered = orders.filter((o) => {
-    if (filter !== 'all' && o.status !== filter) return false;
-    if (!q) return true;
-    const needle = q.toLowerCase();
-    return [o.customerName, o.customerPhone, o.customerEmail, o.id]
-      .some((f) => (f ?? '').toLowerCase().includes(needle));
-  });
+  const filtered = useMemo(
+    () =>
+      orders.filter((o) => {
+        if (filter !== 'all' && o.status !== filter) return false;
+        if (!q) return true;
+        const needle = q.toLowerCase();
+        return [o.customerName, o.customerPhone, o.customerEmail, o.id].some((f) =>
+          (f ?? '').toLowerCase().includes(needle),
+        );
+      }),
+    [orders, filter, q],
+  );
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // Filtering/search narrows the set → jump back to page 1.
+  useEffect(() => {
+    setPage(1);
+  }, [filter, q]);
+  // Keep the page in range as the loaded set grows / shrinks.
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const active = orders.find((o) => o.id === activeId) ?? null;
 
   async function revertStatus(id: string, to: OrderStatus) {
@@ -159,7 +176,7 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((o) => (
+            {paged.map((o) => (
               <tr
                 key={o.id}
                 onClick={() => setActiveId(o.id)}
@@ -190,7 +207,7 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
 
         {/* cards (mobile) */}
         <div className="hidden flex-col max-[680px]:flex">
-          {filtered.map((o) => (
+          {paged.map((o) => (
             <button
               key={o.id}
               onClick={() => setActiveId(o.id)}
@@ -217,19 +234,16 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
           ))}
         </div>
 
-        {filtered.length === 0 && <p className="px-5 py-12 text-center text-sm text-ff-muted">Няма поръчки за този филтър.</p>}
+        {filtered.length === 0 && (
+          <p className="px-5 py-12 text-center text-sm text-ff-muted">
+            {loading ? 'Зареждане…' : 'Няма поръчки за този филтър.'}
+          </p>
+        )}
       </div>
 
-      {hasMore && (
-        <div className="mt-5 flex justify-center">
-          <button
-            onClick={loadMore}
-            disabled={loading}
-            className="rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
-          >
-            {loading ? 'Зареждане…' : 'Зареди още'}
-          </button>
-        </div>
+      <Pagination page={page} pageCount={pageCount} onPage={setPage} total={filtered.length} />
+      {loading && (
+        <p className="mt-2 text-center text-[12px] text-ff-muted">Зареждане на още поръчки…</p>
       )}
 
       {active && (

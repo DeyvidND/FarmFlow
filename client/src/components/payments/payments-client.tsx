@@ -36,9 +36,13 @@ import {
   type PaymentOrder,
   type PaymentChannel,
 } from '@/lib/api-client';
+import { Pagination } from '@/components/ui/pagination';
 
 /** The farmer's own full Stripe Dashboard (Standard accounts log in here directly). */
 const STRIPE_DASHBOARD_URL = 'https://dashboard.stripe.com';
+
+/** Rows shown per page in the numbered footer. */
+const PAGE_SIZE = 12;
 
 type Tab = 'all' | 'cod' | 'card';
 
@@ -95,29 +99,6 @@ function moneyStatus(o: PaymentOrder): { label: string; cls: string } {
   };
 }
 
-interface DayGroup {
-  day: string;
-  totalStotinki: number;
-  count: number;
-  orders: PaymentOrder[];
-}
-
-/** Bucket a flat (already day-desc sorted) list into per-day groups. */
-function groupByDay(list: PaymentOrder[]): DayGroup[] {
-  const byDay = new Map<string, DayGroup>();
-  for (const o of list) {
-    let g = byDay.get(o.day);
-    if (!g) {
-      g = { day: o.day, totalStotinki: 0, count: 0, orders: [] };
-      byDay.set(o.day, g);
-    }
-    g.orders.push(o);
-    g.totalStotinki += o.totalStotinki;
-    g.count += 1;
-  }
-  return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
-}
-
 export function PaymentsClient({
   stripe,
   initial,
@@ -139,65 +120,119 @@ export function PaymentsClient({
   const showPicker = role === 'admin' && multiFarmer && farmers.length > 0;
   const [query, setQuery] = useState('');
   const [dq, setDq] = useState('');
+  // Day filter ('' = all delivery days). Filters the active tab client-side.
+  const [day, setDay] = useState('');
+  const [page, setPage] = useState(1);
 
-  // SSR seed = the «Всичко» first page (method=all, no search).
+  // SSR seed = the «Всичко» first page (method=all). We then walk every
+  // remaining page into `allOrders` so the tabs / search / day filter /
+  // pagination all run client-side over the *whole* list.
   const [totals, setTotals] = useState<PaymentTotals>(initial.totals ?? ZERO_TOTALS);
-  const [orders, setOrders] = useState<PaymentOrder[]>(initial.orders);
-  const [cursor, setCursor] = useState<string | null>(initial.nextCursor);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-
+  const [allOrders, setAllOrders] = useState<PaymentOrder[]>(initial.orders);
+  const [loading, setLoading] = useState(initial.nextCursor !== null);
   const [busy, setBusy] = useState(false);
 
-  const method = tab === 'cod' ? 'cod' : 'all';
-
-  // Debounce the search box so each keystroke doesn't fire a request.
+  // Debounce the search box so typing doesn't re-filter on every keystroke.
   useEffect(() => {
-    const t = setTimeout(() => setDq(query.trim()), 250);
+    const t = setTimeout(() => setDq(query.trim().toLowerCase()), 200);
     return () => clearTimeout(t);
   }, [query]);
 
-  // Fetch a fresh first page whenever the tab, (debounced) search, or producer
-  // filter changes. The very first run is skipped — the SSR `initial` already
-  // covers all/''/whole-shop.
+  // Load every payments page. On mount we continue from the SSR `initial` seed;
+  // on a producer-filter change we reload page 1 fresh (server-side scope) then
+  // walk the rest. `method` is always 'all' — the cod tab is derived locally.
   const firstRun = useRef(true);
   useEffect(() => {
-    if (tab === 'card') return;
-    if (firstRun.current) {
-      firstRun.current = false;
-      return;
-    }
     let cancelled = false;
+    const fresh = !firstRun.current;
+    firstRun.current = false;
     setLoading(true);
-    getPayments({ method, q: dq, ...(farmerId ? { farmerId } : {}) })
-      .then((res) => {
-        if (cancelled) return;
-        setOrders(res.orders);
-        setCursor(res.nextCursor);
-        if (res.totals) setTotals(res.totals);
-      })
-      .catch(() => {
+    (async () => {
+      try {
+        let acc: PaymentOrder[];
+        let cursor: string | null;
+        if (fresh) {
+          const first = await getPayments({ method: 'all', limit: 100, ...(farmerId ? { farmerId } : {}) });
+          if (cancelled) return;
+          acc = first.orders;
+          cursor = first.nextCursor;
+          if (first.totals) setTotals(first.totals);
+          setAllOrders(acc);
+        } else {
+          acc = initial.orders;
+          cursor = initial.nextCursor;
+        }
+        while (cursor && !cancelled) {
+          const res = await getPayments({ method: 'all', cursor, limit: 100, ...(farmerId ? { farmerId } : {}) });
+          if (cancelled) return;
+          acc = [...acc, ...res.orders];
+          cursor = res.nextCursor;
+          setAllOrders(acc);
+        }
+      } catch {
         if (!cancelled) toast.error('Грешка при зареждане на плащанията.');
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, dq, farmerId]);
+  }, [farmerId]);
+
+  // The cod tab is just the наложен-платеж slice of the full list.
+  const tabOrders = useMemo(
+    () => (tab === 'cod' ? allOrders.filter((o) => o.paymentMethod === 'cod') : allOrders),
+    [allOrders, tab],
+  );
+
+  // Distinct delivery days present in the active tab, newest first.
+  const dayOptions = useMemo(() => {
+    const set = new Set(tabOrders.map((o) => o.day));
+    return [...set].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  }, [tabOrders]);
+
+  // Drop a stale day filter when switching tabs hides that day.
+  useEffect(() => {
+    if (day && !dayOptions.includes(day)) setDay('');
+  }, [dayOptions, day]);
+
+  const filtered = useMemo(
+    () =>
+      tabOrders.filter((o) => {
+        if (day && o.day !== day) return false;
+        if (!dq) return true;
+        return [
+          o.customerName,
+          o.customerPhone,
+          o.customerEmail,
+          o.orderNumber != null ? `#${o.orderNumber}` : '',
+        ].some((f) => (f ?? '').toString().toLowerCase().includes(dq));
+      }),
+    [tabOrders, day, dq],
+  );
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // Any narrowing of the list → back to page 1.
+  useEffect(() => {
+    setPage(1);
+  }, [tab, dq, day, farmerId]);
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const searching = dq.length > 0 || day.length > 0;
 
   // Mark a наложен-платеж order's cash as received — flips its badge «Очаквано»
   // → «Получено». COD "collected" is modelled as the order reaching `delivered`
   // (see toPaymentOrder), so this marks the order доставена. Optimistic: patch
-  // the row locally; on error revert by refetching is overkill — just re-toast.
+  // the row locally; on error just re-toast.
   const [collectingId, setCollectingId] = useState<string | null>(null);
   const onCollect = useCallback(async (id: string) => {
     setCollectingId(id);
     try {
       await updateOrderStatus(id, 'delivered');
-      setOrders((prev) =>
+      setAllOrders((prev) =>
         prev.map((o) => (o.id === id ? { ...o, status: 'delivered', collected: true } : o)),
       );
       toast.success('Отбелязано като получено.');
@@ -207,20 +242,6 @@ export function PaymentsClient({
       setCollectingId(null);
     }
   }, []);
-
-  const loadMore = useCallback(async () => {
-    if (!cursor || loadingMore) return;
-    setLoadingMore(true);
-    try {
-      const res = await getPayments({ method, q: dq, cursor, ...(farmerId ? { farmerId } : {}) });
-      setOrders((prev) => [...prev, ...res.orders]);
-      setCursor(res.nextCursor);
-    } catch {
-      toast.error('Грешка при зареждане.');
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [cursor, loadingMore, method, dq, farmerId]);
 
   /** Create/refresh the connected account and open Stripe's hosted onboarding in a new tab. */
   async function onboard() {
@@ -286,7 +307,7 @@ export function PaymentsClient({
       </div>
 
       {tab !== 'card' && (
-        <div className="mb-4 flex items-center gap-3">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <div className="relative w-[340px] max-w-full">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ff-muted">
               <Search size={18} />
@@ -298,6 +319,21 @@ export function PaymentsClient({
               className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface pl-11 pr-3 text-[14.5px] shadow-ff-sm outline-none focus:border-ff-green-500"
             />
           </div>
+          <label className="inline-flex items-center gap-2 text-[13px] font-bold text-ff-ink-2">
+            Ден:
+            <select
+              value={day}
+              onChange={(e) => setDay(e.target.value)}
+              className="h-11 rounded-xl border border-ff-border bg-ff-surface px-2.5 text-[13px] font-semibold text-ff-ink-2 shadow-ff-sm outline-none focus:border-ff-green-500"
+            >
+              <option value="">Всички дни</option>
+              {dayOptions.map((d) => (
+                <option key={d} value={d}>
+                  {dayLabel(d)}
+                </option>
+              ))}
+            </select>
+          </label>
           {showPicker && (
             <label className="inline-flex items-center gap-2 text-[13px] font-bold text-ff-ink-2">
               Фермер:
@@ -321,27 +357,18 @@ export function PaymentsClient({
         </div>
       )}
 
-      {tab === 'all' && (
-        <AllTable
-          rows={orders}
-          loading={loading}
-          searching={dq.length > 0}
-          cursor={cursor}
-          loadingMore={loadingMore}
-          onLoadMore={loadMore}
-        />
-      )}
-      {tab === 'cod' && (
-        <CodView
-          rows={orders}
-          loading={loading}
-          searching={dq.length > 0}
-          cursor={cursor}
-          loadingMore={loadingMore}
-          onLoadMore={loadMore}
-          onCollect={onCollect}
-          collectingId={collectingId}
-        />
+      {tab !== 'card' && (
+        <>
+          <PayTable
+            rows={paged}
+            loading={loading}
+            searching={searching}
+            empty={tab === 'cod' ? 'Още няма плащания с наложен платеж.' : 'Още няма плащания.'}
+            onCollect={tab === 'cod' ? onCollect : undefined}
+            collectingId={collectingId}
+          />
+          <Pagination page={page} pageCount={pageCount} onPage={setPage} total={filtered.length} />
+        </>
       )}
       {tab === 'card' && role !== 'farmer' && (
         <StripeSection summary={stripe} busy={busy} onboard={onboard} />
@@ -354,105 +381,146 @@ function plural(n: number): string {
   return n === 1 ? 'поръчка' : 'поръчки';
 }
 
-interface ListProps {
+/* ─────────────────────────────  payments table (flat, paginated)  ───────────────────────────── */
+
+/** One flat payments table (desktop) + card list (mobile). The cod tab passes
+ *  `onCollect` so unpaid наложен-платеж rows get a «Получих парите» button. */
+function PayTable({
+  rows,
+  loading,
+  searching,
+  empty,
+  onCollect,
+  collectingId,
+}: {
   rows: PaymentOrder[];
   loading: boolean;
   searching: boolean;
-  cursor: string | null;
-  loadingMore: boolean;
-  onLoadMore: () => void;
-}
-
-/* ─────────────────────────────  Всичко (all payments table)  ───────────────────────────── */
-
-function AllTable({ rows, loading, searching, cursor, loadingMore, onLoadMore }: ListProps) {
+  empty: string;
+  onCollect?: (id: string) => void;
+  collectingId?: string | null;
+}) {
   return (
-    <>
-      <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
-        {/* table (desktop) */}
-        <table className="w-full border-collapse max-[680px]:hidden">
-          <thead>
-            <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-              {['Поръчка', 'Клиент', 'Контакт', 'Метод', 'Статус'].map((h) => (
-                <th
-                  key={h}
-                  className="px-5 py-3.5 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted"
-                >
-                  {h}
-                </th>
-              ))}
-              <th className="px-5 py-3.5 text-right text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
-                Сума
+    <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
+      {/* table (desktop) */}
+      <table className="w-full border-collapse max-[680px]:hidden">
+        <thead>
+          <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
+            {['Поръчка', 'Клиент', 'Контакт', 'Метод', 'Статус'].map((h) => (
+              <th
+                key={h}
+                className="px-5 py-3.5 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted"
+              >
+                {h}
               </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((o) => {
-              const s = moneyStatus(o);
-              return (
-                <tr key={o.id} className="border-b border-ff-border-2 last:border-0 hover:bg-ff-surface-2">
-                  <td className="px-5 py-3.5 align-top">
-                    <div className="text-[14px] font-extrabold">
-                      {o.orderNumber ? `#${o.orderNumber}` : 'Поръчка'}
-                    </div>
-                    <div className="text-[12px] capitalize text-ff-muted">{dayLabel(o.day)}</div>
-                  </td>
-                  <td className="px-5 py-3.5 align-top">
-                    <div className="text-[14px] font-bold">{o.customerName ?? '—'}</div>
-                    <div className="text-[12px] text-ff-muted">{deliveryMeta(o)}</div>
-                  </td>
-                  <td className="max-w-[220px] px-5 py-3.5 align-top">
-                    <Contact o={o} />
-                  </td>
-                  <td className="px-5 py-3.5 align-top">
-                    <MethodPill method={o.paymentMethod} />
-                  </td>
-                  <td className="px-5 py-3.5 align-top">
-                    <StatusPill {...s} />
-                  </td>
-                  <td className="ff-fig px-5 py-3.5 text-right align-top text-[14.5px] font-extrabold">
-                    {moneyFromStotinki(o.totalStotinki)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        {/* cards (mobile) */}
-        <div className="hidden flex-col max-[680px]:flex">
+            ))}
+            <th className="px-5 py-3.5 text-right text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
+              Сума
+            </th>
+          </tr>
+        </thead>
+        <tbody>
           {rows.map((o) => {
             const s = moneyStatus(o);
+            const canCollect = !!onCollect && o.paymentMethod === 'cod' && !o.collected;
             return (
-              <div key={o.id} className="flex flex-col gap-2 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
-                <div className="flex items-start justify-between gap-2.5">
-                  <div className="min-w-0">
-                    <div className="truncate text-[15px] font-extrabold">{o.customerName ?? '—'}</div>
-                    <div className="mt-px text-[12px] text-ff-muted">
-                      {o.orderNumber ? `#${o.orderNumber} · ` : ''}
-                      <span className="capitalize">{dayLabel(o.day)}</span> · {deliveryMeta(o)}
-                    </div>
+              <tr key={o.id} className="border-b border-ff-border-2 last:border-0 hover:bg-ff-surface-2">
+                <td className="px-5 py-3.5 align-top">
+                  <div className="text-[14px] font-extrabold">
+                    {o.orderNumber ? `#${o.orderNumber}` : 'Поръчка'}
                   </div>
-                  <span className="ff-fig shrink-0 text-[16.5px] font-extrabold">
-                    {moneyFromStotinki(o.totalStotinki)}
-                  </span>
-                </div>
-                <Contact o={o} />
-                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-[12px] capitalize text-ff-muted">{dayLabel(o.day)}</div>
+                </td>
+                <td className="px-5 py-3.5 align-top">
+                  <div className="text-[14px] font-bold">{o.customerName ?? '—'}</div>
+                  <div className="text-[12px] text-ff-muted">{deliveryMeta(o)}</div>
+                </td>
+                <td className="max-w-[220px] px-5 py-3.5 align-top">
+                  <Contact o={o} />
+                </td>
+                <td className="px-5 py-3.5 align-top">
                   <MethodPill method={o.paymentMethod} />
-                  <StatusPill {...s} />
-                </div>
-              </div>
+                </td>
+                <td className="px-5 py-3.5 align-top">
+                  {canCollect ? (
+                    <CollectButton id={o.id} collectingId={collectingId} onCollect={onCollect!} />
+                  ) : (
+                    <StatusPill {...s} />
+                  )}
+                </td>
+                <td className="ff-fig px-5 py-3.5 text-right align-top text-[14.5px] font-extrabold">
+                  {moneyFromStotinki(o.totalStotinki)}
+                </td>
+              </tr>
             );
           })}
-        </div>
+        </tbody>
+      </table>
 
-        {rows.length === 0 && (
-          <EmptyRow loading={loading} searching={searching} empty="Още няма плащания." />
-        )}
+      {/* cards (mobile) */}
+      <div className="hidden flex-col max-[680px]:flex">
+        {rows.map((o) => {
+          const s = moneyStatus(o);
+          const canCollect = !!onCollect && o.paymentMethod === 'cod' && !o.collected;
+          return (
+            <div key={o.id} className="flex flex-col gap-2 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
+              <div className="flex items-start justify-between gap-2.5">
+                <div className="min-w-0">
+                  <div className="truncate text-[15px] font-extrabold">{o.customerName ?? '—'}</div>
+                  <div className="mt-px text-[12px] text-ff-muted">
+                    {o.orderNumber ? `#${o.orderNumber} · ` : ''}
+                    <span className="capitalize">{dayLabel(o.day)}</span> · {deliveryMeta(o)}
+                  </div>
+                </div>
+                <span className="ff-fig shrink-0 text-[16.5px] font-extrabold">
+                  {moneyFromStotinki(o.totalStotinki)}
+                </span>
+              </div>
+              <Contact o={o} />
+              <div className="flex flex-wrap items-center gap-2">
+                <MethodPill method={o.paymentMethod} />
+                {canCollect ? (
+                  <CollectButton id={o.id} collectingId={collectingId} onCollect={onCollect!} />
+                ) : (
+                  <StatusPill {...s} />
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
-      <LoadMore cursor={cursor} loadingMore={loadingMore} onLoadMore={onLoadMore} />
-    </>
+
+      {rows.length === 0 && (
+        <EmptyRow loading={loading} searching={searching} empty={empty} />
+      )}
+    </div>
+  );
+}
+
+/** «Получих парите» — marks a наложен-платеж order delivered (cash in hand). */
+function CollectButton({
+  id,
+  collectingId,
+  onCollect,
+}: {
+  id: string;
+  collectingId?: string | null;
+  onCollect: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onCollect(id)}
+      disabled={collectingId === id}
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-ff-green-100 bg-ff-green-50 px-2.5 py-1 text-[11px] font-extrabold text-ff-green-700 hover:bg-ff-green-100 disabled:opacity-60"
+    >
+      {collectingId === id ? (
+        <Loader2 size={12} className="animate-spin" />
+      ) : (
+        <Check size={12} />
+      )}
+      Получих парите
+    </button>
   );
 }
 
@@ -484,104 +552,6 @@ function Contact({ o }: { o: PaymentOrder }) {
   );
 }
 
-/* ─────────────────────────────  Наложен платеж (grouped by day)  ───────────────────────────── */
-
-function CodView({
-  rows,
-  loading,
-  searching,
-  cursor,
-  loadingMore,
-  onLoadMore,
-  onCollect,
-  collectingId,
-}: ListProps & { onCollect: (id: string) => void; collectingId: string | null }) {
-  const days = useMemo(() => groupByDay(rows), [rows]);
-  return (
-    <>
-      <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-sm">
-        <div className="flex items-center gap-2 text-[13px] font-extrabold">
-          <Banknote size={16} className="text-ff-green-700" /> Пари в брой при доставка
-        </div>
-        <p className="mt-0.5 text-[12.5px] text-ff-muted">Групирани по ден на доставка.</p>
-
-        {rows.length === 0 ? (
-          <div className="mt-5">
-            <EmptyRow
-              loading={loading}
-              searching={searching}
-              empty="Още няма плащания с наложен платеж."
-              bare
-            />
-          </div>
-        ) : (
-          <div className="mt-5 flex flex-col gap-5">
-            {days.map((d) => (
-              <div key={d.day}>
-                <div className="mb-1 flex items-baseline justify-between border-b border-ff-border-2 pb-1.5">
-                  <span className="text-[12.5px] font-extrabold capitalize text-ff-ink">
-                    {dayLabel(d.day)}
-                  </span>
-                  <span className="ff-fig text-[13px] font-extrabold text-ff-green-800">
-                    {moneyFromStotinki(d.totalStotinki)}
-                  </span>
-                </div>
-                <ul className="flex flex-col divide-y divide-ff-border-2">
-                  {d.orders.map((o) => {
-                    const s = moneyStatus(o);
-                    return (
-                      <li key={o.id} className="flex items-center gap-3 py-2.5">
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-[13.5px] font-semibold text-ff-ink">
-                            {o.orderNumber ? `#${o.orderNumber}` : 'Поръчка'}
-                            {o.customerName ? ` · ${o.customerName}` : ''}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-ff-muted">
-                            <span>{deliveryMeta(o)}</span>
-                            {o.customerPhone && (
-                              <a
-                                href={`tel:${o.customerPhone}`}
-                                className="inline-flex items-center gap-1 hover:text-ff-green-700"
-                              >
-                                <Phone size={11} /> {o.customerPhone}
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                        {o.collected ? (
-                          <StatusPill {...s} />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => onCollect(o.id)}
-                            disabled={collectingId === o.id}
-                            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-ff-green-100 bg-ff-green-50 px-2.5 py-1 text-[11px] font-extrabold text-ff-green-700 hover:bg-ff-green-100 disabled:opacity-60"
-                          >
-                            {collectingId === o.id ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Check size={12} />
-                            )}
-                            Получих парите
-                          </button>
-                        )}
-                        <div className="ff-fig w-[84px] shrink-0 text-right text-[14px] font-extrabold">
-                          {moneyFromStotinki(o.totalStotinki)}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <LoadMore cursor={cursor} loadingMore={loadingMore} onLoadMore={onLoadMore} />
-    </>
-  );
-}
-
 /* ─────────────────────────────  shared pills / tiles / states  ───────────────────────────── */
 
 function EmptyRow({
@@ -598,30 +568,6 @@ function EmptyRow({
   const text = loading ? 'Зареждане…' : searching ? 'Няма резултати за това търсене.' : empty;
   return (
     <p className={cn('text-center text-sm text-ff-muted', bare ? '' : 'px-5 py-12')}>{text}</p>
-  );
-}
-
-function LoadMore({
-  cursor,
-  loadingMore,
-  onLoadMore,
-}: {
-  cursor: string | null;
-  loadingMore: boolean;
-  onLoadMore: () => void;
-}) {
-  if (!cursor) return null;
-  return (
-    <div className="mt-5 flex justify-center">
-      <button
-        onClick={onLoadMore}
-        disabled={loadingMore}
-        className="inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
-      >
-        {loadingMore && <Loader2 size={15} className="animate-spin" />}
-        {loadingMore ? 'Зареждане…' : 'Зареди още'}
-      </button>
-    </div>
   );
 }
 
