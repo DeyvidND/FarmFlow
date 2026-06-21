@@ -225,22 +225,27 @@ export function RouteClient({
     window.open(`mailto:?bcc=${encodeURIComponent(emails.join(','))}`, '_self');
   };
 
+  // Force the base address before the route is usable — the whole feature starts
+  // from it. Until it's set, show ONLY the setup card (with Places autocomplete)
+  // instead of an empty map that reads as "no deliveries".
+  if (noOrigin) {
+    return (
+      <div className="animate-ff-fade-up mx-auto max-w-[560px]">
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-ff-amber-600" />
+          <div className="text-[13px] leading-relaxed text-ff-amber-600">
+            <b className="block text-[13.5px]">Първо задай адрес на базата</b>
+            Маршрутът тръгва от твоя адрес. Въведи го по-долу — избери от подсказките за
+            точна точка на картата — за да ползваш доставъчния маршрут.
+          </div>
+        </div>
+        <LocationRouteCard onSaved={() => router.refresh()} />
+      </div>
+    );
+  }
+
   return (
     <div className="animate-ff-fade-up">
-      {noOrigin && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
-          <AlertTriangle size={16} className="shrink-0 text-ff-amber-600" />
-          <span className="text-[12.5px] font-bold text-ff-amber-600">
-            Още нямаш зададен адрес на базата — маршрутът тръгва оттам, затова не може да се изчисли.
-          </span>
-          <button
-            onClick={() => setShowLoc(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12.5px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2"
-          >
-            Задай адрес
-          </button>
-        </div>
-      )}
 
       {/* route fetch failed — make it explicit; an empty list must not read as
           "no deliveries today" when the real cause is a server error */}

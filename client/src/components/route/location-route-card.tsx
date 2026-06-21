@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
+import { AddressAutocomplete } from './address-autocomplete';
 import { getTenant, updateTenant } from '@/lib/api-client';
 import type { RouteEndMode, RoutingConfig } from '@/lib/types';
 
@@ -20,6 +21,10 @@ const END_LABELS: { mode: RouteEndMode; label: string; hint: string }[] = [
  */
 export function LocationRouteCard({ onSaved }: { onSaved?: () => void }) {
   const [home, setHome] = useState('');
+  // Precise coords from a Places pick — when set, sent as farmLat/farmLng so the
+  // backend skips geocoding and the route starts from the exact spot. null = the
+  // address was typed/edited by hand → backend geocodes it (today's behaviour).
+  const [homePin, setHomePin] = useState<{ lat: number; lng: number } | null>(null);
   const [endMode, setEndMode] = useState<RouteEndMode>('home');
   const [endAddr, setEndAddr] = useState('');
   const [saving, setSaving] = useState(false);
@@ -37,10 +42,15 @@ export function LocationRouteCard({ onSaved }: { onSaved?: () => void }) {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (!home.trim()) {
+      toast.error('Въведи адрес на базата');
+      return;
+    }
     setSaving(true);
     try {
       await updateTenant({
         farmAddress: home.trim(),
+        ...(homePin ? { farmLat: homePin.lat, farmLng: homePin.lng } : {}),
         routing: { endMode, endAddress: endMode === 'custom' ? endAddr.trim() : '' },
       });
       toast.success('Локацията е запазена');
@@ -59,11 +69,12 @@ export function LocationRouteCard({ onSaved }: { onSaved?: () => void }) {
         Адресът на базата е началото на маршрута за доставка. Запазва се като точка на картата.
       </p>
       <form onSubmit={save} className="flex flex-col gap-4">
-        <TextField
+        <AddressAutocomplete
           label="Адрес на базата (дом)"
           placeholder="напр. с. Звездица, общ. Варна"
           value={home}
-          onChange={(e) => setHome(e.target.value)}
+          onChange={setHome}
+          onPick={setHomePin}
         />
 
         <div className="flex flex-col gap-1.5">
