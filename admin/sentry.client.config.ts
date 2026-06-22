@@ -13,10 +13,11 @@ if (dsn) {
   Sentry.init({
     dsn,
     environment: process.env.NODE_ENV || 'development',
-    // Route events through our own same-origin handler (src/app/api/ff-rt/route.ts)
-    // so ad-blockers don't drop them. The SDK includes the DSN in the envelope
-    // header so the handler knows where to forward.
-    tunnel: '/api/ff-rt',
+    // Events go straight to Sentry's ingest. No tunnel: the Next standalone
+    // container can't reliably proxy to sentry.io, and tunnelling fought too many
+    // layers (ad-block path names, the rewrite proxy, CF). Direct ingest works
+    // for all non-ad-blocker users; ad-blocked frontend errors are accepted loss
+    // (server-side errors are covered by the api's Sentry, which is ad-block-immune).
     // Error monitoring only — tracing and replay OFF (zero extra payload / cost).
     tracesSampleRate: 0,
   });
