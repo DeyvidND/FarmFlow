@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { ForcePasswordModal } from '@/components/auth/force-password-modal';
+import { AdblockNotice } from '@/components/layout/adblock-notice';
 import { FarmerRouteGuard } from '@/components/layout/farmer-route-guard';
 import { RoleProvider } from '@/components/layout/role-context';
 import { useUiStore } from '@/stores/ui-store';
@@ -63,6 +64,10 @@ export function AdminShell({
       </div>
 
       {mustChangePassword && <ForcePasswordModal />}
+
+      {/* Nudge to disable ad-blockers that suppress our error monitoring. Sits
+          below the password modal; only shows once a blocker is actually detected. */}
+      {!mustChangePassword && <AdblockNotice />}
 
       {role === 'farmer' && <FarmerRouteGuard />}
 
