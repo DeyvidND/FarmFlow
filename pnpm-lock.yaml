@@ -191,7 +191,7 @@ importers:
 
   packages/types:
     dependencies:
-      '@farmflow/db':
+      '@fermeribg/db':
         specifier: workspace:*
         version: link:../db
       drizzle-orm:
@@ -207,10 +207,10 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.0.0
         version: 3.1057.0
-      '@farmflow/db':
+      '@fermeribg/db':
         specifier: workspace:*
         version: link:../packages/db
-      '@farmflow/types':
+      '@fermeribg/types':
         specifier: workspace:*
         version: link:../packages/types
       '@nestjs/bullmq':
@@ -352,7 +352,7 @@ importers:
 
   storefront:
     dependencies:
-      '@farmflow/types':
+      '@fermeribg/types':
         specifier: workspace:*
         version: link:../packages/types
       '@vis.gl/react-google-maps':

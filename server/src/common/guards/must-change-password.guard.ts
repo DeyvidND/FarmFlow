@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import type { JwtPayload } from '@farmflow/types';
+import type { JwtPayload } from '@fermeribg/types';
 
 /**
  * Global guard that locks a principal out while `mustChangePassword` is true.

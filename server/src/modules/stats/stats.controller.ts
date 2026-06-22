@@ -5,7 +5,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
-import type { TenantRequestUser } from '@farmflow/types';
+import type { TenantRequestUser } from '@fermeribg/types';
 
 @ApiTags('stats')
 @ApiBearerAuth()

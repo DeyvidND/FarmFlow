@@ -6,7 +6,7 @@ import {
   CallHandler,
 } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
-import { type Database, auditLogs } from '@farmflow/db';
+import { type Database, auditLogs } from '@fermeribg/db';
 import { DB_TOKEN } from '../drizzle/drizzle.constants';
 
 const MUTATING = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);

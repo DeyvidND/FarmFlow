@@ -2,7 +2,7 @@
 
 /**
  * Shared presentational primitives for the Доставка (Delivery) page — ported from
- * the design prototype into the real FarmFlow Tailwind/token stack.
+ * the design prototype into the real ФермериБГ Tailwind/token stack.
  */
 import * as React from 'react';
 import { Info, X, Check, Plus, Minus, Search, ChevronDown } from 'lucide-react';

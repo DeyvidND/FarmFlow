@@ -15,7 +15,7 @@ function Logo({ size = 52 }: { size?: number }) {
   );
 }
 
-/** Centered 420px auth card with the FarmFlow brand header — from auth.jsx. */
+/** Centered 420px auth card with the ФермериБГ brand header — from auth.jsx. */
 export function AuthShell({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
     <div className="relative flex min-h-full flex-col items-center justify-center overflow-y-auto bg-ff-bg px-5 py-10">
@@ -27,7 +27,7 @@ export function AuthShell({ children, footer }: { children: ReactNode; footer?: 
       <div className="animate-ff-fade-up relative w-[420px] max-w-full">
         <div className="mb-[22px] flex flex-col items-center">
           <Logo size={52} />
-          <div className="mt-3.5 font-display text-[26px] font-extrabold tracking-[-0.02em]">FarmFlow</div>
+          <div className="mt-3.5 font-display text-[26px] font-extrabold tracking-[-0.02em]">ФермериБГ</div>
           <div className="mt-0.5 text-sm font-semibold text-ff-muted">Управление на фермата</div>
         </div>
 

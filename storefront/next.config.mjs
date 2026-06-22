@@ -11,7 +11,7 @@ const nextConfig = {
   // including on Windows, where standalone tracing can't create symlinks — work
   // unchanged. `outputFileTracingRoot` points at the monorepo root for tracing.
   output: process.env.NEXT_OUTPUT_STANDALONE === '1' ? 'standalone' : undefined,
-  transpilePackages: ['@farmflow/types'],
+  transpilePackages: ['@fermeribg/types'],
   experimental: {
     // isomorphic-dompurify pulls in jsdom. Bundling jsdom into the Next server
     // build breaks SSG page-data collection (e.g. /article/[slug]): jsdom can't

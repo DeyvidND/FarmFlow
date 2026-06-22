@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type Redis from 'ioredis';
-import { type Database } from '@farmflow/db';
+import { type Database } from '@fermeribg/db';
 import { DB_TOKEN } from '../drizzle/drizzle.constants';
 import { REDIS_TOKEN } from '../redis/redis.constants';
 

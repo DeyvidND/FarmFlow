@@ -15,7 +15,7 @@ import type {
   articles,
   articleMedia,
   newsletterSubscribers,
-} from '@farmflow/db';
+} from '@fermeribg/db';
 
 export type Tenant = InferSelectModel<typeof tenants>;
 export type NewTenant = InferInsertModel<typeof tenants>;

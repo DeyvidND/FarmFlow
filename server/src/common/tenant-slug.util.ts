@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { type Database, tenants } from '@farmflow/db';
+import { type Database, tenants } from '@fermeribg/db';
 
 /**
  * Resolve a tenant's stable slug for use as the human-readable R2 key prefix

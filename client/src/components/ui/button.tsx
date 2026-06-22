@@ -8,7 +8,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // primary green — the FarmFlow brand button
+        // primary green — the ФермериБГ brand button
         primary: 'bg-ff-green-700 text-white shadow-[0_2px_6px_rgba(40,35,20,0.14)] hover:brightness-[1.03]',
         amber: 'bg-ff-amber text-[#3a2a08] shadow-[0_2px_6px_rgba(40,35,20,0.14)] hover:brightness-[1.03]',
         ghost: 'bg-ff-surface text-ff-ink border border-ff-border shadow-ff-sm',

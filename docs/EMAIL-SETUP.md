@@ -1,29 +1,29 @@
 # Email setup (Resend)
 
-FarmFlow sends two kinds of mail on **one shared sending domain** (`farmsteadflow.com`):
+ФермериБГ sends two kinds of mail on **one shared sending domain** (`fermeribg.com`):
 
 - **transactional** — password resets, onboarding, daily digests (critical, must land)
 - **bulk** — newsletter sends to a farm's subscribers (billed €0.000555/recipient = Resend cost ×1.5)
 
-Both go out through Resend over SMTP using FarmFlow's own templates. The lanes are kept apart by from-address (`no-reply@` vs `news@`); if a marketing reputation hit ever threatens transactional mail, point the bulk lane at a separate Resend sending domain. No code change is needed to connect — just env + DNS.
+Both go out through Resend over SMTP using ФермериБГ's own templates. The lanes are kept apart by from-address (`no-reply@` vs `news@`); if a marketing reputation hit ever threatens transactional mail, point the bulk lane at a separate Resend sending domain. No code change is needed to connect — just env + DNS.
 
 Provider: **Resend**. Free tier: **3,000 emails/month** (100/day), **no credit card**, **no provider logo** in the email (clean branded mail). DNS is managed in **Cloudflare**.
 
-> Why Resend over Amazon SES / Mailgun: SES gates first real sending behind a **production-access review that can take days**. Mailgun dropped its free pay-as-you-go ($15/mo minimum). Resend verifies the domain in minutes, costs €0 on FarmFlow's baseline volume, and unlike Brevo's free tier puts **no "Sent with X" footer** on outgoing mail.
+> Why Resend over Amazon SES / Mailgun: SES gates first real sending behind a **production-access review that can take days**. Mailgun dropped its free pay-as-you-go ($15/mo minimum). Resend verifies the domain in minutes, costs €0 on ФермериБГ's baseline volume, and unlike Brevo's free tier puts **no "Sent with X" footer** on outgoing mail.
 
 ## 1. Add the sending domain in Resend
-1. Resend → **Domains → Add Domain** → `farmsteadflow.com`. (Resend uses a `send.` sending subdomain under the hood.)
+1. Resend → **Domains → Add Domain** → `fermeribg.com`. (Resend uses a `send.` sending subdomain under the hood.)
 2. Resend shows DNS records. Add them to Cloudflare as **DNS only / grey cloud** (never proxy mail/DKIM records):
-   - **MX** — on `send.farmsteadflow.com` → `feedback-smtp.<region>.amazonses.com` (Resend's bounce/feedback path; it's on a subdomain, so it does **not** clash with Cloudflare Email Routing's MX on the root).
-   - **SPF** — `TXT` on `send.farmsteadflow.com`: `v=spf1 include:amazonses.com ~all`. (This is on the `send.` subdomain, separate from the root SPF that Cloudflare Email Routing manages — no merge needed.)
+   - **MX** — on `send.fermeribg.com` → `feedback-smtp.<region>.amazonses.com` (Resend's bounce/feedback path; it's on a subdomain, so it does **not** clash with Cloudflare Email Routing's MX on the root).
+   - **SPF** — `TXT` on `send.fermeribg.com`: `v=spf1 include:amazonses.com ~all`. (This is on the `send.` subdomain, separate from the root SPF that Cloudflare Email Routing manages — no merge needed.)
    - **DKIM** — `TXT` (e.g. host `resend._domainkey`) with the key Resend gives you.
-3. **DMARC** (recommended) — `TXT` on `_dmarc.farmsteadflow.com`:
+3. **DMARC** (recommended) — `TXT` on `_dmarc.fermeribg.com`:
    ```
-   v=DMARC1; p=none; rua=mailto:dmarc@farmsteadflow.com
+   v=DMARC1; p=none; rua=mailto:dmarc@fermeribg.com
    ```
 4. Back in Resend, click **Verify**. Usually green within minutes.
 
-> ⚠️ The root domain still runs **Cloudflare Email Routing** for inbound `hello@farmsteadflow.com`. Resend's records live on the `send.` subdomain, so they don't touch the root MX/SPF. Leave Cloudflare Email Routing as-is.
+> ⚠️ The root domain still runs **Cloudflare Email Routing** for inbound `hello@fermeribg.com`. Resend's records live on the `send.` subdomain, so they don't touch the root MX/SPF. Leave Cloudflare Email Routing as-is.
 
 ## 2. SMTP credentials
 Resend → **API Keys** → create a key (`re_...`). SMTP uses:
@@ -53,8 +53,8 @@ SMTP_HOST=smtp.resend.com
 SMTP_PORT=465
 SMTP_USER=resend
 SMTP_PASS=<Resend API key, re_...>
-EMAIL_TRANSACTIONAL_FROM=FarmFlow <no-reply@farmsteadflow.com>
-EMAIL_BULK_FROM=FarmFlow Новини <news@farmsteadflow.com>
+EMAIL_TRANSACTIONAL_FROM=ФермериБГ <no-reply@fermeribg.com>
+EMAIL_BULK_FROM=ФермериБГ Новини <news@fermeribg.com>
 RESEND_WEBHOOK_SECRET=<whsec_... from the webhook endpoint>
 EMAIL_WEBHOOK_SECRET=<random string, also in the webhook URL>
 EMAIL_WEBHOOK_VERIFY=true            # verify Resend (Svix) signatures (recommended)
@@ -64,7 +64,7 @@ EMAIL_COST_PER_RECIPIENT_MICRO=370   # Resend cost basis — margin view only, n
 ```
 Leave `SMTP_HOST` empty → dev mode (writes `.mail-preview/*.html`, sends nothing).
 
-The verified domain covers every `@farmsteadflow.com` address, so no per-address verification is needed for sending. `hello@farmsteadflow.com` is the **inbound** contact address (Cloudflare Email Routing → forwarded inbox); the app sends *from* `no-reply@` / `news@`.
+The verified domain covers every `@fermeribg.com` address, so no per-address verification is needed for sending. `hello@fermeribg.com` is the **inbound** contact address (Cloudflare Email Routing → forwarded inbox); the app sends *from* `no-reply@` / `news@`.
 
 ## Notes
 - **Cost:** €0 on the free tier (3k/mo, 100/day). Transactional baseline (resets/confirms/digests) sits well under that. A large newsletter blast can exceed the free cap (and the 100/day limit) — that's the paid case, covered by the per-recipient billing (€0.000555/recipient, Resend cost ×1.5). If push volume grows, upgrade Resend (Pro from $20/mo for 50k/mo) or send bulk through a cheaper metered provider; keep transactional on Resend free.

@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { inArray, eq } from 'drizzle-orm';
-import { type Database, emailSuppressions } from '@farmflow/db';
+import { type Database, emailSuppressions } from '@fermeribg/db';
 import { DB_TOKEN } from '../drizzle/drizzle.constants';
 
 export type SuppressionReason = 'bounce' | 'complaint' | 'manual';

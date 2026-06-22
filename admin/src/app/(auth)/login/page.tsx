@@ -43,7 +43,7 @@ export default function LoginPage() {
             <Leaf size={28} strokeWidth={1.9} />
           </div>
           <div className="text-center">
-            <div className="font-display text-[22px] font-extrabold tracking-[-0.01em]">FarmFlow — Платформа</div>
+            <div className="font-display text-[22px] font-extrabold tracking-[-0.01em]">ФермериБГ — Платформа</div>
             <div className="mt-0.5 text-[13px] font-semibold text-ff-muted">Администрация на фермите</div>
           </div>
         </div>
@@ -59,7 +59,7 @@ export default function LoginPage() {
                 type="email"
                 required
                 autoComplete="email"
-                placeholder="admin@farmflow.bg"
+                placeholder="admin@fermeribg.bg"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="h-11 rounded-xl border border-ff-border bg-ff-surface px-3.5 text-[14.5px] outline-none focus:border-ff-green-500"
@@ -89,7 +89,7 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-        <div className="mt-5 text-center text-[12.5px] text-ff-muted">FarmFlow © 2026</div>
+        <div className="mt-5 text-center text-[12.5px] text-ff-muted">ФермериБГ © 2026</div>
       </div>
     </div>
   );

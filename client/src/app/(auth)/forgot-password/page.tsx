@@ -35,12 +35,12 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <AuthShell footer="FarmFlow © 2026">
+    <AuthShell footer="ФермериБГ © 2026">
       {sent ? (
         <>
           <h1 className="mb-1 text-[20px] font-extrabold">Провери пощата си</h1>
           <p className="mb-[22px] text-[13.5px] leading-relaxed text-ff-muted">
-            Ако <b>{email}</b> има профил във FarmFlow, изпратихме връзка за смяна на паролата.
+            Ако <b>{email}</b> има профил във ФермериБГ, изпратихме връзка за смяна на паролата.
             Връзката е валидна 30 минути. Виж и в папка „Спам“.
           </p>
           <Link

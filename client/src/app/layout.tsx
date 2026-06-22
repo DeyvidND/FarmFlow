@@ -17,8 +17,8 @@ const bitter = Bitter({
 });
 
 export const metadata: Metadata = {
-  title: 'FarmFlow — Управление на фермата',
-  description: 'FarmFlow — управление на поръчки и доставки за ферми.',
+  title: 'ФермериБГ — Управление на фермата',
+  description: 'ФермериБГ — управление на поръчки и доставки за ферми.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

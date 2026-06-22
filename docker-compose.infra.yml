@@ -1,4 +1,4 @@
-# Infrastructure — Postgres + Redis for FarmFlow production (Dokploy).
+# Infrastructure — Postgres + Redis for ФермериБГ production (Dokploy).
 #
 # Deploy as a SEPARATE Dokploy "Docker Compose" app. Nothing here builds in CI —
 # stock images, pulled + run on the VM. Data persists in NAMED VOLUMES on the VM.

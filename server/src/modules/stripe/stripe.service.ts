@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { and, eq, ne } from 'drizzle-orm';
 import Stripe from 'stripe';
-import { type Database, orders, tenants, stripeEvents } from '@farmflow/db';
+import { type Database, orders, tenants, stripeEvents } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import {
   PublicCacheService,
@@ -154,7 +154,7 @@ export class StripeService {
    * processing fee, and bears ALL liability (refunds, disputes, negative
    * balances). The platform carries none of it and (with `STRIPE_PLATFORM_FEE_BPS`
    * left at 0) takes no cut. Trade-off vs Express: embedded Connect components
-   * aren't available for Standard, so the Payments page is a native FarmFlow
+   * aren't available for Standard, so the Payments page is a native ФермериБГ
    * dashboard that reads balance/payouts/charges over the Connect API instead.
    */
   async ensureConnectedAccount(tenantId: string): Promise<string> {
@@ -183,7 +183,7 @@ export class StripeService {
         stripe_dashboard: { type: 'full' },
         requirement_collection: 'stripe',
       },
-      metadata: { farmflowTenantId: tenant.id },
+      metadata: { fermeribgTenantId: tenant.id },
     };
     const account = await this.stripe.accounts.create(
       params,
@@ -597,7 +597,7 @@ export class StripeService {
         break;
       }
       case 'account.application.deauthorized': {
-        // The farm revoked FarmFlow's access from its own Stripe dashboard. The
+        // The farm revoked ФермериБГ's access from its own Stripe dashboard. The
         // `data.object` is an Application, so the account is in `event.account`.
         // Clear the link + cached flags so the Payments page falls back to the
         // connect CTA and the farm can reconnect cleanly.

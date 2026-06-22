@@ -17,7 +17,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
-import type { TenantRequestUser } from '@farmflow/types';
+import type { TenantRequestUser } from '@fermeribg/types';
 
 @ApiTags('orders')
 @ApiBearerAuth()

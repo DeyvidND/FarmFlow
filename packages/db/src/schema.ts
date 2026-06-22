@@ -389,7 +389,7 @@ export const shipments = pgTable(
   }),
 );
 
-// Platform-level admins (FarmFlow staff) — NOT tied to any tenant. Manage all farms.
+// Platform-level admins (ФермериБГ staff) — NOT tied to any tenant. Manage all farms.
 export const platformAdmins = pgTable('platform_admins', {
   id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
   email: text('email').notNull().unique(),

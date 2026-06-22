@@ -1,5 +1,5 @@
 import { renderEmail, type RenderOpts } from './email-render';
-import type { NewsletterBlock } from '@farmflow/types';
+import type { NewsletterBlock } from '@fermeribg/types';
 
 const opts: RenderOpts = {
   subject: 'Новини',

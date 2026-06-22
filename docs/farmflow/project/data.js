@@ -1,4 +1,4 @@
-/* FarmFlow — fake data layer (Bulgarian). Exposed as window.FF */
+/* ФермериБГ — fake data layer (Bulgarian). Exposed as window.FF */
 (function () {
   // ---- Products ----
   const products = [

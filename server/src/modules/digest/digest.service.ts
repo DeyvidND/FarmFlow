@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { and, eq, isNotNull, or } from 'drizzle-orm';
-import { type Database, orders, orderItems, products, deliverySlots, tenants, farmers } from '@farmflow/db';
+import { type Database, orders, orderItems, products, deliverySlots, tenants, farmers } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { bgToday } from '../../common/time/bg-time';
@@ -200,7 +200,7 @@ function renderHtml(
   ${pickupSection}
   ${addressSection}
   ${econtSection}
-  <p style="font-size:12px;color:#999;margin-top:32px">FarmFlow — автоматичен дайджест</p>
+  <p style="font-size:12px;color:#999;margin-top:32px">ФермериБГ — автоматичен дайджест</p>
 </body>
 </html>`;
 }
@@ -309,7 +309,7 @@ function renderFarmerHtml(
   ${pickupSection}
   ${addressSection}
   ${econtSection}
-  <p style="font-size:12px;color:#999;margin-top:32px">FarmFlow — автоматичен дайджест за фермер</p>
+  <p style="font-size:12px;color:#999;margin-top:32px">ФермериБГ — автоматичен дайджест за фермер</p>
 </body>
 </html>`;
 }
@@ -591,7 +591,7 @@ export class DigestService {
         if (!digest) continue;
         await this.email.sendMail({
           to: f.email,
-          subject: `Твоите доставки за днес — FarmFlow${testMode ? ' (тест)' : ''}`,
+          subject: `Твоите доставки за днес — ФермериБГ${testMode ? ' (тест)' : ''}`,
           html: digest.html,
           text: digest.text,
         });
@@ -636,7 +636,7 @@ export class DigestService {
       if (digest) {
         await this.email.sendMail({
           to: tenant.email,
-          subject: 'Доставки за днес — FarmFlow',
+          subject: 'Доставки за днес — ФермериБГ',
           html: digest.html,
           text: digest.text,
         });
@@ -678,7 +678,7 @@ export class DigestService {
 
     await this.email.sendMail({
       to: tenant.email,
-      subject: 'Доставки за днес — FarmFlow (тест)',
+      subject: 'Доставки за днес — ФермериБГ (тест)',
       html: digest.html,
       text: digest.text,
     });

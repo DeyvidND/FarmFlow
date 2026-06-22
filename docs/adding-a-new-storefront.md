@@ -1,6 +1,6 @@
 # Adding a new third‑party storefront (new farm/tenant)
 
-This guide walks you through adding a **new website** to FarmFlow — from creating
+This guide walks you through adding a **new website** to ФермериБГ — from creating
 its tenant, to filling its catalog from the admin panel, to pointing a storefront
 at it. Every farm is an isolated **tenant**; one API + one database serve all of
 them, and each storefront shows only its own tenant's data.
@@ -17,7 +17,7 @@ them, and each storefront shows only its own tenant's data.
 
 ```
                        ┌──────────────────────────────┐
-   Admin panel  ──────▶│  FarmFlow API (NestJS)        │──▶  Postgres
+   Admin panel  ──────▶│  ФермериБГ API (NestJS)        │──▶  Postgres
    (per owner)         │  POST /products /farmers ...  │     (one DB,
    localhost:3005      │  GET  /public/:slug/...       │      tenant‑scoped)
                        └──────────────────────────────┘
@@ -40,7 +40,7 @@ them, and each storefront shows only its own tenant's data.
 | API (NestJS) | `http://localhost:3000` | `PORT` env. Swagger at `/docs`. |
 | Admin panel (`client`) | `http://localhost:3005` | `next start -p 3005` |
 | Storefront (Astro) | `http://localhost:3004` | `server.port` in `astro.config.mjs` / env |
-| Postgres | `localhost:5433` | `docker compose up` in the FarmFlow repo |
+| Postgres | `localhost:5433` | `docker compose up` in the ФермериБГ repo |
 | Redis | `localhost:6379` | cache |
 
 > Source defaults differ (API 3001, admin 3002, storefront 3003). The numbers above
@@ -53,17 +53,17 @@ them, and each storefront shows only its own tenant's data.
 Make sure the backend is up and seeded before adding anything:
 
 ```bash
-# in the FarmFlow repo
+# in the ФермериБГ repo
 docker compose up -d            # postgres + redis
-pnpm --filter @farmflow/db migrate
-pnpm --filter @farmflow/db seed # optional demo tenant "ferma-petrovi"
-pnpm --filter @farmflow/server dev   # API on :3000
-pnpm --filter @farmflow/client dev   # admin on :3005 (or next start -p 3005)
+pnpm --filter @fermeribg/db migrate
+pnpm --filter @fermeribg/db seed # optional demo tenant "ferma-petrovi"
+pnpm --filter @fermeribg/server dev   # API on :3000
+pnpm --filter @fermeribg/client dev   # admin on :3005 (or next start -p 3005)
 ```
 
 Confirm the API is live: open **http://localhost:3000/docs**.
 
-![Swagger UI — FarmFlow API overview](images/01-swagger-overview.png)
+![Swagger UI — ФермериБГ API overview](images/01-swagger-overview.png)
 
 ---
 
@@ -131,7 +131,7 @@ curl -s http://localhost:3000/tenants/me -H "authorization: Bearer $TOKEN" | jq 
 **3. Database**
 ```bash
 docker exec farmflow-postgres-1 \
-  psql -U farmflow -d farmflow -tAc "select name, slug from tenants order by created_at desc;"
+  psql -U fermeribg -d fermeribg -tAc "select name, slug from tenants order by created_at desc;"
 ```
 
 **4. Confirm a slug resolves** (200 = valid, 404 = wrong):
@@ -195,7 +195,7 @@ three env vars. To serve a **different** tenant, deploy a copy with its slug:
 
 `.env`
 ```bash
-PUBLIC_API_BASE=http://localhost:3000     # the FarmFlow API (no trailing slash)
+PUBLIC_API_BASE=http://localhost:3000     # the ФермериБГ API (no trailing slash)
 PUBLIC_TENANT_SLUG=<your-new-slug>        # <-- the only line that changes per site
 PUBLIC_ADMIN_URL=http://localhost:3005    # footer "owner login" link target
 ```

@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 
 /**
  * Sniff a buffer's true media type from its leading magic bytes — limited to the
- * formats FarmFlow accepts (jpeg/png/webp images, mp4/webm video). Returns the
+ * formats ФермериБГ accepts (jpeg/png/webp images, mp4/webm video). Returns the
  * canonical MIME, or null if the signature is unrecognised.
  */
 export function sniffMime(buf: Buffer): string | null {

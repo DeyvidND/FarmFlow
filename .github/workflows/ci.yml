@@ -21,7 +21,7 @@ jobs:
         env:
           POSTGRES_DB: farmflow_test
           POSTGRES_USER: farmflow
-          POSTGRES_PASSWORD: farmflow
+          POSTGRES_PASSWORD: fermeribg
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U farmflow -d farmflow_test"
@@ -34,7 +34,7 @@ jobs:
           --health-timeout 5s --health-retries 5
 
     env:
-      DATABASE_URL: postgres://farmflow:farmflow@localhost:5432/farmflow_test
+      DATABASE_URL: postgres://farmflow:fermeribg@localhost:5432/farmflow_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-test-secret-not-for-prod
       ENCRYPTION_KEY: ci-test-encryption-key-not-for-prod
@@ -65,4 +65,4 @@ jobs:
         run: pnpm db:migrate
 
       - name: Test (API)
-        run: pnpm --filter @farmflow/api test
+        run: pnpm --filter @fermeribg/api test

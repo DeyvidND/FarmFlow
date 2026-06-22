@@ -1,4 +1,4 @@
-/* FarmFlow — app shell, nav, shared state, toasts, hover styles */
+/* ФермериБГ — app shell, nav, shared state, toasts, hover styles */
 const { useEffect } = React;
 
 const PAGE_TITLES = {

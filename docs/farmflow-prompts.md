@@ -1,4 +1,4 @@
-# FarmFlow — Build Prompts (DB → Backend → Frontend)
+# ФермериБГ — Build Prompts (DB → Backend → Frontend)
 
 Each feature is built in three ordered passes. Finish a feature end-to-end before
 moving to the next. Run each prompt as a separate Claude Code task.
@@ -14,9 +14,9 @@ The repo is **already scaffolded** as a pnpm + turbo monorepo. The prompts below
 *implement existing stubs* — they do not create the project from scratch.
 
 ### Monorepo layout (actual dir names — keep them)
-- `packages/db` — `@farmflow/db`. Drizzle schema (`src/schema.ts`), `createDb(connectionString)` factory (`src/index.ts`), seed (`src/seed.ts`), drizzle-kit config. Migrations in `drizzle/`.
-- `packages/types` — `@farmflow/types`. Shared inferred TS types (currently empty barrel).
-- `server` — `@farmflow/api`. NestJS app. Entry: `pnpm --filter @farmflow/api dev` (alias of `start:dev`).
+- `packages/db` — `@fermeribg/db`. Drizzle schema (`src/schema.ts`), `createDb(connectionString)` factory (`src/index.ts`), seed (`src/seed.ts`), drizzle-kit config. Migrations in `drizzle/`.
+- `packages/types` — `@fermeribg/types`. Shared inferred TS types (currently empty barrel).
+- `server` — `@fermeribg/api`. NestJS app. Entry: `pnpm --filter @fermeribg/api dev` (alias of `start:dev`).
 - `client` — Next.js 14 admin app (App Router, TS, Tailwind).
 
 > The prompts use **server/** and **client/** — NOT `apps/api` / `apps/web`.
@@ -129,14 +129,14 @@ Verify: docker compose up boots both services, drizzle-kit migrates clean, seed 
 Verify the NestJS app in server/ boots clean with no business logic yet.
 - @nestjs/config Joi env validation, global DrizzleModule + RedisModule, global
   ValidationPipe + exception filter, CORS for localhost:3000, GET /health, Swagger /docs.
-Verify: pnpm --filter @farmflow/api dev boots clean; /health returns ok; /docs serves Swagger.
+Verify: pnpm --filter @fermeribg/api dev boots clean; /health returns ok; /docs serves Swagger.
 ```
 
 ### 0.3 — Frontend  *(scaffold exists — apply theme + shell from design)*
 ```
 Theme the Next.js app in client/ and build the app shell EXACTLY from the design.
 - Initialize shadcn/ui (New York, CSS variables). Populate the empty client/src/app/globals.css
-  with the FarmFlow earthy palette mapped to shadcn HSL CSS vars, using the tokens in
+  with the ФермериБГ earthy palette mapped to shadcn HSL CSS vars, using the tokens in
   docs/farmflow/project/index.html :root (bg #F3EEE2, surface #FFFFFF, brand green #2C5530,
   amber #E8A33D, red #BF4434, ink/muted/border scale, radii 12/8/18). Add the design's
   keyframes (ff-fade-up, ff-fade, ff-slide-in, ff-pop, ff-pulse) and scrollbar styling.
@@ -144,7 +144,7 @@ Theme the Next.js app in client/ and build the app shell EXACTLY from the design
   headings/figures, Commissioner for UI. Set <html lang="bg">.
 - Build the (admin) layout shell to match components.jsx Sidebar + TopBar pixel-perfect:
   responsive sidebar (fixed 220px desktop; off-canvas drawer < 1024px with hamburger + backdrop),
-  brand Logo (green rounded leaf mark) + "FarmFlow" / "Управление на фермата", nav items
+  brand Logo (green rounded leaf mark) + "ФермериБГ" / "Управление на фермата", nav items
   Табло/Поръчки/Производство/Продукти/Слотове/Маршрут (lucide icons, active = green-50 bg +
   left green border, pending-count badge on Поръчки), season card + "Изход" at bottom.
   TopBar: page title (Bitter), tenant name + Bulgarian date (capitalized), notifications bell
@@ -185,7 +185,7 @@ Verify: register → login → GET /tenants/me with the token works; cross-tenan
 ```
 Build the (auth) login + register screens in client/, pixel-perfect from docs/farmflow/project/auth.jsx.
 - AuthShell: off-white bg with faint green radial texture top, centered 420px card (radius 16,
-  shadow-md, 30px pad), Logo(52) + "FarmFlow" (Bitter) + "Управление на фермата", footer "FarmFlow © 2026".
+  shadow-md, 30px pad), Logo(52) + "ФермериБГ" (Bitter) + "Управление на фермата", footer "ФермериБГ © 2026".
 - /login: title "Влез в профила си", sub copy, fields Имейл + Парола (with "Забравена парола?"),
   primary full-width "Влез", "Нямаш акаунт? Регистрирай се". Use shadcn Input/Button themed to design.
 - /register: "Създай акаунт", fields Име на фермата, Имейл, Телефон, Парола + Потвърди парола (2-col grid),
@@ -287,7 +287,7 @@ repo**. Each farm runs its own external storefront (third-party site).
   account — `tenants.stripe_account_id` already exists for Stripe Connect). This backend does not run
   a checkout UI; it reconciles paid orders (Stripe webhook → mark confirmed/paid) and collects them.
 - **Do NOT build a `(store)` checkout/cart frontend.** Feature 4.3 is admin-only.
-- Note: `tenants.subscription_status` (Feature 7) is the farm's **SaaS subscription to FarmFlow** —
+- Note: `tenants.subscription_status` (Feature 7) is the farm's **SaaS subscription to ФермериБГ** —
   separate from the farm's own Stripe used for its customers.
 
 ---
@@ -458,7 +458,7 @@ deferred; the schema is laid down now so Phase 2 needs no migration. Body is **s
 ### 8.1 — DB
 ```
 New tables in schema.ts (drizzle-kit generate → migration 0008; add all to the `schema` export, then
-rebuild db + types dist: pnpm --filter @farmflow/db generate && build, pnpm --filter @farmflow/types build).
+rebuild db + types dist: pnpm --filter @fermeribg/db generate && build, pnpm --filter @fermeribg/types build).
 - enum article_status: draft | published (default draft).
 - enum article_media_type: image | video | youtube | instagram.
 - articles: id, tenant_id→tenants, slug, title, excerpt, body (text/markdown),
@@ -471,7 +471,7 @@ rebuild db + types dist: pnpm --filter @farmflow/db generate && build, pnpm --fi
 - newsletter_subscribers (created now, EMPTY, no send logic — pure email-ready scaffold):
   id, tenant_id→tenants, email, created_at, unsubscribed_at timestamp null.
 - Add Article / NewArticle / ArticleMedia / NewArticleMedia (+ PublicArticle = article + ordered media,
-  tenant_id stripped) to @farmflow/types.
+  tenant_id stripped) to @fermeribg/types.
 - Seed 2–3 demo статии for "Ферма Петрови": cover + 1 uploaded photo + 1 YouTube embed, ≥1 published.
 ```
 

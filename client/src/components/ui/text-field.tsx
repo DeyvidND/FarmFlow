@@ -4,7 +4,7 @@ import { useState, type InputHTMLAttributes } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 
 /**
- * Labeled text input matching the FarmFlow form style. Password fields get a
+ * Labeled text input matching the ФермериБГ form style. Password fields get a
  * built-in show/hide eye toggle so the farmer can check what they typed
  * (no more guessing behind the dots).
  */

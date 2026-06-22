@@ -1,5 +1,5 @@
 /**
- * FarmFlow delivery — defaults, static mock nomenclature/shipments, helpers and
+ * ФермериБГ delivery — defaults, static mock nomenclature/shipments, helpers and
  * help-modal copy. Ported from the Claude Design prototype (data.js) into the real
  * client stack. The `DEFAULT_DELIVERY` blob hydrates a tenant that has never saved
  * delivery settings; the office/shipment data is mock until a live Econt API exists.

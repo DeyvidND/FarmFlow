@@ -19,4 +19,4 @@ The design medium is **HTML/CSS/JS** — these are prototypes, not production co
 ## Bundle contents
 
 - `farmflow/README.md` — this file
-- `farmflow/project/` — the `FarmFlow` project files (HTML prototypes, assets, components)
+- `farmflow/project/` — the `ФермериБГ` project files (HTML prototypes, assets, components)

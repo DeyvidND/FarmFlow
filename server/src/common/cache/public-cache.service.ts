@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import Redis from 'ioredis';
 import { eq } from 'drizzle-orm';
-import { type Database, tenants } from '@farmflow/db';
+import { type Database, tenants } from '@fermeribg/db';
 import { REDIS_TOKEN } from '../redis/redis.constants';
 import {
   buildPublicDelivery,

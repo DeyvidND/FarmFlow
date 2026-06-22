@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# Production image for the public storefront (@farmflow/storefront), Next.js standalone.
-# Build from the repo ROOT: `docker build -f storefront/Dockerfile -t farmflow-storefront .`
+# Production image for the public storefront (@fermeribg/storefront), Next.js standalone.
+# Build from the repo ROOT: `docker build -f storefront/Dockerfile -t fermeribg-storefront .`
 FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS base
 ENV PNPM_HOME=/pnpm PATH="/pnpm:$PATH" NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
@@ -26,7 +26,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_STOREFRONT_SLUG=$NEXT_PUBLIC_STOREFRONT_SLUG
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-RUN pnpm --filter "@farmflow/storefront..." run build
+RUN pnpm --filter "@fermeribg/storefront..." run build
 
 FROM base AS runner
 ENV NODE_ENV=production PORT=3003 HOSTNAME=0.0.0.0

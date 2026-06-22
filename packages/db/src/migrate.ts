@@ -10,8 +10,8 @@ import { join } from 'node:path';
  * drizzle-kit CLI (dev-only, absent from the production image).
  *
  * The compiled SQL lives in this package's `drizzle/` folder, which sits next to
- * `dist/` at runtime (the Dockerfile copies it into node_modules/@farmflow/db).
- * `__dirname` here is `.../@farmflow/db/dist`, so `../drizzle` resolves correctly.
+ * `dist/` at runtime (the Dockerfile copies it into node_modules/@fermeribg/db).
+ * `__dirname` here is `.../@fermeribg/db/dist`, so `../drizzle` resolves correctly.
  */
 export async function runMigrations(
   databaseUrl: string | undefined = process.env.DATABASE_URL,

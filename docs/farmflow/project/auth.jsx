@@ -1,4 +1,4 @@
-/* FarmFlow — auth screens (Login, Register) */
+/* ФермериБГ — auth screens (Login, Register) */
 const { useState: useAuthState } = React;
 
 function AuthField({ label, type = "text", placeholder, value, onChange }) {
@@ -27,7 +27,7 @@ function AuthShell({ children, footer }) {
       <div style={{ width: 420, maxWidth: "100%", position: "relative", animation: "ff-fade-up .35s ease" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 22 }}>
           <Logo size={52} />
-          <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em", marginTop: 14, fontFamily: "var(--font-display)" }}>FarmFlow</div>
+          <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em", marginTop: 14, fontFamily: "var(--font-display)" }}>ФермериБГ</div>
           <div style={{ fontSize: 14, color: "var(--muted)", fontWeight: 600, marginTop: 2 }}>Управление на фермата</div>
         </div>
 
@@ -51,7 +51,7 @@ function LoginPage({ onNavigate }) {
   const submit = (e) => { e.preventDefault(); onNavigate("dashboard"); };
 
   return (
-    <AuthShell footer="FarmFlow © 2026">
+    <AuthShell footer="ФермериБГ © 2026">
       <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Влез в профила си</h1>
       <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 22 }}>Продължи към управлението на фермата.</p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -77,7 +77,7 @@ function RegisterPage({ onNavigate }) {
   const submit = (e) => { e.preventDefault(); onNavigate("dashboard"); };
 
   return (
-    <AuthShell footer="FarmFlow © 2026">
+    <AuthShell footer="ФермериБГ © 2026">
       <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Създай акаунт</h1>
       <p style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 22 }}>Започни да управляваш поръчките си днес.</p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 15 }}>

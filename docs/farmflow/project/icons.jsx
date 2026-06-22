@@ -1,4 +1,4 @@
-/* FarmFlow icons — simple, consistent stroke icons */
+/* ФермериБГ icons — simple, consistent stroke icons */
 const Icon = ({ children, size = 22, stroke = 1.8, fill = "none", ...rest }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
     stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" {...rest}>

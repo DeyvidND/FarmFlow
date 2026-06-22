@@ -765,7 +765,7 @@ export const listSubscribers = (cursor?: string) =>
   );
 
 // ─── Newsletter block-builder campaigns ─────────────────────────────────────
-// Local mirror of @farmflow/types NewsletterBlock (client doesn't consume the
+// Local mirror of @fermeribg/types NewsletterBlock (client doesn't consume the
 // types package). Keep in sync with packages/types/src/index.ts.
 export type NewsletterColumn =
   | { kind: 'text'; html: string }

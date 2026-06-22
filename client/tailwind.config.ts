@@ -39,7 +39,7 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        // FarmFlow raw design tokens (exact hex from the design prototype)
+        // ФермериБГ raw design tokens (exact hex from the design prototype)
         ff: {
           bg: 'var(--ff-bg)',
           surface: 'var(--ff-surface)',

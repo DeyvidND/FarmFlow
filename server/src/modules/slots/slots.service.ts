@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { and, eq, ne, gte, lte, sql, getTableColumns } from 'drizzle-orm';
-import { type Database, deliverySlots, orders, tenants } from '@farmflow/db';
+import { type Database, deliverySlots, orders, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { CreateSlotDto } from './dto/create-slot.dto';

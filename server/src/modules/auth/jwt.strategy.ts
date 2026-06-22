@@ -3,8 +3,8 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { eq } from 'drizzle-orm';
-import { type Database, users, platformAdmins } from '@farmflow/db';
-import { JwtPayload, RequestUser, TenantRole } from '@farmflow/types';
+import { type Database, users, platformAdmins } from '@fermeribg/db';
+import { JwtPayload, RequestUser, TenantRole } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
 @Injectable()

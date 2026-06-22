@@ -15,7 +15,7 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
-import type { TenantRequestUser } from '@farmflow/types';
+import type { TenantRequestUser } from '@fermeribg/types';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import { ReorderDto } from '../../common/dto/reorder.dto';

@@ -1,5 +1,5 @@
 {
-  "name": "@farmflow/api",
+  "name": "@fermeribg/api",
   "version": "0.0.1",
   "scripts": {
     "build": "nest build",
@@ -32,8 +32,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",
-    "@farmflow/db": "workspace:*",
-    "@farmflow/types": "workspace:*",
+    "@fermeribg/db": "workspace:*",
+    "@fermeribg/types": "workspace:*",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.4.0",
     "@nestjs/config": "^3.2.0",

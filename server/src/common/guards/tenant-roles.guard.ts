@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import type { JwtPayload, TenantRole } from '@farmflow/types';
+import type { JwtPayload, TenantRole } from '@fermeribg/types';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 /**

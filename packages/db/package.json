@@ -1,5 +1,5 @@
 {
-  "name": "@farmflow/db",
+  "name": "@fermeribg/db",
   "version": "0.0.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { text } from 'express';
 import helmet from 'helmet';
 import compression from 'compression';
-import { runMigrations, ensureSuperAdmin } from '@farmflow/db';
+import { runMigrations, ensureSuperAdmin } from '@fermeribg/db';
 import { AppModule } from './app.module';
 
 /**
@@ -156,8 +156,8 @@ async function bootstrap() {
   const swaggerEnabled = process.env.NODE_ENV !== 'production';
   if (swaggerEnabled) {
     const swaggerConfig = new DocumentBuilder()
-      .setTitle('FarmFlow API')
-      .setDescription('FarmFlow backend API')
+      .setTitle('ФермериБГ API')
+      .setDescription('ФермериБГ backend API')
       .setVersion('0.1')
       .addBearerAuth()
       .build();
@@ -167,7 +167,7 @@ async function bootstrap() {
   }
 
   await app.listen(port);
-  console.log(`FarmFlow API running on http://localhost:${port}`);
+  console.log(`ФермериБГ API running on http://localhost:${port}`);
   if (swaggerEnabled) console.log(`Swagger docs at http://localhost:${port}/docs`);
 }
 

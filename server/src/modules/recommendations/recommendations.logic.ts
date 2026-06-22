@@ -1,4 +1,4 @@
-import type { PublicProduct } from '@farmflow/types';
+import type { PublicProduct } from '@fermeribg/types';
 
 export interface AssembleInput {
   /** The public catalog (active products), in display order (position). */

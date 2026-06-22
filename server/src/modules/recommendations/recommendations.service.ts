@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { type Database, orders, orderItems } from '@farmflow/db';
-import type { PublicProduct } from '@farmflow/types';
+import { type Database, orders, orderItems } from '@fermeribg/db';
+import type { PublicProduct } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ProductsService } from '../products/products.service';

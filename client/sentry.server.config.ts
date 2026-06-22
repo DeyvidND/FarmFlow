@@ -1,4 +1,4 @@
-// Sentry — Node.js (server) runtime init for the farmer panel (@farmflow/web).
+// Sentry — Node.js (server) runtime init for the farmer panel (@fermeribg/web).
 // Loaded by src/instrumentation.ts when NEXT_RUNTIME === 'nodejs'.
 //
 // DSN is baked at build time from the CI build-arg NEXT_PUBLIC_SENTRY_DSN

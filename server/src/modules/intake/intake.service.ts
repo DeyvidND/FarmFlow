@@ -5,7 +5,7 @@ import {
   tenants,
   newsletterSubscribers,
   contactMessages,
-} from '@farmflow/db';
+} from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { NewsletterDto } from './dto/newsletter.dto';
 import { ContactDto } from './dto/contact.dto';

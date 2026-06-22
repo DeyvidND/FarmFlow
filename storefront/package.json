@@ -1,5 +1,5 @@
 {
-  "name": "@farmflow/storefront",
+  "name": "@fermeribg/storefront",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@farmflow/types": "workspace:*",
+    "@fermeribg/types": "workspace:*",
     "@vis.gl/react-google-maps": "^1.8.3",
     "clsx": "^2.1.1",
     "isomorphic-dompurify": "^3.17.0",

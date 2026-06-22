@@ -1,9 +1,9 @@
-# FarmFlow Admin Panel — User Guide
+# ФермериБГ Admin Panel — User Guide
 
 > **How to read this guide.** Every section below is a **dropdown** — click a title to expand it,
 > click again to collapse. Open only what you need so the page stays short and easy to scan.
 
-FarmFlow has **two** panels:
+ФермериБГ has **two** panels:
 
 | Panel | Who uses it | URL |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ FarmFlow has **two** panels:
 
 Both talk to the same API (`http://localhost:3000`, Swagger at `/docs`). Each farm is an isolated **tenant**: a farmer only ever sees and edits **their own** data.
 
-> Demo logins (seed): super-admin `admin@farmflow.bg` / `admin1234`; farm owner `ivan@ferma-petrovi.bg` / `ferma1234`.
+> Demo logins (seed): super-admin `admin@fermeribg.bg` / `admin1234`; farm owner `ivan@ferma-petrovi.bg` / `ferma1234`.
 
 > **What's new in this guide.** The Farmer Admin nav is now **grouped by function** — **Продажби** (the everyday order pipeline), **Каталог**, **Маркетинг**, and **Доставка и плащане** (set-once config). The guide below follows the same order. It now also covers the screens that were missing: **Методи и цени** (`/setup` — the quick delivery+payment switchboard), **Функции на магазина** (turn whole store parts on/off), **Отзиви** (customer-review moderation), **Промени сайта** (storefront photo slots and body copy/FAQ) and **Контакти** (contact info + favicon + theme colour), plus the rebuilt **Доставка / Еконт** (manual *or* automatic courier), the recurring **Часове за доставка** scheduler (per-weekday hours, delivery-duration splitting, close-a-day), the **Начална страница** landing-blocks tab in Настройки, and the catalog **reorder / Продукт на седмицата / cover-framing** tools. A screen now reads the **same name** in the sidebar, the top bar and this guide.
 >
@@ -201,7 +201,7 @@ The optimised delivery route for a chosen date, built from confirmed home-delive
 
 Two things live here:
 
-**Абонамент (subscription)** — the farm's plan for using FarmFlow:
+**Абонамент (subscription)** — the farm's plan for using ФермериБГ:
 
 - **Стандартен** — **30 € / месец** + **€0.55 на 1000 изпратени имейла** (€0.000555/получател), billed automatically.
 - **Add a card** with **Добави карта** (a secure Stripe checkout). After that the card is charged each month; **Управление на плащането** opens the Stripe portal to update the card or see invoices.
@@ -209,9 +209,9 @@ Two things live here:
 - **Премиум** farms see **„Премиум — безплатно"** and are never charged.
 - A green nudge appears on the **Табло** until a card is added.
 
-**Приемане на плащания с карта (storefront orders)** — connect Stripe so customers can pay online; the money goes straight to the farm's bank account. **FarmFlow takes 0 % of orders** — the farm keeps everything (minus Stripe's own processing fee).
+**Приемане на плащания с карта (storefront orders)** — connect Stripe so customers can pay online; the money goes straight to the farm's bank account. **ФермериБГ takes 0 % of orders** — the farm keeps everything (minus Stripe's own processing fee).
 
-Connecting is via a **Standard** Stripe account — the farmer signs Stripe's terms directly, gets their own full Stripe Dashboard, and bears all liability (refunds, disputes, negative balance); the platform carries none of it. The Плащания page is a **native FarmFlow dashboard** (status, balance, next payout, recent payments) with an **„Отвори Stripe"** button to the farmer's own dashboard for refunds/disputes.
+Connecting is via a **Standard** Stripe account — the farmer signs Stripe's terms directly, gets their own full Stripe Dashboard, and bears all liability (refunds, disputes, negative balance); the platform carries none of it. The Плащания page is a **native ФермериБГ dashboard** (status, balance, next payout, recent payments) with an **„Отвори Stripe"** button to the farmer's own dashboard for refunds/disputes.
 
 **Connect guide (shown in-app on the CTA + under Документация → „Как да свържа Stripe"):**
 

@@ -7,7 +7,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
-import { type Database, orders, orderItems, deliverySlots, tenants } from '@farmflow/db';
+import { type Database, orders, orderItems, deliverySlots, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday } from '../../common/time/bg-time';

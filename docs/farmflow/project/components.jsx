@@ -1,4 +1,4 @@
-/* FarmFlow shared chrome & primitives */
+/* ФермериБГ shared chrome & primitives */
 
 const NAV = [
   { id: "dashboard", label: "Табло", Icon: IconDashboard },
@@ -29,7 +29,7 @@ function Sidebar({ active, onNavigate, open, onClose }) {
       <div style={ffStyles.brandRow}>
         <Logo />
         <div style={{ lineHeight: 1.1 }}>
-          <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: "-0.01em", fontFamily: "var(--font-display)" }}>FarmFlow</div>
+          <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: "-0.01em", fontFamily: "var(--font-display)" }}>ФермериБГ</div>
           <div style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 600, marginTop: 2 }}>Управление на фермата</div>
         </div>
       </div>

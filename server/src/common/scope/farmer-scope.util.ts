@@ -1,5 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
-import type { TenantRole } from '@farmflow/types';
+import type { TenantRole } from '@fermeribg/types';
 
 /**
  * Decide which producer a stats/scoped request applies to.

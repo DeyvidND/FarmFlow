@@ -25,7 +25,7 @@ export function PanelChrome({ children }: { children: React.ReactNode }) {
             <Leaf size={22} strokeWidth={1.9} />
           </div>
           <div className="leading-[1.1]">
-            <div className="font-display text-[17px] font-extrabold tracking-[-0.01em]">FarmFlow — Платформа</div>
+            <div className="font-display text-[17px] font-extrabold tracking-[-0.01em]">ФермериБГ — Платформа</div>
             <div className="mt-0.5 text-[11.5px] font-semibold text-ff-muted">Администрация</div>
           </div>
         </div>

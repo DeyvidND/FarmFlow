@@ -1,4 +1,4 @@
-/* FarmFlow pages — Products, Slots, Route */
+/* ФермериБГ pages — Products, Slots, Route */
 const { useState: useState2 } = React;
 
 /* ============ PRODUCTS ============ */

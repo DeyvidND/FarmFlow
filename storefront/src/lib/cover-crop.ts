@@ -6,7 +6,7 @@
  * WYSIWYG. The `<img>` MUST sit in an `overflow: hidden` box or the zoom spills.
  */
 import type { CSSProperties } from 'react';
-import type { CoverCrop } from '@farmflow/types';
+import type { CoverCrop } from '@fermeribg/types';
 
 const clamp = (n: number, lo: number, hi: number) =>
   Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo;

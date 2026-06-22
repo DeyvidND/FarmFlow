@@ -56,7 +56,7 @@ export default function ResetPasswordPage() {
 
   if (token === undefined) {
     return (
-      <AuthShell footer="FarmFlow © 2026">
+      <AuthShell footer="ФермериБГ © 2026">
         <p className="text-[14px] text-ff-muted">Зареждане…</p>
       </AuthShell>
     );
@@ -64,7 +64,7 @@ export default function ResetPasswordPage() {
 
   if (token === null) {
     return (
-      <AuthShell footer="FarmFlow © 2026">
+      <AuthShell footer="ФермериБГ © 2026">
         <h1 className="mb-1 text-[20px] font-extrabold">Невалидна връзка</h1>
         <p className="mb-[22px] text-[13.5px] text-ff-muted">
           Връзката за смяна на паролата липсва или е непълна. Заяви нова.
@@ -80,7 +80,7 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <AuthShell footer="FarmFlow © 2026">
+    <AuthShell footer="ФермериБГ © 2026">
       <h1 className="mb-1 text-[20px] font-extrabold">Нова парола</h1>
       <p className="mb-[22px] text-[13.5px] text-ff-muted">Въведи новата си парола два пъти.</p>
 

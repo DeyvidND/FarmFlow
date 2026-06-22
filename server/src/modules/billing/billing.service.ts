@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { and, eq, lt } from 'drizzle-orm';
 import Stripe from 'stripe';
-import { type Database, tenants, emailPushes } from '@farmflow/db';
+import { type Database, tenants, emailPushes } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { priceForRecipients } from './billing.pricing';
@@ -123,7 +123,7 @@ export class BillingService {
       {
         email: t.email ?? undefined,
         name: t.name,
-        metadata: { farmflowTenantId: t.id },
+        metadata: { fermeribgTenantId: t.id },
       },
       // One platform customer per tenant even if this call is retried.
       { idempotencyKey: `ff_billing_customer_${tenantId}` },
@@ -145,7 +145,7 @@ export class BillingService {
       mode: 'subscription',
       customer,
       line_items: [{ price: this.priceId, quantity: 1 }],
-      subscription_data: { metadata: { farmflowTenantId: tenantId } },
+      subscription_data: { metadata: { fermeribgTenantId: tenantId } },
       success_url: `${this.panelUrl}/payments?billing=done`,
       cancel_url: `${this.panelUrl}/payments?billing=cancel`,
     });
@@ -266,7 +266,7 @@ export class BillingService {
         amount,
         currency: 'eur',
         description: `Бюлетин: ${push.subject ?? ''} (${push.recipientCount} получателя)`,
-        metadata: { farmflowTenantId: t.id, pushId },
+        metadata: { fermeribgTenantId: t.id, pushId },
       });
       await this.db
         .update(emailPushes)
@@ -373,7 +373,7 @@ export class BillingService {
     try {
       await this.email.sendMail({
         to: email,
-        subject: 'Неуспешно плащане на абонамента — FarmFlow',
+        subject: 'Неуспешно плащане на абонамента — ФермериБГ',
         html: `<p>Плащането на абонамента ти не успя. Моля обнови картата си до <strong>${date}</strong>, за да не спре магазинът.</p>`,
         text: `Плащането на абонамента не успя. Обнови картата до ${date}.`,
       });

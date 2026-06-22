@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { and, eq, gte, lt, sql } from 'drizzle-orm';
-import { type Database, orders, orderItems, products } from '@farmflow/db';
+import { type Database, orders, orderItems, products } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { BG_TZ, bgToday, bgAddDays, bgDayBounds } from '../../common/time/bg-time';

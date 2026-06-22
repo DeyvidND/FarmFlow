@@ -1,5 +1,5 @@
 import { assembleCartPicks, rankCartCoOccurrence } from './recommendations.logic';
-import type { PublicProduct } from '@farmflow/types';
+import type { PublicProduct } from '@fermeribg/types';
 
 /** Minimal public product for the assembly logic (only id + featured matter). */
 const p = (id: string, featured = false): PublicProduct =>

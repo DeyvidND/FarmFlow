@@ -738,7 +738,7 @@ function StripeSection({
           </Button>
         </div>
       ) : (
-        // Fully connected — native FarmFlow dashboard.
+        // Fully connected — native ФермериБГ dashboard.
         <StripeDashboard summary={summary} />
       )}
     </section>
@@ -836,7 +836,7 @@ function StripeDashboard({ summary }: { summary: StripeSummary }) {
       {/* commission transparency */}
       <p className="text-center text-[12px] text-ff-muted">
         {summary.feeBps > 0
-          ? `Комисиона FarmFlow: ${summary.feeBps / 100}%`
+          ? `Комисиона ФермериБГ: ${summary.feeBps / 100}%`
           : 'Получаваш 100% от плащанията.'}
       </p>
     </div>

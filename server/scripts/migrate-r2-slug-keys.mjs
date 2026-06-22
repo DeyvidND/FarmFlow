@@ -31,7 +31,7 @@ import {
   subcategoryMedia,
   articles,
   articleMedia,
-} from '@farmflow/db';
+} from '@fermeribg/db';
 import { sql, eq } from 'drizzle-orm';
 
 const EXECUTE = process.argv.includes('--execute');

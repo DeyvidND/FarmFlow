@@ -1,4 +1,4 @@
-# FarmFlow — Admin Flow Usability Audit
+# ФермериБГ — Admin Flow Usability Audit
 
 **Scope:** the **Farmer Admin** panel (`client/src/app/(admin)/…`, port 3005) — the day-to-day
 software a non-technical farm owner uses. The Super-Admin panel (operator) is out of scope.
@@ -191,5 +191,5 @@ the order panel, and the public order summary (`PublicOrderSummary.orderNumber`)
 **confirmation page lives in the separate storefront repo** (`fermerski-pazar-chaika`), so surfacing
 `#42` there instead of the UUID is a one-line change to make in that project.
 
-Optional: re-running the seed (`pnpm --filter @farmflow/db seed`) renumbers the demo orders
+Optional: re-running the seed (`pnpm --filter @fermeribg/db seed`) renumbers the demo orders
 chronologically; the migration already backfilled existing rows, so this is only for a clean demo.

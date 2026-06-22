@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, eq, inArray, asc, desc } from 'drizzle-orm';
-import { type Database, articles, articleMedia } from '@farmflow/db';
+import { type Database, articles, articleMedia } from '@fermeribg/db';
 import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
 import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
 import type {
@@ -14,7 +14,7 @@ import type {
   ArticleWithMedia,
   NewArticle,
   PublicArticle,
-} from '@farmflow/types';
+} from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { StorageService } from '../storage/storage.service';
 import { PublicCacheService } from '../../common/cache/public-cache.service';

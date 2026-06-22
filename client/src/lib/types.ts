@@ -65,7 +65,7 @@ export interface Product {
 }
 
 /** How a cover image is framed on the storefront: focal point (x/y, 0..1) + zoom
- *  (1..3). null = centered, no zoom. Mirrors @farmflow/types CoverCrop. */
+ *  (1..3). null = centered, no zoom. Mirrors @fermeribg/types CoverCrop. */
 export interface CoverCrop {
   x: number;
   y: number;

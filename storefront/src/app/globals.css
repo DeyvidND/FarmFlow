@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 /* =========================================================================
-   FarmFlow storefront design system — ported verbatim from the template
-   bundle (docs/FarmFlow Templates/assets/{theme,main,home-themes}.css).
+   ФермериБГ storefront design system — ported verbatim from the template
+   bundle (docs/ФермериБГ Templates/assets/{theme,main,home-themes}.css).
    Loaded AFTER the Tailwind layers so the template's own reset/components win
    over preflight, keeping the rebuild pixel-perfect.
 

@@ -23,9 +23,9 @@ Pieces in this repo:
 - ☐ Postgres: automated backups + tested restore.
 
 ## 2. DNS & TLS
-- ☐ `farmsteadflow.com` apex + `www` → marketing site (already on Vercel: `try.` subdomain).
-- ☐ App host(s): e.g. `app.farmsteadflow.com` (web), `admin.farmsteadflow.com`, `api.farmsteadflow.com`.
-- ☐ **Wildcard `*.farmsteadflow.com`** for per-tenant storefronts. ⚠️ A wildcard TLS cert needs Traefik's **DNS-01 challenge** (a Cloudflare API token) — HTTP-01 cannot issue wildcards. Configure the `letsencrypt` resolver in Dokploy/Traefik with the Cloudflare token.
+- ☐ `fermeribg.com` apex + `www` → marketing site (already on Vercel: `try.` subdomain).
+- ☐ App host(s): e.g. `app.fermeribg.com` (web), `admin.fermeribg.com`, `api.fermeribg.com`.
+- ☐ **Wildcard `*.fermeribg.com`** for per-tenant storefronts. ⚠️ A wildcard TLS cert needs Traefik's **DNS-01 challenge** (a Cloudflare API token) — HTTP-01 cannot issue wildcards. Configure the `letsencrypt` resolver in Dokploy/Traefik with the Cloudflare token.
 - ☐ All behind HTTPS; HSTS via the proxy.
 
 ## 3. Environment / secrets (prod `.env`)
@@ -54,7 +54,7 @@ Validated in `server/src/config/env.validation.ts`. Required/important:
 ## 5. Email (Resend) — finish go-live
 - ☐ Add domain in Resend; **Verify** goes green.
 - ☐ Create an **API key** → set `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_USER=resend`, `SMTP_PASS=<re_... key>`.
-- ☐ `EMAIL_TRANSACTIONAL_FROM`, `EMAIL_BULK_FROM` (`@farmsteadflow.com`).
+- ☐ `EMAIL_TRANSACTIONAL_FROM`, `EMAIL_BULK_FROM` (`@fermeribg.com`).
 - ☐ Add a Resend **webhook** (events `email.bounced` + `email.complained`) → `/email/webhook?secret=...`; set `RESEND_WEBHOOK_SECRET` (whsec_...) + `EMAIL_WEBHOOK_SECRET`. `EMAIL_WEBHOOK_VERIFY=true` (default; Svix signatures verified).
 - ☐ DNS (on the `send.` subdomain, separate from root Cloudflare Email Routing): MX + SPF + DKIM + DMARC verified.
 - ☐ Live send test (reset email + a digest).

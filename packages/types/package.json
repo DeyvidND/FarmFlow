@@ -1,5 +1,5 @@
 {
-  "name": "@farmflow/types",
+  "name": "@fermeribg/types",
   "version": "0.0.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,7 +13,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@farmflow/db": "workspace:*",
+    "@fermeribg/db": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

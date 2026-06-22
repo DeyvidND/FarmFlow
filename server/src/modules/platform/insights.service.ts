@@ -9,7 +9,7 @@ import {
   reviews,
   articles,
   newsletterSubscribers,
-} from '@farmflow/db';
+} from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { BG_TZ, bgToday, bgAddDays, bgDayBounds } from '../../common/time/bg-time';

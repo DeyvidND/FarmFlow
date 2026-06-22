@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { and, eq, gte, lt, sql } from 'drizzle-orm';
-import { type Database, orders, deliverySlots, tenants } from '@farmflow/db';
+import { type Database, orders, deliverySlots, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { bgToday, bgDayBounds, bgAddDays } from '../../common/time/bg-time';
 

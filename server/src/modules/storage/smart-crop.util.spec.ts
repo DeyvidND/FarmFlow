@@ -37,7 +37,7 @@ describe('smartFocal', () => {
 });
 
 describe('isAllowedImageUrl (SSRF guard)', () => {
-  const base = 'https://cdn.farmsteadflow.com';
+  const base = 'https://cdn.fermeribg.com';
 
   it('allows a URL under the storage public origin', () => {
     expect(isAllowedImageUrl(`${base}/tenants/ferma/products/abc.webp`, base)).toBe(true);
@@ -52,9 +52,9 @@ describe('isAllowedImageUrl (SSRF guard)', () => {
     ['loopback', 'http://127.0.0.1:6379/'],
     ['localhost', 'http://localhost/internal'],
     ['private host', 'http://internal-admin.local/'],
-    ['look-alike host suffix', 'https://cdn.farmsteadflow.com.evil.com/x'],
-    ['credentials-in-userinfo trick', 'https://cdn.farmsteadflow.com@169.254.169.254/x'],
-    ['http vs https origin mismatch', 'http://cdn.farmsteadflow.com/x'],
+    ['look-alike host suffix', 'https://cdn.fermeribg.com.evil.com/x'],
+    ['credentials-in-userinfo trick', 'https://cdn.fermeribg.com@169.254.169.254/x'],
+    ['http vs https origin mismatch', 'http://cdn.fermeribg.com/x'],
     ['non-http scheme', 'file:///etc/passwd'],
     ['gopher scheme', 'gopher://127.0.0.1:6379/_INFO'],
   ])('rejects %s', (_label, url) => {
@@ -73,7 +73,7 @@ describe('isAllowedImageUrl (SSRF guard)', () => {
 });
 
 describe('smartFocalFromUrl (SSRF guard)', () => {
-  const base = 'https://cdn.farmsteadflow.com';
+  const base = 'https://cdn.fermeribg.com';
 
   it('never issues a fetch for a disallowed (internal) URL', async () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch');

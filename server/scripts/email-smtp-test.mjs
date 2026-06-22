@@ -14,10 +14,10 @@ const transport = nodemailer.createTransport({
 });
 
 const info = await transport.sendMail({
-  from: 'FarmFlow <no-reply@farmsteadflow.com>',
+  from: 'ФермериБГ <no-reply@fermeribg.com>',
   to: 'farmer@example.com',
-  subject: 'FarmFlow — SMTP проба',
-  html: '<h1 style="color:#2d6a4f">🌿 FarmFlow</h1><p>Изпращането по SMTP работи.</p>',
+  subject: 'ФермериБГ — SMTP проба',
+  html: '<h1 style="color:#2d6a4f">🌿 ФермериБГ</h1><p>Изпращането по SMTP работи.</p>',
   text: 'Изпращането по SMTP работи.',
 });
 

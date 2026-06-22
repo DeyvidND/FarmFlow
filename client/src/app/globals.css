@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* ---- shadcn semantic tokens (HSL) mapped to the FarmFlow earthy palette ---- */
+    /* ---- shadcn semantic tokens (HSL) mapped to the ФермериБГ earthy palette ---- */
     --background: 42 38% 92%; /* #F3EEE2 */
     --foreground: 47 14% 13%; /* #26241D ink */
     --card: 0 0% 100%;
@@ -27,7 +27,7 @@
     --radius: 12px;
     --radius-sm: 8px;
 
-    /* ---- raw FarmFlow design tokens (exact hex) ---- */
+    /* ---- raw ФермериБГ design tokens (exact hex) ---- */
     --ff-bg: #f3eee2;
     --ff-surface: #ffffff;
     --ff-surface-2: #fbf8f1;

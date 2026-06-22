@@ -8,7 +8,7 @@ import {
   products,
   productMedia,
   tenants,
-} from '@farmflow/db';
+} from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 
@@ -100,7 +100,7 @@ export class OrderConfirmationService {
             .where(eq(tenants.id, order.tenantId))
             .limit(1)
         : [undefined];
-      const farmName = tenant?.name ?? 'FarmFlow';
+      const farmName = tenant?.name ?? 'ФермериБГ';
 
       const rawItems = await this.db
         .select({

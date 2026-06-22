@@ -1,6 +1,6 @@
 import { IsString, Length, IsArray, ArrayMaxSize } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import type { NewsletterBlock } from '@farmflow/types';
+import type { NewsletterBlock } from '@fermeribg/types';
 
 /**
  * Pragmatic block validation: subject is strict; `blocks` is validated only as an

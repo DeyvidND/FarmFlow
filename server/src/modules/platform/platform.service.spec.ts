@@ -11,7 +11,7 @@ import { StorageService } from '../storage/storage.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ConfigService } from '@nestjs/config';
-import { auditLogs, users, orderItems, orders, products, emailPushes, newsletterCampaigns, shipments } from '@farmflow/db';
+import { auditLogs, users, orderItems, orders, products, emailPushes, newsletterCampaigns, shipments } from '@fermeribg/db';
 
 // Mock argon2 at module level so native bindings are not called.
 jest.mock('argon2', () => ({
@@ -167,7 +167,7 @@ describe('PlatformService', () => {
     it('creates an is_demo tenant with a future expiry, owner mustChangePassword=false, and seeds the demo catalog', async () => {
       db.limit.mockResolvedValueOnce([]);           // email free
       db.limit.mockResolvedValueOnce([]);           // slug free
-      const tenantRow = { id: 'demo-1', name: 'Демо ферма ab12', slug: 'demo-ferma-ab12', email: 'demo-x@demo.farmflow.bg' };
+      const tenantRow = { id: 'demo-1', name: 'Демо ферма ab12', slug: 'demo-ferma-ab12', email: 'demo-x@demo.fermeribg.bg' };
       db.returning.mockResolvedValueOnce([tenantRow]);  // tenant insert
       (argon2.hash as jest.Mock).mockResolvedValueOnce('hashed');
       db.returning.mockResolvedValueOnce([{ id: 'user-1' }]); // user insert

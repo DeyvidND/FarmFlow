@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { tenants } from '@farmflow/db';
+import { tenants } from '@fermeribg/db';
 import { StripeService } from './stripe.service';
 
 // Disabled-safe behaviour: with no STRIPE_SECRET_KEY the service must never

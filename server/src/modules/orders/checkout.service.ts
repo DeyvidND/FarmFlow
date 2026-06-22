@@ -1,7 +1,7 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { eq } from 'drizzle-orm';
-import { type Database, orders, tenants } from '@farmflow/db';
+import { type Database, orders, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { OrdersService } from './orders.service';
 import { StripeService, type CheckoutLine } from '../stripe/stripe.service';

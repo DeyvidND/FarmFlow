@@ -9,8 +9,8 @@ import { createDb, tenants, users, products, farmers, subcategories, deliverySlo
 const OWNER_EMAIL = 'ivan@ferma-petrovi.bg';
 const OWNER_PASSWORD = 'ferma1234';
 
-// Demo platform (FarmFlow staff) admin credentials.
-const PLATFORM_EMAIL = 'admin@farmflow.bg';
+// Demo platform (ФермериБГ staff) admin credentials.
+const PLATFORM_EMAIL = 'admin@fermeribg.bg';
 const PLATFORM_PASSWORD = 'admin1234';
 
 async function main() {

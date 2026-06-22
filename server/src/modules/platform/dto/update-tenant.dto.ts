@@ -41,7 +41,7 @@ export class UpdateTenantDto {
   @IsBoolean()
   multiSubcat?: boolean;
 
-  @ApiPropertyOptional({ example: 'https://pazarchaika.farmsteadflow.com', description: 'Адрес на онлайн магазина (за бутона „Редактирай сайта")' })
+  @ApiPropertyOptional({ example: 'https://pazarchaika.fermeribg.com', description: 'Адрес на онлайн магазина (за бутона „Редактирай сайта")' })
   @IsOptional()
   @IsString()
   @MaxLength(300)

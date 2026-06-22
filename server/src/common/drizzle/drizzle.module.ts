@@ -1,6 +1,6 @@
 import { Global, Module, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createDb, type Database } from '@farmflow/db';
+import { createDb, type Database } from '@fermeribg/db';
 import { DB_TOKEN } from './drizzle.constants';
 
 @Global()

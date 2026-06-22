@@ -163,7 +163,7 @@ async function applyFavicon(tenantId, token, faviconPath) {
 function deployStorefront(tenant) {
   const repo = (args['templates-repo'] !== true && args['templates-repo']) || process.env.TEMPLATES_REPO;
   const domain = args.domain !== true && args.domain;
-  if (!repo || !domain) { hook('pass --templates-repo <FarmFlow-Templates path> and --domain to register the storefront for deploy'); return; }
+  if (!repo || !domain) { hook('pass --templates-repo <ФермериБГ-Templates path> and --domain to register the storefront for deploy'); return; }
   const clientsPath = path.join(repo, 'clients.json');
   let clients;
   try { clients = JSON.parse(fs.readFileSync(clientsPath, 'utf8')); }
@@ -182,9 +182,9 @@ function deployStorefront(tenant) {
     g(['add', 'clients.json']);
     g(['commit', '-m', `chore(clients): add ${tenant.slug}`]);
     const r = g(['push']);
-    ok(r.status === 0 ? 'pushed → CI builds the image (GHCR), Dokploy deploys' : 'push failed — push FarmFlow-Templates manually to trigger CI');
+    ok(r.status === 0 ? 'pushed → CI builds the image (GHCR), Dokploy deploys' : 'push failed — push ФермериБГ-Templates manually to trigger CI');
   } else {
-    hook('review clients.json, then push FarmFlow-Templates to trigger the build (or pass --deploy-push)');
+    hook('review clients.json, then push ФермериБГ-Templates to trigger the build (or pass --deploy-push)');
   }
 }
 

@@ -19,7 +19,7 @@ if (!key) {
 
 // Override the amount with BILLING_BASE_PRICE_STOTINKI if you want a different base.
 const amount = Number(process.env.BILLING_BASE_PRICE_STOTINKI ?? 3000); // €30.00
-const LOOKUP_KEY = 'farmflow_saas_monthly';
+const LOOKUP_KEY = 'fermeribg_saas_monthly';
 const stripe = new Stripe(key);
 
 async function main() {
@@ -33,8 +33,8 @@ async function main() {
   }
 
   const product = await stripe.products.create({
-    name: 'FarmFlow — месечен абонамент',
-    description: 'Месечен абонамент за платформата FarmFlow.',
+    name: 'ФермериБГ — месечен абонамент',
+    description: 'Месечен абонамент за платформата ФермериБГ.',
   });
 
   const price = await stripe.prices.create({

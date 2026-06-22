@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { type Database, tenants } from '@farmflow/db';
+import { type Database, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../drizzle/drizzle.constants';
 
 /**

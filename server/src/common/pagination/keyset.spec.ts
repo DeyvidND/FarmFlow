@@ -1,5 +1,5 @@
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { orders } from '@farmflow/db';
+import { orders } from '@fermeribg/db';
 import { clampLimit, buildPage, keysetAfter, DEFAULT_LIMIT, MAX_LIMIT } from './keyset';
 
 describe('keysetAfter (tz-agnostic predicate)', () => {

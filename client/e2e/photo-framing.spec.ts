@@ -24,7 +24,7 @@ const FIX = [
 // SQL via stdin (not -c) so values containing $ / quotes (e.g. an argon2 hash) are
 // never mangled by the shell.
 function psql(sql: string): string {
-  return execSync(`docker exec -i ${PG} psql -U farmflow -d farmflow -t -A -F"|"`, {
+  return execSync(`docker exec -i ${PG} psql -U fermeribg -d fermeribg -t -A -F"|"`, {
     input: sql,
     encoding: 'utf8',
   }).trim();

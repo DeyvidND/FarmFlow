@@ -1,4 +1,4 @@
-/* FarmFlow — Производство (daily prep list aggregated from confirmed orders) */
+/* ФермериБГ — Производство (daily prep list aggregated from confirmed orders) */
 const { useState: useProdState, useMemo: useProdMemo } = React;
 
 function ProductionPage({ orders, toast }) {

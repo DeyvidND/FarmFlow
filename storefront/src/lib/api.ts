@@ -1,5 +1,5 @@
 /**
- * Typed client for the FarmFlow **public** API — the only backend surface the
+ * Typed client for the ФермериБГ **public** API — the only backend surface the
  * storefront touches (CORS `*`, no auth header). Tenant-auth (Bearer) routes are
  * off-limits here. Money is integer stotinki end-to-end; divide by 100 only for
  * display (see `money()`).
@@ -15,7 +15,7 @@ import type {
   PublicArticle,
   PublicFarmer,
   PublicSubcategory,
-} from '@farmflow/types';
+} from '@fermeribg/types';
 import type { StorefrontDelivery } from './shipping';
 
 export type { PublicProduct, PublicArticle, PublicFarmer, PublicSubcategory };
@@ -24,7 +24,7 @@ export type { PublicProduct, PublicArticle, PublicFarmer, PublicSubcategory };
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-/** Demo farm seeded by `@farmflow/db seed` — the default single-tenant slug. */
+/** Demo farm seeded by `@fermeribg/db seed` — the default single-tenant slug. */
 export const DEFAULT_SLUG = 'ferma-petrovi';
 
 /**

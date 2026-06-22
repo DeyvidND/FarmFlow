@@ -7,10 +7,10 @@
 #
 # Public hostname → container mappings are configured in the Cloudflare Zero
 # Trust dashboard (this tunnel → Public Hostnames), NOT here:
-#   api.farmsteadflow.com    -> HTTP  api:3000
-#   app.farmsteadflow.com    -> HTTP  web:3000
-#   admin.farmsteadflow.com  -> HTTP  admin:3002
-#   pazar.farmsteadflow.com  -> HTTP  <pazar service>:3003
+#   api.fermeribg.com    -> HTTP  api:3000
+#   app.fermeribg.com    -> HTTP  web:3000
+#   admin.fermeribg.com  -> HTTP  admin:3002
+#   pazar.fermeribg.com  -> HTTP  <pazar service>:3003
 #
 # Set CF_TUNNEL_TOKEN in this Dokploy app's Environment (the tunnel token).
 

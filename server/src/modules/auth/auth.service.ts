@@ -11,8 +11,8 @@ import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { createHash } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
-import { type Database, users } from '@farmflow/db';
-import type { JwtPayload } from '@farmflow/types';
+import { type Database, users } from '@fermeribg/db';
+import type { JwtPayload } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { LoginDto } from './dto/login.dto';
@@ -179,9 +179,9 @@ export class AuthService {
         try {
           await this.email.sendMail({
             to: user.email,
-            subject: 'Възстановяване на парола — FarmFlow',
+            subject: 'Възстановяване на парола — ФермериБГ',
             html: resetEmailHtml(link),
-            text: `Заявена е смяна на паролата за FarmFlow.\nОтвори тази връзка, за да зададеш нова парола (валидна 30 минути):\n${link}\n\nАко не си заявявал/а това, просто игнорирай имейла.`,
+            text: `Заявена е смяна на паролата за ФермериБГ.\nОтвори тази връзка, за да зададеш нова парола (валидна 30 минути):\n${link}\n\nАко не си заявявал/а това, просто игнорирай имейла.`,
           });
         } catch (err) {
           // Don't leak send failures to the caller; log for ops.
@@ -216,9 +216,9 @@ export class AuthService {
     const link = `${appUrl}/reset-password?token=${encodeURIComponent(token)}`;
     await this.email.sendMail({
       to: user.email,
-      subject: 'Покана за достъп — FarmFlow',
+      subject: 'Покана за достъп — ФермериБГ',
       html: inviteEmailHtml(link),
-      text: `Получи достъп до своя оборот във FarmFlow.\nОтвори тази връзка, за да зададеш парола (валидна 7 дни):\n${link}`,
+      text: `Получи достъп до своя оборот във ФермериБГ.\nОтвори тази връзка, за да зададеш парола (валидна 7 дни):\n${link}`,
     });
   }
 
@@ -296,18 +296,18 @@ function inviteEmailHtml(link: string): string {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f4ec;padding:28px 0">
     <tr><td align="center">
       <table role="presentation" width="460" cellpadding="0" cellspacing="0" style="max-width:460px;background:#fffdf7;border:1px solid #e7e3d6;border-radius:16px;overflow:hidden">
-        <tr><td style="background:#2d6a4f;padding:22px 28px;color:#eaf1e4;font-size:20px;font-weight:bold">🌿 FarmFlow</td></tr>
+        <tr><td style="background:#2d6a4f;padding:22px 28px;color:#eaf1e4;font-size:20px;font-weight:bold">🌿 ФермериБГ</td></tr>
         <tr><td style="padding:28px">
           <h1 style="margin:0 0 12px;font-size:20px;color:#23210f">Покана за достъп</h1>
           <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#4a4733">
-            Получи достъп до своя личен оборот във FarmFlow. Натисни бутона, за да зададеш парола и да влезеш.
+            Получи достъп до своя личен оборот във ФермериБГ. Натисни бутона, за да зададеш парола и да влезеш.
           </p>
           <p style="margin:0 0 22px">
             <a href="${link}" style="display:inline-block;background:#2d6a4f;color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px;padding:13px 22px;border-radius:10px">Задай парола и влез</a>
           </p>
           <p style="margin:0;font-size:13px;color:#8a8770">Връзката е валидна 7 дни.</p>
         </td></tr>
-        <tr><td style="padding:16px 28px;border-top:1px solid #eee7d6;font-size:12px;color:#a8a594">FarmFlow · Управление на фермата</td></tr>
+        <tr><td style="padding:16px 28px;border-top:1px solid #eee7d6;font-size:12px;color:#a8a594">ФермериБГ · Управление на фермата</td></tr>
       </table>
     </td></tr>
   </table>
@@ -320,11 +320,11 @@ function resetEmailHtml(link: string): string {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f4ec;padding:28px 0">
     <tr><td align="center">
       <table role="presentation" width="460" cellpadding="0" cellspacing="0" style="max-width:460px;background:#fffdf7;border:1px solid #e7e3d6;border-radius:16px;overflow:hidden">
-        <tr><td style="background:#2d6a4f;padding:22px 28px;color:#eaf1e4;font-size:20px;font-weight:bold">🌿 FarmFlow</td></tr>
+        <tr><td style="background:#2d6a4f;padding:22px 28px;color:#eaf1e4;font-size:20px;font-weight:bold">🌿 ФермериБГ</td></tr>
         <tr><td style="padding:28px">
           <h1 style="margin:0 0 12px;font-size:20px;color:#23210f">Смяна на парола</h1>
           <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#4a4733">
-            Получихме заявка за нова парола за профила ти във FarmFlow. Натисни бутона по-долу, за да зададеш нова парола.
+            Получихме заявка за нова парола за профила ти във ФермериБГ. Натисни бутона по-долу, за да зададеш нова парола.
           </p>
           <p style="margin:0 0 22px">
             <a href="${link}" style="display:inline-block;background:#2d6a4f;color:#ffffff;text-decoration:none;font-weight:bold;font-size:15px;padding:13px 22px;border-radius:10px">Задай нова парола</a>
@@ -332,7 +332,7 @@ function resetEmailHtml(link: string): string {
           <p style="margin:0 0 6px;font-size:13px;color:#8a8770">Връзката е валидна 30 минути.</p>
           <p style="margin:0;font-size:13px;color:#8a8770">Ако не си заявявал/а смяна на парола, просто игнорирай този имейл — нищо няма да се промени.</p>
         </td></tr>
-        <tr><td style="padding:16px 28px;border-top:1px solid #eee7d6;font-size:12px;color:#a8a594">FarmFlow · Управление на фермата</td></tr>
+        <tr><td style="padding:16px 28px;border-top:1px solid #eee7d6;font-size:12px;color:#a8a594">ФермериБГ · Управление на фермата</td></tr>
       </table>
     </td></tr>
   </table>

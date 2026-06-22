@@ -1,4 +1,4 @@
-// Sentry — browser init for the super-admin panel (@farmflow/admin). Auto-injected
+// Sentry — browser init for the super-admin panel (@fermeribg/admin). Auto-injected
 // into the client bundle by withSentryConfig (next.config.mjs).
 //
 // DSN is baked into the bundle at build time from NEXT_PUBLIC_SENTRY_DSN (CI

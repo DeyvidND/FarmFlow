@@ -272,7 +272,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
               <input
                 className={INPUT}
                 type="url"
-                placeholder="https://ferma.farmsteadflow.com"
+                placeholder="https://ferma.fermeribg.com"
                 value={form.siteUrl}
                 onChange={(e) => setForm({ ...form, siteUrl: e.target.value })}
               />

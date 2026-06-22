@@ -16,7 +16,7 @@ import {
   deliverySlots,
   tenants,
   farmers,
-} from '@farmflow/db';
+} from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday, bgDayBounds, bgDate } from '../../common/time/bg-time';

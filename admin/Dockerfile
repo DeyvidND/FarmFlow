@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# Production image for the admin app (@farmflow/admin), Next.js standalone.
-# Build from the repo ROOT: `docker build -f admin/Dockerfile -t farmflow-admin .`
+# Production image for the admin app (@fermeribg/admin), Next.js standalone.
+# Build from the repo ROOT: `docker build -f admin/Dockerfile -t fermeribg-admin .`
 FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS base
 ENV PNPM_HOME=/pnpm PATH="/pnpm:$PATH" NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
@@ -14,7 +14,7 @@ ARG NEXT_PUBLIC_SENTRY_DSN=""
 ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-RUN pnpm --filter "@farmflow/admin..." run build
+RUN pnpm --filter "@fermeribg/admin..." run build
 
 FROM base AS runner
 ENV NODE_ENV=production PORT=3002 HOSTNAME=0.0.0.0

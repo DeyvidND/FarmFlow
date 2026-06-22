@@ -13,13 +13,13 @@ import {
   newsletterCampaigns,
   emailPushes,
   tenants,
-} from '@farmflow/db';
+} from '@fermeribg/db';
 import type {
   NewsletterBlock,
   NewsletterColumn,
   NewsletterCampaign,
   NewsletterQuote,
-} from '@farmflow/types';
+} from '@fermeribg/types';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';

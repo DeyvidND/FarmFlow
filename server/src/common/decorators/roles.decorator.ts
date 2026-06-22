@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import type { TenantRole } from '@farmflow/types';
+import type { TenantRole } from '@fermeribg/types';
 
 export const ROLES_KEY = 'roles';
 

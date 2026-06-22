@@ -6,8 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, asc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
-import { type Database, productAvailabilityWindows, products } from '@farmflow/db';
-import type { AvailabilityWindow, PublicAvailabilityWindow } from '@farmflow/types';
+import { type Database, productAvailabilityWindows, products } from '@fermeribg/db';
+import type { AvailabilityWindow, PublicAvailabilityWindow } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { PublicCacheService } from '../../common/cache/public-cache.service';

@@ -26,7 +26,7 @@ import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { PlatformChangePasswordDto } from './dto/platform-change-password.dto';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import type { RequestUser } from '@farmflow/types';
+import type { RequestUser } from '@fermeribg/types';
 
 // Public — platform admin login (no guard).
 @ApiTags('platform')

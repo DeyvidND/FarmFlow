@@ -295,7 +295,7 @@ export function Sidebar({
       <div className="flex shrink-0 items-center gap-[11px] px-1.5 pb-[18px] pt-0.5">
         <Logo />
         <div className="leading-[1.1]">
-          <div className="font-display text-[19px] font-extrabold tracking-[-0.01em]">FarmFlow</div>
+          <div className="font-display text-[19px] font-extrabold tracking-[-0.01em]">ФермериБГ</div>
           <div className="mt-0.5 text-[11.5px] font-semibold text-ff-muted">Управление на фермата</div>
         </div>
       </div>

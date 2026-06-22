@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import { type Database, tenants, products, reviews } from '@farmflow/db';
+import { type Database, tenants, products, reviews } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';

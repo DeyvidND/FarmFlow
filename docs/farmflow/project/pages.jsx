@@ -1,4 +1,4 @@
-/* FarmFlow pages */
+/* ФермериБГ pages */
 const { useState, useMemo } = React;
 
 /* ============ DASHBOARD ============ */

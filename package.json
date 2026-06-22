@@ -1,5 +1,5 @@
 {
-  "name": "farmflow",
+  "name": "fermeribg",
   "private": true,
   "version": "0.0.1",
   "packageManager": "pnpm@9.12.0",
@@ -8,9 +8,9 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
-    "db:generate": "pnpm --filter @farmflow/db generate",
-    "db:migrate": "pnpm --filter @farmflow/db migrate",
-    "db:seed": "pnpm --filter @farmflow/db seed"
+    "db:generate": "pnpm --filter @fermeribg/db generate",
+    "db:migrate": "pnpm --filter @fermeribg/db migrate",
+    "db:seed": "pnpm --filter @fermeribg/db seed"
   },
   "devDependencies": {
     "turbo": "^2.1.0",

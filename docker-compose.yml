@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: farmflow
       POSTGRES_USER: farmflow
-      POSTGRES_PASSWORD: farmflow
+      POSTGRES_PASSWORD: fermeribg
     ports:
       # Bind to loopback only — dev DB must not be reachable from the LAN.
       - "127.0.0.1:5433:5432"

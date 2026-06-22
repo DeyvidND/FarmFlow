@@ -96,7 +96,7 @@ export function SiteFooter({
 
       <div className="wrap footer-bottom">
         <span>© {year} {SITE.name}. Всички права запазени.</span>
-        <span>Шаблон FarmFlow</span>
+        <span>Шаблон ФермериБГ</span>
       </div>
     </footer>
   );

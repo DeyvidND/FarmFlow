@@ -148,7 +148,7 @@ function Section({ children }: { children: React.ReactNode }) {
   return (
     <div className="mb-8">
       <div className="mb-3 flex items-center gap-2 text-[13px] font-extrabold text-ff-ink-2">
-        <Receipt size={16} className="text-ff-green-700" /> Абонамент за FarmFlow
+        <Receipt size={16} className="text-ff-green-700" /> Абонамент за ФермериБГ
       </div>
       {children}
     </div>

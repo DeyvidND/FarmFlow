@@ -49,7 +49,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthShell footer="FarmFlow © 2026">
+    <AuthShell footer="ФермериБГ © 2026">
       <h1 className="mb-1 text-[20px] font-extrabold">Влез в профила си</h1>
       <p className="mb-[22px] text-[13.5px] text-ff-muted">Продължи към управлението на фермата.</p>
 

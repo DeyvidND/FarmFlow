@@ -40,8 +40,8 @@ import {
   products,
   newsletterSubscribers,
   reviews,
-} from '@farmflow/db';
-import type { JwtPayload } from '@farmflow/types';
+} from '@fermeribg/db';
+import type { JwtPayload } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
@@ -711,7 +711,7 @@ export class PlatformService {
   ): Promise<{ id: string; name: string; slug: string; email: string; password: string; expiresAt: string }> {
     const tag = randomBytes(3).toString('hex'); // 6 hex chars
     const name = `Демо ферма ${tag}`;
-    const email = `demo-${tag}@demo.farmflow.bg`;
+    const email = `demo-${tag}@demo.fermeribg.bg`;
     const password = genDemoPassword();
 
     // Astronomically unlikely with a random tag, but keep the unique-email contract.

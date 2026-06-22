@@ -1,5 +1,5 @@
 # Name
-### @farmflow/api
+### @fermeribg/api
 
 # Synopsis
 
@@ -9,7 +9,7 @@
 # Example
 
 # Install:
-`npm install @farmflow/api`
+`npm install @fermeribg/api`
 
 # Test:
 `npm test`
