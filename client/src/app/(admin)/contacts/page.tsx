@@ -388,6 +388,24 @@ export default function ContactsPage() {
           </p>
           <LocationPicker lat={lat} lng={lng}
             onPick={(la, ln) => setForm((f) => ({ ...f, mapLat: la.toFixed(6), mapLng: ln.toFixed(6) }))} />
+          {lat != null && lng != null ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-ff-green-600/30 bg-ff-green-600/5 px-3 py-2 text-[13px]">
+              <span className="font-bold text-ff-ink">📍 Точката е зададена</span>
+              <span className="text-ff-muted">{lat.toFixed(5)}, {lng.toFixed(5)}</span>
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, mapLat: '', mapLng: '' }))}
+                className="ml-auto font-semibold text-ff-red hover:underline"
+              >
+                Изчисти точката
+              </button>
+            </div>
+          ) : (
+            <p className="mt-3 text-[12px] text-ff-muted">Все още няма зададена точка на картата.</p>
+          )}
+          <p className="mt-2 text-[12px] text-ff-muted">
+            Натисни „Запази“, за да се запамети точката.
+          </p>
         </section>
 
         {/* Иконка на сайта */}

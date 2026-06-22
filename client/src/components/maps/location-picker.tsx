@@ -44,7 +44,13 @@ export function LocationPicker({ lat, lng, onPick }: LocationPickerProps) {
             if (ll) onPick(ll.lat, ll.lng);
           }}
         >
-          {has && <AdvancedMarker position={{ lat: lat as number, lng: lng as number }} />}
+          {has && (
+            <AdvancedMarker position={{ lat: lat as number, lng: lng as number }}>
+              {/* A childless AdvancedMarker can render nothing on a DEMO_MAP_ID
+                  map — give it an explicit pin so the dropped point is visible. */}
+              <span className="block h-5 w-5 -translate-y-1/2 rounded-full border-[3px] border-white bg-ff-green-600 shadow-md" />
+            </AdvancedMarker>
+          )}
         </Map>
       </APIProvider>
     </div>
