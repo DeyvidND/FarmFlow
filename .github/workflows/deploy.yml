@@ -5,6 +5,11 @@ name: Deploy to Production
 on:
   push:
     branches: [main]
+    # App-code deploys only — infra docs / markdown changes don't redeploy.
+    paths-ignore:
+      - 'infra/**'
+      - '.codex/**'
+      - '**.md'
   workflow_dispatch:
 
 concurrency:
