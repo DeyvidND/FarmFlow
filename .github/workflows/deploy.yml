@@ -1,7 +1,7 @@
 name: Deploy to Production
 
-# Build all four app images and push them to GHCR, then ping Dokploy to pull +
-# redeploy. CI (build/lint/test) runs separately in ci.yml.
+# Build the three app images and push them to GHCR, then SSH to the Hetzner box
+# and `docker compose pull && up`. CI (build/lint/test) runs separately in ci.yml.
 on:
   push:
     branches: [main]
@@ -70,18 +70,25 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
   deploy:
-    name: Trigger Dokploy
+    name: Deploy to Hetzner
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     needs: [build]
     steps:
-      - name: Ping Dokploy redeploy webhook
-        # The whole monorepo runs as ONE Dokploy "Docker Compose" app
-        # (docker-compose.prod.yml → api + web + admin + storefront). One app =
-        # one webhook. It pulls the freshly-built :latest images and restarts.
-        run: |
-          if [ -n "${{ secrets.DOKPLOY_FARMFLOW_WEBHOOK }}" ]; then
-            curl -fsSL -X POST "${{ secrets.DOKPLOY_FARMFLOW_WEBHOOK }}" && echo "triggered farmflow redeploy"
-          else
-            echo "DOKPLOY_FARMFLOW_WEBHOOK not set — skipping (build + push still ran)"
-          fi
+      # SSH to the Hetzner box (plain docker compose, no Dokploy) and pull + up
+      # the freshly-built :latest images. The stack lives at /opt/fermeribg.
+      # Required: var HETZNER_HOST; secrets HETZNER_SSH_KEY (private key for root)
+      # and GHCR_PAT (read:packages, so the box can pull the private images).
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ vars.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u DeyvidND --password-stdin
+            cd /opt/fermeribg
+            docker compose pull api web admin
+            docker compose up -d
+            docker image prune -f
+            docker compose ps
