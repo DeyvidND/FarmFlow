@@ -778,6 +778,37 @@ export class EcontService {
     return updated;
   }
 
+  /**
+   * Refresh every not-yet-delivered shipment that has a waybill, across all tenants.
+   * Best-effort per shipment — one Econt failure never aborts the batch. Drives the
+   * "shipped" email (via refreshStatus) and COD reconciliation (Phase C).
+   */
+  async refreshActiveShipments(): Promise<{ refreshed: number }> {
+    const rows = await this.db
+      .select({
+        id: shipments.id,
+        tenantId: shipments.tenantId,
+        number: shipments.econtShipmentNumber,
+        status: shipments.status,
+      })
+      .from(shipments);
+    let refreshed = 0;
+    for (const r of rows) {
+      if (!r.number) continue;
+      if (!r.tenantId) continue;
+      if (uiShipmentStatus(r.number, r.status) === 'delivered') continue;
+      try {
+        await this.refreshStatus(r.tenantId, r.id);
+        refreshed++;
+      } catch (err) {
+        this.logger.warn(
+          `[econt] refresh failed for shipment ${r.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { refreshed };
+  }
+
   /** Void (delete) an Econt label and remove the shipment row. */
   async voidShipment(tenantId: string, shipmentId: string): Promise<{ id: string }> {
     const [row] = await this.db
