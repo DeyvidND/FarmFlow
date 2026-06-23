@@ -134,6 +134,7 @@ describe('mapShipmentRow', () => {
     expect(out.status).toBe('created');
     expect(out.trackingNumber).toBe('1051000000001');
     expect(out.priceStotinki).toBe(599);
+    expect(out.codAmountStotinki).toBe(2400);
     expect(out.labelPdfUrl).toBe('https://ee.econt.com/x.pdf');
     expect(out.history).toEqual([]);
   });
