@@ -28,6 +28,9 @@ const ESTIMATE_TTL = 60 * 60 * 8; // 8 hours
 // near-identical baskets (e.g. 1.1kg and 1.4kg both round to 1.5kg) reuse the
 // same estimate rather than causing a live hit per unique weight.
 const WEIGHT_BUCKET_KG = 0.5;
+// Cap a single bulk label-print request: bounds peak memory + serial Econt fetch
+// time, and matches what the admin table realistically selects at once.
+const MAX_BULK_LABELS = 50;
 
 /** The stored, sanitized Econt config (never includes the decrypted password). */
 interface EcontStored {
@@ -666,32 +669,34 @@ export class EcontService {
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
     if (!row.url) throw new NotFoundException('Няма PDF за тази товарителница');
-    return this.fetchLabelPdf(tenantId, row.url);
+    const c = await this.resolveCreds(tenantId);
+    return this.fetchLabelPdf(c, row.url);
   }
 
   /** Fetch + merge several shipments' label PDFs (tenant-scoped) into one Buffer. */
   async getLabelsPdf(tenantId: string, shipmentIds: string[]): Promise<Buffer> {
     if (!shipmentIds.length) throw new BadRequestException('Няма избрани товарителници');
+    if (shipmentIds.length > MAX_BULK_LABELS) {
+      throw new BadRequestException(`Максимум ${MAX_BULK_LABELS} товарителници наведнъж`);
+    }
+    const c = await this.resolveCreds(tenantId);
     const rows = await this.db
       .select({ url: shipments.labelPdfUrl })
       .from(shipments)
       .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, shipmentIds)));
     const urls = rows.map((r) => r.url).filter((u): u is string => !!u);
+    const settled = await Promise.allSettled(urls.map((u) => this.fetchLabelPdf(c, u)));
     const buffers: Buffer[] = [];
-    for (const url of urls) {
-      try {
-        buffers.push(await this.fetchLabelPdf(tenantId, url));
-      } catch {
-        // skip a label whose PDF can't be fetched
-      }
-    }
+    settled.forEach((s, i) => {
+      if (s.status === 'fulfilled') buffers.push(s.value);
+      else this.logger.warn(`Label PDF fetch failed for ${urls[i]}: ${s.reason instanceof Error ? s.reason.message : s.reason}`);
+    });
     if (!buffers.length) throw new NotFoundException('Няма PDF за избраните товарителници');
     return mergePdfs(buffers);
   }
 
-  /** GET an Econt-hosted label PDF using the farm's Basic credentials. */
-  private async fetchLabelPdf(tenantId: string, url: string): Promise<Buffer> {
-    const c = await this.resolveCreds(tenantId);
+  /** GET an Econt-hosted label PDF using already-resolved Basic credentials. */
+  private async fetchLabelPdf(c: ResolvedCreds, url: string): Promise<Buffer> {
     const auth = Buffer.from(`${c.username}:${c.password}`).toString('base64');
     let res: Awaited<ReturnType<typeof fetch>>;
     try {
