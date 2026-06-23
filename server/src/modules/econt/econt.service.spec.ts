@@ -138,4 +138,44 @@ describe('mapShipmentRow', () => {
     expect(out.labelPdfUrl).toBe('https://ee.econt.com/x.pdf');
     expect(out.history).toEqual([]);
   });
+
+  it('door delivery → econtAddress method', () => {
+    const out = mapShipmentRow({
+      orderId: '22222222-3333-4444-5555-666666666666',
+      customerName: 'Мария',
+      deliveryType: 'econt_address',
+      total: 5000,
+      shipmentId: 'bbbb',
+      shipmentNumber: '1051000000002',
+      shipmentStatus: 'created',
+      courierPrice: null,
+      labelPdfUrl: null,
+      codAmount: null,
+      trackingJson: null,
+    });
+    expect(out.method).toBe('econtAddress');
+    // courierPrice null → falls back to order total.
+    expect(out.priceStotinki).toBe(5000);
+    expect(out.labelPdfUrl).toBeUndefined();
+    expect(out.codAmountStotinki).toBeUndefined();
+  });
+
+  it('no waybill yet → pending status, no tracking number', () => {
+    const out = mapShipmentRow({
+      orderId: '33333333-4444-5555-6666-777777777777',
+      customerName: null,
+      deliveryType: 'econt',
+      total: 1000,
+      shipmentId: null,
+      shipmentNumber: null,
+      shipmentStatus: null,
+      courierPrice: null,
+      labelPdfUrl: null,
+      codAmount: null,
+      trackingJson: null,
+    });
+    expect(out.status).toBe('pending');
+    expect(out.trackingNumber).toBeUndefined();
+    expect(out.customerName).toBe('—');
+  });
 });
