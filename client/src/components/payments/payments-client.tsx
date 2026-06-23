@@ -30,11 +30,13 @@ import {
   startStripeOnboarding,
   getPayments,
   updateOrderStatus,
+  getCodReconciliation,
   type StripeSummary,
   type PaymentsPage,
   type PaymentTotals,
   type PaymentOrder,
   type PaymentChannel,
+  type CodReconRow,
 } from '@/lib/api-client';
 import { Pagination } from '@/components/ui/pagination';
 
@@ -97,6 +99,13 @@ function moneyStatus(o: PaymentOrder): { label: string; cls: string } {
     label: o.paymentMethod === 'cod' ? 'Очаквано' : 'Неплатена',
     cls: 'bg-ff-amber-softer text-ff-amber-600',
   };
+}
+
+/** COD lifecycle from the Econt reconciliation row: Очаквано → Събрано → Преведено. */
+function codSettlementBadge(recon: CodReconRow | undefined): { label: string; cls: string } {
+  if (recon?.settledAt) return { label: 'Преведено', cls: 'bg-ff-green-100 text-ff-green-800' };
+  if (recon?.collectedAt) return { label: 'Събрано', cls: 'bg-amber-100 text-amber-800' };
+  return { label: 'Очаквано', cls: 'bg-ff-surface-2 text-ff-muted' };
 }
 
 export function PaymentsClient({
@@ -222,6 +231,19 @@ export function PaymentsClient({
   }, [page, pageCount]);
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const searching = dq.length > 0 || day.length > 0;
+
+  const [codRecon, setCodRecon] = useState<Record<string, CodReconRow>>({});
+  useEffect(() => {
+    if (tab !== 'cod') return;
+    let alive = true;
+    getCodReconciliation()
+      .then((rows) => {
+        if (!alive) return;
+        setCodRecon(Object.fromEntries(rows.map((r) => [r.orderId, r])));
+      })
+      .catch(() => {/* leave empty — badge falls back to the 'expected' state */});
+    return () => { alive = false; };
+  }, [tab]);
 
   // Mark a наложен-платеж order's cash as received — flips its badge «Очаквано»
   // → «Получено». COD "collected" is modelled as the order reaching `delivered`
@@ -366,6 +388,7 @@ export function PaymentsClient({
             empty={tab === 'cod' ? 'Още няма плащания с наложен платеж.' : 'Още няма плащания.'}
             onCollect={tab === 'cod' ? onCollect : undefined}
             collectingId={collectingId}
+            codRecon={tab === 'cod' ? codRecon : undefined}
           />
           <Pagination page={page} pageCount={pageCount} onPage={setPage} total={filtered.length} />
         </>
@@ -392,6 +415,7 @@ function PayTable({
   empty,
   onCollect,
   collectingId,
+  codRecon,
 }: {
   rows: PaymentOrder[];
   loading: boolean;
@@ -399,6 +423,7 @@ function PayTable({
   empty: string;
   onCollect?: (id: string) => void;
   collectingId?: string | null;
+  codRecon?: Record<string, CodReconRow>;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
@@ -442,11 +467,17 @@ function PayTable({
                   <MethodPill method={o.paymentMethod} />
                 </td>
                 <td className="px-5 py-3.5 align-top">
-                  {canCollect ? (
-                    <CollectButton id={o.id} collectingId={collectingId} onCollect={onCollect!} />
-                  ) : (
-                    <StatusPill {...s} />
-                  )}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {canCollect ? (
+                      <CollectButton id={o.id} collectingId={collectingId} onCollect={onCollect!} />
+                    ) : (
+                      <StatusPill {...s} />
+                    )}
+                    {codRecon && (() => {
+                      const b = codSettlementBadge(codRecon[o.id]);
+                      return <span className={cn('rounded-full px-2 py-0.5 text-[12px] font-bold', b.cls)}>{b.label}</span>;
+                    })()}
+                  </div>
                 </td>
                 <td className="ff-fig px-5 py-3.5 text-right align-top text-[14.5px] font-extrabold">
                   {moneyFromStotinki(o.totalStotinki)}
@@ -484,6 +515,10 @@ function PayTable({
                 ) : (
                   <StatusPill {...s} />
                 )}
+                {codRecon && (() => {
+                  const b = codSettlementBadge(codRecon[o.id]);
+                  return <span className={cn('rounded-full px-2 py-0.5 text-[12px] font-bold', b.cls)}>{b.label}</span>;
+                })()}
               </div>
             </div>
           );
