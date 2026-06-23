@@ -1,4 +1,5 @@
-import { EcontService, mapShipmentRow } from './econt.service';
+import { PDFDocument } from 'pdf-lib';
+import { EcontService, mapShipmentRow, mergePdfs } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -177,5 +178,25 @@ describe('mapShipmentRow', () => {
     expect(out.status).toBe('pending');
     expect(out.trackingNumber).toBeUndefined();
     expect(out.customerName).toBe('—');
+  });
+});
+
+describe('mergePdfs', () => {
+  async function onePager(): Promise<Buffer> {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    return Buffer.from(await doc.save());
+  }
+
+  it('merges N single-page PDFs into one document with N pages', async () => {
+    const merged = await mergePdfs([await onePager(), await onePager(), await onePager()]);
+    const out = await PDFDocument.load(merged);
+    expect(out.getPageCount()).toBe(3);
+  });
+
+  it('skips unreadable buffers rather than throwing', async () => {
+    const merged = await mergePdfs([await onePager(), Buffer.from('not a pdf')]);
+    const out = await PDFDocument.load(merged);
+    expect(out.getPageCount()).toBe(1);
   });
 });

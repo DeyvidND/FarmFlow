@@ -1,3 +1,4 @@
+import { PDFDocument } from 'pdf-lib';
 import {
   Injectable,
   Inject,
@@ -656,6 +657,57 @@ export class EcontService {
     return row;
   }
 
+  /** Fetch one shipment's label PDF (tenant-scoped) as a Buffer. */
+  async getLabelPdf(tenantId: string, shipmentId: string): Promise<Buffer> {
+    const [row] = await this.db
+      .select({ url: shipments.labelPdfUrl })
+      .from(shipments)
+      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Пратката не е намерена');
+    if (!row.url) throw new NotFoundException('Няма PDF за тази товарителница');
+    return this.fetchLabelPdf(tenantId, row.url);
+  }
+
+  /** Fetch + merge several shipments' label PDFs (tenant-scoped) into one Buffer. */
+  async getLabelsPdf(tenantId: string, shipmentIds: string[]): Promise<Buffer> {
+    if (!shipmentIds.length) throw new BadRequestException('Няма избрани товарителници');
+    const rows = await this.db
+      .select({ url: shipments.labelPdfUrl })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, shipmentIds)));
+    const urls = rows.map((r) => r.url).filter((u): u is string => !!u);
+    const buffers: Buffer[] = [];
+    for (const url of urls) {
+      try {
+        buffers.push(await this.fetchLabelPdf(tenantId, url));
+      } catch {
+        // skip a label whose PDF can't be fetched
+      }
+    }
+    if (!buffers.length) throw new NotFoundException('Няма PDF за избраните товарителници');
+    return mergePdfs(buffers);
+  }
+
+  /** GET an Econt-hosted label PDF using the farm's Basic credentials. */
+  private async fetchLabelPdf(tenantId: string, url: string): Promise<Buffer> {
+    const c = await this.resolveCreds(tenantId);
+    const auth = Buffer.from(`${c.username}:${c.password}`).toString('base64');
+    let res: Awaited<ReturnType<typeof fetch>>;
+    try {
+      res = await fetch(url, {
+        headers: { Authorization: `Basic ${auth}` },
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (err) {
+      throw new BadRequestException(
+        `Econt PDF недостъпен: ${err instanceof Error ? err.message : 'network error'}`,
+      );
+    }
+    if (!res.ok) throw new BadRequestException(`Econt PDF грешка (${res.status})`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+
   /**
    * Econt orders (office + door) joined with their shipment, shaped for the admin
    * shipments table: every Econt order is shown so the farm can create a waybill,
@@ -757,6 +809,22 @@ export interface AdminShipment {
   labelPdfUrl?: string;
   shipmentId?: string;
   history: { at: string; label: string; location?: string }[];
+}
+
+/** Merge label PDFs into one document. Unreadable buffers are skipped (a single
+ *  bad label must not fail the whole bulk print). */
+export async function mergePdfs(buffers: Buffer[]): Promise<Buffer> {
+  const merged = await PDFDocument.create();
+  for (const buf of buffers) {
+    try {
+      const doc = await PDFDocument.load(buf);
+      const pages = await merged.copyPages(doc, doc.getPageIndices());
+      pages.forEach((p) => merged.addPage(p));
+    } catch {
+      // skip a corrupt / non-PDF buffer
+    }
+  }
+  return Buffer.from(await merged.save());
 }
 
 /** Map a joined query row onto the admin shipments-table shape. */
