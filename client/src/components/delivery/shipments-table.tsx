@@ -76,12 +76,26 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
     navigator.clipboard?.writeText(t.replace(/\s/g, ''));
     toast.success('Номерът е копиран');
   };
+  const printOne = (r: Shipment) => {
+    if (!r.shipmentId) return;
+    window.open(`/bff/econt/shipments/${r.shipmentId}/label.pdf`, '_blank', 'noopener');
+  };
   const bulkCreate = () => {
     sel.forEach((id) => {
       const r = rows.find((x) => x.orderId === id);
       if (r && r.status === 'pending') createLabel(id);
     });
     setSel([]);
+  };
+  const printSelected = () => {
+    const ids = sel
+      .map((id) => rows.find((x) => x.orderId === id)?.shipmentId)
+      .filter((x): x is string => !!x);
+    if (!ids.length) {
+      toast.info?.('Избери товарителници със създаден етикет');
+      return;
+    }
+    window.open(`/bff/econt/labels.pdf?ids=${ids.join(',')}`, '_blank', 'noopener');
   };
 
   const grid = 'grid-cols-[32px_72px_1.2fr_0.9fr_1fr_1.2fr_0.8fr_110px]';
@@ -129,7 +143,7 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
             <Button variant="soft" size="sm" onClick={bulkCreate}>
               <Truck size={15} /> Създай товарителници ({sel.length})
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => toast.info?.('Изпращане към принтер…')}>
+            <Button variant="ghost" size="sm" onClick={printSelected}>
               <Printer size={15} /> Принтирай избраните
             </Button>
           </div>
@@ -218,7 +232,7 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
                     </button>
                   ) : (
                     <>
-                      <button className={actBtnCls} title="Принтирай" onClick={() => toast.info?.('Отваряне на PDF…')}>
+                      <button className={actBtnCls} title="Принтирай" onClick={() => printOne(r)}>
                         <Printer size={16} />
                       </button>
                       <button className={actBtnCls} title="Проследи" onClick={() => setTrack(r)}>
@@ -267,7 +281,7 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
                     </Button>
                   ) : (
                     <>
-                      <button className={actBtnCls} title="Принтирай" onClick={() => toast.info?.('Отваряне на PDF…')}>
+                      <button className={actBtnCls} title="Принтирай" onClick={() => printOne(r)}>
                         <Printer size={16} />
                       </button>
                       <button className={actBtnCls} title="Проследи" onClick={() => setTrack(r)}>

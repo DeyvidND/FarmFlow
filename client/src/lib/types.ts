@@ -288,6 +288,8 @@ export interface Shipment {
   history?: ShipmentEvent[];
   /** The Econt shipment row id (present once a waybill exists) — for void/refresh. */
   shipmentId?: string;
+  /** When set, the farm can print the Econt waybill PDF. */
+  labelPdfUrl?: string;
 }
 
 export type ArticleStatus = 'draft' | 'published';
