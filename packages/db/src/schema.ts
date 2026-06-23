@@ -379,6 +379,7 @@ export const shipments = pgTable(
     courierPriceStotinki: integer('courier_price_stotinki'),
     codAmountStotinki: integer('cod_amount_stotinki'),
     trackingJson: jsonb('tracking_json'),
+    customerNotifiedAt: timestamp('customer_notified_at', { withTimezone: true }),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },
