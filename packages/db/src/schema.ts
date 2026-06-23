@@ -380,6 +380,8 @@ export const shipments = pgTable(
     codAmountStotinki: integer('cod_amount_stotinki'),
     trackingJson: jsonb('tracking_json'),
     customerNotifiedAt: timestamp('customer_notified_at', { withTimezone: true }),
+    codCollectedAt: timestamp('cod_collected_at', { withTimezone: true }),
+    codSettledAt: timestamp('cod_settled_at', { withTimezone: true }),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },
