@@ -661,19 +661,7 @@ export class EcontService {
    * shipments table: every Econt order is shown so the farm can create a waybill,
    * and rows that already have one carry its tracking number + status.
    */
-  async listShipments(tenantId: string): Promise<
-    {
-      orderId: string;
-      orderNumber: string;
-      customerName: string;
-      method: 'econtOffice' | 'econtAddress';
-      status: 'pending' | 'created' | 'shipped' | 'delivered';
-      trackingNumber?: string;
-      priceStotinki?: number;
-      shipmentId?: string;
-      history: never[];
-    }[]
-  > {
+  async listShipments(tenantId: string): Promise<AdminShipment[]> {
     const rows = await this.db
       .select({
         orderId: orders.id,
@@ -684,6 +672,9 @@ export class EcontService {
         shipmentNumber: shipments.econtShipmentNumber,
         shipmentStatus: shipments.status,
         courierPrice: shipments.courierPriceStotinki,
+        labelPdfUrl: shipments.labelPdfUrl,
+        codAmount: shipments.codAmountStotinki,
+        trackingJson: shipments.trackingJson,
       })
       .from(orders)
       .leftJoin(shipments, eq(shipments.orderId, orders.id))
@@ -696,17 +687,7 @@ export class EcontService {
       )
       .orderBy(desc(orders.createdAt));
 
-    return rows.map((r) => ({
-      orderId: r.orderId,
-      orderNumber: r.orderId.slice(0, 8),
-      customerName: r.customerName ?? '—',
-      method: r.deliveryType === 'econt_address' ? 'econtAddress' : 'econtOffice',
-      status: uiShipmentStatus(r.shipmentNumber, r.shipmentStatus),
-      trackingNumber: r.shipmentNumber ?? undefined,
-      priceStotinki: r.courierPrice ?? r.total ?? undefined,
-      shipmentId: r.shipmentId ?? undefined,
-      history: [],
-    }));
+    return rows.map(mapShipmentRow);
   }
 
   /** Refresh a shipment's status from Econt. */
@@ -746,6 +727,53 @@ export class EcontService {
     await this.db.delete(shipments).where(eq(shipments.id, shipmentId));
     return { id: shipmentId };
   }
+}
+
+/** Raw joined row from listShipments' query. */
+export interface ShipmentJoinRow {
+  orderId: string;
+  customerName: string | null;
+  deliveryType: string | null;
+  total: number | null;
+  shipmentId: string | null;
+  shipmentNumber: string | null;
+  shipmentStatus: string | null;
+  courierPrice: number | null;
+  labelPdfUrl: string | null;
+  codAmount: number | null;
+  trackingJson: unknown;
+}
+
+/** Admin shipments-table row. */
+export interface AdminShipment {
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  method: 'econtOffice' | 'econtAddress';
+  status: 'pending' | 'created' | 'shipped' | 'delivered';
+  trackingNumber?: string;
+  priceStotinki?: number;
+  codAmountStotinki?: number;
+  labelPdfUrl?: string;
+  shipmentId?: string;
+  history: { at: string; label: string; location?: string }[];
+}
+
+/** Map a joined query row onto the admin shipments-table shape. */
+export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
+  return {
+    orderId: r.orderId,
+    orderNumber: r.orderId.slice(0, 8),
+    customerName: r.customerName ?? '—',
+    method: r.deliveryType === 'econt_address' ? 'econtAddress' : 'econtOffice',
+    status: uiShipmentStatus(r.shipmentNumber, r.shipmentStatus),
+    trackingNumber: r.shipmentNumber ?? undefined,
+    priceStotinki: r.courierPrice ?? r.total ?? undefined,
+    codAmountStotinki: r.codAmount ?? undefined,
+    labelPdfUrl: r.labelPdfUrl ?? undefined,
+    shipmentId: r.shipmentId ?? undefined,
+    history: [], // Phase B fills this from trackingJson
+  };
 }
 
 /** Collapse Econt's free-text status into the admin table's known status set. */

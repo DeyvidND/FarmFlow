@@ -1,4 +1,4 @@
-import { EcontService } from './econt.service';
+import { EcontService, mapShipmentRow } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -111,5 +111,30 @@ describe('EcontService.codAmountFor', () => {
   });
   it('COD already paid online → null (no second collection)', () => {
     expect(cod({ paymentMethod: 'cod', totalStotinki: 2400, paidAt: new Date() })).toBeNull();
+  });
+});
+
+describe('mapShipmentRow', () => {
+  it('passes labelPdfUrl, codAmount and a created status through', () => {
+    const out = mapShipmentRow({
+      orderId: '11111111-2222-3333-4444-555555555555',
+      customerName: 'Иван',
+      deliveryType: 'econt',
+      total: 2400,
+      shipmentId: 'aaaa',
+      shipmentNumber: '1051000000001',
+      shipmentStatus: 'created',
+      courierPrice: 599,
+      labelPdfUrl: 'https://ee.econt.com/x.pdf',
+      codAmount: 2400,
+      trackingJson: null,
+    });
+    expect(out.orderNumber).toBe('11111111');
+    expect(out.method).toBe('econtOffice');
+    expect(out.status).toBe('created');
+    expect(out.trackingNumber).toBe('1051000000001');
+    expect(out.priceStotinki).toBe(599);
+    expect(out.labelPdfUrl).toBe('https://ee.econt.com/x.pdf');
+    expect(out.history).toEqual([]);
   });
 });
