@@ -762,9 +762,16 @@ export class EcontService {
       shipmentNumbers: [row.econtShipmentNumber],
     });
     const st = data?.shipmentStatuses?.[0]?.status ?? data?.shipmentStatuses?.[0] ?? null;
+    const cod = parseCodReconciliation(st);
     const [updated] = await this.db
       .update(shipments)
-      .set({ status: st?.shortDeliveryStatus ?? st?.deliveryStatus ?? row.status, trackingJson: st ?? row.trackingJson, updatedAt: new Date() })
+      .set({
+        status: st?.shortDeliveryStatus ?? st?.deliveryStatus ?? row.status,
+        trackingJson: st ?? row.trackingJson,
+        codCollectedAt: cod.collectedAt ?? row.codCollectedAt,
+        codSettledAt: cod.settledAt ?? row.codSettledAt,
+        updatedAt: new Date(),
+      })
       .where(eq(shipments.id, shipmentId))
       .returning();
     const newStatus = uiShipmentStatus(updated.econtShipmentNumber, updated.status);
@@ -927,6 +934,31 @@ export function shouldNotifyShipped(
   customerNotifiedAt: Date | string | null,
 ): boolean {
   return !customerNotifiedAt && (uiStatus === 'shipped' || uiStatus === 'delivered');
+}
+
+/**
+ * Extract COD reconciliation timestamps from an Econt status payload.
+ * Field names confirmed from Econt's ShipmentStatus model:
+ *   cdCollectedTime — COD collected from the recipient
+ *   cdPaidTime      — COD paid/settled to the sender (farm)
+ * The JSON API returns these as unix timestamps (seconds or ms) or ISO strings.
+ */
+export function parseCodReconciliation(status: unknown): { collectedAt: Date | null; settledAt: Date | null } {
+  const s = (status ?? {}) as Record<string, any>;
+  const toDate = (v: unknown): Date | null => {
+    if (typeof v === 'number' && v > 0) {
+      // seconds (~10 digits) vs ms (~13 digits): scale seconds up to ms.
+      const ms = v < 1e12 ? v * 1000 : v;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof v === 'string' && v.length >= 5) {
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  };
+  return { collectedAt: toDate(s.cdCollectedTime), settledAt: toDate(s.cdPaidTime) };
 }
 
 /** Collapse Econt's free-text status into the admin table's known status set. */

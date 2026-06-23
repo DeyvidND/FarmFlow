@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, shouldNotifyShipped } from './econt.service';
+import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -231,5 +231,26 @@ describe('shouldNotifyShipped', () => {
     expect(shouldNotifyShipped('created', null)).toBe(false);
     expect(shouldNotifyShipped('pending', null)).toBe(false);
     expect(shouldNotifyShipped('shipped', new Date())).toBe(false);
+  });
+});
+
+describe('parseCodReconciliation', () => {
+  it('reads collected + settled from ISO strings', () => {
+    const out = parseCodReconciliation({ cdCollectedTime: '2026-06-23T10:00:00', cdPaidTime: '2026-06-25T09:00:00' });
+    expect(out.collectedAt).toBeInstanceOf(Date);
+    expect(out.settledAt).toBeInstanceOf(Date);
+  });
+  it('reads a unix-seconds timestamp (not interpreted as 1970)', () => {
+    const out = parseCodReconciliation({ cdCollectedTime: 1782547200 }); // 2026-06-07 in seconds
+    expect(out.collectedAt).toBeInstanceOf(Date);
+    expect(out.collectedAt!.getUTCFullYear()).toBe(2026);
+  });
+  it('reads a unix-ms timestamp', () => {
+    const out = parseCodReconciliation({ cdPaidTime: 1782547200000 });
+    expect(out.settledAt!.getUTCFullYear()).toBe(2026);
+  });
+  it('returns nulls when absent or shapeless', () => {
+    expect(parseCodReconciliation({})).toEqual({ collectedAt: null, settledAt: null });
+    expect(parseCodReconciliation(null)).toEqual({ collectedAt: null, settledAt: null });
   });
 });
