@@ -8,6 +8,7 @@ import {
   Query,
   UseGuards,
   ParseUUIDPipe,
+  StreamableFile,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -73,6 +74,27 @@ export class EcontController {
   @Delete('shipments/:id')
   void(@CurrentTenant() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.econt.voidShipment(tenantId, id);
+  }
+
+  /** Merged label PDF for several shipments (bulk print). */
+  @Get('labels.pdf')
+  async labels(
+    @CurrentTenant() tenantId: string,
+    @Query('ids') ids: string,
+  ): Promise<StreamableFile> {
+    const list = (ids ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const buf = await this.econt.getLabelsPdf(tenantId, list);
+    return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="labels.pdf"' });
+  }
+
+  /** Single shipment label PDF (print). */
+  @Get('shipments/:id/label.pdf')
+  async label(
+    @CurrentTenant() tenantId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<StreamableFile> {
+    const buf = await this.econt.getLabelPdf(tenantId, id);
+    return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="label.pdf"' });
   }
 }
 
