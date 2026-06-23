@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { SHIPMENT_META, SHORT_METHOD, lv } from '@/lib/delivery-data';
 import type { Shipment, ShipmentStatus } from '@/lib/types';
-import { listShipments, createShipment, voidShipment, ApiError } from '@/lib/api-client';
+import { listShipments, createShipment, voidShipment, refreshShipment, ApiError } from '@/lib/api-client';
 import { DSection, DBadge, Segmented, fieldCls } from './ui';
 
 type Toast = { success: (m: string) => void; info?: (m: string) => void; error: (m: string) => void };
@@ -70,6 +70,16 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
       toast.info?.('Товарителницата е отказана');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Неуспешно анулиране');
+    }
+  };
+  const refreshTrack = async (r: Shipment) => {
+    if (!r.shipmentId) return;
+    try {
+      await refreshShipment(r.shipmentId);
+      await reload();
+      toast.success('Проследяването е обновено');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Неуспешно обновяване');
     }
   };
   const copyTrack = (t: string) => {
@@ -303,12 +313,18 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
         </>
       )}
 
-      {track && <TrackingModal shipment={track} onClose={() => setTrack(null)} />}
+      {track && (
+        <TrackingModal
+          shipment={track}
+          onClose={() => setTrack(null)}
+          onRefresh={() => refreshTrack(track)}
+        />
+      )}
     </DSection>
   );
 }
 
-function TrackingModal({ shipment, onClose }: { shipment: Shipment; onClose: () => void }) {
+function TrackingModal({ shipment, onClose, onRefresh }: { shipment: Shipment; onClose: () => void; onRefresh: () => void }) {
   const hist = shipment.history || [];
   return (
     <div
@@ -333,14 +349,24 @@ function TrackingModal({ shipment, onClose }: { shipment: Shipment; onClose: () 
               </DBadge>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Затвори"
-            className="grid h-[38px] w-[38px] place-items-center rounded-[10px] border border-ff-border bg-ff-surface-2 text-ff-ink-2 hover:bg-ff-green-50"
-          >
-            <X size={19} />
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="grid h-[38px] w-[38px] place-items-center rounded-[10px] border border-ff-border bg-ff-surface-2 text-ff-ink-2 hover:bg-ff-green-50"
+              title="Обнови"
+            >
+              <Navigation size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Затвори"
+              className="grid h-[38px] w-[38px] place-items-center rounded-[10px] border border-ff-border bg-ff-surface-2 text-ff-ink-2 hover:bg-ff-green-50"
+            >
+              <X size={19} />
+            </button>
+          </div>
         </div>
         <div className="px-[22px] py-5">
           {hist.length === 0 ? (
