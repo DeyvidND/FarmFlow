@@ -216,6 +216,21 @@ describe('mapTrackingEvents', () => {
     expect(out[0].label.length).toBeGreaterThan(0);
   });
 
+  it('prefers the Bulgarian narrative (destinationDetails) over the raw enum', () => {
+    const out = mapTrackingEvents({
+      trackingEvents: [
+        {
+          time: '2026-06-23T08:00:00',
+          destinationType: 'office',
+          destinationDetails: 'Пратката е приета в офис Бургас',
+          cityName: 'Бургас',
+        },
+      ],
+    });
+    expect(out[0].label).toBe('Пратката е приета в офис Бургас');
+    expect(out[0].location).toBe('Бургас');
+  });
+
   it('returns [] for null / shapeless payloads', () => {
     expect(mapTrackingEvents(null)).toEqual([]);
     expect(mapTrackingEvents({})).toEqual([]);

@@ -947,8 +947,17 @@ export function mapTrackingEvents(status: unknown): TrackingEvent[] {
   return raw
     .map((e) => ({
       at: trackTime(e?.time ?? e?.cdDate ?? e?.date),
-      label: String(e?.destinationType ?? e?.officeName ?? e?.tracking ?? 'Обновление').trim(),
-      location: e?.officeName ? String(e.officeName) : undefined,
+      // Econt's ShipmentTrackingEvent carries a human-readable Bulgarian narrative
+      // (`destinationDetails`); `destinationType` is a raw enum (office/client/…),
+      // so prefer the narrative and only fall back to the enum/office name.
+      label: String(
+        e?.destinationDetails ?? e?.destinationType ?? e?.officeName ?? e?.tracking ?? 'Обновление',
+      ).trim(),
+      location: e?.officeName
+        ? String(e.officeName)
+        : e?.cityName
+          ? String(e.cityName)
+          : undefined,
     }))
     .filter((e) => e.at || e.location);
 }
