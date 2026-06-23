@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs } from './econt.service';
+import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, shouldNotifyShipped } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -9,6 +9,7 @@ describe('EcontService.buildLabel', () => {
   const svc = new EcontService(
     {} as never,
     { get: () => '' } as never,
+    {} as never,
     {} as never,
   );
   const build = (econt: Record<string, unknown>, order: Record<string, unknown>): Record<string, any> =>
@@ -100,7 +101,7 @@ describe('EcontService.buildLabel', () => {
 });
 
 describe('EcontService.codAmountFor', () => {
-  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never);
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never);
   const cod = (order: Record<string, unknown>): number | null =>
     (svc as unknown as { codAmountFor: (o: unknown) => number | null }).codAmountFor(order);
 
@@ -218,5 +219,17 @@ describe('mapTrackingEvents', () => {
   it('returns [] for null / shapeless payloads', () => {
     expect(mapTrackingEvents(null)).toEqual([]);
     expect(mapTrackingEvents({})).toEqual([]);
+  });
+});
+
+describe('shouldNotifyShipped', () => {
+  it('notifies once on shipped/delivered when not yet notified', () => {
+    expect(shouldNotifyShipped('shipped', null)).toBe(true);
+    expect(shouldNotifyShipped('delivered', null)).toBe(true);
+  });
+  it('does not notify before shipping or after already notifying', () => {
+    expect(shouldNotifyShipped('created', null)).toBe(false);
+    expect(shouldNotifyShipped('pending', null)).toBe(false);
+    expect(shouldNotifyShipped('shipped', new Date())).toBe(false);
   });
 });

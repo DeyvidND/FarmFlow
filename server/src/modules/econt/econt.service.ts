@@ -12,6 +12,7 @@ import { type Database, tenants, orders, orderItems, shipments } from '@fermerib
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
+import { ShipmentEmailService } from './shipment-email.service';
 
 const DEMO_BASE = 'https://demo.econt.com/ee/services';
 const PROD_BASE = 'https://ee.econt.com/services';
@@ -146,6 +147,7 @@ export class EcontService {
     @Inject(DB_TOKEN) private readonly db: Database,
     config: ConfigService,
     private readonly cache: PublicCacheService,
+    private readonly shipmentEmail: ShipmentEmailService,
   ) {
     this.encKey = config.get<string>('ENCRYPTION_KEY', '');
   }
@@ -765,6 +767,14 @@ export class EcontService {
       .set({ status: st?.shortDeliveryStatus ?? st?.deliveryStatus ?? row.status, trackingJson: st ?? row.trackingJson, updatedAt: new Date() })
       .where(eq(shipments.id, shipmentId))
       .returning();
+    const newStatus = uiShipmentStatus(updated.econtShipmentNumber, updated.status);
+    if (updated.econtShipmentNumber && shouldNotifyShipped(newStatus, row.customerNotifiedAt)) {
+      await this.shipmentEmail.sendShipped(updated.orderId, updated.econtShipmentNumber);
+      await this.db
+        .update(shipments)
+        .set({ customerNotifiedAt: new Date() })
+        .where(eq(shipments.id, updated.id));
+    }
     return updated;
   }
 
@@ -877,6 +887,15 @@ export function mapTrackingEvents(status: unknown): TrackingEvent[] {
       location: e?.officeName ? String(e.officeName) : undefined,
     }))
     .filter((e) => e.at || e.location);
+}
+
+/** Send the buyer the "shipped" email exactly once — when the parcel first reaches
+ *  shipped/delivered and we haven't notified before. */
+export function shouldNotifyShipped(
+  uiStatus: 'pending' | 'created' | 'shipped' | 'delivered',
+  customerNotifiedAt: Date | string | null,
+): boolean {
+  return !customerNotifiedAt && (uiStatus === 'shipped' || uiStatus === 'delivered');
 }
 
 /** Collapse Econt's free-text status into the admin table's known status set. */
