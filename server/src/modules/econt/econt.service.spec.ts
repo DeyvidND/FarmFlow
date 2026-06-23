@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { EcontService, mapShipmentRow, mergePdfs } from './econt.service';
+import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -198,5 +198,25 @@ describe('mergePdfs', () => {
     const merged = await mergePdfs([await onePager(), Buffer.from('not a pdf')]);
     const out = await PDFDocument.load(merged);
     expect(out.getPageCount()).toBe(1);
+  });
+});
+
+describe('mapTrackingEvents', () => {
+  it('maps Econt trackingEvents into {at,label,location}', () => {
+    const out = mapTrackingEvents({
+      trackingEvents: [
+        { time: '2026-06-23T08:00:00', officeName: 'Бургас Център', destinationType: 'office' },
+        { time: '2026-06-23T14:30:00', officeName: 'София Изток', destinationType: 'delivery' },
+      ],
+    });
+    expect(out).toHaveLength(2);
+    expect(out[0].location).toBe('Бургас Център');
+    expect(typeof out[0].at).toBe('string');
+    expect(out[0].label.length).toBeGreaterThan(0);
+  });
+
+  it('returns [] for null / shapeless payloads', () => {
+    expect(mapTrackingEvents(null)).toEqual([]);
+    expect(mapTrackingEvents({})).toEqual([]);
   });
 });

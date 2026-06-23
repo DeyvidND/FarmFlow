@@ -845,8 +845,38 @@ export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
     codAmountStotinki: r.codAmount ?? undefined,
     labelPdfUrl: r.labelPdfUrl ?? undefined,
     shipmentId: r.shipmentId ?? undefined,
-    history: [], // Phase B fills this from trackingJson
+    history: mapTrackingEvents(r.trackingJson),
   };
+}
+
+export interface TrackingEvent {
+  at: string;
+  label: string;
+  location?: string;
+}
+
+/** Normalize an Econt tracking time (epoch-ms number or ISO/HH:mm string). */
+function trackTime(v: unknown): string {
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) return new Date(v).toISOString();
+  if (typeof v === 'string' && v.length >= 5) return v;
+  return '';
+}
+
+/** Map an Econt status payload's tracking history into UI events (newest last). */
+export function mapTrackingEvents(status: unknown): TrackingEvent[] {
+  const s = (status ?? {}) as Record<string, any>;
+  const raw: any[] = Array.isArray(s.trackingEvents)
+    ? s.trackingEvents
+    : Array.isArray(s.tracking)
+      ? s.tracking
+      : [];
+  return raw
+    .map((e) => ({
+      at: trackTime(e?.time ?? e?.cdDate ?? e?.date),
+      label: String(e?.destinationType ?? e?.officeName ?? e?.tracking ?? 'Обновление').trim(),
+      location: e?.officeName ? String(e.officeName) : undefined,
+    }))
+    .filter((e) => e.at || e.location);
 }
 
 /** Collapse Econt's free-text status into the admin table's known status set. */
