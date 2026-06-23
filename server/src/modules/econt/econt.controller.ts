@@ -60,6 +60,11 @@ export class EcontController {
     return this.econt.listShipments(tenantId);
   }
 
+  @Get('cod-reconciliation')
+  codReconciliation(@CurrentTenant() tenantId: string) {
+    return this.econt.codReconciliation(tenantId);
+  }
+
   /** Create the Econt waybill (label) for an order. */
   @Post('shipments/:orderId')
   create(@CurrentTenant() tenantId: string, @Param('orderId', ParseUUIDPipe) orderId: string) {

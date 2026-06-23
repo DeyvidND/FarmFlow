@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, desc, inArray, ne } from 'drizzle-orm';
+import { and, eq, desc, inArray, ne, isNotNull } from 'drizzle-orm';
 import { type Database, tenants, orders, orderItems, shipments } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
@@ -715,6 +715,25 @@ export class EcontService {
     return Buffer.from(await res.arrayBuffer());
   }
 
+  /** COD-via-Econt reconciliation rows for the Плащания screen. */
+  async codReconciliation(tenantId: string): Promise<CodReconRow[]> {
+    const rows = await this.db
+      .select({
+        orderId: shipments.orderId,
+        expected: shipments.codAmountStotinki,
+        collectedAt: shipments.codCollectedAt,
+        settledAt: shipments.codSettledAt,
+      })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, tenantId), isNotNull(shipments.codAmountStotinki)));
+    return rows.map((r) => ({
+      orderId: r.orderId,
+      expectedStotinki: r.expected ?? null,
+      collectedAt: r.collectedAt ? r.collectedAt.toISOString() : null,
+      settledAt: r.settledAt ? r.settledAt.toISOString() : null,
+    }));
+  }
+
   /**
    * Econt orders (office + door) joined with their shipment, shaped for the admin
    * shipments table: every Econt order is shown so the farm can create a waybill,
@@ -832,6 +851,13 @@ export class EcontService {
     await this.db.delete(shipments).where(eq(shipments.id, shipmentId));
     return { id: shipmentId };
   }
+}
+
+export interface CodReconRow {
+  orderId: string;
+  expectedStotinki: number | null;
+  collectedAt: string | null;
+  settledAt: string | null;
 }
 
 /** Raw joined row from listShipments' query. */

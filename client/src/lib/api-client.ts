@@ -752,6 +752,15 @@ export const refreshShipment = (id: string) =>
 export const voidShipment = (id: string) =>
   apiFetch<{ id: string }>(`econt/shipments/${id}`, { method: 'DELETE' }, 'Неуспешно анулиране');
 
+export interface CodReconRow {
+  orderId: string;
+  expectedStotinki: number | null;
+  collectedAt: string | null;
+  settledAt: string | null;
+}
+export const getCodReconciliation = () =>
+  apiFetch<CodReconRow[]>('econt/cod-reconciliation');
+
 // ---- Newsletters ----
 export interface Subscriber {
   id: string;
