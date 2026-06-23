@@ -628,6 +628,7 @@ export class EcontService {
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
     const priceBgn: number | undefined = out.totalPrice;
+    const codAmount = this.codAmountFor(order);
 
     const [row] = await this.db
       .insert(shipments)
@@ -638,7 +639,7 @@ export class EcontService {
         status: number ? 'created' : 'pending',
         labelPdfUrl: out.pdfURL ?? null,
         courierPriceStotinki: typeof priceBgn === 'number' ? Math.round(priceBgn * 100) : null,
-        codAmountStotinki: this.codAmountFor(order),
+        codAmountStotinki: codAmount,
         trackingJson: out,
       })
       .onConflictDoUpdate({
@@ -647,7 +648,7 @@ export class EcontService {
           econtShipmentNumber: number,
           status: number ? 'created' : 'pending',
           labelPdfUrl: out.pdfURL ?? null,
-          codAmountStotinki: this.codAmountFor(order),
+          codAmountStotinki: codAmount,
           updatedAt: new Date(),
         },
       })
