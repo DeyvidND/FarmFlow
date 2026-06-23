@@ -97,3 +97,19 @@ describe('EcontService.buildLabel', () => {
     expect([label.shipmentDimensionsL, label.shipmentDimensionsW, label.shipmentDimensionsH]).toEqual([30, 20, 12]);
   });
 });
+
+describe('EcontService.codAmountFor', () => {
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never);
+  const cod = (order: Record<string, unknown>): number | null =>
+    (svc as unknown as { codAmountFor: (o: unknown) => number | null }).codAmountFor(order);
+
+  it('unpaid COD order → the order total in stotinki', () => {
+    expect(cod({ paymentMethod: 'cod', totalStotinki: 2400 })).toBe(2400);
+  });
+  it('online order → null', () => {
+    expect(cod({ paymentMethod: 'online', totalStotinki: 2400 })).toBeNull();
+  });
+  it('COD already paid online → null (no second collection)', () => {
+    expect(cod({ paymentMethod: 'cod', totalStotinki: 2400, paidAt: new Date() })).toBeNull();
+  });
+});

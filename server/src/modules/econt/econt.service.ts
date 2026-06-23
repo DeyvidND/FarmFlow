@@ -602,6 +602,20 @@ export class EcontService {
     }
   }
 
+  /**
+   * COD amount (stotinki) to persist + collect for an order: the order total when
+   * this is an UNPAID наложен-платеж order, else null. Mirrors buildLabel's COD gate
+   * so the stored amount and the amount on the waybill always agree.
+   */
+  private codAmountFor(order: {
+    paymentMethod?: string | null;
+    paidAt?: Date | string | null;
+    totalStotinki?: number | null;
+  }): number | null {
+    const collect = order.paymentMethod === 'cod' && !order.paidAt;
+    return collect && order.totalStotinki ? Math.round(order.totalStotinki) : null;
+  }
+
   /** Create the Econt waybill (label) for an order and persist a shipment row. */
   async createLabel(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
     const { econt } = await this.loadStored(tenantId);
@@ -624,6 +638,7 @@ export class EcontService {
         status: number ? 'created' : 'pending',
         labelPdfUrl: out.pdfURL ?? null,
         courierPriceStotinki: typeof priceBgn === 'number' ? Math.round(priceBgn * 100) : null,
+        codAmountStotinki: this.codAmountFor(order),
         trackingJson: out,
       })
       .onConflictDoUpdate({
@@ -632,6 +647,7 @@ export class EcontService {
           econtShipmentNumber: number,
           status: number ? 'created' : 'pending',
           labelPdfUrl: out.pdfURL ?? null,
+          codAmountStotinki: this.codAmountFor(order),
           updatedAt: new Date(),
         },
       })
