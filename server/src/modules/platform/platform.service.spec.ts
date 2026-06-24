@@ -494,6 +494,122 @@ describe('PlatformService', () => {
       );
     });
   });
+
+  // ── Delivery accounts ───────────────────────────────────────────────────────
+  describe('listDeliveryAccounts', () => {
+    it('returns delivery-capable tenants with a folded shipment overview', async () => {
+      db.where.mockReturnValueOnce(db); // tenant query .where → chains to orderBy
+      db.orderBy.mockReturnValueOnce(db); // → chains to limit
+      db.limit.mockResolvedValueOnce([
+        {
+          id: 't1', name: 'Дел Едно', slug: 'del-edno', email: 'a@x.bg', phone: null,
+          settings: { product: 'econt-standalone', econtApp: { active: true } }, createdAt: new Date('2026-06-01'),
+        },
+      ]);
+      db.where.mockResolvedValueOnce([
+        { tenantId: 't1', carrier: 'econt', codAmountStotinki: 1000, codCollectedAt: null, createdAt: new Date('2026-06-02') },
+        { tenantId: 't1', carrier: 'speedy', codAmountStotinki: 500, codCollectedAt: new Date('2026-06-04'), createdAt: new Date('2026-06-03') },
+      ]);
+
+      const res = await service.listDeliveryAccounts({});
+      expect(res.items).toHaveLength(1);
+      expect(res.items[0]).toMatchObject({ id: 't1', type: 'delivery', active: true });
+      expect(res.items[0].overview).toEqual({
+        total: 2, codPendingStotinki: 1000, codCollectedStotinki: 500, econt: 1, speedy: 1,
+        lastShipmentAt: '2026-06-03T00:00:00.000Z',
+      });
+    });
+  });
+
+  describe('getDeliveryAccount', () => {
+    it('404s when the tenant is not delivery-capable', async () => {
+      db.where.mockReturnValueOnce(db);
+      db.limit.mockResolvedValueOnce([
+        { id: 't9', name: 'Ферма', slug: 'ferma', email: null, phone: null, settings: { delivery: {} }, createdAt: new Date() },
+      ]);
+      await expect(service.getDeliveryAccount('t9')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('returns overview + recent shipments for a delivery account', async () => {
+      db.where.mockReturnValueOnce(db);
+      db.limit.mockResolvedValueOnce([
+        { id: 't1', name: 'Дел', slug: 'del', email: null, phone: null, settings: { econtApp: { active: true } }, createdAt: new Date('2026-06-01') },
+      ]);
+      db.where.mockResolvedValueOnce([
+        { id: 's1', carrier: 'econt', status: 'created', codAmountStotinki: 1000, codCollectedAt: null, createdAt: new Date('2026-06-02'), trackingNumber: null, econtShipmentNumber: 'E1' },
+      ]);
+      const res = await service.getDeliveryAccount('t1');
+      expect(res.type).toBe('both');
+      expect(res.overview.total).toBe(1);
+      expect(res.recentShipments).toHaveLength(1);
+    });
+  });
+
+  describe('createDeliveryAccount', () => {
+    beforeEach(() => {
+      (argon2.hash as jest.Mock).mockResolvedValue('hashed');
+      db.limit.mockResolvedValue([]); // no email clash, slug free
+      db.returning.mockResolvedValue([{ id: 'new1', name: 'Нов', slug: 'nov', email: 'n@x.bg' }]);
+    });
+
+    it('rejects when neither role is selected', async () => {
+      await expect(
+        service.createDeliveryAccount({ email: 'a@x.bg', password: 'longenough12', name: 'X', shop: false, delivery: false }),
+      ).rejects.toMatchObject({ message: 'Изберете поне една роля' });
+    });
+
+    it('rejects a duplicate email', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 'u' }]);
+      await expect(
+        service.createDeliveryAccount({ email: 'a@x.bg', password: 'longenough12', name: 'X', shop: true, delivery: false }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('creates a delivery-only account with econt-standalone settings', async () => {
+      await service.createDeliveryAccount({ email: 'd@x.bg', password: 'longenough12', name: 'Дел', shop: false, delivery: true, active: true });
+      const v = db.values.mock.calls[0][0];
+      expect(v.settings.product).toBe('econt-standalone');
+      expect(v.settings.econtApp).toEqual({ active: true });
+      expect(v.deliveryEnabled).toBe(false);
+    });
+
+    it('creates a both account: farm settings + econtApp', async () => {
+      await service.createDeliveryAccount({ email: 'b@x.bg', password: 'longenough12', name: 'Двете', shop: true, delivery: true, active: false });
+      const v = db.values.mock.calls[0][0];
+      expect(v.settings.product).toBeUndefined();
+      expect(v.settings.delivery).toBeDefined();
+      expect(v.settings.econtApp).toEqual({ active: false });
+      expect(v.deliveryEnabled).toBe(true);
+    });
+
+    it('echoes the chosen password once', async () => {
+      const res = await service.createDeliveryAccount({ email: 's@x.bg', password: 'longenough12', name: 'Само', shop: true, delivery: false });
+      expect(res.password).toBe('longenough12');
+    });
+  });
+
+  describe('enableDeliveryOnFarm', () => {
+    it('404s for a missing tenant', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      await expect(service.enableDeliveryOnFarm('nope')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('merges econtApp into an existing farm additively', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 'f1', settings: { delivery: { cod: { enabled: true } } } }]);
+      const res = await service.enableDeliveryOnFarm('f1');
+      expect(res).toEqual({ id: 'f1', delivery: true });
+      const written = db.set.mock.calls[0][0].settings;
+      expect(written.delivery).toEqual({ cod: { enabled: true } });
+      expect(written.econtApp).toEqual({ active: true });
+    });
+
+    it('is idempotent when delivery is already enabled (no write)', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 'f2', settings: { econtApp: { active: false } } }]);
+      const res = await service.enableDeliveryOnFarm('f2');
+      expect(res).toEqual({ id: 'f2', delivery: true });
+      expect(db.set).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('withEcontActive (used by platform activate)', () => {

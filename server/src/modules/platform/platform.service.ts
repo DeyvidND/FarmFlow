@@ -11,7 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
-import { and, asc, eq, sql, desc } from 'drizzle-orm';
+import { and, asc, eq, sql, desc, inArray } from 'drizzle-orm';
 import { BillingService } from '../billing/billing.service';
 import { emailCostStotinki } from '../billing/billing.pricing';
 import { ProductsService } from '../products/products.service';
@@ -51,8 +51,41 @@ import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { sanitizeSiteUrl } from '../tenants/site-copy';
 import { DEMO_SEED } from './demo-seed';
-import { withEcontActive } from '../econt-app/econt-app.helpers';
+import { econtTenantSettings, withEcontActive } from '../econt-app/econt-app.helpers';
 import { farmDefaultSettings } from './platform.helpers';
+import { CreateDeliveryAccountDto } from './dto/create-delivery-account.dto';
+import {
+  deliveryCapabilities,
+  buildDeliveryOverview,
+  type DeliveryOverview,
+} from './delivery-accounts.helpers';
+
+export interface DeliveryAccountRow {
+  id: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  phone: string | null;
+  type: 'delivery' | 'farm' | 'both';
+  active: boolean;
+  createdAt: Date | null;
+  overview: DeliveryOverview;
+}
+
+export interface DeliveryShipmentRow {
+  id: string;
+  carrier: string;
+  status: string;
+  codAmountStotinki: number | null;
+  codCollectedAt: Date | null;
+  createdAt: Date | null;
+  trackingNumber: string | null;
+  econtShipmentNumber: string | null;
+}
+
+export interface DeliveryAccountDetail extends DeliveryAccountRow {
+  recentShipments: DeliveryShipmentRow[];
+}
 
 export interface PlatformTenantRow {
   id: string;
@@ -125,6 +158,7 @@ export interface PlatformTenantDetail {
   multiFarmer: boolean;
   multiSubcat: boolean;
   econtConfigured: boolean;
+  deliveryAccount: boolean;
   stripeConnected: boolean;
   siteUrl: string;
   orders: {
@@ -418,6 +452,7 @@ export class PlatformService {
 
     const settings = (t.settings as Record<string, any> | null) ?? {};
     const econtConfigured = !!settings?.delivery?.econt?.configured;
+    const deliveryAccount = deliveryCapabilities(settings).delivery;
 
     return {
       id: t.id,
@@ -433,6 +468,7 @@ export class PlatformService {
       multiFarmer: t.multiFarmer,
       multiSubcat: t.multiSubcat,
       econtConfigured,
+      deliveryAccount,
       stripeConnected: !!t.stripeAccountId,
       siteUrl: sanitizeSiteUrl(settings.siteUrl),
       orders: o,
@@ -474,6 +510,199 @@ export class PlatformService {
       .set({ settings: withEcontActive(t.settings, active) })
       .where(eq(tenants.id, tenantId));
     return { id: tenantId, active };
+  }
+
+  /** Super-admin list of delivery-capable tenants (those with an econtApp settings
+   *  block), each with a folded shipment/COD overview. Keyset-paginated like
+   *  listTenants. Not cached — single-operator, low-traffic, must reflect toggles
+   *  immediately. One shipments query for the whole page (no N+1). */
+  async listDeliveryAccounts(
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<DeliveryAccountRow>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    const econtFilter = sql`${tenants.settings} -> 'econtApp' is not null`;
+    const where = cur
+      ? and(econtFilter, keysetAfter(tenants.createdAt, tenants.id, cur, 'asc'))
+      : econtFilter;
+
+    const rows = await this.db
+      .select({
+        id: tenants.id,
+        name: tenants.name,
+        slug: tenants.slug,
+        email: tenants.email,
+        phone: tenants.phone,
+        settings: tenants.settings,
+        createdAt: tenants.createdAt,
+      })
+      .from(tenants)
+      .where(where)
+      .orderBy(asc(tenants.createdAt), asc(tenants.id))
+      .limit(lim + 1);
+
+    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+
+    const ids = page.items.map((r) => r.id);
+    const ship = ids.length
+      ? await this.db
+          .select({
+            tenantId: shipments.tenantId,
+            carrier: shipments.carrier,
+            codAmountStotinki: shipments.codAmountStotinki,
+            codCollectedAt: shipments.codCollectedAt,
+            createdAt: shipments.createdAt,
+          })
+          .from(shipments)
+          .where(inArray(shipments.tenantId, ids))
+      : [];
+
+    const byTenant = new Map<string, typeof ship>();
+    for (const s of ship) {
+      if (!s.tenantId) continue;
+      const arr = byTenant.get(s.tenantId) ?? [];
+      arr.push(s);
+      byTenant.set(s.tenantId, arr);
+    }
+
+    const items: DeliveryAccountRow[] = page.items.map((r) => {
+      const caps = deliveryCapabilities(r.settings);
+      return {
+        id: r.id,
+        name: r.name,
+        slug: r.slug,
+        email: r.email,
+        phone: r.phone,
+        type: caps.type,
+        active: caps.active,
+        createdAt: r.createdAt,
+        overview: buildDeliveryOverview(byTenant.get(r.id) ?? []),
+      };
+    });
+
+    return { items, nextCursor: page.nextCursor };
+  }
+
+  /** One delivery account: overview over ALL its shipments + the last 20 for a
+   *  read-only recent list. 404 if the tenant is missing or not delivery-capable. */
+  async getDeliveryAccount(tenantId: string): Promise<DeliveryAccountDetail> {
+    const [t] = await this.db
+      .select({
+        id: tenants.id,
+        name: tenants.name,
+        slug: tenants.slug,
+        email: tenants.email,
+        phone: tenants.phone,
+        settings: tenants.settings,
+        createdAt: tenants.createdAt,
+      })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const caps = t ? deliveryCapabilities(t.settings) : null;
+    if (!t || !caps?.delivery) throw new NotFoundException('Акаунтът не е намерен');
+
+    const ship = await this.db
+      .select({
+        id: shipments.id,
+        carrier: shipments.carrier,
+        status: shipments.status,
+        codAmountStotinki: shipments.codAmountStotinki,
+        codCollectedAt: shipments.codCollectedAt,
+        createdAt: shipments.createdAt,
+        trackingNumber: shipments.trackingNumber,
+        econtShipmentNumber: shipments.econtShipmentNumber,
+      })
+      .from(shipments)
+      .where(eq(shipments.tenantId, tenantId));
+
+    const recentShipments = [...ship]
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+      .slice(0, 20);
+
+    return {
+      id: t.id,
+      name: t.name,
+      slug: t.slug,
+      email: t.email,
+      phone: t.phone,
+      type: caps.type,
+      active: caps.active,
+      createdAt: t.createdAt,
+      overview: buildDeliveryOverview(ship),
+      recentShipments,
+    };
+  }
+
+  /** Super-admin-driven account creation. Capabilities pick the settings shape:
+   *  delivery-only → econt-standalone; shop-only → farm; both → farm + econtApp.
+   *  One admin user with a known password (no forced change) so the operator can
+   *  log into the delivery app. Returns the password ONCE. */
+  async createDeliveryAccount(
+    dto: CreateDeliveryAccountDto,
+  ): Promise<{ id: string; name: string; slug: string; email: string; password: string }> {
+    if (!dto.shop && !dto.delivery) throw new BadRequestException('Изберете поне една роля');
+
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`lower(${users.email}) = ${email}`)
+      .limit(1);
+    if (existing.length) throw new ConflictException('Имейлът вече е зает');
+
+    const slug = await this.uniqueSlug(dto.name);
+    const active = dto.active !== false; // default true
+
+    let settings: Record<string, unknown>;
+    if (dto.delivery && !dto.shop) settings = withEcontActive(econtTenantSettings(), active);
+    else if (dto.shop && !dto.delivery) settings = farmDefaultSettings();
+    else settings = { ...farmDefaultSettings(), econtApp: { active } };
+
+    const [tenant] = await this.db
+      .insert(tenants)
+      .values({
+        name: dto.name,
+        slug,
+        phone: dto.phone,
+        email,
+        subscriptionStatus: 'active',
+        subscriptionSince: new Date(),
+        // Storefront delivery toggle only matters for shop accounts.
+        deliveryEnabled: dto.shop,
+        settings,
+      })
+      .returning();
+
+    await this.db.insert(users).values({
+      tenantId: tenant.id,
+      email,
+      passwordHash: await argon2.hash(dto.password),
+      role: 'admin',
+      mustChangePassword: false,
+    });
+
+    return { id: tenant.id, name: tenant.name, slug: tenant.slug, email: tenant.email ?? email, password: dto.password };
+  }
+
+  /** "Link" an existing farm to the delivery service by merging an econtApp block
+   *  into its settings (additive — all farm keys preserved). Idempotent. */
+  async enableDeliveryOnFarm(tenantId: string): Promise<{ id: string; delivery: true }> {
+    const [t] = await this.db
+      .select({ id: tenants.id, settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!t) throw new NotFoundException('Фермата не е намерена');
+
+    const s = (t.settings ?? {}) as Record<string, any>;
+    if (s.econtApp == null) {
+      await this.db
+        .update(tenants)
+        .set({ settings: { ...s, econtApp: { active: true } } })
+        .where(eq(tenants.id, tenantId));
+    }
+    return { id: tenantId, delivery: true };
   }
 
   /** Reset a farm OWNER's password: mint a fresh temp password, force a change on
