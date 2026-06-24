@@ -386,6 +386,12 @@ export class EcontService {
     return parseAddressValidation(data?.address ?? data);
   }
 
+  /** Fetch the farm's saved Econt sender profiles (auto-fill + creds check). */
+  async getClientProfiles(tenantId: string): Promise<SenderSuggestion[]> {
+    const data = await this.callTenant(tenantId, 'Profile/ProfileService.getClientProfiles.json', {});
+    return slimClientProfiles(data);
+  }
+
   /** Offices in one city (with coordinates + hours) for the admin picker/map. */
   async getOfficesForCity(tenantId: string, cityId: number): Promise<EcontOfficeView[]> {
     if (!cityId) return [];
@@ -1192,6 +1198,28 @@ export function parseAddressValidation(res: unknown): AddressValidation {
   const r = (res ?? {}) as Record<string, any>;
   const status: string | null = typeof r.validationStatus === 'string' ? r.validationStatus : null;
   return { valid: status === 'normal' || status === 'processed', status };
+}
+
+export interface SenderSuggestion {
+  name: string;
+  phone: string;
+  clientNumber: string | null;
+}
+
+/** Slim Econt client profiles into sender suggestions. Econt nests the data under
+ *  `profiles[].client` in current docs, but some responses are flat — handle both. */
+export function slimClientProfiles(res: unknown): SenderSuggestion[] {
+  const r = (res ?? {}) as Record<string, any>;
+  const list: any[] = Array.isArray(r.profiles) ? r.profiles : [];
+  return list.map((p) => {
+    const c = p?.client ?? p ?? {};
+    const phones: any[] = Array.isArray(c.phones) ? c.phones : [];
+    return {
+      name: String(c.name ?? '').trim(),
+      phone: phones.length ? String(phones[0]) : '',
+      clientNumber: c.clientNumber != null ? String(c.clientNumber) : null,
+    };
+  });
 }
 
 /** Collapse Econt's free-text status into the admin table's known status set. */

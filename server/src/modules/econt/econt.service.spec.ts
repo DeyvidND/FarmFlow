@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow, parseAddressValidation } from './econt.service';
+import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow, parseAddressValidation, slimClientProfiles } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -356,5 +356,23 @@ describe('parseAddressValidation', () => {
   });
   it('passes the raw status through', () => {
     expect(parseAddressValidation({ validationStatus: 'normal' }).status).toBe('normal');
+  });
+});
+
+describe('slimClientProfiles', () => {
+  it('maps Econt client profiles to sender suggestions', () => {
+    const out = slimClientProfiles({
+      profiles: [
+        { client: { name: 'Ферма Петрови', phones: ['0888111222'], clientNumber: '1234567' } },
+        { client: { name: 'Втора', phones: [] } },
+      ],
+    });
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual({ name: 'Ферма Петрови', phone: '0888111222', clientNumber: '1234567' });
+    expect(out[1]).toEqual({ name: 'Втора', phone: '', clientNumber: null });
+  });
+  it('tolerates a flat profiles array + shapeless input', () => {
+    expect(slimClientProfiles(null)).toEqual([]);
+    expect(slimClientProfiles({ profiles: [{ name: 'Плосък', phones: ['0700'] }] })[0].name).toBe('Плосък');
   });
 });
