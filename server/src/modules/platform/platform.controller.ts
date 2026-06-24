@@ -24,6 +24,8 @@ import { CreateDemoDto } from './dto/create-demo.dto';
 import { PlatformImportDto } from './dto/platform-import.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { PlatformChangePasswordDto } from './dto/platform-change-password.dto';
+import { CreateDeliveryAccountDto } from './dto/create-delivery-account.dto';
+import { SetDeliveryActiveDto } from './dto/set-delivery-active.dto';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { RequestUser } from '@fermeribg/types';
@@ -143,6 +145,38 @@ export class PlatformController {
     @Body() body: { active: boolean },
   ) {
     return this.platform.setEcontAppActive(tenantId, body.active === true);
+  }
+
+  // ── Delivery accounts (standalone Econt/Speedy service oversight) ──
+  @Get('delivery/accounts')
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  listDeliveryAccounts(@Query() q: PaginationQueryDto) {
+    return this.platform.listDeliveryAccounts({ cursor: q.cursor, limit: q.limit });
+  }
+
+  @Get('delivery/accounts/:tenantId')
+  getDeliveryAccount(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.platform.getDeliveryAccount(tenantId);
+  }
+
+  @Post('delivery/accounts')
+  @HttpCode(201)
+  createDeliveryAccount(@Body() dto: CreateDeliveryAccountDto) {
+    return this.platform.createDeliveryAccount(dto);
+  }
+
+  @Patch('delivery/accounts/:tenantId/active')
+  setDeliveryActive(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Body() dto: SetDeliveryActiveDto,
+  ) {
+    return this.platform.setEcontAppActive(tenantId, dto.active);
+  }
+
+  @Patch('delivery/accounts/:tenantId/enable-delivery')
+  enableDelivery(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.platform.enableDeliveryOnFarm(tenantId);
   }
 
   /** Hard-delete a tenant + all its data. Demos delete freely; a real farm requires
