@@ -22,7 +22,7 @@ the box). Secrets are NOT here: `.env` lives only on the box (600, root).
 
 | File | On box | Purpose |
 | --- | --- | --- |
-| `docker-compose.yml` | `/opt/fermeribg/docker-compose.yml` | the stack (pg, redis, api, web, admin, econt, cloudflared) |
+| `docker-compose.yml` | `/opt/fermeribg/docker-compose.yml` | the stack (pg, redis, api, web, admin, econt, delivery-web, cloudflared) |
 | `env.example` | `/opt/fermeribg/.env` (filled) | env template; real values copied from the old Dokploy env |
 | `daemon.json` | `/etc/docker/daemon.json` | Docker log rotation (10m × 3) |
 | `backup.sh` | `/opt/fermeribg/backup.sh` | pg_dump → local + private R2 `backups` bucket |
@@ -48,7 +48,7 @@ Cron (`/etc/cron.d/`): `fermeribg-backup` (daily 03:00), `fermeribg-tunnel-watch
    `pg_restore -U farmflow -d farmflow`).
 8. `docker compose up -d` (all). Create a Cloudflare Tunnel, put its token in
    `CF_TUNNEL_TOKEN`, add Public Hostnames api/app/admin → `http://{api,web,admin}:{3000,3000,3002}`
-   and dostavki → `http://econt:3100` (see the delivery section below).
+   and dostavki → `http://delivery-web:3003` (see the delivery section below).
 9. Install the two cron files; configure rclone (`/root/.config/rclone/rclone.conf`,
    R2 creds, `region = auto`, `no_check_bucket = true`).
 
@@ -75,8 +75,10 @@ Already wired in `docker-compose.yml` as the `econt` service:
    copy. `CORS_ORIGIN_ECONT` is set inline in compose, so it boots with **no `.env`
    change** (AI/COD-risk just stay degraded until their keys are added — see below).
 2. **Connect the tunnel** (the one manual step — token tunnel, dashboard-managed): in
-   the Cloudflare Tunnel, add a Public Hostname `dostavki.fermeribg.com` → service
-   `http://econt:3100`. DNS auto-creates.
+   the Cloudflare Tunnel, add a Public Hostname
+   `dostavki.fermeribg.com` → `http://delivery-web:3003` (the Next panel; it proxies
+   to `econt:3100` internally via /bff). The `econt` service is now API-only.
+   DNS auto-creates.
 3. Verify: `https://dostavki.fermeribg.com/app` loads; `GET /shipping/compare` without
    a token returns 401 (route mounted + guarded).
 4. _Optional, later:_ add `OPENAI_API_KEY` / `NEKOREKTEN_API_KEY` / `SPEEDY_DEFAULT_SERVICE_ID`

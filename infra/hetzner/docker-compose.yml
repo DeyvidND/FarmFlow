@@ -92,6 +92,19 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       CORS_ORIGIN_ECONT: https://dostavki.fermeribg.com
 
+  # Delivery panel (dostavki.fermeribg.com) — the Next.js standalone app from the
+  # delivery-web/ workspace, listening on 3003. The tunnel routes the hostname here;
+  # it proxies to econt:3100 internally via its BFF (/bff). No published host port:
+  # the Cloudflare tunnel reaches it over the compose network as delivery-web:3003.
+  delivery-web:
+    image: ghcr.io/deyvidnd/farmflow-delivery-web:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    depends_on: [econt]
+    environment:
+      NODE_ENV: production
+      API_URL: http://econt:3100
+
   cloudflared:
     image: cloudflare/cloudflared:2026.6.0
     restart: unless-stopped
@@ -105,7 +118,7 @@ services:
       TUNNEL_METRICS: 0.0.0.0:2000
     ports:
       - "127.0.0.1:2000:2000"
-    depends_on: [api, web, admin, econt]
+    depends_on: [api, web, admin, econt, delivery-web]
 
 volumes:
   pgdata:

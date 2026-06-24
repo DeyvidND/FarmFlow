@@ -44,6 +44,10 @@ jobs:
             dockerfile: admin/Dockerfile
             build_args: |
               NEXT_PUBLIC_SENTRY_DSN=${{ vars.FF_SENTRY_DSN_ADMIN }}
+          - app: delivery-web
+            image: ghcr.io/deyvidnd/farmflow-delivery-web
+            dockerfile: delivery-web/Dockerfile
+            build_args: ''
           # NOTE: the monorepo Next.js storefront is NOT deployed — the public
           # shop is the separate Astro repo (fermerski-pazar-chaika), which has
           # its own build → GHCR → Dokploy pipeline. The storefront/ workspace is
@@ -108,7 +112,7 @@ jobs:
           script: |
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u DeyvidND --password-stdin
             cd /opt/fermeribg
-            docker compose pull api web admin econt
+            docker compose pull api web admin econt delivery-web
             docker compose up -d
             docker image prune -f
             docker compose ps
