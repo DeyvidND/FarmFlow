@@ -80,6 +80,21 @@ jobs:
     timeout-minutes: 10
     needs: [build]
     steps:
+      # Sync the compose file to the box so service/topology changes (e.g. adding the
+      # `econt` delivery service) ship with a normal deploy — no manual copy. Secrets
+      # still live only in the box's .env (NOT synced). `strip_components: 2` drops the
+      # `infra/hetzner/` prefix so the file lands at /opt/fermeribg/docker-compose.yml.
+      - uses: actions/checkout@v4
+      - name: Sync compose to box
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          source: infra/hetzner/docker-compose.yml
+          target: /opt/fermeribg/
+          strip_components: 2
+
       # SSH to the Hetzner box (plain docker compose, no Dokploy) and pull + up
       # the freshly-built :latest images. The stack lives at /opt/fermeribg.
       # Required: var HETZNER_HOST; secrets HETZNER_SSH_KEY (private key for root)
@@ -93,7 +108,7 @@ jobs:
           script: |
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u DeyvidND --password-stdin
             cd /opt/fermeribg
-            docker compose pull api web admin
+            docker compose pull api web admin econt
             docker compose up -d
             docker image prune -f
             docker compose ps

@@ -13,9 +13,10 @@ the box). Secrets are NOT here: `.env` lives only on the box (600, root).
 
 - Hetzner CX23 (2 vCPU / 4 GB / 40 GB), Ubuntu, Helsinki.
 - Stack at `/opt/fermeribg/`. App images pulled from GHCR (`farmflow-{api,web,admin}`).
-- Deploy: push to `main` → `.github/workflows/deploy.yml` builds the images and
-  SSHes to the box to `docker compose pull && up`. The compose file itself is NOT
-  synced by CI — update it by copying the version here to the box.
+- Deploy: push to `main` → `.github/workflows/deploy.yml` builds the images, `scp`s
+  this `docker-compose.yml` to the box, then SSHes to `docker compose pull && up`. So
+  service/topology changes (e.g. the `econt` service) ship with a normal deploy — no
+  manual copy. Only the box's `.env` (secrets) and the Cloudflare tunnel are by hand.
 
 ## Files
 
@@ -69,13 +70,17 @@ Already wired in `docker-compose.yml` as the `econt` service:
   and the optional `OPENAI_API_KEY` / `NEKOREKTEN_API_KEY` / `SPEEDY_DEFAULT_SERVICE_ID`.
 
 **To bring it live (operator):**
-1. Pull the new image + apply the compose: on the box, copy this `docker-compose.yml`
-   to `/opt/fermeribg/`, fill the new keys in `.env` (`CORS_ORIGIN_ECONT=https://dostavki.fermeribg.com`,
-   plus any of OPENAI/NEKOREKTEN/Speedy you want active), then `docker compose pull && docker compose up -d`.
-2. **Connect the tunnel:** in the Cloudflare Tunnel, add a Public Hostname
-   `dostavki.fermeribg.com` → service `http://econt:3100`. DNS auto-creates.
+1. **Merge to `main`.** CI builds the api image, `scp`s this compose to the box, and
+   runs `docker compose pull … econt && up -d` — the `econt` service starts. No manual
+   copy. `CORS_ORIGIN_ECONT` is set inline in compose, so it boots with **no `.env`
+   change** (AI/COD-risk just stay degraded until their keys are added — see below).
+2. **Connect the tunnel** (the one manual step — token tunnel, dashboard-managed): in
+   the Cloudflare Tunnel, add a Public Hostname `dostavki.fermeribg.com` → service
+   `http://econt:3100`. DNS auto-creates.
 3. Verify: `https://dostavki.fermeribg.com/app` loads; `GET /shipping/compare` without
    a token returns 401 (route mounted + guarded).
+4. _Optional, later:_ add `OPENAI_API_KEY` / `NEKOREKTEN_API_KEY` / `SPEEDY_DEFAULT_SERVICE_ID`
+   to the box `.env` and `docker compose up -d econt` to enable AI validation / COD-risk.
 
 ⚠️ Before any farm relies on a carrier, live-verify the docs-built fields (Speedy
 `serviceId`/price/EUR/validate/track/payments; Econt create/courier/profiles; nekorekten
