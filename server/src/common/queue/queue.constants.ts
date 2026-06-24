@@ -5,3 +5,4 @@ export const BILLING_QUEUE = 'billing';
 export const IMAGE_QUEUE = 'image';
 export const CLEANUP_QUEUE = 'cleanup';
 export const ECONT_QUEUE = 'econt';
+export const SPEEDY_QUEUE = 'speedy';
