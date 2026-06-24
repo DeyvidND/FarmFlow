@@ -18,9 +18,11 @@ import { GlobalExceptionFilter } from '../../common/filters/global-exception.fil
 // FarmFlow's `/auth/*` and `/econt/*` controllers on the standalone domain.
 import { AuthCoreModule } from '../auth/auth-core.module';
 import { EcontCoreModule } from '../econt/econt-core.module';
+import { SpeedyCoreModule } from '../speedy/speedy-core.module';
 import { StandaloneAuthService } from './standalone-auth.service';
 import { StandaloneAuthController } from './standalone-auth.controller';
 import { EcontStandaloneController } from './econt-standalone.controller';
+import { SpeedyStandaloneController } from '../speedy/speedy-standalone.controller';
 import { ActivationGuard } from './activation.guard';
 
 @Module({
@@ -47,8 +49,9 @@ import { ActivationGuard } from './activation.guard';
     PublicCacheModule,
     AuthCoreModule, // JwtModule + JwtStrategy + AuthService (no /auth/* controller)
     EcontCoreModule, // EcontService + ShipmentEmailService (no /econt/* controllers)
+    SpeedyCoreModule, // SpeedyService + refresh queue/processor (no /speedy/* controllers)
   ],
-  controllers: [StandaloneAuthController, EcontStandaloneController],
+  controllers: [StandaloneAuthController, EcontStandaloneController, SpeedyStandaloneController],
   providers: [
     StandaloneAuthService,
     ActivationGuard,
