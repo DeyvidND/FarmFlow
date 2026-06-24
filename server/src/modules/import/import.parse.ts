@@ -17,12 +17,16 @@ export const HEADER_ALIASES: Record<string, string[]> = {
   carrier: ['куриер', 'carrier', 'превозвач'],
 };
 
-/** Normalize a header cell for matching: lowercase, strip spaces + punctuation. */
+/**
+ * Normalize a header cell for matching: lowercase, then drop everything that
+ * isn't a letter or digit (Unicode-aware, so Cyrillic survives). This way unit
+ * suffixes and punctuation — e.g. "Тегло (кг)", "Наложен платеж" — still match
+ * the alphanumeric aliases below.
+ */
 function normHeader(h: string): string {
   return String(h ?? '')
     .toLowerCase()
-    .replace(/[\s./_-]+/g, '')
-    .trim();
+    .replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 /** Build header-index → canonical-key map. Unknown headers are dropped. */

@@ -32,6 +32,12 @@ describe('parseFile', () => {
     expect(rows).toEqual([{ name: 'Мария', phone: '0899111222' }]);
   });
 
+  it('matches headers carrying units/punctuation, like the template ("Тегло (кг)")', async () => {
+    const csv = 'Получател,Тегло (кг),Наложен платеж\nИван,2,20\n';
+    const rows = await parseFile(Buffer.from(csv, 'utf8'), 'list.csv');
+    expect(rows[0]).toMatchObject({ name: 'Иван', weight: '2', cod: '20' });
+  });
+
   it('exposes a canonical alias map', () => {
     expect(HEADER_ALIASES.name).toContain('получател');
     expect(HEADER_ALIASES.carrier).toContain('куриер');
