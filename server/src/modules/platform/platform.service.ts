@@ -52,6 +52,7 @@ import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { sanitizeSiteUrl } from '../tenants/site-copy';
 import { DEMO_SEED } from './demo-seed';
 import { withEcontActive } from '../econt-app/econt-app.helpers';
+import { farmDefaultSettings } from './platform.helpers';
 
 export interface PlatformTenantRow {
   id: string;
@@ -688,20 +689,7 @@ export class PlatformService {
         // pickup ON. Seed the brand colour under settings.brand (where the storefront
         // and Контакти read it) when auto-extracted from the logo at onboarding.
         deliveryEnabled: true,
-        settings: {
-          ...(dto.themeColor ? { brand: { themeColor: dto.themeColor } } : {}),
-          delivery: {
-            methods: {
-              pickup: { enabled: true },
-              ownSlots: { enabled: false },
-              econtOffice: { enabled: false },
-              econtAddress: { enabled: false },
-            },
-            cod: { enabled: true },
-            card: { enabled: true },
-            econt: { mode: 'off' },
-          },
-        },
+        settings: farmDefaultSettings(dto.themeColor),
       })
       .returning();
 
@@ -752,19 +740,7 @@ export class PlatformService {
         deliveryEnabled: true,
         isDemo: true,
         demoExpiresAt: expiresAt,
-        settings: {
-          delivery: {
-            methods: {
-              pickup: { enabled: true },
-              ownSlots: { enabled: false },
-              econtOffice: { enabled: false },
-              econtAddress: { enabled: false },
-            },
-            cod: { enabled: true },
-            card: { enabled: true },
-            econt: { mode: 'off' },
-          },
-        },
+        settings: farmDefaultSettings(),
       })
       .returning();
 
