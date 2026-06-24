@@ -394,6 +394,9 @@ export const shipments = pgTable(
     // Econt courier-pickup request lifecycle (requestCourier / getRequestCourierStatus).
     courierRequestId: text('courier_request_id'),
     courierRequestStatus: text('courier_request_status'),
+    // nekorekten reporting lifecycle for a returned/refused COD parcel:
+    // 'none' (default) → 'candidate' (cron flagged it) → 'reported' | 'refuted'.
+    reportStatus: text('report_status').notNull().default('none'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },
@@ -401,6 +404,33 @@ export const shipments = pgTable(
     orderUnique: uniqueIndex('shipments_order_unique').on(t.orderId),
     // Tenant-scoped shipment list + scoped delete.
     tenantIdx: index('shipments_tenant_idx').on(t.tenantId),
+  }),
+);
+
+// Cross-tenant COD-risk registry: one row per normalized customer phone, counting
+// refused/returned cash-on-delivery parcels seen across ALL farms (network effect).
+export const codRisk = pgTable('cod_risk', {
+  phone: text('phone').primaryKey(), // normalized E.164 BG, e.g. +359888123456
+  strikes: integer('strikes').notNull().default(0),
+  lastEventType: text('last_event_type'),
+  lastEventAt: timestamp('last_event_at', { withTimezone: true }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// Append-only provenance for each strike / report (who saw it, on which shipment).
+export const codRiskEvents = pgTable(
+  'cod_risk_events',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    phone: text('phone').notNull(),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    shipmentId: uuid('shipment_id').references(() => shipments.id),
+    type: text('type').notNull(), // 'returned' | 'refused' | 'reported'
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    phoneIdx: index('cod_risk_events_phone_idx').on(t.phone),
   }),
 );
 

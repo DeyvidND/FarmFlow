@@ -393,6 +393,13 @@
       "when": 1782303069570,
       "tag": "0055_smooth_galactus",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1782310269928,
+      "tag": "0056_nice_paladin",
+      "breakpoints": true
     }
   ]
 }
