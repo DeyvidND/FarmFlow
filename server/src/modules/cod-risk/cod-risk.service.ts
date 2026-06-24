@@ -1,0 +1,111 @@
+import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
+import { and, eq, sql } from 'drizzle-orm';
+import { type Database, shipments, orders, codRisk, codRiskEvents } from '@fermeribg/db';
+import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { NekorektenClient } from './nekorekten.client';
+import { normalizePhone, riskVerdict, isReturnedStatus, buildReportText, type RiskVerdict, type NekorektenCheck } from './cod-risk.helpers';
+
+@Injectable()
+export class CodRiskService {
+  constructor(
+    @Inject(DB_TOKEN) private readonly db: Database,
+    private readonly nekorekten: NekorektenClient,
+  ) {}
+
+  /** Combined risk view for a phone: our strikes + nekorekten reports + a verdict. */
+  async check(rawPhone: string): Promise<{
+    phone: string | null;
+    internalStrikes: number;
+    nekorekten: NekorektenCheck;
+    verdict: RiskVerdict;
+  }> {
+    const phone = normalizePhone(rawPhone);
+    if (!phone) {
+      return { phone: null, internalStrikes: 0, nekorekten: { configured: this.nekorekten.configured, found: false, count: 0, reports: [] }, verdict: 'ok' };
+    }
+    const [row] = await this.db
+      .select({ strikes: codRisk.strikes })
+      .from(codRisk)
+      .where(eq(codRisk.phone, phone))
+      .limit(1);
+    const internalStrikes = row?.strikes ?? 0;
+    const nk = await this.nekorekten.checkPhone(phone);
+    return { phone, internalStrikes, nekorekten: nk, verdict: riskVerdict(internalStrikes, nk.count) };
+  }
+
+  /** Called from the Econt refresh hook. Idempotent: only the first transition of a
+   *  COD shipment into a returned/refused status records a strike + a candidate. */
+  async recordReturnIfApplicable(shipment: typeof shipments.$inferSelect): Promise<void> {
+    if (shipment.codAmountStotinki == null) return; // not a COD parcel
+    if (!isReturnedStatus(shipment.status)) return;
+    if (shipment.reportStatus && shipment.reportStatus !== 'none') return; // already handled
+
+    let rawPhone: string | null = shipment.receiverPhone;
+    if (!rawPhone && shipment.orderId) {
+      const [o] = await this.db
+        .select({ phone: orders.customerPhone })
+        .from(orders)
+        .where(eq(orders.id, shipment.orderId))
+        .limit(1);
+      rawPhone = o?.phone ?? null;
+    }
+    const phone = normalizePhone(rawPhone ?? '');
+
+    // Mark the shipment so we never re-process it, even if we couldn't key a phone.
+    await this.db.update(shipments).set({ reportStatus: 'candidate' }).where(eq(shipments.id, shipment.id));
+    if (!phone) return;
+
+    await this.db
+      .insert(codRisk)
+      .values({ phone, strikes: 1, lastEventType: 'returned', lastEventAt: new Date() })
+      .onConflictDoUpdate({
+        target: codRisk.phone,
+        set: { strikes: sql`${codRisk.strikes} + 1`, lastEventType: 'returned', lastEventAt: new Date(), updatedAt: new Date() },
+      });
+    await this.db.insert(codRiskEvents).values({ phone, tenantId: shipment.tenantId, shipmentId: shipment.id, type: 'returned' });
+  }
+
+  /** Returned-COD shipments for this tenant awaiting a report decision. */
+  async listCandidates(tenantId: string): Promise<Array<{ shipmentId: string; receiverName: string | null; phone: string | null; codAmountStotinki: number | null }>> {
+    const rows = await this.db
+      .select({
+        shipmentId: shipments.id,
+        receiverName: shipments.receiverName,
+        receiverPhone: shipments.receiverPhone,
+        codAmountStotinki: shipments.codAmountStotinki,
+      })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, tenantId), eq(shipments.reportStatus, 'candidate')));
+    return rows.map((r) => ({
+      shipmentId: r.shipmentId,
+      receiverName: r.receiverName,
+      phone: normalizePhone(r.receiverPhone ?? ''),
+      codAmountStotinki: r.codAmountStotinki,
+    }));
+  }
+
+  /** Farmer-confirmed: report this returned COD shipment to nekorekten (under the
+   *  platform account). Tenant-scoped. Keeps the candidate on failure for retry. */
+  async confirmReport(tenantId: string, shipmentId: string): Promise<{ reported: true }> {
+    const [s] = await this.db
+      .select()
+      .from(shipments)
+      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)))
+      .limit(1);
+    if (!s) throw new NotFoundException('Пратката не е намерена');
+
+    let rawPhone: string | null = s.receiverPhone;
+    if (!rawPhone && s.orderId) {
+      const [o] = await this.db.select({ phone: orders.customerPhone }).from(orders).where(eq(orders.id, s.orderId)).limit(1);
+      rawPhone = o?.phone ?? null;
+    }
+    const phone = normalizePhone(rawPhone ?? '');
+    if (!phone) throw new BadRequestException('Няма валиден телефон за докладване');
+
+    await this.nekorekten.reportPhone({ phone, text: buildReportText(s), name: s.receiverName ?? undefined });
+
+    await this.db.update(shipments).set({ reportStatus: 'reported' }).where(eq(shipments.id, shipmentId));
+    await this.db.insert(codRiskEvents).values({ phone, tenantId, shipmentId, type: 'reported' });
+    return { reported: true };
+  }
+}
