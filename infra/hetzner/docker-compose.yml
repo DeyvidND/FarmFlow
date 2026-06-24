@@ -1,5 +1,5 @@
 # ФермериБГ core stack — single Hetzner box, plain docker compose (no Dokploy).
-# postgres + redis + api + web + admin + cloudflared tunnel.
+# postgres + redis + api + web + admin + econt (standalone delivery) + cloudflared tunnel.
 # Public ingress = Cloudflare Tunnel (outbound) — no host ports, no TLS here.
 # api loads the full secret set via env_file (.env) for parity with the old
 # Dokploy env; DATABASE_URL / REDIS_URL are overridden to the new internal hosts.
@@ -68,6 +68,30 @@ services:
       NODE_ENV: production
       API_URL: http://api:3000
 
+  # Standalone delivery app (dostavki.fermeribg.com). SAME image as api, different
+  # entrypoint (dist/main.econt.js, listens on 3100). APP_ROLE=web so the Econt/Speedy
+  # 30-min refresh crons run ONLY in the api container — this one must NOT double-run
+  # them. No published port: the Cloudflare tunnel routes the hostname to econt:3100
+  # over the compose network. depends_on api so DB migrations (api runs them on boot)
+  # are applied before this starts.
+  econt:
+    image: ghcr.io/deyvidnd/farmflow-api:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    command: ["node", "dist/main.econt.js"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      api: { condition: service_started }
+    env_file: [.env]
+    environment:
+      NODE_ENV: production
+      APP_ROLE: web
+      PORT_ECONT: "3100"
+      DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      CORS_ORIGIN_ECONT: https://dostavki.fermeribg.com
+
   cloudflared:
     image: cloudflare/cloudflared:2026.6.0
     restart: unless-stopped
@@ -81,7 +105,7 @@ services:
       TUNNEL_METRICS: 0.0.0.0:2000
     ports:
       - "127.0.0.1:2000:2000"
-    depends_on: [api, web, admin]
+    depends_on: [api, web, admin, econt]
 
 volumes:
   pgdata:

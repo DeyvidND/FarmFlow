@@ -120,4 +120,13 @@ export const envValidationSchema = Joi.object({
   //     AI column-mapping/address-fix degrades gracefully when unset) ---
   OPENAI_API_KEY: Joi.string().optional().allow(''),
   OPENAI_IMPORT_MODEL: Joi.string().optional().allow(''),
+  // --- COD-risk registry (nekorekten.com bridge — optional; the check/report is
+  //     inert and degrades silently when unset, never blocks a flow) ---
+  NEKOREKTEN_API_KEY: Joi.string().optional().allow(''),
+  // --- Standalone delivery app (main.econt.ts on its own service) ---
+  // Port the standalone app listens on (default 3100). CORS allow-list for its UI
+  // origin(s), comma-separated. Speedy fallback serviceId when a tenant hasn't set one.
+  PORT_ECONT: Joi.number().optional(),
+  CORS_ORIGIN_ECONT: Joi.string().optional().allow(''),
+  SPEEDY_DEFAULT_SERVICE_ID: Joi.number().optional(),
 });
