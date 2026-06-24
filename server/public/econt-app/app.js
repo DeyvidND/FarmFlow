@@ -77,8 +77,14 @@ function importApp() {
       const res = await this.api(`/import/batches/${this.batchId}`);
       this.rows = (await res.json()).rows;
     },
-    labelsUrl() {
-      return `/shipping/labels.pdf?ids=${this.createdIds.join(',')}`;
+    // Committed shipment ids for one carrier (read from refreshed rows, which carry
+    // both shipmentId + carrier). Each carrier has its own label-merge route.
+    labelIds(carrier) {
+      return this.rows.filter((r) => r.shipmentId && r.carrier === carrier).map((r) => r.shipmentId);
+    },
+    labelsUrl(carrier) {
+      const ids = this.labelIds(carrier).join(',');
+      return carrier === 'speedy' ? `/speedy/labels.pdf?ids=${ids}` : `/shipping/labels.pdf?ids=${ids}`;
     },
     async downloadTemplate() {
       const res = await this.api('/import/template.xlsx');

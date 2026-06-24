@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Масов внос на пратки</title>
-  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 1rem auto; padding: 0 1rem; }
     table { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -47,7 +47,8 @@
           <div class="bar">
             <span x-text="`Зелени: ${count('ok')} · Жълти: ${count('warn')} · Червени: ${count('error')}`"></span>
             <button @click="commit()" :disabled="committing">Създай пратки</button>
-            <a x-show="createdIds.length" :href="labelsUrl()" target="_blank">Свали етикети</a>
+            <a x-show="labelIds('econt').length" :href="labelsUrl('econt')" target="_blank">Свали етикети (Econt)</a>
+            <a x-show="labelIds('speedy').length" :href="labelsUrl('speedy')" target="_blank">Свали етикети (Speedy)</a>
           </div>
           <table>
             <thead><tr><th>#</th><th>Получател</th><th>Телефон</th><th>Реж.</th><th>Град</th><th>Офис/Адрес</th><th>Тегло(г)</th><th>НП(ст.)</th><th>Куриер</th><th>Проблеми</th><th></th></tr></thead>
@@ -59,7 +60,10 @@
                   <td><input x-model="r.receiverPhone" @change="save(r)" /></td>
                   <td><select x-model="r.deliveryMode" @change="save(r)"><option value="office">офис</option><option value="address">адрес</option></select></td>
                   <td><input x-model="r.city" @change="save(r)" /></td>
-                  <td><input x-model="r.deliveryMode === 'office' ? r.office : r.address" @change="save(r)" /></td>
+                  <td>
+                    <input x-show="r.deliveryMode === 'office'" x-model="r.office" @change="save(r)" />
+                    <input x-show="r.deliveryMode !== 'office'" x-model="r.address" @change="save(r)" />
+                  </td>
                   <td><input type="number" x-model.number="r.weightGrams" @change="save(r)" /></td>
                   <td><input type="number" x-model.number="r.codAmountStotinki" @change="save(r)" /></td>
                   <td><select x-model="r.carrier" @change="save(r)"><option value="econt">Econt</option><option value="speedy">Speedy</option></select></td>

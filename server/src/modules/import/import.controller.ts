@@ -18,7 +18,7 @@ export class ImportController {
 
   // Validating an upload calls OpenAI + courier lookups → throttle, but no activation
   // gate (it's pre-purchase, like the cheapest-quote feature).
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('batches')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
   create(
