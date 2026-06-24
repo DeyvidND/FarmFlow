@@ -72,6 +72,8 @@ export interface PlatformTenantDetail {
   multiFarmer: boolean;
   multiSubcat: boolean;
   econtConfigured: boolean;
+  /** True when the farm also has the standalone delivery service enabled. */
+  deliveryAccount: boolean;
   stripeConnected: boolean;
   /** Set by the super-admin — used by the farm's „Редактирай сайта" button. */
   siteUrl?: string | null;
@@ -284,3 +286,85 @@ export const changePassword = async (data: { currentPassword: string; newPasswor
     throw new ApiError(res.status, firstApiMessage(body, 'Неуспешна смяна на паролата'));
   }
 };
+
+// ── Delivery accounts (standalone Econt/Speedy service) ──
+export interface DeliveryOverview {
+  total: number;
+  codPendingStotinki: number;
+  codCollectedStotinki: number;
+  econt: number;
+  speedy: number;
+  lastShipmentAt: string | null;
+}
+
+export interface DeliveryAccount {
+  id: string;
+  name: string;
+  slug: string;
+  email: string | null;
+  phone: string | null;
+  type: 'delivery' | 'farm' | 'both';
+  active: boolean;
+  createdAt: string | null;
+  overview: DeliveryOverview;
+}
+
+export interface DeliveryShipment {
+  id: string;
+  carrier: string;
+  status: string;
+  codAmountStotinki: number | null;
+  codCollectedAt: string | null;
+  createdAt: string | null;
+  trackingNumber: string | null;
+  econtShipmentNumber: string | null;
+}
+
+export interface DeliveryAccountDetail extends DeliveryAccount {
+  recentShipments: DeliveryShipment[];
+}
+
+export const listDeliveryAccounts = (cursor?: string) =>
+  apiFetch<Paginated<DeliveryAccount>>(
+    `platform/delivery/accounts${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+  );
+
+export const getDeliveryAccount = (id: string) =>
+  apiFetch<DeliveryAccountDetail>(`platform/delivery/accounts/${id}`);
+
+export const createDeliveryAccount = (data: {
+  email: string;
+  password: string;
+  name: string;
+  phone?: string;
+  shop: boolean;
+  delivery: boolean;
+  active: boolean;
+}) =>
+  apiFetch<{ id: string; name: string; slug: string; email: string; password: string }>(
+    'platform/delivery/accounts',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(data),
+    },
+    'Неуспешно създаване на акаунт',
+  );
+
+export const setDeliveryActive = (id: string, active: boolean) =>
+  apiFetch<{ id: string; active: boolean }>(
+    `platform/delivery/accounts/${id}/active`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ active }),
+    },
+    'Неуспешна промяна на услугата',
+  );
+
+export const enableDeliveryOnFarm = (id: string) =>
+  apiFetch<{ id: string; delivery: boolean }>(
+    `platform/delivery/accounts/${id}/enable-delivery`,
+    { method: 'PATCH' },
+    'Неуспешно включване на доставка',
+  );
