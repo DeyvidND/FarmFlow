@@ -9,6 +9,8 @@ import { mergeAi, ImportAiService } from './import.ai';
 import { ImportResolveService } from './import.resolve';
 import type { BatchDefaults, NormalizedRow, RowStatus } from './import.types';
 import { ImportSettingsDto } from './dto/import-settings.dto';
+import { EcontService } from '../econt/econt.service';
+import { SpeedyService } from '../speedy/speedy.service';
 
 const MAX_ROWS = 200;
 
@@ -18,6 +20,8 @@ export class ImportService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly ai: ImportAiService,
     private readonly resolver: ImportResolveService,
+    private readonly econtSvc: EcontService,
+    private readonly speedySvc: SpeedyService,
   ) {}
 
   /** Parse + validate + resolve + AI-check an uploaded file → a persisted draft batch. */
@@ -177,5 +181,75 @@ export class ImportService {
       .returning({ id: importRows.id });
     if (!res.length) throw new NotFoundException('Редът не е намерен');
     return { deleted: true };
+  }
+
+  /** Create real shipments for every committable row (ok, or warn the user accepted).
+   *  Per-row try/catch → one failure is isolated; the rest still get created. */
+  async commit(tenantId: string, batchId: string) {
+    const { batch, rows } = await this.getBatch(tenantId, batchId);
+    const speedyServiceId = (batch.settings as { speedyServiceId?: number } | null)?.speedyServiceId;
+
+    const results: Array<{ rowId: string; status: 'created' | 'failed' | 'skipped'; shipmentId?: string; error?: string }> = [];
+    for (const row of rows) {
+      if (row.shipmentId) { results.push({ rowId: row.id, status: 'skipped' }); continue; }
+      if (row.validationStatus === 'error') { results.push({ rowId: row.id, status: 'skipped' }); continue; }
+      try {
+        const shipmentId = row.carrier === 'speedy'
+          ? await this.createSpeedy(tenantId, row, speedyServiceId)
+          : await this.createEcont(tenantId, row);
+        await this.db.update(importRows).set({ shipmentId, createStatus: 'created', createError: null })
+          .where(and(eq(importRows.id, row.id), eq(importRows.tenantId, tenantId)));
+        results.push({ rowId: row.id, status: 'created', shipmentId });
+      } catch (e) {
+        const error = String((e as Error)?.message ?? e).slice(0, 240);
+        await this.db.update(importRows).set({ createStatus: 'failed', createError: error })
+          .where(and(eq(importRows.id, row.id), eq(importRows.tenantId, tenantId)));
+        results.push({ rowId: row.id, status: 'failed', error });
+      }
+    }
+
+    const created = results.filter((r) => r.status === 'created').length;
+    const failed = results.filter((r) => r.status === 'failed').length;
+    await this.db.update(importBatches).set({ status: failed ? 'partial' : 'done' })
+      .where(and(eq(importBatches.id, batchId), eq(importBatches.tenantId, tenantId)));
+    return { created, failed, results };
+  }
+
+  private async createEcont(tenantId: string, row: typeof importRows.$inferSelect): Promise<string> {
+    const refs = (row.resolvedRefs as { econtOfficeCode?: string } | null) ?? {};
+    const ship = await this.econtSvc.createManualShipment(tenantId, {
+      receiverName: row.receiverName ?? '',
+      receiverPhone: row.receiverPhone ?? '',
+      deliveryMode: row.deliveryMode as 'office' | 'address',
+      receiverOfficeCode: refs.econtOfficeCode ?? row.office ?? undefined,
+      receiverCity: row.city ?? undefined,
+      receiverAddress: row.address ?? undefined,
+      weightGrams: row.weightGrams ?? undefined,
+      contents: row.contents ?? undefined,
+      codAmountStotinki: row.codAmountStotinki ?? undefined,
+      declaredValueStotinki: row.declaredValueStotinki ?? undefined,
+    });
+    return ship.id;
+  }
+
+  private async createSpeedy(tenantId: string, row: typeof importRows.$inferSelect, batchServiceId?: number): Promise<string> {
+    const refs = (row.resolvedRefs as { siteId?: number; officeId?: number; streetId?: number } | null) ?? {};
+    const serviceId = batchServiceId;
+    if (!serviceId) throw new Error('Липсва Speedy serviceId за партидата');
+    const ship = await this.speedySvc.createManualShipment(tenantId, {
+      receiverName: row.receiverName ?? '',
+      receiverPhone: row.receiverPhone ?? '',
+      deliveryMode: row.deliveryMode as 'office' | 'address',
+      officeId: refs.officeId,
+      siteId: refs.siteId,
+      streetId: refs.streetId,
+      streetNo: row.streetNo ?? undefined,
+      serviceId,
+      weightGrams: row.weightGrams ?? undefined,
+      contents: row.contents ?? undefined,
+      codAmountStotinki: row.codAmountStotinki ?? undefined,
+      declaredValueStotinki: row.declaredValueStotinki ?? undefined,
+    });
+    return ship.id;
   }
 }
