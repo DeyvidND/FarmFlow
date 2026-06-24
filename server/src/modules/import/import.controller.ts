@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Param, UseGuards,
-  UploadedFile, UseInterceptors, ParseUUIDPipe, BadRequestException,
+  UploadedFile, UseInterceptors, ParseUUIDPipe, BadRequestException, Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
@@ -28,6 +28,20 @@ export class ImportController {
   ) {
     if (!file) throw new BadRequestException('Липсва файл');
     return this.svc.createBatch(t, file, settings);
+  }
+
+  @Get('template.xlsx')
+  async template(@Res() res: import('express').Response) {
+    const ExcelJS = await import('exceljs');
+    const wb = new (ExcelJS as any).Workbook();
+    const ws = wb.addWorksheet('Пратки');
+    ws.addRow(['Получател', 'Телефон', 'Доставка', 'Град', 'Офис', 'Адрес', 'Тегло (кг)', 'Съдържание', 'Наложен платеж', 'Обявена стойност', 'Куриер']);
+    ws.addRow(['Иван Иванов', '0888123456', 'офис', 'Бургас', 'Изгрев', '', '2', 'Зеленчуци', '20', '', 'Econt']);
+    ws.addRow(['Мария Петрова', '0899111222', 'адрес', 'София', '', 'ул. Витоша 1', '1.5', 'Мед', '', '', 'Speedy']);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="import-template.xlsx"');
+    await wb.xlsx.write(res);
+    res.end();
   }
 
   @Get('batches/:id')

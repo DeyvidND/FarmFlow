@@ -1,13 +1,16 @@
 import './instrument';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import compression from 'compression';
+import { join } from 'path';
 import { EcontAppModule } from './modules/econt-app/econt-app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(EcontAppModule);
+  const app = await NestFactory.create<NestExpressApplication>(EcontAppModule);
+  app.useStaticAssets(join(__dirname, '..', 'public', 'econt-app'), { prefix: '/app' });
   app.enableShutdownHooks();
 
   const config = app.get(ConfigService);
