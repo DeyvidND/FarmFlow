@@ -22,6 +22,14 @@ const SPEEDY_BASE = 'https://api.speedy.bg/v1';
 const NOMENCLATURE_TTL = 60 * 60 * 24; // 1 day
 const EMPTY_TTL = 60; // negative-cache empty lookups for 60s
 const MAX_BULK_LABELS = 50;
+// Estimate cache: Speedy pricing is stable intraday; 8h balances freshness vs.
+// the latency of a live /calculate call. Weight is bucketed to 0.5kg so near-
+// identical parcels reuse one entry.
+const ESTIMATE_TTL = 60 * 60 * 8; // 8 hours
+const WEIGHT_BUCKET_KG = 0.5;
+// Fallback Speedy courier-service code when the tenant set no defaultServiceId.
+// spike: confirm a valid default service id via /services/destination.
+const SPEEDY_DEFAULT_SERVICE_ID = 505;
 
 /** A Speedy shipment row shaped for the standalone shipments table. */
 export interface SpeedyShipment {
@@ -445,5 +453,48 @@ export class SpeedyService {
         .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy'), inArray(shipments.id, sent.map((r) => r.id))));
     }
     return { pickupId, attached: sent.length, skipped: input.shipmentIds.length - sent.length };
+  }
+
+  /** Price-only estimate (Speedy /calculate) for a destination site + weight.
+   *  City-level base shipping (no COD). Returns stotinki, or null on any failure
+   *  (never throws — used by the cross-carrier quote). Cached 8h. */
+  async estimateShipping(
+    tenantId: string,
+    input: { siteId: number; weightGrams?: number },
+  ): Promise<number | null> {
+    try {
+      const { speedy } = await this.loadStored(tenantId);
+      if (!speedy.configured || !input.siteId) return null;
+
+      const weightKg = input.weightGrams ? input.weightGrams / 1000 : (speedy.defaultPackage?.weightKg ?? 1);
+      const weightBucket = Math.ceil(weightKg / WEIGHT_BUCKET_KG) * WEIGHT_BUCKET_KG;
+      const key = `speedy:estimate:${tenantId}:${input.siteId}:${weightBucket}kg`;
+      const cached = await this.cache.get<number>(key);
+      if (cached !== null) return cached;
+
+      const creds = await this.resolveCreds(tenantId);
+      const serviceId = speedy.defaultServiceId ?? SPEEDY_DEFAULT_SERVICE_ID;
+      // Reuse the create-body builder with a placeholder receiver at the site
+      // (address mode → siteId; no COD). /calculate takes the same body as /shipment.
+      const body = buildShipmentRequest(speedy, {
+        receiverName: '—',
+        receiverPhone: '—',
+        deliveryMode: 'address',
+        siteId: input.siteId,
+        serviceId,
+        weightGrams: input.weightGrams,
+      });
+      // Short timeout: this runs inline behind the quote endpoint.
+      const data = await this.client.call(creds, 'calculate', body, 6000);
+      // spike: confirm the /calculate price field name vs live API.
+      const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
+      if (typeof priceEur !== 'number') return null;
+      const stotinki = Math.round(priceEur * 100);
+      await this.cache.set(key, stotinki, ESTIMATE_TTL);
+      return stotinki;
+    } catch (err) {
+      this.logger.warn(`[speedy] estimate failed: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
   }
 }
