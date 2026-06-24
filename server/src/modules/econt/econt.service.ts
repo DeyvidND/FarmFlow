@@ -562,6 +562,7 @@ export class EcontService {
       totalStotinki?: number | null;
     },
     items: { name: string | null; qty: number }[],
+    weightKgOverride?: number,
   ): Promise<number | null> {
     try {
       const { econt } = await this.loadStored(tenantId);
@@ -573,7 +574,7 @@ export class EcontService {
       //   - weightBucket: raw package weight rounded up to nearest 0.5kg so near-
       //     identical baskets reuse the same entry without an extra live call.
       // We deliberately exclude customerName/phone — those don't affect price.
-      const rawWeightKg = (econt.defaultPackage?.weightKg ?? 1);
+      const rawWeightKg = weightKgOverride ?? (econt.defaultPackage?.weightKg ?? 1);
       const weightBucket = this.bucketWeight(rawWeightKg);
       const destination =
         order.deliveryType === 'econt_address'
@@ -584,7 +585,13 @@ export class EcontService {
       const cachedEstimate = await this.cache.get<number>(estimateKey);
       if (cachedEstimate !== null) return cachedEstimate;
 
-      const label = this.buildLabel(econt, order, items);
+      // When the caller supplies a weight (the cross-carrier quote), price THAT
+      // weight rather than the farm's default package — so both carriers compare
+      // the same parcel. Existing callers omit it and keep today's behavior.
+      const econtForLabel = weightKgOverride != null
+        ? { ...econt, defaultPackage: { ...econt.defaultPackage, weightKg: weightKgOverride } }
+        : econt;
+      const label = this.buildLabel(econtForLabel, order, items);
       // Short timeout: this runs inline during checkout, so prefer the flat-fee
       // fallback over making the customer wait on a slow courier API.
       const data = await this.callTenant(
