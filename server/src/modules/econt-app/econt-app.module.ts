@@ -24,6 +24,8 @@ import { StandaloneAuthController } from './standalone-auth.controller';
 import { EcontStandaloneController } from './econt-standalone.controller';
 import { SpeedyStandaloneController } from '../speedy/speedy-standalone.controller';
 import { ActivationGuard } from './activation.guard';
+import { ShippingQuoteService } from './shipping-quote.service';
+import { ShippingQuoteController } from './shipping-quote.controller';
 
 @Module({
   imports: [
@@ -51,10 +53,11 @@ import { ActivationGuard } from './activation.guard';
     EcontCoreModule, // EcontService + ShipmentEmailService (no /econt/* controllers)
     SpeedyCoreModule, // SpeedyService + refresh queue/processor (no /speedy/* controllers)
   ],
-  controllers: [StandaloneAuthController, EcontStandaloneController, SpeedyStandaloneController],
+  controllers: [StandaloneAuthController, EcontStandaloneController, SpeedyStandaloneController, ShippingQuoteController],
   providers: [
     StandaloneAuthService,
     ActivationGuard,
+    ShippingQuoteService,
     // Flood protection first.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Same default-deny + force-change-password posture as the main API, so the
