@@ -1,36 +1,91 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, desc } from 'drizzle-orm';
 import { type Database, shipments, orders, codRisk, codRiskEvents } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { NekorektenClient } from './nekorekten.client';
-import { normalizePhone, riskVerdict, isReturnedStatus, buildReportText, type RiskVerdict, type NekorektenCheck } from './cod-risk.helpers';
+import {
+  normalizePhone,
+  riskVerdict,
+  isReturnedStatus,
+  buildReportText,
+  toInternalReports,
+  toNekorektenReports,
+  mergeReports,
+  type NekorektenCheck,
+  type RiskCheckResult,
+} from './cod-risk.helpers';
+
+const NK_CACHE_PREFIX = 'codrisk:nk:';
+const NK_CACHE_TTL = 7 * 24 * 3600; // 7 days — one nekorekten read per phone per week
 
 @Injectable()
 export class CodRiskService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly nekorekten: NekorektenClient,
+    private readonly cache: PublicCacheService,
   ) {}
 
-  /** Combined risk view for a phone: our strikes + nekorekten reports + a verdict. */
-  async check(rawPhone: string): Promise<{
-    phone: string | null;
-    internalStrikes: number;
-    nekorekten: NekorektenCheck;
-    verdict: RiskVerdict;
-  }> {
+  /** Combined risk view for a phone — OUR DB first, then nekorekten only when needed
+   *  (short-circuit when our strikes already flag `high`; otherwise a 7d Redis cache
+   *  means at most one API call per phone per week). Our records + theirs come back in
+   *  one unified `reports[]` shape. */
+  async check(rawPhone: string): Promise<RiskCheckResult> {
     const phone = normalizePhone(rawPhone);
     if (!phone) {
-      return { phone: null, internalStrikes: 0, nekorekten: { configured: this.nekorekten.configured, found: false, count: 0, reports: [] }, verdict: 'ok' };
+      return {
+        phone: null,
+        verdict: 'ok',
+        strikes: 0,
+        nekorektenCount: 0,
+        nekorektenConfigured: this.nekorekten.configured,
+        cached: true,
+        reports: [],
+      };
     }
-    const [row] = await this.db
-      .select({ strikes: codRisk.strikes })
-      .from(codRisk)
-      .where(eq(codRisk.phone, phone))
-      .limit(1);
-    const internalStrikes = row?.strikes ?? 0;
-    const nk = await this.nekorekten.checkPhone(phone);
-    return { phone, internalStrikes, nekorekten: nk, verdict: riskVerdict(internalStrikes, nk.count) };
+
+    // Our DB first: strike count + the phone's returned-COD events (newest first).
+    const [strikeRows, events] = await Promise.all([
+      this.db.select({ strikes: codRisk.strikes }).from(codRisk).where(eq(codRisk.phone, phone)).limit(1),
+      this.db
+        .select({ createdAt: codRiskEvents.createdAt, phone: codRiskEvents.phone, type: codRiskEvents.type })
+        .from(codRiskEvents)
+        .where(and(eq(codRiskEvents.phone, phone), eq(codRiskEvents.type, 'returned')))
+        .orderBy(desc(codRiskEvents.createdAt))
+        .limit(20),
+    ]);
+    const strikes = strikeRows[0]?.strikes ?? 0;
+
+    let nk: NekorektenCheck;
+    let cached: boolean;
+    if (riskVerdict(strikes, 0) === 'high') {
+      // Already flagged by our own strikes — don't spend nekorekten quota.
+      nk = { configured: this.nekorekten.configured, found: false, count: 0, reports: [] };
+      cached = true;
+    } else {
+      const key = `${NK_CACHE_PREFIX}${phone}`;
+      const hit = await this.cache.get<NekorektenCheck>(key).catch(() => null);
+      if (hit) {
+        nk = hit;
+        cached = true;
+      } else {
+        nk = await this.nekorekten.checkPhone(phone);
+        cached = false;
+        // Only cache a real (configured) answer — failures degrade to empty and must retry.
+        if (nk.configured) await this.cache.set(key, nk, NK_CACHE_TTL).catch(() => undefined);
+      }
+    }
+
+    return {
+      phone,
+      verdict: riskVerdict(strikes, nk.count),
+      strikes,
+      nekorektenCount: nk.count,
+      nekorektenConfigured: nk.configured,
+      cached,
+      reports: mergeReports(toInternalReports(events, phone), toNekorektenReports(nk)),
+    };
   }
 
   /** Called from the Econt refresh hook. Idempotent: only the first transition of a
