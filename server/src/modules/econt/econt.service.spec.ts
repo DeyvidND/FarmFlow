@@ -98,6 +98,32 @@ describe('EcontService.buildLabel', () => {
     );
     expect([label.shipmentDimensionsL, label.shipmentDimensionsW, label.shipmentDimensionsH]).toEqual([30, 20, 12]);
   });
+
+  it('emits SMS + refrigerated + declared-value services when set', () => {
+    const label = build(
+      { sender, defaultPackage: { weightKg: 1 } },
+      {
+        customerName: 'Х', customerPhone: '0', deliveryType: 'econt', econtOffice: '1',
+        totalStotinki: 1000, paymentMethod: 'cod',
+        smsNotification: true, refrigerated: true, declaredValueStotinki: 5000,
+      },
+    );
+    expect(label.services).toMatchObject({
+      cdAmount: 10, cdType: 'get', cdCurrency: 'EUR',
+      smsNotification: true,
+      refrigeratedPack: 1,
+      declaredValueAmount: 50,
+      declaredValueCurrency: 'EUR',
+    });
+  });
+
+  it('no flags + no COD → no services object at all', () => {
+    const label = build(
+      { sender, defaultPackage: { weightKg: 1 } },
+      { customerName: 'Х', customerPhone: '0', deliveryType: 'econt', econtOffice: '1', totalStotinki: 1000, paymentMethod: 'online' },
+    );
+    expect(label.services).toBeUndefined();
+  });
 });
 
 describe('EcontService.codAmountFor', () => {

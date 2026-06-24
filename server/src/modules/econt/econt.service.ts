@@ -427,6 +427,9 @@ export class EcontService {
       totalStotinki?: number | null;
       paymentMethod?: string | null;
       paidAt?: Date | string | null;
+      smsNotification?: boolean | null;
+      refrigerated?: boolean | null;
+      declaredValueStotinki?: number | null;
     },
     items: { name: string | null; qty: number }[],
   ): Record<string, unknown> {
@@ -470,28 +473,38 @@ export class EcontService {
       label.receiverOfficeCode = order.econtOffice ?? undefined;
     }
 
+    // Assemble optional label `services` (COD + SMS + refrigerated + declared value).
+    // Emitted only when at least one service applies, so a plain shipment sends no
+    // `services` key (keeps the Econt payload minimal + existing tests stable).
+    const services: Record<string, unknown> = {};
+
     // Cash on delivery: collect the order total from the customer (app currency = EUR).
-    // Keyed on the ORDER's own payment choice (наложен платеж), NOT a tenant flag —
-    // and never on an order already paid online (Stripe), so a paid Econt order
-    // can't be charged a second time at the door. The tenant `econt.cod` block
-    // still supplies who pays the courier fee (feePayer).
+    // Keyed on the ORDER's own payment choice, never on an order already paid online,
+    // so a paid Econt order can't be charged a second time at the door.
     const collectCod = order.paymentMethod === 'cod' && !order.paidAt;
     if (collectCod && order.totalStotinki) {
-      label.services = {
-        cdAmount: Math.round(order.totalStotinki) / 100,
-        cdType: 'get',
-        cdCurrency: 'EUR',
-      };
-      // Who covers the courier fee on a COD shipment (top-level ShippingLabel
-      // fields, per the Econt model): 'customer' → the receiver pays cash on
-      // delivery; 'farm' → the sender pays. Empty leaves Econt's per-agreement
-      // default.
+      services.cdAmount = Math.round(order.totalStotinki) / 100;
+      services.cdType = 'get';
+      services.cdCurrency = 'EUR';
+      // Who covers the courier fee on a COD shipment (top-level fields).
       if (econt.cod?.feePayer === 'customer') {
         label.paymentReceiverMethod = 'cash';
       } else if (econt.cod?.feePayer === 'farm') {
         label.paymentSenderMethod = 'cash';
       }
     }
+
+    // SMS to the receiver on the way / on delivery.
+    if (order.smsNotification) services.smsNotification = true;
+    // Refrigerated/perishable handling (Econt `refrigeratedPack` is an int count).
+    if (order.refrigerated) services.refrigeratedPack = 1;
+    // Declared value / insurance (обявена стойност), in EUR.
+    if (order.declaredValueStotinki && order.declaredValueStotinki > 0) {
+      services.declaredValueAmount = Math.round(order.declaredValueStotinki) / 100;
+      services.declaredValueCurrency = 'EUR';
+    }
+
+    if (Object.keys(services).length) label.services = services;
 
     // Package dimensions in cm (top-level ShippingLabel fields). The farm stores
     // a free-text "LxWxH"; only send when it cleanly parses into three positive
@@ -726,12 +739,14 @@ export class EcontService {
       })
       .from(shipments)
       .where(and(eq(shipments.tenantId, tenantId), isNotNull(shipments.codAmountStotinki)));
-    return rows.map((r) => ({
-      orderId: r.orderId,
-      expectedStotinki: r.expected ?? null,
-      collectedAt: r.collectedAt ? r.collectedAt.toISOString() : null,
-      settledAt: r.settledAt ? r.settledAt.toISOString() : null,
-    }));
+    return rows
+      .filter((r): r is typeof r & { orderId: string } => r.orderId !== null)
+      .map((r) => ({
+        orderId: r.orderId,
+        expectedStotinki: r.expected ?? null,
+        collectedAt: r.collectedAt ? r.collectedAt.toISOString() : null,
+        settledAt: r.settledAt ? r.settledAt.toISOString() : null,
+      }));
   }
 
   /**
@@ -795,7 +810,7 @@ export class EcontService {
       .returning();
     const newStatus = uiShipmentStatus(updated.econtShipmentNumber, updated.status);
     if (updated.econtShipmentNumber && shouldNotifyShipped(newStatus, row.customerNotifiedAt)) {
-      await this.shipmentEmail.sendShipped(updated.orderId, updated.econtShipmentNumber);
+      await this.shipmentEmail.sendShipped(updated.orderId!, updated.econtShipmentNumber);
       await this.db
         .update(shipments)
         .set({ customerNotifiedAt: new Date() })
