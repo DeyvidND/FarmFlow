@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape } from './econt.service';
+import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -323,5 +323,24 @@ describe('buildManualOrderShape', () => {
     expect(o.paymentMethod).toBe('online');
     expect(o.totalStotinki).toBeNull();
     expect(o.weightKg).toBeUndefined();
+  });
+});
+
+describe('mapManualShipmentRow', () => {
+  it('maps a stored manual shipment to the admin shape using receiver columns', () => {
+    const out = mapManualShipmentRow({
+      shipmentId: 'aaaa', orderId: null,
+      receiverName: 'Иван', deliveryMode: 'address',
+      shipmentNumber: '1051000000009', shipmentStatus: 'created',
+      courierPrice: 599, labelPdfUrl: 'https://e/x.pdf', codAmount: 2400,
+      trackingJson: null,
+    });
+    expect(out.customerName).toBe('Иван');
+    expect(out.method).toBe('econtAddress');
+    expect(out.status).toBe('created');
+    expect(out.trackingNumber).toBe('1051000000009');
+    expect(out.codAmountStotinki).toBe(2400);
+    expect(out.shipmentId).toBe('aaaa');
+    expect(out.orderNumber).toBe('Ръчна');
   });
 });

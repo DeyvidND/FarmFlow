@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, desc, inArray, ne, isNotNull } from 'drizzle-orm';
+import { and, eq, desc, inArray, ne, isNotNull, isNull } from 'drizzle-orm';
 import { type Database, tenants, orders, orderItems, shipments } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
@@ -831,7 +831,27 @@ export class EcontService {
       )
       .orderBy(desc(orders.createdAt));
 
-    return rows.map(mapShipmentRow);
+    const orderShipments = rows.map(mapShipmentRow);
+
+    // Manual (order-less) shipments created in the standalone app.
+    const manual = await this.db
+      .select({
+        shipmentId: shipments.id,
+        orderId: shipments.orderId,
+        receiverName: shipments.receiverName,
+        deliveryMode: shipments.deliveryMode,
+        shipmentNumber: shipments.econtShipmentNumber,
+        shipmentStatus: shipments.status,
+        courierPrice: shipments.courierPriceStotinki,
+        labelPdfUrl: shipments.labelPdfUrl,
+        codAmount: shipments.codAmountStotinki,
+        trackingJson: shipments.trackingJson,
+      })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, tenantId), isNull(shipments.orderId)))
+      .orderBy(desc(shipments.createdAt));
+
+    return [...manual.map(mapManualShipmentRow), ...orderShipments];
   }
 
   /** Refresh a shipment's status from Econt. */
@@ -972,6 +992,37 @@ export async function mergePdfs(buffers: Buffer[]): Promise<Buffer> {
     }
   }
   return Buffer.from(await merged.save());
+}
+
+/** Raw manual-shipment row (no order join). */
+export interface ManualShipmentRow {
+  shipmentId: string;
+  orderId: string | null;
+  receiverName: string | null;
+  deliveryMode: string | null;
+  shipmentNumber: string | null;
+  shipmentStatus: string | null;
+  courierPrice: number | null;
+  labelPdfUrl: string | null;
+  codAmount: number | null;
+  trackingJson: unknown;
+}
+
+/** Map a stored order-less shipment onto the admin shipments-table shape. */
+export function mapManualShipmentRow(r: ManualShipmentRow): AdminShipment {
+  return {
+    orderId: r.shipmentId, // no order — use the shipment id as the row key
+    orderNumber: 'Ръчна',
+    customerName: r.receiverName ?? '—',
+    method: r.deliveryMode === 'address' ? 'econtAddress' : 'econtOffice',
+    status: uiShipmentStatus(r.shipmentNumber, r.shipmentStatus),
+    trackingNumber: r.shipmentNumber ?? undefined,
+    priceStotinki: r.courierPrice ?? undefined,
+    codAmountStotinki: r.codAmount ?? undefined,
+    labelPdfUrl: r.labelPdfUrl ?? undefined,
+    shipmentId: r.shipmentId,
+    history: mapTrackingEvents(r.trackingJson),
+  };
 }
 
 /** Map a joined query row onto the admin shipments-table shape. */
