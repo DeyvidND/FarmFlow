@@ -756,7 +756,10 @@ export class EcontService {
       .select({ id: shipments.id, number: shipments.econtShipmentNumber })
       .from(shipments)
       .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, input.shipmentIds)));
-    const numbers = rows.map((r) => r.number).filter((n): n is string => !!n);
+    // Only shipments that already have a waybill go into the request — and only
+    // those get the request id stamped back (not every requested id).
+    const sent = rows.filter((r): r is { id: string; number: string } => !!r.number);
+    const numbers = sent.map((r) => r.number);
     if (!numbers.length) throw new BadRequestException('Няма товарителници за заявка на куриер');
 
     const body = buildCourierRequest(econt, numbers, { timeFrom: input.timeFrom, timeTo: input.timeTo });
@@ -769,7 +772,7 @@ export class EcontService {
       await this.db
         .update(shipments)
         .set({ courierRequestId: requestId, courierRequestStatus: status, updatedAt: new Date() })
-        .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, input.shipmentIds)));
+        .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, sent.map((r) => r.id))));
     }
     return { requestId, status };
   }
@@ -849,6 +852,9 @@ export class EcontService {
       })
       .from(shipments)
       .where(and(eq(shipments.tenantId, tenantId), isNotNull(shipments.codAmountStotinki)));
+    // TODO(econt-app v2): order-less standalone shipments with COD are excluded here
+    // (the Плащания screen keys on orderId). Surface their collected/settled state in a
+    // dedicated standalone COD view when the standalone app's payments screen lands.
     return rows
       .filter((r): r is typeof r & { orderId: string } => r.orderId !== null)
       .map((r) => ({
@@ -1034,6 +1040,10 @@ export interface AdminShipment {
   codAmountStotinki?: number;
   labelPdfUrl?: string;
   shipmentId?: string;
+  // True for order-less standalone shipments. For those, `orderId` carries the
+  // shipment id as a row key (there is no order) — consumers must NOT use it as a
+  // navigable order id when `manual` is set.
+  manual?: boolean;
   history: { at: string; label: string; location?: string }[];
 }
 
@@ -1080,6 +1090,7 @@ export function mapManualShipmentRow(r: ManualShipmentRow): AdminShipment {
     codAmountStotinki: r.codAmount ?? undefined,
     labelPdfUrl: r.labelPdfUrl ?? undefined,
     shipmentId: r.shipmentId,
+    manual: true,
     history: mapTrackingEvents(r.trackingJson),
   };
 }
@@ -1280,7 +1291,7 @@ export function buildCourierRequest(
   if (sender.mode === 'address') {
     body.senderAddress = { city: { name: sender.cityName ?? '' }, other: sender.address ?? '' };
   } else {
-    body.senderOfficeCode = sender.officeCode ?? undefined;
+    if (sender.officeCode) body.senderOfficeCode = sender.officeCode;
   }
   if (window.timeFrom) body.requestTimeFrom = window.timeFrom;
   if (window.timeTo) body.requestTimeTo = window.timeTo;

@@ -301,7 +301,7 @@ describe('buildManualOrderShape', () => {
     const o = buildManualOrderShape({
       receiverName: 'Иван', receiverPhone: '0888', deliveryMode: 'office',
       receiverOfficeCode: '1234', weightGrams: 2000, contents: 'мед',
-      codAmountStotinki: 2400, smsNotification: true,
+      codAmountStotinki: 2400, smsNotification: true, refrigerated: true, declaredValueStotinki: 5000,
     });
     expect(o.customerName).toBe('Иван');
     expect(o.deliveryType).toBe('econt');
@@ -310,6 +310,8 @@ describe('buildManualOrderShape', () => {
     expect(o.totalStotinki).toBe(2400);
     expect(o.weightKg).toBe(2);
     expect(o.smsNotification).toBe(true);
+    expect(o.refrigerated).toBe(true);
+    expect(o.declaredValueStotinki).toBe(5000);
   });
 
   it('address + no COD → econt_address shape, online payment, no cod', () => {
@@ -342,6 +344,7 @@ describe('mapManualShipmentRow', () => {
     expect(out.codAmountStotinki).toBe(2400);
     expect(out.shipmentId).toBe('aaaa');
     expect(out.orderNumber).toBe('Ръчна');
+    expect(out.manual).toBe(true);
   });
 });
 
@@ -373,7 +376,7 @@ describe('slimClientProfiles', () => {
   });
   it('tolerates a flat profiles array + shapeless input', () => {
     expect(slimClientProfiles(null)).toEqual([]);
-    expect(slimClientProfiles({ profiles: [{ name: 'Плосък', phones: ['0700'] }] })[0].name).toBe('Плосък');
+    expect(slimClientProfiles({ profiles: [{ name: 'Плосък', phones: ['0700'] }] })[0]).toEqual({ name: 'Плосък', phone: '0700', clientNumber: null });
   });
 });
 
