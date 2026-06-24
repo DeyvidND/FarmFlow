@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { eq } from 'drizzle-orm';
-import { type Database, tenants } from '@fermeribg/db';
+import { and, eq, desc, inArray } from 'drizzle-orm';
+import { type Database, tenants, shipments } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
@@ -9,13 +9,28 @@ import { SpeedyClient, type SpeedyCreds } from './speedy.client';
 import {
   type SpeedyStored, slimSites, slimOffices, slimStreets, slimContractClients,
   type SpeedySite, type SpeedyOffice, type SpeedyStreet, type SenderSuggestion,
+  buildShipmentRequest, parseTrackStatus, type CanonicalStatus,
 } from './speedy.helpers';
+import { mergePdfs } from '../econt/econt.service';
+import { SpeedyManualShipmentDto } from './dto/speedy-manual-shipment.dto';
 import { SpeedyCredentialsDto } from './dto/speedy-credentials.dto';
 import { SpeedyValidateAddressDto } from './dto/speedy-validate-address.dto';
 
 const SPEEDY_BASE = 'https://api.speedy.bg/v1';
 const NOMENCLATURE_TTL = 60 * 60 * 24; // 1 day
 const EMPTY_TTL = 60; // negative-cache empty lookups for 60s
+const MAX_BULK_LABELS = 50;
+
+/** A Speedy shipment row shaped for the standalone shipments table. */
+export interface SpeedyShipment {
+  shipmentId: string;
+  receiverName: string;
+  deliveryMode: 'office' | 'address';
+  status: CanonicalStatus;
+  trackingNumber: string | null;
+  priceStotinki: number | null;
+  codAmountStotinki: number | null;
+}
 
 @Injectable()
 export class SpeedyService {
@@ -170,5 +185,132 @@ export class SpeedyService {
     const creds = await this.resolveCreds(tenantId);
     const data = await this.client.call(creds, 'client/contract', {});
     return slimContractClients(data);
+  }
+
+  /* ------------------------------- shipments ------------------------------- */
+
+  /** Create a Speedy waybill for a hand-entered receiver (no storefront order). */
+  async createManualShipment(
+    tenantId: string,
+    input: SpeedyManualShipmentDto,
+  ): Promise<typeof shipments.$inferSelect> {
+    const { speedy } = await this.loadStored(tenantId);
+    const creds = await this.resolveCreds(tenantId);
+    const body = buildShipmentRequest(speedy, input);
+    const data = await this.client.call(creds, 'shipment', body);
+
+    const shipmentId: string | null = data?.id != null ? String(data.id) : null;
+    const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
+    const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
+    const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
+    const codAmount = input.codAmountStotinki && input.codAmountStotinki > 0 ? Math.round(input.codAmountStotinki) : null;
+
+    const [row] = await this.db
+      .insert(shipments)
+      .values({
+        tenantId,
+        orderId: null,
+        carrier: 'speedy',
+        carrierShipmentId: shipmentId,
+        trackingNumber: barcode,
+        status: barcode ? 'created' : 'pending',
+        labelPdfUrl: null,
+        courierPriceStotinki: typeof priceEur === 'number' ? Math.round(priceEur * 100) : null,
+        codAmountStotinki: codAmount,
+        trackingJson: data ?? null,
+        receiverName: input.receiverName,
+        receiverPhone: input.receiverPhone,
+        deliveryMode: input.deliveryMode,
+        receiverOfficeCode: input.officeId != null ? String(input.officeId) : null,
+        receiverCity: input.siteId != null ? String(input.siteId) : null,
+        weightKg: input.weightGrams ? String(input.weightGrams / 1000) : null,
+        contents: input.contents ?? null,
+      })
+      .returning();
+    return row;
+  }
+
+  /** Speedy shipments for this tenant (order-less), newest first. */
+  async listShipments(tenantId: string): Promise<SpeedyShipment[]> {
+    const rows = await this.db
+      .select({
+        shipmentId: shipments.id,
+        receiverName: shipments.receiverName,
+        deliveryMode: shipments.deliveryMode,
+        status: shipments.status,
+        trackingNumber: shipments.trackingNumber,
+        priceStotinki: shipments.courierPriceStotinki,
+        codAmountStotinki: shipments.codAmountStotinki,
+      })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
+      .orderBy(desc(shipments.createdAt));
+    return rows.map((r) => ({
+      shipmentId: r.shipmentId,
+      receiverName: r.receiverName ?? '—',
+      deliveryMode: r.deliveryMode === 'address' ? 'address' : 'office',
+      status: (r.status as CanonicalStatus) ?? 'pending',
+      trackingNumber: r.trackingNumber,
+      priceStotinki: r.priceStotinki,
+      codAmountStotinki: r.codAmountStotinki,
+    }));
+  }
+
+  /** One Speedy label PDF (tenant-scoped) — fetched live via /print. */
+  async getLabelPdf(tenantId: string, shipmentId: string): Promise<Buffer> {
+    const [row] = await this.db
+      .select({ id: shipments.carrierShipmentId, barcode: shipments.trackingNumber })
+      .from(shipments)
+      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
+      .limit(1);
+    if (!row) throw new NotFoundException('Пратката не е намерена');
+    const ref = row.id ?? row.barcode;
+    if (!ref) throw new NotFoundException('Няма товарителница за тази пратка');
+    const creds = await this.resolveCreds(tenantId);
+    return this.client.callBinary(creds, 'print', { paperSize: 'A6', parcels: [{ parcel: { id: ref } }] });
+  }
+
+  /** Several Speedy labels merged into one PDF (tenant-scoped). */
+  async getLabelsPdf(tenantId: string, shipmentIds: string[]): Promise<Buffer> {
+    if (!shipmentIds.length) throw new BadRequestException('Няма избрани товарителници');
+    if (shipmentIds.length > MAX_BULK_LABELS) {
+      throw new BadRequestException(`Максимум ${MAX_BULK_LABELS} товарителници наведнъж`);
+    }
+    const creds = await this.resolveCreds(tenantId);
+    const rows = await this.db
+      .select({ id: shipments.carrierShipmentId, barcode: shipments.trackingNumber })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy'), inArray(shipments.id, shipmentIds)));
+    const refs = rows.map((r) => r.id ?? r.barcode).filter((x): x is string => !!x);
+    const settled = await Promise.allSettled(
+      refs.map((ref) => this.client.callBinary(creds, 'print', { paperSize: 'A6', parcels: [{ parcel: { id: ref } }] })),
+    );
+    const buffers: Buffer[] = [];
+    settled.forEach((s, i) => {
+      if (s.status === 'fulfilled') buffers.push(s.value);
+      else this.logger.warn(`[speedy] label fetch failed for ${refs[i]}: ${s.reason instanceof Error ? s.reason.message : s.reason}`);
+    });
+    if (!buffers.length) throw new NotFoundException('Няма PDF за избраните товарителници');
+    return mergePdfs(buffers);
+  }
+
+  /** Cancel a Speedy waybill (pre-pickup) and remove the shipment row. */
+  async voidShipment(tenantId: string, shipmentId: string): Promise<{ id: string }> {
+    const [row] = await this.db
+      .select({ id: shipments.id, carrierShipmentId: shipments.carrierShipmentId })
+      .from(shipments)
+      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
+      .limit(1);
+    if (!row) throw new NotFoundException('Пратката не е намерена');
+    if (row.carrierShipmentId) {
+      const creds = await this.resolveCreds(tenantId);
+      try {
+        await this.client.call(creds, 'shipment/cancel', { shipmentId: row.carrierShipmentId });
+      } catch (err) {
+        this.logger.warn(`[speedy] cancel failed for ${row.carrierShipmentId}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    await this.db.delete(shipments).where(eq(shipments.id, shipmentId));
+    return { id: shipmentId };
   }
 }
