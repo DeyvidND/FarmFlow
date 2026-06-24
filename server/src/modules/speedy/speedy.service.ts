@@ -205,6 +205,7 @@ export class SpeedyService {
     const shipmentId: string | null = data?.id != null ? String(data.id) : null;
     const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
     const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
+    // spike: confirm the create-shipment price field name(s) vs live API.
     const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
     const codAmount = input.codAmountStotinki && input.codAmountStotinki > 0 ? Math.round(input.codAmountStotinki) : null;
 
@@ -440,7 +441,7 @@ export class SpeedyService {
       await this.db
         .update(shipments)
         .set({ courierRequestId: pickupId, courierRequestStatus: 'requested', updatedAt: new Date() })
-        .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, sent.map((r) => r.id))));
+        .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy'), inArray(shipments.id, sent.map((r) => r.id))));
     }
     return { pickupId, attached: sent.length, skipped: input.shipmentIds.length - sent.length };
   }
