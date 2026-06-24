@@ -9,12 +9,14 @@ import { SpeedyClient, type SpeedyCreds } from './speedy.client';
 import {
   type SpeedyStored, slimSites, slimOffices, slimStreets, slimContractClients,
   type SpeedySite, type SpeedyOffice, type SpeedyStreet, type SenderSuggestion,
-  buildShipmentRequest, parseTrackStatus, type CanonicalStatus,
+  buildShipmentRequest, parseTrackStatus, parsePayouts, type CanonicalStatus,
 } from './speedy.helpers';
 import { mergePdfs } from '../econt/econt.service';
 import { SpeedyManualShipmentDto } from './dto/speedy-manual-shipment.dto';
 import { SpeedyCredentialsDto } from './dto/speedy-credentials.dto';
 import { SpeedyValidateAddressDto } from './dto/speedy-validate-address.dto';
+import { SpeedyCourierRequestDto } from './dto/speedy-courier-request.dto';
+import { CodRiskService } from '../cod-risk/cod-risk.service';
 
 const SPEEDY_BASE = 'https://api.speedy.bg/v1';
 const NOMENCLATURE_TTL = 60 * 60 * 24; // 1 day
@@ -42,6 +44,7 @@ export class SpeedyService {
     config: ConfigService,
     private readonly cache: PublicCacheService,
     private readonly client: SpeedyClient,
+    private readonly codRisk: CodRiskService,
   ) {
     this.encKey = config.get<string>('ENCRYPTION_KEY', '');
   }
@@ -312,5 +315,133 @@ export class SpeedyService {
     }
     await this.db.delete(shipments).where(eq(shipments.id, shipmentId));
     return { id: shipmentId };
+  }
+
+  /* ------------------------- tracking + COD + courier ---------------------- */
+
+  /** Refresh a Speedy shipment's status from /track. Persists the canonical status
+   *  and fires the COD-risk hook (best-effort) on a returned/refused COD parcel. */
+  async refreshStatus(tenantId: string, shipmentId: string): Promise<typeof shipments.$inferSelect> {
+    const [row] = await this.db
+      .select()
+      .from(shipments)
+      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
+      .limit(1);
+    if (!row) throw new NotFoundException('Пратката не е намерена');
+    if (!row.trackingNumber) return row;
+
+    const creds = await this.resolveCreds(tenantId);
+    const data = await this.client.call(creds, 'track', { parcels: [{ id: row.trackingNumber }] });
+    const parcel = Array.isArray(data?.parcels) ? data.parcels[0] : null;
+    const operations: any[] = Array.isArray(parcel?.operations) ? parcel.operations : [];
+    const status = parseTrackStatus(operations, true);
+
+    const [updated] = await this.db
+      .update(shipments)
+      .set({ status, trackingJson: parcel ?? row.trackingJson, updatedAt: new Date() })
+      .where(eq(shipments.id, shipmentId))
+      .returning();
+
+    // COD-risk strike on a returned/refused COD parcel. Best-effort — must never turn
+    // a successful refresh into a user-facing error (carrier-agnostic; keys off status).
+    try {
+      await this.codRisk.recordReturnIfApplicable(updated);
+    } catch (err) {
+      this.logger.warn(`[speedy] cod-risk record failed for ${updated.id}: ${err instanceof Error ? err.message : err}`);
+    }
+    return updated;
+  }
+
+  /** Refresh every not-yet-final Speedy shipment with a barcode, across all tenants.
+   *  Best-effort per shipment — one Speedy failure never aborts the batch. */
+  async refreshActiveShipments(): Promise<{ refreshed: number }> {
+    const rows = await this.db
+      .select({ id: shipments.id, tenantId: shipments.tenantId, barcode: shipments.trackingNumber, status: shipments.status })
+      .from(shipments)
+      .where(eq(shipments.carrier, 'speedy'));
+    let refreshed = 0;
+    for (const r of rows) {
+      if (!r.barcode || !r.tenantId) continue;
+      if (r.status === 'delivered' || r.status === 'returned' || r.status === 'refused') continue;
+      try {
+        await this.refreshStatus(r.tenantId, r.id);
+        refreshed++;
+      } catch (err) {
+        this.logger.warn(`[speedy] refresh failed for shipment ${r.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return { refreshed };
+  }
+
+  /** COD payout reconciliation for the last 60 days (Очаквано → Преведено). Stamps
+   *  codSettledAt on matched Speedy shipments and returns the screen rows. */
+  async codReconciliation(tenantId: string): Promise<Array<{ shipmentId: string; expectedStotinki: number | null; settledAt: string | null }>> {
+    const creds = await this.resolveCreds(tenantId);
+    const toDate = new Date();
+    const fromDate = new Date(toDate.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const data = await this.client.callSafe(creds, 'payments', {
+      fromDate: fromDate.toISOString(),
+      toDate: toDate.toISOString(),
+      includeDetails: true,
+    });
+    const payouts = parsePayouts(data);
+    const settledByBarcode = new Map(payouts.filter((p) => p.barcode).map((p) => [p.barcode as string, p]));
+
+    const rows = await this.db
+      .select({
+        shipmentId: shipments.id,
+        barcode: shipments.trackingNumber,
+        expected: shipments.codAmountStotinki,
+        settledAt: shipments.codSettledAt,
+      })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')));
+
+    const out: Array<{ shipmentId: string; expectedStotinki: number | null; settledAt: string | null }> = [];
+    for (const r of rows) {
+      if (r.expected == null) continue;
+      const payout = r.barcode ? settledByBarcode.get(r.barcode) : undefined;
+      let settledAt = r.settledAt ? r.settledAt.toISOString() : null;
+      if (payout?.settledAt && !r.settledAt) {
+        const d = new Date(payout.settledAt);
+        if (!Number.isNaN(d.getTime())) {
+          await this.db.update(shipments).set({ codSettledAt: d, updatedAt: new Date() }).where(eq(shipments.id, r.shipmentId));
+          settledAt = d.toISOString();
+        }
+      }
+      out.push({ shipmentId: r.shipmentId, expectedStotinki: r.expected, settledAt });
+    }
+    return out;
+  }
+
+  /** Book a Speedy courier pickup for already-created shipments. */
+  async requestCourier(
+    tenantId: string,
+    input: SpeedyCourierRequestDto,
+  ): Promise<{ pickupId: string | null; attached: number; skipped: number }> {
+    const creds = await this.resolveCreds(tenantId);
+    const rows = await this.db
+      .select({ id: shipments.id, shipmentId: shipments.carrierShipmentId })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy'), inArray(shipments.id, input.shipmentIds)));
+    const sent = rows.filter((r): r is { id: string; shipmentId: string } => !!r.shipmentId);
+    if (!sent.length) throw new BadRequestException('Няма товарителници за заявка на куриер');
+
+    const body: Record<string, unknown> = {
+      shipmentIds: sent.map((r) => r.shipmentId),
+      ...(input.pickupDate ? { pickupDate: input.pickupDate } : {}),
+      ...(input.timeFrom ? { timeFrom: input.timeFrom } : {}),
+      ...(input.timeTo ? { timeTo: input.timeTo } : {}),
+    };
+    const data = await this.client.call(creds, 'pickup', body);
+    const pickupId: string | null = data?.id != null ? String(data.id) : null;
+
+    if (pickupId) {
+      await this.db
+        .update(shipments)
+        .set({ courierRequestId: pickupId, courierRequestStatus: 'requested', updatedAt: new Date() })
+        .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, sent.map((r) => r.id))));
+    }
+    return { pickupId, attached: sent.length, skipped: input.shipmentIds.length - sent.length };
   }
 }
