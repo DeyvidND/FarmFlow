@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow } from './econt.service';
+import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow, parseAddressValidation } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -342,5 +342,19 @@ describe('mapManualShipmentRow', () => {
     expect(out.codAmountStotinki).toBe(2400);
     expect(out.shipmentId).toBe('aaaa');
     expect(out.orderNumber).toBe('Ръчна');
+  });
+});
+
+describe('parseAddressValidation', () => {
+  it('normal/processed → valid', () => {
+    expect(parseAddressValidation({ validationStatus: 'normal' }).valid).toBe(true);
+    expect(parseAddressValidation({ validationStatus: 'processed' }).valid).toBe(true);
+  });
+  it('invalid / missing → not valid', () => {
+    expect(parseAddressValidation({ validationStatus: 'invalid' }).valid).toBe(false);
+    expect(parseAddressValidation(null).valid).toBe(false);
+  });
+  it('passes the raw status through', () => {
+    expect(parseAddressValidation({ validationStatus: 'normal' }).status).toBe('normal');
   });
 });

@@ -373,6 +373,19 @@ export class EcontService {
     return [...starts, ...contains].slice(0, 20);
   }
 
+  /** Validate a door address against Econt before allowing a label. */
+  async validateAddress(
+    tenantId: string,
+    input: import('./dto/validate-address.dto').ValidateAddressDto,
+  ): Promise<AddressValidation> {
+    const data = await this.callTenant(
+      tenantId,
+      'Nomenclatures/AddressService.validateAddress.json',
+      { address: { city: { name: input.city }, other: input.address } },
+    );
+    return parseAddressValidation(data?.address ?? data);
+  }
+
   /** Offices in one city (with coordinates + hours) for the admin picker/map. */
   async getOfficesForCity(tenantId: string, cityId: number): Promise<EcontOfficeView[]> {
     if (!cityId) return [];
@@ -1166,6 +1179,19 @@ export function parseCodReconciliation(status: unknown): { collectedAt: Date | n
     return null;
   };
   return { collectedAt: toDate(s.cdCollectedTime), settledAt: toDate(s.cdPaidTime) };
+}
+
+export interface AddressValidation {
+  valid: boolean;
+  status: string | null;
+}
+
+/** Interpret Econt's `validateAddress` response. `normal`/`processed` = usable;
+ *  anything else (incl. a shapeless/empty response) = not deliverable. */
+export function parseAddressValidation(res: unknown): AddressValidation {
+  const r = (res ?? {}) as Record<string, any>;
+  const status: string | null = typeof r.validationStatus === 'string' ? r.validationStatus : null;
+  return { valid: status === 'normal' || status === 'processed', status };
 }
 
 /** Collapse Econt's free-text status into the admin table's known status set. */
