@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped } from './econt.service';
+import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -293,5 +293,35 @@ describe('parseCodReconciliation', () => {
   it('returns nulls when absent or shapeless', () => {
     expect(parseCodReconciliation({})).toEqual({ collectedAt: null, settledAt: null });
     expect(parseCodReconciliation(null)).toEqual({ collectedAt: null, settledAt: null });
+  });
+});
+
+describe('buildManualOrderShape', () => {
+  it('office + COD → econt office order-like shape with cod payment', () => {
+    const o = buildManualOrderShape({
+      receiverName: 'Иван', receiverPhone: '0888', deliveryMode: 'office',
+      receiverOfficeCode: '1234', weightGrams: 2000, contents: 'мед',
+      codAmountStotinki: 2400, smsNotification: true,
+    });
+    expect(o.customerName).toBe('Иван');
+    expect(o.deliveryType).toBe('econt');
+    expect(o.econtOffice).toBe('1234');
+    expect(o.paymentMethod).toBe('cod');
+    expect(o.totalStotinki).toBe(2400);
+    expect(o.weightKg).toBe(2);
+    expect(o.smsNotification).toBe(true);
+  });
+
+  it('address + no COD → econt_address shape, online payment, no cod', () => {
+    const o = buildManualOrderShape({
+      receiverName: 'Мария', receiverPhone: '0877', deliveryMode: 'address',
+      receiverCity: 'София', receiverAddress: 'ул. Шипка 5',
+    });
+    expect(o.deliveryType).toBe('econt_address');
+    expect(o.deliveryCity).toBe('София');
+    expect(o.deliveryAddress).toBe('ул. Шипка 5');
+    expect(o.paymentMethod).toBe('online');
+    expect(o.totalStotinki).toBeNull();
+    expect(o.weightKg).toBeUndefined();
   });
 });

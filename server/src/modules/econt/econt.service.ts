@@ -675,6 +675,57 @@ export class EcontService {
     return row;
   }
 
+  /** Create an Econt waybill for a manually-entered shipment (no storefront order).
+   *  Persists a `shipments` row with `orderId = null` + the receiver snapshot. */
+  async createManualShipment(
+    tenantId: string,
+    input: import('./dto/manual-shipment.dto').ManualShipmentDto,
+  ): Promise<typeof shipments.$inferSelect> {
+    const { econt } = await this.loadStored(tenantId);
+    const shape = buildManualOrderShape(input);
+    // Per-shipment weight/contents override the farm's defaultPackage for this label.
+    const econtForLabel: EcontStored = {
+      ...econt,
+      defaultPackage: {
+        ...econt.defaultPackage,
+        ...(shape.weightKg ? { weightKg: shape.weightKg } : {}),
+        ...(shape.contents ? { contents: shape.contents } : {}),
+      },
+    };
+    const label = this.buildLabel(econtForLabel, shape, []);
+    const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
+      label,
+      mode: 'create',
+    });
+    const out = data?.label ?? {};
+    const number: string | null = out.shipmentNumber ?? null;
+    const priceBgn: number | undefined = out.totalPrice;
+    const codAmount = this.codAmountFor(shape);
+
+    const [row] = await this.db
+      .insert(shipments)
+      .values({
+        tenantId,
+        orderId: null,
+        econtShipmentNumber: number,
+        status: number ? 'created' : 'pending',
+        labelPdfUrl: out.pdfURL ?? null,
+        courierPriceStotinki: typeof priceBgn === 'number' ? Math.round(priceBgn * 100) : null,
+        codAmountStotinki: codAmount,
+        trackingJson: out,
+        receiverName: input.receiverName,
+        receiverPhone: input.receiverPhone,
+        deliveryMode: input.deliveryMode,
+        receiverOfficeCode: input.receiverOfficeCode ?? null,
+        receiverCity: input.receiverCity ?? null,
+        receiverAddress: input.receiverAddress ?? null,
+        weightKg: shape.weightKg ? String(shape.weightKg) : null,
+        contents: input.contents ?? null,
+      })
+      .returning();
+    return row;
+  }
+
   /** Fetch one shipment's label PDF (tenant-scoped) as a Buffer. */
   async getLabelPdf(tenantId: string, shipmentId: string): Promise<Buffer> {
     const [row] = await this.db
@@ -937,6 +988,59 @@ export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
     labelPdfUrl: r.labelPdfUrl ?? undefined,
     shipmentId: r.shipmentId ?? undefined,
     history: mapTrackingEvents(r.trackingJson),
+  };
+}
+
+/** The order-like shape `buildLabel` consumes, plus the optional service flags. */
+export interface ManualOrderShape {
+  customerName: string;
+  customerPhone: string;
+  deliveryType: 'econt' | 'econt_address';
+  econtOffice: string | null;
+  deliveryCity: string | null;
+  deliveryAddress: string | null;
+  totalStotinki: number | null;
+  paymentMethod: 'cod' | 'online';
+  paidAt: null;
+  weightKg?: number;
+  contents?: string;
+  smsNotification?: boolean;
+  refrigerated?: boolean;
+  declaredValueStotinki?: number;
+}
+
+/** Turn hand-entered receiver input into the order-like shape buildLabel needs.
+ *  COD is "the producer entered a COD amount"; weight is grams → kg. */
+export function buildManualOrderShape(input: {
+  receiverName: string;
+  receiverPhone: string;
+  deliveryMode: 'office' | 'address';
+  receiverOfficeCode?: string;
+  receiverCity?: string;
+  receiverAddress?: string;
+  weightGrams?: number;
+  contents?: string;
+  codAmountStotinki?: number;
+  smsNotification?: boolean;
+  refrigerated?: boolean;
+  declaredValueStotinki?: number;
+}): ManualOrderShape {
+  const hasCod = !!input.codAmountStotinki && input.codAmountStotinki > 0;
+  return {
+    customerName: input.receiverName,
+    customerPhone: input.receiverPhone,
+    deliveryType: input.deliveryMode === 'address' ? 'econt_address' : 'econt',
+    econtOffice: input.deliveryMode === 'office' ? (input.receiverOfficeCode ?? null) : null,
+    deliveryCity: input.deliveryMode === 'address' ? (input.receiverCity ?? null) : null,
+    deliveryAddress: input.deliveryMode === 'address' ? (input.receiverAddress ?? null) : null,
+    totalStotinki: hasCod ? input.codAmountStotinki! : null,
+    paymentMethod: hasCod ? 'cod' : 'online',
+    paidAt: null,
+    ...(input.weightGrams ? { weightKg: input.weightGrams / 1000 } : {}),
+    ...(input.contents ? { contents: input.contents } : {}),
+    ...(input.smsNotification ? { smsNotification: true } : {}),
+    ...(input.refrigerated ? { refrigerated: true } : {}),
+    ...(input.declaredValueStotinki ? { declaredValueStotinki: input.declaredValueStotinki } : {}),
   };
 }
 
