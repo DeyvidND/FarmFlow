@@ -116,4 +116,8 @@ export const envValidationSchema = Joi.object({
   // Performance-tracing sample rate 0..1. Default 0 (errors only). Bump to ~0.1
   // to also sample request/query latency spans.
   SENTRY_TRACES_SAMPLE_RATE: Joi.number().min(0).max(1).default(0),
+  // --- Bulk-import AI assistance (optional — app boots and runs without them;
+  //     AI column-mapping/address-fix degrades gracefully when unset) ---
+  OPENAI_API_KEY: Joi.string().optional().allow(''),
+  OPENAI_IMPORT_MODEL: Joi.string().optional().allow(''),
 });
