@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, HttpCode } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ShippingQuoteService } from './shipping-quote.service';
 import { CompareShipmentDto } from './dto/compare-shipment.dto';
@@ -13,6 +13,7 @@ export class ShippingQuoteController {
   // Pre-purchase price comparison — JWT only (NOT activation-gated; showing prices
   // to unactivated accounts drives conversion). Throttled — hits two courier APIs.
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @HttpCode(200)
   @Post('compare')
   compare(@CurrentTenant() t: string, @Body() dto: CompareShipmentDto) {
     return this.quote.compare(t, dto);
