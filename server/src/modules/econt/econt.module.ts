@@ -1,26 +1,15 @@
 import { Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
-import { EcontService } from './econt.service';
+import { EcontCoreModule } from './econt-core.module';
 import { EcontController, PublicEcontController } from './econt.controller';
-import { EcontProcessor } from './econt.processor';
-import { ShipmentEmailService } from './shipment-email.service';
-import { ECONT_QUEUE } from '../../common/queue/queue.constants';
-import { RUN_WORKERS } from '../../config/app-role';
 
+/**
+ * Full FarmFlow Econt module: the controller-less {@link EcontCoreModule} plus the
+ * admin + public storefront controllers. Re-exports EcontCoreModule so existing
+ * consumers (Stripe, Orders) keep getting `EcontService` / `ShipmentEmailService`.
+ */
 @Module({
-  imports: [
-    BullModule.registerQueue({
-      name: ECONT_QUEUE,
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: true,
-        removeOnFail: 200,
-      },
-    }),
-  ],
+  imports: [EcontCoreModule],
   controllers: [EcontController, PublicEcontController],
-  providers: [EcontService, ShipmentEmailService, ...(RUN_WORKERS ? [EcontProcessor] : [])],
-  exports: [EcontService, ShipmentEmailService],
+  exports: [EcontCoreModule],
 })
 export class EcontModule {}

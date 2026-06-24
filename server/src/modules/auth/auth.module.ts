@@ -1,28 +1,15 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
-import { ConfigService } from '@nestjs/config';
-import { AuthService } from './auth.service';
+import { AuthCoreModule } from './auth-core.module';
 import { AuthController } from './auth.controller';
-import { JwtStrategy } from './jwt.strategy';
 
+/**
+ * Full FarmFlow auth module: the controller-less {@link AuthCoreModule} (JWT,
+ * strategy, AuthService) plus the `/auth/*` controller. Re-exports AuthCoreModule
+ * so existing consumers keep getting `JwtModule` / `PassportModule` / `AuthService`.
+ */
 @Module({
-  imports: [
-    PassportModule.register({ defaultStrategy: 'jwt' }),
-    JwtModule.registerAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '7d', algorithm: 'HS256' },
-        // Pin the accepted algorithm for every JwtService.verify() (the global
-        // TenantRoles / MustChangePassword guards). JwtStrategy already pins it;
-        // this closes the gap so no verify path can ever accept another alg.
-        verifyOptions: { algorithms: ['HS256'] },
-      }),
-    }),
-  ],
+  imports: [AuthCoreModule],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [JwtModule, PassportModule, AuthService],
+  exports: [AuthCoreModule],
 })
 export class AuthModule {}

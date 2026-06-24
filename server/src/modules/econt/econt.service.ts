@@ -749,7 +749,7 @@ export class EcontService {
   async requestCourier(
     tenantId: string,
     input: import('./dto/courier-request.dto').CourierRequestDto,
-  ): Promise<{ requestId: string | null; status: string | null }> {
+  ): Promise<{ requestId: string | null; status: string | null; attached: number; skipped: number }> {
     const { econt } = await this.loadStored(tenantId);
     // Resolve our shipment ids → Econt waybill numbers (tenant-scoped).
     const rows = await this.db
@@ -774,7 +774,9 @@ export class EcontService {
         .set({ courierRequestId: requestId, courierRequestStatus: status, updatedAt: new Date() })
         .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, sent.map((r) => r.id))));
     }
-    return { requestId, status };
+    // `attached` = shipments sent to Econt; `skipped` = requested ids without a
+    // waybill yet (so the UI can tell the user which weren't included).
+    return { requestId, status, attached: numbers.length, skipped: input.shipmentIds.length - sent.length };
   }
 
   /** Poll an Econt courier-pickup request's status. */

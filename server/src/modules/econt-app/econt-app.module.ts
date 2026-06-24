@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import type Redis from 'ioredis';
 import { DrizzleModule } from '../../common/drizzle/drizzle.module';
@@ -11,8 +11,13 @@ import { throttlerTracker } from '../../common/throttler/throttler.tracker';
 import { QueueModule } from '../../common/queue/queue.module';
 import { EmailModule } from '../../common/email/email.module';
 import { PublicCacheModule } from '../../common/cache/public-cache.module';
-import { AuthModule } from '../auth/auth.module';
-import { EcontModule } from '../econt/econt.module';
+import { MustChangePasswordGuard } from '../../common/guards/must-change-password.guard';
+import { TenantRolesGuard } from '../../common/guards/tenant-roles.guard';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
+// Controller-less core modules: reuse AuthService + EcontService WITHOUT mounting
+// FarmFlow's `/auth/*` and `/econt/*` controllers on the standalone domain.
+import { AuthCoreModule } from '../auth/auth-core.module';
+import { EcontCoreModule } from '../econt/econt-core.module';
 import { StandaloneAuthService } from './standalone-auth.service';
 import { StandaloneAuthController } from './standalone-auth.controller';
 import { EcontStandaloneController } from './econt-standalone.controller';
@@ -40,14 +45,21 @@ import { ActivationGuard } from './activation.guard';
     QueueModule,
     EmailModule,
     PublicCacheModule,
-    AuthModule, // JwtModule + JwtStrategy + AuthService
-    EcontModule, // EcontService
+    AuthCoreModule, // JwtModule + JwtStrategy + AuthService (no /auth/* controller)
+    EcontCoreModule, // EcontService + ShipmentEmailService (no /econt/* controllers)
   ],
   controllers: [StandaloneAuthController, EcontStandaloneController],
   providers: [
     StandaloneAuthService,
     ActivationGuard,
+    // Flood protection first.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Same default-deny + force-change-password posture as the main API, so the
+    // standalone surface can't drift from FarmFlow's auth guarantees.
+    { provide: APP_GUARD, useClass: MustChangePasswordGuard },
+    { provide: APP_GUARD, useClass: TenantRolesGuard },
+    // Consistent error-response shapes (+ Sentry capture) with the main API.
+    { provide: APP_FILTER, useClass: GlobalExceptionFilter },
   ],
 })
 export class EcontAppModule {}

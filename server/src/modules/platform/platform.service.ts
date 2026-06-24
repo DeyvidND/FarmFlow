@@ -602,7 +602,7 @@ export class PlatformService {
       await tx
         .delete(orderItems)
         .where(sql`${orderItems.orderId} in (select ${orders.id} from ${orders} where ${orders.tenantId} = ${id})`);
-      await tx.delete(shipments).where(eq(shipments.tenantId, id)); // before orders (shipments.orderId NOT NULL)
+      await tx.delete(shipments).where(eq(shipments.tenantId, id)); // before orders (shipments FK → orders)
       await tx.delete(orders).where(eq(orders.tenantId, id));
       await tx.delete(productAvailabilityWindows).where(eq(productAvailabilityWindows.tenantId, id));
       await tx.delete(reviews).where(eq(reviews.tenantId, id));
