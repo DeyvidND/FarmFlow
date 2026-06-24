@@ -2,6 +2,7 @@ import {
   Controller, Get, Post, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe, StreamableFile,
 } from '@nestjs/common';
 import { EcontService } from '../econt/econt.service';
+import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { EcontCredentialsDto } from '../econt/dto/econt-credentials.dto';
 import { ManualShipmentDto } from '../econt/dto/manual-shipment.dto';
 import { ValidateAddressDto } from '../econt/dto/validate-address.dto';
@@ -13,7 +14,10 @@ import { ActivationGuard } from './activation.guard';
 @UseGuards(JwtAuthGuard)
 @Controller('shipping')
 export class EcontStandaloneController {
-  constructor(private readonly econt: EcontService) {}
+  constructor(
+    private readonly econt: EcontService,
+    private readonly risk: CodRiskService,
+  ) {}
 
   // --- account / setup ---
   @Post('credentials')
@@ -93,5 +97,19 @@ export class EcontStandaloneController {
   async label(@CurrentTenant() t: string, @Param('id', ParseUUIDPipe) id: string): Promise<StreamableFile> {
     const buf = await this.econt.getLabelPdf(t, id);
     return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="label.pdf"' });
+  }
+
+  // --- COD risk ---
+  @Get('risk/check')
+  riskCheck(@Query('phone') phone: string) {
+    return this.risk.check(phone);
+  }
+  @Get('risk/candidates')
+  riskCandidates(@CurrentTenant() t: string) {
+    return this.risk.listCandidates(t);
+  }
+  @Post('risk/reports/:shipmentId')
+  riskConfirm(@CurrentTenant() t: string, @Param('shipmentId', ParseUUIDPipe) shipmentId: string) {
+    return this.risk.confirmReport(t, shipmentId);
   }
 }
