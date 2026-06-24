@@ -41,6 +41,7 @@ export interface SpeedyStored {
   userName?: string;
   passwordEnc?: string;
   clientSystemId?: number;
+  defaultServiceId?: number;
   configured?: boolean;
   sender?: {
     contactName?: string;

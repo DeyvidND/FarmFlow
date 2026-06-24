@@ -99,6 +99,7 @@ export class SpeedyService {
       userName: input.userName,
       passwordEnc: encryptSecret(input.password, this.encKey),
       ...(input.clientSystemId != null ? { clientSystemId: input.clientSystemId } : {}),
+      ...(input.defaultServiceId != null ? { defaultServiceId: input.defaultServiceId } : {}),
       configured: true,
     };
     const nextSettings = {
