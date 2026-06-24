@@ -11,6 +11,7 @@ describe('EcontService.buildLabel', () => {
     { get: () => '' } as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   const build = (econt: Record<string, unknown>, order: Record<string, unknown>): Record<string, any> =>
     (svc as unknown as { buildLabel: (e: unknown, o: unknown, i: unknown) => Record<string, any> }).buildLabel(
@@ -127,7 +128,7 @@ describe('EcontService.buildLabel', () => {
 });
 
 describe('EcontService.codAmountFor', () => {
-  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never);
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
   const cod = (order: Record<string, unknown>): number | null =>
     (svc as unknown as { codAmountFor: (o: unknown) => number | null }).codAmountFor(order);
 

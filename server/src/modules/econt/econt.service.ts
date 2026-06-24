@@ -13,6 +13,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
 import { ShipmentEmailService } from './shipment-email.service';
+import { CodRiskService } from '../cod-risk/cod-risk.service';
 
 const DEMO_BASE = 'https://demo.econt.com/ee/services';
 const PROD_BASE = 'https://ee.econt.com/services';
@@ -148,6 +149,7 @@ export class EcontService {
     config: ConfigService,
     private readonly cache: PublicCacheService,
     private readonly shipmentEmail: ShipmentEmailService,
+    private readonly codRisk: CodRiskService,
   ) {
     this.encKey = config.get<string>('ENCRYPTION_KEY', '');
   }
@@ -956,6 +958,7 @@ export class EcontService {
         .set({ customerNotifiedAt: new Date() })
         .where(eq(shipments.id, updated.id));
     }
+    await this.codRisk.recordReturnIfApplicable(updated);
     return updated;
   }
 

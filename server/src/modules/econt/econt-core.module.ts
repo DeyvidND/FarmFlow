@@ -5,6 +5,7 @@ import { EcontProcessor } from './econt.processor';
 import { ShipmentEmailService } from './shipment-email.service';
 import { ECONT_QUEUE } from '../../common/queue/queue.constants';
 import { RUN_WORKERS } from '../../config/app-role';
+import { CodRiskModule } from '../cod-risk/cod-risk.module';
 
 /**
  * Econt providers WITHOUT the controllers — so the standalone Econt app can reuse
@@ -23,8 +24,9 @@ import { RUN_WORKERS } from '../../config/app-role';
         removeOnFail: 200,
       },
     }),
+    CodRiskModule,
   ],
   providers: [EcontService, ShipmentEmailService, ...(RUN_WORKERS ? [EcontProcessor] : [])],
-  exports: [EcontService, ShipmentEmailService],
+  exports: [EcontService, ShipmentEmailService, CodRiskModule],
 })
 export class EcontCoreModule {}
