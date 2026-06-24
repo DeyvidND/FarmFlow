@@ -745,6 +745,46 @@ export class EcontService {
     return row;
   }
 
+  /** Book an Econt courier to collect the given (already-created) shipments at the farm. */
+  async requestCourier(
+    tenantId: string,
+    input: import('./dto/courier-request.dto').CourierRequestDto,
+  ): Promise<{ requestId: string | null; status: string | null }> {
+    const { econt } = await this.loadStored(tenantId);
+    // Resolve our shipment ids → Econt waybill numbers (tenant-scoped).
+    const rows = await this.db
+      .select({ id: shipments.id, number: shipments.econtShipmentNumber })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, input.shipmentIds)));
+    const numbers = rows.map((r) => r.number).filter((n): n is string => !!n);
+    if (!numbers.length) throw new BadRequestException('Няма товарителници за заявка на куриер');
+
+    const body = buildCourierRequest(econt, numbers, { timeFrom: input.timeFrom, timeTo: input.timeTo });
+    const data = await this.callTenant(tenantId, 'Shipments/ShipmentService.requestCourier.json', body);
+    const requestId: string | null =
+      data?.courierRequestID != null ? String(data.courierRequestID) : data?.id != null ? String(data.id) : null;
+    const status: string | null = data?.status ?? (requestId ? 'process' : null);
+
+    if (requestId) {
+      await this.db
+        .update(shipments)
+        .set({ courierRequestId: requestId, courierRequestStatus: status, updatedAt: new Date() })
+        .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, input.shipmentIds)));
+    }
+    return { requestId, status };
+  }
+
+  /** Poll an Econt courier-pickup request's status. */
+  async getRequestCourierStatus(tenantId: string, requestId: string): Promise<{ status: string | null }> {
+    const data = await this.callTenant(
+      tenantId,
+      'Shipments/ShipmentService.getRequestCourierStatus.json',
+      { requestCourierId: requestId },
+    );
+    const status: string | null = data?.status ?? data?.requestCourierStatus ?? null;
+    return { status };
+  }
+
   /** Fetch one shipment's label PDF (tenant-scoped) as a Buffer. */
   async getLabelPdf(tenantId: string, shipmentId: string): Promise<Buffer> {
     const [row] = await this.db
@@ -1220,6 +1260,31 @@ export function slimClientProfiles(res: unknown): SenderSuggestion[] {
       clientNumber: c.clientNumber != null ? String(c.clientNumber) : null,
     };
   });
+}
+
+/** Build the Econt `requestCourier` payload from the farm's sender profile +
+ *  already-created waybill numbers. `shipmentType` casing is verified in the spike
+ *  (docs say lowercase `pack`; the PHP SDK sends `PACK`). */
+export function buildCourierRequest(
+  econt: EcontStored,
+  shipmentNumbers: string[],
+  window: { timeFrom?: string; timeTo?: string },
+): Record<string, unknown> {
+  const sender = (econt.sender ?? {}) as Record<string, any>;
+  const body: Record<string, unknown> = {
+    shipmentType: 'pack',
+    shipmentPackCount: shipmentNumbers.length,
+    senderClient: { name: sender.name || 'Подател', phones: [sender.phone || ''] },
+    attachShipments: shipmentNumbers,
+  };
+  if (sender.mode === 'address') {
+    body.senderAddress = { city: { name: sender.cityName ?? '' }, other: sender.address ?? '' };
+  } else {
+    body.senderOfficeCode = sender.officeCode ?? undefined;
+  }
+  if (window.timeFrom) body.requestTimeFrom = window.timeFrom;
+  if (window.timeTo) body.requestTimeTo = window.timeTo;
+  return body;
 }
 
 /** Collapse Econt's free-text status into the admin table's known status set. */

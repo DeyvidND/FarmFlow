@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow, parseAddressValidation, slimClientProfiles } from './econt.service';
+import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow, parseAddressValidation, slimClientProfiles, buildCourierRequest } from './econt.service';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -374,5 +374,25 @@ describe('slimClientProfiles', () => {
   it('tolerates a flat profiles array + shapeless input', () => {
     expect(slimClientProfiles(null)).toEqual([]);
     expect(slimClientProfiles({ profiles: [{ name: 'Плосък', phones: ['0700'] }] })[0].name).toBe('Плосък');
+  });
+});
+
+describe('buildCourierRequest', () => {
+  const senderAddress = { sender: { name: 'Ферма', phone: '0888', mode: 'address', cityName: 'Бургас', address: 'ул. 1' } };
+  it('door sender → senderAddress + attached numbers + packCount', () => {
+    const body = buildCourierRequest(senderAddress as never, ['1051000000001', '1051000000002'], { timeFrom: '2026-06-25 10:00', timeTo: '2026-06-25 18:00' });
+    expect(body.attachShipments).toEqual(['1051000000001', '1051000000002']);
+    expect(body.shipmentPackCount).toBe(2);
+    expect(body.requestTimeFrom).toBe('2026-06-25 10:00');
+    expect(body.senderClient).toEqual({ name: 'Ферма', phones: ['0888'] });
+    expect((body.senderAddress as any).city.name).toBe('Бургас');
+  });
+  it('office sender → senderOfficeCode instead of address', () => {
+    const body = buildCourierRequest(
+      { sender: { name: 'Ф', phone: '0', mode: 'office', officeCode: '99' } } as never,
+      ['1051000000003'], {},
+    );
+    expect(body.senderOfficeCode).toBe('99');
+    expect(body.senderAddress).toBeUndefined();
   });
 });
