@@ -809,8 +809,10 @@ export class EcontService {
       .where(eq(shipments.id, shipmentId))
       .returning();
     const newStatus = uiShipmentStatus(updated.econtShipmentNumber, updated.status);
-    if (updated.econtShipmentNumber && shouldNotifyShipped(newStatus, row.customerNotifiedAt)) {
-      await this.shipmentEmail.sendShipped(updated.orderId!, updated.econtShipmentNumber);
+    // Skip the "shipped" email for order-less (standalone) shipments: there is no
+    // storefront order to look up a customer email from. `orderId` is null for those.
+    if (updated.orderId && updated.econtShipmentNumber && shouldNotifyShipped(newStatus, row.customerNotifiedAt)) {
+      await this.shipmentEmail.sendShipped(updated.orderId, updated.econtShipmentNumber);
       await this.db
         .update(shipments)
         .set({ customerNotifiedAt: new Date() })
