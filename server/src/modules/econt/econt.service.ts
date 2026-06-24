@@ -600,9 +600,11 @@ export class EcontService {
         { label, mode: 'calculate' },
         6000,
       );
-      const totalBgn = data?.label?.totalPrice ?? data?.label?.totalPriceVAT;
-      if (typeof totalBgn !== 'number') return null;
-      const stotinki = Math.round(totalBgn * 100);
+      // Econt bills in EUR (Bulgaria adopted the euro, 2026), so totalPrice is already
+      // EUR — ×100 → stotinki, no BGN→EUR conversion. App currency is EUR end-to-end.
+      const totalEur = data?.label?.totalPrice ?? data?.label?.totalPriceVAT;
+      if (typeof totalEur !== 'number') return null;
+      const stotinki = Math.round(totalEur * 100);
       // Only cache a successful live estimate — never cache the null/fallback path so
       // the next request retries Econt and may obtain a real price.
       await this.cache.set(estimateKey, stotinki, ESTIMATE_TTL);
@@ -674,7 +676,7 @@ export class EcontService {
     });
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
-    const priceBgn: number | undefined = out.totalPrice;
+    const priceEur: number | undefined = out.totalPrice; // EUR (BG euro 2026) → ×100 = stotinki
     const codAmount = this.codAmountFor(order);
 
     const [row] = await this.db
@@ -685,7 +687,7 @@ export class EcontService {
         econtShipmentNumber: number,
         status: number ? 'created' : 'pending',
         labelPdfUrl: out.pdfURL ?? null,
-        courierPriceStotinki: typeof priceBgn === 'number' ? Math.round(priceBgn * 100) : null,
+        courierPriceStotinki: typeof priceEur === 'number' ? Math.round(priceEur * 100) : null,
         codAmountStotinki: codAmount,
         trackingJson: out,
       })
@@ -727,7 +729,7 @@ export class EcontService {
     });
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
-    const priceBgn: number | undefined = out.totalPrice;
+    const priceEur: number | undefined = out.totalPrice; // EUR (BG euro 2026) → ×100 = stotinki
     const codAmount = this.codAmountFor(shape);
 
     const [row] = await this.db
@@ -738,7 +740,7 @@ export class EcontService {
         econtShipmentNumber: number,
         status: number ? 'created' : 'pending',
         labelPdfUrl: out.pdfURL ?? null,
-        courierPriceStotinki: typeof priceBgn === 'number' ? Math.round(priceBgn * 100) : null,
+        courierPriceStotinki: typeof priceEur === 'number' ? Math.round(priceEur * 100) : null,
         codAmountStotinki: codAmount,
         trackingJson: out,
         receiverName: input.receiverName,
