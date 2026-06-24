@@ -19,8 +19,9 @@ import {
   Check,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn, dmy, eur } from '@/lib/utils';
-import type { PlatformTenantDetail } from '@/lib/api-client';
+import { enableDeliveryOnFarm, type PlatformTenantDetail } from '@/lib/api-client';
 
 const ORDER_STATUS: Record<string, { label: string; tone: string }> = {
   pending: { label: 'Чака', tone: 'bg-ff-amber-soft text-ff-amber-600' },
@@ -129,6 +130,21 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [enabling, setEnabling] = useState(false);
+  const [deliveryOn, setDeliveryOn] = useState(d.deliveryAccount);
+
+  async function enableDelivery() {
+    setEnabling(true);
+    try {
+      await enableDeliveryOnFarm(d.id);
+      setDeliveryOn(true);
+      toast.success(`${d.name}: доставката е включена`);
+    } catch {
+      toast.error('Неуспешно включване на доставка');
+    } finally {
+      setEnabling(false);
+    }
+  }
   const [form, setForm] = useState({
     name: d.name,
     slug: d.slug,
@@ -229,8 +245,19 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
               <Pencil size={14} /> Редактирай
             </button>
           )}
+          {!deliveryOn && (
+            <button
+              type="button"
+              onClick={enableDelivery}
+              disabled={enabling}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-3 py-1.5 text-[13px] font-bold text-[#3457B1] shadow-ff-sm hover:bg-[#EEF4FF] disabled:opacity-60"
+            >
+              <Truck size={14} /> {enabling ? 'Включване…' : 'Включи доставка'}
+            </button>
+          )}
           <div className="flex flex-wrap justify-end gap-2">
             <Flag on={d.deliveryEnabled} label="Доставка" icon={<Truck size={13} />} />
+            <Flag on={deliveryOn} label="Доставка акаунт" icon={<Truck size={13} />} />
             <Flag on={d.econtConfigured} label="Еконт" icon={<Truck size={13} />} />
             <Flag on={d.stripeConnected} label="Stripe" icon={<CreditCard size={13} />} />
             <Flag on={d.multiFarmer} label="Мулти-фермер" icon={<Boxes size={13} />} />
