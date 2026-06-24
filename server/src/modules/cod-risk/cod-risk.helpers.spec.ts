@@ -1,4 +1,14 @@
-import { normalizePhone, riskVerdict, isReturnedStatus, parseReports, buildReportText } from './cod-risk.helpers';
+import {
+  normalizePhone,
+  riskVerdict,
+  isReturnedStatus,
+  parseReports,
+  buildReportText,
+  toInternalReports,
+  toNekorektenReports,
+  mergeReports,
+  type RiskReport,
+} from './cod-risk.helpers';
 
 describe('normalizePhone', () => {
   it('canonicalizes BG forms to +359XXXXXXXXX', () => {
@@ -54,5 +64,51 @@ describe('buildReportText', () => {
     const txt = buildReportText({ codAmountStotinki: 2400, receiverName: 'Иван' });
     expect(txt).toContain('наложен платеж');
     expect(txt.length).toBeGreaterThan(0);
+  });
+});
+
+describe('toInternalReports', () => {
+  it('maps returned events to internal RiskReports (ISO date), filtering non-returned', () => {
+    const out = toInternalReports(
+      [
+        { createdAt: new Date('2026-06-01T10:00:00.000Z'), phone: '+359888111222', type: 'returned' },
+        { createdAt: new Date('2026-06-02T10:00:00.000Z'), phone: '+359888111222', type: 'reported' },
+      ],
+      '+359888000000',
+    );
+    expect(out).toEqual([
+      { source: 'internal', date: '2026-06-01T10:00:00.000Z', phone: '+359888111222', description: 'Върната/невзета COD пратка' },
+    ]);
+  });
+
+  it('falls back to the lookup phone + null date when the event lacks them', () => {
+    expect(toInternalReports([{ createdAt: null, phone: null, type: 'returned' }], '+359888000000')[0]).toMatchObject({
+      phone: '+359888000000',
+      date: null,
+    });
+  });
+});
+
+describe('toNekorektenReports', () => {
+  it('maps nekorekten reports to the unified shape', () => {
+    expect(
+      toNekorektenReports({
+        configured: true,
+        found: true,
+        count: 1,
+        reports: [{ date: '2026-05-01', phone: '+359888111222', description: 'Лош клиент' }],
+      }),
+    ).toEqual([{ source: 'nekorekten', date: '2026-05-01', phone: '+359888111222', description: 'Лош клиент' }]);
+  });
+});
+
+describe('mergeReports', () => {
+  it('concatenates internal first, then external', () => {
+    const i: RiskReport[] = [{ source: 'internal', date: null, phone: 'a', description: 'x' }];
+    const e: RiskReport[] = [{ source: 'nekorekten', date: null, phone: 'b', description: 'y' }];
+    expect(mergeReports(i, e)).toEqual([...i, ...e]);
+  });
+  it('handles empty inputs', () => {
+    expect(mergeReports([], [])).toEqual([]);
   });
 });

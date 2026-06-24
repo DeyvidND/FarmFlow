@@ -68,3 +68,59 @@ export function buildReportText(shipment: {
   const amount = shipment.codAmountStotinki != null ? ` (${(shipment.codAmountStotinki / 100).toFixed(2)} EUR)` : '';
   return `Отказана/невзета пратка с наложен платеж${amount}. Клиентът не получи пратката.`;
 }
+
+/** Unified risk record — our strikes and nekorekten reports share this shape so one
+ *  frontend component renders both. `source` is the only discriminator. */
+export interface RiskReport {
+  source: 'internal' | 'nekorekten';
+  date: string | null; // ISO
+  phone: string | null;
+  description: string | null;
+  amountStotinki?: number | null; // internal extra; nekorekten reports omit it
+}
+
+export interface RiskCheckResult {
+  phone: string | null;
+  verdict: RiskVerdict;
+  strikes: number;
+  nekorektenCount: number;
+  nekorektenConfigured: boolean;
+  cached: boolean; // true = no nekorekten API call was made this request
+  reports: RiskReport[];
+}
+
+function toIso(d: Date | string | null | undefined): string | null {
+  if (d == null) return null;
+  const dt = d instanceof Date ? d : new Date(d);
+  return Number.isNaN(dt.getTime()) ? null : dt.toISOString();
+}
+
+/** Our returned-COD events → unified reports. Non-`returned` rows are dropped. */
+export function toInternalReports(
+  events: Array<{ createdAt: Date | string | null; phone: string | null; type: string | null }>,
+  phone: string,
+): RiskReport[] {
+  return events
+    .filter((e) => (e.type ?? '') === 'returned')
+    .map((e) => ({
+      source: 'internal' as const,
+      date: toIso(e.createdAt),
+      phone: e.phone ?? phone,
+      description: 'Върната/невзета COD пратка',
+    }));
+}
+
+/** nekorekten reports → unified reports. */
+export function toNekorektenReports(nk: NekorektenCheck): RiskReport[] {
+  return nk.reports.map((r) => ({
+    source: 'nekorekten' as const,
+    date: r.date,
+    phone: r.phone,
+    description: r.description,
+  }));
+}
+
+/** Internal records first, then external. */
+export function mergeReports(internal: RiskReport[], external: RiskReport[]): RiskReport[] {
+  return [...internal, ...external];
+}
