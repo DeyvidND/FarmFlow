@@ -108,8 +108,8 @@
           </div>
           <div class="bar">
             <button class="primary" @click="commit()" :disabled="committing" x-text="committing ? 'Създавам…' : 'Създай пратки'"></button>
-            <a x-show="labelIds('econt').length" :href="labelsUrl('econt')" target="_blank">⬇ Етикети (Econt)</a>
-            <a x-show="labelIds('speedy').length" :href="labelsUrl('speedy')" target="_blank">⬇ Етикети (Speedy)</a>
+            <button x-show="labelIds('econt').length" @click="downloadLabels('econt')">⬇ Етикети (Econt)</button>
+            <button x-show="labelIds('speedy').length" @click="downloadLabels('speedy')">⬇ Етикети (Speedy)</button>
           </div>
 
           <div class="table-wrap">

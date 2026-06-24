@@ -51,4 +51,21 @@ describe('buildDeliveryOverview', () => {
     expect(out.codCollectedStotinki).toBe(500);
     expect(out.total).toBe(4);
   });
+
+  it('counts Speedy codSettledAt as collected (Speedy never stamps codCollectedAt)', () => {
+    const out = buildDeliveryOverview([
+      { carrier: 'speedy', status: 'delivered', codAmountStotinki: 700, codCollectedAt: null, codSettledAt: '2026-06-05T00:00:00.000Z', createdAt: '2026-06-04T00:00:00.000Z' },
+    ]);
+    expect(out.codCollectedStotinki).toBe(700);
+    expect(out.codPendingStotinki).toBe(0);
+  });
+
+  it('excludes Econt raw-Bulgarian returned/refused status from pending COD', () => {
+    const out = buildDeliveryOverview([
+      { carrier: 'econt', status: 'върната', codAmountStotinki: 800, codCollectedAt: null, codSettledAt: null, createdAt: '2026-06-01T00:00:00.000Z' },
+      { carrier: 'econt', status: 'отказана', codAmountStotinki: 300, codCollectedAt: null, codSettledAt: null, createdAt: '2026-06-02T00:00:00.000Z' },
+      { carrier: 'econt', status: 'разнасяне', codAmountStotinki: 100, codCollectedAt: null, codSettledAt: null, createdAt: '2026-06-03T00:00:00.000Z' },
+    ]);
+    expect(out.codPendingStotinki).toBe(100); // only the live one
+  });
 });

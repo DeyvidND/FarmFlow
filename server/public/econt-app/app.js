@@ -82,9 +82,17 @@ function importApp() {
     labelIds(carrier) {
       return this.rows.filter((r) => r.shipmentId && r.carrier === carrier).map((r) => r.shipmentId);
     },
-    labelsUrl(carrier) {
-      const ids = this.labelIds(carrier).join(',');
-      return carrier === 'speedy' ? `/speedy/labels.pdf?ids=${ids}` : `/shipping/labels.pdf?ids=${ids}`;
+    // Fetch the merged label PDF WITH the auth header (a plain <a href> can't send
+    // Authorization, so the guarded endpoint would 401), then open the blob.
+    async downloadLabels(carrier) {
+      this.error = '';
+      try {
+        const ids = this.labelIds(carrier).join(',');
+        const path = carrier === 'speedy' ? `/speedy/labels.pdf?ids=${ids}` : `/shipping/labels.pdf?ids=${ids}`;
+        const res = await this.api(path);
+        const blob = await res.blob();
+        window.open(URL.createObjectURL(blob), '_blank');
+      } catch (e) { this.error = e.message; }
     },
     async downloadTemplate() {
       const res = await this.api('/import/template.xlsx');

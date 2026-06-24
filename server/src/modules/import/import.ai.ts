@@ -27,7 +27,9 @@ export class ImportAiService {
 
   constructor(config: ConfigService) {
     const key = config.get<string>('OPENAI_API_KEY');
-    this.client = key ? new OpenAI({ apiKey: key }) : null;
+    // Bound the call: the SDK defaults to a 10-min timeout × 2 retries, which would
+    // hang the upload request for ~30 min on a slow OpenAI before degrading to [].
+    this.client = key ? new OpenAI({ apiKey: key, timeout: 8000, maxRetries: 1 }) : null;
     this.model = config.get<string>('OPENAI_IMPORT_MODEL', 'gpt-4o-mini') ?? 'gpt-4o-mini';
   }
 

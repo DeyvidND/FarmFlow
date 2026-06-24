@@ -552,6 +552,7 @@ export class PlatformService {
             status: shipments.status,
             codAmountStotinki: shipments.codAmountStotinki,
             codCollectedAt: shipments.codCollectedAt,
+            codSettledAt: shipments.codSettledAt,
             createdAt: shipments.createdAt,
           })
           .from(shipments)
@@ -610,6 +611,7 @@ export class PlatformService {
         status: shipments.status,
         codAmountStotinki: shipments.codAmountStotinki,
         codCollectedAt: shipments.codCollectedAt,
+        codSettledAt: shipments.codSettledAt,
         createdAt: shipments.createdAt,
         trackingNumber: shipments.trackingNumber,
         econtShipmentNumber: shipments.econtShipmentNumber,

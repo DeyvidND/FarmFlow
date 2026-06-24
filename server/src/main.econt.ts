@@ -29,8 +29,9 @@ async function bootstrap() {
     const origin = req.headers.origin;
     res.header('Vary', 'Origin');
     if (origin && corsOrigins.includes(origin)) {
+      // Token auth (Authorization: Bearer from localStorage) — no cookies, so we
+      // deliberately do NOT send Allow-Credentials (keeps the surface tighter).
       res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
     }
     res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
