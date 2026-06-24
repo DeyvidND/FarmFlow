@@ -370,9 +370,7 @@ export const shipments = pgTable(
   {
     id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
     tenantId: uuid('tenant_id').references(() => tenants.id),
-    orderId: uuid('order_id')
-      .references(() => orders.id)
-      .notNull(),
+    orderId: uuid('order_id').references(() => orders.id),
     econtShipmentNumber: text('econt_shipment_number'),
     status: text('status').notNull().default('pending'),
     labelPdfUrl: text('label_pdf_url'),
@@ -382,6 +380,20 @@ export const shipments = pgTable(
     customerNotifiedAt: timestamp('customer_notified_at', { withTimezone: true }),
     codCollectedAt: timestamp('cod_collected_at', { withTimezone: true }),
     codSettledAt: timestamp('cod_settled_at', { withTimezone: true }),
+    // --- Standalone (order-less) shipments: a producer types the receiver in by
+    // hand via the standalone Econt app, so there is no `orders` row to derive
+    // from. NULL for FarmFlow shipments (which keep deriving from `orders`). ---
+    receiverName: text('receiver_name'),
+    receiverPhone: text('receiver_phone'),
+    deliveryMode: text('delivery_mode'), // 'office' | 'address'
+    receiverOfficeCode: text('receiver_office_code'),
+    receiverCity: text('receiver_city'),
+    receiverAddress: text('receiver_address'),
+    weightKg: numeric('weight_kg'),
+    contents: text('contents'),
+    // Econt courier-pickup request lifecycle (requestCourier / getRequestCourierStatus).
+    courierRequestId: text('courier_request_id'),
+    courierRequestStatus: text('courier_request_status'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },
