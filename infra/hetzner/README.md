@@ -21,7 +21,7 @@ the box). Secrets are NOT here: `.env` lives only on the box (600, root).
 
 | File | On box | Purpose |
 | --- | --- | --- |
-| `docker-compose.yml` | `/opt/fermeribg/docker-compose.yml` | the stack (pg, redis, api, web, admin, cloudflared) |
+| `docker-compose.yml` | `/opt/fermeribg/docker-compose.yml` | the stack (pg, redis, api, web, admin, econt, cloudflared) |
 | `env.example` | `/opt/fermeribg/.env` (filled) | env template; real values copied from the old Dokploy env |
 | `daemon.json` | `/etc/docker/daemon.json` | Docker log rotation (10m × 3) |
 | `backup.sh` | `/opt/fermeribg/backup.sh` | pg_dump → local + private R2 `backups` bucket |
@@ -46,9 +46,40 @@ Cron (`/etc/cron.d/`): `fermeribg-backup` (daily 03:00), `fermeribg-tunnel-watch
    (`rclone copy r2:backups/hetzner/<latest>.dump .` → `docker cp` →
    `pg_restore -U farmflow -d farmflow`).
 8. `docker compose up -d` (all). Create a Cloudflare Tunnel, put its token in
-   `CF_TUNNEL_TOKEN`, add Public Hostnames api/app/admin → `http://{api,web,admin}:{3000,3000,3002}`.
+   `CF_TUNNEL_TOKEN`, add Public Hostnames api/app/admin → `http://{api,web,admin}:{3000,3000,3002}`
+   and dostavki → `http://econt:3100` (see the delivery section below).
 9. Install the two cron files; configure rclone (`/root/.config/rclone/rclone.conf`,
    R2 creds, `region = auto`, `no_check_bucket = true`).
+
+## Standalone delivery app — `dostavki.fermeribg.com`
+
+A second app process from the **same `farmflow-api` image**, started with a command
+override (`node dist/main.econt.js`) instead of a new image. It serves the producer
+delivery surface (order-less Econt/Speedy shipments, COD-risk, cheapest-quote, bulk
+import) + a small Alpine UI at `/app`, on port **3100**.
+
+Already wired in `docker-compose.yml` as the `econt` service:
+- **`APP_ROLE=web`** — the Econt/Speedy 30-min refresh crons run ONLY in the `api`
+  container. Do not remove this, or both containers double-run the courier crons.
+- **No published host port** — the tunnel reaches it over the compose network as
+  `econt:3100`.
+- **`depends_on: api`** — `api` (`main.js`) runs the Drizzle migrations on boot; the
+  delivery app does not, so it must start after `api`.
+- Reads the shared `.env` (DB/Redis/JWT/ENCRYPTION_KEY) plus `CORS_ORIGIN_ECONT`,
+  and the optional `OPENAI_API_KEY` / `NEKOREKTEN_API_KEY` / `SPEEDY_DEFAULT_SERVICE_ID`.
+
+**To bring it live (operator):**
+1. Pull the new image + apply the compose: on the box, copy this `docker-compose.yml`
+   to `/opt/fermeribg/`, fill the new keys in `.env` (`CORS_ORIGIN_ECONT=https://dostavki.fermeribg.com`,
+   plus any of OPENAI/NEKOREKTEN/Speedy you want active), then `docker compose pull && docker compose up -d`.
+2. **Connect the tunnel:** in the Cloudflare Tunnel, add a Public Hostname
+   `dostavki.fermeribg.com` → service `http://econt:3100`. DNS auto-creates.
+3. Verify: `https://dostavki.fermeribg.com/app` loads; `GET /shipping/compare` without
+   a token returns 401 (route mounted + guarded).
+
+⚠️ Before any farm relies on a carrier, live-verify the docs-built fields (Speedy
+`serviceId`/price/EUR/validate/track/payments; Econt create/courier/profiles; nekorekten
+report shapes) — see `docs/superpowers/specs/2026-06-24-*` and the audit memo.
 
 ## Notes
 
