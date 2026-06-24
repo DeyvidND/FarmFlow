@@ -31,9 +31,10 @@ Request (courier-neutral):
   destinationCity: string;          // free-text city/town the producer typed
   deliveryMode: 'office' | 'address';
   weightGrams?: number;             // default from each carrier's package default
-  codAmountStotinki?: number;       // 0/omitted → no COD; included in the priced fee
 }
 ```
+
+**Base-shipping quote (COD excluded):** the quote prices the courier fee for city + weight + mode, **without** the COD surcharge. Rationale: including COD fairly would force widening Econt's `estimateShipping` to price COD, which would change the shipped storefront-checkout estimate's behavior (today COD orders estimate without the surcharge). Keeping COD off **both** carriers gives a fair like-for-like compare, avoids touching Econt's checkout behavior, and removes a Speedy spike. The COD surcharge is a small, similar add-on per carrier and doesn't change which is cheaper.
 
 Response (quotes sorted cheapest-first; unavailable carriers sort last):
 ```ts
@@ -47,7 +48,7 @@ Response (quotes sorted cheapest-first; unavailable carriers sort last):
 
 Three units, each with one responsibility:
 
-1. **`SpeedyService.estimateShipping(tenantId, input)`** (new method) — `POST /calculate` (reuses `buildShipmentRequest`). Returns `number | null` (stotinki) — **never throws** (degrades like Econt's checkout estimate). 6s timeout. Cached in Redis, key `speedy:estimate:<tenantId>:<siteId>:<weightBucket>kg:<cod?1:0>`, 8h TTL (mirrors Econt's estimate cache). Speedy `/calculate` requires a `serviceId` → use `settings.delivery.speedy.defaultServiceId`, falling back to a module constant `SPEEDY_DEFAULT_SERVICE_ID`. **spike:** confirm the calculate price field name + a valid default serviceId via `/services/destination`.
+1. **`SpeedyService.estimateShipping(tenantId, input)`** (new method) — `POST /calculate` (reuses `buildShipmentRequest` with a synthesized estimate input: placeholder receiver, `deliveryMode:'address'`, the resolved `siteId`, no COD). Returns `number | null` (stotinki) — **never throws** (degrades like Econt's checkout estimate). 6s timeout. Cached in Redis, key `speedy:estimate:<tenantId>:<siteId>:<weightBucket>kg`, 8h TTL (mirrors Econt's estimate cache). Speedy `/calculate` requires a `serviceId` → use `settings.delivery.speedy.defaultServiceId`, falling back to a module constant `SPEEDY_DEFAULT_SERVICE_ID`. **spike:** confirm the calculate price field name + a valid default serviceId via `/services/destination`.
 
 2. **`EcontService.estimateShipping`** (already exists — `(tenantId, order, items) → Promise<number | null>`, 6s, cached). Reused; the quote service adapts the neutral input into its order-like shape (`deliveryType` econt/econt_address, `deliveryCity`, `econtOffice` left empty for a city-level estimate). **One additive change:** Econt's estimate currently reads weight from the tenant's `defaultPackage.weightKg`, ignoring per-shipment weight — but a fair compare requires both carriers to price the **same** weight. Add an optional `weightKgOverride?: number` parameter to `estimateShipping` (and fold it into its cache key); existing callers (checkout) pass nothing and are unaffected (backward-compatible, additive — the only touch to shipped Econt code, covered by a test). **spike:** confirm Econt office-mode calculate works at city granularity without an office code; if not, pass a representative office.
 
@@ -63,7 +64,7 @@ Three units, each with one responsibility:
 
 ## Address resolution (the carrier mismatch)
 
-Econt prices by free-text city; Speedy by `siteId`. Both price mostly on **city + weight + COD** — exact office barely changes the fee, so a city-level quote is the advisory number:
+Econt prices by free-text city; Speedy by `siteId`. Both price mostly on **city + weight** — exact office barely changes the fee, so a city-level quote is the advisory number:
 - **Econt:** pass `destinationCity` straight into its estimate.
 - **Speedy:** `searchSites(destinationCity)` → take the best match's `siteId` → `/calculate` with that siteId + the configured `defaultServiceId`. No match → Speedy `available:false` (UI tells the producer to refine the city).
 
@@ -71,12 +72,12 @@ Econt prices by free-text city; Speedy by `siteId`. Both price mostly on **city 
 
 - Both estimates run in parallel, 6s each. One fails/times-out → that carrier `available:false`, `priceStotinki:null`; the other still shows. Both fail → `cheapest:null`, both unavailable (UI: „цените временно недостъпни").
 - Estimates never surface a 5xx to the producer — always a 200 with availability flags.
-- COD fee is included in both prices (`codAmountStotinki` flows into both estimate bodies).
+- Base shipping only — COD surcharge excluded on both (see input-contract note).
 - A carrier with no credentials configured → `available:false` (not an error).
 
 ## Testing
 
-- **Pure:** `buildQuoteResult` unit-tested — both available (sort by price), one available (it wins, other last), both null (`cheapest:null`), tie (stable carrier order), COD vs no-COD passthrough. Speedy estimate cache-key + body build covered via the existing helper tests.
+- **Pure:** `buildQuoteResult` unit-tested — both available (sort by price), one available (it wins, other last), both null (`cheapest:null`), tie (stable carrier order). Speedy estimate cache-key + body build covered via the existing helper tests.
 - **Service methods:** repo convention (no db-mock).
 - **Boot smoke:** `POST /shipping/compare` on a configured tenant returns the `{quotes, cheapest}` shape; with no credentials returns both `available:false`.
 
