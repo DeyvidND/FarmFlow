@@ -415,6 +415,63 @@ export const shipments = pgTable(
   }),
 );
 
+// --- Bulk import (standalone): staging for an uploaded Excel/CSV of recipients ---
+// A batch holds one uploaded file; rows are editable drafts until committed into
+// real `shipments`. Tenant-scoped like everything else in the standalone surface.
+export const importBatches = pgTable(
+  'import_batches',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    fileName: text('file_name'),
+    carrierDefault: text('carrier_default').notNull().default('econt'), // 'econt' | 'speedy'
+    currency: text('currency').notNull().default('EUR'), // 'BGN' | 'EUR'
+    status: text('status').notNull().default('validating'), // validating|ready|partial|done
+    settings: jsonb('settings'), // sender override, package preset, COD type, speedyServiceId
+    aiReport: jsonb('ai_report'), // { aiAvailable, ok, warn, error }
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantIdx: index('import_batches_tenant_idx').on(t.tenantId),
+  }),
+);
+
+export const importRows = pgTable(
+  'import_rows',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => importBatches.id, { onDelete: 'cascade' }),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    rowIndex: integer('row_index').notNull(),
+    raw: jsonb('raw'),
+    receiverName: text('receiver_name'),
+    receiverPhone: text('receiver_phone'),
+    deliveryMode: text('delivery_mode'), // 'office' | 'address'
+    city: text('city'),
+    office: text('office'),
+    address: text('address'),
+    streetNo: text('street_no'),
+    weightGrams: integer('weight_grams'),
+    contents: text('contents'),
+    codAmountStotinki: integer('cod_amount_stotinki'),
+    declaredValueStotinki: integer('declared_value_stotinki'),
+    carrier: text('carrier').notNull().default('econt'),
+    validationStatus: text('validation_status').notNull().default('error'), // ok|warn|error
+    validation: jsonb('validation'), // { issues: [...] }
+    resolvedRefs: jsonb('resolved_refs'), // econtOfficeCode / siteId / officeId / streetId / candidates
+    shipmentId: uuid('shipment_id').references(() => shipments.id),
+    createStatus: text('create_status'), // null | 'created' | 'failed'
+    createError: text('create_error'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    batchIdx: index('import_rows_batch_idx').on(t.batchId),
+    tenantIdx: index('import_rows_tenant_idx').on(t.tenantId),
+  }),
+);
+
 // Cross-tenant COD-risk registry: one row per normalized customer phone, counting
 // refused/returned cash-on-delivery parcels seen across ALL farms (network effect).
 export const codRisk = pgTable('cod_risk', {
@@ -791,6 +848,8 @@ export const schema = {
   orderItems,
   stripeEvents,
   shipments,
+  importBatches,
+  importRows,
   auditLogs,
   platformAdmins,
   articles,
