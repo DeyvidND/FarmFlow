@@ -93,14 +93,21 @@ Mirrors `econt/` with the controller-less core split (same pattern as `econt-cor
 
 ### Reused as-is (no fork)
 
-Encryption util (`secret.util.ts`), PDF-merge util, `ShipmentEmailService` (extended to pick the tracking URL by `carrier`), `CodRiskService.recordReturnIfApplicable` (operates on a generic `shipments` row + canonical status — no edit needed), `ActivationGuard`, standalone signup/auth, super-admin activate endpoint.
+Encryption util (`secret.util.ts`), PDF-merge util (`mergePdfs`, already exported from `econt.service.ts`), `CodRiskService.recordReturnIfApplicable` (operates on a generic `shipments` row + canonical status — no edit needed), `ActivationGuard`, standalone signup/auth, super-admin activate endpoint.
+
+**Not needed for Speedy:** the shipped-email (`ShipmentEmailService`) — every Speedy shipment is order-less (`orderId` null), so there is no storefront order/customer-email to notify; skipped (revisit only if Speedy ever ships FarmFlow orders).
+
+**COD-risk endpoints are not duplicated.** The existing standalone risk surface (`/shipping/risk/{check,candidates,reports/:id}` on the Econt controller) is carrier-agnostic and account-level: `check` keys on phone; `listCandidates`/`confirmReport` read the `shipments` table by tenant/id, so Speedy candidates (flagged by the shared `recordReturnIfApplicable`) and Speedy reports already work through it. No `/speedy/risk/*` routes.
 
 ## Data model — generalize `shipments` (migration 0057)
 
-- Add `carrier text NOT NULL DEFAULT 'econt'`; backfill existing rows to `'econt'`.
-- Rename `econtShipmentNumber` → `trackingNumber` (mechanical; update all Econt references — caught by tsc + existing 684 tests). Holds Econt number / Speedy parcel barcode.
-- Add `carrierShipmentId text` — Speedy shipment id (needed for cancel/print/info). Econt leaves it null.
-- **Reused unchanged:** `labelPdfUrl` (null for Speedy — `/print` returns bytes, fetched on demand), `courierPriceStotinki`, `codAmountStotinki`, `trackingJson`, `courierRequestId`/`courierRequestStatus`, `receiver*`, `weightKg`, `contents`, `reportStatus`.
+**Additive-only** (no column rename — a Drizzle rename forces an interactive prompt and would churn the shipped Econt code; additive columns generalize the table with zero Econt risk):
+
+- Add `carrier text NOT NULL DEFAULT 'econt'`. Existing rows + all Econt inserts stay `'econt'` via the default; Speedy inserts set `'speedy'`.
+- Add `trackingNumber text` — the Speedy parcel **barcode** (the trackable number). Econt keeps using its existing `econtShipmentNumber` column; the two coexist and each carrier reads only its own.
+- Add `carrierShipmentId text` — the Speedy **shipment id** (needed for cancel/print/info). Econt leaves it null.
+- **Reused unchanged:** `labelPdfUrl` (null for Speedy — `/print` returns bytes, fetched on demand), `courierPriceStotinki`, `codAmountStotinki`, `trackingJson`, `courierRequestId`/`courierRequestStatus`, `codCollectedAt`/`codSettledAt`, `receiver*`, `weightKg`, `contents`, `reportStatus`.
+- **Econt code is not touched** — it never reads `carrier`/`trackingNumber`/`carrierShipmentId`; Speedy never reads `econtShipmentNumber`.
 - Speedy config shape at `tenants.settings.delivery.speedy`: `{ env, userName, passwordEnc, clientSystemId?, configured, sender{ contactName, phone, mode, officeId?, siteId?, streetId? }, defaultPackage{ weightKg?, contents?, parcelsCount? }, cod{ enabled?, processingType? } }`.
 
 ### Canonical status
