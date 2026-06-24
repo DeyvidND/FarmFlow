@@ -174,11 +174,16 @@ export function slimOffices(res: unknown): SpeedyOffice[] {
   const r = (res ?? {}) as Record<string, any>;
   const list: any[] = Array.isArray(r) ? r : Array.isArray(r.offices) ? r.offices : [];
   return list
-    .map((o) => ({
-      id: Number(o?.id),
-      name: String(o?.name ?? '').trim(),
-      address: (o?.address?.fullAddress ?? o?.address ?? null) || null,
-    }))
+    .map((o) => {
+      // Speedy may return `address` as a string OR a structured object; only keep a
+      // string (a bare object would render as "[object Object]" in the picker).
+      const addr = o?.address?.fullAddress ?? o?.address ?? null;
+      return {
+        id: Number(o?.id),
+        name: String(o?.name ?? '').trim(),
+        address: typeof addr === 'string' && addr.trim() ? addr : null,
+      };
+    })
     .filter((o) => Number.isFinite(o.id) && o.name);
 }
 

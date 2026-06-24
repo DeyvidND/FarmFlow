@@ -123,6 +123,12 @@ describe('slim mappers', () => {
     const o = slimOffices({ offices: [{ id: 70, name: 'Офис Изток', address: { fullAddress: 'бул. Витоша 1' } }] });
     expect(o[0]).toEqual({ id: 70, name: 'Офис Изток', address: 'бул. Витоша 1' });
   });
+  it('slimOffices nulls a structured address with no fullAddress (never returns an object)', () => {
+    const o = slimOffices({ offices: [{ id: 70, name: 'Офис', address: { siteName: 'София' } }] });
+    expect(o[0].address).toBeNull();
+    const flat = slimOffices({ offices: [{ id: 71, name: 'Офис 2', address: 'ул. Г. С. Раковски 2' }] });
+    expect(flat[0].address).toBe('ул. Г. С. Раковски 2');
+  });
   it('slimStreets reads id/name', () => {
     const s = slimStreets({ streets: [{ id: 3109, name: 'Витоша' }] });
     expect(s[0]).toEqual({ id: 3109, name: 'Витоша' });
