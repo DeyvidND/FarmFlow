@@ -91,6 +91,15 @@ describe('CodRiskService.check', () => {
     expect(r.verdict).toBe('caution');
   });
 
+  it('falls through to a live call when Redis is down (cache.get rejects)', async () => {
+    db.limit.mockResolvedValueOnce([{ strikes: 0 }]).mockResolvedValueOnce([]);
+    cache.get.mockRejectedValueOnce(new Error('redis down'));
+    nk.checkPhone.mockResolvedValueOnce({ configured: true, found: false, count: 0, reports: [] });
+    const r = await svc.check('0888111222');
+    expect(nk.checkPhone).toHaveBeenCalledWith('+359888111222');
+    expect(r.verdict).toBe('ok');
+  });
+
   it('does not cache an unconfigured nekorekten result', async () => {
     db.limit.mockResolvedValueOnce([{ strikes: 0 }]).mockResolvedValueOnce([]);
     cache.get.mockResolvedValueOnce(null);
