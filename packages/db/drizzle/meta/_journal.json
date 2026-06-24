@@ -400,6 +400,13 @@
       "when": 1782310269928,
       "tag": "0056_nice_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1782313789504,
+      "tag": "0057_ambitious_wiccan",
+      "breakpoints": true
     }
   ]
 }

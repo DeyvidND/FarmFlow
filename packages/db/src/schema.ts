@@ -372,6 +372,14 @@ export const shipments = pgTable(
     tenantId: uuid('tenant_id').references(() => tenants.id),
     orderId: uuid('order_id').references(() => orders.id),
     econtShipmentNumber: text('econt_shipment_number'),
+    // --- Multi-carrier (Speedy added alongside Econt) ---
+    // Which courier owns this row. Existing rows + Econt inserts default 'econt';
+    // Speedy inserts set 'speedy'. Each carrier's code reads only its own columns.
+    carrier: text('carrier').notNull().default('econt'),
+    // Speedy parcel barcode (the trackable number). Econt keeps econtShipmentNumber.
+    trackingNumber: text('tracking_number'),
+    // Speedy shipment id (needed for cancel/print/info). Null for Econt.
+    carrierShipmentId: text('carrier_shipment_id'),
     status: text('status').notNull().default('pending'),
     labelPdfUrl: text('label_pdf_url'),
     courierPriceStotinki: integer('courier_price_stotinki'),
