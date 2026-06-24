@@ -958,7 +958,15 @@ export class EcontService {
         .set({ customerNotifiedAt: new Date() })
         .where(eq(shipments.id, updated.id));
     }
-    await this.codRisk.recordReturnIfApplicable(updated);
+    // COD-risk strike on a returned/refused COD parcel. Best-effort — must never turn a
+    // successful status refresh into a user-facing error (manual refresh has no batch catch).
+    try {
+      await this.codRisk.recordReturnIfApplicable(updated);
+    } catch (err) {
+      this.logger.warn(
+        `[econt] cod-risk record failed for ${updated.id}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
     return updated;
   }
 

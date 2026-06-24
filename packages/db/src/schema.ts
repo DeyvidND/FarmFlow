@@ -426,7 +426,7 @@ export const codRiskEvents = pgTable(
     phone: text('phone').notNull(),
     tenantId: uuid('tenant_id').references(() => tenants.id),
     shipmentId: uuid('shipment_id').references(() => shipments.id),
-    type: text('type').notNull(), // 'returned' | 'refused' | 'reported'
+    type: text('type').notNull(), // 'returned' (a strike) | 'reported' (sent to nekorekten)
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({

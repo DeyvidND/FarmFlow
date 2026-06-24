@@ -38,7 +38,17 @@ export class CodRiskService {
   async recordReturnIfApplicable(shipment: typeof shipments.$inferSelect): Promise<void> {
     if (shipment.codAmountStotinki == null) return; // not a COD parcel
     if (!isReturnedStatus(shipment.status)) return;
-    if (shipment.reportStatus && shipment.reportStatus !== 'none') return; // already handled
+    if (shipment.reportStatus && shipment.reportStatus !== 'none') return; // cheap fast-path
+
+    // Atomically claim this shipment as a candidate (compare-and-set on report_status):
+    // only the transition FROM 'none' proceeds, so two concurrent refreshes (the cron
+    // pass overlapping a manual refresh) can't both record a strike — counted once.
+    const claimed = await this.db
+      .update(shipments)
+      .set({ reportStatus: 'candidate' })
+      .where(and(eq(shipments.id, shipment.id), eq(shipments.reportStatus, 'none')))
+      .returning({ id: shipments.id });
+    if (claimed.length === 0) return; // lost the race / already handled
 
     let rawPhone: string | null = shipment.receiverPhone;
     if (!rawPhone && shipment.orderId) {
@@ -50,10 +60,7 @@ export class CodRiskService {
       rawPhone = o?.phone ?? null;
     }
     const phone = normalizePhone(rawPhone ?? '');
-
-    // Mark the shipment so we never re-process it, even if we couldn't key a phone.
-    await this.db.update(shipments).set({ reportStatus: 'candidate' }).where(eq(shipments.id, shipment.id));
-    if (!phone) return;
+    if (!phone) return; // claimed (won't re-process) but no phone to key a strike
 
     await this.db
       .insert(codRisk)

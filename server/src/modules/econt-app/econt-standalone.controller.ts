@@ -1,6 +1,7 @@
 import {
   Controller, Get, Post, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe, StreamableFile,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { EcontService } from '../econt/econt.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { EcontCredentialsDto } from '../econt/dto/econt-credentials.dto';
@@ -100,6 +101,10 @@ export class EcontStandaloneController {
   }
 
   // --- COD risk ---
+  // A phone lookup hits the cross-tenant registry (+ nekorekten quota) → gate behind
+  // activation (paid feature) and throttle hard to curb phone enumeration.
+  @UseGuards(ActivationGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get('risk/check')
   riskCheck(@Query('phone') phone: string) {
     return this.risk.check(phone);
@@ -108,6 +113,8 @@ export class EcontStandaloneController {
   riskCandidates(@CurrentTenant() t: string) {
     return this.risk.listCandidates(t);
   }
+  // Reporting consumes our platform nekorekten account → activation-gated.
+  @UseGuards(ActivationGuard)
   @Post('risk/reports/:shipmentId')
   riskConfirm(@CurrentTenant() t: string, @Param('shipmentId', ParseUUIDPipe) shipmentId: string) {
     return this.risk.confirmReport(t, shipmentId);
