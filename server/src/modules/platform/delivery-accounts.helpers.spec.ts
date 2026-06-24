@@ -39,4 +39,16 @@ describe('buildDeliveryOverview', () => {
       total: 0, codPendingStotinki: 0, codCollectedStotinki: 0, econt: 0, speedy: 0, lastShipmentAt: null,
     });
   });
+
+  it('excludes COD on cancelled/returned/refused shipments from pending', () => {
+    const out = buildDeliveryOverview([
+      { carrier: 'econt', status: 'shipped', codAmountStotinki: 1000, codCollectedAt: null, createdAt: '2026-06-01T00:00:00.000Z' },
+      { carrier: 'econt', status: 'returned', codAmountStotinki: 999, codCollectedAt: null, createdAt: '2026-06-02T00:00:00.000Z' },
+      { carrier: 'speedy', status: 'cancelled', codAmountStotinki: 555, codCollectedAt: null, createdAt: '2026-06-03T00:00:00.000Z' },
+      { carrier: 'econt', status: 'delivered', codAmountStotinki: 500, codCollectedAt: '2026-06-04T00:00:00.000Z', createdAt: '2026-06-04T00:00:00.000Z' },
+    ]);
+    expect(out.codPendingStotinki).toBe(1000); // only the live 'shipped' one
+    expect(out.codCollectedStotinki).toBe(500);
+    expect(out.total).toBe(4);
+  });
 });

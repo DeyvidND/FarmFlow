@@ -26,13 +26,18 @@ export interface DeliveryOverview {
 
 export interface ShipmentLite {
   carrier: string | null;
+  status?: string | null;
   codAmountStotinki: number | null;
   codCollectedAt: Date | string | null;
   createdAt: Date | string | null;
 }
 
-/** Fold a tenant's shipments into the super-admin overview. COD "pending" = not yet
- *  collected from the recipient; "collected" = courier marked it collected. */
+// COD on these statuses will never be collected, so it doesn't count as "money
+// you're waiting on" (returned/refused = recipient declined; cancelled/failed = void).
+const NO_COD_PENDING = new Set(['cancelled', 'failed', 'returned', 'refused']);
+
+/** Fold a tenant's shipments into the super-admin overview. COD "collected" = courier
+ *  marked it collected; "pending" = not yet collected AND still in a live state. */
 export function buildDeliveryOverview(rows: ShipmentLite[]): DeliveryOverview {
   let codPendingStotinki = 0;
   let codCollectedStotinki = 0;
@@ -42,7 +47,7 @@ export function buildDeliveryOverview(rows: ShipmentLite[]): DeliveryOverview {
   for (const r of rows) {
     const cod = r.codAmountStotinki ?? 0;
     if (r.codCollectedAt) codCollectedStotinki += cod;
-    else codPendingStotinki += cod;
+    else if (!NO_COD_PENDING.has(r.status ?? '')) codPendingStotinki += cod;
     if (r.carrier === 'speedy') speedy++;
     else econt++;
     const ts = r.createdAt ? new Date(r.createdAt).getTime() : 0;

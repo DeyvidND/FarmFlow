@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, dmy, eur } from '@/lib/utils';
-import { enableDeliveryOnFarm, type PlatformTenantDetail } from '@/lib/api-client';
+import { ApiError, enableDeliveryOnFarm, type PlatformTenantDetail } from '@/lib/api-client';
 
 const ORDER_STATUS: Record<string, { label: string; tone: string }> = {
   pending: { label: 'Чака', tone: 'bg-ff-amber-soft text-ff-amber-600' },
@@ -139,8 +139,8 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
       await enableDeliveryOnFarm(d.id);
       setDeliveryOn(true);
       toast.success(`${d.name}: доставката е включена`);
-    } catch {
-      toast.error('Неуспешно включване на доставка');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Неуспешно включване на доставка');
     } finally {
       setEnabling(false);
     }

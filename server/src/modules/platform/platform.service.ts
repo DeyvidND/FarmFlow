@@ -549,6 +549,7 @@ export class PlatformService {
           .select({
             tenantId: shipments.tenantId,
             carrier: shipments.carrier,
+            status: shipments.status,
             codAmountStotinki: shipments.codAmountStotinki,
             codCollectedAt: shipments.codCollectedAt,
             createdAt: shipments.createdAt,
