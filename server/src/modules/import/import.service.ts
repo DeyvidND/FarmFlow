@@ -61,7 +61,8 @@ export class ImportService {
       })
       .returning();
 
-    for (const row of normalized) {
+    const CONCURRENCY = 8;
+    const processRow = async (row: NormalizedRow) => {
       const det = validateRow(row);
       const resolved = det.status === 'error'
         ? { refs: {}, ambiguous: false, unresolved: null as string | null }
@@ -77,8 +78,15 @@ export class ImportService {
           }],
         };
       }
-      counts[validation.status]++;
-      rowsToInsert.push(this.toRowInsert(batch.id, tenantId, row, validation, resolved.refs));
+      return { row, validation, refs: resolved.refs };
+    };
+    for (let i = 0; i < normalized.length; i += CONCURRENCY) {
+      const chunk = normalized.slice(i, i + CONCURRENCY);
+      const processed = await Promise.all(chunk.map(processRow));
+      for (const p of processed) {
+        counts[p.validation.status]++;
+        rowsToInsert.push(this.toRowInsert(batch.id, tenantId, p.row, p.validation, p.refs));
+      }
     }
 
     await this.db.insert(importRows).values(rowsToInsert);
@@ -148,12 +156,17 @@ export class ImportService {
     for (const k of ['siteId', 'officeId', 'streetId', 'econtOfficeCode'] as const) {
       if (patch[k] != null) manualRefs[k] = patch[k];
     }
-    let refs = { ...((existing.resolvedRefs as Record<string, unknown> | null) ?? {}), ...manualRefs };
+    // Re-validation on a patch is deterministic-only (we intentionally do NOT re-run the
+    // OpenAI check per edit — too costly); a prior AI-raised severity is not preserved.
+    let refs: Record<string, unknown> = { ...manualRefs };
     let validation = det;
-    if (det.status !== 'error' && !Object.keys(manualRefs).length) {
+    if (det.status !== 'error') {
+      // Always re-resolve from the (possibly edited) location fields so stale auto-refs
+      // from a previous city/mode can't survive — then let any user-picked candidate id
+      // win on top.
       const resolved = await this.resolver.resolve(tenantId, merged);
-      refs = resolved.refs;
-      if (resolved.ambiguous || resolved.unresolved) {
+      refs = { ...resolved.refs, ...manualRefs };
+      if (!Object.keys(manualRefs).length && (resolved.ambiguous || resolved.unresolved)) {
         validation = {
           status: 'warn',
           issues: [...det.issues, { field: resolved.unresolved ?? 'city', message: 'Провери локацията' }],
@@ -217,11 +230,15 @@ export class ImportService {
 
   private async createEcont(tenantId: string, row: typeof importRows.$inferSelect): Promise<string> {
     const refs = (row.resolvedRefs as { econtOfficeCode?: string } | null) ?? {};
+    // Only a resolved code (or an already-numeric office cell) is a valid Econt office code;
+    // never pass a free-text office NAME as a code (it would silently fail at Econt).
+    const officeCode = refs.econtOfficeCode ?? (row.office && /^\d{3,}$/.test(row.office) ? row.office : undefined);
+    if (row.deliveryMode === 'office' && !officeCode) throw new Error('Неразпознат Еконт офис — провери офиса');
     const ship = await this.econtSvc.createManualShipment(tenantId, {
       receiverName: row.receiverName ?? '',
       receiverPhone: row.receiverPhone ?? '',
       deliveryMode: row.deliveryMode as 'office' | 'address',
-      receiverOfficeCode: refs.econtOfficeCode ?? row.office ?? undefined,
+      receiverOfficeCode: officeCode,
       receiverCity: row.city ?? undefined,
       receiverAddress: row.address ?? undefined,
       weightGrams: row.weightGrams ?? undefined,

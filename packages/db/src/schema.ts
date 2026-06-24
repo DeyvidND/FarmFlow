@@ -422,7 +422,7 @@ export const importBatches = pgTable(
   'import_batches',
   {
     id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
-    tenantId: uuid('tenant_id').references(() => tenants.id),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     fileName: text('file_name'),
     carrierDefault: text('carrier_default').notNull().default('econt'), // 'econt' | 'speedy'
     currency: text('currency').notNull().default('EUR'), // 'BGN' | 'EUR'
@@ -443,7 +443,7 @@ export const importRows = pgTable(
     batchId: uuid('batch_id')
       .notNull()
       .references(() => importBatches.id, { onDelete: 'cascade' }),
-    tenantId: uuid('tenant_id').references(() => tenants.id),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     rowIndex: integer('row_index').notNull(),
     raw: jsonb('raw'),
     receiverName: text('receiver_name'),
