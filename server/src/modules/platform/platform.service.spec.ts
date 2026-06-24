@@ -12,6 +12,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ConfigService } from '@nestjs/config';
 import { auditLogs, users, orderItems, orders, products, emailPushes, newsletterCampaigns, shipments } from '@fermeribg/db';
+import { withEcontActive } from '../econt-app/econt-app.helpers';
 
 // Mock argon2 at module level so native bindings are not called.
 jest.mock('argon2', () => ({
@@ -491,6 +492,16 @@ describe('PlatformService', () => {
       expect(db.set).toHaveBeenCalledWith(
         expect.objectContaining({ passwordHash: 'new-hash', mustChangePassword: false }),
       );
+    });
+  });
+});
+
+describe('withEcontActive (used by platform activate)', () => {
+  it('activates without dropping other settings', () => {
+    expect(withEcontActive({ product: 'econt-standalone', delivery: { x: 1 } }, true)).toEqual({
+      product: 'econt-standalone',
+      delivery: { x: 1 },
+      econtApp: { active: true },
     });
   });
 });

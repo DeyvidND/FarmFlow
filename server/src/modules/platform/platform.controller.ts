@@ -136,6 +136,15 @@ export class PlatformController {
     return this.platform.setPremium(id, dto.premium);
   }
 
+  /** Activate/deactivate a standalone Econt account after one-time payment. */
+  @Patch('econt-accounts/:tenantId/activate')
+  setEcontActive(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Body() body: { active: boolean },
+  ) {
+    return this.platform.setEcontAppActive(tenantId, body.active === true);
+  }
+
   /** Hard-delete a tenant + all its data. Demos delete freely; a real farm requires
    *  `?confirm=<slug>` matching its slug exactly (service-guarded). */
   @Delete('tenants/:id')

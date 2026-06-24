@@ -51,6 +51,7 @@ import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { sanitizeSiteUrl } from '../tenants/site-copy';
 import { DEMO_SEED } from './demo-seed';
+import { withEcontActive } from '../econt-app/econt-app.helpers';
 
 export interface PlatformTenantRow {
   id: string;
@@ -457,6 +458,21 @@ export class PlatformService {
   async setPremium(id: string, premium: boolean): Promise<{ id: string; premium: boolean }> {
     await this.billing.setPremium(id, premium);
     return { id, premium };
+  }
+
+  /** Activate/deactivate a standalone Econt account (one-time payment gate). */
+  async setEcontAppActive(tenantId: string, active: boolean): Promise<{ id: string; active: boolean }> {
+    const [t] = await this.db
+      .select({ id: tenants.id, settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!t) throw new NotFoundException('Акаунтът не е намерен');
+    await this.db
+      .update(tenants)
+      .set({ settings: withEcontActive(t.settings, active) })
+      .where(eq(tenants.id, tenantId));
+    return { id: tenantId, active };
   }
 
   /** Reset a farm OWNER's password: mint a fresh temp password, force a change on
