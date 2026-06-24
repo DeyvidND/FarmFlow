@@ -112,4 +112,70 @@ export class ImportService {
       .orderBy(importRows.rowIndex);
     return { batch, rows };
   }
+
+  /** Update editable fields of a draft row, then re-validate + re-resolve it. */
+  async patchRow(tenantId: string, batchId: string, rowId: string, patch: import('./dto/patch-row.dto').PatchRowDto) {
+    const [existing] = await this.db.select().from(importRows)
+      .where(and(eq(importRows.id, rowId), eq(importRows.batchId, batchId), eq(importRows.tenantId, tenantId)))
+      .limit(1);
+    if (!existing) throw new NotFoundException('Редът не е намерен');
+
+    // Apply only provided fields.
+    const merged: NormalizedRow = {
+      rowIndex: existing.rowIndex,
+      receiverName: patch.receiverName ?? existing.receiverName ?? '',
+      receiverPhone: patch.receiverPhone ?? existing.receiverPhone ?? '',
+      deliveryMode: (patch.deliveryMode ?? existing.deliveryMode) as NormalizedRow['deliveryMode'],
+      city: patch.city ?? existing.city ?? null,
+      office: patch.office ?? existing.office ?? null,
+      address: patch.address ?? existing.address ?? null,
+      streetNo: patch.streetNo ?? existing.streetNo ?? null,
+      weightGrams: patch.weightGrams ?? existing.weightGrams ?? null,
+      contents: patch.contents ?? existing.contents ?? null,
+      codAmountStotinki: patch.codAmountStotinki ?? existing.codAmountStotinki ?? null,
+      declaredValueStotinki: patch.declaredValueStotinki ?? existing.declaredValueStotinki ?? null,
+      carrier: (patch.carrier ?? existing.carrier) as NormalizedRow['carrier'],
+      raw: (existing.raw as NormalizedRow['raw']) ?? {},
+    };
+
+    const det = validateRow(merged);
+    // User-picked ids from the editor take priority over auto-resolution.
+    const manualRefs: Record<string, unknown> = {};
+    for (const k of ['siteId', 'officeId', 'streetId', 'econtOfficeCode'] as const) {
+      if (patch[k] != null) manualRefs[k] = patch[k];
+    }
+    let refs = { ...((existing.resolvedRefs as Record<string, unknown> | null) ?? {}), ...manualRefs };
+    let validation = det;
+    if (det.status !== 'error' && !Object.keys(manualRefs).length) {
+      const resolved = await this.resolver.resolve(tenantId, merged);
+      refs = resolved.refs;
+      if (resolved.ambiguous || resolved.unresolved) {
+        validation = {
+          status: 'warn',
+          issues: [...det.issues, { field: resolved.unresolved ?? 'city', message: 'Провери локацията' }],
+        };
+      }
+    }
+
+    const [updated] = await this.db.update(importRows).set({
+      receiverName: merged.receiverName, receiverPhone: merged.receiverPhone,
+      deliveryMode: merged.deliveryMode, city: merged.city, office: merged.office,
+      address: merged.address, streetNo: merged.streetNo, weightGrams: merged.weightGrams,
+      contents: merged.contents, codAmountStotinki: merged.codAmountStotinki,
+      declaredValueStotinki: merged.declaredValueStotinki, carrier: merged.carrier,
+      validationStatus: validation.status,
+      validation: { issues: validation.issues } as unknown as Record<string, unknown>,
+      resolvedRefs: refs as unknown as Record<string, unknown>,
+    }).where(and(eq(importRows.id, rowId), eq(importRows.tenantId, tenantId))).returning();
+    return updated;
+  }
+
+  /** Remove a draft row (tenant-scoped). */
+  async deleteRow(tenantId: string, batchId: string, rowId: string) {
+    const res = await this.db.delete(importRows)
+      .where(and(eq(importRows.id, rowId), eq(importRows.batchId, batchId), eq(importRows.tenantId, tenantId)))
+      .returning({ id: importRows.id });
+    if (!res.length) throw new NotFoundException('Редът не е намерен');
+    return { deleted: true };
+  }
 }
