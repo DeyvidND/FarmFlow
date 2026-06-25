@@ -30,7 +30,13 @@ export function parseTrackStatus(
   if (d.includes('върн') || d.includes('return')) return 'returned';
   if (d.includes('отказ') || d.includes('refus')) return 'refused';
   if (d.includes('достав') || d.includes('предадена') || d.includes('deliver')) return 'delivered';
-  if (d.includes('транзит') || d.includes('товар') || d.includes('път') || d.includes('transit') || d.includes('ship'))
+  // In-transit tokens only. Do NOT match the bare stem 'товар' — it also matches
+  // "товарителница" (waybill), so a "товарителница приета/създадена" op (just a waybill
+  // accepted, no movement yet) would wrongly read as 'shipped'.
+  if (
+    d.includes('в транзит') || d.includes('транзит') || d.includes('натоварен') ||
+    d.includes('на път') || d.includes('път') || d.includes('transit') || d.includes('ship')
+  )
     return 'shipped';
   return 'created';
 }
@@ -75,6 +81,7 @@ interface ManualInput {
   contents?: string;
   codAmountStotinki?: number;
   declaredValueStotinki?: number;
+  codProcessingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER';
 }
 
 /**
@@ -108,7 +115,8 @@ export function buildShipmentRequest(cfg: SpeedyStored, input: ManualInput): Rec
   if (input.codAmountStotinki && input.codAmountStotinki > 0) {
     additionalServices.cod = {
       amount: toEur(input.codAmountStotinki),
-      processingType: cfg.cod?.processingType ?? 'CASH',
+      // Per-shipment override (e.g. batch setting) wins over the tenant default.
+      processingType: input.codProcessingType ?? cfg.cod?.processingType ?? 'CASH',
       currencyCode: 'EUR',
     };
   }

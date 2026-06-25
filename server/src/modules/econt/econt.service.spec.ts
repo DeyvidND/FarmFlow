@@ -207,6 +207,18 @@ describe('mapShipmentRow', () => {
     expect(out.trackingNumber).toBeUndefined();
     expect(out.customerName).toBe('—');
   });
+
+  it('maps Econt returned/refused raw statuses to returned/refused (not delivered/shipped)', () => {
+    const mk = (shipmentStatus: string) => mapShipmentRow({
+      orderId: '44444444-5555-6666-7777-888888888888',
+      customerName: 'Иван', deliveryType: 'econt', total: 1000,
+      shipmentId: 'cccc', shipmentNumber: '1051000000003', shipmentStatus,
+      courierPrice: null, labelPdfUrl: null, codAmount: null, trackingJson: null,
+    }).status;
+    expect(mk('Пратката е върната на подателя')).toBe('returned');
+    expect(mk('Отказана от получателя')).toBe('refused');
+    expect(mk('Анулирана')).toBe('refused');
+  });
 });
 
 describe('mergePdfs', () => {

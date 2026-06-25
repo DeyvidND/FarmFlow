@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, Inject } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, or, isNull } from 'drizzle-orm';
 import { type Database, importBatches, importRows } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { parseFile } from './import.parse';
@@ -200,21 +200,39 @@ export class ImportService {
    *  Per-row try/catch → one failure is isolated; the rest still get created. */
   async commit(tenantId: string, batchId: string) {
     const { batch, rows } = await this.getBatch(tenantId, batchId);
-    const speedyServiceId = (batch.settings as { speedyServiceId?: number } | null)?.speedyServiceId;
+    const settings = batch.settings as { speedyServiceId?: number; codProcessingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' } | null;
+    const speedyServiceId = settings?.speedyServiceId;
+    const codProcessingType = settings?.codProcessingType;
 
     const results: Array<{ rowId: string; status: 'created' | 'failed' | 'skipped'; shipmentId?: string; error?: string }> = [];
     for (const row of rows) {
       if (row.shipmentId) { results.push({ rowId: row.id, status: 'skipped' }); continue; }
       if (row.validationStatus === 'error') { results.push({ rowId: row.id, status: 'skipped' }); continue; }
+      // Atomically CLAIM the row before calling the carrier so two concurrent / retried
+      // commits can't both create a real (paid) waybill for the same row. The conditional
+      // UPDATE only succeeds while the row is still unclaimed (no shipmentId and not already
+      // 'creating'/'created'); a 'failed' row is eligible so a later retry re-claims it.
+      const [claimed] = await this.db
+        .update(importRows)
+        .set({ createStatus: 'creating' })
+        .where(and(
+          eq(importRows.id, row.id),
+          eq(importRows.tenantId, tenantId),
+          isNull(importRows.shipmentId),
+          or(isNull(importRows.createStatus), eq(importRows.createStatus, 'failed')),
+        ))
+        .returning({ id: importRows.id });
+      if (!claimed) { results.push({ rowId: row.id, status: 'skipped' }); continue; }
       try {
         const shipmentId = row.carrier === 'speedy'
-          ? await this.createSpeedy(tenantId, row, speedyServiceId)
+          ? await this.createSpeedy(tenantId, row, speedyServiceId, codProcessingType)
           : await this.createEcont(tenantId, row);
         await this.db.update(importRows).set({ shipmentId, createStatus: 'created', createError: null })
           .where(and(eq(importRows.id, row.id), eq(importRows.tenantId, tenantId)));
         results.push({ rowId: row.id, status: 'created', shipmentId });
       } catch (e) {
         const error = String((e as Error)?.message ?? e).slice(0, 240);
+        // Reset to 'failed' (not 'creating') so a later retry re-claims this row.
         await this.db.update(importRows).set({ createStatus: 'failed', createError: error })
           .where(and(eq(importRows.id, row.id), eq(importRows.tenantId, tenantId)));
         results.push({ rowId: row.id, status: 'failed', error });
@@ -249,7 +267,12 @@ export class ImportService {
     return ship.id;
   }
 
-  private async createSpeedy(tenantId: string, row: typeof importRows.$inferSelect, batchServiceId?: number): Promise<string> {
+  private async createSpeedy(
+    tenantId: string,
+    row: typeof importRows.$inferSelect,
+    batchServiceId?: number,
+    codProcessingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER',
+  ): Promise<string> {
     const refs = (row.resolvedRefs as { siteId?: number; officeId?: number; streetId?: number } | null) ?? {};
     const serviceId = batchServiceId;
     if (!serviceId) throw new Error('Липсва Speedy serviceId за партидата');
@@ -266,6 +289,8 @@ export class ImportService {
       contents: row.contents ?? undefined,
       codAmountStotinki: row.codAmountStotinki ?? undefined,
       declaredValueStotinki: row.declaredValueStotinki ?? undefined,
+      // Batch-level COD processing override; tenant default applies when omitted.
+      codProcessingType,
     });
     return ship.id;
   }

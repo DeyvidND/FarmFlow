@@ -2,6 +2,8 @@ import {
   IsString, IsNotEmpty, IsIn, IsOptional, IsInt, Min, IsBoolean, MaxLength,
 } from 'class-validator';
 
+export type SpeedyCodProcessingType = 'CASH' | 'POSTAL_MONEY_TRANSFER';
+
 /** A Speedy shipment typed in by hand in the standalone app (no storefront order).
  *  Speedy addresses are id-based: siteId (нас. място) + streetId/streetNo for a door,
  *  or officeId for an office. serviceId is the Speedy courier-service code. */
@@ -54,4 +56,9 @@ export class SpeedyManualShipmentDto {
 
   @IsOptional() @IsInt() @Min(0)
   declaredValueStotinki?: number;
+
+  // COD processing type override (cash vs postal money transfer). Falls back to the
+  // tenant's stored default in buildShipmentRequest when omitted.
+  @IsOptional() @IsIn(['CASH', 'POSTAL_MONEY_TRANSFER'])
+  codProcessingType?: SpeedyCodProcessingType;
 }

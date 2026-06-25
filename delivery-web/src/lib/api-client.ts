@@ -60,7 +60,9 @@ export const downloadLabels = async (carrier: 'econt' | 'speedy', ids: string[])
   const path = carrier === 'speedy' ? 'speedy/labels.pdf' : 'shipping/labels.pdf';
   const res = await bff(`${path}?ids=${ids.join(',')}`);
   const blob = await res.blob();
-  window.open(URL.createObjectURL(blob), '_blank');
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };
 export const templateUrl = '/bff/import/template.xlsx';
 
@@ -161,7 +163,9 @@ export const refreshShipment = async (carrier: Carrier, id: string): Promise<voi
 export const downloadLabel = async (carrier: Carrier, id: string): Promise<void> => {
   const res = await bff(`${carrierBase(carrier)}/shipments/${id}/label.pdf`, undefined, 'Етикетът не може да се свали');
   const blob = await res.blob();
-  window.open(URL.createObjectURL(blob), '_blank');
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };
 
 /* -------------------------------- COD risk -------------------------------- */

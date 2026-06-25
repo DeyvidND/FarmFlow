@@ -462,7 +462,7 @@ export const importRows = pgTable(
     validation: jsonb('validation'), // { issues: [...] }
     resolvedRefs: jsonb('resolved_refs'), // econtOfficeCode / siteId / officeId / streetId / candidates
     shipmentId: uuid('shipment_id').references(() => shipments.id),
-    createStatus: text('create_status'), // null | 'created' | 'failed'
+    createStatus: text('create_status'), // null | 'creating' (transient claim) | 'created' | 'failed'
     createError: text('create_error'),
     createdAt: timestamp('created_at').defaultNow(),
   },

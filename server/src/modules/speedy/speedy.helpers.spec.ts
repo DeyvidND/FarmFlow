@@ -31,6 +31,13 @@ describe('parseTrackStatus', () => {
     expect(parseTrackStatus([{ description: 'Приета в офис' }], true)).toBe('created');
     expect(parseTrackStatus([], true)).toBe('created');
   });
+  it('does NOT read a "товарителница приета" op as shipped (товар-stem collision)', () => {
+    // "товарителница" (waybill) contains the stem "товар" but is not movement.
+    expect(parseTrackStatus([{ description: 'Товарителницата е приета' }], true)).toBe('created');
+    expect(parseTrackStatus([{ description: 'Товарителница създадена' }], true)).toBe('created');
+    // a genuinely loaded parcel still maps to shipped via "натоварен"
+    expect(parseTrackStatus([{ description: 'Пратката е натоварена' }], true)).toBe('shipped');
+  });
   it('the returned/refused tokens are recognized by cod-risk isReturnedStatus', () => {
     expect('returned'.includes('return')).toBe(true);
     expect('refused'.includes('refus')).toBe(true);

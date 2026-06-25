@@ -38,7 +38,11 @@ export function ImportClient() {
         city: r.city, office: r.office, address: r.address, weightGrams: r.weightGrams,
         codAmountStotinki: r.codAmountStotinki, carrier: r.carrier,
       });
-      setRows((p) => p.map((x) => (x.id === r.id ? updated : x)));
+      // Merge only server-authoritative fields onto the LATEST local row so an
+      // in-flight edit to another field (made while this save was pending) is kept.
+      setRows((p) => p.map((x) => (x.id === r.id
+        ? { ...x, validationStatus: updated.validationStatus, validation: updated.validation, shipmentId: updated.shipmentId }
+        : x)));
     } catch (e) { toast.error(errMsg(e)); }
   }
 
@@ -62,6 +66,11 @@ export function ImportClient() {
   }
 
   const labelIds = (carrier: 'econt' | 'speedy') => rows.filter((r) => r.shipmentId && r.carrier === carrier).map((r) => r.shipmentId!) as string[];
+
+  async function labels(carrier: 'econt' | 'speedy') {
+    try { await downloadLabels(carrier, labelIds(carrier)); }
+    catch (e) { toast.error(errMsg(e)); }
+  }
 
   function patch(r: ImportRow, k: keyof ImportRow, v: unknown) {
     setRows((p) => p.map((x) => (x.id === r.id ? { ...x, [k]: v } : x)));
@@ -97,8 +106,8 @@ export function ImportClient() {
             <span className="inline-flex items-center gap-1 rounded-full bg-ff-amber-softer px-2.5 py-1 text-[12.5px] font-bold text-ff-amber-600">Жълти: {count('warn')}</span>
             <span className="inline-flex items-center gap-1 rounded-full bg-[#FBE9E7] px-2.5 py-1 text-[12.5px] font-bold text-ff-red">Червени: {count('error')}</span>
             <button onClick={commit} disabled={busy} className="ml-auto rounded-xl bg-ff-green-700 px-4 py-2 text-[13.5px] font-bold text-white hover:brightness-95 disabled:opacity-60">{busy ? 'Създавам…' : 'Създай пратки'}</button>
-            {labelIds('econt').length > 0 && <button onClick={() => downloadLabels('econt', labelIds('econt'))} className="rounded-xl border border-ff-border bg-ff-surface px-3 py-2 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2">⬇ Етикети (Econt)</button>}
-            {labelIds('speedy').length > 0 && <button onClick={() => downloadLabels('speedy', labelIds('speedy'))} className="rounded-xl border border-ff-border bg-ff-surface px-3 py-2 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2">⬇ Етикети (Speedy)</button>}
+            {labelIds('econt').length > 0 && <button onClick={() => void labels('econt')} className="rounded-xl border border-ff-border bg-ff-surface px-3 py-2 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2">⬇ Етикети (Econt)</button>}
+            {labelIds('speedy').length > 0 && <button onClick={() => void labels('speedy')} className="rounded-xl border border-ff-border bg-ff-surface px-3 py-2 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2">⬇ Етикети (Speedy)</button>}
           </div>
 
           {/* desktop table */}

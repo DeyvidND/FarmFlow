@@ -315,15 +315,21 @@ export class SpeedyService {
       .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
+    // Only drop the local row once the carrier waybill is actually gone. If Speedy rejects
+    // the cancel (parcel already picked up / past the cancel window) the paid waybill is
+    // still LIVE — deleting our row here would orphan it, so we surface the error instead.
     if (row.carrierShipmentId) {
       const creds = await this.resolveCreds(tenantId);
       try {
         await this.client.call(creds, 'shipment/cancel', { shipmentId: row.carrierShipmentId });
       } catch (err) {
         this.logger.warn(`[speedy] cancel failed for ${row.carrierShipmentId}: ${err instanceof Error ? err.message : err}`);
+        throw new BadRequestException(
+          'Speedy отказа анулирането (пратката вероятно вече е приета). Товарителницата остава активна.',
+        );
       }
     }
-    await this.db.delete(shipments).where(eq(shipments.id, shipmentId));
+    await this.db.delete(shipments).where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)));
     return { id: shipmentId };
   }
 
@@ -488,8 +494,9 @@ export class SpeedyService {
       const data = await this.client.call(creds, 'calculate', body, 6000);
       // spike: confirm the /calculate price field name vs live API.
       const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
-      if (typeof priceEur !== 'number') return null;
-      const stotinki = Math.round(priceEur * 100);
+      // Reject 0 / NaN / Infinity too — never cache a bogus "free shipping" 0 for 8h.
+      if (!Number.isFinite(priceEur) || (priceEur as number) <= 0) return null;
+      const stotinki = Math.round((priceEur as number) * 100);
       await this.cache.set(key, stotinki, ESTIMATE_TTL);
       return stotinki;
     } catch (err) {

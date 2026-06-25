@@ -603,7 +603,8 @@ export class EcontService {
       // Econt bills in EUR (Bulgaria adopted the euro, 2026), so totalPrice is already
       // EUR — ×100 → stotinki, no BGN→EUR conversion. App currency is EUR end-to-end.
       const totalEur = data?.label?.totalPrice ?? data?.label?.totalPriceVAT;
-      if (typeof totalEur !== 'number') return null;
+      // Reject 0 / NaN / Infinity too — never cache a bogus "free shipping" estimate.
+      if (!Number.isFinite(totalEur) || totalEur <= 0) return null;
       const stotinki = Math.round(totalEur * 100);
       // Only cache a successful live estimate — never cache the null/fallback path so
       // the next request retries Econt and may obtain a real price.
@@ -676,7 +677,9 @@ export class EcontService {
     });
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
-    const priceEur: number | undefined = out.totalPrice; // EUR (BG euro 2026) → ×100 = stotinki
+    // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted
+    // price and the persisted/charged price can't diverge. EUR (BG euro 2026) → ×100 = stotinki.
+    const priceEur: number | undefined = out.totalPrice ?? out.totalPriceVAT;
     const codAmount = this.codAmountFor(order);
 
     const [row] = await this.db
@@ -729,7 +732,9 @@ export class EcontService {
     });
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
-    const priceEur: number | undefined = out.totalPrice; // EUR (BG euro 2026) → ×100 = stotinki
+    // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted
+    // price and the persisted/charged price can't diverge. EUR (BG euro 2026) → ×100 = stotinki.
+    const priceEur: number | undefined = out.totalPrice ?? out.totalPriceVAT;
     const codAmount = this.codAmountFor(shape);
 
     const [row] = await this.db
@@ -955,7 +960,7 @@ export class EcontService {
         codSettledAt: cod.settledAt ?? row.codSettledAt,
         updatedAt: new Date(),
       })
-      .where(eq(shipments.id, shipmentId))
+      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)))
       .returning();
     const newStatus = uiShipmentStatus(updated.econtShipmentNumber, updated.status);
     // Skip the "shipped" email for order-less (standalone) shipments: there is no
@@ -965,7 +970,7 @@ export class EcontService {
       await this.db
         .update(shipments)
         .set({ customerNotifiedAt: new Date() })
-        .where(eq(shipments.id, updated.id));
+        .where(and(eq(shipments.id, updated.id), eq(shipments.tenantId, tenantId)));
     }
     // COD-risk strike on a returned/refused COD parcel. Best-effort — must never turn a
     // successful status refresh into a user-facing error (manual refresh has no batch catch).
@@ -997,7 +1002,9 @@ export class EcontService {
     for (const r of rows) {
       if (!r.number) continue;
       if (!r.tenantId) continue;
-      if (uiShipmentStatus(r.number, r.status) === 'delivered') continue;
+      // Skip terminal states (delivered + returned/refused) — no point re-polling Econt.
+      const ui = uiShipmentStatus(r.number, r.status);
+      if (ui === 'delivered' || ui === 'returned' || ui === 'refused') continue;
       try {
         await this.refreshStatus(r.tenantId, r.id);
         refreshed++;
@@ -1023,7 +1030,7 @@ export class EcontService {
         shipmentNumbers: [row.econtShipmentNumber],
       });
     }
-    await this.db.delete(shipments).where(eq(shipments.id, shipmentId));
+    await this.db.delete(shipments).where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)));
     return { id: shipmentId };
   }
 }
@@ -1056,7 +1063,7 @@ export interface AdminShipment {
   orderNumber: string;
   customerName: string;
   method: 'econtOffice' | 'econtAddress';
-  status: 'pending' | 'created' | 'shipped' | 'delivered';
+  status: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused';
   trackingNumber?: string;
   priceStotinki?: number;
   codAmountStotinki?: number;
@@ -1229,7 +1236,7 @@ export function mapTrackingEvents(status: unknown): TrackingEvent[] {
 /** Send the buyer the "shipped" email exactly once — when the parcel first reaches
  *  shipped/delivered and we haven't notified before. */
 export function shouldNotifyShipped(
-  uiStatus: 'pending' | 'created' | 'shipped' | 'delivered',
+  uiStatus: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused',
   customerNotifiedAt: Date | string | null,
 ): boolean {
   return !customerNotifiedAt && (uiStatus === 'shipped' || uiStatus === 'delivered');
@@ -1320,13 +1327,19 @@ export function buildCourierRequest(
   return body;
 }
 
-/** Collapse Econt's free-text status into the admin table's known status set. */
+/** Collapse Econt's free-text status into the admin table's known status set.
+ *  Returned/refused/cancelled parcels collapse to 'returned'/'refused' (matched by the
+ *  same Bulgarian substrings as delivery-accounts.helpers.isDeadCodStatus) so they don't
+ *  masquerade as delivered/shipped in the panel. */
 function uiShipmentStatus(
   number: string | null,
   status: string | null,
-): 'pending' | 'created' | 'shipped' | 'delivered' {
+): 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused' {
   if (!number) return 'pending';
   const s = (status ?? '').toLowerCase();
+  // Check terminal-failure states FIRST — a returned parcel may still carry a delivery word.
+  if (s.includes('върн') || s.includes('return')) return 'returned';
+  if (s.includes('отказ') || s.includes('анулир') || s.includes('refus') || s.includes('cancel')) return 'refused';
   if (s.includes('достав') || s.includes('deliver')) return 'delivered';
   if (s.includes('транзит') || s.includes('transit') || s.includes('ship')) return 'shipped';
   return 'created';

@@ -69,6 +69,8 @@ export class ImportController {
   }
 
   // Creating real shipments is the paid action → activation-gated, like per-carrier create.
+  // Throttle too: a commit creates real (paid) waybills, so cap repeated/concurrent calls.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseGuards(ActivationGuard)
   @Post('batches/:id/commit')
   commit(@CurrentTenant() t: string, @Param('id', ParseUUIDPipe) id: string) {

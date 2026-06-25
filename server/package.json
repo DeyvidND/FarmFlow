@@ -18,6 +18,9 @@
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
+    "moduleNameMapper": {
+      "^stripe$": "<rootDir>/test/mocks/stripe.ts"
+    },
     "transform": {
       "^.+\\.(t|j)s$": [
         "ts-jest",

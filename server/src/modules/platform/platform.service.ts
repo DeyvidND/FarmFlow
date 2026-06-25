@@ -712,27 +712,33 @@ export class PlatformService {
     else if (dto.shop && !dto.delivery) settings = farmDefaultSettings();
     else settings = { ...farmDefaultSettings(), econtApp: { active } };
 
-    const [tenant] = await this.db
-      .insert(tenants)
-      .values({
-        name: dto.name,
-        slug,
-        phone: dto.phone,
-        email,
-        subscriptionStatus: 'active',
-        subscriptionSince: new Date(),
-        // Storefront delivery toggle only matters for shop accounts.
-        deliveryEnabled: dto.shop,
-        settings,
-      })
-      .returning();
+    // Hash outside the txn (CPU-bound, no DB lock needed), then create tenant + user
+    // atomically so a failed user insert can't leave an orphaned delivery tenant behind.
+    const passwordHash = await argon2.hash(dto.password);
+    const tenant = await this.db.transaction(async (tx) => {
+      const [t] = await tx
+        .insert(tenants)
+        .values({
+          name: dto.name,
+          slug,
+          phone: dto.phone,
+          email,
+          subscriptionStatus: 'active',
+          subscriptionSince: new Date(),
+          // Storefront delivery toggle only matters for shop accounts.
+          deliveryEnabled: dto.shop,
+          settings,
+        })
+        .returning();
 
-    await this.db.insert(users).values({
-      tenantId: tenant.id,
-      email,
-      passwordHash: await argon2.hash(dto.password),
-      role: 'admin',
-      mustChangePassword: false,
+      await tx.insert(users).values({
+        tenantId: t.id,
+        email,
+        passwordHash,
+        role: 'admin',
+        mustChangePassword: false,
+      });
+      return t;
     });
 
     return { id: tenant.id, name: tenant.name, slug: tenant.slug, email: tenant.email ?? email, password: dto.password };
