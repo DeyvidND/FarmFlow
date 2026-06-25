@@ -22,6 +22,12 @@
       "port": 3003
     },
     {
+      "name": "delivery-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@fermeribg/delivery-web", "exec", "next", "dev", "-p", "3009"],
+      "port": 3009
+    },
+    {
       "name": "advert",
       "runtimeExecutable": "npm",
       "runtimeArgs": [

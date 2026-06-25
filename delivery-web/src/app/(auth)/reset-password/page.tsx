@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Truck, KeyRound, Check } from 'lucide-react';
+import { Truck, KeyRound, Check, Eye, EyeOff } from 'lucide-react';
 
 // Invite-accept / set-password page. The super-admin sends a one-time invite
 // link (dostavki.fermeribg.com/reset-password?token=<JWT>); the invitee sets a
@@ -16,9 +16,16 @@ function ResetPasswordForm() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [show, setShow] = useState(false);
+
+  const metLength = next.length >= 12;
+  const matches = confirm.length > 0 && next === confirm;
+  const valid = metLength && next === confirm;
 
   const input =
-    'h-11 w-full rounded-xl border border-ff-border bg-ff-bg px-3.5 text-[16px] outline-none focus:border-ff-green-500';
+    'h-11 w-full rounded-xl border border-ff-border bg-ff-bg pl-3.5 pr-11 text-[16px] outline-none focus:border-ff-green-500';
+  const eyeBtn =
+    'absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-ff-muted transition-colors hover:bg-ff-surface hover:text-ff-ink-2';
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -91,30 +98,90 @@ function ResetPasswordForm() {
             </button>
           </div>
         ) : (
-          <form onSubmit={submit} className="flex flex-col gap-3">
-            <input
-              className={input}
-              type="password"
-              placeholder="Нова парола (поне 12 символа)"
-              value={next}
-              onChange={(e) => setNext(e.target.value)}
-              required
-              autoComplete="new-password"
-            />
-            <input
-              className={input}
-              type="password"
-              placeholder="Повтори новата парола"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-              autoComplete="new-password"
-            />
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <div className="relative">
+                <input
+                  className={input}
+                  type={show ? 'text' : 'password'}
+                  placeholder="Нова парола"
+                  value={next}
+                  onChange={(e) => setNext(e.target.value)}
+                  required
+                  autoComplete="new-password"
+                  aria-describedby="pw-hint"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShow((s) => !s)}
+                  aria-label={show ? 'Скрий паролата' : 'Покажи паролата'}
+                  aria-pressed={show}
+                  className={eyeBtn}
+                >
+                  {show ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              <p
+                id="pw-hint"
+                className={`flex items-center gap-1.5 px-0.5 text-[12.5px] ${
+                  metLength ? 'text-ff-green-600' : 'text-ff-muted'
+                }`}
+              >
+                {metLength ? (
+                  <Check size={14} strokeWidth={3} className="shrink-0" />
+                ) : (
+                  <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-current opacity-50" />
+                )}
+                {metLength
+                  ? 'Паролата е достатъчно дълга'
+                  : next.length > 0
+                    ? `Поне 12 символа (още ${12 - next.length})`
+                    : 'Паролата трябва да е поне 12 символа'}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <div className="relative">
+                <input
+                  className={input}
+                  type={show ? 'text' : 'password'}
+                  placeholder="Повтори новата парола"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  required
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShow((s) => !s)}
+                  aria-label={show ? 'Скрий паролата' : 'Покажи паролата'}
+                  aria-pressed={show}
+                  className={eyeBtn}
+                >
+                  {show ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              {confirm.length > 0 && (
+                <p
+                  className={`flex items-center gap-1.5 px-0.5 text-[12.5px] ${
+                    matches ? 'text-ff-green-600' : 'text-ff-red'
+                  }`}
+                >
+                  {matches ? (
+                    <Check size={14} strokeWidth={3} className="shrink-0" />
+                  ) : (
+                    <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-current opacity-50" />
+                  )}
+                  {matches ? 'Паролите съвпадат' : 'Паролите не съвпадат'}
+                </p>
+              )}
+            </div>
+
             {error && <p className="text-[13px] font-semibold text-ff-red">{error}</p>}
             <button
               type="submit"
-              disabled={loading}
-              className="mt-1 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-ff-green-700 text-[15px] font-bold text-white hover:brightness-95 disabled:opacity-60"
+              disabled={loading || !valid}
+              className="mt-1 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-ff-green-700 text-[15px] font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <KeyRound size={17} /> {loading ? 'Запазване…' : 'Запази паролата'}
             </button>
