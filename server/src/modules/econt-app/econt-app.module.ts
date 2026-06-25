@@ -26,6 +26,7 @@ import { SpeedyStandaloneController } from '../speedy/speedy-standalone.controll
 import { ActivationGuard } from './activation.guard';
 import { ShippingQuoteService } from './shipping-quote.service';
 import { ShippingQuoteController } from './shipping-quote.controller';
+import { EcontHealthController } from './econt-health.controller';
 import { ImportModule } from '../import/import.module';
 
 @Module({
@@ -55,7 +56,7 @@ import { ImportModule } from '../import/import.module';
     SpeedyCoreModule, // SpeedyService + refresh queue/processor (no /speedy/* controllers)
     ImportModule,
   ],
-  controllers: [StandaloneAuthController, EcontStandaloneController, SpeedyStandaloneController, ShippingQuoteController],
+  controllers: [EcontHealthController, StandaloneAuthController, EcontStandaloneController, SpeedyStandaloneController, ShippingQuoteController],
   providers: [
     StandaloneAuthService,
     ActivationGuard,
