@@ -128,5 +128,9 @@ export const envValidationSchema = Joi.object({
   // origin(s), comma-separated. Speedy fallback serviceId when a tenant hasn't set one.
   PORT_ECONT: Joi.number().optional(),
   CORS_ORIGIN_ECONT: Joi.string().optional().allow(''),
-  SPEEDY_DEFAULT_SERVICE_ID: Joi.number().optional(),
+  // Allow '' as well as undefined: the box .env may carry an empty placeholder
+  // line (`SPEEDY_DEFAULT_SERVICE_ID=`), and a bare Joi.number() rejects '' →
+  // the whole app fails config validation and crash-loops on boot. Empty/absent
+  // just means "use the per-tenant defaultServiceId, else the hardcoded fallback".
+  SPEEDY_DEFAULT_SERVICE_ID: Joi.number().optional().allow(''),
 });
