@@ -1,7 +1,7 @@
 'use client';
 
 import { Toaster } from 'sonner';
-import { Truck, LogOut, Upload, Package, ShieldAlert, Settings } from 'lucide-react';
+import { Truck, LogOut, Upload, Package, ShieldAlert, Settings, HelpCircle } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
@@ -10,6 +10,7 @@ const NAV = [
   { href: '/shipments', label: 'Пратки', icon: Package },
   { href: '/cod-risk', label: 'COD риск', icon: ShieldAlert },
   { href: '/settings', label: 'Настройки', icon: Settings },
+  { href: '/help', label: 'Помощ', icon: HelpCircle },
 ] as const;
 
 export function PanelChrome({ children }: { children: React.ReactNode }) {
