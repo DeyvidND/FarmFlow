@@ -22,9 +22,6 @@ WORKDIR /app
 COPY --from=build /app/deploy/node_modules ./node_modules
 COPY --from=build /app/deploy/package.json ./package.json
 COPY --from=build /app/server/dist ./dist
-# Static assets for the standalone delivery app (main.econt.js serves /app from
-# ../public/econt-app). Harmless for the main API — main.js never reads it.
-COPY --from=build /app/server/public ./public
 # Drizzle SQL migrations run on boot (main.ts → runMigrations, using the
 # drizzle-orm migrator). Copy the migration folder next to the @fermeribg/db
 # package so it resolves at runtime (the prod deploy bundle may omit non-dist
