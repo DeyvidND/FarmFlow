@@ -27,6 +27,13 @@ export function FarmersClient({
   const [farmers, setFarmers] = useState(initialFarmers);
   const [multi, setMulti] = useState(initialMultiFarmer);
   const [edit, setEdit] = useState<Partial<Farmer> | null>(null);
+  // True when the edit panel was opened via the card „Покани" — tells the panel to
+  // jump straight to the invite section + focus the email field.
+  const [inviteIntent, setInviteIntent] = useState(false);
+  const openEdit = (f: Partial<Farmer>, invite = false) => {
+    setInviteIntent(invite);
+    setEdit(f);
+  };
   // Login state per farmer — lifted so an invite/revoke from the panel OR the card
   // updates the status badge in both places without a reload.
   const [access, setAccess] = useState<Record<string, FarmerAccess>>(initialAccess);
@@ -150,7 +157,7 @@ export function FarmersClient({
                 </Button>
               )}
               {!reorderMode && (
-                <Button variant="primary" onClick={() => setEdit({})} className="rounded-sm">
+                <Button variant="primary" onClick={() => openEdit({})} className="rounded-sm">
                   <Plus size={18} /> Добави фермер
                 </Button>
               )}
@@ -208,7 +215,7 @@ export function FarmersClient({
                       </div>
                     </div>
                     <button
-                      onClick={() => setEdit(f)}
+                      onClick={() => openEdit(f)}
                       aria-label="Редактирай"
                       className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] border border-ff-border bg-ff-surface-2 text-ff-ink-2"
                     >
@@ -248,7 +255,7 @@ export function FarmersClient({
                   <AccessControl
                     farmerId={f.id}
                     access={access[f.id]}
-                    onOpenEdit={() => setEdit(f)}
+                    onOpenEdit={() => openEdit(f, true)}
                     onAccessChange={onAccessChange}
                   />
                 </div>
@@ -264,7 +271,11 @@ export function FarmersClient({
           farmer={edit}
           products={productList}
           access={edit.id ? access[edit.id] : undefined}
-          onClose={() => setEdit(null)}
+          focusInvite={inviteIntent}
+          onClose={() => {
+            setEdit(null);
+            setInviteIntent(false);
+          }}
           onSaved={onSaved}
           onProductsChanged={onProductsChanged}
           onAccessChange={onAccessChange}

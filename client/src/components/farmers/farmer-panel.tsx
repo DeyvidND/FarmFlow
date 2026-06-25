@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Check, Send, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ export function FarmerPanel({
   farmer,
   products = [],
   access,
+  focusInvite = false,
   onClose,
   onSaved,
   onProductsChanged,
@@ -35,6 +36,10 @@ export function FarmerPanel({
   products?: ProductOption[];
   /** Current panel-login state for this farmer (undefined = no login yet). */
   access?: FarmerAccess;
+  /** Opened via the card „Покани" → scroll to + focus the invite section so the
+   *  owner sees the email field and the „Покани в панела" button immediately
+   *  instead of landing on a generic edit form. */
+  focusInvite?: boolean;
   onClose: () => void;
   onSaved: (f: Farmer) => void;
   /** Fired after bulk product (un)links so the list can refresh its chips. */
@@ -63,6 +68,20 @@ export function FarmerPanel({
   const [checked, setChecked] = useState<Set<string>>(
     () => new Set(products.filter((p) => farmer.id && p.farmerId === farmer.id).map((p) => p.id)),
   );
+
+  // Deep-link from the card „Покани": pull the invite section into view and put the
+  // cursor in the email field (or, if an email is already filled, on the invite
+  // button) so it's obvious what to do — no hunting below the fold.
+  const accessRef = useRef<HTMLDivElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!focusInvite) return;
+    const t = setTimeout(() => {
+      accessRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      emailRef.current?.focus();
+    }, 60); // let the panel slide-in finish before scrolling
+    return () => clearTimeout(t);
+  }, [focusInvite]);
 
   async function save() {
     if (!name.trim()) {
@@ -210,7 +229,7 @@ export function FarmerPanel({
 
           <label className={labelCls}>
             Име
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="напр. Петър Петров" className={field} autoFocus />
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="напр. Петър Петров" className={field} autoFocus={!focusInvite} />
           </label>
           <label className={labelCls}>
             Специалност / роля
@@ -233,6 +252,7 @@ export function FarmerPanel({
           <label className={labelCls}>
             Имейл
             <input
+              ref={emailRef}
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -245,7 +265,12 @@ export function FarmerPanel({
           </label>
 
           {/* Panel access — invite straight from here with the email above. */}
-          <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+          <div
+            ref={accessRef}
+            className={`rounded-xl border bg-ff-surface-2 p-3.5 transition-shadow ${
+              focusInvite ? 'border-ff-green-500 shadow-[0_0_0_3px_var(--ff-green-100)]' : 'border-ff-border-2'
+            }`}
+          >
             <div className="mb-2 flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
               <KeyRound size={14} /> Достъп до панела
             </div>
