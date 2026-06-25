@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Search, Plus, Truck, Store, Copy, Check, RefreshCw, X, Package } from 'lucide-react';
+import { Search, Plus, Truck, Store, Copy, Check, X, Package, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { eur } from '@/lib/utils';
 import {
   ApiError,
   listDeliveryAccounts,
   createDeliveryAccount,
+  resendDeliveryInvite,
   setDeliveryActive,
   listDeliveryShipments,
   type DeliveryAccount,
@@ -63,15 +64,6 @@ function TypeBadges({ type }: { type: DeliveryAccount['type'] }) {
   );
 }
 
-function generatePassword(): string {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
-  const rnd = new Uint32Array(14);
-  crypto.getRandomValues(rnd);
-  let p = '';
-  for (let i = 0; i < rnd.length; i++) p += chars[rnd[i] % chars.length];
-  return p;
-}
-
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -83,6 +75,34 @@ function CopyButton({ text }: { text: string }) {
       {copied ? <Check size={13} className="text-ff-green-600" /> : <Copy size={13} />}
       {copied ? 'Копирано' : 'Копирай'}
     </button>
+  );
+}
+
+/** Invite-link success panel: read-only link + „Копирай връзката" + the 7-day/email note.
+ *  The operator copies this into Viber; the API also emails it. Reused by create + resend. */
+function InviteLinkPanel({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+        <p className="mb-1.5 text-[12px] font-bold uppercase tracking-[0.04em] text-ff-muted">Връзка за задаване на парола</p>
+        <input
+          readOnly
+          value={link}
+          onFocus={(e) => e.target.select()}
+          className="w-full rounded-lg border border-ff-border bg-ff-bg px-3 py-2 font-mono text-[12.5px] text-ff-ink outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => navigator.clipboard.writeText(link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-ff-green-700 px-3 py-2 text-[13px] font-bold text-white hover:brightness-95"
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? 'Копирано' : 'Копирай връзката'}
+        </button>
+      </div>
+      <p className="text-[12.5px] text-ff-muted">Връзката е изпратена и по имейл. Валидна 7 дни.</p>
+    </div>
   );
 }
 
@@ -271,29 +291,28 @@ function ShipmentHistoryDrawer({ account, onClose }: { account: DeliveryAccount;
 function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (a: DeliveryAccount) => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [shop, setShop] = useState(false);
   const [delivery, setDelivery] = useState(true);
   const [active, setActive] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [created, setCreated] = useState<{ name: string; email: string; password: string } | null>(null);
+  const [created, setCreated] = useState<{ name: string; email: string; inviteLink: string } | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !email.trim() || password.length < 12) { setErr('Попълнете име, имейл и парола (поне 12 знака).'); return; }
+    if (!name.trim() || !email.trim()) { setErr('Попълнете име и имейл.'); return; }
     if (!shop && !delivery) { setErr('Изберете поне една роля.'); return; }
     setErr(''); setBusy(true);
     try {
-      const res = await createDeliveryAccount({ name: name.trim(), email: email.trim(), password, phone: phone.trim() || undefined, shop, delivery, active });
+      const res = await createDeliveryAccount({ name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, shop, delivery, active });
       onCreated({
         id: res.id, name: res.name, slug: res.slug, email: res.email, phone: phone.trim() || null,
         type: shop && delivery ? 'both' : delivery ? 'delivery' : 'farm',
         active, createdAt: new Date().toISOString(),
         overview: { total: 0, codPendingStotinki: 0, codCollectedStotinki: 0, econt: 0, speedy: 0, lastShipmentAt: null },
       });
-      setCreated({ name: res.name, email: res.email, password: res.password });
+      setCreated({ name: res.name, email: res.email, inviteLink: res.inviteLink });
       toast.success(`Акаунтът "${res.name}" е създаден`);
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   }
@@ -313,15 +332,6 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
               <label className="flex flex-col gap-1.5">
                 <span className="text-[13px] font-bold text-ff-ink-2">Имейл *</span>
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-10 rounded-xl border border-ff-border bg-ff-bg px-3 text-[14px] outline-none focus:border-ff-green-500" />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[13px] font-bold text-ff-ink-2">Парола *</span>
-                <div className="flex gap-2">
-                  <input value={password} onChange={(e) => setPassword(e.target.value)} required className="h-10 flex-1 rounded-xl border border-ff-border bg-ff-bg px-3 font-mono text-[13.5px] outline-none focus:border-ff-green-500" />
-                  <button type="button" onClick={() => setPassword(generatePassword())} className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface-2 px-3 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface">
-                    <RefreshCw size={13} /> Генерирай
-                  </button>
-                </div>
               </label>
               <label className="flex flex-col gap-1.5">
                 <span className="text-[13px] font-bold text-ff-ink-2">Телефон</span>
@@ -345,7 +355,7 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-green-50 text-ff-green-700"><Check size={20} /></span>
               <div>
                 <h2 className="text-[17px] font-extrabold">Акаунтът е създаден</h2>
-                <p className="mt-0.5 text-[13.5px] text-ff-ink-2"><strong>{created.name}</strong> — данните за вход в приложението за доставка. Показват се само сега.</p>
+                <p className="mt-0.5 text-[13.5px] text-ff-ink-2"><strong>{created.name}</strong> — изпратете връзката във Viber, за да зададе парола за приложението за доставка.</p>
               </div>
             </div>
             <div className="mt-3 flex flex-col gap-2.5">
@@ -353,10 +363,7 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
                 <p className="mb-1.5 text-[12px] font-bold uppercase tracking-[0.04em] text-ff-muted">Имейл</p>
                 <div className="flex items-center gap-2.5"><code className="flex-1 break-all font-mono text-[14px] font-bold">{created.email}</code><CopyButton text={created.email} /></div>
               </div>
-              <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
-                <p className="mb-1.5 text-[12px] font-bold uppercase tracking-[0.04em] text-ff-muted">Парола</p>
-                <div className="flex items-center gap-2.5"><code className="flex-1 break-all font-mono text-[15px] font-bold">{created.password}</code><CopyButton text={created.password} /></div>
-              </div>
+              <InviteLinkPanel link={created.inviteLink} />
             </div>
             <div className="mt-4 flex justify-end">
               <button onClick={onClose} className="rounded-xl bg-ff-green-700 px-4 py-2.5 text-[13.5px] font-bold text-white hover:brightness-95">Затвори</button>
@@ -372,8 +379,10 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
   const { items, setItems, loadMore, hasMore, loading } = usePaginatedList<DeliveryAccount>(initial, listDeliveryAccounts);
   const [q, setQ] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [inviteId, setInviteId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [detail, setDetail] = useState<DeliveryAccount | null>(null);
+  const [invite, setInvite] = useState<{ name: string; link: string } | null>(null);
 
   const needle = q.trim().toLowerCase();
   const rows = items.filter((a) => !needle || a.name.toLowerCase().includes(needle) || (a.email ?? '').toLowerCase().includes(needle) || a.slug.toLowerCase().includes(needle));
@@ -388,6 +397,18 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
       setItems((p) => p.map((x) => (x.id === a.id ? { ...x, active: !next } : x)));
       toast.error(errMsg(e));
     } finally { setBusyId(null); }
+  }
+
+  async function resendInvite(a: DeliveryAccount) {
+    if (inviteId) return;
+    setInviteId(a.id);
+    try {
+      const res = await resendDeliveryInvite(a.id);
+      setInvite({ name: a.name, link: res.inviteLink });
+      toast.success('Поканата е изпратена по имейл');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally { setInviteId(null); }
   }
 
   return (
@@ -441,7 +462,20 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
                   <span className="text-ff-green-700" title="Събрано">{eur(a.overview.codCollectedStotinki)}</span>
                 </td>
                 <td className="ff-fig px-5 py-3.5 text-[13px] text-ff-ink-2 whitespace-nowrap">{fmtDate(a.overview.lastShipmentAt)}</td>
-                <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}><Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} /></td>
+                <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-2">
+                    <Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} />
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); resendInvite(a); }}
+                      disabled={inviteId === a.id}
+                      title="Изпрати покана за задаване на парола"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12px] font-bold text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-60"
+                    >
+                      <Send size={13} /> Покана
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -457,8 +491,16 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
                   <div className="text-[12.5px] text-ff-muted">{a.email ?? '—'}</div>
                   <div className="mt-1"><TypeBadges type={a.type} /></div>
                 </div>
-                <div onClick={(e) => e.stopPropagation()}>
+                <div className="flex flex-col items-end gap-2" onClick={(e) => e.stopPropagation()}>
                   <Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} />
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); resendInvite(a); }}
+                    disabled={inviteId === a.id}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12px] font-bold text-ff-ink-2 active:bg-ff-surface-2 disabled:opacity-60"
+                  >
+                    <Send size={13} /> Покана
+                  </button>
                 </div>
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ff-muted">
@@ -484,6 +526,27 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
 
       {showAdd && <CreateDialog onClose={() => setShowAdd(false)} onCreated={(a) => setItems((p) => [a, ...p])} />}
       {detail && <ShipmentHistoryDrawer account={detail} onClose={() => setDetail(null)} />}
+
+      {invite && (
+        <>
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setInvite(null)} />
+          <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
+            <div className="mb-3 flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-green-50 text-ff-green-700"><Send size={18} /></span>
+              <div>
+                <h2 className="text-[17px] font-extrabold">Поканата е изпратена</h2>
+                <p className="mt-0.5 text-[13.5px] text-ff-ink-2"><strong>{invite.name}</strong> — копирайте връзката и я изпратете във Viber.</p>
+              </div>
+            </div>
+            <div className="mt-3">
+              <InviteLinkPanel link={invite.link} />
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setInvite(null)} className="rounded-xl bg-ff-green-700 px-4 py-2.5 text-[13.5px] font-bold text-white hover:brightness-95">Затвори</button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

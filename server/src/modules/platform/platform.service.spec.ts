@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { AuthService } from '../auth/auth.service';
 import { BillingService } from '../billing/billing.service';
 import { PlatformService } from './platform.service';
 import { ProductsService } from '../products/products.service';
@@ -48,6 +49,7 @@ describe('PlatformService', () => {
   let service: PlatformService;
   let db: ReturnType<typeof makeDb>;
   let cacheDel: jest.Mock;
+  let issueInvite: jest.Mock;
 
   const productsCreate = jest.fn().mockResolvedValue({ id: 'p' });
   const farmersCreate = jest.fn().mockResolvedValue({ id: 'f' });
@@ -57,11 +59,13 @@ describe('PlatformService', () => {
   beforeEach(async () => {
     db = makeDb();
     cacheDel = jest.fn().mockResolvedValue(undefined);
+    issueInvite = jest.fn().mockResolvedValue({ link: 'https://dostavki.fermeribg.com/reset-password?token=tok' });
     jest.clearAllMocks();
     productsCreate.mockClear().mockResolvedValue({ id: 'p' });
     farmersCreate.mockClear().mockResolvedValue({ id: 'f' });
     subcategoriesCreate.mockClear().mockResolvedValue({ id: 'c' });
     storageDeleteByPrefix.mockClear().mockResolvedValue(undefined);
+    issueInvite.mockClear().mockResolvedValue({ link: 'https://dostavki.fermeribg.com/reset-password?token=tok' });
     db.where.mockReturnValue(db); // chainable for delete().where()
     db.transaction.mockImplementation(async (cb: (tx: typeof db) => Promise<unknown>) => cb(db));
 
@@ -73,6 +77,7 @@ describe('PlatformService', () => {
           provide: JwtService,
           useValue: { sign: jest.fn().mockReturnValue('platform-token') },
         },
+        { provide: AuthService, useValue: { issueInvite } },
         { provide: BillingService, useValue: { setPremium: jest.fn().mockResolvedValue(undefined) } },
         {
           provide: PublicCacheService,
@@ -593,24 +598,27 @@ describe('PlatformService', () => {
     beforeEach(() => {
       (argon2.hash as jest.Mock).mockResolvedValue('hashed');
       db.limit.mockResolvedValue([]); // no email clash, slug free
-      db.returning.mockResolvedValue([{ id: 'new1', name: 'Нов', slug: 'nov', email: 'n@x.bg' }]);
+      // The txn calls .returning() twice: tenant row (full), then user row ({ id }).
+      db.returning
+        .mockResolvedValueOnce([{ id: 'new1', name: 'Нов', slug: 'nov', email: 'n@x.bg' }])
+        .mockResolvedValueOnce([{ id: 'user-new1' }]);
     });
 
     it('rejects when neither role is selected', async () => {
       await expect(
-        service.createDeliveryAccount({ email: 'a@x.bg', password: 'longenough12', name: 'X', shop: false, delivery: false }),
+        service.createDeliveryAccount({ email: 'a@x.bg', name: 'X', shop: false, delivery: false }),
       ).rejects.toMatchObject({ message: 'Изберете поне една роля' });
     });
 
     it('rejects a duplicate email', async () => {
       db.limit.mockResolvedValueOnce([{ id: 'u' }]);
       await expect(
-        service.createDeliveryAccount({ email: 'a@x.bg', password: 'longenough12', name: 'X', shop: true, delivery: false }),
+        service.createDeliveryAccount({ email: 'a@x.bg', name: 'X', shop: true, delivery: false }),
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
     it('creates a delivery-only account with econt-standalone settings', async () => {
-      await service.createDeliveryAccount({ email: 'd@x.bg', password: 'longenough12', name: 'Дел', shop: false, delivery: true, active: true });
+      await service.createDeliveryAccount({ email: 'd@x.bg', name: 'Дел', shop: false, delivery: true, active: true });
       const v = db.values.mock.calls[0][0];
       expect(v.settings.product).toBe('econt-standalone');
       expect(v.settings.econtApp).toEqual({ active: true });
@@ -618,7 +626,7 @@ describe('PlatformService', () => {
     });
 
     it('creates a both account: farm settings + econtApp', async () => {
-      await service.createDeliveryAccount({ email: 'b@x.bg', password: 'longenough12', name: 'Двете', shop: true, delivery: true, active: false });
+      await service.createDeliveryAccount({ email: 'b@x.bg', name: 'Двете', shop: true, delivery: true, active: false });
       const v = db.values.mock.calls[0][0];
       expect(v.settings.product).toBeUndefined();
       expect(v.settings.delivery).toBeDefined();
@@ -626,9 +634,45 @@ describe('PlatformService', () => {
       expect(v.deliveryEnabled).toBe(true);
     });
 
-    it('echoes the chosen password once', async () => {
-      const res = await service.createDeliveryAccount({ email: 's@x.bg', password: 'longenough12', name: 'Само', shop: true, delivery: false });
-      expect(res.password).toBe('longenough12');
+    it('creates a password-less admin user (mustChangePassword=true) — no password set', async () => {
+      await service.createDeliveryAccount({ email: 's@x.bg', name: 'Само', shop: true, delivery: false });
+      // values() call 1 = tenant, call 2 = user
+      const userValues = db.values.mock.calls[1][0];
+      expect(userValues).toMatchObject({ role: 'admin', mustChangePassword: true });
+    });
+
+    it('mints + emails an invite link and returns it (no password in the result)', async () => {
+      const res = await service.createDeliveryAccount({ email: 's@x.bg', name: 'Само', shop: true, delivery: false });
+      // issueInvite called for the created user, targeting the delivery app, with email on.
+      expect(issueInvite).toHaveBeenCalledWith('user-new1', expect.objectContaining({ email: true }));
+      expect(issueInvite.mock.calls[0][1].appUrl).toContain('dostavki');
+      expect(res).toMatchObject({ id: 'new1', email: 'n@x.bg', inviteLink: expect.stringContaining('reset-password') });
+      expect((res as Record<string, unknown>).password).toBeUndefined();
+    });
+  });
+
+  // ── resendDeliveryInvite ────────────────────────────────────────────────────
+  describe('resendDeliveryInvite', () => {
+    it('404s when the tenant is not delivery-capable', async () => {
+      // tenant lookup → non-delivery settings (no econtApp)
+      db.limit.mockResolvedValueOnce([{ id: 't9', settings: { delivery: {} } }]);
+      await expect(service.resendDeliveryInvite('t9')).rejects.toBeInstanceOf(NotFoundException);
+      expect(issueInvite).not.toHaveBeenCalled();
+    });
+
+    it('404s when the delivery account has no admin user', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 't1', settings: { econtApp: { active: true } } }]); // delivery-capable
+      db.limit.mockResolvedValueOnce([]); // no admin user
+      await expect(service.resendDeliveryInvite('t1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(issueInvite).not.toHaveBeenCalled();
+    });
+
+    it('re-mints + emails the invite and returns the fresh link', async () => {
+      db.limit.mockResolvedValueOnce([{ id: 't1', settings: { econtApp: { active: true } } }]); // delivery-capable
+      db.limit.mockResolvedValueOnce([{ id: 'admin-1' }]); // admin user
+      const res = await service.resendDeliveryInvite('t1');
+      expect(issueInvite).toHaveBeenCalledWith('admin-1', expect.objectContaining({ email: true }));
+      expect(res).toEqual({ inviteLink: expect.stringContaining('reset-password') });
     });
   });
 

@@ -92,6 +92,11 @@ export const envValidationSchema = Joi.object({
   // Used ONLY for the super-admin margin view — never charges anything.
   EMAIL_COST_PER_RECIPIENT_MICRO: Joi.number().default(370),
   PUBLIC_APP_URL: Joi.string().default('http://localhost:3000'),
+  // Public origin of the standalone DELIVERY-WEB app (dostavki.fermeribg.com).
+  // Used to target the set-password ("invite") link minted when a super-admin
+  // creates a delivery account — that link must open the delivery panel, NOT the
+  // farmer panel (PUBLIC_APP_URL). Falls back to the prod origin in code when unset.
+  DELIVERY_PUBLIC_URL: Joi.string().optional().allow(''),
   // Public origin of THIS API — used to build links the API itself serves
   // (e.g. the newsletter unsubscribe page). Defaults to the dev API port.
   API_PUBLIC_URL: Joi.string().default('http://localhost:3001'),

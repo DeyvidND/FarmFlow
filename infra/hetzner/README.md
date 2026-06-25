@@ -69,6 +69,13 @@ Already wired in `docker-compose.yml` as the `econt` service:
 - Reads the shared `.env` (DB/Redis/JWT/ENCRYPTION_KEY) plus `CORS_ORIGIN_ECONT`,
   and the optional `OPENAI_API_KEY` / `NEKOREKTEN_API_KEY` / `SPEEDY_DEFAULT_SERVICE_ID`.
 
+Delivery-account onboarding is **invite-link based**: the super-admin creates the
+account with no password, the `api` mints a 7-day set-password link pointing at
+`DELIVERY_PUBLIC_URL` (default `https://dostavki.fermeribg.com`, set inline on the
+`api` service in compose) and emails it; the operator can also copy it. The invitee
+opens it and sets their own password via the public `POST /auth/reset-password` on
+the delivery app.
+
 **To bring it live (operator):**
 1. **Merge to `main`.** CI builds the api image, `scp`s this compose to the box, and
    runs `docker compose pull … econt && up -d` — the `econt` service starts. No manual

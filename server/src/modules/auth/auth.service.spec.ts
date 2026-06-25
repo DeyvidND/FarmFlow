@@ -362,6 +362,56 @@ describe('AuthService', () => {
     });
   });
 
+  // ── issueInvite (app-targeted, reusable invite link) ─────────────────────────
+
+  describe('issueInvite', () => {
+    const userRow = {
+      id: USER_ID, tenantId: TENANT_ID, email: 'op@dostavki.bg',
+      passwordHash: '$argon2id$fake', role: 'admin' as const, mustChangePassword: true,
+    };
+
+    it('signs a 7d reset token, builds a link at the given appUrl, and returns it', async () => {
+      db.limit.mockResolvedValueOnce([userRow]);
+
+      const res = await service.issueInvite(USER_ID, { appUrl: 'https://dostavki.fermeribg.com/' });
+
+      expect(jwtService.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: USER_ID, type: 'reset' }),
+        expect.objectContaining({ secret: 'test-secret::pwreset', expiresIn: '7d' }),
+      );
+      // Trailing slash on the appUrl is stripped; token is URL-encoded into the link.
+      expect(res.link).toBe('https://dostavki.fermeribg.com/reset-password?token=reset-token');
+      // email defaults to off → no send.
+      expect(emailMock.sendMail).not.toHaveBeenCalled();
+    });
+
+    it('emails the invite when email:true (using the delivery subject/copy)', async () => {
+      db.limit.mockResolvedValueOnce([userRow]);
+
+      await service.issueInvite(USER_ID, { appUrl: 'https://dostavki.fermeribg.com', email: true });
+
+      const sent = emailMock.sendMail.mock.calls[0][0];
+      expect(sent.to).toBe('op@dostavki.bg');
+      expect(sent.html).toContain('reset-token');
+      expect(sent.text).toContain('reset-token');
+    });
+
+    it('still returns the link when the email send fails (best-effort email)', async () => {
+      db.limit.mockResolvedValueOnce([userRow]);
+      emailMock.sendMail.mockRejectedValueOnce(new Error('smtp down'));
+
+      const res = await service.issueInvite(USER_ID, { appUrl: 'https://dostavki.fermeribg.com', email: true });
+      expect(res.link).toContain('reset-password?token=reset-token');
+    });
+
+    it('throws NotFoundException when the user does not exist', async () => {
+      db.limit.mockResolvedValueOnce([]);
+      await expect(
+        service.issueInvite(USER_ID, { appUrl: 'https://dostavki.fermeribg.com' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // ── register no longer exists ──────────────────────────────────────────────
 
   it('does NOT expose a register method on the service', () => {

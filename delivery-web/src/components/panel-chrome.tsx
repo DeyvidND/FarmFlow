@@ -1,7 +1,7 @@
 'use client';
 
 import { Toaster } from 'sonner';
-import { Leaf, LogOut, Upload, Package, ShieldAlert, Settings } from 'lucide-react';
+import { Truck, LogOut, Upload, Package, ShieldAlert, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
@@ -29,7 +29,7 @@ export function PanelChrome({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-10 flex h-[var(--topbar-h,64px)] items-center justify-between gap-3 border-b border-ff-border bg-[rgba(251,248,241,0.85)] px-8 backdrop-blur-md max-lg:px-4">
         <div className="flex shrink-0 items-center gap-[11px]">
           <div className="grid h-[38px] w-[38px] place-items-center rounded-[11px] bg-ff-green-700 text-[#EAF1E4]">
-            <Leaf size={22} strokeWidth={1.9} />
+            <Truck size={22} strokeWidth={1.9} />
           </div>
           <div className="leading-[1.1] max-md:hidden">
             <div className="font-display text-[17px] font-extrabold tracking-[-0.01em]">ФермериБГ · Доставка</div>

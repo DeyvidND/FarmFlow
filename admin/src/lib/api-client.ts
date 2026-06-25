@@ -338,14 +338,13 @@ export const listDeliveryShipments = (id: string, cursor?: string) =>
 
 export const createDeliveryAccount = (data: {
   email: string;
-  password: string;
   name: string;
   phone?: string;
   shop: boolean;
   delivery: boolean;
   active: boolean;
 }) =>
-  apiFetch<{ id: string; name: string; slug: string; email: string; password: string }>(
+  apiFetch<{ id: string; name: string; slug: string; email: string; inviteLink: string }>(
     'platform/delivery/accounts',
     {
       method: 'POST',
@@ -353,6 +352,14 @@ export const createDeliveryAccount = (data: {
       body: JSON.stringify(data),
     },
     'Неуспешно създаване на акаунт',
+  );
+
+/** Resend/regenerate the set-password invite link (also re-emailed by the API). */
+export const resendDeliveryInvite = (id: string) =>
+  apiFetch<{ inviteLink: string }>(
+    `platform/delivery/accounts/${id}/invite`,
+    { method: 'POST' },
+    'Неуспешно изпращане на покана',
   );
 
 export const setDeliveryActive = (id: string, active: boolean) =>

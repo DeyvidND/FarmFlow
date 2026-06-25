@@ -177,6 +177,15 @@ export class PlatformController {
     return this.platform.createDeliveryAccount(dto);
   }
 
+  /** Re-mint + re-email the set-password invite for a delivery account (expired or
+   *  never-received link). Returns the fresh link for the operator to copy/share. */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('delivery/accounts/:tenantId/invite')
+  @HttpCode(200)
+  resendDeliveryInvite(@Param('tenantId', ParseUUIDPipe) id: string) {
+    return this.platform.resendDeliveryInvite(id);
+  }
+
   @Patch('delivery/accounts/:tenantId/active')
   setDeliveryActive(
     @Param('tenantId', ParseUUIDPipe) tenantId: string,

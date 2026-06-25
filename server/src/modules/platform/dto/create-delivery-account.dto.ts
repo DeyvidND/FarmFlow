@@ -4,9 +4,8 @@ export class CreateDeliveryAccountDto {
   @IsEmail()
   email!: string;
 
-  // Platform password floor of 12.
-  @IsString() @MinLength(12) @MaxLength(128)
-  password!: string;
+  // No password: the account is created password-less and the invitee sets their
+  // own via the emailed/shared 7-day invite link (see PlatformService.createDeliveryAccount).
 
   @IsString() @MinLength(2) @MaxLength(120)
   name!: string;

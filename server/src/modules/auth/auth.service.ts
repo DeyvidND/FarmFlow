@@ -222,6 +222,44 @@ export class AuthService {
     });
   }
 
+  /**
+   * Mint a 7d set-password ("invite") link for a user, targeted at a given app
+   * origin, and optionally email it. Reuses the reset-token machinery (separate
+   * secret, single-use, bound to the password fingerprint), so a random/unusable
+   * password set at creation is never disclosed. The `appUrl` lets the caller aim
+   * the link at a specific frontend (e.g. the delivery panel, NOT the farmer panel).
+   * Returns the link so the operator can also copy/share it (Viber etc.).
+   */
+  async issueInvite(
+    userId: string,
+    opts: { appUrl: string; email?: boolean; subject?: string },
+  ): Promise<{ link: string }> {
+    const [user] = await this.db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) throw new NotFoundException('Профилът не е намерен');
+    const token = await this.jwt.signAsync(
+      { sub: user.id, type: 'reset', pv: this.pwFingerprint(user.passwordHash) },
+      { secret: this.resetSecret(), expiresIn: '7d' },
+    );
+    const link = `${opts.appUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(token)}`;
+    if (opts.email) {
+      // Don't let an email-send failure roll back account creation — log + carry on.
+      // The operator still gets the link in the response to share manually.
+      try {
+        await this.email.sendMail({
+          to: user.email,
+          subject: opts.subject ?? 'Покана за достъп — ФермериБГ Доставка',
+          html: inviteEmailHtml(link),
+          text: `Получи достъп до ФермериБГ Доставка.\nОтвори тази връзка, за да зададеш парола (валидна 7 дни):\n${link}`,
+        });
+      } catch (err) {
+        this.logger.error(
+          `Delivery invite email failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { link };
+  }
+
   /** Finish the reset flow: verify the token + set the new password. */
   async resetPassword(token: string, newPassword: string): Promise<{ ok: true }> {
     let payload: { sub?: string; type?: string; pv?: string };

@@ -32,7 +32,7 @@ function tokenStatus(token: string | undefined): 'none' | 'invalid' | 'valid' {
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const status = tokenStatus(req.cookies.get(SESSION_COOKIE)?.value);
-  const isAuthPage = pathname === '/login';
+  const isAuthPage = pathname === '/login' || pathname === '/reset-password';
   const isProtected = ['/import', '/shipments', '/cod-risk', '/settings'].some(
     (p) => pathname === p || pathname.startsWith(p + '/'),
   );
@@ -69,5 +69,6 @@ export const config = {
     '/cod-risk/:path*', '/cod-risk',
     '/settings/:path*', '/settings',
     '/login',
+    '/reset-password',
   ],
 };

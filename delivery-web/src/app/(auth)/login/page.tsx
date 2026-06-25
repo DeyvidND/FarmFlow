@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Leaf } from 'lucide-react';
+import { Truck } from 'lucide-react';
 
 // Login only — delivery accounts are provisioned by the super-admin
 // (platform „Доставка"), there is no self-service registration.
@@ -44,7 +44,7 @@ export default function LoginPage() {
       <div className="w-[420px] max-w-full rounded-2xl border border-ff-border bg-ff-surface p-7 shadow-ff-lg">
         <div className="mb-5 flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-[12px] bg-ff-green-700 text-[#EAF1E4]">
-            <Leaf size={24} strokeWidth={1.9} />
+            <Truck size={24} strokeWidth={1.9} />
           </div>
           <div>
             <div className="font-display text-[19px] font-extrabold">ФермериБГ · Доставка</div>

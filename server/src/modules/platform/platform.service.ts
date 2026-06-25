@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
 import { and, asc, eq, sql, desc, inArray } from 'drizzle-orm';
+import { AuthService } from '../auth/auth.service';
 import { BillingService } from '../billing/billing.service';
 import { emailCostStotinki } from '../billing/billing.pricing';
 import { ProductsService } from '../products/products.service';
@@ -193,6 +194,7 @@ export class PlatformService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly jwt: JwtService,
+    private readonly auth: AuthService,
     private readonly billing: BillingService,
     private readonly publicCache: PublicCacheService,
     private readonly config: ConfigService,
@@ -202,6 +204,12 @@ export class PlatformService {
     private readonly tenantsSvc: TenantsService,
     private readonly storage: StorageService,
   ) {}
+
+  /** Origin the delivery set-password ("invite") link is aimed at. */
+  private deliveryPublicUrl(): string {
+    const url = this.config.get<string>('DELIVERY_PUBLIC_URL');
+    return url && url.trim() ? url.trim() : 'https://dostavki.fermeribg.com';
+  }
 
   /** Platform admin login → platform-typed JWT. */
   async login(email: string, password: string): Promise<{ accessToken: string }> {
@@ -689,11 +697,13 @@ export class PlatformService {
 
   /** Super-admin-driven account creation. Capabilities pick the settings shape:
    *  delivery-only → econt-standalone; shop-only → farm; both → farm + econtApp.
-   *  One admin user with a known password (no forced change) so the operator can
-   *  log into the delivery app. Returns the password ONCE. */
+   *  No password is set — the admin user gets a RANDOM unusable hash and
+   *  mustChangePassword=true; onboarding completes via a 7-day set-password
+   *  ("invite") link, emailed to the account and returned ONCE so the operator can
+   *  also share it (Viber etc.). The invitee opens it and sets their own password. */
   async createDeliveryAccount(
     dto: CreateDeliveryAccountDto,
-  ): Promise<{ id: string; name: string; slug: string; email: string; password: string }> {
+  ): Promise<{ id: string; name: string; slug: string; email: string; inviteLink: string }> {
     if (!dto.shop && !dto.delivery) throw new BadRequestException('Изберете поне една роля');
 
     const email = dto.email.trim().toLowerCase();
@@ -712,10 +722,13 @@ export class PlatformService {
     else if (dto.shop && !dto.delivery) settings = farmDefaultSettings();
     else settings = { ...farmDefaultSettings(), econtApp: { active } };
 
-    // Hash outside the txn (CPU-bound, no DB lock needed), then create tenant + user
-    // atomically so a failed user insert can't leave an orphaned delivery tenant behind.
-    const passwordHash = await argon2.hash(dto.password);
-    const tenant = await this.db.transaction(async (tx) => {
+    // No real password is ever set on create: hash a random throwaway (never
+    // disclosed) so the column is non-null, and force a change. The invitee sets
+    // their actual password via the invite link below. Hash outside the txn
+    // (CPU-bound), then create tenant + user atomically so a failed user insert
+    // can't leave an orphaned delivery tenant behind.
+    const passwordHash = await argon2.hash(randomBytes(24).toString('hex'));
+    const created = await this.db.transaction(async (tx) => {
       const [t] = await tx
         .insert(tenants)
         .values({
@@ -731,17 +744,58 @@ export class PlatformService {
         })
         .returning();
 
-      await tx.insert(users).values({
-        tenantId: t.id,
-        email,
-        passwordHash,
-        role: 'admin',
-        mustChangePassword: false,
-      });
-      return t;
+      const [u] = await tx
+        .insert(users)
+        .values({
+          tenantId: t.id,
+          email,
+          passwordHash,
+          role: 'admin',
+          mustChangePassword: true,
+        })
+        .returning({ id: users.id });
+      return { tenant: t, userId: u.id };
     });
 
-    return { id: tenant.id, name: tenant.name, slug: tenant.slug, email: tenant.email ?? email, password: dto.password };
+    const { link } = await this.auth.issueInvite(created.userId, {
+      appUrl: this.deliveryPublicUrl(),
+      email: true,
+    });
+
+    return {
+      id: created.tenant.id,
+      name: created.tenant.name,
+      slug: created.tenant.slug,
+      email: created.tenant.email ?? email,
+      inviteLink: link,
+    };
+  }
+
+  /** Re-mint + re-email the set-password invite for a delivery account's admin
+   *  user (e.g. the first link expired or never arrived). 404 if the tenant is
+   *  missing or not delivery-capable. Returns the fresh link so the operator can
+   *  also copy/share it. */
+  async resendDeliveryInvite(tenantId: string): Promise<{ inviteLink: string }> {
+    const [t] = await this.db
+      .select({ id: tenants.id, settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const caps = t ? deliveryCapabilities(t.settings) : null;
+    if (!t || !caps?.delivery) throw new NotFoundException('Акаунтът не е намерен');
+
+    const [user] = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.tenantId, tenantId), eq(users.role, 'admin')))
+      .limit(1);
+    if (!user) throw new NotFoundException('Акаунтът няма потребител');
+
+    const { link } = await this.auth.issueInvite(user.id, {
+      appUrl: this.deliveryPublicUrl(),
+      email: true,
+    });
+    return { inviteLink: link };
   }
 
   /** "Link" an existing farm to the delivery service by merging an econtApp block
