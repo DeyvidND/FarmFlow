@@ -545,6 +545,50 @@ describe('PlatformService', () => {
     });
   });
 
+  // ── listDeliveryShipments (full paginated history) ──────────────────────────
+  describe('listDeliveryShipments', () => {
+    it('404s when the tenant is not delivery-capable', async () => {
+      // tenant lookup → a non-delivery settings blob
+      db.limit.mockResolvedValueOnce([{ id: 't9', settings: { delivery: {} } }]);
+      await expect(service.listDeliveryShipments('t9')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('returns a first page with nextCursor, then advances on the cursor', async () => {
+      const mk = (i: number) => ({
+        id: `s${i}`,
+        receiverName: `Получател ${i}`,
+        carrier: 'econt',
+        status: 'created',
+        codAmountStotinki: 1000,
+        codCollectedAt: null,
+        codSettledAt: null,
+        createdAt: new Date(`2026-06-${String(20 - i).padStart(2, '0')}`),
+        trackingNumber: null,
+        econtShipmentNumber: `E${i}`,
+      });
+
+      // ── Page 1 (limit 2): tenant lookup → delivery-capable; query returns lim+1=3 rows ──
+      db.limit.mockResolvedValueOnce([{ id: 't1', settings: { econtApp: { active: true } } }]); // tenant lookup
+      db.orderBy.mockReturnValueOnce(db); // shipments query → chain to limit
+      db.limit.mockResolvedValueOnce([mk(1), mk(2), mk(3)]); // 3 rows → hasMore
+
+      const page1 = await service.listDeliveryShipments('t1', { limit: 2 });
+      expect(page1.items).toHaveLength(2);
+      expect(page1.items[0].receiverName).toBe('Получател 1');
+      expect(page1.nextCursor).not.toBeNull();
+
+      // ── Page 2: pass the cursor; only 1 row remains → no more pages ──
+      db.limit.mockResolvedValueOnce([{ id: 't1', settings: { econtApp: { active: true } } }]); // tenant lookup
+      db.orderBy.mockReturnValueOnce(db);
+      db.limit.mockResolvedValueOnce([mk(3)]); // 1 row → end
+
+      const page2 = await service.listDeliveryShipments('t1', { limit: 2, cursor: page1.nextCursor! });
+      expect(page2.items).toHaveLength(1);
+      expect(page2.items[0].id).toBe('s3');
+      expect(page2.nextCursor).toBeNull();
+    });
+  });
+
   describe('createDeliveryAccount', () => {
     beforeEach(() => {
       (argon2.hash as jest.Mock).mockResolvedValue('hashed');

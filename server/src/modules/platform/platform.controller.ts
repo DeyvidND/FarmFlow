@@ -160,6 +160,17 @@ export class PlatformController {
     return this.platform.getDeliveryAccount(tenantId);
   }
 
+  /** Full paginated shipment history for one delivery account ("load more"). */
+  @Get('delivery/accounts/:tenantId/shipments')
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  listDeliveryShipments(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Query() q: PaginationQueryDto,
+  ) {
+    return this.platform.listDeliveryShipments(tenantId, { cursor: q.cursor, limit: q.limit });
+  }
+
   @Post('delivery/accounts')
   @HttpCode(201)
   createDeliveryAccount(@Body() dto: CreateDeliveryAccountDto) {

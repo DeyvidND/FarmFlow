@@ -311,17 +311,16 @@ export interface DeliveryAccount {
 
 export interface DeliveryShipment {
   id: string;
+  /** Receiver of an order-less/manual shipment; null for order-linked rows. */
+  receiverName: string | null;
   carrier: string;
   status: string;
   codAmountStotinki: number | null;
   codCollectedAt: string | null;
+  codSettledAt: string | null;
   createdAt: string | null;
   trackingNumber: string | null;
   econtShipmentNumber: string | null;
-}
-
-export interface DeliveryAccountDetail extends DeliveryAccount {
-  recentShipments: DeliveryShipment[];
 }
 
 export const listDeliveryAccounts = (cursor?: string) =>
@@ -329,8 +328,13 @@ export const listDeliveryAccounts = (cursor?: string) =>
     `platform/delivery/accounts${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
   );
 
-export const getDeliveryAccount = (id: string) =>
-  apiFetch<DeliveryAccountDetail>(`platform/delivery/accounts/${id}`);
+/** Full paginated shipment history for one delivery account ("load more"). */
+export const listDeliveryShipments = (id: string, cursor?: string) =>
+  apiFetch<Paginated<DeliveryShipment>>(
+    `platform/delivery/accounts/${id}/shipments${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+    undefined,
+    'Неуспешно зареждане на пратките',
+  );
 
 export const createDeliveryAccount = (data: {
   email: string;

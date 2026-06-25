@@ -1,9 +1,13 @@
 import {
-  Controller, Get, Post, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe, StreamableFile,
+  Controller, Get, Post, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe, StreamableFile, Inject,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { eq } from 'drizzle-orm';
+import { type Database, tenants } from '@fermeribg/db';
+import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EcontService } from '../econt/econt.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
+import { isEcontAccountActive } from './econt-app.helpers';
 import { EcontCredentialsDto } from '../econt/dto/econt-credentials.dto';
 import { ManualShipmentDto } from '../econt/dto/manual-shipment.dto';
 import { ValidateAddressDto } from '../econt/dto/validate-address.dto';
@@ -18,9 +22,21 @@ export class EcontStandaloneController {
   constructor(
     private readonly econt: EcontService,
     private readonly risk: CodRiskService,
+    @Inject(DB_TOKEN) private readonly db: Database,
   ) {}
 
   // --- account / setup ---
+  // Activation is super-admin-controlled; the panel reads it (read-only) to show
+  // the account's Активен/Неактивен status on the settings screen.
+  @Get('account')
+  async account(@CurrentTenant() t: string) {
+    const [row] = await this.db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, t))
+      .limit(1);
+    return { active: isEcontAccountActive(row?.settings) };
+  }
   @Post('credentials')
   saveCredentials(@CurrentTenant() t: string, @Body() dto: EcontCredentialsDto) {
     return this.econt.saveCredentials(t, dto);

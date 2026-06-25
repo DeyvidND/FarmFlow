@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Search, Plus, Truck, Store, Copy, Check, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, Plus, Truck, Store, Copy, Check, RefreshCw, X, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import { eur } from '@/lib/utils';
 import {
@@ -9,7 +9,9 @@ import {
   listDeliveryAccounts,
   createDeliveryAccount,
   setDeliveryActive,
+  listDeliveryShipments,
   type DeliveryAccount,
+  type DeliveryShipment,
   type Paginated,
 } from '@/lib/api-client';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
@@ -81,6 +83,188 @@ function CopyButton({ text }: { text: string }) {
       {copied ? <Check size={13} className="text-ff-green-600" /> : <Copy size={13} />}
       {copied ? 'Копирано' : 'Копирай'}
     </button>
+  );
+}
+
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
+const DEAD_COD = ['cancelled', 'failed', 'returned', 'refused', 'върн', 'отказ', 'анулир'];
+
+/** COD state for one shipment: collected (money in), dead (never coming), or pending. */
+function codState(s: DeliveryShipment): 'collected' | 'dead' | 'pending' {
+  if (s.codCollectedAt || s.codSettledAt) return 'collected';
+  const st = (s.status ?? '').toLowerCase();
+  if (DEAD_COD.some((m) => st.includes(m))) return 'dead';
+  return 'pending';
+}
+
+function StatusPill({ status }: { status: string }) {
+  const st = (status ?? '').toLowerCase();
+  const dead = DEAD_COD.some((m) => st.includes(m));
+  const done = st.includes('deliver') || st.includes('достав');
+  const tone = dead
+    ? 'bg-[#FBE9E7] text-ff-red'
+    : done
+      ? 'bg-ff-green-100 text-ff-green-800'
+      : 'bg-ff-surface-2 text-ff-ink-2';
+  return (
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-[12px] font-bold ${tone}`}>
+      {status || '—'}
+    </span>
+  );
+}
+
+function CarrierTag({ carrier }: { carrier: string }) {
+  const speedy = carrier === 'speedy';
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11.5px] font-bold ${
+        speedy ? 'bg-[#FFF1E8] text-[#B4541C]' : 'bg-[#EEF4FF] text-[#3457B1]'
+      }`}
+    >
+      {speedy ? 'Speedy' : 'Econt'}
+    </span>
+  );
+}
+
+/** Slide-over with the FULL shipment history of one account (paginated „Зареди още"). */
+function ShipmentHistoryDrawer({ account, onClose }: { account: DeliveryAccount; onClose: () => void }) {
+  const [items, setItems] = useState<DeliveryShipment[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    listDeliveryShipments(account.id)
+      .then((page) => {
+        if (!alive) return;
+        setItems(page.items);
+        setCursor(page.nextCursor);
+      })
+      .catch((e) => alive && setErr(errMsg(e)))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [account.id]);
+
+  async function loadMore() {
+    if (!cursor || loading) return;
+    setLoading(true);
+    try {
+      const page = await listDeliveryShipments(account.id, cursor);
+      setItems((prev) => [...prev, ...page.items]);
+      setCursor(page.nextCursor);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const cod = (s: DeliveryShipment) => {
+    const v = s.codAmountStotinki ?? 0;
+    if (v === 0) return <span className="text-ff-muted">—</span>;
+    const state = codState(s);
+    const tone = state === 'collected' ? 'text-ff-green-700' : state === 'dead' ? 'text-ff-muted line-through' : 'text-ff-ink-2';
+    return <span className={`ff-fig ${tone}`} title={state === 'collected' ? 'Събрано' : state === 'dead' ? 'Няма да се събере' : 'Чака'}>{eur(v)}</span>;
+  };
+
+  const track = (s: DeliveryShipment) => s.trackingNumber || s.econtShipmentNumber || '—';
+
+  return (
+    <>
+      <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={onClose} />
+      <div className="animate-ff-fade-up fixed right-0 top-0 z-50 flex h-full w-[760px] max-w-[96vw] flex-col border-l border-ff-border bg-ff-bg shadow-ff-lg">
+        <div className="flex items-start justify-between gap-3 border-b border-ff-border bg-ff-surface px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Package size={18} className="text-ff-green-600" />
+              <h2 className="truncate text-[17px] font-extrabold">Всички пратки — {account.name}</h2>
+            </div>
+            <p className="mt-0.5 text-[13px] text-ff-muted">
+              {account.overview.total} общо · {eur(account.overview.codPendingStotinki)} чака · <span className="text-ff-green-700">{eur(account.overview.codCollectedStotinki)} събрано</span>
+            </p>
+          </div>
+          <button onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {err && <p className="px-5 py-12 text-center text-sm text-ff-red">{err}</p>}
+
+          {!err && (
+            <>
+              {/* desktop */}
+              <table className="w-full border-collapse max-[760px]:hidden">
+                <thead>
+                  <tr className="sticky top-0 z-10 border-b border-ff-border bg-ff-surface-2 text-left">
+                    {['Получател', 'Куриер', 'Статус', 'Наложен платеж', 'Проследяване', 'Създадена'].map((h) => (
+                      <th key={h} className="px-4 py-3 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((s) => (
+                    <tr key={s.id} className="border-b border-ff-border-2 last:border-0">
+                      <td className="px-4 py-3 text-[13.5px] font-bold text-ff-ink">{s.receiverName ?? '—'}</td>
+                      <td className="px-4 py-3"><CarrierTag carrier={s.carrier} /></td>
+                      <td className="px-4 py-3"><StatusPill status={s.status} /></td>
+                      <td className="px-4 py-3 text-[13px] whitespace-nowrap">{cod(s)}</td>
+                      <td className="ff-fig px-4 py-3 text-[12.5px] text-ff-ink-2">{track(s)}</td>
+                      <td className="ff-fig px-4 py-3 text-[12.5px] text-ff-ink-2 whitespace-nowrap">{fmtDateTime(s.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* mobile cards */}
+              <div className="hidden flex-col max-[760px]:flex">
+                {items.map((s) => (
+                  <div key={s.id} className="flex flex-col gap-2 border-b border-ff-border-2 px-4 py-3 last:border-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-[14.5px] font-extrabold text-ff-ink">{s.receiverName ?? '—'}</div>
+                      <StatusPill status={s.status} />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ff-muted">
+                      <CarrierTag carrier={s.carrier} />
+                      <span>Платеж: {cod(s)}</span>
+                      <span>Просл.: <span className="ff-fig text-ff-ink-2">{track(s)}</span></span>
+                      <span>{fmtDateTime(s.createdAt)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {!loading && items.length === 0 && (
+                <p className="px-5 py-12 text-center text-sm text-ff-muted">Няма пратки за този акаунт.</p>
+              )}
+
+              {(cursor || loading) && (
+                <div className="flex justify-center px-5 py-5">
+                  <button
+                    onClick={loadMore}
+                    disabled={loading || !cursor}
+                    className="rounded-xl border border-ff-border bg-ff-surface px-5 py-2.5 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2 disabled:opacity-60"
+                  >
+                    {loading ? 'Зареждане…' : 'Зареди още'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -189,6 +373,7 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
   const [q, setQ] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [detail, setDetail] = useState<DeliveryAccount | null>(null);
 
   const needle = q.trim().toLowerCase();
   const rows = items.filter((a) => !needle || a.name.toLowerCase().includes(needle) || (a.email ?? '').toLowerCase().includes(needle) || a.slug.toLowerCase().includes(needle));
@@ -235,7 +420,12 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
           </thead>
           <tbody>
             {rows.map((a) => (
-              <tr key={a.id} className="border-b border-ff-border-2 last:border-0">
+              <tr
+                key={a.id}
+                onClick={() => setDetail(a)}
+                className="cursor-pointer border-b border-ff-border-2 last:border-0 hover:bg-ff-surface-2"
+                title="Виж всички пратки"
+              >
                 <td className="px-5 py-3.5">
                   <div className="text-[14.5px] font-bold text-ff-ink">{a.name}</div>
                   <div className="text-xs text-ff-muted-2">{a.email ?? '—'} · /{a.slug}</div>
@@ -251,7 +441,7 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
                   <span className="text-ff-green-700" title="Събрано">{eur(a.overview.codCollectedStotinki)}</span>
                 </td>
                 <td className="ff-fig px-5 py-3.5 text-[13px] text-ff-ink-2 whitespace-nowrap">{fmtDate(a.overview.lastShipmentAt)}</td>
-                <td className="px-5 py-3.5"><Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} /></td>
+                <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}><Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} /></td>
               </tr>
             ))}
           </tbody>
@@ -260,14 +450,16 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
         {/* mobile cards */}
         <div className="hidden flex-col max-[860px]:flex">
           {rows.map((a) => (
-            <div key={a.id} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
+            <div key={a.id} onClick={() => setDetail(a)} className="flex cursor-pointer flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0 active:bg-ff-surface-2">
               <div className="flex items-start justify-between gap-2.5">
                 <div className="min-w-0">
                   <div className="text-[15.5px] font-extrabold text-ff-ink">{a.name}</div>
                   <div className="text-[12.5px] text-ff-muted">{a.email ?? '—'}</div>
                   <div className="mt-1"><TypeBadges type={a.type} /></div>
                 </div>
-                <Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} />
+                <div onClick={(e) => e.stopPropagation()}>
+                  <Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} />
+                </div>
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ff-muted">
                 <span>Пратки: <b className="ff-fig text-ff-ink-2">{a.overview.total}</b></span>
@@ -291,6 +483,7 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
       )}
 
       {showAdd && <CreateDialog onClose={() => setShowAdd(false)} onCreated={(a) => setItems((p) => [a, ...p])} />}
+      {detail && <ShipmentHistoryDrawer account={detail} onClose={() => setDetail(null)} />}
     </div>
   );
 }

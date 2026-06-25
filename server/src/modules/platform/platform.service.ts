@@ -74,10 +74,13 @@ export interface DeliveryAccountRow {
 
 export interface DeliveryShipmentRow {
   id: string;
+  /** Receiver of an order-less/manual shipment; null for order-linked rows. */
+  receiverName: string | null;
   carrier: string;
   status: string;
   codAmountStotinki: number | null;
   codCollectedAt: Date | null;
+  codSettledAt: Date | null;
   createdAt: Date | null;
   trackingNumber: string | null;
   econtShipmentNumber: string | null;
@@ -607,6 +610,7 @@ export class PlatformService {
     const ship = await this.db
       .select({
         id: shipments.id,
+        receiverName: shipments.receiverName,
         carrier: shipments.carrier,
         status: shipments.status,
         codAmountStotinki: shipments.codAmountStotinki,
@@ -635,6 +639,52 @@ export class PlatformService {
       overview: buildDeliveryOverview(ship),
       recentShipments,
     };
+  }
+
+  /** Full paginated shipment history for ONE delivery account — the "load more"
+   *  source behind getDeliveryAccount's last-20 recent list. Newest-first, keyset
+   *  by (createdAt, id) like the orders list. Scoped strictly to :tenantId (the
+   *  super-admin is cross-tenant, but each call serves only the requested account).
+   *  Includes BOTH order-linked and order-less/manual shipments — the single
+   *  tenant_id filter naturally covers both, exactly as getDeliveryAccount does.
+   *  404 if the tenant is missing or not delivery-capable (same guard). */
+  async listDeliveryShipments(
+    tenantId: string,
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<DeliveryShipmentRow>> {
+    const [t] = await this.db
+      .select({ id: tenants.id, settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const caps = t ? deliveryCapabilities(t.settings) : null;
+    if (!t || !caps?.delivery) throw new NotFoundException('Акаунтът не е намерен');
+
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    const where = cur
+      ? and(eq(shipments.tenantId, tenantId), keysetAfter(shipments.createdAt, shipments.id, cur, 'desc'))
+      : eq(shipments.tenantId, tenantId);
+
+    const rows = (await this.db
+      .select({
+        id: shipments.id,
+        receiverName: shipments.receiverName,
+        carrier: shipments.carrier,
+        status: shipments.status,
+        codAmountStotinki: shipments.codAmountStotinki,
+        codCollectedAt: shipments.codCollectedAt,
+        codSettledAt: shipments.codSettledAt,
+        createdAt: shipments.createdAt,
+        trackingNumber: shipments.trackingNumber,
+        econtShipmentNumber: shipments.econtShipmentNumber,
+      })
+      .from(shipments)
+      .where(where)
+      .orderBy(desc(shipments.createdAt), desc(shipments.id))
+      .limit(lim + 1)) as DeliveryShipmentRow[];
+
+    return buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
   }
 
   /** Super-admin-driven account creation. Capabilities pick the settings shape:

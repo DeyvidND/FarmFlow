@@ -33,7 +33,9 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const status = tokenStatus(req.cookies.get(SESSION_COOKIE)?.value);
   const isAuthPage = pathname === '/login';
-  const isProtected = ['/import'].some((p) => pathname === p || pathname.startsWith(p + '/'));
+  const isProtected = ['/import', '/shipments', '/cod-risk', '/settings'].some(
+    (p) => pathname === p || pathname.startsWith(p + '/'),
+  );
 
   // Stale/malformed/expired token → treat as logged-out AND wipe the cookie so it
   // can't keep slipping the user into an empty, broken panel.
@@ -61,5 +63,11 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/import/:path*', '/import', '/login'],
+  matcher: [
+    '/import/:path*', '/import',
+    '/shipments/:path*', '/shipments',
+    '/cod-risk/:path*', '/cod-risk',
+    '/settings/:path*', '/settings',
+    '/login',
+  ],
 };
