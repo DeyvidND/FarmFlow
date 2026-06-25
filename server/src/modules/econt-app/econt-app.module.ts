@@ -19,7 +19,6 @@ import { GlobalExceptionFilter } from '../../common/filters/global-exception.fil
 import { AuthCoreModule } from '../auth/auth-core.module';
 import { EcontCoreModule } from '../econt/econt-core.module';
 import { SpeedyCoreModule } from '../speedy/speedy-core.module';
-import { StandaloneAuthService } from './standalone-auth.service';
 import { StandaloneAuthController } from './standalone-auth.controller';
 import { EcontStandaloneController } from './econt-standalone.controller';
 import { SpeedyStandaloneController } from '../speedy/speedy-standalone.controller';
@@ -58,7 +57,6 @@ import { ImportModule } from '../import/import.module';
   ],
   controllers: [EcontHealthController, StandaloneAuthController, EcontStandaloneController, SpeedyStandaloneController, ShippingQuoteController],
   providers: [
-    StandaloneAuthService,
     ActivationGuard,
     ShippingQuoteService,
     // Flood protection first.

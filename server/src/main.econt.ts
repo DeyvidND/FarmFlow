@@ -5,12 +5,10 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import compression from 'compression';
-import { join } from 'path';
 import { EcontAppModule } from './modules/econt-app/econt-app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(EcontAppModule);
-  app.useStaticAssets(join(__dirname, '..', 'public', 'econt-app'), { prefix: '/app' });
   app.enableShutdownHooks();
 
   const config = app.get(ConfigService);
@@ -29,8 +27,9 @@ async function bootstrap() {
     const origin = req.headers.origin;
     res.header('Vary', 'Origin');
     if (origin && corsOrigins.includes(origin)) {
-      // Token auth (Authorization: Bearer from localStorage) — no cookies, so we
-      // deliberately do NOT send Allow-Credentials (keeps the surface tighter).
+      // Token auth (Authorization: Bearer) — no cookies, so we deliberately do
+      // NOT send Allow-Credentials (keeps the surface tighter). The panel reaches
+      // this API server-side via delivery-web's /bff, so CORS is only a fallback.
       res.header('Access-Control-Allow-Origin', origin);
     }
     res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');

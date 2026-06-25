@@ -4,15 +4,12 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Leaf } from 'lucide-react';
 
-type Mode = 'login' | 'signup';
-
+// Login only — delivery accounts are provisioned by the super-admin
+// (platform „Доставка"), there is no self-service registration.
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [farmName, setFarmName] = useState('');
-  const [phone, setPhone] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -21,15 +18,10 @@ export default function LoginPage() {
     setErr('');
     setBusy(true);
     try {
-      const path = mode === 'login' ? '/api/session/login' : '/api/session/signup';
-      const payload =
-        mode === 'login'
-          ? { email: email.trim(), password }
-          : { email: email.trim(), password, farmName: farmName.trim(), phone: phone.trim() };
-      const res = await fetch(path, {
+      const res = await fetch('/api/session/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
@@ -56,35 +48,19 @@ export default function LoginPage() {
           </div>
           <div>
             <div className="font-display text-[19px] font-extrabold">ФермериБГ · Доставка</div>
-            <div className="text-[12.5px] text-ff-muted">{mode === 'login' ? 'Вход в системата' : 'Нова регистрация'}</div>
+            <div className="text-[12.5px] text-ff-muted">Вход в системата</div>
           </div>
         </div>
 
-        <div className="mb-4 flex gap-1 rounded-xl bg-ff-surface-2 p-1">
-          <button type="button" onClick={() => setMode('login')} className={tabCls(mode === 'login')}>Вход</button>
-          <button type="button" onClick={() => setMode('signup')} className={tabCls(mode === 'signup')}>Регистрация</button>
-        </div>
-
         <form onSubmit={submit} className="flex flex-col gap-3">
-          {mode === 'signup' && (
-            <input className={input} placeholder="Име на фирмата / фермата" value={farmName} onChange={(e) => setFarmName(e.target.value)} required minLength={2} />
-          )}
           <input className={input} type="email" placeholder="Имейл" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
-          <input className={input} type="password" placeholder="Парола" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'signup' ? 12 : 1} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
-          {mode === 'signup' && (
-            <input className={input} type="tel" placeholder="Телефон (по избор)" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          )}
+          <input className={input} type="password" placeholder="Парола" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}
           <button type="submit" disabled={busy} className="mt-1 h-11 rounded-xl bg-ff-green-700 text-[15px] font-bold text-white hover:brightness-95 disabled:opacity-60">
-            {busy ? 'Моля изчакайте…' : mode === 'login' ? 'Вход' : 'Създай акаунт'}
+            {busy ? 'Моля изчакайте…' : 'Вход'}
           </button>
-          {mode === 'signup' && <p className="text-[12px] text-ff-muted">Паролата трябва да е поне 12 знака.</p>}
         </form>
       </div>
     </div>
   );
-}
-
-function tabCls(active: boolean) {
-  return `flex-1 rounded-lg px-3 py-2 text-[13.5px] font-bold transition-colors ${active ? 'bg-ff-surface text-ff-ink shadow-ff-sm' : 'text-ff-muted hover:text-ff-ink-2'}`;
 }

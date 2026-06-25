@@ -1,25 +1,15 @@
 import { Controller, Post, Get, Body, UseGuards, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { StandaloneAuthService } from './standalone-auth.service';
 import { AuthService } from '../auth/auth.service';
-import { EcontSignupDto } from './dto/signup.dto';
 import { LoginDto } from '../auth/dto/login.dto';
 import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
+// Accounts are provisioned by the super-admin (platform „Доставка"), not
+// self-service — there is intentionally NO public signup route here.
 @Controller('auth')
 export class StandaloneAuthController {
-  constructor(
-    private readonly standalone: StandaloneAuthService,
-    private readonly auth: AuthService,
-  ) {}
-
-  // Tight limit: account creation is abuse-prone.
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @Post('signup')
-  signup(@Body() dto: EcontSignupDto) {
-    return this.standalone.signup(dto);
-  }
+  constructor(private readonly auth: AuthService) {}
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
