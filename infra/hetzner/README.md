@@ -22,14 +22,17 @@ the box). Secrets are NOT here: `.env` lives only on the box (600, root).
 
 | File | On box | Purpose |
 | --- | --- | --- |
-| `docker-compose.yml` | `/opt/fermeribg/docker-compose.yml` | the stack (pg, redis, api, web, admin, econt, delivery-web, cloudflared) |
+| `docker-compose.yml` | `/opt/fermeribg/docker-compose.yml` | the stack (pg, redis, api, web, admin, econt, delivery-web, caddy, cloudflared) |
 | `env.example` | `/opt/fermeribg/.env` (filled) | env template; real values copied from the old Dokploy env |
 | `daemon.json` | `/etc/docker/daemon.json` | Docker log rotation (10m × 3) |
 | `backup.sh` | `/opt/fermeribg/backup.sh` | pg_dump → local + private R2 `backups` bucket |
 | `tunnel-watchdog.sh` | `/opt/fermeribg/tunnel-watchdog.sh` | restart cloudflared if the tunnel `/ready` drops |
+| `caddy/` | `/opt/fermeribg/caddy/` | Dockerfile (xcaddy + cloudflare DNS) + Caddyfile for the direct origin |
+| `origin-firewall.sh` | `/opt/fermeribg/origin-firewall.sh` | locks the origin `:443` to Cloudflare IPs (DOCKER-USER + ipset) |
+| `origin-firewall.service` | `/etc/systemd/system/origin-firewall.service` | re-applies the lockdown on boot / docker restart |
 
 Cron (`/etc/cron.d/`): `fermeribg-backup` (daily 03:00), `fermeribg-tunnel-watchdog`
-(every 2 min).
+(every 2 min). Systemd: `origin-firewall.service` (oneshot, `PartOf=docker.service`).
 
 ## Rebuild a box from scratch
 
@@ -94,6 +97,40 @@ the delivery app.
 ⚠️ Before any farm relies on a carrier, live-verify the docs-built fields (Speedy
 `serviceId`/price/EUR/validate/track/payments; Econt create/courier/profiles; nekorekten
 report shapes) — see `docs/superpowers/specs/2026-06-24-*` and the audit memo.
+
+## Direct non-tunnel API origin — `origin-api.fermeribg.com`
+
+The Astro storefronts are Cloudflare Workers; they fetch the backend during SSR.
+When that fetch targets `api.fermeribg.com` (served via the CF tunnel, same CF
+account), the Worker→origin subrequest **hairpins the tunnel through the CF edge
+and intermittently black-holes** (~75% hang ~16s then return empty; `wrangler tail`
+shows 0ms-CPU / full-wall / outcome=canceled). External clients are unaffected —
+only Worker egress. The fix gives the API a public origin Workers reach **directly**,
+bypassing the tunnel:
+
+- **`caddy` service** (custom image, `caddy/Dockerfile` = xcaddy + `caddy-dns/cloudflare`)
+  `reverse_proxy api:3000`, publishes `:443`. Public **Let's Encrypt** cert via ACME
+  **DNS-01** (`CF_DNS_API_TOKEN`, Zone:DNS:Edit) — no port 80, auto-renew. A CF Origin
+  CA cert would NOT work (Workers validate against public CAs).
+- **DNS**: `origin-api` A → the box IP, **DNS-only (grey cloud)** — straight to the
+  box, no edge, no hairpin.
+- **Firewall**: `:443` is locked to **Cloudflare IP ranges only** (`origin-firewall.sh`:
+  ipset + a `DOCKER-USER` rule — Docker-published ports BYPASS ufw, so the host
+  firewall is useless here; DOCKER-USER is the supported hook). Re-applied on boot /
+  docker restart by `origin-firewall.service`. Origin IP stays hidden from the
+  general internet; only CF Worker egress gets through.
+- The `api.fermeribg.com` tunnel is **untouched** (panel/admin + a fallback). The
+  chaika SWR edge-cache stays as defense-in-depth.
+
+Each storefront Worker sets build var **`PUBLIC_API_BASE=https://origin-api.fermeribg.com`**
+(build-time inlined → needs a Worker rebuild, not just a binding). **Future storefront
+provisioning (the `new-storefront` skill / `SF_*` build vars) MUST use
+`origin-api.fermeribg.com`, NOT `api.fermeribg.com`, for the API base.**
+
+Rebuild-from-scratch additions: `apt install ipset`; `scp` `caddy/` + `origin-firewall.sh`
+to `/opt/fermeribg/` and `origin-firewall.service` to `/etc/systemd/system/`; set
+`CF_DNS_API_TOKEN` in `.env`; `docker compose up -d --build caddy`; create the grey-cloud
+`origin-api` A record; `systemctl enable --now origin-firewall.service`.
 
 ## Notes
 

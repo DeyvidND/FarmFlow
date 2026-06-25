@@ -1,0 +1,18 @@
+# Direct, non-tunnel TLS origin for the API. Cloudflare Workers (the Astro
+# storefronts) fetch this hostname instead of api.fermeribg.com, so their
+# server-side subrequests no longer hairpin the CF tunnel (which intermittently
+# black-holes worker->tunnel traffic). DNS-only A record (grey cloud) → straight
+# to the box; host 443 is firewalled to Cloudflare IP ranges.
+{
+	# Cert is issued via ACME DNS-01 (below), so no :80 HTTP challenge / redirect
+	# listener is needed — workers call https directly.
+	auto_https disable_redirects
+}
+
+origin-api.fermeribg.com {
+	tls {
+		dns cloudflare {env.CF_DNS_API_TOKEN}
+	}
+	# Same NestJS app the tunnel serves; it routes by path, host-agnostic.
+	reverse_proxy api:3000
+}

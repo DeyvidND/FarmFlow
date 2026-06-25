@@ -1,0 +1,16 @@
+[Unit]
+Description=Restrict Caddy origin :443 to Cloudflare IPs (DOCKER-USER + ipset)
+# Docker rebuilds the DOCKER-USER chain empty on each start, so re-apply after it.
+# PartOf makes this re-run whenever docker.service restarts (e.g. an unattended
+# upgrade of docker), not just on boot — otherwise the lockdown would silently drop.
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/fermeribg/origin-firewall.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

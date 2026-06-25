@@ -118,6 +118,25 @@ services:
       NODE_ENV: production
       API_URL: http://econt:3100
 
+  # Public, non-tunnel TLS origin for the API (origin-api.fermeribg.com) so the
+  # Astro storefront Workers fetch the backend DIRECTLY instead of hairpinning the
+  # CF tunnel (which intermittently black-holes worker->tunnel subrequests). Custom
+  # Caddy image (caddy-dns/cloudflare) gets a public Let's Encrypt cert via ACME
+  # DNS-01 — no inbound :80 — so host 443 can be firewalled to Cloudflare IPs only.
+  # Build context ./caddy must exist on the box (scp'd by hand; CI only syncs this
+  # compose). The api.fermeribg.com tunnel is untouched (panel/admin + fallback).
+  caddy:
+    build: ./caddy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    environment:
+      CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN:?set in .env}
+    volumes:
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on: [api]
+
   cloudflared:
     image: cloudflare/cloudflared:2026.6.0
     restart: unless-stopped
@@ -136,3 +155,5 @@ services:
 volumes:
   pgdata:
   redisdata:
+  caddydata:
+  caddyconfig:
