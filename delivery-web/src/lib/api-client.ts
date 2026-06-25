@@ -38,13 +38,34 @@ export interface ImportBatch {
   rows: ImportRow[];
 }
 
-export const uploadBatch = async (file: File, settings: Record<string, string>): Promise<ImportBatch> => {
+export const uploadBatch = async (file: File, settings: Record<string, string> = {}): Promise<ImportBatch> => {
   const fd = new FormData();
   fd.append('file', file);
   Object.entries(settings).forEach(([k, v]) => { if (v != null && v !== '') fd.append(k, v); });
   const res = await bff('import/batches', { method: 'POST', body: fd }, 'Качването се провали');
   return res.json();
 };
+
+/* --------------------------- cheapest-courier quote ----------------------- */
+
+export interface CarrierQuote {
+  carrier: 'econt' | 'speedy';
+  priceStotinki: number | null;
+  available: boolean;
+}
+export interface QuoteResult {
+  quotes: CarrierQuote[];
+  cheapest: 'econt' | 'speedy' | null;
+}
+
+/** Price both carriers for a destination (delivery price only, no COD). Used by the
+ *  import editor to auto-pick the cheaper courier per row. */
+export const compareShipment = async (
+  input: { destinationCity: string; deliveryMode: 'office' | 'address'; weightGrams?: number },
+): Promise<QuoteResult> =>
+  (await bff('shipping/compare', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  }, 'Сравнението се провали')).json();
 export const getBatch = async (id: string): Promise<ImportBatch> =>
   (await bff(`import/batches/${id}`)).json();
 export const patchRow = async (batchId: string, rowId: string, patch: Partial<ImportRow>): Promise<ImportRow> =>

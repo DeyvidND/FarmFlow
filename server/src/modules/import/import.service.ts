@@ -34,9 +34,14 @@ export class ImportService {
     if (!raw.length) throw new BadRequestException('Файлът няма редове с данни');
     if (raw.length > MAX_ROWS) throw new BadRequestException(`Максимум ${MAX_ROWS} реда на файл (${raw.length} намерени)`);
 
+    // carrier/currency are optional on upload — the operator picks the cheapest courier
+    // per row later. 'econt' is a safe parse base (overridden per row); 'EUR' is the only
+    // supported currency now (the BGN selector was removed).
+    const carrier = settings.carrier ?? 'econt';
+    const currency = settings.currency ?? 'EUR';
     const defaults: BatchDefaults = {
-      carrier: settings.carrier,
-      currency: settings.currency,
+      carrier,
+      currency,
       weightGrams: settings.weightGrams,
       contents: settings.contents,
       codProcessingType: settings.codProcessingType,
@@ -54,8 +59,8 @@ export class ImportService {
       .values({
         tenantId,
         fileName: file.originalname,
-        carrierDefault: settings.carrier,
-        currency: settings.currency,
+        carrierDefault: carrier,
+        currency,
         status: 'validating',
         settings: defaults as unknown as Record<string, unknown>,
       })
@@ -274,8 +279,11 @@ export class ImportService {
     codProcessingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER',
   ): Promise<string> {
     const refs = (row.resolvedRefs as { siteId?: number; officeId?: number; streetId?: number } | null) ?? {};
-    const serviceId = batchServiceId;
-    if (!serviceId) throw new Error('Липсва Speedy serviceId за партидата');
+    // The import UI no longer asks for a serviceId; fall back to the tenant's saved Speedy
+    // "default service" from Настройки when the batch didn't carry one.
+    const cfg = batchServiceId == null ? await this.speedySvc.getConfig(tenantId) : null;
+    const serviceId = batchServiceId ?? (cfg?.defaultServiceId as number | undefined);
+    if (!serviceId) throw new Error('Задай услуга по подразбиране за Speedy в Настройки');
     const ship = await this.speedySvc.createManualShipment(tenantId, {
       receiverName: row.receiverName ?? '',
       receiverPhone: row.receiverPhone ?? '',
