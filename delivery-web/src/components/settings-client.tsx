@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Truck, Plug, CheckCircle2, XCircle } from 'lucide-react';
+import { Truck, Zap, Plug, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import {
   ApiError, getAccountStatus, getEcontConfig, getSpeedyConfig, saveEcontCredentials, saveSpeedyCredentials,
   type EcontConfig, type SpeedyConfig,
@@ -12,7 +12,7 @@ const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възни�
 
 const inp = 'h-11 w-full rounded-xl border border-ff-border bg-ff-surface px-3.5 text-[14px] outline-none focus:border-ff-green-500';
 const lbl = 'mb-1 block text-[12.5px] font-bold text-ff-muted';
-const card = 'rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm';
+const card = 'rounded-xl border border-ff-border border-t-[3px] border-t-ff-green-600 bg-ff-surface p-5 shadow-ff-sm';
 
 function StatusBadge({ configured }: { configured: boolean }) {
   return configured ? (
@@ -115,6 +115,18 @@ export function SettingsClient() {
         Свържи куриерските си акаунти. Активирането на услугата се управлява от администратор.
       </p>
 
+      {active === false && (
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#e7c9a0] bg-ff-amber-softer p-4">
+          <AlertTriangle size={20} className="mt-0.5 shrink-0 text-ff-amber-600" />
+          <div>
+            <div className="text-[14px] font-bold text-ff-ink">Услугата още не е активна</div>
+            <p className="mt-0.5 text-[13px] leading-snug text-ff-ink-2">
+              Свържи куриерските акаунти по-долу. Активирането се прави от администратор — щом услугата е активна, ще можеш да създаваш пратки и да ползваш проверка за COD риск.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* ---- Econt ---- */}
         <form onSubmit={saveEcont} className={card}>
@@ -135,6 +147,7 @@ export function SettingsClient() {
                 <option value="demo">Демо</option>
                 <option value="prod">Реална</option>
               </select>
+              <p className="mt-1 text-[11.5px] text-ff-muted">Демо = за тестове. Реална = създава истински товарителници.</p>
             </div>
             <div>
               <label className={lbl} htmlFor="econt-user">Потребител</label>
@@ -155,8 +168,8 @@ export function SettingsClient() {
         <form onSubmit={saveSpeedy} className={card}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-ff-green-50 text-ff-green-700">
-                <Truck size={19} />
+              <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-ff-amber-softer text-ff-amber-600">
+                <Zap size={19} />
               </div>
               <h2 className="font-display text-[18px] font-extrabold">Speedy</h2>
             </div>
@@ -170,6 +183,7 @@ export function SettingsClient() {
                 <option value="prod">Реална</option>
                 <option value="demo">Демо</option>
               </select>
+              <p className="mt-1 text-[11.5px] text-ff-muted">Демо = за тестове. Реална = създава истински товарителници.</p>
             </div>
             <div>
               <label className={lbl} htmlFor="speedy-user">Потребител</label>

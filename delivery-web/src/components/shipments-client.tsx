@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
-import { RefreshCw, FileDown, Package } from 'lucide-react';
+import { RefreshCw, FileDown, Package, Upload } from 'lucide-react';
 import {
   ApiError, listEcontShipments, listSpeedyShipments, refreshShipment, downloadLabel,
   type ShipmentRow, type ShipmentStatus, type Carrier,
@@ -83,10 +84,23 @@ export function ShipmentsClient() {
 
   const btn = 'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 text-[12.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-50';
 
+  const total = rows.length;
+  const by = (s: ShipmentStatus) => rows.filter((r) => r.status === s).length;
+  const summary = [
+    { label: 'Общо', n: total, cls: 'bg-ff-badge-bg text-ff-badge-ink' },
+    { label: 'Доставени', n: by('delivered'), cls: 'bg-ff-green-50 text-ff-green-700' },
+    { label: 'Изпратени', n: by('shipped'), cls: 'bg-ff-amber-softer text-ff-amber-600' },
+    { label: 'Създадени', n: by('created') + by('pending'), cls: 'bg-ff-amber-soft text-ff-amber-600' },
+    { label: 'Проблемни', n: by('returned') + by('refused'), cls: 'bg-[#FBE9E7] text-ff-red' },
+  ];
+
   return (
     <div className="animate-ff-fade-up">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Пратки</h1>
+        <div>
+          <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Пратки</h1>
+          <p className="mt-1 text-[13.5px] text-ff-muted">Всички създадени пратки от Econt и Speedy.</p>
+        </div>
         <button onClick={() => void load()} disabled={loading} className={btn + ' h-10 px-3'}>
           <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> <span className="max-sm:hidden">Опресни</span>
         </button>
@@ -96,12 +110,26 @@ export function ShipmentsClient() {
         <p className="mt-6 text-[14px] text-ff-muted">Зареждам…</p>
       ) : rows.length === 0 ? (
         <div className="mt-6 grid place-items-center rounded-xl border border-dashed border-ff-border bg-ff-surface py-14 text-center">
-          <Package size={28} className="text-ff-muted-2" />
+          <div className="grid h-14 w-14 place-items-center rounded-full bg-ff-green-50">
+            <Package size={28} className="text-ff-green-600" />
+          </div>
           <p className="mt-3 text-[15px] font-bold text-ff-ink-2">Няма пратки</p>
           <p className="mt-1 text-[13px] text-ff-muted">Създадените пратки ще се появят тук.</p>
+          <Link href="/import" className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-ff-green-700 px-4 text-[13.5px] font-bold text-white shadow-ff-sm hover:brightness-95">
+            <Upload size={16} /> Внеси пратки
+          </Link>
         </div>
       ) : (
         <>
+          {/* summary chips */}
+          <div className="mt-4 flex flex-wrap gap-2">
+            {summary.map((c) => (
+              <span key={c.label} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-bold ${c.cls}`}>
+                <span className="ff-fig">{c.n}</span> {c.label}
+              </span>
+            ))}
+          </div>
+
           {/* desktop table */}
           <div className="mt-4 overflow-x-auto rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:hidden">
             <table className="w-full border-collapse text-[13px]">

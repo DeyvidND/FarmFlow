@@ -71,6 +71,25 @@ export function CodRiskClient() {
       <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">COD риск</h1>
       <p className="mt-1 text-[13.5px] text-ff-muted">Провери телефон преди да пуснеш пратка с наложен платеж.</p>
 
+      {/* verdict legend — what each result means */}
+      <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
+        {([
+          [VERDICT.ok, 'Няма сигнали — безопасно за наложен платеж.'],
+          [VERDICT.caution, 'Има единичен сигнал — провери преди да пуснеш.'],
+          [VERDICT.high, 'Множество сигнали — препоръчва се предплащане.'],
+        ] as const).map(([v, desc]) => (
+          <div key={v.label} className={`flex items-start gap-2.5 rounded-xl border bg-ff-surface p-3 shadow-ff-sm ${v.cls.split(' ').find((c) => c.startsWith('border-')) ?? ''}`}>
+            <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${v.cls}`}>
+              <v.icon size={17} />
+            </div>
+            <div>
+              <div className="text-[13.5px] font-extrabold text-ff-ink">{v.label}</div>
+              <div className="mt-0.5 text-[11.5px] leading-snug text-ff-muted">{desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* phone check */}
       <div className="mt-4 rounded-xl border border-ff-border bg-ff-surface p-4 shadow-ff-sm">
         <form

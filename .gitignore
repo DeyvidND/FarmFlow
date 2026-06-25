@@ -151,3 +151,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Local Codex CLI scratch / ops notes — not part of the app
+.codex/
