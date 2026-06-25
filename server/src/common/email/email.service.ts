@@ -107,6 +107,14 @@ export class EmailService implements OnModuleInit {
         pool: true,
         maxConnections: 3,
         maxMessages: 100,
+        // Fail fast instead of nodemailer's 2-minute default. A pooled socket can
+        // go stale (Resend / firewall drops idle TCP between bursts); without these
+        // a reused dead connection hangs the worker slot for 2 min before the queue
+        // can retry. 10s connect/greeting, 20s socket → BullMQ retries quickly and
+        // the pool reopens a fresh connection on the next attempt.
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 20_000,
       });
       this.logger.log(`Email: SMTP transport → ${host}:${port}`);
     } else {
