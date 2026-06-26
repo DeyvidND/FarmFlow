@@ -919,14 +919,24 @@ In `orders.service.ts` `create()`, inside the `this.db.transaction(async (tx) =>
     const variantById = new Map(variantRows.map((v) => [v.id, v]));
 ```
 
-(b) Replace the existing product-validity loop with one that also validates the variant belongs to the product and that a variant is supplied when the product has variants:
+(b) Determine which ordered products have live variants (independent existence check — NOT derived from the chosen `variantRows`, since a line that omits its variantId wouldn't appear there), then replace the product-validity loop so it requires a selection for varianted products AND validates that a supplied variant belongs to the product:
 
 ```typescript
-    // Which products actually have live variants (so we can require a choice).
-    const productsWithVariants = new Set(variantRows.map((v) => v.productId));
+    const orderedIds = dto.items.map((i) => i.productId);
+    const productsWithVariants = new Set(
+      (
+        await tx
+          .select({ pid: productVariants.productId })
+          .from(productVariants)
+          .where(and(inArray(productVariants.productId, orderedIds), isNull(productVariants.deletedAt)))
+      ).map((r) => r.pid),
+    );
     for (const it of dto.items) {
       const p = byId.get(it.productId);
       if (!p || !p.isActive) throw new BadRequestException('Невалиден или неактивен продукт');
+      if (productsWithVariants.has(it.productId) && !it.variantId) {
+        throw new BadRequestException('Изберете вариант');
+      }
       if (it.variantId) {
         const v = variantById.get(it.variantId);
         if (!v || v.productId !== it.productId) throw new BadRequestException('Невалиден вариант');
