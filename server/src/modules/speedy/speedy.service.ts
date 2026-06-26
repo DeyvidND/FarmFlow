@@ -61,9 +61,9 @@ export class SpeedyService {
 
   private async loadStored(
     tenantId: string,
-  ): Promise<{ tenant: { id: string; slug: string; settings: Record<string, unknown> }; speedy: SpeedyStored }> {
+  ): Promise<{ tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored }> {
     const [row] = await this.db
-      .select({ id: tenants.id, slug: tenants.slug, settings: tenants.settings })
+      .select({ id: tenants.id, slug: tenants.slug, settings: tenants.settings, isDemo: tenants.isDemo })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
@@ -71,7 +71,7 @@ export class SpeedyService {
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
     const delivery = (settings.delivery as Record<string, unknown> | null) ?? {};
     const speedy = (delivery.speedy as SpeedyStored | null) ?? {};
-    return { tenant: { id: row.id, slug: row.slug, settings }, speedy };
+    return { tenant: { id: row.id, slug: row.slug, settings, isDemo: !!row.isDemo }, speedy };
   }
 
   private async resolveCreds(tenantId: string): Promise<SpeedyCreds> {
@@ -101,9 +101,10 @@ export class SpeedyService {
     );
 
     const { tenant, speedy } = await this.loadStored(tenantId);
+    // Env is account-derived (demo flag), never operator-chosen — mirrors Econt.
     const nextSpeedy: SpeedyStored = {
       ...speedy,
-      env: input.env ?? 'prod',
+      env: tenant.isDemo ? 'demo' : 'prod',
       userName: input.userName,
       passwordEnc: encryptSecret(input.password, this.encKey),
       ...(input.clientSystemId != null ? { clientSystemId: input.clientSystemId } : {}),
@@ -120,9 +121,9 @@ export class SpeedyService {
   }
 
   async getConfig(tenantId: string): Promise<Record<string, unknown>> {
-    const { speedy } = await this.loadStored(tenantId);
+    const { tenant, speedy } = await this.loadStored(tenantId);
     const { passwordEnc: _pw, ...safe } = speedy;
-    return { ...safe, configured: !!speedy.configured };
+    return { ...safe, configured: !!speedy.configured, isDemo: tenant.isDemo, env: tenant.isDemo ? 'demo' : 'prod' };
   }
 
   /* ------------------------------- location -------------------------------- */

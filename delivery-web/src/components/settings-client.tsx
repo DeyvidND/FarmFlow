@@ -26,13 +26,33 @@ function StatusBadge({ configured }: { configured: boolean }) {
   );
 }
 
+/** Read-only environment line. The environment is set by the administrator (a demo
+ *  account uses the demo environment), so the operator only sees it — never picks it. */
+function EnvRow({ isDemo }: { isDemo: boolean | null }) {
+  if (isDemo === null) return null;
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface-2 px-3.5 py-2.5">
+      <span className="text-[12.5px] font-bold text-ff-muted">Среда:</span>
+      {isDemo ? (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-ff-amber-softer px-2.5 py-0.5 text-[12px] font-bold text-ff-amber-600">Демо (тестова)</span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-ff-green-50 px-2.5 py-0.5 text-[12px] font-bold text-ff-green-700">Реална</span>
+      )}
+      <span className="ml-auto text-[11px] text-ff-muted">Управлява се от администратор</span>
+    </div>
+  );
+}
+
 export function SettingsClient() {
   const [econt, setEcont] = useState<EcontConfig | null>(null);
   const [speedy, setSpeedy] = useState<SpeedyConfig | null>(null);
   const [active, setActive] = useState<boolean | null>(null);
+  // Account-level demo flag (set by super-admin) — same for both carriers. The
+  // operator can't change the environment; we only show it.
+  const [isDemo, setIsDemo] = useState<boolean | null>(null);
 
-  const [econtForm, setEcontForm] = useState({ env: 'demo', username: '', password: '' });
-  const [speedyForm, setSpeedyForm] = useState({ env: 'prod', userName: '', password: '', clientSystemId: '', defaultServiceId: '' });
+  const [econtForm, setEcontForm] = useState({ username: '', password: '' });
+  const [speedyForm, setSpeedyForm] = useState({ userName: '', password: '', clientSystemId: '', defaultServiceId: '' });
 
   const [savingE, setSavingE] = useState(false);
   const [savingS, setSavingS] = useState(false);
@@ -44,15 +64,16 @@ export function SettingsClient() {
     getEcontConfig()
       .then((c) => {
         setEcont(c);
-        setEcontForm((f) => ({ ...f, env: c.env ?? 'demo', username: c.username ?? '' }));
+        if (typeof c.isDemo === 'boolean') setIsDemo(c.isDemo);
+        setEcontForm((f) => ({ ...f, username: c.username ?? '' }));
       })
       .catch((e) => toast.error(`Econt: ${errMsg(e)}`));
     getSpeedyConfig()
       .then((c) => {
         setSpeedy(c);
+        if (typeof c.isDemo === 'boolean') setIsDemo(c.isDemo);
         setSpeedyForm((f) => ({
           ...f,
-          env: c.env ?? 'prod',
           userName: c.userName ?? '',
           clientSystemId: c.clientSystemId != null ? String(c.clientSystemId) : '',
           defaultServiceId: c.defaultServiceId != null ? String(c.defaultServiceId) : '',
@@ -66,7 +87,6 @@ export function SettingsClient() {
     setSavingE(true);
     try {
       await saveEcontCredentials({
-        env: econtForm.env as 'demo' | 'prod',
         username: econtForm.username.trim(),
         password: econtForm.password,
       });
@@ -81,7 +101,6 @@ export function SettingsClient() {
     setSavingS(true);
     try {
       await saveSpeedyCredentials({
-        env: speedyForm.env as 'demo' | 'prod',
         userName: speedyForm.userName.trim(),
         password: speedyForm.password,
         ...(speedyForm.clientSystemId.trim() ? { clientSystemId: Number(speedyForm.clientSystemId) } : {}),
@@ -121,7 +140,7 @@ export function SettingsClient() {
           <div>
             <div className="text-[14px] font-bold text-ff-ink">Услугата още не е активна</div>
             <p className="mt-0.5 text-[13px] leading-snug text-ff-ink-2">
-              Свържи куриерските акаунти по-долу. Активирането се прави от администратор — щом услугата е активна, ще можеш да създаваш пратки и да ползваш проверка за COD риск.
+              Свържи куриерските акаунти по-долу. Активирането се прави от администратор — щом услугата е активна, ще можеш да създаваш пратки и да ползваш проверка на клиент.
             </p>
           </div>
         </div>
@@ -141,14 +160,7 @@ export function SettingsClient() {
           </div>
 
           <div className="mt-4 space-y-3">
-            <div>
-              <label className={lbl} htmlFor="econt-env">Среда</label>
-              <select id="econt-env" className={inp} value={econtForm.env} onChange={(e) => setEcontForm({ ...econtForm, env: e.target.value })}>
-                <option value="demo">Демо</option>
-                <option value="prod">Реална</option>
-              </select>
-              <p className="mt-1 text-[11.5px] text-ff-muted">Демо = за тестове. Реална = създава истински товарителници.</p>
-            </div>
+            <EnvRow isDemo={isDemo} />
             <div>
               <label className={lbl} htmlFor="econt-user">Потребител</label>
               <input id="econt-user" className={inp} autoComplete="off" value={econtForm.username} onChange={(e) => setEcontForm({ ...econtForm, username: e.target.value })} />
@@ -177,14 +189,7 @@ export function SettingsClient() {
           </div>
 
           <div className="mt-4 space-y-3">
-            <div>
-              <label className={lbl} htmlFor="speedy-env">Среда</label>
-              <select id="speedy-env" className={inp} value={speedyForm.env} onChange={(e) => setSpeedyForm({ ...speedyForm, env: e.target.value })}>
-                <option value="prod">Реална</option>
-                <option value="demo">Демо</option>
-              </select>
-              <p className="mt-1 text-[11.5px] text-ff-muted">Демо = за тестове. Реална = създава истински товарителници.</p>
-            </div>
+            <EnvRow isDemo={isDemo} />
             <div>
               <label className={lbl} htmlFor="speedy-user">Потребител</label>
               <input id="speedy-user" className={inp} autoComplete="off" value={speedyForm.userName} onChange={(e) => setSpeedyForm({ ...speedyForm, userName: e.target.value })} />

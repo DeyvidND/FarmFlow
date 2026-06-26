@@ -7,7 +7,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   reactStrictMode: true,
   output: process.env.NEXT_OUTPUT_STANDALONE === '1' ? 'standalone' : undefined,
-  outputFileTracingRoot: join(__dirname, '..'),
+  experimental: {
+    outputFileTracingRoot: join(__dirname, '..'),
+  },
   async headers() {
     return [
       {

@@ -139,7 +139,7 @@ const TOC = [
   { href: '#econt', label: 'Econt акаунт' },
   { href: '#speedy', label: 'Speedy акаунт' },
   { href: '#import', label: 'Внос на пратки' },
-  { href: '#cod', label: 'COD риск' },
+  { href: '#cod', label: 'Проверка на клиент' },
   { href: '#faq', label: 'Въпроси' },
 ];
 
@@ -170,7 +170,7 @@ export function HelpClient() {
               { icon: SettingsIcon, t: 'Настройки', d: 'Свържи Econt и/или Speedy акаунт. Прави се веднъж.' },
               { icon: FileSpreadsheet, t: 'Внос', d: 'Качваш Excel/CSV, поправяш редовете, избираш най-евтиния куриер и създаваш пратките.' },
               { icon: Truck, t: 'Пратки', d: 'Всички създадени пратки, статуси и сваляне на етикети.' },
-              { icon: ShieldAlert, t: 'COD риск', d: 'Проверка на телефон преди наложен платеж + докладване на проблемни клиенти.' },
+              { icon: ShieldAlert, t: 'Проверка на клиент', d: 'Проверка на телефон преди наложен платеж + докладване на проблемни клиенти.' },
             ].map((x) => (
               <div key={x.t} className="flex items-start gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
                 <x.icon size={18} className="mt-0.5 shrink-0 text-ff-green-700" />
@@ -258,7 +258,7 @@ export function HelpClient() {
         </Section>
 
         {/* ---------------------------------------------------------------- */}
-        <Section id="cod" icon={ShieldAlert} tone="bg-ff-amber-softer text-ff-amber-600" title="COD риск (наложен платеж)"
+        <Section id="cod" icon={ShieldAlert} tone="bg-ff-amber-softer text-ff-amber-600" title="Проверка на клиент (наложен платеж)"
           intro="Преди да пуснеш пратка с наложен платеж, провери телефона на клиента.">
           <div className="grid gap-2.5 sm:grid-cols-3">
             {[

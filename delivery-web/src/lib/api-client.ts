@@ -229,6 +229,8 @@ export const riskReport = async (shipmentId: string): Promise<{ reported: true }
 export interface EcontConfig {
   configured?: boolean;
   env?: 'demo' | 'prod';
+  /** Account-derived (super-admin demo flag); the operator can't change it. */
+  isDemo?: boolean;
   username?: string;
   [k: string]: unknown;
 }
@@ -236,6 +238,8 @@ export interface EcontConfig {
 export interface SpeedyConfig {
   configured?: boolean;
   env?: 'demo' | 'prod';
+  /** Account-derived (super-admin demo flag); the operator can't change it. */
+  isDemo?: boolean;
   userName?: string;
   clientSystemId?: number;
   defaultServiceId?: number;

@@ -156,9 +156,9 @@ export class EcontService {
 
   /* ------------------------------ credentials ------------------------------ */
 
-  private async loadStored(tenantId: string): Promise<{ tenant: { id: string; slug: string; settings: Record<string, unknown> }; econt: EcontStored }> {
+  private async loadStored(tenantId: string): Promise<{ tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored }> {
     const [row] = await this.db
-      .select({ id: tenants.id, slug: tenants.slug, settings: tenants.settings })
+      .select({ id: tenants.id, slug: tenants.slug, settings: tenants.settings, isDemo: tenants.isDemo })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
@@ -166,7 +166,7 @@ export class EcontService {
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
     const delivery = (settings.delivery as Record<string, unknown> | null) ?? {};
     const econt = (delivery.econt as EcontStored | null) ?? {};
-    return { tenant: { id: row.id, slug: row.slug, settings }, econt };
+    return { tenant: { id: row.id, slug: row.slug, settings, isDemo: !!row.isDemo }, econt };
   }
 
   /** Validate creds against Econt (getCities), then store username + encrypted password. */
@@ -177,7 +177,12 @@ export class EcontService {
     if (!this.encKey) {
       throw new BadRequestException('ENCRYPTION_KEY не е конфигуриран — Econt не може да се запази');
     }
-    const env = input.env ?? 'demo';
+    // Environment is NOT operator-chosen: it's derived from the account's demo
+    // flag (set by super-admin). Demo accounts hit Econt's demo API and never
+    // create real waybills; real accounts always hit prod. This makes it
+    // impossible to accidentally print a real label from a test account.
+    const { tenant, econt } = await this.loadStored(tenantId);
+    const env: 'demo' | 'prod' = tenant.isDemo ? 'demo' : 'prod';
     const base = env === 'prod' ? PROD_BASE : DEMO_BASE;
 
     // Live validation: a bad username/password makes getCities fail.
@@ -185,7 +190,6 @@ export class EcontService {
       countryCode: COUNTRY,
     });
 
-    const { tenant, econt } = await this.loadStored(tenantId);
     const nextEcont: EcontStored = {
       ...econt,
       env,
@@ -212,11 +216,12 @@ export class EcontService {
     return { configured: true, env };
   }
 
-  /** Public-safe config view (no secrets). */
+  /** Public-safe config view (no secrets). `env`/`isDemo` are account-derived so
+   *  the operator panel can show a read-only environment badge (no env picker). */
   async getConfig(tenantId: string): Promise<Record<string, unknown>> {
-    const { econt } = await this.loadStored(tenantId);
+    const { tenant, econt } = await this.loadStored(tenantId);
     const { passwordEnc: _pw, ...safe } = econt;
-    return { ...safe, configured: !!econt.configured };
+    return { ...safe, configured: !!econt.configured, isDemo: tenant.isDemo, env: tenant.isDemo ? 'demo' : 'prod' };
   }
 
   private async resolveCreds(tenantId: string): Promise<ResolvedCreds> {

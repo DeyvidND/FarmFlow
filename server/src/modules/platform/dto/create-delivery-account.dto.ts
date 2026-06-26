@@ -23,4 +23,9 @@ export class CreateDeliveryAccountDto {
   // Whether the delivery service starts enabled (paid gate). Defaults true.
   @IsOptional() @IsBoolean()
   active?: boolean;
+
+  // Demo account: marks the tenant isDemo, which forces the carriers (Econt +
+  // Speedy) onto their demo environments — no real waybills. Defaults false.
+  @IsOptional() @IsBoolean()
+  demo?: boolean;
 }

@@ -4,11 +4,12 @@ import { Toaster } from 'sonner';
 import { Truck, LogOut, Upload, Package, ShieldAlert, Settings, HelpCircle } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { CarrierOnboarding } from './carrier-onboarding';
 
 const NAV = [
   { href: '/import', label: 'Внос', icon: Upload },
   { href: '/shipments', label: 'Пратки', icon: Package },
-  { href: '/cod-risk', label: 'COD риск', icon: ShieldAlert },
+  { href: '/cod-risk', label: 'Проверка на клиент', icon: ShieldAlert },
   { href: '/settings', label: 'Настройки', icon: Settings },
   { href: '/help', label: 'Помощ', icon: HelpCircle },
 ] as const;
@@ -64,6 +65,8 @@ export function PanelChrome({ children }: { children: React.ReactNode }) {
           </button>
         </nav>
       </header>
+
+      <CarrierOnboarding />
 
       <main className="mx-auto max-w-[1100px] px-8 py-8 max-sm:px-4">{children}</main>
 

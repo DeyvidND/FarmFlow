@@ -68,8 +68,8 @@ export function CodRiskClient() {
 
   return (
     <div className="animate-ff-fade-up">
-      <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">COD риск</h1>
-      <p className="mt-1 text-[13.5px] text-ff-muted">Провери телефон преди да пуснеш пратка с наложен платеж.</p>
+      <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Проверка на клиент</h1>
+      <p className="mt-1 text-[13.5px] text-ff-muted">Провери телефона на клиента преди да пуснеш пратка с наложен платеж.</p>
 
       {/* verdict legend — what each result means */}
       <div className="mt-4 grid gap-2.5 sm:grid-cols-3">

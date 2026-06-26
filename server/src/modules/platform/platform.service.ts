@@ -69,6 +69,7 @@ export interface DeliveryAccountRow {
   phone: string | null;
   type: 'delivery' | 'farm' | 'both';
   active: boolean;
+  isDemo: boolean;
   createdAt: Date | null;
   overview: DeliveryOverview;
 }
@@ -545,6 +546,7 @@ export class PlatformService {
         email: tenants.email,
         phone: tenants.phone,
         settings: tenants.settings,
+        isDemo: tenants.isDemo,
         createdAt: tenants.createdAt,
       })
       .from(tenants)
@@ -588,6 +590,7 @@ export class PlatformService {
         phone: r.phone,
         type: caps.type,
         active: caps.active,
+        isDemo: !!r.isDemo,
         createdAt: r.createdAt,
         overview: buildDeliveryOverview(byTenant.get(r.id) ?? []),
       };
@@ -607,6 +610,7 @@ export class PlatformService {
         email: tenants.email,
         phone: tenants.phone,
         settings: tenants.settings,
+        isDemo: tenants.isDemo,
         createdAt: tenants.createdAt,
       })
       .from(tenants)
@@ -643,6 +647,7 @@ export class PlatformService {
       phone: t.phone,
       type: caps.type,
       active: caps.active,
+      isDemo: !!t.isDemo,
       createdAt: t.createdAt,
       overview: buildDeliveryOverview(ship),
       recentShipments,
@@ -738,6 +743,9 @@ export class PlatformService {
           email,
           subscriptionStatus: 'active',
           subscriptionSince: new Date(),
+          // Demo account → carriers run on their demo environments (derived from
+          // this flag in econt/speedy services), never creating real waybills.
+          isDemo: dto.demo === true,
           // Storefront delivery toggle only matters for shop accounts.
           deliveryEnabled: dto.shop,
           settings,

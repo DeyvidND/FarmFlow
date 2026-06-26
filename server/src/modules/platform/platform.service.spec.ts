@@ -634,6 +634,18 @@ describe('PlatformService', () => {
       expect(v.deliveryEnabled).toBe(true);
     });
 
+    it('marks the tenant isDemo when demo=true (carriers run on demo env)', async () => {
+      await service.createDeliveryAccount({ email: 'demo@x.bg', name: 'Демо', shop: false, delivery: true, demo: true });
+      const v = db.values.mock.calls[0][0];
+      expect(v.isDemo).toBe(true);
+    });
+
+    it('defaults isDemo=false for a real account', async () => {
+      await service.createDeliveryAccount({ email: 'real@x.bg', name: 'Реал', shop: false, delivery: true });
+      const v = db.values.mock.calls[0][0];
+      expect(v.isDemo).toBe(false);
+    });
+
     it('creates a password-less admin user (mustChangePassword=true) — no password set', async () => {
       await service.createDeliveryAccount({ email: 's@x.bg', name: 'Само', shop: true, delivery: false });
       // values() call 1 = tenant, call 2 = user

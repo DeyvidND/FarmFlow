@@ -305,6 +305,7 @@ export interface DeliveryAccount {
   phone: string | null;
   type: 'delivery' | 'farm' | 'both';
   active: boolean;
+  isDemo: boolean;
   createdAt: string | null;
   overview: DeliveryOverview;
 }
@@ -343,6 +344,7 @@ export const createDeliveryAccount = (data: {
   shop: boolean;
   delivery: boolean;
   active: boolean;
+  demo?: boolean;
 }) =>
   apiFetch<{ id: string; name: string; slug: string; email: string; inviteLink: string }>(
     'platform/delivery/accounts',

@@ -45,7 +45,7 @@ function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean
   );
 }
 
-function TypeBadges({ type }: { type: DeliveryAccount['type'] }) {
+function TypeBadges({ type, isDemo }: { type: DeliveryAccount['type']; isDemo?: boolean }) {
   const shop = type === 'farm' || type === 'both';
   const delivery = type === 'delivery' || type === 'both';
   return (
@@ -58,6 +58,11 @@ function TypeBadges({ type }: { type: DeliveryAccount['type'] }) {
       {delivery && (
         <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[12px] font-bold text-[#3457B1]">
           <Truck size={12} /> Доставка
+        </span>
+      )}
+      {isDemo && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-ff-amber-softer px-2 py-0.5 text-[12px] font-bold text-ff-amber-600">
+          Демо
         </span>
       )}
     </span>
@@ -295,6 +300,7 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [shop, setShop] = useState(false);
   const [delivery, setDelivery] = useState(true);
   const [active, setActive] = useState(true);
+  const [demo, setDemo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [created, setCreated] = useState<{ name: string; email: string; inviteLink: string } | null>(null);
@@ -305,11 +311,11 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
     if (!shop && !delivery) { setErr('Изберете поне една роля.'); return; }
     setErr(''); setBusy(true);
     try {
-      const res = await createDeliveryAccount({ name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, shop, delivery, active });
+      const res = await createDeliveryAccount({ name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, shop, delivery, active, demo });
       onCreated({
         id: res.id, name: res.name, slug: res.slug, email: res.email, phone: phone.trim() || null,
         type: shop && delivery ? 'both' : delivery ? 'delivery' : 'farm',
-        active, createdAt: new Date().toISOString(),
+        active, isDemo: demo, createdAt: new Date().toISOString(),
         overview: { total: 0, codPendingStotinki: 0, codCollectedStotinki: 0, econt: 0, speedy: 0, lastShipmentAt: null },
       });
       setCreated({ name: res.name, email: res.email, inviteLink: res.inviteLink });
@@ -342,6 +348,13 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
                 <label className="inline-flex items-center gap-2 text-[13.5px] font-semibold"><input type="checkbox" checked={delivery} onChange={(e) => setDelivery(e.target.checked)} /> Доставка</label>
                 <label className="inline-flex items-center gap-2 text-[13.5px] font-semibold"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Активен</label>
               </div>
+              <label className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 ${demo ? 'border-ff-amber-600 bg-ff-amber-softer' : 'border-ff-border bg-ff-surface-2'}`}>
+                <input type="checkbox" checked={demo} onChange={(e) => setDemo(e.target.checked)} className="mt-0.5" />
+                <span>
+                  <span className="text-[13.5px] font-bold text-ff-ink">Демо акаунт</span>
+                  <span className="mt-0.5 block text-[12px] leading-snug text-ff-muted">Econt и Speedy ще работят в демо среда — създава тестови товарителници, не истински. Остави празно за реален акаунт.</span>
+                </span>
+              </label>
               {err && <p className="text-[13px] text-ff-red">{err}</p>}
               <div className="mt-1 flex justify-end gap-2.5">
                 <button type="button" onClick={onClose} className="rounded-xl border border-ff-border bg-ff-surface px-4 py-2.5 text-[13.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2">Откажи</button>
@@ -451,7 +464,7 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
                   <div className="text-[14.5px] font-bold text-ff-ink">{a.name}</div>
                   <div className="text-xs text-ff-muted-2">{a.email ?? '—'} · /{a.slug}</div>
                 </td>
-                <td className="px-5 py-3.5"><TypeBadges type={a.type} /></td>
+                <td className="px-5 py-3.5"><TypeBadges type={a.type} isDemo={a.isDemo} /></td>
                 <td className="ff-fig px-5 py-3.5 text-[14px] font-bold">
                   {a.overview.total}
                   <span className="ml-1 text-[11.5px] font-normal text-ff-muted">({a.overview.econt}E·{a.overview.speedy}S)</span>
@@ -489,7 +502,7 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
                 <div className="min-w-0">
                   <div className="text-[15.5px] font-extrabold text-ff-ink">{a.name}</div>
                   <div className="text-[12.5px] text-ff-muted">{a.email ?? '—'}</div>
-                  <div className="mt-1"><TypeBadges type={a.type} /></div>
+                  <div className="mt-1"><TypeBadges type={a.type} isDemo={a.isDemo} /></div>
                 </div>
                 <div className="flex flex-col items-end gap-2" onClick={(e) => e.stopPropagation()}>
                   <Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} />
