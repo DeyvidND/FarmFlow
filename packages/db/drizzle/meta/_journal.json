@@ -428,6 +428,13 @@
       "when": 1782400000000,
       "tag": "0060_host_images_on_cdn",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1782463200000,
+      "tag": "0061_nekorekten_durable_cache",
+      "breakpoints": true
     }
   ]
 }

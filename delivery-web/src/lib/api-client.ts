@@ -214,8 +214,27 @@ export interface RiskCandidate {
   codAmountStotinki: number | null;
 }
 
-export const riskCheck = async (phone: string): Promise<RiskCheckResult> =>
-  (await bff(`shipping/risk/check?phone=${encodeURIComponent(phone)}`, undefined, 'Проверката се провали')).json();
+export const riskCheck = async (phone: string, opts?: { refresh?: boolean }): Promise<RiskCheckResult> => {
+  const url = `shipping/risk/check?phone=${encodeURIComponent(phone)}${opts?.refresh ? '&refresh=1' : ''}`;
+  return (await bff(url, undefined, 'Проверката се провали')).json();
+};
+
+/** One entry per unique normalized phone returned by the bulk check endpoint. */
+export interface RiskBulkEntry {
+  phone: string;
+  normalized: string;
+  verdict: 'ok' | 'caution' | 'high';
+  strikes: number;
+  nekorektenCount: number;
+  cached: boolean;
+}
+
+export const riskCheckBulk = async (phones: string[]): Promise<RiskBulkEntry[]> =>
+  (await bff('shipping/risk/check-bulk', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phones }),
+  }, 'Масовата проверка се провали')).json();
 
 export const riskCandidates = async (): Promise<RiskCandidate[]> =>
   (await bff('shipping/risk/candidates')).json();

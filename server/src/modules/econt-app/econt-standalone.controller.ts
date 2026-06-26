@@ -7,6 +7,7 @@ import { type Database, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EcontService } from '../econt/econt.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
+import { BulkCheckPhonesDto } from '../cod-risk/dto/bulk-check-phones.dto';
 import { isEcontAccountActive } from './econt-app.helpers';
 import { EcontCredentialsDto } from '../econt/dto/econt-credentials.dto';
 import { ManualShipmentDto } from '../econt/dto/manual-shipment.dto';
@@ -122,8 +123,15 @@ export class EcontStandaloneController {
   @UseGuards(ActivationGuard)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get('risk/check')
-  riskCheck(@Query('phone') phone: string) {
-    return this.risk.check(phone);
+  riskCheck(@Query('phone') phone: string, @Query('refresh') refresh?: string) {
+    return this.risk.check(phone, { forceRefresh: refresh === '1' || refresh === 'true' });
+  }
+  // Bulk phone check for the import flow — one call per unique unknown phone (adaptive TTL).
+  @UseGuards(ActivationGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('risk/check-bulk')
+  riskCheckBulk(@CurrentTenant() t: string, @Body() dto: BulkCheckPhonesDto) {
+    return this.risk.checkBulk(t, dto.phones);
   }
   @Get('risk/candidates')
   riskCandidates(@CurrentTenant() t: string) {

@@ -2,14 +2,26 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles } from 'lucide-react';
+import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2 } from 'lucide-react';
 import {
-  ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment,
-  type ImportRow, type QuoteResult,
+  ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment, riskCheckBulk,
+  type ImportRow, type QuoteResult, type RiskBulkEntry,
 } from '@/lib/api-client';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 const priceEur = (st: number | null | undefined) => (st == null ? '—' : `${(st / 100).toFixed(2)} €`);
+
+/** Strip all non-digit characters and return the last 9 digits (Bulgarian mobile suffix). */
+function last9digits(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  return digits.slice(-9);
+}
+
+const RISK_VERDICT = {
+  ok: { label: 'Чисто', icon: ShieldCheck, cls: 'bg-ff-green-50 text-ff-green-700 border-ff-green-500' },
+  caution: { label: 'Внимание', icon: ShieldAlert, cls: 'bg-ff-amber-softer text-ff-amber-600 border-ff-amber-600' },
+  high: { label: 'Висок риск', icon: ShieldX, cls: 'bg-[#FBE9E7] text-ff-red border-ff-red' },
+} as const;
 
 const STEPS = [
   { icon: Download, title: 'Свали шаблона', desc: 'Готов Excel/CSV с правилните колони.' },
@@ -28,6 +40,10 @@ export function ImportClient() {
   const [quotes, setQuotes] = useState<Record<string, QuoteResult>>({});
   const [comparing, setComparing] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  // Risk check state: map of last-9-digits → bulk entry, plus loading flag and summary.
+  const [riskMap, setRiskMap] = useState<Record<string, RiskBulkEntry>>({});
+  const [checkingRisk, setCheckingRisk] = useState(false);
+  const [riskSummary, setRiskSummary] = useState<{ high: number; checked: number } | null>(null);
 
   const count = (s: string) => rows.filter((r) => r.validationStatus === s).length;
 
@@ -105,6 +121,30 @@ export function ImportClient() {
     } finally { setComparing(false); }
   }
 
+  async function checkAllRisk() {
+    const phones = rows.map((r) => r.receiverPhone).filter((p): p is string => !!p?.trim());
+    if (!phones.length) { toast.error('Няма телефонни номера за проверка.'); return; }
+    setCheckingRisk(true);
+    try {
+      const results = await riskCheckBulk(phones);
+      // Build a lookup keyed by the last 9 digits of the normalized phone.
+      const map: Record<string, RiskBulkEntry> = {};
+      for (const entry of results) {
+        const key = last9digits(entry.normalized || entry.phone);
+        if (key) map[key] = entry;
+      }
+      setRiskMap(map);
+      const highCount = results.filter((e) => e.verdict === 'high').length;
+      setRiskSummary({ high: highCount, checked: results.length });
+      toast.success(`Проверени ${results.length} номера${highCount ? ` · ${highCount} с висок риск` : ''}`);
+    } catch (e) {
+      const msg = e instanceof ApiError && e.status === 403
+        ? 'Активирай услугата, за да ползваш проверка за риск'
+        : errMsg(e);
+      toast.error(msg);
+    } finally { setCheckingRisk(false); }
+  }
+
   async function commit() {
     if (!batchId) return;
     setBusy(true);
@@ -149,6 +189,19 @@ export function ImportClient() {
         <span className={r.carrier === 'econt' ? 'font-extrabold text-ff-green-700' : 'text-ff-muted'}>Еконт {priceEur(carrierPrice(q, 'econt'))}</span>
         <span className={r.carrier === 'speedy' ? 'font-extrabold text-ff-green-700' : 'text-ff-muted'}>Спиди {priceEur(carrierPrice(q, 'speedy'))}</span>
       </div>
+    );
+  };
+
+  // Risk badge shown per row after bulk check has run.
+  const RiskBadge = ({ r }: { r: ImportRow }) => {
+    const key = r.receiverPhone ? last9digits(r.receiverPhone) : '';
+    const entry = key ? riskMap[key] : undefined;
+    if (!entry) return null;
+    const v = RISK_VERDICT[entry.verdict];
+    return (
+      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${v.cls}`}>
+        <v.icon size={11} /> {v.label}
+      </span>
     );
   };
 
@@ -220,11 +273,36 @@ export function ImportClient() {
           </div>
           <p className="mt-2 text-[12px] text-ff-muted">„Сравни куриери" пита Еконт и Спиди за цена на всеки ред и слага по-евтиния — после може ръчно да смениш куриера в колоната.</p>
 
+          {/* Nekorekten bulk risk check bar */}
+          <div className="mt-2 flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => void checkAllRisk()}
+              disabled={checkingRisk || busy}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-ff-amber-600 bg-ff-amber-softer px-3.5 text-[13px] font-bold text-ff-amber-600 hover:bg-ff-amber-100 disabled:opacity-60"
+            >
+              {checkingRisk ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+              {checkingRisk ? 'Проверявам…' : 'Провери всички в Nekorekten'}
+            </button>
+            <a
+              href="https://nekorekten.com/bg/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[12.5px] text-ff-muted hover:text-ff-ink-2 hover:underline"
+            >
+              или провери ръчно на nekorekten.com/bg ↗
+            </a>
+            {riskSummary && (
+              <span className={`ml-auto text-[12.5px] font-bold ${riskSummary.high > 0 ? 'text-ff-red' : 'text-ff-green-700'}`}>
+                {riskSummary.high} високорискови от {riskSummary.checked} проверени
+              </span>
+            )}
+          </div>
+
           {/* desktop table */}
           <div className="mt-3 overflow-x-auto rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:hidden">
             <table className="w-full border-collapse text-[13px]">
               <thead><tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-                {['#', 'Получател', 'Телефон', 'Реж.', 'Град', 'Офис/Адрес', 'Тегло(г)', 'НП(ст.)', 'Цена', 'Куриер', 'Проблеми', ''].map((h) => (
+                {['#', 'Получател', 'Телефон', 'Реж.', 'Град', 'Офис/Адрес', 'Тегло(г)', 'НП(ст.)', 'Цена', 'Куриер', 'Риск', 'Проблеми', ''].map((h) => (
                   <th key={h} className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.03em] text-ff-muted">{h}</th>
                 ))}
               </tr></thead>
@@ -245,6 +323,7 @@ export function ImportClient() {
                     <td className="px-3 py-2"><input className={inp} type="number" value={r.codAmountStotinki ?? ''} onChange={(e) => patch(r, 'codAmountStotinki', e.target.value === '' ? null : Number(e.target.value))} onBlur={() => save(r)} /></td>
                     <td className="px-3 py-2"><PriceCell r={r} /></td>
                     <td className="px-3 py-2"><select className={inp} value={r.carrier} onChange={(e) => { patch(r, 'carrier', e.target.value); }} onBlur={() => save(r)}><option value="econt">Econt</option><option value="speedy">Speedy</option></select></td>
+                    <td className="px-3 py-2"><RiskBadge r={r} /></td>
                     <td className="px-3 py-2 text-[12px] text-ff-muted">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</td>
                     <td className="px-3 py-2"><button onClick={() => del(r)} className="rounded-lg border border-[#e0a0a0] px-2 py-1 text-[12px] font-bold text-ff-red hover:bg-[#FBE9E7]">✕</button></td>
                   </tr>
@@ -284,6 +363,7 @@ export function ImportClient() {
                   </div>
                 )}
                 {(r.validation?.issues ?? []).length > 0 && <p className="text-[12px] text-ff-red">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</p>}
+                <RiskBadge r={r} />
                 <button onClick={() => del(r)} className="mt-1 w-full rounded-lg border border-[#e0a0a0] py-2 text-[12.5px] font-bold text-ff-red hover:bg-[#FBE9E7]">✕ Изтрий</button>
               </div>
             ))}

@@ -184,6 +184,12 @@ export const products = pgTable(
     // the "★ Най-популярен" ribbon. NULL/false for regular products.
     bundleItems: jsonb('bundle_items').$type<string[]>(),
     compareAtPriceStotinki: integer('compare_at_price_stotinki'),
+    // Promotion: a percentage discount (1..99) applied proportionally to the base
+    // price AND every variant. saleEndsAt NULL = until the farmer removes it; a
+    // timestamp = auto-expires (pricing logic ignores it once past; a daily cron
+    // nulls both columns for admin tidiness). Both NULL = no promo.
+    salePercent: integer('sale_percent'),
+    saleEndsAt: timestamp('sale_ends_at'),
     featured: boolean('featured').notNull().default(false),
     // Farmer-controlled storefront display order. A single global position per
     // tenant; per-category sections sort by the same field, filtered. Backfilled
@@ -344,6 +350,11 @@ export const orderItems = pgTable(
     productName: text('product_name'),
     quantity: integer('quantity').notNull(),
     priceStotinki: integer('price_stotinki').notNull(),
+    // Variant snapshot (NULL for products sold without variants). variantLabel is
+    // captured at purchase time like productName, so order history survives a later
+    // variant rename/removal. priceStotinki already stores the unit price paid.
+    variantId: uuid('variant_id').references(() => productVariants.id),
+    variantLabel: text('variant_label'),
   },
   // Production prep-list join + per-order item batch load.
   (t) => ({
@@ -481,6 +492,11 @@ export const codRisk = pgTable('cod_risk', {
   lastEventAt: timestamp('last_event_at', { withTimezone: true }),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
+  // Durable Nekorekten snapshot (replaces Redis cache). NULL nk_checked_at = never checked.
+  nkFound: boolean('nk_found'),
+  nkCount: integer('nk_count'),
+  nkReports: jsonb('nk_reports'), // raw NekorektenReport[]
+  nkCheckedAt: timestamp('nk_checked_at', { withTimezone: true }),
 });
 
 // Append-only provenance for each strike / report (who saw it, on which shipment).
