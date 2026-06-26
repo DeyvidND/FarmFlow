@@ -265,6 +265,13 @@ export interface PublicOrderSummary {
   createdAt: string | null;
 }
 
+/** A product with live variants must be ordered through a variant: a line that
+ *  omits `variantId` for such a product would charge the synced base price and
+ *  decrement no variant stock (undercharge + stock bypass). True = reject. */
+export function requiresVariantSelection(productHasVariants: boolean, variantId?: string): boolean {
+  return productHasVariants && !variantId;
+}
+
 /** Resolve one order line's unit price + display label, applying the product's
  *  active promo. When a variant is chosen the variant price/label win; otherwise
  *  the product's price and "name + weight" snapshot are used. Pure (now passed in). */
@@ -988,9 +995,25 @@ export class OrdersService {
         : [];
       const variantById = new Map(variantRows.map((v) => [v.id, v]));
 
+      // Which ordered products have live variants → a selection is mandatory.
+      // Existence check only (not locked): a superset of the chosen variants'
+      // products, computed independently of variantRows.
+      const orderedIds = dto.items.map((i) => i.productId);
+      const productsWithVariants = new Set(
+        (
+          await tx
+            .select({ pid: productVariants.productId })
+            .from(productVariants)
+            .where(and(inArray(productVariants.productId, orderedIds), isNull(productVariants.deletedAt)))
+        ).map((r) => r.pid),
+      );
+
       for (const it of dto.items) {
         const p = byId.get(it.productId);
         if (!p || !p.isActive) throw new BadRequestException('Невалиден или неактивен продукт');
+        if (requiresVariantSelection(productsWithVariants.has(it.productId), it.variantId)) {
+          throw new BadRequestException('Изберете вариант');
+        }
         if (it.variantId) {
           const v = variantById.get(it.variantId);
           if (!v || v.productId !== it.productId) throw new BadRequestException('Невалиден вариант');
