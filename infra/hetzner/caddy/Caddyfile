@@ -10,6 +10,12 @@
 }
 
 origin-api.fermeribg.com {
+	# Access log to stdout (docker logs) — the only place to observe worker→origin
+	# traffic, since the storefront's SWR cache hides it from any external probe.
+	log {
+		output stdout
+		format console
+	}
 	tls {
 		dns cloudflare {env.CF_DNS_API_TOKEN}
 	}
