@@ -1,4 +1,5 @@
-import { buildPublicProduct, cheapestVariantPrice, planVariantWrites, variantsHaveFixedSale } from './products.service';
+import { BadRequestException } from '@nestjs/common';
+import { buildPublicProduct, cheapestVariantPrice, planVariantWrites, variantsHaveFixedSale, resolvePromoOverride } from './products.service';
 
 describe('cheapestVariantPrice', () => {
   it('returns null for no variants', () => {
@@ -53,6 +54,26 @@ describe('variantsHaveFixedSale', () => {
   });
 });
 
+describe('resolvePromoOverride', () => {
+  it('plain product with a fixed price clears the %', () => {
+    expect(resolvePromoOverride({ salePriceStotinki: 240 }, [], 300)).toEqual({ salePercent: null, saleEndsAt: null });
+  });
+  it('plain product with only a % leaves it (no override)', () => {
+    expect(resolvePromoOverride({ salePercent: 20 }, [], 300)).toEqual({});
+  });
+  it('rejects a fixed price not below the regular price', () => {
+    expect(() => resolvePromoOverride({ salePriceStotinki: 300 }, [], 300)).toThrow(BadRequestException);
+  });
+  it('varianted product clears any product-level fixed price', () => {
+    expect(resolvePromoOverride({ salePriceStotinki: 240 }, [{ label: 'A', priceStotinki: 300 }], 300)).toEqual({ salePriceStotinki: null });
+  });
+  it('varianted product with a per-variant fixed price also clears the %', () => {
+    expect(
+      resolvePromoOverride({ salePercent: 20 }, [{ label: 'A', priceStotinki: 300, salePriceStotinki: 240 }], 300),
+    ).toEqual({ salePriceStotinki: null, salePercent: null, saleEndsAt: null });
+  });
+});
+
 const baseProduct = {
   id: 'p1', tenantId: 't1', name: 'Мед', slug: 'med', description: null,
   priceStotinki: 650, unit: 'бр', weight: null, category: null, tint: null,
@@ -97,6 +118,16 @@ describe('buildPublicProduct', () => {
     expect(pub.salePriceStotinki).toBeUndefined(); // no product-level promo
     expect(pub.variants[0]).toEqual({ id: 'v1', label: '500г', priceStotinki: 650, salePriceStotinki: 500, soldOut: false });
     expect(pub.variants[1]).toEqual({ id: 'v2', label: '1кг', priceStotinki: 1250, soldOut: false }); // no fixed promo
+  });
+
+  it('exposes a product-level fixed promo price (plain product, no %)', () => {
+    const pub = buildPublicProduct({ ...baseProduct, salePriceStotinki: 500 }, [], [], NOW2);
+    expect(pub.salePriceStotinki).toBe(500);
+  });
+
+  it('product-level fixed price wins over the % (defensive read)', () => {
+    const pub = buildPublicProduct({ ...baseProduct, salePercent: 20, salePriceStotinki: 480 }, [], [], NOW2);
+    expect(pub.salePriceStotinki).toBe(480); // fixed, not 520
   });
 
   it("variant's own fixed promo wins over the product %", () => {

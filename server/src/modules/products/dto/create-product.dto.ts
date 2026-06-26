@@ -112,6 +112,16 @@ export class CreateProductDto {
   @IsDateString()
   saleEndsAt?: string | null;
 
+  // Product-level fixed promo price (stotinki) for a plain product. Must be below
+  // priceStotinki (enforced in the service). Setting it clears salePercent
+  // (mutually exclusive). null = no fixed promo.
+  @ApiPropertyOptional({ description: 'Fixed promo price in stotinki; null = none', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  salePriceStotinki?: number | null;
+
   // Full replace: the variants the product should have after the write. The
   // service upserts these (by id when present) and soft-deletes any omitted rows.
   // Empty array / absent = no variants (product sells at its own priceStotinki).

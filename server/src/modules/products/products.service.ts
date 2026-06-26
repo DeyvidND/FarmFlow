@@ -182,9 +182,7 @@ export class ProductsService {
     const { stock, variants, saleEndsAt, ...productDto } = dto;
     // Convert ISO string → Date for the timestamp column (null passes through).
     const saleEndsAtDate = saleEndsAt != null ? new Date(saleEndsAt) : saleEndsAt;
-    // Per-variant fixed promo and the product-level % are mutually exclusive: a
-    // fixed price on any variant wins and clears the product %.
-    const promoOverride = variantsHaveFixedSale(variants) ? { salePercent: null, saleEndsAt: null } : {};
+    const promoOverride = resolvePromoOverride(productDto, variants, dto.priceStotinki);
     // A producer's products always belong to them — ignore any client-supplied farmer.
     const values = farmerScope !== null
       ? { ...productDto, saleEndsAt: saleEndsAtDate, ...promoOverride, farmerId: farmerScope }
@@ -240,9 +238,7 @@ export class ProductsService {
     // but a Date in the DB — convert here.
     const { stock, variants, saleEndsAt, ...rest } = dto;
     const saleEndsAtDate = saleEndsAt != null ? new Date(saleEndsAt) : saleEndsAt;
-    // Per-variant fixed promo and the product-level % are mutually exclusive: a
-    // fixed price on any variant wins and clears the product %.
-    const promoOverride = variantsHaveFixedSale(variants) ? { salePercent: null, saleEndsAt: null } : {};
+    const promoOverride = resolvePromoOverride(rest, variants, dto.priceStotinki);
     // Producers can edit their own product's fields but not its ownership.
     const data = farmerScope !== null
       ? { ...rest, saleEndsAt: saleEndsAtDate, ...promoOverride, farmerId: undefined }
@@ -690,6 +686,34 @@ export function variantsHaveFixedSale(variants: VariantInput[] | undefined): boo
   return Array.isArray(variants) && variants.some((v) => v.salePriceStotinki != null);
 }
 
+/** Enforce the promo mutual-exclusion at write time and return the columns to
+ *  override on the products row:
+ *   - Varianted product → never a product-level fixed price (cleared); a per-variant
+ *     fixed price additionally clears the product %.
+ *   - Plain product → a product-level fixed price clears the % (and must be a real
+ *     discount, below the price).
+ *  Throws BadRequest when the fixed price isn't below the regular price. */
+export function resolvePromoOverride(
+  promo: { salePercent?: number | null; salePriceStotinki?: number | null },
+  variants: VariantInput[] | undefined,
+  priceStotinki?: number,
+): { salePercent?: null; saleEndsAt?: null; salePriceStotinki?: null } {
+  if (Array.isArray(variants) && variants.length > 0) {
+    return {
+      salePriceStotinki: null,
+      ...(variantsHaveFixedSale(variants) ? { salePercent: null, saleEndsAt: null } : {}),
+    };
+  }
+  const fixed = promo.salePriceStotinki ?? null;
+  if (fixed != null) {
+    if (priceStotinki != null && fixed >= priceStotinki) {
+      throw new BadRequestException('Промо цената трябва да е под редовната цена');
+    }
+    return { salePercent: null, saleEndsAt: null };
+  }
+  return {};
+}
+
 /** Diff incoming variants against the product's existing variant ids. `position`
  *  is the array index (the order the farmer arranged them). Rows with an id →
  *  updates; without → inserts; existing ids absent from the incoming list →
@@ -728,7 +752,9 @@ export function buildPublicProduct(
   variants: ProductVariant[],
   now: Date,
 ): PublicProduct {
-  const { tenantId, stockQuantity, stripeProductId, stripePriceId, ...rest } = p;
+  // Strip the raw fixed-price input column; the public shape carries only the
+  // computed `salePriceStotinki` headline (set below).
+  const { tenantId, stockQuantity, stripeProductId, stripePriceId, salePriceStotinki: _rawSalePrice, ...rest } = p;
   const images = mediaUrls.length ? mediaUrls : p.imageUrl ? [p.imageUrl] : [];
   const promo = isPromoActive(p.salePercent, p.saleEndsAt, now) && p.salePercent != null;
   const pub: PublicProduct = {
@@ -752,6 +778,10 @@ export function buildPublicProduct(
       };
     }),
   };
-  if (promo) pub.salePriceStotinki = salePriceStotinki(p.priceStotinki, p.salePercent!);
+  // Headline sale price for the base product: a product-level fixed price wins;
+  // otherwise the active % applies. (Writes keep these mutually exclusive.)
+  const baseSale =
+    p.salePriceStotinki != null ? p.salePriceStotinki : promo ? salePriceStotinki(p.priceStotinki, p.salePercent!) : undefined;
+  if (baseSale != null) pub.salePriceStotinki = baseSale;
   return pub;
 }

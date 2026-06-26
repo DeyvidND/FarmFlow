@@ -40,6 +40,17 @@ describe('resolveLineUnit', () => {
     const res = resolveLineUnit({ ...product, salePercent: 20 }, variant, NOW);
     expect(res.unitStotinki).toBe(500); // fixed 500, not 520
   });
+
+  it('charges a plain product its product-level fixed promo price', () => {
+    const res = resolveLineUnit({ ...product, salePriceStotinki: 800 }, null, NOW);
+    expect(res.unitStotinki).toBe(800);
+  });
+
+  it('product-level fixed price wins over the % for a plain line', () => {
+    // price 1000, % would give 800; the fixed 750 must win.
+    const res = resolveLineUnit({ ...product, salePercent: 20, salePriceStotinki: 750 }, null, NOW);
+    expect(res.unitStotinki).toBe(750);
+  });
 });
 
 describe('requiresVariantSelection', () => {
