@@ -177,9 +177,14 @@ export class ProductsService {
   ): Promise<Product> {
     // `stock` is virtual — it drives the availability window, not a products
     // column — so strip it before the row is written.
-    const { stock, ...productDto } = dto;
+    // `variants` are handled separately (upserted after the product row); strip here.
+    const { stock, variants, saleEndsAt, ...productDto } = dto;
+    // Convert ISO string → Date for the timestamp column (null passes through).
+    const saleEndsAtDate = saleEndsAt != null ? new Date(saleEndsAt) : saleEndsAt;
     // A producer's products always belong to them — ignore any client-supplied farmer.
-    const values = farmerScope !== null ? { ...productDto, farmerId: farmerScope } : productDto;
+    const values = farmerScope !== null
+      ? { ...productDto, saleEndsAt: saleEndsAtDate, farmerId: farmerScope }
+      : { ...productDto, saleEndsAt: saleEndsAtDate };
     await this.assertRefsInTenant(tenantId, values);
     // Storefront product pages key off `slug`. The admin form doesn't collect
     // one, so derive a tenant-unique slug from the name (Cyrillic-aware).
@@ -226,9 +231,14 @@ export class ProductsService {
     // `stock` is virtual (drives the availability window); keep it out of the
     // products write. `undefined` = caller didn't touch stock (e.g. a hide/show
     // toggle) → leave the window alone.
-    const { stock, ...rest } = dto;
+    // `variants` are handled separately; `saleEndsAt` is an ISO string in the DTO
+    // but a Date in the DB — convert here.
+    const { stock, variants, saleEndsAt, ...rest } = dto;
+    const saleEndsAtDate = saleEndsAt != null ? new Date(saleEndsAt) : saleEndsAt;
     // Producers can edit their own product's fields but not its ownership.
-    const data = farmerScope !== null ? { ...rest, farmerId: undefined } : rest;
+    const data = farmerScope !== null
+      ? { ...rest, saleEndsAt: saleEndsAtDate, farmerId: undefined }
+      : { ...rest, saleEndsAt: saleEndsAtDate };
     await this.assertRefsInTenant(tenantId, data);
     const [row] = await this.db
       .update(products)

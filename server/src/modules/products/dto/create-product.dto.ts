@@ -1,9 +1,11 @@
 import {
   IsString, IsInt, IsOptional, IsBoolean, IsUrl, IsUUID, Min, Max, MaxLength, ValidateIf, ValidateNested,
+  IsArray, IsDateString, ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
+import { VariantDto } from './variant.dto';
 
 export class CreateProductDto {
   @ApiProperty()
@@ -95,4 +97,29 @@ export class CreateProductDto {
   @ValidateIf((_, v) => v !== null)
   @IsUUID()
   subcategoryId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Promotion: discount percent 1..99 (null clears)', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  salePercent?: number | null;
+
+  @ApiPropertyOptional({ description: 'Promotion end date ISO; null = no end (manual removal)', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsDateString()
+  saleEndsAt?: string | null;
+
+  // Full replace: the variants the product should have after the write. The
+  // service upserts these (by id when present) and soft-deletes any omitted rows.
+  // Empty array / absent = no variants (product sells at its own priceStotinki).
+  @ApiPropertyOptional({ type: [VariantDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @ArrayMaxSize(50)
+  @Type(() => VariantDto)
+  variants?: VariantDto[];
 }
