@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2, Clock, CloudOff, Info } from 'lucide-react';
+import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2, Clock, CloudOff, Info, Truck, Zap, ArrowRight } from 'lucide-react';
 import {
   ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment, riskCheckBulk,
   type ImportRow, type QuoteResult, type RiskBulkEntry, type RiskBulkMeta,
@@ -11,11 +11,48 @@ import {
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 const priceEur = (st: number | null | undefined) => (st == null ? '—' : `${(st / 100).toFixed(2)} €`);
 
+/** Drop trailing zeros from a number for display in an editable field (2 → "2", 1.5 → "1.5"). */
+const trimNum = (n: number) => (Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2))));
+
 /** Strip all non-digit characters and return the last 9 digits (Bulgarian mobile suffix). */
 function last9digits(phone: string): string {
   const digits = phone.replace(/\D/g, '');
   return digits.slice(-9);
 }
+
+/** Weight field shown to the farmer in KILOGRAMS, stored as grams. Keeps its own text
+ *  state so decimals type smoothly ("2." → "2.5" → "2.58"); commits grams on blur. */
+function KgInput({ grams, onCommit, className }: { grams: number | null; onCommit: (g: number | null) => void; className: string }) {
+  const [t, setT] = useState(grams == null ? '' : trimNum(grams / 1000));
+  useEffect(() => { setT(grams == null ? '' : trimNum(grams / 1000)); }, [grams]);
+  return (
+    <input
+      className={className} inputMode="decimal" placeholder="кг"
+      value={t}
+      onChange={(e) => setT(e.target.value)}
+      onBlur={() => { const n = parseFloat(t.replace(',', '.')); onCommit(t.trim() === '' || isNaN(n) ? null : Math.round(n * 1000)); }}
+    />
+  );
+}
+
+/** COD field shown in EUROS, stored as euro-cents. Same smooth-decimal behaviour as KgInput. */
+function EurInput({ cents, onCommit, className }: { cents: number | null; onCommit: (c: number | null) => void; className: string }) {
+  const [t, setT] = useState(cents == null ? '' : trimNum(cents / 100));
+  useEffect(() => { setT(cents == null ? '' : trimNum(cents / 100)); }, [cents]);
+  return (
+    <input
+      className={className} inputMode="decimal" placeholder="€"
+      value={t}
+      onChange={(e) => setT(e.target.value)}
+      onBlur={() => { const n = parseFloat(t.replace(',', '.')); onCommit(t.trim() === '' || isNaN(n) ? null : Math.round(n * 100)); }}
+    />
+  );
+}
+
+const CARRIER_META = {
+  econt: { label: 'Еконт', icon: Truck },
+  speedy: { label: 'Спиди', icon: Zap },
+} as const;
 
 const RISK_VERDICT = {
   ok: { label: 'Чисто', icon: ShieldCheck, cls: 'bg-ff-green-50 text-ff-green-700 border-ff-green-500' },
@@ -43,8 +80,19 @@ const STEPS = [
   { icon: Download, title: 'Свали шаблона', desc: 'Готов Excel/CSV с правилните колони.' },
   { icon: UploadCloud, title: 'Качи файла', desc: 'Само файлът — без настройки. Системата чете редовете.' },
   { icon: ListChecks, title: 'Поправи редовете', desc: 'Маркираните в жълто/червено се редактират на място.' },
-  { icon: Scale, title: 'Сравни и създай', desc: 'Избери най-евтиния куриер за всеки ред и създай пратките.' },
+  { icon: Scale, title: 'Потвърди поръчки', desc: 'Един бутон — системата сравнява Еконт и Спиди и праща с по-евтиния.' },
 ] as const;
+
+/** Per-carrier batch totals computed inside the confirm modal. */
+interface BatchCompare {
+  loading: boolean;
+  count: number;                          // committable rows
+  econt: { total: number; unavail: number };
+  speedy: { total: number; unavail: number };
+  recommend: 'econt' | 'speedy' | null;
+  chosen: 'econt' | 'speedy' | null;
+  failed: number;
+}
 
 export function ImportClient() {
   const [file, setFile] = useState<File | null>(null);
@@ -52,10 +100,10 @@ export function ImportClient() {
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [ai, setAi] = useState('');
   const [busy, setBusy] = useState(false);
-  // Per-row cheapest-quote results (carrier prices), keyed by row id.
-  const [quotes, setQuotes] = useState<Record<string, QuoteResult>>({});
-  const [comparing, setComparing] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  // Confirm-and-send flow: one modal compares both carriers for the whole batch.
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cmp, setCmp] = useState<BatchCompare | null>(null);
   // Risk check state: map of last-9-digits → bulk entry, plus loading flag and summary.
   const [riskMap, setRiskMap] = useState<Record<string, RiskBulkEntry>>({});
   const [checkingRisk, setCheckingRisk] = useState(false);
@@ -99,7 +147,6 @@ export function ImportClient() {
       const data = await uploadBatch(file);
       setBatchId(data.batch.id);
       setRows(data.rows);
-      setQuotes({});
       setAi(data.batch.aiReport?.aiAvailable ? '' : 'AI проверка недостъпна — само базова проверка.');
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   }
@@ -126,43 +173,63 @@ export function ImportClient() {
     catch (e) { toast.error(errMsg(e)); }
   }
 
-  // Price both carriers for every committable row, then auto-pick the cheaper one.
-  // Runs with a tiny concurrency pool to stay under the compare throttle (30/min).
-  async function compareAll() {
-    const targets = rows.filter((r) => r.validationStatus !== 'error' && r.city && r.deliveryMode && !r.shipmentId);
-    if (!targets.length) { toast.error('Няма редове за сравнение — провери град и режим.'); return; }
-    setComparing(true);
-    const found: Record<string, QuoteResult> = {};
-    const picks: Array<{ row: ImportRow; carrier: 'econt' | 'speedy' }> = [];
-    let failed = 0;
+  // Price a single carrier from a row's quote result (null = unavailable / not priced).
+  const carrierPrice = (q: QuoteResult | undefined, c: 'econt' | 'speedy') => {
+    const entry = q?.quotes.find((x) => x.carrier === c);
+    return entry && entry.available ? entry.priceStotinki : null;
+  };
+
+  // Open the confirm modal and price the WHOLE batch with both carriers, so the operator
+  // ships every order with the single cheaper courier. Runs a tiny concurrency pool to
+  // stay under the compare throttle (30/min).
+  async function openConfirm() {
+    const targets = rows.filter((r) => r.validationStatus !== 'error' && r.city && r.deliveryMode);
+    if (!targets.length) { toast.error('Няма готови поръчки за изпращане — поправи редовете в червено.'); return; }
+    setCmp({ loading: true, count: targets.length, econt: { total: 0, unavail: 0 }, speedy: { total: 0, unavail: 0 }, recommend: null, chosen: null, failed: 0 });
+    setConfirmOpen(true);
+
+    let eSum = 0, eUn = 0, sSum = 0, sUn = 0, failed = 0;
     const queue = [...targets];
     const worker = async () => {
       for (let r = queue.shift(); r; r = queue.shift()) {
         try {
-          const q = await compareShipment({
-            destinationCity: r.city!, deliveryMode: r.deliveryMode!,
-            weightGrams: r.weightGrams ?? undefined,
-          });
-          found[r.id] = q;
-          if (q.cheapest && q.cheapest !== r.carrier) picks.push({ row: r, carrier: q.cheapest });
+          const q = await compareShipment({ destinationCity: r.city!, deliveryMode: r.deliveryMode!, weightGrams: r.weightGrams ?? undefined });
+          const ep = carrierPrice(q, 'econt');
+          const sp = carrierPrice(q, 'speedy');
+          if (ep == null) eUn++; else eSum += ep;
+          if (sp == null) sUn++; else sSum += sp;
         } catch { failed++; }
       }
     };
+    await Promise.all([worker(), worker(), worker()]);
+
+    // A carrier is "viable" for the batch only if it can serve EVERY row.
+    const eViable = eUn === 0, sViable = sUn === 0;
+    let recommend: 'econt' | 'speedy' | null;
+    if (eViable && sViable) recommend = eSum <= sSum ? 'econt' : 'speedy';
+    else if (eViable) recommend = 'econt';
+    else if (sViable) recommend = 'speedy';
+    else recommend = eSum <= sSum ? 'econt' : 'speedy'; // neither fully covers — least-bad
+    setCmp({ loading: false, count: targets.length, econt: { total: eSum, unavail: eUn }, speedy: { total: sSum, unavail: sUn }, recommend, chosen: recommend, failed });
+  }
+
+  // Persist the chosen carrier on every committable row, then create all shipments.
+  async function confirmSend() {
+    if (!batchId || !cmp?.chosen) return;
+    const chosen = cmp.chosen;
+    setConfirmOpen(false);
+    setBusy(true);
     try {
-      await Promise.all([worker(), worker(), worker()]);
-      setQuotes((p) => ({ ...p, ...found }));
-      // Optimistically reflect the cheaper carrier locally, then persist each pick.
-      if (picks.length) {
-        setRows((prev) => prev.map((x) => {
-          const pick = picks.find((p) => p.row.id === x.id);
-          return pick ? { ...x, carrier: pick.carrier } : x;
-        }));
-        for (const { row, carrier } of picks) await save({ ...row, carrier });
-      }
-      const done = Object.keys(found).length;
-      toast.success(`Сравнени ${done} ${done === 1 ? 'ред' : 'реда'}${picks.length ? ` · ${picks.length} сменени на по-евтин` : ''}`);
-      if (failed) toast.error(`${failed} реда не успяха да се сравнят.`);
-    } finally { setComparing(false); }
+      const targets = rows.filter((r) => r.validationStatus !== 'error' && r.carrier !== chosen);
+      await Promise.all(targets.map((r) => patchRow(batchId, r.id, { carrier: chosen })));
+      setRows((p) => p.map((x) => (x.validationStatus !== 'error' ? { ...x, carrier: chosen } : x)));
+      const res = await commitBatch(batchId);
+      const created = res.results.filter((x) => x.status === 'created').length;
+      toast.success(`Създадени ${created} ${created === 1 ? 'пратка' : 'пратки'} с ${CARRIER_META[chosen].label}`);
+      if (res.failed) toast.error(`${res.failed} реда не успяха — виж „Проблеми".`);
+      const { getBatch } = await import('@/lib/api-client');
+      setRows((await getBatch(batchId)).rows);
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   }
 
   async function checkAllRisk() {
@@ -195,19 +262,6 @@ export function ImportClient() {
     } finally { setCheckingRisk(false); }
   }
 
-  async function commit() {
-    if (!batchId) return;
-    setBusy(true);
-    try {
-      const res = await commitBatch(batchId);
-      const created = res.results.filter((x) => x.status === 'created').length;
-      toast.success(`Създадени ${created} пратки`);
-      if (res.failed) toast.error(`${res.failed} реда не успяха — виж „Проблеми".`);
-      const { getBatch } = await import('@/lib/api-client');
-      setRows((await getBatch(batchId)).rows);
-    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
-  }
-
   const labelIds = (carrier: 'econt' | 'speedy') => rows.filter((r) => r.shipmentId && r.carrier === carrier).map((r) => r.shipmentId!) as string[];
 
   async function labels(carrier: 'econt' | 'speedy') {
@@ -219,28 +273,12 @@ export function ImportClient() {
     setRows((p) => p.map((x) => (x.id === r.id ? { ...x, [k]: v } : x)));
   }
 
-  // Price a single carrier from a row's quote result (null = unavailable / not priced).
-  const carrierPrice = (q: QuoteResult | undefined, c: 'econt' | 'speedy') => {
-    const entry = q?.quotes.find((x) => x.carrier === c);
-    return entry && entry.available ? entry.priceStotinki : null;
-  };
-
-  const inp = 'w-full rounded-lg border border-ff-border bg-ff-surface px-2 py-1.5 text-[13.5px] outline-none focus:border-ff-green-500';
+  // Roomier, more legible fields — farmers, not power users.
+  const inp = 'h-10 w-full rounded-lg border border-ff-border bg-ff-surface px-3 text-[14px] outline-none focus:border-ff-green-500';
+  const inpNum = 'h-10 w-full rounded-lg border border-ff-border bg-ff-surface px-3 text-right text-[14px] tabular-nums outline-none focus:border-ff-green-500';
   const rowBg = (s: string) => (s === 'ok' ? 'bg-ff-green-50' : s === 'warn' ? 'bg-ff-amber-softer' : 'bg-[#FBE9E7]');
   const primaryBtn = 'inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-ff-green-700 px-4 text-[13.5px] font-bold text-white shadow-ff-sm hover:brightness-95 disabled:opacity-60';
   const outlineBtn = 'inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-4 text-[13.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2';
-
-  // Per-row carrier price comparison, shown once "Сравни куриери" has run.
-  const PriceCell = ({ r }: { r: ImportRow }) => {
-    const q = quotes[r.id];
-    if (!q) return <span className="text-ff-muted">—</span>;
-    return (
-      <div className="flex flex-col gap-0.5 text-[11.5px] leading-tight ff-fig">
-        <span className={r.carrier === 'econt' ? 'font-extrabold text-ff-green-700' : 'text-ff-muted'}>Еконт {priceEur(carrierPrice(q, 'econt'))}</span>
-        <span className={r.carrier === 'speedy' ? 'font-extrabold text-ff-green-700' : 'text-ff-muted'}>Спиди {priceEur(carrierPrice(q, 'speedy'))}</span>
-      </div>
-    );
-  };
 
   // Risk badge shown per row after bulk check has run.
   // Handles 3 risk verdicts + 2 non-verdict status states (rate_limited / unavailable).
@@ -274,7 +312,7 @@ export function ImportClient() {
   return (
     <div className="animate-ff-fade-up">
       <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Масов внос на пратки</h1>
-      <p className="mt-1 text-[13.5px] text-ff-muted">Качи Excel или CSV с поръчки. Куриерът се избира накрая — по най-добра цена.</p>
+      <p className="mt-1 text-[13.5px] text-ff-muted">Качи Excel или CSV с поръчки. Накрая натисни „Потвърди поръчки" — куриерът се избира сам, по най-добра цена за цялата партида.</p>
 
       {/* guide — hidden once a file is loaded into the editor */}
       {rows.length === 0 && (
@@ -330,14 +368,13 @@ export function ImportClient() {
             <span className="inline-flex items-center gap-1.5 rounded-full bg-ff-green-50 px-2.5 py-1 text-[12.5px] font-bold text-ff-green-700"><span className="h-2 w-2 rounded-full bg-ff-green-500" /> Готови {count('ok')}</span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-ff-amber-softer px-2.5 py-1 text-[12.5px] font-bold text-ff-amber-600"><span className="h-2 w-2 rounded-full bg-ff-amber" /> Внимание {count('warn')}</span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FBE9E7] px-2.5 py-1 text-[12.5px] font-bold text-ff-red"><span className="h-2 w-2 rounded-full bg-ff-red" /> Грешка {count('error')}</span>
-            <button onClick={() => void compareAll()} disabled={comparing || busy} className="ml-auto inline-flex h-10 items-center gap-2 rounded-xl border border-ff-green-600 bg-ff-green-50 px-3.5 text-[13px] font-bold text-ff-green-700 hover:bg-ff-green-100 disabled:opacity-60">
-              <Scale size={15} /> {comparing ? 'Сравнявам…' : 'Сравни куриери'}
+            <button onClick={() => void openConfirm()} disabled={busy} className="ml-auto inline-flex h-11 items-center gap-2 rounded-xl bg-ff-green-700 px-5 text-[14px] font-bold text-white shadow-ff-sm hover:brightness-95 disabled:opacity-60">
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />} {busy ? 'Създавам…' : 'Потвърди поръчки'}
             </button>
-            <button onClick={commit} disabled={busy || comparing} className="inline-flex h-10 items-center gap-2 rounded-xl bg-ff-green-700 px-4 text-[13.5px] font-bold text-white shadow-ff-sm hover:brightness-95 disabled:opacity-60">{busy ? 'Създавам…' : 'Създай пратки'}</button>
-            {labelIds('econt').length > 0 && <button onClick={() => void labels('econt')} className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2"><FileDown size={15} /> Етикети (Econt)</button>}
-            {labelIds('speedy').length > 0 && <button onClick={() => void labels('speedy')} className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2"><FileDown size={15} /> Етикети (Speedy)</button>}
+            {labelIds('econt').length > 0 && <button onClick={() => void labels('econt')} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2"><FileDown size={15} /> Етикети (Еконт)</button>}
+            {labelIds('speedy').length > 0 && <button onClick={() => void labels('speedy')} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2"><FileDown size={15} /> Етикети (Спиди)</button>}
           </div>
-          <p className="mt-2 text-[12px] text-ff-muted">„Сравни куриери" пита Еконт и Спиди за цена на всеки ред и слага по-евтиния — после може ръчно да смениш куриера в колоната.</p>
+          <p className="mt-2 text-[12px] text-ff-muted">„Потвърди поръчки" сравнява Еконт и Спиди и праща цялата партида с по-евтиния куриер — без да попълваш нищо ръчно.</p>
 
           {/* Nekorekten bulk risk check bar */}
           <div className="mt-2 flex flex-wrap items-center gap-2.5">
@@ -422,32 +459,34 @@ export function ImportClient() {
 
           {/* desktop table */}
           <div className="mt-3 overflow-x-auto rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:hidden">
-            <table className="w-full border-collapse text-[13px]">
+            <table className="w-full border-collapse text-[14px]">
               <thead><tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-                {['#', 'Получател', 'Телефон', 'Реж.', 'Град', 'Офис/Адрес', 'Тегло(г)', 'НП(ст.)', 'Цена', 'Куриер', 'Риск', 'Проблеми', ''].map((h) => (
-                  <th key={h} className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.03em] text-ff-muted">{h}</th>
+                {[
+                  { h: '#', w: 'w-10' }, { h: 'Получател', w: '' }, { h: 'Телефон', w: 'w-40' }, { h: 'Реж.', w: 'w-28' },
+                  { h: 'Град', w: 'w-36' }, { h: 'Офис/Адрес', w: '' }, { h: 'Тегло (кг)', w: 'w-24' }, { h: 'НП (€)', w: 'w-28' },
+                  { h: 'Риск', w: 'w-28' }, { h: 'Проблеми', w: '' }, { h: '', w: 'w-12' },
+                ].map(({ h, w }) => (
+                  <th key={h} className={`px-3.5 py-3 text-[11.5px] font-bold uppercase tracking-[0.03em] text-ff-muted ${w}`}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id} className={`border-b border-ff-border-2 last:border-0 ${rowBg(r.validationStatus)}`}>
-                    <td className="px-3 py-2">{r.rowIndex}</td>
-                    <td className="px-3 py-2"><input className={inp} value={r.receiverName ?? ''} onChange={(e) => patch(r, 'receiverName', e.target.value)} onBlur={() => save(r)} /></td>
-                    <td className="px-3 py-2"><input className={inp} value={r.receiverPhone ?? ''} onChange={(e) => patch(r, 'receiverPhone', e.target.value)} onBlur={() => save(r)} /></td>
-                    <td className="px-3 py-2"><select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => { patch(r, 'deliveryMode', e.target.value); }} onBlur={() => save(r)}><option value="office">офис</option><option value="address">адрес</option></select></td>
-                    <td className="px-3 py-2"><input className={inp} value={r.city ?? ''} onChange={(e) => patch(r, 'city', e.target.value)} onBlur={() => save(r)} /></td>
-                    <td className="px-3 py-2">
+                    <td className="px-3.5 py-3 text-ff-muted">{r.rowIndex}</td>
+                    <td className="px-3.5 py-3"><input className={inp} value={r.receiverName ?? ''} onChange={(e) => patch(r, 'receiverName', e.target.value)} onBlur={() => save(r)} /></td>
+                    <td className="px-3.5 py-3"><input className={inp} value={r.receiverPhone ?? ''} onChange={(e) => patch(r, 'receiverPhone', e.target.value)} onBlur={() => save(r)} /></td>
+                    <td className="px-3.5 py-3"><select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => { patch(r, 'deliveryMode', e.target.value); }} onBlur={() => save(r)}><option value="office">офис</option><option value="address">адрес</option></select></td>
+                    <td className="px-3.5 py-3"><input className={inp} value={r.city ?? ''} onChange={(e) => patch(r, 'city', e.target.value)} onBlur={() => save(r)} /></td>
+                    <td className="px-3.5 py-3">
                       {r.deliveryMode === 'office'
                         ? <input className={inp} placeholder="Офис" value={r.office ?? ''} onChange={(e) => patch(r, 'office', e.target.value)} onBlur={() => save(r)} />
                         : <input className={inp} placeholder="Адрес" value={r.address ?? ''} onChange={(e) => patch(r, 'address', e.target.value)} onBlur={() => save(r)} />}
                     </td>
-                    <td className="px-3 py-2"><input className={inp} type="number" value={r.weightGrams ?? ''} onChange={(e) => patch(r, 'weightGrams', e.target.value === '' ? null : Number(e.target.value))} onBlur={() => save(r)} /></td>
-                    <td className="px-3 py-2"><input className={inp} type="number" value={r.codAmountStotinki ?? ''} onChange={(e) => patch(r, 'codAmountStotinki', e.target.value === '' ? null : Number(e.target.value))} onBlur={() => save(r)} /></td>
-                    <td className="px-3 py-2"><PriceCell r={r} /></td>
-                    <td className="px-3 py-2"><select className={inp} value={r.carrier} onChange={(e) => { patch(r, 'carrier', e.target.value); }} onBlur={() => save(r)}><option value="econt">Econt</option><option value="speedy">Speedy</option></select></td>
-                    <td className="px-3 py-2"><RiskBadge r={r} /></td>
-                    <td className="px-3 py-2 text-[12px] text-ff-muted">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</td>
-                    <td className="px-3 py-2"><button onClick={() => del(r)} className="rounded-lg border border-[#e0a0a0] px-2 py-1 text-[12px] font-bold text-ff-red hover:bg-[#FBE9E7]">✕</button></td>
+                    <td className="px-3.5 py-3"><KgInput className={inpNum} grams={r.weightGrams} onCommit={(g) => { patch(r, 'weightGrams', g); save({ ...r, weightGrams: g }); }} /></td>
+                    <td className="px-3.5 py-3"><EurInput className={inpNum} cents={r.codAmountStotinki} onCommit={(c) => { patch(r, 'codAmountStotinki', c); save({ ...r, codAmountStotinki: c }); }} /></td>
+                    <td className="px-3.5 py-3"><RiskBadge r={r} /></td>
+                    <td className="px-3.5 py-3 text-[12.5px] text-ff-muted">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</td>
+                    <td className="px-3.5 py-3"><button onClick={() => del(r)} className="grid h-9 w-9 place-items-center rounded-lg border border-[#e0a0a0] text-ff-red hover:bg-[#FBE9E7]" aria-label="Изтрий реда"><X size={15} /></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -457,44 +496,156 @@ export function ImportClient() {
           {/* mobile cards */}
           <div className="mt-3 hidden flex-col gap-3 max-[900px]:flex">
             {rows.map((r) => (
-              <div key={r.id} className={`rounded-xl border-2 p-3 ${rowBg(r.validationStatus)} ${r.validationStatus === 'ok' ? 'border-[#a5d6a7]' : r.validationStatus === 'warn' ? 'border-[#ffe082]' : 'border-[#ef9a9a]'}`}>
+              <div key={r.id} className={`rounded-xl border-2 p-3.5 ${rowBg(r.validationStatus)} ${r.validationStatus === 'ok' ? 'border-[#a5d6a7]' : r.validationStatus === 'warn' ? 'border-[#ffe082]' : 'border-[#ef9a9a]'}`}>
                 {([
                   ['Получател', 'receiverName', 'text'], ['Телефон', 'receiverPhone', 'tel'], ['Град', 'city', 'text'],
                   [r.deliveryMode === 'office' ? 'Офис' : 'Адрес', r.deliveryMode === 'office' ? 'office' : 'address', 'text'],
-                  ['Тегло (г)', 'weightGrams', 'number'], ['НП (ст.)', 'codAmountStotinki', 'number'],
                 ] as const).map(([label, key, type]) => (
-                  <label key={key} className="mb-2 grid grid-cols-[96px_1fr] items-center gap-2">
-                    <span className="text-[12px] font-bold text-ff-muted">{label}</span>
+                  <label key={key} className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
+                    <span className="text-[12.5px] font-bold text-ff-muted">{label}</span>
                     <input className={inp} type={type} value={(r[key as keyof ImportRow] as string | number | null) ?? ''}
-                      onChange={(e) => patch(r, key as keyof ImportRow, type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
+                      onChange={(e) => patch(r, key as keyof ImportRow, e.target.value)}
                       onBlur={() => save(r)} />
                   </label>
                 ))}
-                <label className="mb-2 grid grid-cols-[96px_1fr] items-center gap-2">
-                  <span className="text-[12px] font-bold text-ff-muted">Режим</span>
+                <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
+                  <span className="text-[12.5px] font-bold text-ff-muted">Режим</span>
                   <select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => patch(r, 'deliveryMode', e.target.value)} onBlur={() => save(r)}><option value="office">офис</option><option value="address">адрес</option></select>
                 </label>
-                <label className="mb-2 grid grid-cols-[96px_1fr] items-center gap-2">
-                  <span className="text-[12px] font-bold text-ff-muted">Куриер</span>
-                  <select className={inp} value={r.carrier} onChange={(e) => patch(r, 'carrier', e.target.value)} onBlur={() => save(r)}><option value="econt">Econt</option><option value="speedy">Speedy</option></select>
+                <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
+                  <span className="text-[12.5px] font-bold text-ff-muted">Тегло (кг)</span>
+                  <KgInput className={inpNum} grams={r.weightGrams} onCommit={(g) => { patch(r, 'weightGrams', g); save({ ...r, weightGrams: g }); }} />
                 </label>
-                {quotes[r.id] && (
-                  <div className="mb-2 grid grid-cols-[96px_1fr] items-center gap-2">
-                    <span className="text-[12px] font-bold text-ff-muted">Цена</span>
-                    <PriceCell r={r} />
-                  </div>
-                )}
-                {(r.validation?.issues ?? []).length > 0 && <p className="text-[12px] text-ff-red">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</p>}
+                <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
+                  <span className="text-[12.5px] font-bold text-ff-muted">НП (€)</span>
+                  <EurInput className={inpNum} cents={r.codAmountStotinki} onCommit={(c) => { patch(r, 'codAmountStotinki', c); save({ ...r, codAmountStotinki: c }); }} />
+                </label>
+                {(r.validation?.issues ?? []).length > 0 && <p className="text-[12.5px] text-ff-red">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</p>}
                 <RiskBadge r={r} />
-                <button onClick={() => del(r)} className="mt-1 w-full rounded-lg border border-[#e0a0a0] py-2 text-[12.5px] font-bold text-ff-red hover:bg-[#FBE9E7]">✕ Изтрий</button>
+                <button onClick={() => del(r)} className="mt-1.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#e0a0a0] py-2 text-[12.5px] font-bold text-ff-red hover:bg-[#FBE9E7]"><X size={14} /> Изтрий</button>
               </div>
             ))}
           </div>
         </>
       )}
 
+      {confirmOpen && cmp && (
+        <ConfirmSendModal
+          cmp={cmp}
+          onChoose={(c) => setCmp((p) => (p ? { ...p, chosen: c } : p))}
+          onConfirm={() => void confirmSend()}
+          onClose={() => setConfirmOpen(false)}
+        />
+      )}
       {showGuide && <FileGuideModal onClose={() => setShowGuide(false)} />}
     </div>
+  );
+}
+
+/** Confirm-and-send modal: compares both carriers for the whole batch and lets the
+ *  operator ship every order with one (cheaper, pre-selected) courier. */
+function ConfirmSendModal({
+  cmp, onChoose, onConfirm, onClose,
+}: {
+  cmp: BatchCompare;
+  onChoose: (c: 'econt' | 'speedy') => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const eViable = cmp.econt.unavail === 0;
+  const sViable = cmp.speedy.unavail === 0;
+  const savings = (!cmp.loading && eViable && sViable) ? Math.abs(cmp.econt.total - cmp.speedy.total) : 0;
+
+  const Card = ({ c }: { c: 'econt' | 'speedy' }) => {
+    const meta = CARRIER_META[c];
+    const data = cmp[c];
+    const viable = data.unavail === 0;
+    const selected = cmp.chosen === c;
+    const isRecommend = cmp.recommend === c;
+    return (
+      <button
+        type="button"
+        onClick={() => onChoose(c)}
+        disabled={cmp.loading}
+        className={`relative flex flex-1 flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-colors disabled:cursor-default
+          ${selected ? 'border-ff-green-600 bg-ff-green-50' : 'border-ff-border bg-ff-surface hover:border-ff-green-300'}`}
+      >
+        {isRecommend && !cmp.loading && (
+          <span className="absolute right-3 top-3 rounded-full bg-ff-green-700 px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-wide text-white">Най-евтино</span>
+        )}
+        <span className="flex items-center gap-2 text-[15px] font-extrabold text-ff-ink">
+          <meta.icon size={18} className="text-ff-green-700" /> {meta.label}
+        </span>
+        {cmp.loading ? (
+          <span className="text-[13px] text-ff-muted">…</span>
+        ) : (
+          <>
+            <span className="ff-fig text-[22px] font-extrabold tracking-[-0.01em] text-ff-ink">{priceEur(data.total)}</span>
+            {viable
+              ? <span className="text-[12px] text-ff-muted">за {cmp.count} {cmp.count === 1 ? 'пратка' : 'пратки'} · само доставка</span>
+              : <span className="text-[12px] font-bold text-ff-amber-600">Не покрива {data.unavail} {data.unavail === 1 ? 'адрес' : 'адреса'}</span>}
+          </>
+        )}
+      </button>
+    );
+  };
+
+  return (
+    <>
+      <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.45)]" onClick={onClose} />
+      <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 flex w-[540px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-ff-border bg-ff-surface shadow-ff-lg">
+        <div className="flex items-start gap-3 border-b border-ff-border px-6 pb-4 pt-5">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-ff-green-50 text-ff-green-700"><Scale size={21} /></span>
+          <div className="min-w-0">
+            <h2 className="font-display text-[19px] font-extrabold tracking-[-0.015em] text-ff-ink">Потвърди поръчки</h2>
+            <p className="mt-0.5 text-[12.5px] text-ff-muted">{cmp.count} {cmp.count === 1 ? 'поръчка' : 'поръчки'} · цялата партида тръгва с един куриер.</p>
+          </div>
+          <button onClick={onClose} aria-label="Затвори" className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ff-muted hover:bg-ff-surface-2"><X size={18} /></button>
+        </div>
+
+        <div className="px-6 py-5">
+          {cmp.loading ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-8 text-ff-muted">
+              <Loader2 size={26} className="animate-spin text-ff-green-700" />
+              <span className="text-[13.5px] font-bold">Сравнявам цените на Еконт и Спиди…</span>
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-3">
+                <Card c="econt" />
+                <Card c="speedy" />
+              </div>
+              {savings > 0 && cmp.recommend && (
+                <p className="mt-3 text-center text-[13px] font-bold text-ff-green-700">
+                  Спестяваш {priceEur(savings)} с {CARRIER_META[cmp.recommend].label}
+                </p>
+              )}
+              {!eViable && !sViable && (
+                <p className="mt-3 text-center text-[12.5px] font-bold text-ff-amber-600">
+                  Нито един куриер не покрива всички адреси — провери градовете/офисите.
+                </p>
+              )}
+              {cmp.failed > 0 && (
+                <p className="mt-2 text-center text-[12px] text-ff-muted">{cmp.failed} реда не успяха да се остойностят.</p>
+              )}
+              <p className="mt-3 text-center text-[11.5px] text-ff-muted">Цената е само за доставка, без наложения платеж.</p>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2.5 border-t border-ff-border bg-ff-surface-2 px-6 py-4">
+          <button onClick={onClose} className="inline-flex h-11 items-center justify-center rounded-xl border border-ff-border bg-ff-surface px-4 text-[13.5px] font-bold text-ff-ink-2 hover:bg-ff-surface">Отказ</button>
+          <button
+            onClick={onConfirm}
+            disabled={cmp.loading || !cmp.chosen}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-ff-green-700 px-5 text-[14px] font-bold text-white shadow-ff-sm hover:brightness-95 disabled:opacity-60"
+          >
+            <Truck size={16} />
+            {cmp.chosen ? `Изпрати с ${CARRIER_META[cmp.chosen].label}` : 'Изпрати'}
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -511,7 +662,7 @@ const COLUMNS: Array<{ name: string; rule: string }> = [
   { name: 'Съдържание', rule: 'какво има в пратката, напр. Зеленчуци' },
   { name: 'Наложен платеж', rule: 'сума в евро (EUR) за събиране; празно = без наложен платеж' },
   { name: 'Обявена стойност', rule: 'застрахователна стойност в евро (по желание)' },
-  { name: 'Куриер', rule: '„Econt" или „Speedy"; празно = системата избира най-евтиния' },
+  { name: 'Куриер', rule: 'остави празно — системата избира най-евтиния за цялата партида' },
 ];
 
 const CHATGPT_PROMPT = `Помогни ми да направя Excel (.xlsx) файл за масов внос на пратки в куриерска система.
@@ -530,7 +681,7 @@ const CHATGPT_PROMPT = `Помогни ми да направя Excel (.xlsx) ф
 - Съдържание: какво има в пратката (напр. Зеленчуци)
 - Наложен платеж: сума в ЕВРО (EUR) за събиране от клиента; празно = без наложен платеж
 - Обявена стойност: застрахователна стойност в евро (по желание, може празно)
-- Куриер: „Econt" или „Speedy"; ако не си сигурен — остави празно
+- Куриер: остави празно — системата избира най-евтиния
 
 Дай ми готов файл за изтегляне (.xlsx) с тези колони и редове по моите данни долу.
 Не променяй имената на колоните и не добавяй други колони.
