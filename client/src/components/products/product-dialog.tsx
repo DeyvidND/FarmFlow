@@ -167,7 +167,7 @@ export function ProductDialog({
       variantPayload = []; // explicit empty = remove any existing variants
     }
     const pct = salePercent.trim() === '' ? null : parseInt(salePercent, 10);
-    const promoEnd = saleEndsAt.trim() === '' ? null : new Date(saleEndsAt).toISOString();
+    const promoEnd = saleEndsAt.trim() === '' ? null : new Date(`${saleEndsAt}T23:59:59`).toISOString();
     const effectivePrice = hasVariants && variantPayload && variantPayload.length
       ? Math.min(...variantPayload.map((v) => v.priceStotinki))
       : priceStotinki;
@@ -353,6 +353,7 @@ export function ProductDialog({
           )}
 
           <Collapsible
+            key={hasVariants ? 'variants-open' : 'variants-closed'}
             title="Варианти (вид/грамаж)"
             hint="Един продукт с няколко цени — напр. мед: кристализиран/течен, или мляко в 3 разфасовки. Една снимка, отделна цена и наличност за всеки."
             defaultOpen={hasVariants}
@@ -430,7 +431,12 @@ export function ProductDialog({
             </div>
             {(() => {
               const pct = parseInt(salePercent, 10);
-              const base = Math.round((parseFloat(price.replace(',', '.')) || 0) * 100);
+              const variantPrices = variants
+                .map((v) => Math.round((parseFloat(v.price.replace(',', '.')) || 0) * 100))
+                .filter((n) => n > 0);
+              const base = hasVariants
+                ? (variantPrices.length ? Math.min(...variantPrices) : 0)
+                : Math.round((parseFloat(price.replace(',', '.')) || 0) * 100);
               if (!pct || pct < 1 || pct > 99 || base <= 0) return null;
               const sale = Math.round((base * (100 - pct)) / 100);
               return (
