@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { toast } from 'sonner';
 import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2, Clock, CloudOff, Info, Truck, Zap, ArrowRight } from 'lucide-react';
 import {
@@ -45,6 +45,23 @@ function EurInput({ cents, onCommit, className }: { cents: number | null; onComm
       value={t}
       onChange={(e) => setT(e.target.value)}
       onBlur={() => { const n = parseFloat(t.replace(',', '.')); onCommit(t.trim() === '' || isNaN(n) ? null : Math.round(n * 100)); }}
+    />
+  );
+}
+
+/** Looks like a single-line field but grows vertically to fit long content
+ *  (names, addresses) so nothing is clipped in the table. No external dependency. */
+function AutoTextarea({ value, onChange, onBlur, className, placeholder }: {
+  value: string; onChange: (v: string) => void; onBlur: () => void; className: string; placeholder?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const fit = () => { const el = ref.current; if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; } };
+  useEffect(fit, [value]);
+  return (
+    <textarea
+      ref={ref} rows={1} value={value} placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)} onBlur={onBlur}
+      className={`resize-none overflow-hidden ${className}`}
     />
   );
 }
@@ -274,8 +291,10 @@ export function ImportClient() {
   }
 
   // Roomier, more legible fields — farmers, not power users.
-  const inp = 'h-10 w-full rounded-lg border border-ff-border bg-ff-surface px-3 text-[14px] outline-none focus:border-ff-green-500';
-  const inpNum = 'h-10 w-full rounded-lg border border-ff-border bg-ff-surface px-3 text-right text-[14px] tabular-nums outline-none focus:border-ff-green-500';
+  const inp = 'h-10 w-full min-w-0 rounded-lg border border-ff-border bg-ff-surface px-3 text-[14px] outline-none focus:border-ff-green-500';
+  const inpNum = 'h-10 w-full min-w-0 rounded-lg border border-ff-border bg-ff-surface px-3 text-right text-[14px] tabular-nums outline-none focus:border-ff-green-500';
+  // Auto-growing free-text fields (name, address) — wrap instead of clipping long values.
+  const inpTa = 'block w-full min-w-0 rounded-lg border border-ff-border bg-ff-surface px-3 py-2 text-[14px] leading-snug outline-none focus:border-ff-green-500';
   const rowBg = (s: string) => (s === 'ok' ? 'bg-ff-green-50' : s === 'warn' ? 'bg-ff-amber-softer' : 'bg-[#FBE9E7]');
   const primaryBtn = 'inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-ff-green-700 px-4 text-[13.5px] font-bold text-white shadow-ff-sm hover:brightness-95 disabled:opacity-60';
   const outlineBtn = 'inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-4 text-[13.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2';
@@ -457,38 +476,50 @@ export function ImportClient() {
             </div>
           )}
 
-          {/* desktop table */}
+          {/* desktop table — fluid widths, long text wraps; problems shown as a full-width sub-row */}
           <div className="mt-3 overflow-x-auto rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:hidden">
-            <table className="w-full min-w-[1240px] border-collapse text-[14px]">
+            <table className="w-full border-collapse text-[14px]">
               <thead><tr className="border-b border-ff-border bg-ff-surface-2 text-left">
                 {[
-                  { h: '#', w: 'w-10' }, { h: 'Получател', w: 'w-44' }, { h: 'Телефон', w: 'w-44' }, { h: 'Доставка', w: 'w-32' },
-                  { h: 'Град', w: 'w-36' }, { h: 'Офис/Адрес', w: 'w-52' }, { h: 'Тегло (кг)', w: 'w-24' }, { h: 'Платеж (€)', w: 'w-28' },
-                  { h: 'Риск', w: 'w-28' }, { h: 'Проблеми', w: 'w-56' }, { h: '', w: 'w-12' },
+                  { h: '#', w: 'w-9' }, { h: 'Получател', w: 'min-w-[150px]' }, { h: 'Телефон', w: 'w-40' }, { h: 'Доставка', w: 'w-28' },
+                  { h: 'Град', w: 'w-32' }, { h: 'Офис/Адрес', w: 'min-w-[180px]' }, { h: 'Тегло (кг)', w: 'w-20' }, { h: 'Платеж (€)', w: 'w-24' },
+                  { h: 'Риск', w: 'w-28' }, { h: '', w: 'w-12' },
                 ].map(({ h, w }) => (
-                  <th key={h} className={`px-3.5 py-3 text-[11.5px] font-bold uppercase tracking-[0.03em] text-ff-muted ${w}`}>{h}</th>
+                  <th key={h} className={`px-3 py-3 align-middle text-[11.5px] font-bold uppercase tracking-[0.03em] text-ff-muted ${w}`}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className={`border-b border-ff-border-2 last:border-0 ${rowBg(r.validationStatus)}`}>
-                    <td className="px-3.5 py-3 text-ff-muted">{r.rowIndex}</td>
-                    <td className="px-3.5 py-3"><input className={inp} value={r.receiverName ?? ''} onChange={(e) => patch(r, 'receiverName', e.target.value)} onBlur={() => save(r)} /></td>
-                    <td className="px-3.5 py-3"><input className={inp} value={r.receiverPhone ?? ''} onChange={(e) => patch(r, 'receiverPhone', e.target.value)} onBlur={() => save(r)} /></td>
-                    <td className="px-3.5 py-3"><select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => { patch(r, 'deliveryMode', e.target.value); }} onBlur={() => save(r)}><option value="office">офис</option><option value="address">адрес</option></select></td>
-                    <td className="px-3.5 py-3"><input className={inp} value={r.city ?? ''} onChange={(e) => patch(r, 'city', e.target.value)} onBlur={() => save(r)} /></td>
-                    <td className="px-3.5 py-3">
-                      {r.deliveryMode === 'office'
-                        ? <input className={inp} placeholder="Офис" value={r.office ?? ''} onChange={(e) => patch(r, 'office', e.target.value)} onBlur={() => save(r)} />
-                        : <input className={inp} placeholder="Адрес" value={r.address ?? ''} onChange={(e) => patch(r, 'address', e.target.value)} onBlur={() => save(r)} />}
-                    </td>
-                    <td className="px-3.5 py-3"><KgInput className={inpNum} grams={r.weightGrams} onCommit={(g) => { patch(r, 'weightGrams', g); save({ ...r, weightGrams: g }); }} /></td>
-                    <td className="px-3.5 py-3"><EurInput className={inpNum} cents={r.codAmountStotinki} onCommit={(c) => { patch(r, 'codAmountStotinki', c); save({ ...r, codAmountStotinki: c }); }} /></td>
-                    <td className="px-3.5 py-3"><RiskBadge r={r} /></td>
-                    <td className="px-3.5 py-3 text-[12.5px] text-ff-muted">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</td>
-                    <td className="px-3.5 py-3"><button onClick={() => del(r)} className="grid h-9 w-9 place-items-center rounded-lg border border-[#e0a0a0] text-ff-red hover:bg-[#FBE9E7]" aria-label="Изтрий реда"><X size={15} /></button></td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const issues = (r.validation?.issues ?? []).map((i) => i.message).filter(Boolean);
+                  return (
+                    <Fragment key={r.id}>
+                      <tr className={`${issues.length ? '' : 'border-b border-ff-border-2'} last:border-0 ${rowBg(r.validationStatus)}`}>
+                        <td className="px-3 py-2.5 align-top text-ff-muted"><div className="flex h-10 items-center">{r.rowIndex}</div></td>
+                        <td className="px-3 py-2.5 align-top"><AutoTextarea className={inpTa} value={r.receiverName ?? ''} onChange={(v) => patch(r, 'receiverName', v)} onBlur={() => save(r)} /></td>
+                        <td className="px-3 py-2.5 align-top"><input className={inp} value={r.receiverPhone ?? ''} onChange={(e) => patch(r, 'receiverPhone', e.target.value)} onBlur={() => save(r)} /></td>
+                        <td className="px-3 py-2.5 align-top"><select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => { patch(r, 'deliveryMode', e.target.value); }} onBlur={() => save(r)}><option value="office">офис</option><option value="address">адрес</option></select></td>
+                        <td className="px-3 py-2.5 align-top"><input className={inp} value={r.city ?? ''} onChange={(e) => patch(r, 'city', e.target.value)} onBlur={() => save(r)} /></td>
+                        <td className="px-3 py-2.5 align-top">
+                          {r.deliveryMode === 'office'
+                            ? <AutoTextarea className={inpTa} placeholder="Офис" value={r.office ?? ''} onChange={(v) => patch(r, 'office', v)} onBlur={() => save(r)} />
+                            : <AutoTextarea className={inpTa} placeholder="Адрес" value={r.address ?? ''} onChange={(v) => patch(r, 'address', v)} onBlur={() => save(r)} />}
+                        </td>
+                        <td className="px-3 py-2.5 align-top"><KgInput className={inpNum} grams={r.weightGrams} onCommit={(g) => { patch(r, 'weightGrams', g); save({ ...r, weightGrams: g }); }} /></td>
+                        <td className="px-3 py-2.5 align-top"><EurInput className={inpNum} cents={r.codAmountStotinki} onCommit={(c) => { patch(r, 'codAmountStotinki', c); save({ ...r, codAmountStotinki: c }); }} /></td>
+                        <td className="px-3 py-2.5 align-top"><div className="flex h-10 items-center"><RiskBadge r={r} /></div></td>
+                        <td className="px-3 py-2.5 align-top"><div className="flex h-10 items-center"><button onClick={() => del(r)} className="grid h-9 w-9 place-items-center rounded-lg border border-[#e0a0a0] text-ff-red hover:bg-[#FBE9E7]" aria-label="Изтрий реда"><X size={15} /></button></div></td>
+                      </tr>
+                      {issues.length > 0 && (
+                        <tr className={`border-b border-ff-border-2 last:border-0 ${rowBg(r.validationStatus)}`}>
+                          <td />
+                          <td colSpan={9} className={`px-3 pb-2.5 pt-0 text-[12.5px] leading-snug ${r.validationStatus === 'error' ? 'text-ff-red' : 'text-ff-amber-600'}`}>
+                            <span className="font-bold">Проблеми:</span> {issues.join('; ')}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -497,17 +528,24 @@ export function ImportClient() {
           <div className="mt-3 hidden flex-col gap-3 max-[900px]:flex">
             {rows.map((r) => (
               <div key={r.id} className={`rounded-xl border-2 p-3.5 ${rowBg(r.validationStatus)} ${r.validationStatus === 'ok' ? 'border-[#a5d6a7]' : r.validationStatus === 'warn' ? 'border-[#ffe082]' : 'border-[#ef9a9a]'}`}>
-                {([
-                  ['Получател', 'receiverName', 'text'], ['Телефон', 'receiverPhone', 'tel'], ['Град', 'city', 'text'],
-                  [r.deliveryMode === 'office' ? 'Офис' : 'Адрес', r.deliveryMode === 'office' ? 'office' : 'address', 'text'],
-                ] as const).map(([label, key, type]) => (
-                  <label key={key} className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
-                    <span className="text-[12.5px] font-bold text-ff-muted">{label}</span>
-                    <input className={inp} type={type} value={(r[key as keyof ImportRow] as string | number | null) ?? ''}
-                      onChange={(e) => patch(r, key as keyof ImportRow, e.target.value)}
-                      onBlur={() => save(r)} />
-                  </label>
-                ))}
+                <label className="mb-2.5 grid grid-cols-[104px_1fr] items-start gap-2">
+                  <span className="mt-2 text-[12.5px] font-bold text-ff-muted">Получател</span>
+                  <AutoTextarea className={inpTa} value={r.receiverName ?? ''} onChange={(v) => patch(r, 'receiverName', v)} onBlur={() => save(r)} />
+                </label>
+                <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
+                  <span className="text-[12.5px] font-bold text-ff-muted">Телефон</span>
+                  <input className={inp} type="tel" value={r.receiverPhone ?? ''} onChange={(e) => patch(r, 'receiverPhone', e.target.value)} onBlur={() => save(r)} />
+                </label>
+                <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
+                  <span className="text-[12.5px] font-bold text-ff-muted">Град</span>
+                  <input className={inp} value={r.city ?? ''} onChange={(e) => patch(r, 'city', e.target.value)} onBlur={() => save(r)} />
+                </label>
+                <label className="mb-2.5 grid grid-cols-[104px_1fr] items-start gap-2">
+                  <span className="mt-2 text-[12.5px] font-bold text-ff-muted">{r.deliveryMode === 'office' ? 'Офис' : 'Адрес'}</span>
+                  {r.deliveryMode === 'office'
+                    ? <AutoTextarea className={inpTa} value={r.office ?? ''} onChange={(v) => patch(r, 'office', v)} onBlur={() => save(r)} />
+                    : <AutoTextarea className={inpTa} value={r.address ?? ''} onChange={(v) => patch(r, 'address', v)} onBlur={() => save(r)} />}
+                </label>
                 <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
                   <span className="text-[12.5px] font-bold text-ff-muted">Доставка</span>
                   <select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => patch(r, 'deliveryMode', e.target.value)} onBlur={() => save(r)}><option value="office">офис</option><option value="address">адрес</option></select>
