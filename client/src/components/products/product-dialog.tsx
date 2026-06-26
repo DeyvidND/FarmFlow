@@ -64,10 +64,6 @@ export function ProductDialog({
   // Promotion: percent off + optional end date (date input wants YYYY-MM-DD).
   const [salePercent, setSalePercent] = useState(product?.salePercent ? String(product.salePercent) : '');
   const [saleEndsAt, setSaleEndsAt] = useState(product?.saleEndsAt ? product.saleEndsAt.slice(0, 10) : '');
-  // Product-level fixed promo price (plain product, 'fixed' mode with one row).
-  const [productSalePrice, setProductSalePrice] = useState(
-    product?.salePriceStotinki != null ? (product.salePriceStotinki / 100).toFixed(2).replace('.', ',') : '',
-  );
   // Create mode: no product id yet to attach photos to, so buffer the picked files
   // locally (with object-URL previews) and upload them right after the product is
   // created. Edit mode uses the server-backed MediaManager instead.
@@ -106,7 +102,8 @@ export function ProductDialog({
             label: '',
             price: (product.priceStotinki / 100).toFixed(2).replace('.', ','),
             stock: windows[0] ? String(windows[0].quantity) : '',
-            salePrice: '',
+            salePrice:
+              product.salePriceStotinki != null ? (product.salePriceStotinki / 100).toFixed(2).replace('.', ',') : '',
           },
         ]);
       }
@@ -194,9 +191,12 @@ export function ProductDialog({
       stockToSet = row.stock.trim() === '' ? null : parseInt(row.stock, 10);
     }
 
-    // A plain product in 'fixed' mode carries a product-level fixed promo price.
+    // A plain product in 'fixed' mode carries a product-level fixed promo price,
+    // taken from its single row's „Промо цена".
     const productSalePriceStotinki =
-      !varianted && promoMode === 'fixed' && productSalePrice.trim() !== '' ? parsePriceStotinki(productSalePrice) : null;
+      !varianted && promoMode === 'fixed' && filled[0].salePrice.trim() !== ''
+        ? parsePriceStotinki(filled[0].salePrice)
+        : null;
     if (productSalePriceStotinki != null && productSalePriceStotinki >= baseStotinki) {
       setErr('Промо цената трябва да е под редовната цена');
       return;
@@ -407,7 +407,7 @@ export function ProductDialog({
                       <Trash2 size={14} />
                     </button>
                   </div>
-                  {effectivePromoMode === 'fixed' && filledCount >= 2 && (
+                  {effectivePromoMode === 'fixed' && (
                     <div className="flex items-center gap-2 pl-1">
                       <span className="shrink-0 text-[11.5px] text-ff-muted">Промо цена</span>
                       <input
@@ -447,34 +447,10 @@ export function ProductDialog({
                 Фиксирана цена
               </label>
             </div>
-            {effectivePromoMode === 'fixed' && filledCount >= 2 ? (
+            {effectivePromoMode === 'fixed' ? (
               <p className="text-[12.5px] text-ff-muted">
-                {'Въведи „Промо цена“ в реда на всеки вариант по-горе (празно = без промо за него). Маха се ръчно — без срок.'}
+                {'Въведи „Промо цена“ на всеки ред по-горе (празно = без промо за него). Маха се ръчно — без срок.'}
               </p>
-            ) : effectivePromoMode === 'fixed' ? (
-              <>
-                <label className={labelCls}>
-                  Промо цена
-                  <input
-                    value={productSalePrice}
-                    onChange={(e) => setProductSalePrice(e.target.value)}
-                    inputMode="decimal"
-                    placeholder="напр. 5,20 € (празно = без промо)"
-                    className={field}
-                  />
-                </label>
-                {(() => {
-                  const base = Math.round((parseFloat((variants[0]?.price ?? '').replace(',', '.')) || 0) * 100);
-                  const sale = Math.round((parseFloat(productSalePrice.replace(',', '.')) || 0) * 100);
-                  if (base <= 0 || sale <= 0 || sale >= base) return null;
-                  return (
-                    <p className="mt-2 text-[12.5px] text-ff-muted">
-                      Преглед: <span className="line-through">{moneyFromStotinki(base)}</span>{' '}
-                      <span className="font-bold text-ff-green-700">{moneyFromStotinki(sale)}</span>
-                    </p>
-                  );
-                })()}
-              </>
             ) : (
             <>
             <div className="grid grid-cols-2 gap-3">
