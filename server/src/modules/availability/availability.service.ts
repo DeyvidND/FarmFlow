@@ -336,10 +336,18 @@ export class AvailabilityService {
         farmerId: products.farmerId,
         // A varianted product manages stock per-variant (not via windows). The screen
         // shows it read-only with a pointer to the product instead of a stock control.
-        hasVariants: sql<boolean>`EXISTS (SELECT 1 FROM ${productVariants} WHERE ${productVariants.productId} = ${products.id} AND ${productVariants.deletedAt} IS NULL)`,
+        // (A correlated EXISTS via the `sql` template renders columns UNqualified
+        // here — `"product_id" = "id"` both bind to the subquery table → always false.
+        // A LEFT JOIN + bool_or qualifies correctly.)
+        hasVariants: sql<boolean>`COALESCE(bool_or(${productVariants.productId} IS NOT NULL), false)`,
       })
       .from(products)
+      .leftJoin(
+        productVariants,
+        and(eq(productVariants.productId, products.id), isNull(productVariants.deletedAt)),
+      )
       .where(and(...conditions))
+      .groupBy(products.id, products.name, products.weight, products.farmerId)
       .orderBy(asc(products.name));
   }
 
