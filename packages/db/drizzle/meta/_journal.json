@@ -442,6 +442,13 @@
       "when": 1782466800000,
       "tag": "0062_product_variants_and_promo",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1782550800000,
+      "tag": "0063_variant_fixed_sale_price",
+      "breakpoints": true
     }
   ]
 }

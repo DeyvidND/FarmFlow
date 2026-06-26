@@ -55,9 +55,13 @@ export function ProductDialog({
   const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(product?.coverCrop ?? null);
   // Variants (вид/грамаж): one product, several priced rows. Prices kept as
   // comma-strings like the main price; stock '' = unlimited.
-  type VRow = { id?: string; label: string; price: string; stock: string };
+  type VRow = { id?: string; label: string; price: string; stock: string; salePrice: string };
   const [hasVariants, setHasVariants] = useState(false);
   const [variants, setVariants] = useState<VRow[]>([]);
+  // Promotion type for a varianted product: 'percent' = one % off all variants;
+  // 'fixed' = a per-variant promo price. Mutually exclusive (server enforces too).
+  // Non-variant products always use 'percent'.
+  const [promoMode, setPromoMode] = useState<'percent' | 'fixed'>('percent');
   // Promotion: percent off + optional end date (date input wants YYYY-MM-DD).
   const [salePercent, setSalePercent] = useState(product?.salePercent ? String(product.salePercent) : '');
   const [saleEndsAt, setSaleEndsAt] = useState(product?.saleEndsAt ? product.saleEndsAt.slice(0, 10) : '');
@@ -101,8 +105,11 @@ export function ProductDialog({
               label: v.label,
               price: (v.priceStotinki / 100).toFixed(2).replace('.', ','),
               stock: v.stockQuantity == null ? '' : String(v.stockQuantity),
+              salePrice: v.salePriceStotinki == null ? '' : (v.salePriceStotinki / 100).toFixed(2).replace('.', ','),
             })),
           );
+          // Any variant carrying a fixed promo price → the product is in fixed mode.
+          if (rows.some((v) => v.salePriceStotinki != null)) setPromoMode('fixed');
         }
       })
       .catch(() => {});
@@ -153,21 +160,37 @@ export function ProductDialog({
         setErr('Добави поне един вариант или изключи вариантите');
         return;
       }
-      variantPayload = cleaned.map((v) => ({
-        ...(v.id ? { id: v.id } : {}),
-        label: v.label.trim(),
-        priceStotinki: Math.round((parseFloat(v.price.replace(',', '.')) || 0) * 100),
-        stockQuantity: v.stock.trim() === '' ? null : parseInt(v.stock, 10),
-      }));
+      variantPayload = cleaned.map((v) => {
+        const priceStotinki = Math.round((parseFloat(v.price.replace(',', '.')) || 0) * 100);
+        // Fixed promo price only in 'fixed' mode; '' = no promo for this variant.
+        // 'percent' mode sends null to clear any previously-set fixed price.
+        const salePriceStotinki =
+          promoMode === 'fixed' && v.salePrice.trim() !== ''
+            ? Math.round((parseFloat(v.salePrice.replace(',', '.')) || 0) * 100)
+            : null;
+        return {
+          ...(v.id ? { id: v.id } : {}),
+          label: v.label.trim(),
+          priceStotinki,
+          salePriceStotinki,
+          stockQuantity: v.stock.trim() === '' ? null : parseInt(v.stock, 10),
+        };
+      });
       if (variantPayload.some((v) => v.priceStotinki <= 0)) {
         setErr('Всеки вариант трябва да има валидна цена');
+        return;
+      }
+      if (variantPayload.some((v) => v.salePriceStotinki != null && v.salePriceStotinki >= v.priceStotinki)) {
+        setErr('Промо цената трябва да е под редовната цена на варианта');
         return;
       }
     } else {
       variantPayload = []; // explicit empty = remove any existing variants
     }
-    const pct = salePercent.trim() === '' ? null : parseInt(salePercent, 10);
-    const promoEnd = saleEndsAt.trim() === '' ? null : new Date(`${saleEndsAt}T23:59:59`).toISOString();
+    // Fixed-per-variant promo and the product-level % are mutually exclusive.
+    const fixedMode = hasVariants && promoMode === 'fixed';
+    const pct = fixedMode || salePercent.trim() === '' ? null : parseInt(salePercent, 10);
+    const promoEnd = fixedMode || saleEndsAt.trim() === '' ? null : new Date(`${saleEndsAt}T23:59:59`).toISOString();
     const effectivePrice = hasVariants && variantPayload && variantPayload.length
       ? Math.min(...variantPayload.map((v) => v.priceStotinki))
       : priceStotinki;
@@ -365,40 +388,54 @@ export function ProductDialog({
             {hasVariants && (
               <div className="mt-3 flex flex-col gap-2">
                 {variants.map((v, i) => (
-                  <div key={i} className="flex gap-2">
-                    <input
-                      value={v.label}
-                      onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, label: e.target.value } : r)))}
-                      placeholder="Кристализиран 500 г"
-                      className={`${field} flex-[2]`}
-                    />
-                    <input
-                      value={v.price}
-                      onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, price: e.target.value } : r)))}
-                      inputMode="decimal"
-                      placeholder="6,50 €"
-                      className={`${field} flex-1`}
-                    />
-                    <input
-                      value={v.stock}
-                      onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, stock: e.target.value.replace(/[^0-9]/g, '') } : r)))}
-                      inputMode="numeric"
-                      placeholder="бр"
-                      className={`${field} w-16`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setVariants((p) => p.filter((_, j) => j !== i))}
-                      aria-label="Премахни вариант"
-                      className="grid w-9 shrink-0 place-items-center rounded-sm text-ff-red hover:bg-ff-surface-2"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                  <div key={i} className="flex flex-col gap-1">
+                    <div className="flex gap-2">
+                      <input
+                        value={v.label}
+                        onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, label: e.target.value } : r)))}
+                        placeholder="Кристализиран 500 г"
+                        className={`${field} min-w-0 flex-[2]`}
+                      />
+                      <input
+                        value={v.price}
+                        onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, price: e.target.value } : r)))}
+                        inputMode="decimal"
+                        placeholder="6,50 €"
+                        className={`${field} min-w-0 flex-1`}
+                      />
+                      <input
+                        value={v.stock}
+                        onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, stock: e.target.value.replace(/[^0-9]/g, '') } : r)))}
+                        inputMode="numeric"
+                        placeholder="бр"
+                        className={`${field} w-16`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setVariants((p) => p.filter((_, j) => j !== i))}
+                        aria-label="Премахни вариант"
+                        className="grid w-9 shrink-0 place-items-center rounded-sm text-ff-red hover:bg-ff-surface-2"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                    {promoMode === 'fixed' && (
+                      <div className="flex items-center gap-2 pl-1">
+                        <span className="shrink-0 text-[11.5px] text-ff-muted">Промо цена</span>
+                        <input
+                          value={v.salePrice}
+                          onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, salePrice: e.target.value } : r)))}
+                          inputMode="decimal"
+                          placeholder="напр. 5,20 € (празно = без промо)"
+                          className={`${field} min-w-0 flex-1`}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
                 <button
                   type="button"
-                  onClick={() => setVariants((p) => [...p, { label: '', price: '', stock: '' }])}
+                  onClick={() => setVariants((p) => [...p, { label: '', price: '', stock: '', salePrice: '' }])}
                   className="inline-flex items-center gap-1.5 self-start text-[12.5px] font-semibold text-ff-green-700 hover:underline"
                 >
                   <Plus size={14} /> Добави вариант
@@ -409,10 +446,29 @@ export function ProductDialog({
           </Collapsible>
 
           <Collapsible
+            key={`promo-${promoMode}-${product?.salePercent ? 'p' : ''}`}
             title="Промоция"
             hint="Намали цената с процент за определен срок. След срока промоцията пада автоматично. Без срок — маха се ръчно."
-            defaultOpen={!!product?.salePercent}
+            defaultOpen={!!product?.salePercent || (hasVariants && promoMode === 'fixed')}
           >
+            {hasVariants && (
+              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] text-ff-ink">
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="promoMode" checked={promoMode === 'percent'} onChange={() => setPromoMode('percent')} />
+                  Процент за всички
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="promoMode" checked={promoMode === 'fixed'} onChange={() => setPromoMode('fixed')} />
+                  Фиксирана цена по вариант
+                </label>
+              </div>
+            )}
+            {hasVariants && promoMode === 'fixed' ? (
+              <p className="text-[12.5px] text-ff-muted">
+                {'Въведи „Промо цена“ в реда на всеки вариант по-горе (празно = без промо за него). Маха се ръчно — без срок.'}
+              </p>
+            ) : (
+            <>
             <div className="grid grid-cols-2 gap-3">
               <label className={labelCls}>
                 Отстъпка (%)
@@ -447,6 +503,8 @@ export function ProductDialog({
                 </p>
               );
             })()}
+            </>
+            )}
           </Collapsible>
 
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}

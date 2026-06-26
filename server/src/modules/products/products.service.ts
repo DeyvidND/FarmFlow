@@ -182,10 +182,13 @@ export class ProductsService {
     const { stock, variants, saleEndsAt, ...productDto } = dto;
     // Convert ISO string → Date for the timestamp column (null passes through).
     const saleEndsAtDate = saleEndsAt != null ? new Date(saleEndsAt) : saleEndsAt;
+    // Per-variant fixed promo and the product-level % are mutually exclusive: a
+    // fixed price on any variant wins and clears the product %.
+    const promoOverride = variantsHaveFixedSale(variants) ? { salePercent: null, saleEndsAt: null } : {};
     // A producer's products always belong to them — ignore any client-supplied farmer.
     const values = farmerScope !== null
-      ? { ...productDto, saleEndsAt: saleEndsAtDate, farmerId: farmerScope }
-      : { ...productDto, saleEndsAt: saleEndsAtDate };
+      ? { ...productDto, saleEndsAt: saleEndsAtDate, ...promoOverride, farmerId: farmerScope }
+      : { ...productDto, saleEndsAt: saleEndsAtDate, ...promoOverride };
     await this.assertRefsInTenant(tenantId, values);
     // Storefront product pages key off `slug`. The admin form doesn't collect
     // one, so derive a tenant-unique slug from the name (Cyrillic-aware).
@@ -237,10 +240,13 @@ export class ProductsService {
     // but a Date in the DB — convert here.
     const { stock, variants, saleEndsAt, ...rest } = dto;
     const saleEndsAtDate = saleEndsAt != null ? new Date(saleEndsAt) : saleEndsAt;
+    // Per-variant fixed promo and the product-level % are mutually exclusive: a
+    // fixed price on any variant wins and clears the product %.
+    const promoOverride = variantsHaveFixedSale(variants) ? { salePercent: null, saleEndsAt: null } : {};
     // Producers can edit their own product's fields but not its ownership.
     const data = farmerScope !== null
-      ? { ...rest, saleEndsAt: saleEndsAtDate, farmerId: undefined }
-      : { ...rest, saleEndsAt: saleEndsAtDate };
+      ? { ...rest, saleEndsAt: saleEndsAtDate, ...promoOverride, farmerId: undefined }
+      : { ...rest, saleEndsAt: saleEndsAtDate, ...promoOverride };
     await this.assertRefsInTenant(tenantId, data);
     const [row] = await this.db
       .update(products)
@@ -355,6 +361,12 @@ export class ProductsService {
     variants: VariantInput[] | undefined,
   ): Promise<void> {
     if (variants === undefined) return;
+    // A fixed promo price must be a real discount — below the variant's price.
+    for (const v of variants) {
+      if (v.salePriceStotinki != null && v.salePriceStotinki >= v.priceStotinki) {
+        throw new BadRequestException('Промо цената трябва да е под редовната цена на варианта');
+      }
+    }
     const existing = await this.db
       .select({ id: productVariants.id })
       .from(productVariants)
@@ -668,7 +680,14 @@ export interface VariantInput {
   id?: string;
   label: string;
   priceStotinki: number;
+  salePriceStotinki?: number | null;
   stockQuantity?: number | null;
+}
+
+/** True when any incoming variant carries a fixed promo price. Used to enforce the
+ *  product-%-vs-per-variant-fixed mutual exclusion at write time. */
+export function variantsHaveFixedSale(variants: VariantInput[] | undefined): boolean {
+  return Array.isArray(variants) && variants.some((v) => v.salePriceStotinki != null);
 }
 
 /** Diff incoming variants against the product's existing variant ids. `position`
@@ -676,15 +695,25 @@ export interface VariantInput {
  *  updates; without → inserts; existing ids absent from the incoming list →
  *  soft-delete. */
 export function planVariantWrites(incoming: VariantInput[], existingIds: string[]) {
-  const inserts: { label: string; priceStotinki: number; stockQuantity?: number | null; position: number }[] = [];
-  const updates: { id: string; label: string; priceStotinki: number; stockQuantity?: number | null; position: number }[] = [];
+  type Write = { label: string; priceStotinki: number; salePriceStotinki?: number | null; stockQuantity?: number | null; position: number };
+  const inserts: Write[] = [];
+  const updates: (Write & { id: string })[] = [];
   const keptIds = new Set<string>();
   incoming.forEach((v, position) => {
+    const fields: Write = {
+      label: v.label,
+      priceStotinki: v.priceStotinki,
+      position,
+      // Always carry the promo price so a mode switch (% ↔ fixed) is written
+      // deterministically — `null` clears a previously-set fixed promo.
+      ...(v.salePriceStotinki !== undefined ? { salePriceStotinki: v.salePriceStotinki } : {}),
+      ...(v.stockQuantity !== undefined ? { stockQuantity: v.stockQuantity } : {}),
+    };
     if (v.id) {
       keptIds.add(v.id);
-      updates.push({ id: v.id, label: v.label, priceStotinki: v.priceStotinki, ...(v.stockQuantity !== undefined ? { stockQuantity: v.stockQuantity } : {}), position });
+      updates.push({ id: v.id, ...fields });
     } else {
-      inserts.push({ label: v.label, priceStotinki: v.priceStotinki, ...(v.stockQuantity !== undefined ? { stockQuantity: v.stockQuantity } : {}), position });
+      inserts.push(fields);
     }
   });
   const deleteIds = existingIds.filter((id) => !keptIds.has(id));
@@ -705,13 +734,23 @@ export function buildPublicProduct(
   const pub: PublicProduct = {
     ...rest,
     images,
-    variants: variants.map((v): PublicProductVariant => ({
-      id: v.id,
-      label: v.label,
-      priceStotinki: v.priceStotinki,
-      ...(promo ? { salePriceStotinki: salePriceStotinki(v.priceStotinki, p.salePercent!) } : {}),
-      soldOut: v.stockQuantity === 0,
-    })),
+    variants: variants.map((v): PublicProductVariant => {
+      // A variant's own fixed promo price wins; otherwise the active product-level
+      // % applies. (Writes keep these mutually exclusive, so only one ever fires.)
+      const sale =
+        v.salePriceStotinki != null
+          ? v.salePriceStotinki
+          : promo
+            ? salePriceStotinki(v.priceStotinki, p.salePercent!)
+            : undefined;
+      return {
+        id: v.id,
+        label: v.label,
+        priceStotinki: v.priceStotinki,
+        ...(sale != null ? { salePriceStotinki: sale } : {}),
+        soldOut: v.stockQuantity === 0,
+      };
+    }),
   };
   if (promo) pub.salePriceStotinki = salePriceStotinki(p.priceStotinki, p.salePercent!);
   return pub;

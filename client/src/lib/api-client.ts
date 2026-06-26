@@ -85,7 +85,7 @@ export const listProducts = (cursor?: string) =>
 export const listProductOptions = () => apiFetch<ProductOption[]>('products/options');
 
 /** A variant the dialog sends on save (id present = update existing, absent = create). */
-export type VariantWrite = { id?: string; label: string; priceStotinki: number; stockQuantity?: number | null };
+export type VariantWrite = { id?: string; label: string; priceStotinki: number; salePriceStotinki?: number | null; stockQuantity?: number | null };
 
 /** Product write payload: the editable product fields plus the virtual `stock`
  *  number (drives the availability window — number sets it, null clears it back to

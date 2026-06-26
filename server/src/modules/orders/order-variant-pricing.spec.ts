@@ -24,9 +24,21 @@ describe('resolveLineUnit', () => {
   });
 
   it('applies an active promo to the variant price', () => {
-    const variant = { id: 'v1', label: '500г', priceStotinki: 650, stockQuantity: 5 } as any;
+    const variant = { id: 'v1', label: '500г', priceStotinki: 650, salePriceStotinki: null, stockQuantity: 5 } as any;
     const res = resolveLineUnit({ ...product, salePercent: 20 }, variant, NOW);
     expect(res.unitStotinki).toBe(520);
+  });
+
+  it("charges a variant's own fixed promo price (matches the storefront)", () => {
+    const variant = { id: 'v1', label: '500г', priceStotinki: 650, salePriceStotinki: 500, stockQuantity: 5 } as any;
+    const res = resolveLineUnit(product, variant, NOW);
+    expect(res.unitStotinki).toBe(500);
+  });
+
+  it("a variant's fixed promo wins over the product % (defensive read)", () => {
+    const variant = { id: 'v1', label: '500г', priceStotinki: 650, salePriceStotinki: 500, stockQuantity: 5 } as any;
+    const res = resolveLineUnit({ ...product, salePercent: 20 }, variant, NOW);
+    expect(res.unitStotinki).toBe(500); // fixed 500, not 520
   });
 });
 

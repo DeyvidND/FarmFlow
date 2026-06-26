@@ -18,6 +18,16 @@ export class VariantDto {
   @Min(0)
   priceStotinki: number;
 
+  // Fixed promo price for this variant (stotinki). null = no per-variant promo.
+  // Must be below `priceStotinki` (enforced in the service). Setting it on any
+  // variant clears the product-level % promo (mutually exclusive).
+  @ApiPropertyOptional({ description: 'Fixed promo price in stotinki; null = none', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  salePriceStotinki?: number | null;
+
   @ApiPropertyOptional({ description: 'NULL = unlimited stock', nullable: true })
   @IsOptional()
   @ValidateIf((_, v) => v !== null)

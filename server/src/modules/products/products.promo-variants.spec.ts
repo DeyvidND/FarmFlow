@@ -1,4 +1,4 @@
-import { buildPublicProduct, cheapestVariantPrice, planVariantWrites } from './products.service';
+import { buildPublicProduct, cheapestVariantPrice, planVariantWrites, variantsHaveFixedSale } from './products.service';
 
 describe('cheapestVariantPrice', () => {
   it('returns null for no variants', () => {
@@ -22,6 +22,34 @@ describe('planVariantWrites', () => {
       { id: 'v1', label: 'Стар 500г', priceStotinki: 650, stockQuantity: 5, position: 1 },
     ]);
     expect(plan.deleteIds).toEqual(['v2']); // existing but not in incoming
+  });
+
+  it('carries a per-variant fixed promo price (including null to clear it)', () => {
+    const plan = planVariantWrites(
+      [
+        { id: 'v1', label: 'A', priceStotinki: 1000, salePriceStotinki: 800 },
+        { id: 'v2', label: 'B', priceStotinki: 600, salePriceStotinki: null },
+      ],
+      ['v1', 'v2'],
+    );
+    expect(plan.updates[0]).toMatchObject({ id: 'v1', salePriceStotinki: 800 });
+    expect(plan.updates[1]).toMatchObject({ id: 'v2', salePriceStotinki: null });
+  });
+});
+
+describe('variantsHaveFixedSale', () => {
+  it('is false for undefined / none set', () => {
+    expect(variantsHaveFixedSale(undefined)).toBe(false);
+    expect(variantsHaveFixedSale([{ label: 'A', priceStotinki: 100 }])).toBe(false);
+    expect(variantsHaveFixedSale([{ label: 'A', priceStotinki: 100, salePriceStotinki: null }])).toBe(false);
+  });
+  it('is true when any variant carries a fixed promo price', () => {
+    expect(
+      variantsHaveFixedSale([
+        { label: 'A', priceStotinki: 100 },
+        { label: 'B', priceStotinki: 200, salePriceStotinki: 150 },
+      ]),
+    ).toBe(true);
   });
 });
 
@@ -58,5 +86,27 @@ describe('buildPublicProduct', () => {
   it('omits sale prices when promo expired', () => {
     const pub = buildPublicProduct({ ...baseProduct, salePercent: 20, saleEndsAt: new Date('2026-06-01') }, [], [], NOW2);
     expect(pub.salePriceStotinki).toBeUndefined();
+  });
+
+  it('uses a per-variant fixed promo price (no product %)', () => {
+    const variants = [
+      { id: 'v1', label: '500г', priceStotinki: 650, salePriceStotinki: 500, stockQuantity: 3 },
+      { id: 'v2', label: '1кг', priceStotinki: 1250, salePriceStotinki: null, stockQuantity: 2 },
+    ] as any;
+    const pub = buildPublicProduct(baseProduct, [], variants, NOW2);
+    expect(pub.salePriceStotinki).toBeUndefined(); // no product-level promo
+    expect(pub.variants[0]).toEqual({ id: 'v1', label: '500г', priceStotinki: 650, salePriceStotinki: 500, soldOut: false });
+    expect(pub.variants[1]).toEqual({ id: 'v2', label: '1кг', priceStotinki: 1250, soldOut: false }); // no fixed promo
+  });
+
+  it("variant's own fixed promo wins over the product %", () => {
+    const variants = [
+      { id: 'v1', label: '500г', priceStotinki: 650, salePriceStotinki: 500, stockQuantity: 3 },
+      { id: 'v2', label: '1кг', priceStotinki: 1000, salePriceStotinki: null, stockQuantity: 1 },
+    ] as any;
+    // (writes keep these exclusive, but a defensive read still prefers the fixed price)
+    const pub = buildPublicProduct({ ...baseProduct, salePercent: 20 }, [], variants, NOW2);
+    expect(pub.variants[0].salePriceStotinki).toBe(500); // fixed, not 520 (20% of 650)
+    expect(pub.variants[1].salePriceStotinki).toBe(800); // falls back to product 20%
   });
 });

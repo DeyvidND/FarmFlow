@@ -277,11 +277,17 @@ export function requiresVariantSelection(productHasVariants: boolean, variantId?
  *  the product's price and "name + weight" snapshot are used. Pure (now passed in). */
 export function resolveLineUnit(
   product: Pick<Product, 'priceStotinki' | 'name' | 'weight' | 'salePercent' | 'saleEndsAt'>,
-  variant: Pick<ProductVariant, 'id' | 'label' | 'priceStotinki'> | null,
+  variant: Pick<ProductVariant, 'id' | 'label' | 'priceStotinki' | 'salePriceStotinki'> | null,
   now: Date,
 ): { unitStotinki: number; label: string; variantId: string | null; variantLabel: string | null } {
   const base = variant ? variant.priceStotinki : product.priceStotinki;
-  const unitStotinki = effectivePriceStotinki(base, product.salePercent, product.saleEndsAt, now);
+  // A variant's own fixed promo price wins (it cleared the product %); otherwise
+  // the product-level % promo applies. Mirrors buildPublicProduct so the price
+  // charged equals the price shown on the storefront.
+  const unitStotinki =
+    variant && variant.salePriceStotinki != null
+      ? variant.salePriceStotinki
+      : effectivePriceStotinki(base, product.salePercent, product.saleEndsAt, now);
   return variant
     ? { unitStotinki, label: variant.label, variantId: variant.id, variantLabel: variant.label }
     : {

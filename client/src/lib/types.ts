@@ -73,6 +73,8 @@ export interface ProductVariant {
   id: string;
   label: string;
   priceStotinki: number;
+  /** Fixed promo price (stotinki); null = no per-variant promo. */
+  salePriceStotinki: number | null;
   /** null = unlimited stock. */
   stockQuantity: number | null;
   position: number;

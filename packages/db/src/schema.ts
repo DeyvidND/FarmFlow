@@ -239,6 +239,10 @@ export const productVariants = pgTable(
       .references(() => products.id, { onDelete: 'cascade' }),
     label: text('label').notNull(),
     priceStotinki: integer('price_stotinki').notNull(),
+    // Fixed promo price for this variant (stotinki). NULL = no per-variant promo
+    // (the variant follows the product-level % promo, if any). Mutually exclusive
+    // with the product %: setting any variant's fixed price clears the product %.
+    salePriceStotinki: integer('sale_price_stotinki'),
     // NULL = unlimited stock; 0 = out of stock.
     stockQuantity: integer('stock_quantity'),
     position: integer('position').notNull().default(0),
