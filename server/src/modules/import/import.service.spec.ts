@@ -1,6 +1,7 @@
 import { ImportService } from './import.service';
 import { ImportAiService } from './import.ai';
 import { ImportResolveService } from './import.resolve';
+import { AddressGeoService } from './address-geo.service';
 import { EcontService } from '../econt/econt.service';
 import { SpeedyService } from '../speedy/speedy.service';
 
@@ -55,7 +56,11 @@ describe('ImportService.commit — atomic per-row claim', () => {
     const speedy = { createManualShipment: jest.fn().mockResolvedValue({ id: 'ship-s1' }) } as unknown as SpeedyService;
     const ai = {} as ImportAiService;
     const resolver = {} as ImportResolveService;
-    const svc = new ImportService(db, ai, resolver, econt, speedy);
+    const addressGeo = {
+      checkMany: jest.fn().mockResolvedValue(new Map()),
+      checkOne: jest.fn().mockResolvedValue({ status: 'ok' }),
+    } as unknown as AddressGeoService;
+    const svc = new ImportService(db, ai, resolver, addressGeo, econt, speedy);
     return { svc, econt, speedy };
   }
 
