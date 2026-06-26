@@ -435,6 +435,13 @@
       "when": 1782463200000,
       "tag": "0061_nekorekten_durable_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1782466800000,
+      "tag": "0062_product_variants_and_promo",
+      "breakpoints": true
     }
   ]
 }
