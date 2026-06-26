@@ -200,6 +200,19 @@ export class ImportService {
       }
     }
 
+    // Re-check Google-eligibility for the edited address (single row, cache-first → cheap).
+    if (det.status !== 'error' && merged.deliveryMode === 'address' && merged.address) {
+      const g = await this.addressGeo.checkOne(merged.address, merged.city);
+      if (g.status !== 'ok') {
+        validation = {
+          status: 'warn',
+          issues: [...validation.issues, g.status === 'fixed'
+            ? { field: 'address', code: 'address_fixable', message: 'Адресът не се намира в Google — предложение по-долу', suggestion: g.suggestion }
+            : { field: 'address', code: 'address_unresolved', message: 'Адресът не се намира в Google — провери ръчно' }],
+        };
+      }
+    }
+
     const [updated] = await this.db.update(importRows).set({
       receiverName: merged.receiverName, receiverPhone: merged.receiverPhone,
       deliveryMode: merged.deliveryMode, city: merged.city, office: merged.office,
