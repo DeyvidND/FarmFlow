@@ -2,7 +2,7 @@ import { Injectable, Inject, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { type Database, products, productMedia, productVariants, farmers, subcategories } from '@fermeribg/db';
 import type { Product, ProductMedia, ProductVariant, PublicProduct, PublicProductVariant } from '@fermeribg/types';
 import { isPromoActive, salePriceStotinki } from './promo.util';
@@ -643,6 +643,18 @@ export class ProductsService {
     } catch {
       // a storage hiccup must not block the DB write
     }
+  }
+
+  /** Null out promos whose end date has passed so they disappear from the admin
+   *  UI. Pricing already ignores them (date check), so this is tidiness only.
+   *  Returns the number of products cleared. */
+  async expirePromotions(now: Date = new Date()): Promise<number> {
+    const rows = await this.db
+      .update(products)
+      .set({ salePercent: null, saleEndsAt: null })
+      .where(and(isNotNull(products.saleEndsAt), lt(products.saleEndsAt, now)))
+      .returning({ id: products.id });
+    return rows.length;
   }
 }
 
