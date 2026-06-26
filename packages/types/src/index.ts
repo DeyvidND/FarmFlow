@@ -105,9 +105,12 @@ export type PublicProductVariant = {
  */
 export type PublicProduct = Omit<
   Product,
-  'tenantId' | 'stockQuantity' | 'stripeProductId' | 'stripePriceId' | 'deletedAt'
+  'tenantId' | 'stockQuantity' | 'stripeProductId' | 'stripePriceId' | 'deletedAt' | 'salePriceStotinki'
 > & {
   images: string[];
+  // Server-computed effective sale price (fixed product-level price OR the
+  // %-derived one), present only while a promo is active. Distinct from the raw
+  // `products.salePriceStotinki` input column (stripped above).
   salePriceStotinki?: number;
   variants: PublicProductVariant[];
 };

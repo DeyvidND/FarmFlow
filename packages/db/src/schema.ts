@@ -190,6 +190,10 @@ export const products = pgTable(
     // nulls both columns for admin tidiness). Both NULL = no promo.
     salePercent: integer('sale_percent'),
     saleEndsAt: timestamp('sale_ends_at'),
+    // Product-level FIXED promo price (stotinki) — alternative to the % discount,
+    // for plain products. NULL = none. Mutually exclusive with salePercent (a fixed
+    // price clears the %). Varianted products use product_variants.salePriceStotinki.
+    salePriceStotinki: integer('sale_price_stotinki'),
     featured: boolean('featured').notNull().default(false),
     // Farmer-controlled storefront display order. A single global position per
     // tenant; per-category sections sort by the same field, filtered. Backfilled
