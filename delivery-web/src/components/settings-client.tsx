@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Truck, Zap, Plug, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Truck, Zap, Plug, CheckCircle2, XCircle, AlertTriangle, Check } from 'lucide-react';
 import {
   ApiError, getAccountStatus, getEcontConfig, getSpeedyConfig, saveEcontCredentials, saveSpeedyCredentials,
   type EcontConfig, type SpeedyConfig,
 } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -43,12 +44,96 @@ function EnvRow({ isDemo }: { isDemo: boolean | null }) {
   );
 }
 
+type Section = 'carriers' | 'password';
+
+const SECTIONS: { id: Section; label: string }[] = [
+  { id: 'carriers', label: 'Куриерски акаунти' },
+  { id: 'password', label: 'Смяна на парола' },
+];
+
+function PasswordSection() {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const btn = 'inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-ff-green-700 px-4 text-[13.5px] font-bold text-white hover:brightness-95 disabled:opacity-60';
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setDone(false);
+
+    if (next.length < 8) { setError('Новата парола трябва да е поне 8 символа'); return; }
+    if (next !== confirm) { setError('Паролите не съвпадат'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/session/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const msg = (data?.message as string | undefined) ?? 'Грешна текуща парола';
+        setError(msg);
+        return;
+      }
+      setCurrent(''); setNext(''); setConfirm('');
+      setDone(true);
+      toast.success('Паролата е сменена успешно');
+    } catch {
+      setError('Възникна грешка. Опитай отново.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-sm">
+      <h2 className="mb-4 text-[16px] font-extrabold">Смяна на парола</h2>
+
+      {done && (
+        <div className="mb-4 flex items-center gap-2.5 rounded-[10px] border border-ff-green-100 bg-ff-green-50 px-4 py-3 text-[13.5px] font-semibold text-ff-green-800">
+          <Check size={17} strokeWidth={2.6} className="shrink-0 text-ff-green-600" />
+          Паролата е сменена успешно. Следващия път влез с новата парола.
+        </div>
+      )}
+
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        <div>
+          <label className={lbl} htmlFor="pw-current">Текуща парола</label>
+          <input id="pw-current" type="password" className={inp} placeholder="••••••••" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
+        </div>
+        <div>
+          <label className={lbl} htmlFor="pw-new">Нова парола</label>
+          <input id="pw-new" type="password" className={inp} placeholder="••••••••" autoComplete="new-password" required value={next} onChange={(e) => setNext(e.target.value)} />
+        </div>
+        <div>
+          <label className={lbl} htmlFor="pw-confirm">Потвърди нова парола</label>
+          <input id="pw-confirm" type="password" className={inp} placeholder="••••••••" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        </div>
+
+        {error && <p className="text-[13px] font-semibold text-ff-red">{error}</p>}
+
+        <button type="submit" disabled={loading} className={btn + ' mt-0.5 w-full'}>
+          {loading ? 'Зареждане…' : 'Смени паролата'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export function SettingsClient() {
+  const [section, setSection] = useState<Section>('carriers');
+
   const [econt, setEcont] = useState<EcontConfig | null>(null);
   const [speedy, setSpeedy] = useState<SpeedyConfig | null>(null);
   const [active, setActive] = useState<boolean | null>(null);
-  // Account-level demo flag (set by super-admin) — same for both carriers. The
-  // operator can't change the environment; we only show it.
+  // Account-level demo flag (set by super-admin) — same for both carriers.
   const [isDemo, setIsDemo] = useState<boolean | null>(null);
 
   const [econtForm, setEcontForm] = useState({ username: '', password: '' });
@@ -131,89 +216,119 @@ export function SettingsClient() {
         )}
       </div>
       <p className="mt-1 text-[13.5px] text-ff-muted">
-        Свържи куриерските си акаунти. Активирането на услугата се управлява от администратор.
+        Управлявай настройките на профила си.
       </p>
 
-      {active === false && (
-        <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#e7c9a0] bg-ff-amber-softer p-4">
-          <AlertTriangle size={20} className="mt-0.5 shrink-0 text-ff-amber-600" />
-          <div>
-            <div className="text-[14px] font-bold text-ff-ink">Услугата още не е активна</div>
-            <p className="mt-0.5 text-[13px] leading-snug text-ff-ink-2">
-              Свържи куриерските акаунти по-долу. Активирането се прави от администратор — щом услугата е активна, ще можеш да създаваш пратки и да ползваш проверка на клиент.
-            </p>
-          </div>
+      <div className="mt-5 flex flex-col gap-4 md:flex-row md:items-start md:gap-6">
+        {/* Left nav */}
+        <nav className="flex flex-row gap-2 overflow-x-auto md:w-[210px] md:shrink-0 md:flex-col md:gap-1">
+          {SECTIONS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setSection(s.id)}
+              className={cn(
+                'whitespace-nowrap rounded-xl border px-4 py-2.5 text-left text-[13.5px] font-bold transition-colors',
+                section === s.id
+                  ? 'border-ff-green-700 bg-ff-green-50 text-ff-green-800'
+                  : 'border-transparent bg-transparent text-ff-ink-2 hover:bg-ff-surface-2',
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Right content */}
+        <div key={section} className="min-w-0 flex-1 animate-ff-fade-up">
+          {section === 'carriers' && (
+            <>
+              {active === false && (
+                <div className="mb-5 flex items-start gap-3 rounded-xl border border-[#e7c9a0] bg-ff-amber-softer p-4">
+                  <AlertTriangle size={20} className="mt-0.5 shrink-0 text-ff-amber-600" />
+                  <div>
+                    <div className="text-[14px] font-bold text-ff-ink">Услугата още не е активна</div>
+                    <p className="mt-0.5 text-[13px] leading-snug text-ff-ink-2">
+                      Свържи куриерските акаунти по-долу. Активирането се прави от администратор — щом услугата е активна, ще можеш да създаваш пратки и да ползваш проверка на клиент.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                {/* ---- Econt ---- */}
+                <form onSubmit={saveEcont} className={card}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-ff-green-50 text-ff-green-700">
+                        <Truck size={19} />
+                      </div>
+                      <h2 className="font-display text-[18px] font-extrabold">Econt</h2>
+                    </div>
+                    <StatusBadge configured={!!econt?.configured} />
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <EnvRow isDemo={isDemo} />
+                    <div>
+                      <label className={lbl} htmlFor="econt-user">Потребител</label>
+                      <input id="econt-user" className={inp} autoComplete="off" value={econtForm.username} onChange={(e) => setEcontForm({ ...econtForm, username: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={lbl} htmlFor="econt-pass">Парола</label>
+                      <input id="econt-pass" type="password" className={inp} autoComplete="new-password" placeholder={econt?.configured ? 'Въведи нова, за да смениш' : ''} value={econtForm.password} onChange={(e) => setEcontForm({ ...econtForm, password: e.target.value })} />
+                    </div>
+                  </div>
+
+                  <button type="submit" disabled={savingE || !econtForm.username.trim() || !econtForm.password} className={btn + ' mt-4 w-full'}>
+                    <Plug size={16} /> {savingE ? 'Запазвам…' : 'Запази'}
+                  </button>
+                </form>
+
+                {/* ---- Speedy ---- */}
+                <form onSubmit={saveSpeedy} className={card}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-ff-amber-softer text-ff-amber-600">
+                        <Zap size={19} />
+                      </div>
+                      <h2 className="font-display text-[18px] font-extrabold">Speedy</h2>
+                    </div>
+                    <StatusBadge configured={!!speedy?.configured} />
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <EnvRow isDemo={isDemo} />
+                    <div>
+                      <label className={lbl} htmlFor="speedy-user">Потребител</label>
+                      <input id="speedy-user" className={inp} autoComplete="off" value={speedyForm.userName} onChange={(e) => setSpeedyForm({ ...speedyForm, userName: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={lbl} htmlFor="speedy-pass">Парола</label>
+                      <input id="speedy-pass" type="password" className={inp} autoComplete="new-password" placeholder={speedy?.configured ? 'Въведи нова, за да смениш' : ''} value={speedyForm.password} onChange={(e) => setSpeedyForm({ ...speedyForm, password: e.target.value })} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className={lbl} htmlFor="speedy-csid">Client System ID</label>
+                        <input id="speedy-csid" type="number" inputMode="numeric" className={inp} placeholder="по избор" value={speedyForm.clientSystemId} onChange={(e) => setSpeedyForm({ ...speedyForm, clientSystemId: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className={lbl} htmlFor="speedy-svc">Услуга по подр.</label>
+                        <input id="speedy-svc" type="number" inputMode="numeric" className={inp} placeholder="по избор" value={speedyForm.defaultServiceId} onChange={(e) => setSpeedyForm({ ...speedyForm, defaultServiceId: e.target.value })} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <button type="submit" disabled={savingS || !speedyForm.userName.trim() || !speedyForm.password} className={btn + ' mt-4 w-full'}>
+                    <Plug size={16} /> {savingS ? 'Запазвам…' : 'Запази'}
+                  </button>
+                </form>
+              </div>
+            </>
+          )}
+
+          {section === 'password' && <PasswordSection />}
         </div>
-      )}
-
-      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {/* ---- Econt ---- */}
-        <form onSubmit={saveEcont} className={card}>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-ff-green-50 text-ff-green-700">
-                <Truck size={19} />
-              </div>
-              <h2 className="font-display text-[18px] font-extrabold">Econt</h2>
-            </div>
-            <StatusBadge configured={!!econt?.configured} />
-          </div>
-
-          <div className="mt-4 space-y-3">
-            <EnvRow isDemo={isDemo} />
-            <div>
-              <label className={lbl} htmlFor="econt-user">Потребител</label>
-              <input id="econt-user" className={inp} autoComplete="off" value={econtForm.username} onChange={(e) => setEcontForm({ ...econtForm, username: e.target.value })} />
-            </div>
-            <div>
-              <label className={lbl} htmlFor="econt-pass">Парола</label>
-              <input id="econt-pass" type="password" className={inp} autoComplete="new-password" placeholder={econt?.configured ? 'Въведи нова, за да смениш' : ''} value={econtForm.password} onChange={(e) => setEcontForm({ ...econtForm, password: e.target.value })} />
-            </div>
-          </div>
-
-          <button type="submit" disabled={savingE || !econtForm.username.trim() || !econtForm.password} className={btn + ' mt-4 w-full'}>
-            <Plug size={16} /> {savingE ? 'Запазвам…' : 'Запази'}
-          </button>
-        </form>
-
-        {/* ---- Speedy ---- */}
-        <form onSubmit={saveSpeedy} className={card}>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-ff-amber-softer text-ff-amber-600">
-                <Zap size={19} />
-              </div>
-              <h2 className="font-display text-[18px] font-extrabold">Speedy</h2>
-            </div>
-            <StatusBadge configured={!!speedy?.configured} />
-          </div>
-
-          <div className="mt-4 space-y-3">
-            <EnvRow isDemo={isDemo} />
-            <div>
-              <label className={lbl} htmlFor="speedy-user">Потребител</label>
-              <input id="speedy-user" className={inp} autoComplete="off" value={speedyForm.userName} onChange={(e) => setSpeedyForm({ ...speedyForm, userName: e.target.value })} />
-            </div>
-            <div>
-              <label className={lbl} htmlFor="speedy-pass">Парола</label>
-              <input id="speedy-pass" type="password" className={inp} autoComplete="new-password" placeholder={speedy?.configured ? 'Въведи нова, за да смениш' : ''} value={speedyForm.password} onChange={(e) => setSpeedyForm({ ...speedyForm, password: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={lbl} htmlFor="speedy-csid">Client System ID</label>
-                <input id="speedy-csid" type="number" inputMode="numeric" className={inp} placeholder="по избор" value={speedyForm.clientSystemId} onChange={(e) => setSpeedyForm({ ...speedyForm, clientSystemId: e.target.value })} />
-              </div>
-              <div>
-                <label className={lbl} htmlFor="speedy-svc">Услуга по подр.</label>
-                <input id="speedy-svc" type="number" inputMode="numeric" className={inp} placeholder="по избор" value={speedyForm.defaultServiceId} onChange={(e) => setSpeedyForm({ ...speedyForm, defaultServiceId: e.target.value })} />
-              </div>
-            </div>
-          </div>
-
-          <button type="submit" disabled={savingS || !speedyForm.userName.trim() || !speedyForm.password} className={btn + ' mt-4 w-full'}>
-            <Plug size={16} /> {savingS ? 'Запазвам…' : 'Запази'}
-          </button>
-        </form>
       </div>
     </div>
   );
