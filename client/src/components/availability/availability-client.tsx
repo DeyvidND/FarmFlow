@@ -156,7 +156,7 @@ export function AvailabilityClient({
               <div className="font-semibold text-ff-ink">
                 {[p.name, p.weight].filter(Boolean).join(' ')}
               </div>
-              {byProduct(p.id).length === 0 && (
+              {!p.hasVariants && byProduct(p.id).length === 0 && (
                 <button
                   onClick={() => setEditing({ productId: p.id })}
                   className="shrink-0 rounded-lg bg-ff-green-50 px-3 py-1.5 text-sm font-bold text-ff-green-700 hover:bg-ff-green-100"
@@ -166,39 +166,51 @@ export function AvailabilityClient({
               )}
             </div>
 
-            <div className="mt-3 flex flex-col gap-1.5">
-              {byProduct(p.id).length === 0 && (
-                <div className="text-sm text-ff-muted-2">
-                  Няма зададена наличност.
+            {p.hasVariants ? (
+              <div className="mt-3 rounded-lg bg-ff-surface-2 px-3 py-2.5 text-sm">
+                <div className="font-semibold text-ff-ink">Управлява се чрез варианти</div>
+                <div className="mt-0.5 text-ff-muted-2">
+                  Този продукт има няколко вида/грамажа. Наличността се задава за всеки от тях в самия продукт.
                 </div>
-              )}
-              {byProduct(p.id).map((w) => (
-                <div
-                  key={w.id}
-                  className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg bg-ff-surface-2 px-3 py-2 text-sm"
-                >
-                  <span className="font-semibold text-ff-ink">
-                    остават {w.remaining}/{w.quantity} бр.
-                  </span>
-                  <span className="flex items-center gap-3">
-                    <button
-                      onClick={() =>
-                        setEditing({ productId: p.id, existingWindow: w })
-                      }
-                      className="text-ff-ink-2 hover:underline"
-                    >
-                      Промени
-                    </button>
-                    <button
-                      onClick={() => setConfirming(w.id)}
-                      className="text-red-600 hover:underline"
-                    >
-                      Изтрий
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
+                <a href="/products" className="mt-1.5 inline-block font-semibold text-ff-green-700 hover:underline">
+                  Отвори продукта →
+                </a>
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-col gap-1.5">
+                {byProduct(p.id).length === 0 && (
+                  <div className="text-sm text-ff-muted-2">
+                    Няма зададена наличност.
+                  </div>
+                )}
+                {byProduct(p.id).map((w) => (
+                  <div
+                    key={w.id}
+                    className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg bg-ff-surface-2 px-3 py-2 text-sm"
+                  >
+                    <span className="font-semibold text-ff-ink">
+                      остават {w.remaining}/{w.quantity} бр.
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <button
+                        onClick={() =>
+                          setEditing({ productId: p.id, existingWindow: w })
+                        }
+                        className="text-ff-ink-2 hover:underline"
+                      >
+                        Промени
+                      </button>
+                      <button
+                        onClick={() => setConfirming(w.id)}
+                        className="text-red-600 hover:underline"
+                      >
+                        Изтрий
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -214,7 +226,7 @@ export function AvailabilityClient({
 
       {bulkOpen && (
         <BulkWindowEditor
-          products={visibleProducts}
+          products={visibleProducts.filter((p) => !p.hasVariants)}
           onClose={() => setBulkOpen(false)}
           onSaved={reload}
         />

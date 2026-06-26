@@ -21,6 +21,7 @@ export type PickerProduct = {
   name: string;
   weight: string | null;
   farmerId: string | null;
+  hasVariants: boolean;
 };
 
 export default async function AvailabilityPage() {
