@@ -459,12 +459,12 @@ export function ImportClient() {
 
           {/* desktop table */}
           <div className="mt-3 overflow-x-auto rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:hidden">
-            <table className="w-full border-collapse text-[14px]">
+            <table className="w-full min-w-[1240px] border-collapse text-[14px]">
               <thead><tr className="border-b border-ff-border bg-ff-surface-2 text-left">
                 {[
-                  { h: '#', w: 'w-10' }, { h: 'Получател', w: '' }, { h: 'Телефон', w: 'w-40' }, { h: 'Доставка', w: 'w-32' },
-                  { h: 'Град', w: 'w-36' }, { h: 'Офис/Адрес', w: '' }, { h: 'Тегло (кг)', w: 'w-24' }, { h: 'Платеж (€)', w: 'w-28' },
-                  { h: 'Риск', w: 'w-28' }, { h: 'Проблеми', w: '' }, { h: '', w: 'w-12' },
+                  { h: '#', w: 'w-10' }, { h: 'Получател', w: 'w-44' }, { h: 'Телефон', w: 'w-44' }, { h: 'Доставка', w: 'w-32' },
+                  { h: 'Град', w: 'w-36' }, { h: 'Офис/Адрес', w: 'w-52' }, { h: 'Тегло (кг)', w: 'w-24' }, { h: 'Платеж (€)', w: 'w-28' },
+                  { h: 'Риск', w: 'w-28' }, { h: 'Проблеми', w: 'w-56' }, { h: '', w: 'w-12' },
                 ].map(({ h, w }) => (
                   <th key={h} className={`px-3.5 py-3 text-[11.5px] font-bold uppercase tracking-[0.03em] text-ff-muted ${w}`}>{h}</th>
                 ))}
