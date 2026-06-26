@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { type Database, products, productMedia, farmers, subcategories } from '@fermeribg/db';
+import { type Database, products, productMedia, productVariants, farmers, subcategories } from '@fermeribg/db';
 import type { Product, ProductMedia, PublicProduct } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
@@ -198,6 +198,7 @@ export class ProductsService {
     if (typeof stock === 'number') {
       await this.availability.setProductStock(tenantId, row.id, stock);
     }
+    await this.syncVariants(tenantId, row.id, variants);
     await this.cache.invalidate(tenantId);
     return row;
   }
@@ -250,6 +251,7 @@ export class ProductsService {
     if (stock !== undefined) {
       await this.availability.setProductStock(tenantId, id, stock);
     }
+    await this.syncVariants(tenantId, id, variants);
     await this.cache.invalidate(tenantId);
     return row;
   }
@@ -341,6 +343,47 @@ export class ProductsService {
 
     await this.cache.invalidate(tenantId);
     return { updated: rows.length };
+  }
+
+  /** Persist the product's variants (full replace) and sync the cheapest price.
+   *  Runs after the products row is written. No-op when `variants` is undefined
+   *  (caller didn't touch them). */
+  private async syncVariants(
+    tenantId: string,
+    productId: string,
+    variants: VariantInput[] | undefined,
+  ): Promise<void> {
+    if (variants === undefined) return;
+    const existing = await this.db
+      .select({ id: productVariants.id })
+      .from(productVariants)
+      .where(and(eq(productVariants.productId, productId), isNull(productVariants.deletedAt)));
+    const { inserts, updates, deleteIds } = planVariantWrites(variants, existing.map((r) => r.id));
+    for (const ins of inserts) {
+      await this.db.insert(productVariants).values({ ...ins, productId });
+    }
+    for (const upd of updates) {
+      const { id, ...set } = upd;
+      await this.db
+        .update(productVariants)
+        .set(set)
+        .where(and(eq(productVariants.id, id), eq(productVariants.productId, productId)));
+    }
+    if (deleteIds.length) {
+      await this.db
+        .update(productVariants)
+        .set({ deletedAt: new Date() })
+        .where(and(eq(productVariants.productId, productId), inArray(productVariants.id, deleteIds)));
+    }
+    // Keep products.priceStotinki = cheapest variant (for sort + "от X"); leave it
+    // untouched when the product has no variants.
+    const cheapest = cheapestVariantPrice(variants);
+    if (cheapest != null) {
+      await this.db
+        .update(products)
+        .set({ priceStotinki: cheapest })
+        .where(and(eq(products.id, productId), eq(products.tenantId, tenantId)));
+    }
   }
 
   // ---- Gallery (multi-image) ----
@@ -567,6 +610,39 @@ export class ProductsService {
       // a storage hiccup must not block the DB write
     }
   }
+}
+
+/** Cheapest variant price (for products.priceStotinki sync + "от X"), or null. */
+export function cheapestVariantPrice(variants: { priceStotinki: number }[]): number | null {
+  if (!variants.length) return null;
+  return variants.reduce((min, v) => (v.priceStotinki < min ? v.priceStotinki : min), variants[0].priceStotinki);
+}
+
+export interface VariantInput {
+  id?: string;
+  label: string;
+  priceStotinki: number;
+  stockQuantity?: number | null;
+}
+
+/** Diff incoming variants against the product's existing variant ids. `position`
+ *  is the array index (the order the farmer arranged them). Rows with an id →
+ *  updates; without → inserts; existing ids absent from the incoming list →
+ *  soft-delete. */
+export function planVariantWrites(incoming: VariantInput[], existingIds: string[]) {
+  const inserts: { label: string; priceStotinki: number; stockQuantity?: number | null; position: number }[] = [];
+  const updates: { id: string; label: string; priceStotinki: number; stockQuantity?: number | null; position: number }[] = [];
+  const keptIds = new Set<string>();
+  incoming.forEach((v, position) => {
+    if (v.id) {
+      keptIds.add(v.id);
+      updates.push({ id: v.id, label: v.label, priceStotinki: v.priceStotinki, ...(v.stockQuantity !== undefined ? { stockQuantity: v.stockQuantity } : {}), position });
+    } else {
+      inserts.push({ label: v.label, priceStotinki: v.priceStotinki, ...(v.stockQuantity !== undefined ? { stockQuantity: v.stockQuantity } : {}), position });
+    }
+  });
+  const deleteIds = existingIds.filter((id) => !keptIds.has(id));
+  return { inserts, updates, deleteIds };
 }
 
 /** Strip tenant + stock + internal Stripe ids before exposing a product publicly,
