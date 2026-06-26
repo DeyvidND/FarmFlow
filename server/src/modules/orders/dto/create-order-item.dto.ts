@@ -1,5 +1,5 @@
-import { IsUUID, IsInt, Min, Max } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsUUID, IsInt, Min, Max, IsOptional } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class CreateOrderItemDto {
@@ -15,4 +15,9 @@ export class CreateOrderItemDto {
   @Max(10_000)
   @Type(() => Number)
   quantity: number;
+
+  @ApiPropertyOptional({ description: 'Chosen variant (required when the product has variants)' })
+  @IsOptional()
+  @IsUUID()
+  variantId?: string;
 }

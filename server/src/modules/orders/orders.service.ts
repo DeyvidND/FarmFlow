@@ -6,17 +6,20 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   type Database,
   orders,
   orderItems,
   products,
+  productVariants,
   productAvailabilityWindows,
   deliverySlots,
   tenants,
   farmers,
 } from '@fermeribg/db';
+import type { Product, ProductVariant } from '@fermeribg/types';
+import { effectivePriceStotinki } from '../products/promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday, bgDayBounds, bgDate } from '../../common/time/bg-time';
@@ -260,6 +263,26 @@ export interface PublicOrderSummary {
   slot: { date: string; startTime: string; endTime: string } | null;
   items: { name: string; quantity: number; priceStotinki: number }[];
   createdAt: string | null;
+}
+
+/** Resolve one order line's unit price + display label, applying the product's
+ *  active promo. When a variant is chosen the variant price/label win; otherwise
+ *  the product's price and "name + weight" snapshot are used. Pure (now passed in). */
+export function resolveLineUnit(
+  product: Pick<Product, 'priceStotinki' | 'name' | 'weight' | 'salePercent' | 'saleEndsAt'>,
+  variant: Pick<ProductVariant, 'id' | 'label' | 'priceStotinki'> | null,
+  now: Date,
+): { unitStotinki: number; label: string; variantId: string | null; variantLabel: string | null } {
+  const base = variant ? variant.priceStotinki : product.priceStotinki;
+  const unitStotinki = effectivePriceStotinki(base, product.salePercent, product.saleEndsAt, now);
+  return variant
+    ? { unitStotinki, label: variant.label, variantId: variant.id, variantLabel: variant.label }
+    : {
+        unitStotinki,
+        label: [product.name, product.weight].filter(Boolean).join(' '),
+        variantId: null,
+        variantLabel: null,
+      };
 }
 
 @Injectable()
@@ -950,9 +973,28 @@ export class OrdersService {
         .where(and(eq(products.tenantId, tenant.id), inArray(products.id, productIds)));
       const byId = new Map(prods.map((p) => [p.id, p]));
 
+      // Load + lock the chosen variants (ordered by id so concurrent intakes
+      // acquire locks in a consistent order — deadlock-free, mirroring the
+      // availability-window lock). Soft-deleted variants are excluded so a stale
+      // storefront can't order against a removed variant.
+      const variantIds = dto.items.map((i) => i.variantId).filter((v): v is string => !!v);
+      const variantRows = variantIds.length
+        ? await tx
+            .select()
+            .from(productVariants)
+            .where(and(inArray(productVariants.id, variantIds), isNull(productVariants.deletedAt)))
+            .for('update')
+            .orderBy(asc(productVariants.id))
+        : [];
+      const variantById = new Map(variantRows.map((v) => [v.id, v]));
+
       for (const it of dto.items) {
         const p = byId.get(it.productId);
         if (!p || !p.isActive) throw new BadRequestException('Невалиден или неактивен продукт');
+        if (it.variantId) {
+          const v = variantById.get(it.variantId);
+          if (!v || v.productId !== it.productId) throw new BadRequestException('Невалиден вариант');
+        }
       }
 
       // Only local farm delivery uses a slot; Econt orders are courier-shipped
@@ -1025,15 +1067,39 @@ export class OrdersService {
           .where(eq(productAvailabilityWindows.id, w.id));
       }
 
+      // Variant stock decrement — mirrors the availability-window block above,
+      // reusing decideDecrement. `stockQuantity == null` = unlimited (no limit).
+      // Mutate the locked row in memory so repeated line items for the same
+      // variant chain their decrements; persist once per variant after.
+      for (const it of dto.items) {
+        if (!it.variantId) continue;
+        const v = variantById.get(it.variantId)!;
+        const active = v.stockQuantity == null ? null : { remaining: v.stockQuantity };
+        const decision = decideDecrement(active, it.quantity);
+        if (!decision.ok) throw new ConflictException(`Няма достатъчна наличност: ${v.label}`);
+        if (v.stockQuantity != null && decision.newRemaining != null) v.stockQuantity = decision.newRemaining;
+      }
+      for (const v of variantRows) {
+        if (v.stockQuantity != null) {
+          await tx.update(productVariants).set({ stockQuantity: v.stockQuantity }).where(eq(productVariants.id, v.id));
+        }
+      }
+
+      // Promo expiry is coarse (date-level), so a plain wall-clock Date is correct.
+      const now = new Date();
       let total = 0;
       const items = dto.items.map((it) => {
         const p = byId.get(it.productId)!;
-        total += p.priceStotinki * it.quantity;
+        const variant = it.variantId ? variantById.get(it.variantId)! : null;
+        const line = resolveLineUnit(p, variant, now);
+        total += line.unitStotinki * it.quantity;
         return {
           productId: p.id,
-          productName: [p.name, p.weight].filter(Boolean).join(' '),
+          productName: line.label,
           quantity: it.quantity,
-          priceStotinki: p.priceStotinki,
+          priceStotinki: line.unitStotinki,
+          variantId: line.variantId,
+          variantLabel: line.variantLabel,
         };
       });
 
