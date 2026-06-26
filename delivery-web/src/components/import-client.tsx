@@ -462,8 +462,8 @@ export function ImportClient() {
             <table className="w-full border-collapse text-[14px]">
               <thead><tr className="border-b border-ff-border bg-ff-surface-2 text-left">
                 {[
-                  { h: '#', w: 'w-10' }, { h: 'Получател', w: '' }, { h: 'Телефон', w: 'w-40' }, { h: 'Реж.', w: 'w-28' },
-                  { h: 'Град', w: 'w-36' }, { h: 'Офис/Адрес', w: '' }, { h: 'Тегло (кг)', w: 'w-24' }, { h: 'НП (€)', w: 'w-28' },
+                  { h: '#', w: 'w-10' }, { h: 'Получател', w: '' }, { h: 'Телефон', w: 'w-40' }, { h: 'Доставка', w: 'w-32' },
+                  { h: 'Град', w: 'w-36' }, { h: 'Офис/Адрес', w: '' }, { h: 'Тегло (кг)', w: 'w-24' }, { h: 'Платеж (€)', w: 'w-28' },
                   { h: 'Риск', w: 'w-28' }, { h: 'Проблеми', w: '' }, { h: '', w: 'w-12' },
                 ].map(({ h, w }) => (
                   <th key={h} className={`px-3.5 py-3 text-[11.5px] font-bold uppercase tracking-[0.03em] text-ff-muted ${w}`}>{h}</th>
@@ -509,7 +509,7 @@ export function ImportClient() {
                   </label>
                 ))}
                 <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
-                  <span className="text-[12.5px] font-bold text-ff-muted">Режим</span>
+                  <span className="text-[12.5px] font-bold text-ff-muted">Доставка</span>
                   <select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => patch(r, 'deliveryMode', e.target.value)} onBlur={() => save(r)}><option value="office">офис</option><option value="address">адрес</option></select>
                 </label>
                 <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
@@ -517,7 +517,7 @@ export function ImportClient() {
                   <KgInput className={inpNum} grams={r.weightGrams} onCommit={(g) => { patch(r, 'weightGrams', g); save({ ...r, weightGrams: g }); }} />
                 </label>
                 <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
-                  <span className="text-[12.5px] font-bold text-ff-muted">НП (€)</span>
+                  <span className="text-[12.5px] font-bold text-ff-muted">Платеж (€)</span>
                   <EurInput className={inpNum} cents={r.codAmountStotinki} onCommit={(c) => { patch(r, 'codAmountStotinki', c); save({ ...r, codAmountStotinki: c }); }} />
                 </label>
                 {(r.validation?.issues ?? []).length > 0 && <p className="text-[12.5px] text-ff-red">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</p>}
