@@ -5,8 +5,8 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
-import { type Database, productAvailabilityWindows, products } from '@fermeribg/db';
+import { and, asc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { type Database, productAvailabilityWindows, products, productVariants } from '@fermeribg/db';
 import type { AvailabilityWindow, PublicAvailabilityWindow } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
@@ -317,7 +317,7 @@ export class AvailabilityService {
   async listPickerProducts(
     tenantId: string,
     farmerScope: string | null,
-  ): Promise<{ id: string; name: string; weight: string | null; farmerId: string | null }[]> {
+  ): Promise<{ id: string; name: string; weight: string | null; farmerId: string | null; hasVariants: boolean }[]> {
     const conditions = [
       eq(products.tenantId, tenantId),
       eq(products.isActive, true),
@@ -334,6 +334,9 @@ export class AvailabilityService {
         name: products.name,
         weight: products.weight,
         farmerId: products.farmerId,
+        // A varianted product manages stock per-variant (not via windows). The screen
+        // shows it read-only with a pointer to the product instead of a stock control.
+        hasVariants: sql<boolean>`EXISTS (SELECT 1 FROM ${productVariants} WHERE ${productVariants.productId} = ${products.id} AND ${productVariants.deletedAt} IS NULL)`,
       })
       .from(products)
       .where(and(...conditions))
