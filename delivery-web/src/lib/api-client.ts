@@ -224,12 +224,32 @@ export interface RiskBulkEntry {
   phone: string;
   normalized: string;
   verdict: 'ok' | 'caution' | 'high';
+  /** Status of this entry: a risk verdict for answered phones, or a non-answer state. */
+  status: 'ok' | 'caution' | 'high' | 'rate_limited' | 'unavailable';
   strikes: number;
   nekorektenCount: number;
   cached: boolean;
+  /** Seconds until the rate limit resets (present when status='rate_limited'). */
+  retryAfterSeconds?: number;
 }
 
-export const riskCheckBulk = async (phones: string[]): Promise<RiskBulkEntry[]> =>
+export interface RiskBulkMeta {
+  /** Number of phones that received a real verdict this run. */
+  checked: number;
+  /** Number of phones that were skipped due to rate limiting. */
+  rateLimited: number;
+  /** Which limit was hit, or null if none. */
+  limit: 'minute' | 'day' | null;
+  /** Seconds until the rate limit resets (0 when no limit hit). */
+  retryAfterSeconds: number;
+}
+
+export interface RiskBulkResponse {
+  results: RiskBulkEntry[];
+  meta: RiskBulkMeta;
+}
+
+export const riskCheckBulk = async (phones: string[]): Promise<RiskBulkResponse> =>
   (await bff('shipping/risk/check-bulk', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

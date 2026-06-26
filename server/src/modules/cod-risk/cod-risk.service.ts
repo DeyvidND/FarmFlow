@@ -3,7 +3,6 @@ import { and, eq, sql, desc } from 'drizzle-orm';
 import { type Database, shipments, orders, codRisk, codRiskEvents } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { NekorektenClient } from './nekorekten.client';
-import { PublicCacheService } from '../../common/cache/public-cache.service';
 import {
   normalizePhone,
   riskVerdict,
@@ -22,8 +21,6 @@ const FLAGGED_TTL = 90 * 24 * 3600; // 90 days in seconds
 const CLEAN_TTL = 30 * 24 * 3600;   // 30 days in seconds
 const BULK_CAP = 500;                 // max unique phones per bulk call
 const CONCURRENCY = 5;               // worker-pool width for checkBulk
-const MAX_LIVE_CALLS = 50;           // hard cap on live API calls per bulk request
-const DAILY_NK_BUDGET = 200;         // per-tenant daily Nekorekten call budget
 
 /** Pick the durable TTL (seconds) based on whether nekorekten found reports. */
 function ttlFor(found: boolean | null | undefined): number {
@@ -37,6 +34,20 @@ export interface BulkRiskResult {
   strikes: number;
   nekorektenCount: number;
   cached: boolean;
+  /** 'ok'|'caution'|'high' for answered; 'rate_limited'|'unavailable' for non-answers. */
+  status: 'ok' | 'caution' | 'high' | 'rate_limited' | 'unavailable';
+  retryAfterSeconds?: number;
+}
+
+export interface BulkMeta {
+  /** Phones that received a real verdict this run. */
+  checked: number;
+  /** Phones returned as rate_limited (not answered). */
+  rateLimited: number;
+  /** Which limit was hit first (null if no limit was hit). */
+  limit: 'minute' | 'day' | null;
+  /** Seconds until the first limit resets (0 if no limit). */
+  retryAfterSeconds: number;
 }
 
 @Injectable()
@@ -44,7 +55,6 @@ export class CodRiskService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly nekorekten: NekorektenClient,
-    private readonly cache: PublicCacheService,
   ) {}
 
   /** Combined risk view for a phone — OUR DB first (durable nekorekten snapshot with
@@ -98,7 +108,7 @@ export class CodRiskService {
 
     if (riskVerdict(strikes, 0) === 'high') {
       // Already flagged by our own strikes — don't spend nekorekten quota.
-      nk = { configured: this.nekorekten.configured, found: false, count: 0, reports: [] };
+      nk = { configured: this.nekorekten.configured, found: false, count: 0, reports: [], status: 'ok' };
       cached = true;
     } else {
       // Decide freshness from DB snapshot.
@@ -115,13 +125,40 @@ export class CodRiskService {
           found: row?.nkFound ?? false,
           count: row?.nkCount ?? 0,
           reports: Array.isArray(row?.nkReports) ? (row!.nkReports as any[]) : [],
+          status: (row?.nkFound ? 'ok' : 'not_found') as NekorektenCheck['status'],
         };
         cached = true;
       } else {
         // Stale / never checked / force-refresh → hit the API.
         nk = await this.nekorekten.checkPhone(phone);
         cached = false;
-        // Persist to DB only when the key is configured (degraded calls return empty).
+
+        // Rate-limited or unavailable — do NOT persist (never cache a non-answer as clean).
+        // Serve the existing DB snapshot if the row already has nk_* data.
+        if (nk.status === 'rate_limited' || nk.status === 'unavailable') {
+          const snapshotNk: NekorektenCheck = {
+            configured: this.nekorekten.configured,
+            found: row?.nkFound ?? false,
+            count: row?.nkCount ?? 0,
+            reports: Array.isArray(row?.nkReports) ? (row!.nkReports as any[]) : [],
+            status: nk.status,
+            retryAfterSeconds: nk.retryAfterSeconds,
+          };
+          // cached=true signals no successful live write happened
+          return {
+            phone,
+            verdict: riskVerdict(strikes, snapshotNk.count),
+            strikes,
+            nekorektenCount: snapshotNk.count,
+            nekorektenConfigured: snapshotNk.configured,
+            cached: true,
+            reports: mergeReports(toInternalReports(events, phone), toNekorektenReports(snapshotNk)),
+            nkStatus: nk.status,
+            retryAfterSeconds: nk.retryAfterSeconds,
+          };
+        }
+
+        // Persist to DB only when the key is configured and the call succeeded.
         if (nk.configured) {
           await this.db
             .insert(codRisk)
@@ -155,14 +192,18 @@ export class CodRiskService {
       nekorektenConfigured: nk.configured,
       cached,
       reports: mergeReports(toInternalReports(events, phone), toNekorektenReports(nk)),
+      nkStatus: nk.status,
     };
   }
 
   /** Bulk risk check for a list of phones. Dedupes by normalized phone, caps at
-   *  BULK_CAP unique phones. Runs a bounded-concurrency worker pool (CONCURRENCY=5)
-   *  with a per-request live-call cap (MAX_LIVE_CALLS) and a per-tenant daily budget
-   *  (DAILY_NK_BUDGET). Phones beyond the live-call cap are served from DB snapshot. */
-  async checkBulk(tenantId: string, phones: string[]): Promise<BulkRiskResult[]> {
+   *  BULK_CAP unique phones. Runs a bounded-concurrency worker pool (CONCURRENCY=5).
+   *  Stop-on-limit (behavior A): the first rate_limited result stops further API calls.
+   *  Remaining phones are processed with skipApi:true (DB/local only). */
+  async checkBulk(
+    tenantId: string,
+    phones: string[],
+  ): Promise<{ results: BulkRiskResult[]; meta: BulkMeta }> {
     // Normalize + dedupe: preserve original input but process each unique normalized
     // phone only once, then map results back to all inputs.
     const seen = new Map<string, string>(); // normalized → first original input
@@ -173,61 +214,86 @@ export class CodRiskService {
       if (seen.size >= BULK_CAP) break; // cap to bound quota burst
     }
 
-    // Read per-tenant daily budget from Redis.
-    const budgetKey = `nk:budget:${tenantId}:${new Date().toISOString().slice(0, 10)}`;
-    const usedRaw = await this.cache.get<number>(budgetKey);
-    const used = typeof usedRaw === 'number' ? usedRaw : 0;
-    const remaining = Math.max(0, DAILY_NK_BUDGET - used);
-    const liveCap = Math.min(MAX_LIVE_CALLS, remaining);
-
     // Bounded-concurrency worker pool over unique phones.
-    // liveUsed counts how many check() calls returned cached=false (i.e. hit the API).
-    let liveUsed = 0;
-    const resultMap = new Map<string, RiskCheckResult>();
+    // Stop-on-limit: once a check returns rate_limited, remaining phones use skipApi.
+    let stopped = false;
+    let stopLimit: 'minute' | 'day' | null = null;
+    let stopRetryAfter = 0;
+    let checkedCount = 0;
+    let rateLimitedCount = 0;
 
+    const resultMap = new Map<string, RiskCheckResult>();
     const entries = Array.from(seen.entries());
     let idx = 0;
 
-    async function worker(self: CodRiskService): Promise<void> {
+    const self = this;
+    async function worker(): Promise<void> {
       while (idx < entries.length) {
         const [normKey, origPhone] = entries[idx++];
-        const skipApi = liveUsed >= liveCap;
+        const skipApi = stopped;
         const r = await self.check(origPhone, { skipApi });
-        if (!r.cached) liveUsed++;
+
+        if (r.nkStatus === 'rate_limited') {
+          // First rate-limit hit: engage stop-on-limit flag.
+          if (!stopped) {
+            stopped = true;
+            // Heuristic: day limit yields much larger retryAfterSeconds (hours vs <60s).
+            stopLimit = (r.retryAfterSeconds ?? 0) > 120 ? 'day' : 'minute';
+            stopRetryAfter = r.retryAfterSeconds ?? 0;
+          }
+          rateLimitedCount++;
+        } else {
+          // Answered (ok / caution / high / unavailable / cached).
+          if (!skipApi) checkedCount++;
+        }
+
         resultMap.set(normKey, r);
       }
     }
 
     // Launch CONCURRENCY workers in parallel; each pulls the next entry atomically
-    // (single-threaded JS — no race on idx/liveUsed).
-    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker(this)));
-
-    // Write back the updated budget counter if any live calls were made.
-    if (liveUsed > 0) {
-      await this.cache.set(budgetKey, used + liveUsed, 24 * 3600);
-    }
+    // (single-threaded JS — no race on idx/stopped).
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
     // Map every INPUT phone (including duplicates) to its verdict.
     const out: BulkRiskResult[] = [];
     const counted = new Set<string>(); // avoid re-processing duplicates in output
+
     for (const p of phones) {
       const norm = normalizePhone(p);
       const key = norm ?? p;
-      if (counted.has(key)) {
-        // Duplicate: emit with same result as canonical; use canonical r.phone for normalized.
-        const r = resultMap.get(key);
-        if (r) {
-          out.push({ phone: p, normalized: r.phone, verdict: r.verdict, strikes: r.strikes, nekorektenCount: r.nekorektenCount, cached: r.cached });
-        }
-        continue;
-      }
-      counted.add(key);
       const r = resultMap.get(key);
+      const isDupe = counted.has(key);
+      if (!isDupe) counted.add(key);
+
       if (r) {
-        out.push({ phone: p, normalized: r.phone, verdict: r.verdict, strikes: r.strikes, nekorektenCount: r.nekorektenCount, cached: r.cached });
+        const statusForBulk: BulkRiskResult['status'] =
+          r.nkStatus === 'rate_limited' ? 'rate_limited'
+          : r.nkStatus === 'unavailable' ? 'unavailable'
+          : (r.verdict as 'ok' | 'caution' | 'high');
+
+        out.push({
+          phone: p,
+          normalized: r.phone,
+          verdict: r.verdict,
+          strikes: r.strikes,
+          nekorektenCount: r.nekorektenCount,
+          cached: r.cached,
+          status: statusForBulk,
+          ...(r.retryAfterSeconds != null ? { retryAfterSeconds: r.retryAfterSeconds } : {}),
+        });
       }
     }
-    return out;
+
+    return {
+      results: out,
+      meta: {
+        checked: checkedCount,
+        rateLimited: rateLimitedCount,
+        limit: stopLimit,
+        retryAfterSeconds: stopRetryAfter,
+      },
+    };
   }
 
   /** Called from the Econt refresh hook. Idempotent: only the first transition of a

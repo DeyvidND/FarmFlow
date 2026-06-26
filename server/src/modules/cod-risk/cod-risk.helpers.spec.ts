@@ -97,6 +97,7 @@ describe('toNekorektenReports', () => {
         found: true,
         count: 1,
         reports: [{ date: '2026-05-01', phone: '+359888111222', description: 'Лош клиент' }],
+        status: 'ok',
       }),
     ).toEqual([{ source: 'nekorekten', date: '2026-05-01', phone: '+359888111222', description: 'Лош клиент' }]);
   });

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2 } from 'lucide-react';
+import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2, Clock, CloudOff, Info } from 'lucide-react';
 import {
   ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment, riskCheckBulk,
-  type ImportRow, type QuoteResult, type RiskBulkEntry,
+  type ImportRow, type QuoteResult, type RiskBulkEntry, type RiskBulkMeta,
 } from '@/lib/api-client';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -21,6 +21,22 @@ const RISK_VERDICT = {
   ok: { label: 'Чисто', icon: ShieldCheck, cls: 'bg-ff-green-50 text-ff-green-700 border-ff-green-500' },
   caution: { label: 'Внимание', icon: ShieldAlert, cls: 'bg-ff-amber-softer text-ff-amber-600 border-ff-amber-600' },
   high: { label: 'Висок риск', icon: ShieldX, cls: 'bg-[#FBE9E7] text-ff-red border-ff-red' },
+} as const;
+
+/** Non-verdict status pills — visually distinct from the 3 risk verdicts (neutral palette, not green/amber/red). */
+const RISK_STATUS = {
+  rate_limited: {
+    label: 'Изчакай',
+    icon: Clock,
+    cls: 'bg-zinc-100 text-zinc-500 border-zinc-300',
+    tooltip: 'Лимит на Nekorekten — опитай пак след малко',
+  },
+  unavailable: {
+    label: 'Няма връзка',
+    icon: CloudOff,
+    cls: 'bg-slate-100 text-slate-400 border-slate-300',
+    tooltip: 'Nekorekten временно недостъпен',
+  },
 } as const;
 
 const STEPS = [
@@ -44,6 +60,34 @@ export function ImportClient() {
   const [riskMap, setRiskMap] = useState<Record<string, RiskBulkEntry>>({});
   const [checkingRisk, setCheckingRisk] = useState(false);
   const [riskSummary, setRiskSummary] = useState<{ high: number; checked: number } | null>(null);
+  const [riskMeta, setRiskMeta] = useState<RiskBulkMeta | null>(null);
+  // Live countdown (seconds) for per-minute rate limit.
+  const [countdown, setCountdown] = useState(0);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Start/restart countdown timer when a per-minute rate limit is hit.
+  useEffect(() => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    if (riskMeta?.limit === 'minute' && riskMeta.retryAfterSeconds > 0) {
+      setCountdown(riskMeta.retryAfterSeconds);
+      countdownRef.current = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            if (countdownRef.current) clearInterval(countdownRef.current);
+            countdownRef.current = null;
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setCountdown(0);
+    }
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [riskMeta]);
 
   const count = (s: string) => rows.filter((r) => r.validationStatus === s).length;
 
@@ -126,7 +170,7 @@ export function ImportClient() {
     if (!phones.length) { toast.error('Няма телефонни номера за проверка.'); return; }
     setCheckingRisk(true);
     try {
-      const results = await riskCheckBulk(phones);
+      const { results, meta } = await riskCheckBulk(phones);
       // Build a lookup keyed by the last 9 digits of the normalized phone.
       const map: Record<string, RiskBulkEntry> = {};
       for (const entry of results) {
@@ -134,9 +178,15 @@ export function ImportClient() {
         if (key) map[key] = entry;
       }
       setRiskMap(map);
+      setRiskMeta(meta);
       const highCount = results.filter((e) => e.verdict === 'high').length;
-      setRiskSummary({ high: highCount, checked: results.length });
-      toast.success(`Проверени ${results.length} номера${highCount ? ` · ${highCount} с висок риск` : ''}`);
+      // checked = phones that got a real verdict (total minus rate-limited)
+      setRiskSummary({ high: highCount, checked: meta.checked });
+      if (meta.rateLimited > 0) {
+        toast.warning(`Проверени ${meta.checked} — ${meta.rateLimited} изчакват лимита`);
+      } else {
+        toast.success(`Проверени ${meta.checked} номера${highCount ? ` · ${highCount} с висок риск` : ''}`);
+      }
     } catch (e) {
       const msg = e instanceof ApiError && e.status === 403
         ? 'Активирай услугата, за да ползваш проверка за риск'
@@ -193,13 +243,29 @@ export function ImportClient() {
   };
 
   // Risk badge shown per row after bulk check has run.
+  // Handles 3 risk verdicts + 2 non-verdict status states (rate_limited / unavailable).
   const RiskBadge = ({ r }: { r: ImportRow }) => {
     const key = r.receiverPhone ? last9digits(r.receiverPhone) : '';
     const entry = key ? riskMap[key] : undefined;
     if (!entry) return null;
+
+    // Non-verdict status states use a neutral colour palette (not green/amber/red).
+    if (entry.status === 'rate_limited' || entry.status === 'unavailable') {
+      const s = RISK_STATUS[entry.status];
+      return (
+        <span
+          title={s.tooltip}
+          className={`inline-flex min-w-[72px] items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${s.cls}`}
+        >
+          <s.icon size={11} /> {s.label}
+        </span>
+      );
+    }
+
+    // Verdict states (ok / caution / high).
     const v = RISK_VERDICT[entry.verdict];
     return (
-      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${v.cls}`}>
+      <span className={`inline-flex min-w-[72px] items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${v.cls}`}>
         <v.icon size={11} /> {v.label}
       </span>
     );
@@ -277,11 +343,11 @@ export function ImportClient() {
           <div className="mt-2 flex flex-wrap items-center gap-2.5">
             <button
               onClick={() => void checkAllRisk()}
-              disabled={checkingRisk || busy}
+              disabled={checkingRisk || busy || (countdown > 0)}
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-ff-amber-600 bg-ff-amber-softer px-3.5 text-[13px] font-bold text-ff-amber-600 hover:bg-ff-amber-100 disabled:opacity-60"
             >
-              {checkingRisk ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
-              {checkingRisk ? 'Проверявам…' : 'Провери всички в Nekorekten'}
+              {checkingRisk ? <Loader2 size={15} className="animate-spin" /> : countdown > 0 ? <Clock size={15} /> : <ShieldCheck size={15} />}
+              {checkingRisk ? 'Проверявам…' : countdown > 0 ? `Изчакай ~${countdown}с` : 'Провери всички в Nekorekten'}
             </button>
             <a
               href="https://nekorekten.com/bg/"
@@ -294,9 +360,65 @@ export function ImportClient() {
             {riskSummary && (
               <span className={`ml-auto text-[12.5px] font-bold ${riskSummary.high > 0 ? 'text-ff-red' : 'text-ff-green-700'}`}>
                 {riskSummary.high} високорискови от {riskSummary.checked} проверени
+                {riskMeta && riskMeta.rateLimited > 0 && (
+                  <span className="ml-1.5 font-normal text-zinc-500">· {riskMeta.rateLimited} изчакват</span>
+                )}
               </span>
             )}
           </div>
+
+          {/* Rate-limit banner — shown when some phones were skipped due to Nekorekten limits */}
+          {riskMeta && riskMeta.rateLimited > 0 && (
+            <div className="mt-2.5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px]">
+              <span className="mt-0.5 shrink-0 text-amber-500">
+                {riskMeta.limit === 'minute' ? <Clock size={16} /> : <Info size={16} />}
+              </span>
+              <div className="min-w-0 flex-1 leading-snug text-amber-800">
+                {riskMeta.limit === 'minute' ? (
+                  <>
+                    <span className="font-bold">Проверени {riskMeta.checked} от {riskMeta.checked + riskMeta.rateLimited}.</span>
+                    {' '}Достигнат лимитът на Nekorekten (безплатен план: 5/мин, 30/ден).
+                    {' '}Останалите <span className="font-bold">{riskMeta.rateLimited}</span> —{' '}
+                    {countdown > 0
+                      ? <>опитай пак след <span className="tabular-nums font-bold">~{countdown}с</span>.</>
+                      : <button
+                          type="button"
+                          onClick={() => void checkAllRisk()}
+                          disabled={checkingRisk}
+                          className="font-bold underline hover:no-underline disabled:opacity-60"
+                        >
+                          Провери отново
+                        </button>
+                    }
+                  </>
+                ) : (
+                  <>
+                    <span className="font-bold">Достигнат дневният лимит на Nekorekten (30/ден).</span>
+                    {' '}Опитай пак утре.
+                  </>
+                )}
+              </div>
+              {riskMeta.limit === 'minute' && countdown > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void checkAllRisk()}
+                  disabled={checkingRisk || countdown > 0}
+                  className="ml-auto shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[12px] font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                >
+                  Провери отново
+                </button>
+              )}
+              {riskMeta.limit === 'day' && (
+                <button
+                  type="button"
+                  disabled
+                  className="ml-auto shrink-0 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-[12px] font-bold text-amber-400 opacity-50 cursor-not-allowed"
+                >
+                  Провери отново
+                </button>
+              )}
+            </div>
+          )}
 
           {/* desktop table */}
           <div className="mt-3 overflow-x-auto rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:hidden">

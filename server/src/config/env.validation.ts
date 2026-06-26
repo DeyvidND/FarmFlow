@@ -127,6 +127,10 @@ export const envValidationSchema = Joi.object({
   OPENAI_IMPORT_MODEL: Joi.string().optional().allow(''),
   // --- COD-risk registry (nekorekten.com bridge — optional; the check/report is
   //     inert and degrades silently when unset, never blocks a flow) ---
+  // Rate-limit guards — mirror the Nekorekten PLAN limits (free=5/min, 30/day).
+  // Bump both values when upgrading to a paid plan (Старт 10/100, Стандарт 20/300, Бизнес 60/1000).
+  NEKOREKTEN_RATE_PER_MIN: Joi.number().min(1).max(1000).default(5),
+  NEKOREKTEN_DAILY_QUOTA:  Joi.number().min(1).max(100000).default(30),
   NEKOREKTEN_API_KEY: Joi.string().optional().allow(''),
   // --- Standalone delivery app (main.econt.ts on its own service) ---
   // Port the standalone app listens on (default 3100). CORS allow-list for its UI

@@ -40,6 +40,9 @@ export interface NekorektenCheck {
   found: boolean;
   count: number;
   reports: NekorektenReport[];
+  /** Outcome of the check attempt. */
+  status: 'ok' | 'not_found' | 'rate_limited' | 'unavailable' | 'unconfigured';
+  retryAfterSeconds?: number;
 }
 
 /** Defensively read nekorekten's GET /reports response (shape unconfirmed vs live). */
@@ -57,7 +60,14 @@ export function parseReports(res: unknown): NekorektenCheck {
     phone: x?.phone ?? null,
     description: x?.text ?? x?.description ?? null,
   }));
-  return { configured: true, found: reports.length > 0, count: reports.length, reports };
+  const count = reports.length;
+  return {
+    configured: true,
+    found: count > 0,
+    count,
+    reports,
+    status: count > 0 ? 'ok' : 'not_found',
+  };
 }
 
 /** The Bulgarian report text sent to nekorekten for a refused COD parcel. */
@@ -87,6 +97,9 @@ export interface RiskCheckResult {
   nekorektenConfigured: boolean;
   cached: boolean; // true = no nekorekten API call was made this request
   reports: RiskReport[];
+  /** Set when the Nekorekten API call was rate-limited or unavailable. */
+  nkStatus?: NekorektenCheck['status'];
+  retryAfterSeconds?: number;
 }
 
 function toIso(d: Date | string | null | undefined): string | null {
