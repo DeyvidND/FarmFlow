@@ -400,6 +400,17 @@ export class ProductsService {
       .orderBy(asc(productMedia.position));
   }
 
+  /** A product's live variants for the admin edit form (ordered). Enforces tenant
+   *  + farmer scope via findOne. */
+  async listVariants(id: string, tenantId: string, farmerScope: string | null = null): Promise<ProductVariant[]> {
+    await this.findOne(id, tenantId, farmerScope);
+    return this.db
+      .select()
+      .from(productVariants)
+      .where(and(eq(productVariants.productId, id), isNull(productVariants.deletedAt)))
+      .orderBy(asc(productVariants.position), asc(productVariants.id));
+  }
+
   /** Append an uploaded photo to the gallery (async path): validates ownership
    *  then enqueues the heavy optimize+upload work; returns immediately so the
    *  HTTP response is fast. The worker calls `finishProductMedia` once done. */

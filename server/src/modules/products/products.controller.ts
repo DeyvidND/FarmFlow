@@ -148,6 +148,17 @@ export class ProductsController {
     return this.productsService.listMedia(id, tenantId, scope);
   }
 
+  @Get(':id/variants')
+  @Roles('admin', 'farmer')
+  listVariants(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.listVariants(id, tenantId, scope);
+  }
+
   @Post(':id/media')
   @Roles('admin', 'farmer')
   @ApiConsumes('multipart/form-data')
