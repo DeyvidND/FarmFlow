@@ -4,7 +4,8 @@ import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { type Database, products, productMedia, productVariants, farmers, subcategories } from '@fermeribg/db';
-import type { Product, ProductMedia, PublicProduct } from '@fermeribg/types';
+import type { Product, ProductMedia, ProductVariant, PublicProduct, PublicProductVariant } from '@fermeribg/types';
+import { isPromoActive, salePriceStotinki } from './promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
 import { encodeImageJob } from '../../common/queue/image-job';
@@ -568,6 +569,24 @@ export class ProductsService {
     return map;
   }
 
+  /** Live (non-deleted) variants for a set of products, grouped by productId,
+   *  ordered by position. */
+  private async variantsByProduct(productIds: string[]): Promise<Map<string, ProductVariant[]>> {
+    const map = new Map<string, ProductVariant[]>();
+    if (!productIds.length) return map;
+    const rows = await this.db
+      .select()
+      .from(productVariants)
+      .where(and(inArray(productVariants.productId, productIds), isNull(productVariants.deletedAt)))
+      .orderBy(asc(productVariants.position), asc(productVariants.id));
+    for (const r of rows) {
+      const list = map.get(r.productId) ?? [];
+      list.push(r);
+      map.set(r.productId, list);
+    }
+    return map;
+  }
+
   /** Public catalog for a storefront slug — active products only, Redis-cached. */
   async findPublicBySlug(slug: string): Promise<PublicProduct[]> {
     // Shared Redis slug→tenant resolver (same key farmers/subcats/reviews use), so
@@ -584,7 +603,11 @@ export class ProductsService {
       .orderBy(asc(products.position), asc(products.createdAt), asc(products.id));
 
     const mediaByProduct = await this.mediaUrlsByProduct(rows.map((r) => r.id));
-    const result = rows.map((p) => toPublicProduct(p, mediaByProduct.get(p.id) ?? []));
+    const varsByProduct = await this.variantsByProduct(rows.map((r) => r.id));
+    const now = new Date();
+    const result = rows.map((p) =>
+      buildPublicProduct(p, mediaByProduct.get(p.id) ?? [], varsByProduct.get(p.id) ?? [], now),
+    );
     await this.cache.set(tenant.id, result, 300);
     return result;
   }
@@ -645,11 +668,28 @@ export function planVariantWrites(incoming: VariantInput[], existingIds: string[
   return { inserts, updates, deleteIds };
 }
 
-/** Strip tenant + stock + internal Stripe ids before exposing a product publicly,
- *  and attach the ordered gallery (cover-first; falls back to the legacy single
- *  `imageUrl`, else an empty list). */
-function toPublicProduct(p: Product, mediaUrls: string[]): PublicProduct {
+/** Map a product row (+ its media + live variants) to the public storefront shape,
+ *  applying the active promo to the base price and every variant. */
+export function buildPublicProduct(
+  p: Product,
+  mediaUrls: string[],
+  variants: ProductVariant[],
+  now: Date,
+): PublicProduct {
   const { tenantId, stockQuantity, stripeProductId, stripePriceId, ...rest } = p;
   const images = mediaUrls.length ? mediaUrls : p.imageUrl ? [p.imageUrl] : [];
-  return { ...rest, images };
+  const promo = isPromoActive(p.salePercent, p.saleEndsAt, now) && p.salePercent != null;
+  const pub: PublicProduct = {
+    ...rest,
+    images,
+    variants: variants.map((v): PublicProductVariant => ({
+      id: v.id,
+      label: v.label,
+      priceStotinki: v.priceStotinki,
+      ...(promo ? { salePriceStotinki: salePriceStotinki(v.priceStotinki, p.salePercent!) } : {}),
+      soldOut: v.stockQuantity === 0,
+    })),
+  };
+  if (promo) pub.salePriceStotinki = salePriceStotinki(p.priceStotinki, p.salePercent!);
+  return pub;
 }

@@ -87,13 +87,29 @@ export type PublicArticle = Omit<Article, 'tenantId' | 'sentAt'> & {
   media: PublicArticleMedia[];
 };
 
+/** A variant as exposed to the storefront. Raw stock count is NOT leaked (mirrors
+ *  product stockQuantity being stripped) — only `soldOut` + the prices. */
+export type PublicProductVariant = {
+  id: string;
+  label: string;
+  priceStotinki: number;
+  /** Discounted price when a promo is active; absent otherwise. */
+  salePriceStotinki?: number;
+  soldOut: boolean;
+};
+
+/**
+ * Public storefront shape: tenant_id + private fields stripped. `salePriceStotinki`
+ * is the server-computed discounted headline price (present only while a promo is
+ * active). `variants` is empty for products sold without variants.
+ */
 export type PublicProduct = Omit<
   Product,
   'tenantId' | 'stockQuantity' | 'stripeProductId' | 'stripePriceId' | 'deletedAt'
 > & {
-  // Ordered gallery (cover first). Falls back to [imageUrl] for legacy single-image
-  // items, or [] when the item has no photo. `imageUrl` stays the cover for back-compat.
   images: string[];
+  salePriceStotinki?: number;
+  variants: PublicProductVariant[];
 };
 
 export type AvailabilityWindow = InferSelectModel<typeof productAvailabilityWindows>;
