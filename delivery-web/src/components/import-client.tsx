@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale } from 'lucide-react';
+import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles } from 'lucide-react';
 import {
   ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment,
   type ImportRow, type QuoteResult,
@@ -27,6 +27,7 @@ export function ImportClient() {
   // Per-row cheapest-quote results (carrier prices), keyed by row id.
   const [quotes, setQuotes] = useState<Record<string, QuoteResult>>({});
   const [comparing, setComparing] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   const count = (s: string) => rows.filter((r) => r.validationStatus === s).length;
 
@@ -167,6 +168,15 @@ export function ImportClient() {
                   <s.icon size={15} className="text-ff-green-600" /> {s.title}
                 </div>
                 <div className="mt-0.5 text-[12px] leading-snug text-ff-muted">{s.desc}</div>
+                {i === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowGuide(true)}
+                    className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-bold text-ff-green-700 hover:underline"
+                  >
+                    <HelpCircle size={13} /> Как да структурирам файла?
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -280,6 +290,116 @@ export function ImportClient() {
           </div>
         </>
       )}
+
+      {showGuide && <FileGuideModal onClose={() => setShowGuide(false)} />}
     </div>
+  );
+}
+
+/** The exact template columns, mirrored from the server's /import/template.xlsx
+ *  generator and the parser's HEADER_ALIASES — keep in sync if those change. */
+const COLUMNS: Array<{ name: string; rule: string }> = [
+  { name: 'Получател', rule: 'име на клиента (задължително)' },
+  { name: 'Телефон', rule: 'български номер, напр. 0888123456 (задължително)' },
+  { name: 'Доставка', rule: 'само „офис" или „адрес"' },
+  { name: 'Град', rule: 'град на получателя, напр. Бургас' },
+  { name: 'Офис', rule: 'име/код на офиса — само ако Доставка = офис, иначе празно' },
+  { name: 'Адрес', rule: 'улица и номер — само ако Доставка = адрес, иначе празно' },
+  { name: 'Тегло (кг)', rule: 'число в килограми, напр. 2 или 1.5 (празно = 1 кг)' },
+  { name: 'Съдържание', rule: 'какво има в пратката, напр. Зеленчуци' },
+  { name: 'Наложен платеж', rule: 'сума в евро (EUR) за събиране; празно = без наложен платеж' },
+  { name: 'Обявена стойност', rule: 'застрахователна стойност в евро (по желание)' },
+  { name: 'Куриер', rule: '„Econt" или „Speedy"; празно = системата избира най-евтиния' },
+];
+
+const CHATGPT_PROMPT = `Помогни ми да направя Excel (.xlsx) файл за масов внос на пратки в куриерска система.
+
+Файлът трябва да има ТОЧНО тези колони на първия ред (заглавия), в този ред:
+Получател | Телефон | Доставка | Град | Офис | Адрес | Тегло (кг) | Съдържание | Наложен платеж | Обявена стойност | Куриер
+
+Правила за всяка колона:
+- Получател: име на клиента (задължително)
+- Телефон: български номер, напр. 0888123456 (задължително)
+- Доставка: само „офис" или „адрес"
+- Град: град на получателя (напр. Бургас)
+- Офис: име или код на офиса — попълва се САМО ако Доставка = офис, иначе остави празно
+- Адрес: улица и номер — попълва се САМО ако Доставка = адрес, иначе остави празно
+- Тегло (кг): число в килограми, напр. 2 или 1.5 (празно = 1 кг)
+- Съдържание: какво има в пратката (напр. Зеленчуци)
+- Наложен платеж: сума в ЕВРО (EUR) за събиране от клиента; празно = без наложен платеж
+- Обявена стойност: застрахователна стойност в евро (по желание, може празно)
+- Куриер: „Econt" или „Speedy"; ако не си сигурен — остави празно
+
+Дай ми готов файл за изтегляне (.xlsx) с тези колони и редове по моите данни долу.
+Не променяй имената на колоните и не добавяй други колони.
+
+Моите пратки (залепи или опиши тук):
+[ТУК ЗАЛЕПИ ДАННИТЕ СИ]`;
+
+/** Modal: how to structure the import file + a copy-ready ChatGPT prompt + link,
+ *  so a non-technical operator can have ChatGPT build the file and just upload it. */
+function FileGuideModal({ onClose }: { onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  function copyPrompt() {
+    navigator.clipboard.writeText(CHATGPT_PROMPT)
+      .then(() => { setCopied(true); toast.success('Промптът е копиран'); setTimeout(() => setCopied(false), 2500); })
+      .catch(() => toast.error('Копирането се провали'));
+  }
+  return (
+    <>
+      <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.45)]" onClick={onClose} />
+      <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 flex max-h-[92vh] w-[620px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-ff-border bg-ff-surface shadow-ff-lg">
+        <div className="flex items-start gap-3 border-b border-ff-border px-6 pb-4 pt-5">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-ff-green-50 text-ff-green-700"><FileSpreadsheet size={21} /></span>
+          <div className="min-w-0">
+            <h2 className="font-display text-[19px] font-extrabold tracking-[-0.015em] text-ff-ink">Как да структурирам файла</h2>
+            <p className="mt-0.5 text-[12.5px] text-ff-muted">Една колона за всяко поле. Или остави ChatGPT да го направи вместо теб.</p>
+          </div>
+          <button onClick={onClose} aria-label="Затвори" className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ff-muted hover:bg-ff-surface-2"><X size={18} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="overflow-hidden rounded-xl border border-ff-border">
+            <table className="w-full border-collapse text-left text-[12.5px]">
+              <thead><tr className="border-b border-ff-border bg-ff-surface-2">
+                <th className="px-3 py-2 font-bold uppercase tracking-[0.03em] text-ff-muted">Колона</th>
+                <th className="px-3 py-2 font-bold uppercase tracking-[0.03em] text-ff-muted">Какво съдържа</th>
+              </tr></thead>
+              <tbody>
+                {COLUMNS.map((c) => (
+                  <tr key={c.name} className="border-b border-ff-border-2 last:border-0">
+                    <td className="whitespace-nowrap px-3 py-2 font-bold text-ff-ink">{c.name}</td>
+                    <td className="px-3 py-2 text-ff-ink-2">{c.rule}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-5 rounded-xl border border-ff-green-100 bg-ff-green-50 p-4">
+            <div className="flex items-center gap-2 text-[13.5px] font-extrabold text-ff-ink">
+              <Sparkles size={16} className="text-ff-green-700" /> Най-лесно: остави ChatGPT да направи файла
+            </div>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-ff-ink-2">
+              1. Копирай промпта долу. 2. Отвори ChatGPT и го залепи. 3. Добави данните за пратките. 4. Свали готовия файл и го качи тук.
+            </p>
+            <div className="mt-3 max-h-[180px] overflow-y-auto rounded-lg border border-ff-border bg-ff-surface p-3 font-mono text-[11.5px] leading-relaxed text-ff-ink-2 whitespace-pre-wrap">{CHATGPT_PROMPT}</div>
+            <div className="mt-3 flex flex-wrap gap-2.5">
+              <button onClick={copyPrompt} className="inline-flex items-center gap-1.5 rounded-xl bg-ff-green-700 px-3.5 py-2 text-[13px] font-bold text-white hover:brightness-95">
+                {copied ? <Check size={15} /> : <Copy size={15} />} {copied ? 'Копирано' : 'Копирай промпта'}
+              </button>
+              <a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2">
+                <ExternalLink size={15} /> Отвори ChatGPT
+              </a>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
+            <Download size={16} className="mt-0.5 shrink-0 text-ff-green-700" />
+            <p className="text-[12.5px] leading-relaxed text-ff-ink-2">Предпочиташ празен шаблон? Затвори това и натисни <b>„Свали шаблон"</b> — готов Excel със същите колони и два примерни реда.</p>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
