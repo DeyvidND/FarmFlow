@@ -250,3 +250,72 @@ describe('MapsService.routeFixed', () => {
     expect(body.optimizeWaypointOrder).toBeUndefined();
   });
 });
+
+describe('MapsService.placeAutocomplete', () => {
+  it('returns [] when no key configured (stub mode)', async () => {
+    const fetchSpy = mockFetch({});
+    expect(await make('').placeAutocomplete('Витоша', 'sess-1')).toEqual([]);
+    expect(fetchSpy).toHaveLength(0);
+  });
+
+  it('returns [] for blank / too-short query', async () => {
+    const fetchSpy = mockFetch({});
+    expect(await make('k').placeAutocomplete('', 'sess-1')).toEqual([]);
+    expect(await make('k').placeAutocomplete('В', 'sess-1')).toEqual([]);
+    expect(fetchSpy).toHaveLength(0);
+  });
+
+  it('POSTs to Places Autocomplete URL with correct headers and body', async () => {
+    const calls = mockFetch({ suggestions: [] });
+    await make('k').placeAutocomplete('Витоша', 'sess-abc');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://places.googleapis.com/v1/places:autocomplete');
+    expect(calls[0].body).toMatchObject({
+      input: 'Витоша',
+      sessionToken: 'sess-abc',
+      includedRegionCodes: ['bg'],
+      languageCode: 'bg',
+    });
+  });
+
+  it('maps suggestions to { description, placeId } pairs', async () => {
+    mockFetch({
+      suggestions: [
+        { placePrediction: { placeId: 'place-1', text: { text: 'Витоша, Sofia' } } },
+        { placePrediction: { placeId: 'place-2', text: { text: 'Vitosha Blvd, Sofia' } } },
+      ],
+    });
+    const result = await make('k').placeAutocomplete('Витоша', 'sess-1');
+    expect(result).toEqual([
+      { description: 'Витоша, Sofia', placeId: 'place-1' },
+      { description: 'Vitosha Blvd, Sofia', placeId: 'place-2' },
+    ]);
+  });
+
+  it('filters out suggestions with empty description or placeId', async () => {
+    mockFetch({
+      suggestions: [
+        { placePrediction: { placeId: '', text: { text: 'No id' } } },
+        { placePrediction: { placeId: 'place-ok', text: { text: '' } } },
+        { placePrediction: { placeId: 'place-good', text: { text: 'Good result' } } },
+      ],
+    });
+    const result = await make('k').placeAutocomplete('test', 'sess-1');
+    expect(result).toEqual([{ description: 'Good result', placeId: 'place-good' }]);
+  });
+
+  it('returns [] gracefully when the API returns !ok', async () => {
+    (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => ({
+      ok: false,
+      status: 500,
+    }));
+    expect(await make('k').placeAutocomplete('Витоша', 'sess-1')).toEqual([]);
+  });
+
+  it('returns [] gracefully on network error (throws)', async () => {
+    (global as unknown as { fetch: unknown }).fetch = jest.fn(async () => {
+      throw new Error('network error');
+    });
+    expect(await make('k').placeAutocomplete('Витоша', 'sess-1')).toEqual([]);
+  });
+});
