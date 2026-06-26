@@ -3,6 +3,7 @@ import type {
   tenants,
   users,
   products,
+  productVariants,
   productAvailabilityWindows,
   farmers,
   subcategories,
@@ -25,6 +26,9 @@ export type NewUser = InferInsertModel<typeof users>;
 
 export type Product = InferSelectModel<typeof products>;
 export type NewProduct = InferInsertModel<typeof products>;
+
+export type ProductVariant = InferSelectModel<typeof productVariants>;
+export type NewProductVariant = InferInsertModel<typeof productVariants>;
 
 export type Farmer = InferSelectModel<typeof farmers>;
 export type NewFarmer = InferInsertModel<typeof farmers>;

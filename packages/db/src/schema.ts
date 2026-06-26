@@ -224,6 +224,36 @@ export const products = pgTable(
   }),
 );
 
+// Per-product priced variants (вид/грамаж): e.g. "Кристализиран 500 г" / "Течен 1 кг".
+// A product either sells at its own priceStotinki (no variants) OR via these rows
+// (variants present). Each variant carries its own stock (NULL = unlimited, 0 = out).
+// position orders them in the picker; deletedAt soft-deletes (order_items keep a label
+// snapshot, so a removed variant's history survives). When variants exist the service
+// syncs products.priceStotinki to the cheapest variant for sort + "от X" display.
+export const productVariants = pgTable(
+  'product_variants',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    priceStotinki: integer('price_stotinki').notNull(),
+    // NULL = unlimited stock; 0 = out of stock.
+    stockQuantity: integer('stock_quantity'),
+    position: integer('position').notNull().default(0),
+    deletedAt: timestamp('deleted_at'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    productPositionIdx: index('product_variants_product_position_idx').on(
+      t.productId,
+      t.position,
+      t.id,
+    ),
+  }),
+);
+
 export const productAvailabilityWindows = pgTable(
   'product_availability_windows',
   {
@@ -853,6 +883,7 @@ export const schema = {
   tenants,
   users,
   products,
+  productVariants,
   productAvailabilityWindows,
   farmers,
   subcategories,
