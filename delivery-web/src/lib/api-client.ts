@@ -30,7 +30,7 @@ export interface ImportRow {
   codAmountStotinki: number | null;
   carrier: 'econt' | 'speedy';
   validationStatus: 'ok' | 'warn' | 'error';
-  validation?: { issues?: Array<{ message: string }> } | null;
+  validation?: { issues?: Array<{ message: string; field?: string; code?: string; suggestion?: string }> } | null;
   shipmentId?: string | null;
 }
 export interface ImportBatch {

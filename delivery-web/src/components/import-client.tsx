@@ -509,14 +509,29 @@ export function ImportClient() {
                         <td className="px-3 py-2.5 align-top"><div className="flex h-10 items-center"><RiskBadge r={r} /></div></td>
                         <td className="px-3 py-2.5 align-top"><div className="flex h-10 items-center"><button onClick={() => del(r)} className="grid h-9 w-9 place-items-center rounded-lg border border-[#e0a0a0] text-ff-red hover:bg-[#FBE9E7]" aria-label="Изтрий реда"><X size={15} /></button></div></td>
                       </tr>
-                      {issues.length > 0 && (
-                        <tr className={`border-b border-ff-border-2 last:border-0 ${rowBg(r.validationStatus)}`}>
-                          <td />
-                          <td colSpan={9} className={`px-3 pb-2.5 pt-0 text-[12.5px] leading-snug ${r.validationStatus === 'error' ? 'text-ff-red' : 'text-ff-amber-600'}`}>
-                            <span className="font-bold">Проблеми:</span> {issues.join('; ')}
-                          </td>
-                        </tr>
-                      )}
+                      {(() => {
+                        const all = r.validation?.issues ?? [];
+                        if (!all.length) return null;
+                        const fix = all.find((i) => i.suggestion);
+                        return (
+                          <tr className={`border-b border-ff-border-2 last:border-0 ${rowBg(r.validationStatus)}`}>
+                            <td />
+                            <td colSpan={9} className={`px-3 pb-2.5 pt-0 text-[12.5px] leading-snug ${r.validationStatus === 'error' ? 'text-ff-red' : 'text-ff-amber-600'}`}>
+                              <span className="font-bold">Проблеми:</span> {all.map((i) => i.message).filter(Boolean).join('; ')}
+                              {fix?.suggestion && (
+                                <span className="ml-1 inline-flex items-center gap-1.5">
+                                  <span className="text-ff-ink-2">Предложение: <b>„{fix.suggestion}"</b></span>
+                                  <button
+                                    type="button"
+                                    onClick={() => { const v = fix.suggestion!; patch(r, 'address', v); save({ ...r, address: v }); }}
+                                    className="rounded-md bg-ff-green-700 px-2 py-0.5 text-[11.5px] font-bold text-white hover:brightness-95"
+                                  >Приеми</button>
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })()}
                     </Fragment>
                   );
                 })}
@@ -558,7 +573,21 @@ export function ImportClient() {
                   <span className="text-[12.5px] font-bold text-ff-muted">Платеж (€)</span>
                   <EurInput className={inpNum} cents={r.codAmountStotinki} onCommit={(c) => { patch(r, 'codAmountStotinki', c); save({ ...r, codAmountStotinki: c }); }} />
                 </label>
-                {(r.validation?.issues ?? []).length > 0 && <p className="text-[12.5px] text-ff-red">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</p>}
+                {(r.validation?.issues ?? []).length > 0 && (
+                  <div className="text-[12.5px] text-ff-red">
+                    {(r.validation?.issues ?? []).map((i) => i.message).filter(Boolean).join('; ')}
+                    {(() => {
+                      const fix = (r.validation?.issues ?? []).find((i) => i.suggestion);
+                      return fix?.suggestion ? (
+                        <button
+                          type="button"
+                          onClick={() => { const v = fix.suggestion!; patch(r, 'address', v); save({ ...r, address: v }); }}
+                          className="ml-1.5 rounded-md bg-ff-green-700 px-2 py-0.5 text-[11.5px] font-bold text-white hover:brightness-95"
+                        >Приеми „{fix.suggestion}"</button>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
                 <RiskBadge r={r} />
                 <button onClick={() => del(r)} className="mt-1.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#e0a0a0] py-2 text-[12.5px] font-bold text-ff-red hover:bg-[#FBE9E7]"><X size={14} /> Изтрий</button>
               </div>
