@@ -61,7 +61,21 @@ export interface Product {
   subcategoryId: string | null;
   /** Storefront display order (farmer-controlled). Lower = earlier. */
   position: number;
+  /** Promotion: discount percent (1..99) or null. */
+  salePercent: number | null;
+  /** Promotion end date (ISO) or null = no end. */
+  saleEndsAt: string | null;
   createdAt: string;
+}
+
+/** A product variant (вид/грамаж) as edited in the panel. */
+export interface ProductVariant {
+  id: string;
+  label: string;
+  priceStotinki: number;
+  /** null = unlimited stock. */
+  stockQuantity: number | null;
+  position: number;
 }
 
 /** How a cover image is framed on the storefront: focal point (x/y, 0..1) + zoom

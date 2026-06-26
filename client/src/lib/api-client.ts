@@ -14,6 +14,7 @@ import type {
   PaymentStatus,
   Product,
   ProductOption,
+  ProductVariant,
   ProductionSummary,
   ReviewStatus,
   RouteResult,
@@ -83,10 +84,21 @@ export const listProducts = (cursor?: string) =>
 
 export const listProductOptions = () => apiFetch<ProductOption[]>('products/options');
 
+/** A variant the dialog sends on save (id present = update existing, absent = create). */
+export type VariantWrite = { id?: string; label: string; priceStotinki: number; stockQuantity?: number | null };
+
 /** Product write payload: the editable product fields plus the virtual `stock`
  *  number (drives the availability window — number sets it, null clears it back to
  *  unlimited, absent leaves it untouched). `stock` is not a Product column. */
-export type ProductWrite = Partial<Product> & { stock?: number | null };
+export type ProductWrite = Partial<Product> & {
+  stock?: number | null;
+  salePercent?: number | null;
+  saleEndsAt?: string | null;
+  variants?: VariantWrite[];
+};
+
+export const listProductVariants = (productId: string) =>
+  apiFetch<ProductVariant[]>(`products/${productId}/variants`, {}, 'Неуспешно зареждане на варианти');
 
 export const createProduct = (data: ProductWrite) =>
   apiFetch<Product>('products', { method: 'POST', ...json(data) }, 'Неуспешно създаване');
