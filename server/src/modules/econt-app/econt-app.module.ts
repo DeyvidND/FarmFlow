@@ -11,6 +11,7 @@ import { throttlerTracker } from '../../common/throttler/throttler.tracker';
 import { QueueModule } from '../../common/queue/queue.module';
 import { EmailModule } from '../../common/email/email.module';
 import { PublicCacheModule } from '../../common/cache/public-cache.module';
+import { MapsModule } from '../../common/maps/maps.module';
 import { MustChangePasswordGuard } from '../../common/guards/must-change-password.guard';
 import { TenantRolesGuard } from '../../common/guards/tenant-roles.guard';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
@@ -50,6 +51,7 @@ import { ImportModule } from '../import/import.module';
     QueueModule,
     EmailModule,
     PublicCacheModule,
+    MapsModule, // ShippingQuoteController.addressSuggest + (via ImportModule) AddressGeoService inject MapsService
     AuthCoreModule, // JwtModule + JwtStrategy + AuthService (no /auth/* controller)
     EcontCoreModule, // EcontService + ShipmentEmailService (no /econt/* controllers)
     SpeedyCoreModule, // SpeedyService + refresh queue/processor (no /speedy/* controllers)
