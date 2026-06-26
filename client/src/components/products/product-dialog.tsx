@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ImagePlus, Trash2, X } from 'lucide-react';
+import { ImagePlus, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Collapsible } from '@/components/delivery/ui';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
-import { ApiError, listAvailabilityWindows, type ProductWrite } from '@/lib/api-client';
+import { ApiError, listAvailabilityWindows, listProductVariants, type ProductWrite, type VariantWrite } from '@/lib/api-client';
 import type { CoverCrop, Farmer, Product, Subcategory } from '@/lib/types';
+import { moneyFromStotinki } from '@/lib/utils';
 
 const field =
   'rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
@@ -51,6 +53,14 @@ export function ProductDialog({
   const [subcatId, setSubcatId] = useState(product?.subcategoryId ?? subcats[0]?.id ?? '');
   const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? null);
   const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(product?.coverCrop ?? null);
+  // Variants (вид/грамаж): one product, several priced rows. Prices kept as
+  // comma-strings like the main price; stock '' = unlimited.
+  type VRow = { id?: string; label: string; price: string; stock: string };
+  const [hasVariants, setHasVariants] = useState(false);
+  const [variants, setVariants] = useState<VRow[]>([]);
+  // Promotion: percent off + optional end date (date input wants YYYY-MM-DD).
+  const [salePercent, setSalePercent] = useState(product?.salePercent ? String(product.salePercent) : '');
+  const [saleEndsAt, setSaleEndsAt] = useState(product?.saleEndsAt ? product.saleEndsAt.slice(0, 10) : '');
   // Create mode: no product id yet to attach photos to, so buffer the picked files
   // locally (with object-URL previews) and upload them right after the product is
   // created. Edit mode uses the server-backed MediaManager instead.
@@ -71,6 +81,31 @@ export function ProductDialog({
       .catch(() => {
         /* stock prefill is best-effort — leave the field empty on failure */
       });
+    return () => {
+      alive = false;
+    };
+  }, [isEdit, product]);
+
+  // Edit mode: load existing variants so the section pre-fills and opens.
+  useEffect(() => {
+    if (!isEdit || !product) return;
+    let alive = true;
+    listProductVariants(product.id)
+      .then((rows) => {
+        if (!alive) return;
+        if (rows.length) {
+          setHasVariants(true);
+          setVariants(
+            rows.map((v) => ({
+              id: v.id,
+              label: v.label,
+              price: (v.priceStotinki / 100).toFixed(2).replace('.', ','),
+              stock: v.stockQuantity == null ? '' : String(v.stockQuantity),
+            })),
+          );
+        }
+      })
+      .catch(() => {});
     return () => {
       alive = false;
     };
@@ -106,10 +141,36 @@ export function ProductDialog({
       setErr('Въведи име');
       return;
     }
-    if (priceStotinki <= 0) {
+    if (!hasVariants && priceStotinki <= 0) {
       setErr('Въведи валидна цена');
       return;
     }
+    // Variants → write payload (parse comma prices to stotinki; empty stock = unlimited).
+    let variantPayload: VariantWrite[] | undefined;
+    if (hasVariants) {
+      const cleaned = variants.filter((v) => v.label.trim());
+      if (!cleaned.length) {
+        setErr('Добави поне един вариант или изключи вариантите');
+        return;
+      }
+      variantPayload = cleaned.map((v) => ({
+        ...(v.id ? { id: v.id } : {}),
+        label: v.label.trim(),
+        priceStotinki: Math.round((parseFloat(v.price.replace(',', '.')) || 0) * 100),
+        stockQuantity: v.stock.trim() === '' ? null : parseInt(v.stock, 10),
+      }));
+      if (variantPayload.some((v) => v.priceStotinki <= 0)) {
+        setErr('Всеки вариант трябва да има валидна цена');
+        return;
+      }
+    } else {
+      variantPayload = []; // explicit empty = remove any existing variants
+    }
+    const pct = salePercent.trim() === '' ? null : parseInt(salePercent, 10);
+    const promoEnd = saleEndsAt.trim() === '' ? null : new Date(saleEndsAt).toISOString();
+    const effectivePrice = hasVariants && variantPayload && variantPayload.length
+      ? Math.min(...variantPayload.map((v) => v.priceStotinki))
+      : priceStotinki;
     // Stock is digit-filtered on input. Empty → null clears the window (unlimited);
     // a number upserts it. Sent on create too (null is a harmless no-op there).
     const stockValue: number | null = stock.trim() === '' ? null : parseInt(stock, 10);
@@ -118,10 +179,13 @@ export function ProductDialog({
       await onSubmit(
         {
           name: name.trim(),
-          priceStotinki,
+          priceStotinki: effectivePrice,
           unit: unit.trim() || 'бр',
           weight: weight.trim() || undefined,
           stock: stockValue,
+          salePercent: pct,
+          saleEndsAt: promoEnd,
+          variants: variantPayload,
           ...(isEdit ? { coverCrop } : { isActive: true }),
           ...(multiFarmer ? { farmerId: farmerId || null } : {}),
           ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
@@ -232,28 +296,34 @@ export function ProductDialog({
             </label>
           </div>
 
-          <label className={labelCls}>
-            Цена (€)
-            <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="6,50" className={field} />
-          </label>
+          {!hasVariants && (
+            <label className={labelCls}>
+              Цена (€)
+              <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="6,50" className={field} />
+            </label>
+          )}
 
-          <label className={labelCls}>
-            Наличност
-            <input
-              value={stock}
-              onChange={(e) => setStock(e.target.value.replace(/[^0-9]/g, ''))}
-              inputMode="numeric"
-              placeholder="напр. 20"
-              className={field}
-            />
-            <span className="text-[11.5px] font-normal text-ff-muted">
-              Остави празно = неограничено · винаги налично. Намалява при всяка поръчка.
-            </span>
-          </label>
+          {!hasVariants && (
+            <label className={labelCls}>
+              Наличност
+              <input
+                value={stock}
+                onChange={(e) => setStock(e.target.value.replace(/[^0-9]/g, ''))}
+                inputMode="numeric"
+                placeholder="напр. 20"
+                className={field}
+              />
+              <span className="text-[11.5px] font-normal text-ff-muted">
+                Остави празно = неограничено · винаги налично. Намалява при всяка поръчка.
+              </span>
+            </label>
+          )}
 
-          <a href="/availability" className="-mt-1 text-[12px] font-semibold text-ff-green-700 hover:underline">
-            Задай наличност на много продукти наведнъж →
-          </a>
+          {!hasVariants && (
+            <a href="/availability" className="-mt-1 text-[12px] font-semibold text-ff-green-700 hover:underline">
+              Задай наличност на много продукти наведнъж →
+            </a>
+          )}
 
           {multiFarmer && farmers.length > 0 && (
             <label className={labelCls}>
@@ -281,6 +351,97 @@ export function ProductDialog({
               </select>
             </label>
           )}
+
+          <Collapsible
+            title="Варианти (вид/грамаж)"
+            hint="Един продукт с няколко цени — напр. мед: кристализиран/течен, или мляко в 3 разфасовки. Една снимка, отделна цена и наличност за всеки."
+            defaultOpen={hasVariants}
+          >
+            <label className="flex items-center gap-2 text-[13px] font-semibold text-ff-ink">
+              <input type="checkbox" checked={hasVariants} onChange={(e) => setHasVariants(e.target.checked)} />
+              Този продукт има варианти
+            </label>
+            {hasVariants && (
+              <div className="mt-3 flex flex-col gap-2">
+                {variants.map((v, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      value={v.label}
+                      onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, label: e.target.value } : r)))}
+                      placeholder="Кристализиран 500 г"
+                      className={`${field} flex-[2]`}
+                    />
+                    <input
+                      value={v.price}
+                      onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, price: e.target.value } : r)))}
+                      inputMode="decimal"
+                      placeholder="6,50 €"
+                      className={`${field} flex-1`}
+                    />
+                    <input
+                      value={v.stock}
+                      onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, stock: e.target.value.replace(/[^0-9]/g, '') } : r)))}
+                      inputMode="numeric"
+                      placeholder="бр"
+                      className={`${field} w-16`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setVariants((p) => p.filter((_, j) => j !== i))}
+                      aria-label="Премахни вариант"
+                      className="grid w-9 shrink-0 place-items-center rounded-sm text-ff-red hover:bg-ff-surface-2"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setVariants((p) => [...p, { label: '', price: '', stock: '' }])}
+                  className="inline-flex items-center gap-1.5 self-start text-[12.5px] font-semibold text-ff-green-700 hover:underline"
+                >
+                  <Plus size={14} /> Добави вариант
+                </button>
+                <span className="text-[11.5px] text-ff-muted">Наличност празна = неограничено. Цената на продукта става най-евтиния вариант.</span>
+              </div>
+            )}
+          </Collapsible>
+
+          <Collapsible
+            title="Промоция"
+            hint="Намали цената с процент за определен срок. След срока промоцията пада автоматично. Без срок — маха се ръчно."
+            defaultOpen={!!product?.salePercent}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <label className={labelCls}>
+                Отстъпка (%)
+                <input
+                  value={salePercent}
+                  onChange={(e) => setSalePercent(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
+                  inputMode="numeric"
+                  placeholder="напр. 20"
+                  className={field}
+                />
+              </label>
+              <label className={labelCls}>
+                Край (по избор)
+                <input type="date" value={saleEndsAt} onChange={(e) => setSaleEndsAt(e.target.value)} className={field} />
+              </label>
+            </div>
+            {(() => {
+              const pct = parseInt(salePercent, 10);
+              const base = Math.round((parseFloat(price.replace(',', '.')) || 0) * 100);
+              if (!pct || pct < 1 || pct > 99 || base <= 0) return null;
+              const sale = Math.round((base * (100 - pct)) / 100);
+              return (
+                <p className="mt-2 text-[12.5px] text-ff-muted">
+                  Преглед: <span className="line-through">{moneyFromStotinki(base)}</span>{' '}
+                  <span className="font-bold text-ff-green-700">{moneyFromStotinki(sale)}</span>
+                  {hasVariants ? ' · важи за всеки вариант' : ''}
+                </p>
+              );
+            })()}
+          </Collapsible>
 
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}
 
