@@ -155,6 +155,20 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 ```
 
+- [ ] **Step 5b: Register the migration in the drizzle journal**
+
+The boot migrator (`migrate()` from drizzle-orm) only applies migrations listed in `packages/db/drizzle/meta/_journal.json` — a hand-written `.sql` not in the `entries` array is silently skipped. Hand-written migrations need a journal entry but NO snapshot file. Append as the last element of `entries` (after the `0061_nekorekten_durable_cache` entry; add the comma after 0061's closing brace):
+
+```json
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1782466800000,
+      "tag": "0062_product_variants_and_promo",
+      "breakpoints": true
+    }
+```
+
 - [ ] **Step 6: Build the db + types packages to verify they compile**
 
 Run: `cd packages/db && pnpm build && cd ../types && pnpm build`
@@ -163,7 +177,7 @@ Expected: both compile with no TypeScript errors.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/db/src/schema.ts packages/db/drizzle/0062_product_variants_and_promo.sql packages/types/src/index.ts
+git add packages/db/src/schema.ts packages/db/drizzle/0062_product_variants_and_promo.sql packages/db/drizzle/meta/_journal.json packages/types/src/index.ts
 git commit -m "feat(db): product_variants table + promo + order-item variant snapshot (migration 0062)"
 ```
 
