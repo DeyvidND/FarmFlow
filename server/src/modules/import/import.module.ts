@@ -7,10 +7,11 @@ import { ImportAiService } from './import.ai';
 import { ImportResolveService } from './import.resolve';
 import { ImportController } from './import.controller';
 import { ActivationGuard } from '../econt-app/activation.guard';
+import { AddressGeoService } from './address-geo.service';
 
 @Module({
   imports: [DrizzleModule, EcontCoreModule, SpeedyCoreModule],
   controllers: [ImportController],
-  providers: [ImportService, ImportAiService, ImportResolveService, ActivationGuard],
+  providers: [ImportService, ImportAiService, ImportResolveService, ActivationGuard, AddressGeoService],
 })
 export class ImportModule {}

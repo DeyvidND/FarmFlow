@@ -1,5 +1,6 @@
-import { mergeAi } from './import.ai';
+import { mergeAi, ImportAiService } from './import.ai';
 import type { RowValidation, AiVerdict } from './import.types';
+import { ConfigService } from '@nestjs/config';
 
 describe('mergeAi', () => {
   const okValidation: RowValidation = { status: 'ok', issues: [] };
@@ -26,5 +27,13 @@ describe('mergeAi', () => {
     const warnValidation: RowValidation = { status: 'warn', issues: [] };
     const ai: AiVerdict = { index: 0, status: 'error', issues: [{ field: 'phone', message: 'грешен' }] };
     expect(mergeAi(warnValidation, ai).status).toBe('error');
+  });
+});
+
+describe('ImportAiService.repairAddresses', () => {
+  it('returns [] when no OpenAI key is configured (degrade)', async () => {
+    const svc = new ImportAiService({ get: () => undefined } as unknown as ConfigService);
+    const out = await svc.repairAddresses([{ index: 1, address: 'ул Граф Игнатиев', city: 'София' }]);
+    expect(out).toEqual([]);
   });
 });

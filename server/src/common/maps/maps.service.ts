@@ -23,6 +23,7 @@ export interface RoutePlan {
 
 const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
 const ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
+const PLACES_AUTOCOMPLETE_URL = 'https://places.googleapis.com/v1/places:autocomplete';
 const TIMEOUT_MS = 8000;
 /** Backstop: reject a geocode this far from the delivery region (gross error). */
 const MAX_BIAS_DISTANCE_KM = 120;
@@ -384,6 +385,39 @@ export class MapsService {
     } catch (err) {
       this.logger.warn(`routeFixed error: ${(err as Error).message}`);
       return null;
+    }
+  }
+
+  /** Google Places Autocomplete (New), biased to Bulgaria. Returns [] in stub mode
+   *  or on any error (graceful). `sessionToken` groups keystrokes into one billed
+   *  session — mint one per focus on the client. */
+  async placeAutocomplete(query: string, sessionToken: string): Promise<{ description: string; placeId: string }[]> {
+    const q = query?.trim();
+    if (!this.enabled || !q || q.length < 2) return [];
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+      const res = await fetch(PLACES_AUTOCOMPLETE_URL, {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.apiKey },
+        body: JSON.stringify({
+          input: q,
+          sessionToken,
+          includedRegionCodes: ['bg'],
+          languageCode: 'bg',
+        }),
+      }).finally(() => clearTimeout(timer));
+      if (!res.ok) return [];
+      const json = (await res.json()) as {
+        suggestions?: { placePrediction?: { placeId?: string; text?: { text?: string } } }[];
+      };
+      return (json.suggestions ?? [])
+        .map((s) => ({ description: s.placePrediction?.text?.text ?? '', placeId: s.placePrediction?.placeId ?? '' }))
+        .filter((p) => p.description && p.placeId);
+    } catch (err) {
+      this.logger.warn(`Places autocomplete error for "${q}": ${(err as Error).message}`);
+      return [];
     }
   }
 

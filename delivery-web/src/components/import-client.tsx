@@ -4,8 +4,8 @@ import { useState, useEffect, useRef, Fragment } from 'react';
 import { toast } from 'sonner';
 import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2, Clock, CloudOff, Info, Truck, Zap, ArrowRight } from 'lucide-react';
 import {
-  ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment, riskCheckBulk,
-  type ImportRow, type QuoteResult, type RiskBulkEntry, type RiskBulkMeta,
+  ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment, riskCheckBulk, addressSuggest,
+  type ImportRow, type QuoteResult, type RiskBulkEntry, type RiskBulkMeta, type AddressPrediction,
 } from '@/lib/api-client';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -63,6 +63,50 @@ function AutoTextarea({ value, onChange, onBlur, className, placeholder }: {
       onChange={(e) => onChange(e.target.value)} onBlur={onBlur}
       className={`resize-none overflow-hidden ${className}`}
     />
+  );
+}
+
+function AddressAutocomplete({ value, onCommit, className, placeholder }: {
+  value: string; onCommit: (v: string) => void; className: string; placeholder?: string;
+}) {
+  const [text, setText] = useState(value);
+  const [preds, setPreds] = useState<AddressPrediction[]>([]);
+  const [open, setOpen] = useState(false);
+  const session = useRef<string>('');
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { setText(value); }, [value]);
+
+  function onType(v: string) {
+    setText(v);
+    if (timer.current) clearTimeout(timer.current);
+    if (v.trim().length < 3) { setPreds([]); return; }
+    timer.current = setTimeout(async () => {
+      if (!session.current) session.current = (crypto?.randomUUID?.() ?? String(Math.random())).slice(0, 36);
+      try { const p = await addressSuggest(v, session.current); setPreds(p); setOpen(true); } catch { setPreds([]); }
+    }, 250);
+  }
+  function choose(p: AddressPrediction) {
+    setText(p.description); setOpen(false); setPreds([]); session.current = '';
+    onCommit(p.description);
+  }
+  return (
+    <div className="relative">
+      <AutoTextarea
+        className={className} placeholder={placeholder} value={text}
+        onChange={onType}
+        onBlur={() => { setTimeout(() => setOpen(false), 150); if (text !== value) onCommit(text); }}
+      />
+      {open && preds.length > 0 && (
+        <ul className="absolute z-20 mt-1 max-h-56 w-[280px] overflow-auto rounded-lg border border-ff-border bg-ff-surface shadow-ff-lg">
+          {preds.map((p) => (
+            <li key={p.placeId}>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); choose(p); }}
+                className="block w-full px-3 py-2 text-left text-[12.5px] hover:bg-ff-green-50">{p.description}</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -502,21 +546,38 @@ export function ImportClient() {
                         <td className="px-3 py-2.5 align-top">
                           {r.deliveryMode === 'office'
                             ? <AutoTextarea className={inpTa} placeholder="Офис" value={r.office ?? ''} onChange={(v) => patch(r, 'office', v)} onBlur={() => save(r)} />
-                            : <AutoTextarea className={inpTa} placeholder="Адрес" value={r.address ?? ''} onChange={(v) => patch(r, 'address', v)} onBlur={() => save(r)} />}
+                            : (r.validation?.issues ?? []).some((i) => i.code === 'address_unresolved' || i.code === 'address_fixable')
+                              ? <AddressAutocomplete className={inpTa} placeholder="Адрес" value={r.address ?? ''} onCommit={(v) => { patch(r, 'address', v); save({ ...r, address: v }); }} />
+                              : <AutoTextarea className={inpTa} placeholder="Адрес" value={r.address ?? ''} onChange={(v) => patch(r, 'address', v)} onBlur={() => save(r)} />}
                         </td>
                         <td className="px-3 py-2.5 align-top"><KgInput className={inpNum} grams={r.weightGrams} onCommit={(g) => { patch(r, 'weightGrams', g); save({ ...r, weightGrams: g }); }} /></td>
                         <td className="px-3 py-2.5 align-top"><EurInput className={inpNum} cents={r.codAmountStotinki} onCommit={(c) => { patch(r, 'codAmountStotinki', c); save({ ...r, codAmountStotinki: c }); }} /></td>
                         <td className="px-3 py-2.5 align-top"><div className="flex h-10 items-center"><RiskBadge r={r} /></div></td>
                         <td className="px-3 py-2.5 align-top"><div className="flex h-10 items-center"><button onClick={() => del(r)} className="grid h-9 w-9 place-items-center rounded-lg border border-[#e0a0a0] text-ff-red hover:bg-[#FBE9E7]" aria-label="Изтрий реда"><X size={15} /></button></div></td>
                       </tr>
-                      {issues.length > 0 && (
-                        <tr className={`border-b border-ff-border-2 last:border-0 ${rowBg(r.validationStatus)}`}>
-                          <td />
-                          <td colSpan={9} className={`px-3 pb-2.5 pt-0 text-[12.5px] leading-snug ${r.validationStatus === 'error' ? 'text-ff-red' : 'text-ff-amber-600'}`}>
-                            <span className="font-bold">Проблеми:</span> {issues.join('; ')}
-                          </td>
-                        </tr>
-                      )}
+                      {(() => {
+                        const all = r.validation?.issues ?? [];
+                        if (!all.length) return null;
+                        const fix = all.find((i) => i.suggestion);
+                        return (
+                          <tr className={`border-b border-ff-border-2 last:border-0 ${rowBg(r.validationStatus)}`}>
+                            <td />
+                            <td colSpan={9} className={`px-3 pb-2.5 pt-0 text-[12.5px] leading-snug ${r.validationStatus === 'error' ? 'text-ff-red' : 'text-ff-amber-600'}`}>
+                              <span className="font-bold">Проблеми:</span> {all.map((i) => i.message).filter(Boolean).join('; ')}
+                              {fix?.suggestion && (
+                                <span className="ml-1 inline-flex items-center gap-1.5">
+                                  <span className="text-ff-ink-2">Предложение: <b>„{fix.suggestion}"</b></span>
+                                  <button
+                                    type="button"
+                                    onClick={() => { const v = fix.suggestion!; patch(r, 'address', v); save({ ...r, address: v }); }}
+                                    className="rounded-md bg-ff-green-700 px-2 py-0.5 text-[11.5px] font-bold text-white hover:brightness-95"
+                                  >Приеми</button>
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })()}
                     </Fragment>
                   );
                 })}
@@ -558,7 +619,21 @@ export function ImportClient() {
                   <span className="text-[12.5px] font-bold text-ff-muted">Платеж (€)</span>
                   <EurInput className={inpNum} cents={r.codAmountStotinki} onCommit={(c) => { patch(r, 'codAmountStotinki', c); save({ ...r, codAmountStotinki: c }); }} />
                 </label>
-                {(r.validation?.issues ?? []).length > 0 && <p className="text-[12.5px] text-ff-red">{(r.validation?.issues ?? []).map((i) => i.message).join('; ')}</p>}
+                {(r.validation?.issues ?? []).length > 0 && (
+                  <div className="text-[12.5px] text-ff-red">
+                    {(r.validation?.issues ?? []).map((i) => i.message).filter(Boolean).join('; ')}
+                    {(() => {
+                      const fix = (r.validation?.issues ?? []).find((i) => i.suggestion);
+                      return fix?.suggestion ? (
+                        <button
+                          type="button"
+                          onClick={() => { const v = fix.suggestion!; patch(r, 'address', v); save({ ...r, address: v }); }}
+                          className="ml-1.5 rounded-md bg-ff-green-700 px-2 py-0.5 text-[11.5px] font-bold text-white hover:brightness-95"
+                        >Приеми „{fix.suggestion}"</button>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
                 <RiskBadge r={r} />
                 <button onClick={() => del(r)} className="mt-1.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#e0a0a0] py-2 text-[12.5px] font-bold text-ff-red hover:bg-[#FBE9E7]"><X size={14} /> Изтрий</button>
               </div>

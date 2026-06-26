@@ -7,6 +7,7 @@ import { normalizeRow } from './import.normalize';
 import { validateRow } from './import.validate';
 import { mergeAi, ImportAiService } from './import.ai';
 import { ImportResolveService } from './import.resolve';
+import { AddressGeoService } from './address-geo.service';
 import type { BatchDefaults, NormalizedRow, RowStatus } from './import.types';
 import { ImportSettingsDto } from './dto/import-settings.dto';
 import { EcontService } from '../econt/econt.service';
@@ -20,6 +21,7 @@ export class ImportService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly ai: ImportAiService,
     private readonly resolver: ImportResolveService,
+    private readonly addressGeo: AddressGeoService,
     private readonly econtSvc: EcontService,
     private readonly speedySvc: SpeedyService,
   ) {}
@@ -85,13 +87,32 @@ export class ImportService {
       }
       return { row, validation, refs: resolved.refs };
     };
+    const allProcessed: Array<{ row: NormalizedRow; validation: { status: RowStatus; issues: import('./import.types').RowIssue[] }; refs: Record<string, unknown> }> = [];
     for (let i = 0; i < normalized.length; i += CONCURRENCY) {
       const chunk = normalized.slice(i, i + CONCURRENCY);
-      const processed = await Promise.all(chunk.map(processRow));
-      for (const p of processed) {
-        counts[p.validation.status]++;
-        rowsToInsert.push(this.toRowInsert(batch.id, tenantId, p.row, p.validation, p.refs));
+      allProcessed.push(...(await Promise.all(chunk.map(processRow))));
+    }
+
+    // Address-eligibility: only address-mode, non-error rows with an address. One
+    // batched AI repair call for all broken addresses (see AddressGeoService).
+    const geoCands = allProcessed.filter(
+      (p) => p.validation.status !== 'error' && p.row.deliveryMode === 'address' && p.row.address,
+    );
+    const geo = await this.addressGeo.checkMany(
+      geoCands.map((p) => ({ rowIndex: p.row.rowIndex, address: p.row.address!, city: p.row.city })),
+    );
+    for (const p of allProcessed) {
+      const g = geo.get(p.row.rowIndex);
+      if (g && g.status !== 'ok') {
+        p.validation = {
+          status: 'warn',
+          issues: [...p.validation.issues, g.status === 'fixed'
+            ? { field: 'address', code: 'address_fixable', message: 'Адресът не се намира в Google — предложение по-долу', suggestion: g.suggestion }
+            : { field: 'address', code: 'address_unresolved', message: 'Адресът не се намира в Google — провери ръчно' }],
+        };
       }
+      counts[p.validation.status]++;
+      rowsToInsert.push(this.toRowInsert(batch.id, tenantId, p.row, p.validation, p.refs));
     }
 
     await this.db.insert(importRows).values(rowsToInsert);
@@ -175,6 +196,19 @@ export class ImportService {
         validation = {
           status: 'warn',
           issues: [...det.issues, { field: resolved.unresolved ?? 'city', message: 'Провери локацията' }],
+        };
+      }
+    }
+
+    // Re-check Google-eligibility for the edited address (single row, cache-first → cheap).
+    if (det.status !== 'error' && merged.deliveryMode === 'address' && merged.address) {
+      const g = await this.addressGeo.checkOne(merged.address, merged.city);
+      if (g.status !== 'ok') {
+        validation = {
+          status: 'warn',
+          issues: [...validation.issues, g.status === 'fixed'
+            ? { field: 'address', code: 'address_fixable', message: 'Адресът не се намира в Google — предложение по-долу', suggestion: g.suggestion }
+            : { field: 'address', code: 'address_unresolved', message: 'Адресът не се намира в Google — провери ръчно' }],
         };
       }
     }

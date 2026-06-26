@@ -13,6 +13,11 @@ export function mergeAi(det: RowValidation, ai: AiVerdict | undefined): RowValid
   return { status, issues: [...det.issues, ...ai.issues] };
 }
 
+const ADDRESS_REPAIR_PROMPT = `Ти си помощник за нормализиране на адреси за доставка в България.
+За всеки подаден адрес върни ПОДОБРЕНА версия, която Google Maps може да намери: пълно име на улица/булевард + номер + град, без излишни думи (вход, етаж, апартамент, ориентири като „до аптеката" премахни).
+Запази същия index. Ако не можеш да подобриш — върни най-добрия си опит.
+Връщай само JSON: {"addresses":[{"index":число,"suggestion":"..."}]}. Без друг текст. Всичко на български.`;
+
 const SYSTEM_PROMPT = `Ти си помощник за проверка на таблица с пратки за български куриери (Еконт, Спиди).
 За всеки ред върни JSON обект с: index (число), status ("ok"|"warn"|"error"), issues (масив от {field, message, suggestion?}).
 Маркирай: липсващи задължителни полета, невалиден български телефон, неясен или непознат град, тип доставка който не пасва на дадените полета, нечислов наложен платеж.
@@ -66,6 +71,31 @@ export class ImportAiService {
       return Array.isArray(parsed.rows) ? parsed.rows : [];
     } catch (e) {
       this.log.warn(`OpenAI import review failed, degrading: ${String((e as Error)?.message ?? e)}`);
+      return [];
+    }
+  }
+
+  /** Batch-normalize messy addresses into geocodable ones. Never throws — [] on failure. */
+  async repairAddresses(
+    items: { index: number; address: string; city: string | null }[],
+  ): Promise<{ index: number; suggestion: string }[]> {
+    if (!this.client || !items.length) return [];
+    try {
+      const res = await this.client.chat.completions.create({
+        model: this.model,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: ADDRESS_REPAIR_PROMPT },
+          { role: 'user', content: JSON.stringify({ addresses: items }) },
+        ],
+      });
+      const txt = res.choices[0]?.message?.content ?? '{}';
+      const parsed = JSON.parse(txt) as { addresses?: { index: number; suggestion: string }[] };
+      return Array.isArray(parsed.addresses)
+        ? parsed.addresses.filter((a) => typeof a.index === 'number' && typeof a.suggestion === 'string' && a.suggestion.trim().length > 0)
+        : [];
+    } catch (e) {
+      this.log.warn(`OpenAI address repair failed, degrading: ${String((e as Error)?.message ?? e)}`);
       return [];
     }
   }

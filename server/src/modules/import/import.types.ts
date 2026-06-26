@@ -39,6 +39,8 @@ export interface RowIssue {
   field: string;
   message: string;
   suggestion?: string;
+  /** Machine code so the frontend can target specific issues (e.g. address fixes). */
+  code?: string;
 }
 
 export interface RowValidation {

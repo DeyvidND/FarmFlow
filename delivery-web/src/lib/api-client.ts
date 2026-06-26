@@ -30,7 +30,7 @@ export interface ImportRow {
   codAmountStotinki: number | null;
   carrier: 'econt' | 'speedy';
   validationStatus: 'ok' | 'warn' | 'error';
-  validation?: { issues?: Array<{ message: string }> } | null;
+  validation?: { issues?: Array<{ message: string; field?: string; code?: string; suggestion?: string }> } | null;
   shipmentId?: string | null;
 }
 export interface ImportBatch {
@@ -66,6 +66,14 @@ export const compareShipment = async (
   (await bff('shipping/compare', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
   }, 'Сравнението се провали')).json();
+
+export interface AddressPrediction { description: string; placeId: string; }
+
+/** Google Places autocomplete proxied by the API (key stays server-side). */
+export const addressSuggest = async (query: string, sessionToken: string): Promise<AddressPrediction[]> =>
+  (await bff('shipping/address-suggest', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, sessionToken }),
+  }, 'Грешка при предложенията')).json();
 export const getBatch = async (id: string): Promise<ImportBatch> =>
   (await bff(`import/batches/${id}`)).json();
 export const patchRow = async (batchId: string, rowId: string, patch: Partial<ImportRow>): Promise<ImportRow> =>
