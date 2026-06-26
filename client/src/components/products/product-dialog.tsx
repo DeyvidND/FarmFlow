@@ -58,10 +58,16 @@ export function ProductDialog({
   // Promotion type when there are 2+ rows: 'percent' = one % off all variants;
   // 'fixed' = a per-variant promo price. Mutually exclusive (server enforces too).
   // With 0-1 rows only 'percent' applies.
-  const [promoMode, setPromoMode] = useState<'percent' | 'fixed'>('percent');
+  const [promoMode, setPromoMode] = useState<'percent' | 'fixed'>(
+    product?.salePriceStotinki != null ? 'fixed' : 'percent',
+  );
   // Promotion: percent off + optional end date (date input wants YYYY-MM-DD).
   const [salePercent, setSalePercent] = useState(product?.salePercent ? String(product.salePercent) : '');
   const [saleEndsAt, setSaleEndsAt] = useState(product?.saleEndsAt ? product.saleEndsAt.slice(0, 10) : '');
+  // Product-level fixed promo price (plain product, 'fixed' mode with one row).
+  const [productSalePrice, setProductSalePrice] = useState(
+    product?.salePriceStotinki != null ? (product.salePriceStotinki / 100).toFixed(2).replace('.', ',') : '',
+  );
   // Create mode: no product id yet to attach photos to, so buffer the picked files
   // locally (with object-URL previews) and upload them right after the product is
   // created. Edit mode uses the server-backed MediaManager instead.
@@ -188,8 +194,16 @@ export function ProductDialog({
       stockToSet = row.stock.trim() === '' ? null : parseInt(row.stock, 10);
     }
 
-    const pct = fixedMode || salePercent.trim() === '' ? null : parseInt(salePercent, 10);
-    const promoEnd = fixedMode || saleEndsAt.trim() === '' ? null : new Date(`${saleEndsAt}T23:59:59`).toISOString();
+    // A plain product in 'fixed' mode carries a product-level fixed promo price.
+    const productSalePriceStotinki =
+      !varianted && promoMode === 'fixed' && productSalePrice.trim() !== '' ? parsePriceStotinki(productSalePrice) : null;
+    if (productSalePriceStotinki != null && productSalePriceStotinki >= baseStotinki) {
+      setErr('Промо цената трябва да е под редовната цена');
+      return;
+    }
+    // % applies only in percent mode; 'fixed' mode (plain or variant) clears it.
+    const pct = promoMode === 'fixed' || salePercent.trim() === '' ? null : parseInt(salePercent, 10);
+    const promoEnd = promoMode === 'fixed' || saleEndsAt.trim() === '' ? null : new Date(`${saleEndsAt}T23:59:59`).toISOString();
     setLoading(true);
     try {
       await onSubmit(
@@ -201,6 +215,7 @@ export function ProductDialog({
           stock: stockToSet,
           salePercent: pct,
           saleEndsAt: promoEnd,
+          salePriceStotinki: productSalePriceStotinki,
           variants: variantPayload,
           ...(isEdit ? { coverCrop } : { isActive: true }),
           ...(multiFarmer ? { farmerId: farmerId || null } : {}),
@@ -216,10 +231,10 @@ export function ProductDialog({
     }
   }
 
-  // Rows with a real price. One = a plain product; two or more = variants. Drives
-  // the promo UI: the %/fixed toggle and per-row promo input only exist with 2+ rows.
+  // Rows with a real price. One = a plain product; two or more = variants. In 'fixed'
+  // mode a plain product gets one product-level promo price; variants get a per-row one.
   const filledCount = variants.filter((v) => (parseFloat(v.price.replace(',', '.')) || 0) > 0).length;
-  const effectivePromoMode = filledCount >= 2 ? promoMode : 'percent';
+  const effectivePromoMode = promoMode;
 
   return (
     <div className="animate-ff-fade fixed inset-0 z-[80] grid place-items-center bg-black/40 p-4" onClick={onClose}>
@@ -392,7 +407,7 @@ export function ProductDialog({
                       <Trash2 size={14} />
                     </button>
                   </div>
-                  {effectivePromoMode === 'fixed' && (
+                  {effectivePromoMode === 'fixed' && filledCount >= 2 && (
                     <div className="flex items-center gap-2 pl-1">
                       <span className="shrink-0 text-[11.5px] text-ff-muted">Промо цена</span>
                       <input
@@ -422,22 +437,44 @@ export function ProductDialog({
             hint="Намали цената с процент за определен срок. След срока промоцията пада автоматично. Без срок — маха се ръчно."
             defaultOpen={!!product?.salePercent || effectivePromoMode === 'fixed'}
           >
-            {filledCount >= 2 && (
-              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] text-ff-ink">
-                <label className="flex items-center gap-2">
-                  <input type="radio" name="promoMode" checked={promoMode === 'percent'} onChange={() => setPromoMode('percent')} />
-                  Процент за всички
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="radio" name="promoMode" checked={promoMode === 'fixed'} onChange={() => setPromoMode('fixed')} />
-                  Фиксирана цена по вариант
-                </label>
-              </div>
-            )}
-            {effectivePromoMode === 'fixed' ? (
+            <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] text-ff-ink">
+              <label className="flex items-center gap-2">
+                <input type="radio" name="promoMode" checked={promoMode === 'percent'} onChange={() => setPromoMode('percent')} />
+                Намаление (%)
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" name="promoMode" checked={promoMode === 'fixed'} onChange={() => setPromoMode('fixed')} />
+                Фиксирана цена
+              </label>
+            </div>
+            {effectivePromoMode === 'fixed' && filledCount >= 2 ? (
               <p className="text-[12.5px] text-ff-muted">
                 {'Въведи „Промо цена“ в реда на всеки вариант по-горе (празно = без промо за него). Маха се ръчно — без срок.'}
               </p>
+            ) : effectivePromoMode === 'fixed' ? (
+              <>
+                <label className={labelCls}>
+                  Промо цена
+                  <input
+                    value={productSalePrice}
+                    onChange={(e) => setProductSalePrice(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="напр. 5,20 € (празно = без промо)"
+                    className={field}
+                  />
+                </label>
+                {(() => {
+                  const base = Math.round((parseFloat((variants[0]?.price ?? '').replace(',', '.')) || 0) * 100);
+                  const sale = Math.round((parseFloat(productSalePrice.replace(',', '.')) || 0) * 100);
+                  if (base <= 0 || sale <= 0 || sale >= base) return null;
+                  return (
+                    <p className="mt-2 text-[12.5px] text-ff-muted">
+                      Преглед: <span className="line-through">{moneyFromStotinki(base)}</span>{' '}
+                      <span className="font-bold text-ff-green-700">{moneyFromStotinki(sale)}</span>
+                    </p>
+                  );
+                })()}
+              </>
             ) : (
             <>
             <div className="grid grid-cols-2 gap-3">

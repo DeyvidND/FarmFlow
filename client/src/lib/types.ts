@@ -65,6 +65,8 @@ export interface Product {
   salePercent: number | null;
   /** Promotion end date (ISO) or null = no end. */
   saleEndsAt: string | null;
+  /** Product-level fixed promo price (stotinki) or null. Plain products only. */
+  salePriceStotinki: number | null;
   createdAt: string;
 }
 

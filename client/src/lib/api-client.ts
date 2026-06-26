@@ -94,6 +94,7 @@ export type ProductWrite = Partial<Product> & {
   stock?: number | null;
   salePercent?: number | null;
   saleEndsAt?: string | null;
+  salePriceStotinki?: number | null;
   variants?: VariantWrite[];
 };
 
