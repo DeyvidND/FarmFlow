@@ -5,39 +5,48 @@ import { ChevronDown, ChevronUp, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
-import { ApiError, getTenant, listProductOptions, updateTenant } from '@/lib/api-client';
+import { ApiError, listProductOptions, updateTenant } from '@/lib/api-client';
 import type { ProductOption } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
+interface ProductOfWeekPanelProps {
+  initialEnabled: boolean;
+  initialMode: 'manual' | 'auto';
+  initialProductId: string | null;
+  initialNote: string;
+}
+
 /**
  * «Продукт на седмицата» panel rendered on the Products page.
- * Self-contained: loads and saves tenant settings directly.
- * The product can also be set with the star on a product card — both write the same tenant field.
+ * Initial settings come from the server-rendered Products page (which already loads
+ * tenants/me) — no redundant getTenant() round-trip on mount. Saves write tenant
+ * settings directly. The product can also be set with the star on a product card —
+ * both write the same tenant field. The product dropdown is still loaded lazily
+ * (full id/name list, not the page's 50-capped products) so it never goes thin.
  */
-export function ProductOfWeekPanel() {
-  const [loaded, setLoaded] = useState(false);
-  const [enabled, setEnabled] = useState(false);
-  const [mode, setMode] = useState<'manual' | 'auto'>('manual');
-  const [productId, setProductId] = useState<string>('');
-  const [note, setNote] = useState('');
+export function ProductOfWeekPanel({
+  initialEnabled,
+  initialMode,
+  initialProductId,
+  initialNote,
+}: ProductOfWeekPanelProps) {
+  const [loaded, setLoaded] = useState(true);
+  const [enabled, setEnabled] = useState(initialEnabled);
+  const [mode, setMode] = useState<'manual' | 'auto'>(initialMode);
+  const [productId, setProductId] = useState<string>(initialProductId ?? '');
+  const [note, setNote] = useState(initialNote);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([getTenant(), listProductOptions().catch(() => [] as ProductOption[])])
-      .then(([t, opts]) => {
-        if (!alive) return;
-        setEnabled(t.productOfWeekEnabled);
-        setMode(t.productOfWeekMode ?? 'manual');
-        setProductId(t.productOfWeekId ?? '');
-        setNote(t.productOfWeekNote ?? '');
-        setProducts(opts);
-        setLoaded(true);
+    listProductOptions()
+      .then((opts) => {
+        if (alive) setProducts(opts);
       })
-      .catch(() => alive && setLoaded(true));
+      .catch(() => {});
     return () => {
       alive = false;
     };

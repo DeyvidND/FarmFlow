@@ -18,8 +18,32 @@ interface Notif {
 
 const hhmm = (t: string) => t.slice(0, 5);
 
-/** Build the notification feed from the dashboard summary + product stock. */
-async function loadNotifs(): Promise<Notif[]> {
+// The Topbar lives in the shell that wraps every panel route, so its mount effect
+// would re-run loadNotifs (4 endpoints incl. the heavy /dashboard aggregate) on every
+// navigation. Cache the computed feed at module scope (survives remounts) and only
+// recompute when stale or on an explicit refresh (bell open). 60 s keeps it live
+// enough for a badge the user reads occasionally.
+const NOTIF_TTL_MS = 60_000;
+let notifCache: { at: number; data: Notif[] } | null = null;
+let notifInflight: Promise<Notif[]> | null = null;
+
+/** Build the notification feed from the dashboard summary + product stock.
+ *  Served from the module cache unless stale or `force`d (single-flighted). */
+async function loadNotifs(force = false): Promise<Notif[]> {
+  if (!force && notifCache && Date.now() - notifCache.at < NOTIF_TTL_MS) return notifCache.data;
+  if (!force && notifInflight) return notifInflight;
+  notifInflight = buildNotifs().then((data) => {
+    notifCache = { at: Date.now(), data };
+    notifInflight = null;
+    return data;
+  }).catch((err) => {
+    notifInflight = null;
+    throw err;
+  });
+  return notifInflight;
+}
+
+async function buildNotifs(): Promise<Notif[]> {
   const [dash, products, windows, pendingReviews] = await Promise.all([
     getDashboard().catch(() => null),
     listProductOptions().catch(() => null),
@@ -146,13 +170,14 @@ export function Topbar({ tenantName }: TopbarProps) {
     router.refresh();
   }
 
-  const refreshNotifs = useCallback(() => {
-    loadNotifs()
+  const refreshNotifs = useCallback((force = false) => {
+    loadNotifs(force)
       .then(setNotifs)
       .catch(() => {});
   }, []);
 
-  // Load once on mount, then refresh each time the panel opens so the feed is live.
+  // On mount use the module cache (no refetch across navigations within the TTL);
+  // the bell-open handler forces a live refresh.
   useEffect(() => {
     refreshNotifs();
   }, [refreshNotifs]);
@@ -221,7 +246,7 @@ export function Topbar({ tenantName }: TopbarProps) {
           <button
             onClick={() => {
               setNotifOpen((v) => !v);
-              if (!notifOpen) refreshNotifs();
+              if (!notifOpen) refreshNotifs(true);
             }}
             className="grid h-11 w-11 place-items-center rounded-xl border border-ff-border bg-ff-surface text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2"
             aria-label="Известия"

@@ -25,6 +25,11 @@ export function CarrierOnboarding() {
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
+    // On /settings the banner + modal are suppressed and SettingsClient already
+    // fetches both configs — skip the duplicate fetch this component would otherwise
+    // fire on every panel route via PanelChrome.
+    const onSettingsRoute = pathname === '/settings' || pathname.startsWith('/settings/');
+    if (onSettingsRoute) return;
     let alive = true;
     Promise.all([
       getEcontConfig().catch(() => null),
@@ -37,6 +42,7 @@ export function CarrierOnboarding() {
       if (n === 0 && !seen) setShowModal(true);
     });
     return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function dismissModal() {

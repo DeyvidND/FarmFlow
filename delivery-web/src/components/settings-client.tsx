@@ -171,13 +171,15 @@ export function SettingsClient() {
     e.preventDefault();
     setSavingE(true);
     try {
-      await saveEcontCredentials({
+      const res = await saveEcontCredentials({
         username: econtForm.username.trim(),
         password: econtForm.password,
       });
       toast.success('Econt е свързан');
       setEcontForm((f) => ({ ...f, password: '' }));
-      setEcont(await getEcontConfig());
+      // Use the save response to flip the badge instead of re-fetching the whole
+      // config (the mount-loaded fields are still valid; only `configured` changes).
+      setEcont((c) => ({ ...(c ?? {}), configured: res.configured }));
     } catch (err) { toast.error(errMsg(err)); } finally { setSavingE(false); }
   }
 
@@ -185,7 +187,7 @@ export function SettingsClient() {
     e.preventDefault();
     setSavingS(true);
     try {
-      await saveSpeedyCredentials({
+      const res = await saveSpeedyCredentials({
         userName: speedyForm.userName.trim(),
         password: speedyForm.password,
         ...(speedyForm.clientSystemId.trim() ? { clientSystemId: Number(speedyForm.clientSystemId) } : {}),
@@ -193,7 +195,8 @@ export function SettingsClient() {
       });
       toast.success('Speedy е свързан');
       setSpeedyForm((f) => ({ ...f, password: '' }));
-      setSpeedy(await getSpeedyConfig());
+      // Use the save response to flip the badge instead of re-fetching the whole config.
+      setSpeedy((c) => ({ ...(c ?? {}), configured: res.configured }));
     } catch (err) { toast.error(errMsg(err)); } finally { setSavingS(false); }
   }
 

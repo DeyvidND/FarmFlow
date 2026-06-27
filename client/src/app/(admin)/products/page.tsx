@@ -34,6 +34,7 @@ export default async function ProductsPage() {
       productOfWeekEnabled?: boolean;
       productOfWeekMode?: 'manual' | 'auto';
       productOfWeekId?: string | null;
+      productOfWeekNote?: string | null;
     }>('tenants/me', { multiFarmer: false, multiSubcat: false }),
     // Stock now lives in «Задай наличност» — map productId → remaining for the card pills.
     fetchJson<AvailabilityWindow[]>('availability-windows', []),
@@ -58,6 +59,7 @@ export default async function ProductsPage() {
       potwEnabled={isFarmer ? false : (tenant.productOfWeekEnabled ?? false)}
       potwMode={tenant.productOfWeekMode ?? 'manual'}
       featuredId={tenant.productOfWeekId ?? null}
+      potwNote={tenant.productOfWeekNote ?? ''}
       role={isFarmer ? 'farmer' : 'admin'}
     />
   );

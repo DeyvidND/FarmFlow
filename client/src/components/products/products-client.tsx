@@ -41,6 +41,7 @@ export function ProductsClient({
   potwEnabled = false,
   potwMode = 'manual',
   featuredId = null,
+  potwNote = '',
   role = 'admin',
 }: {
   initial: Paginated<Product>;
@@ -53,6 +54,7 @@ export function ProductsClient({
   potwEnabled?: boolean;
   potwMode?: 'manual' | 'auto';
   featuredId?: string | null;
+  potwNote?: string;
   /** Producer sub-account: scoped to own products, no POTW / catalog-reorder. */
   role?: 'admin' | 'farmer';
 }) {
@@ -261,7 +263,12 @@ export function ProductsClient({
 
       {!reorderMode && !isFarmer && (
         <div className="mb-5">
-          <ProductOfWeekPanel />
+          <ProductOfWeekPanel
+            initialEnabled={potwEnabled}
+            initialMode={potwMode}
+            initialProductId={featuredId}
+            initialNote={potwNote}
+          />
         </div>
       )}
 
