@@ -60,10 +60,12 @@ export interface SpeedyStored {
   };
   defaultPackage?: { parcelsCount?: number; weightKg?: number; contents?: string };
   cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
+  // Print-time + auto-create toggle — mirrors Econt's label.autoCreate field.
+  label?: { autoCreate?: boolean };
   [k: string]: unknown;
 }
 
-interface ManualInput {
+export interface ManualInput {
   receiverName: string;
   receiverPhone: string;
   deliveryMode: 'office' | 'address';
@@ -216,4 +218,39 @@ export function slimContractClients(res: unknown): SenderSuggestion[] {
       clientNumber: c?.id != null ? String(c.id) : null,
     };
   });
+}
+
+/**
+ * Map a storefront order (door delivery) + a resolved Speedy siteId → ManualInput
+ * ready to pass to buildShipmentRequest / createManualShipment.
+ *
+ * COD is collected only on an unpaid наложен-платеж order — mirrors Econt's gate:
+ *   paymentMethod === 'cod' && !paidAt && totalStotinki > 0
+ */
+export function buildOrderShipmentInput(
+  cfg: SpeedyStored,
+  order: {
+    customerName: string | null;
+    customerPhone: string | null;
+    deliveryAddress: string | null;
+    paymentMethod?: 'online' | 'cod' | null;
+    paidAt?: Date | null;
+    totalStotinki?: number | null;
+  },
+  siteId: number,
+): ManualInput {
+  const collectCod =
+    order.paymentMethod === 'cod' && !order.paidAt && !!order.totalStotinki;
+  const weightKg = cfg.defaultPackage?.weightKg ?? 1;
+
+  return {
+    receiverName: order.customerName ?? '—',
+    receiverPhone: order.customerPhone ?? '—',
+    deliveryMode: 'address',
+    siteId,
+    serviceId: cfg.defaultServiceId ?? 0,
+    weightGrams: Math.round(weightKg * 1000),
+    contents: cfg.defaultPackage?.contents,
+    ...(collectCod ? { codAmountStotinki: order.totalStotinki! } : {}),
+  };
 }

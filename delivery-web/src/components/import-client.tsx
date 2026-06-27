@@ -263,10 +263,18 @@ export function ImportClient() {
     const worker = async () => {
       for (let r = queue.shift(); r; r = queue.shift()) {
         try {
-          const key = `${r.city}|${r.deliveryMode}|${r.weightGrams ?? ''}`;
+          // COD changes the carrier price (cash-on-delivery surcharge), so it's part
+          // of the memo key — two rows differing only in COD must not share a quote.
+          const cod = r.codAmountStotinki ?? 0;
+          const key = `${r.city}|${r.deliveryMode}|${r.weightGrams ?? ''}|cod${cod}`;
           let q = quoteCache.current.get(key);
           if (!q) {
-            q = await compareShipment({ destinationCity: r.city!, deliveryMode: r.deliveryMode!, weightGrams: r.weightGrams ?? undefined });
+            q = await compareShipment({
+              destinationCity: r.city!,
+              deliveryMode: r.deliveryMode!,
+              weightGrams: r.weightGrams ?? undefined,
+              codAmountStotinki: cod > 0 ? cod : undefined,
+            });
             quoteCache.current.set(key, q);
           }
           const ep = carrierPrice(q, 'econt');

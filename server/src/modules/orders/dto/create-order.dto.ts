@@ -132,4 +132,12 @@ export class CreateOrderDto {
   @IsOptional()
   @IsEnum(['online', 'cod'])
   paymentMethod?: 'online' | 'cod';
+
+  // Courier the customer picked in the door-delivery comparison. Only meaningful for
+  // delivery_type=econt_address (door); ignored for other modes. Validated against the
+  // two carriers we quote.
+  @ApiPropertyOptional({ enum: ['econt', 'speedy'] })
+  @IsOptional()
+  @IsEnum(['econt', 'speedy'])
+  carrier?: 'econt' | 'speedy';
 }

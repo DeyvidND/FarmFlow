@@ -762,16 +762,27 @@ export const listEcontCities = (q?: string) =>
 export const listEcontOffices = (cityId: number) =>
   apiFetch<EcontOfficeLive[]>(`econt/offices?cityId=${cityId}`);
 
+/** Unified shipment list — always fetched from the econt endpoint (returns all carriers). */
 export const listShipments = () => apiFetch<Shipment[]>('econt/shipments');
 
-export const createShipment = (orderId: string) =>
-  apiFetch<ShipmentRecord>(`econt/shipments/${orderId}`, { method: 'POST' }, 'Неуспешно създаване на товарителница');
+/**
+ * Create a waybill for an order. Routes to the carrier endpoint based on which
+ * courier the customer chose at checkout.
+ */
+export const createShipment = (orderId: string, carrier: 'econt' | 'speedy') =>
+  apiFetch<ShipmentRecord>(
+    carrier === 'speedy' ? `speedy/orders/${orderId}/label` : `econt/shipments/${orderId}`,
+    { method: 'POST' },
+    'Неуспешно създаване на товарителница',
+  );
 
-export const refreshShipment = (id: string) =>
-  apiFetch<ShipmentRecord>(`econt/shipments/${id}/refresh`, { method: 'POST' }, 'Неуспешно обновяване на статуса');
+/** Refresh a shipment's status from its carrier. */
+export const refreshShipment = (id: string, carrier: 'econt' | 'speedy') =>
+  apiFetch<ShipmentRecord>(`${carrier}/shipments/${id}/refresh`, { method: 'POST' }, 'Неуспешно обновяване на статуса');
 
-export const voidShipment = (id: string) =>
-  apiFetch<{ id: string }>(`econt/shipments/${id}`, { method: 'DELETE' }, 'Неуспешно анулиране');
+/** Void/cancel a waybill via its carrier. */
+export const voidShipment = (id: string, carrier: 'econt' | 'speedy') =>
+  apiFetch<{ id: string }>(`${carrier}/shipments/${id}`, { method: 'DELETE' }, 'Неуспешно анулиране');
 
 export interface CodReconRow {
   orderId: string;

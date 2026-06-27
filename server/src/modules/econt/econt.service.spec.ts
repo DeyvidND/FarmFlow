@@ -144,6 +144,14 @@ describe('EcontService.codAmountFor', () => {
 });
 
 describe('mapShipmentRow', () => {
+  /** Minimal Econt join-row fixture — all new carrier columns null (legacy). */
+  const econtBase = {
+    carrier: null as string | null,
+    orderCarrier: null as string | null,
+    trackingNumber: null as string | null,
+    carrierShipmentId: null as string | null,
+  };
+
   it('passes labelPdfUrl, codAmount and a created status through', () => {
     const out = mapShipmentRow({
       orderId: '11111111-2222-3333-4444-555555555555',
@@ -157,6 +165,7 @@ describe('mapShipmentRow', () => {
       labelPdfUrl: 'https://ee.econt.com/x.pdf',
       codAmount: 2400,
       trackingJson: null,
+      ...econtBase,
     });
     expect(out.orderNumber).toBe('11111111');
     expect(out.method).toBe('econtOffice');
@@ -166,6 +175,8 @@ describe('mapShipmentRow', () => {
     expect(out.codAmountStotinki).toBe(2400);
     expect(out.labelPdfUrl).toBe('https://ee.econt.com/x.pdf');
     expect(out.history).toEqual([]);
+    // Legacy Econt row with no carrier column → defaults to 'econt'.
+    expect(out.carrier).toBe('econt');
   });
 
   it('door delivery → econtAddress method', () => {
@@ -181,6 +192,7 @@ describe('mapShipmentRow', () => {
       labelPdfUrl: null,
       codAmount: null,
       trackingJson: null,
+      ...econtBase,
     });
     expect(out.method).toBe('econtAddress');
     // courierPrice null → falls back to order total.
@@ -202,6 +214,7 @@ describe('mapShipmentRow', () => {
       labelPdfUrl: null,
       codAmount: null,
       trackingJson: null,
+      ...econtBase,
     });
     expect(out.status).toBe('pending');
     expect(out.trackingNumber).toBeUndefined();
@@ -214,10 +227,58 @@ describe('mapShipmentRow', () => {
       customerName: 'Иван', deliveryType: 'econt', total: 1000,
       shipmentId: 'cccc', shipmentNumber: '1051000000003', shipmentStatus,
       courierPrice: null, labelPdfUrl: null, codAmount: null, trackingJson: null,
+      ...econtBase,
     }).status;
     expect(mk('Пратката е върната на подателя')).toBe('returned');
     expect(mk('Отказана от получателя')).toBe('refused');
     expect(mk('Анулирана')).toBe('refused');
+  });
+
+  it('Speedy row: surfaces carrier=speedy, trackingNumber from barcode, status=created', () => {
+    const out = mapShipmentRow({
+      orderId: '55555555-6666-7777-8888-999999999999',
+      customerName: 'Георги',
+      deliveryType: 'econt_address', // Speedy door orders share this deliveryType
+      total: 3000,
+      shipmentId: 'dddd',
+      shipmentNumber: null,           // Econt waybill number — absent for Speedy
+      shipmentStatus: 'created',
+      courierPrice: 799,
+      labelPdfUrl: 'https://speedy.bg/label/dddd.pdf',
+      codAmount: null,
+      trackingJson: null,
+      carrier: 'speedy',              // shipments.carrier set by Speedy service
+      orderCarrier: 'speedy',         // orders.carrier set at checkout
+      trackingNumber: 'SP00000000001', // Speedy barcode stored in trackingNumber column
+      carrierShipmentId: 'sp-internal-123',
+    });
+    expect(out.carrier).toBe('speedy');
+    expect(out.trackingNumber).toBe('SP00000000001');
+    expect(out.status).toBe('created');
+    expect(out.shipmentId).toBe('dddd');
+  });
+
+  it('Speedy pending row (no shipment yet): carrier falls back to orderCarrier', () => {
+    const out = mapShipmentRow({
+      orderId: '66666666-7777-8888-9999-aaaaaaaaaaaa',
+      customerName: 'Калина',
+      deliveryType: 'econt_address',
+      total: 2000,
+      shipmentId: null,
+      shipmentNumber: null,
+      shipmentStatus: null,
+      courierPrice: null,
+      labelPdfUrl: null,
+      codAmount: null,
+      trackingJson: null,
+      carrier: null,       // no shipment row yet
+      orderCarrier: 'speedy',
+      trackingNumber: null,
+      carrierShipmentId: null,
+    });
+    expect(out.carrier).toBe('speedy');
+    expect(out.status).toBe('pending');
+    expect(out.trackingNumber).toBeUndefined();
   });
 });
 
@@ -342,13 +403,14 @@ describe('buildManualOrderShape', () => {
 });
 
 describe('mapManualShipmentRow', () => {
-  it('maps a stored manual shipment to the admin shape using receiver columns', () => {
+  it('maps a stored manual Econt shipment to the admin shape using receiver columns', () => {
     const out = mapManualShipmentRow({
       shipmentId: 'aaaa', orderId: null,
       receiverName: 'Иван', deliveryMode: 'address',
       shipmentNumber: '1051000000009', shipmentStatus: 'created',
       courierPrice: 599, labelPdfUrl: 'https://e/x.pdf', codAmount: 2400,
       trackingJson: null,
+      carrier: null, trackingNumber: null, carrierShipmentId: null,
     });
     expect(out.customerName).toBe('Иван');
     expect(out.method).toBe('econtAddress');
@@ -357,6 +419,26 @@ describe('mapManualShipmentRow', () => {
     expect(out.codAmountStotinki).toBe(2400);
     expect(out.shipmentId).toBe('aaaa');
     expect(out.orderNumber).toBe('Ръчна');
+    expect(out.manual).toBe(true);
+    // Legacy Econt manual row defaults to 'econt'.
+    expect(out.carrier).toBe('econt');
+  });
+
+  it('maps a Speedy manual shipment row: carrier=speedy, barcode as trackingNumber', () => {
+    const out = mapManualShipmentRow({
+      shipmentId: 'bbbb', orderId: null,
+      receiverName: 'Мария', deliveryMode: 'address',
+      shipmentNumber: null,            // econtShipmentNumber — absent for Speedy
+      shipmentStatus: 'created',
+      courierPrice: 799, labelPdfUrl: 'https://speedy.bg/label/bbbb.pdf', codAmount: null,
+      trackingJson: null,
+      carrier: 'speedy',
+      trackingNumber: 'SP00000000002', // Speedy barcode
+      carrierShipmentId: 'sp-456',
+    });
+    expect(out.carrier).toBe('speedy');
+    expect(out.trackingNumber).toBe('SP00000000002');
+    expect(out.status).toBe('created');
     expect(out.manual).toBe(true);
   });
 });
@@ -390,6 +472,51 @@ describe('slimClientProfiles', () => {
   it('tolerates a flat profiles array + shapeless input', () => {
     expect(slimClientProfiles(null)).toEqual([]);
     expect(slimClientProfiles({ profiles: [{ name: 'Плосък', phones: ['0700'] }] })[0]).toEqual({ name: 'Плосък', phone: '0700', clientNumber: null });
+  });
+});
+
+describe('EcontService.estimateKeyFor', () => {
+  const svc = new EcontService(
+    {} as never,
+    { get: () => '' } as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  );
+  const keyFor = (tenantId: string, order: Record<string, unknown>, weightKg: number, cod: number): string =>
+    (svc as any).estimateKeyFor(tenantId, order, weightKg, cod);
+
+  const order = {
+    customerName: '—', customerPhone: '—',
+    deliveryType: 'econt_address' as const, econtOffice: null,
+    deliveryAddress: 'Варна', deliveryCity: 'Варна', totalStotinki: null,
+  };
+
+  it('caches COD and non-COD estimates under different keys', () => {
+    const plainKey = keyFor('t1', order, 1, 0);
+    const codKey = keyFor('t1', order, 1, 5000);
+    expect(plainKey).not.toEqual(codKey);
+    expect(codKey).toContain('cod');
+  });
+
+  it('non-COD key ends with :cod0', () => {
+    const key = keyFor('t1', order, 1, 0);
+    expect(key).toMatch(/:cod0$/);
+  });
+
+  it('COD key buckets amount to nearest 1000 stotinki', () => {
+    // 5000 stotinki → bucket 5000, 5001 stotinki → bucket 6000
+    const key5000 = keyFor('t1', order, 1, 5000);
+    const key5001 = keyFor('t1', order, 1, 5001);
+    expect(key5000).toMatch(/:cod5000$/);
+    expect(key5001).toMatch(/:cod6000$/);
+  });
+
+  it('office destination uses office code not city', () => {
+    const officeOrder = { ...order, deliveryType: 'econt', econtOffice: '1234' };
+    const key = keyFor('t1', officeOrder, 1, 0);
+    expect(key).toContain('office:1234');
+    expect(key).not.toContain('city:');
   });
 });
 

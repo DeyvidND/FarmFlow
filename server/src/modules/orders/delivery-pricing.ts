@@ -31,6 +31,7 @@ export interface DeliveryConfig {
   };
   pricing?: { freeThresholdStotinki?: number };
   econt?: { mode?: EcontMode; configured?: boolean };
+  speedy?: { configured?: boolean };
   cod?: { enabled?: boolean };
   card?: { enabled?: boolean };
 }
@@ -146,4 +147,19 @@ export function buildPublicMethods(cfg: DeliveryConfig | null | undefined): Publ
     econtOffice: m?.econtOffice?.enabled ?? false,
     econtAddress: m?.econtAddress?.enabled ?? false,
   };
+}
+
+/** Whether Speedy live pricing/fulfillment is configured for this farm. */
+export function speedyEnabled(cfg: DeliveryConfig | null | undefined): boolean {
+  return !!cfg?.speedy?.configured;
+}
+
+/** Cross-carrier comparison is offered only when BOTH carriers are live. */
+export function comparisonActive(cfg: DeliveryConfig | null | undefined): boolean {
+  return econtMode(cfg) === 'auto' && speedyEnabled(cfg);
+}
+
+/** Door (до адрес) courier delivery is allowed when Econt door is on OR Speedy is configured. */
+export function courierDoorEnabled(cfg: DeliveryConfig | null | undefined): boolean {
+  return (cfg?.methods?.econtAddress?.enabled ?? false) || speedyEnabled(cfg);
 }

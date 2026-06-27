@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, desc, inArray, isNotNull, notInArray } from 'drizzle-orm';
-import { type Database, tenants, shipments } from '@fermeribg/db';
+import { type Database, tenants, shipments, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
@@ -9,7 +9,7 @@ import { SpeedyClient, type SpeedyCreds } from './speedy.client';
 import {
   type SpeedyStored, slimSites, slimOffices, slimStreets, slimContractClients,
   type SpeedySite, type SpeedyOffice, type SpeedyStreet, type SenderSuggestion,
-  buildShipmentRequest, parseTrackStatus, parsePayouts, type CanonicalStatus,
+  buildShipmentRequest, buildOrderShipmentInput, parseTrackStatus, parsePayouts, type CanonicalStatus,
 } from './speedy.helpers';
 import { mergePdfs } from '../econt/econt.service';
 import { SpeedyManualShipmentDto } from './dto/speedy-manual-shipment.dto';
@@ -136,6 +136,40 @@ export class SpeedyService {
     return { ...safe, configured: !!speedy.configured, isDemo: tenant.isDemo, env: tenant.isDemo ? 'demo' : 'prod' };
   }
 
+  /**
+   * Auto-create the Speedy waybill for a freshly-paid/confirmed order when the
+   * farm enabled the "create label on paid order" toggle (`speedy.label.autoCreate`).
+   * Best-effort and non-throwing: it must never disrupt the payment webhook or
+   * order-confirm flow that triggers it. Idempotent: skips if a waybill already exists.
+   */
+  async autoCreateForOrder(orderId: string): Promise<void> {
+    try {
+      const [order] = await this.db
+        .select({ tenantId: orders.tenantId })
+        .from(orders)
+        .where(eq(orders.id, orderId))
+        .limit(1);
+      if (!order?.tenantId) return;
+
+      const { speedy } = await this.loadStored(order.tenantId);
+      if (!speedy.configured || speedy.label?.autoCreate !== true) return;
+
+      const [existing] = await this.db
+        .select({ id: shipments.carrierShipmentId })
+        .from(shipments)
+        .where(eq(shipments.orderId, orderId))
+        .limit(1);
+      if (existing?.id) return; // waybill already created
+
+      await this.createLabelForOrder(order.tenantId, orderId);
+      this.logger.log(`[speedy] auto-created waybill for order ${orderId}`);
+    } catch (err) {
+      this.logger.warn(
+        `[speedy] auto-create failed for order ${orderId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
   /* ------------------------------- location -------------------------------- */
 
   async searchSites(tenantId: string, q?: string, cache?: Map<string, unknown>): Promise<SpeedySite[]> {
@@ -249,6 +283,78 @@ export class SpeedyService {
         receiverCity: input.siteId != null ? String(input.siteId) : null,
         weightKg: input.weightGrams ? String(input.weightGrams / 1000) : null,
         contents: input.contents ?? null,
+      })
+      .returning();
+    return row;
+  }
+
+  /** Load a tenant-scoped order for waybill creation. Throws if absent. */
+  private async orderForShipment(tenantId: string, orderId: string) {
+    const [row] = await this.db
+      .select({
+        tenantId: orders.tenantId,
+        deliveryCity: orders.deliveryCity,
+        deliveryAddress: orders.deliveryAddress,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        paymentMethod: orders.paymentMethod,
+        paidAt: orders.paidAt,
+        totalStotinki: orders.totalStotinki,
+      })
+      .from(orders)
+      .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Поръчката не е намерена');
+    return row;
+  }
+
+  /** Create the Speedy waybill for an order and UPSERT a shipments row (one per order). */
+  async createLabelForOrder(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
+    const { speedy } = await this.loadStored(tenantId);
+    if (!speedy.configured) throw new BadRequestException('Speedy не е конфигуриран за тази ферма');
+
+    const order = await this.orderForShipment(tenantId, orderId);
+    const sites = await this.searchSites(tenantId, order.deliveryCity ?? '');
+    const siteId = sites[0]?.id;
+    if (!siteId) throw new BadRequestException('Населеното място не е намерено в Speedy');
+
+    const creds = await this.resolveCreds(tenantId);
+    const input = buildOrderShipmentInput(speedy, order, siteId);
+    const body = buildShipmentRequest(speedy, input);
+    const data = await this.client.call(creds, 'shipment', body);
+
+    const shipmentId: string | null = data?.id != null ? String(data.id) : null;
+    const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
+    const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
+    const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
+    const codAmount = input.codAmountStotinki && input.codAmountStotinki > 0 ? Math.round(input.codAmountStotinki) : null;
+
+    const [row] = await this.db
+      .insert(shipments)
+      .values({
+        tenantId,
+        orderId,
+        carrier: 'speedy',
+        carrierShipmentId: shipmentId,
+        trackingNumber: barcode,
+        status: barcode ? 'created' : 'pending',
+        courierPriceStotinki: typeof priceEur === 'number' ? Math.round(priceEur * 100) : null,
+        codAmountStotinki: codAmount,
+        trackingJson: data ?? null,
+        deliveryMode: 'address',
+      })
+      .onConflictDoUpdate({
+        target: shipments.orderId,
+        set: {
+          carrier: 'speedy',
+          carrierShipmentId: shipmentId,
+          trackingNumber: barcode,
+          status: barcode ? 'created' : 'pending',
+          courierPriceStotinki: typeof priceEur === 'number' ? Math.round(priceEur * 100) : null,
+          codAmountStotinki: codAmount,
+          trackingJson: data ?? null,
+          updatedAt: new Date(),
+        },
       })
       .returning();
     return row;
@@ -501,11 +607,13 @@ export class SpeedyService {
   }
 
   /** Price-only estimate (Speedy /calculate) for a destination site + weight.
-   *  City-level base shipping (no COD). Returns stotinki, or null on any failure
-   *  (never throws — used by the cross-carrier quote). Cached 8h. */
+   *  Optionally includes COD so the quote reflects the real price when COD is
+   *  requested. Returns stotinki, or null on any failure (never throws — used
+   *  by the cross-carrier quote). Cached 8h; COD dimension keeps COD/non-COD
+   *  prices in separate cache entries. */
   async estimateShipping(
     tenantId: string,
-    input: { siteId: number; weightGrams?: number },
+    input: { siteId: number; weightGrams?: number; codAmountStotinki?: number },
   ): Promise<number | null> {
     try {
       const { speedy } = await this.loadStored(tenantId);
@@ -513,14 +621,19 @@ export class SpeedyService {
 
       const weightKg = input.weightGrams ? input.weightGrams / 1000 : (speedy.defaultPackage?.weightKg ?? 1);
       const weightBucket = Math.ceil(weightKg / WEIGHT_BUCKET_KG) * WEIGHT_BUCKET_KG;
-      const key = `speedy:estimate:${tenantId}:${input.siteId}:${weightBucket}kg`;
+      // Bucket COD to the nearest 10 BGN (1000 stotinki) to avoid a separate
+      // cache entry per exact order total while still isolating COD/non-COD prices.
+      const cod = input.codAmountStotinki && input.codAmountStotinki > 0 ? input.codAmountStotinki : 0;
+      const codBucket = cod > 0 ? Math.ceil(cod / 1000) * 1000 : 0;
+      const key = `speedy:estimate:${tenantId}:${input.siteId}:${weightBucket}kg:cod${codBucket}`;
       const cached = await this.cache.get<number>(key);
       if (cached !== null) return cached;
 
       const creds = await this.resolveCreds(tenantId);
       const serviceId = speedy.defaultServiceId ?? SPEEDY_DEFAULT_SERVICE_ID;
-      // Reuse the create-body builder with a placeholder receiver at the site
-      // (address mode → siteId; no COD). /calculate takes the same body as /shipment.
+      // Reuse the create-body builder with a placeholder receiver at the site.
+      // /calculate accepts the same body as /shipment. Pass COD so the price
+      // returned by Speedy already includes the COD service fee.
       const body = buildShipmentRequest(speedy, {
         receiverName: '—',
         receiverPhone: '—',
@@ -528,6 +641,7 @@ export class SpeedyService {
         siteId: input.siteId,
         serviceId,
         weightGrams: input.weightGrams,
+        ...(cod > 0 ? { codAmountStotinki: cod } : {}),
       });
       // Short timeout: this runs inline behind the quote endpoint.
       const data = await this.client.call(creds, 'calculate', body, 6000);

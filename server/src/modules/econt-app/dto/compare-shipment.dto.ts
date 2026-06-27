@@ -12,4 +12,9 @@ export class CompareShipmentDto {
 
   @IsOptional() @IsInt() @Min(0)
   weightGrams?: number;
+
+  // When the customer chose наложен платеж, the quote must include the COD surcharge
+  // so the cheaper carrier is honest. Optional; absent/0 = base price compare.
+  @IsOptional() @IsInt() @Min(0)
+  codAmountStotinki?: number;
 }

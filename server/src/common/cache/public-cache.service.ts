@@ -9,6 +9,7 @@ import {
   econtMode,
   codEnabled,
   cardEnabled,
+  speedyEnabled,
   type PublicDelivery,
   type PublicMethods,
   type DeliveryConfig,
@@ -59,6 +60,10 @@ export interface TenantMeta {
   // | 'auto' (live API office picker + price). The storefront uses the API office
   // picker only in 'auto'.
   econtMode: EcontMode;
+  // Whether Speedy live pricing is configured — and whether the farm runs BOTH
+  // carriers (so the storefront should show the carrier-comparison picker).
+  speedyConfigured: boolean;
+  comparisonActive: boolean;
   // Whether наложен платеж (COD) is offered — gates the storefront's COD radio.
   codEnabled: boolean;
   // Internal: whether the farm accepts card payment (the farmer's override). Folded
@@ -227,6 +232,8 @@ export class PublicCacheService {
       ...rest,
       econtEnabled: mode !== 'off',
       econtMode: mode,
+      speedyConfigured: speedyEnabled(delivery),
+      comparisonActive: mode === 'auto' && speedyEnabled(delivery),
       codEnabled: codEnabled(delivery),
       cardEnabled: cardEnabled(delivery),
       stripeAccountId: row.stripeAccountId ?? null,

@@ -1,6 +1,7 @@
 import {
   parseTrackStatus, trackingUrl, buildShipmentRequest, parsePayouts,
   slimSites, slimOffices, slimStreets, slimContractClients, toEur,
+  buildOrderShipmentInput,
 } from './speedy.helpers';
 
 describe('toEur', () => {
@@ -143,5 +144,67 @@ describe('slim mappers', () => {
   it('slimContractClients maps to sender suggestions', () => {
     const c = slimContractClients({ clients: [{ clientName: 'Ферма', phones: [{ number: '0888' }], id: 9 }] });
     expect(c[0]).toEqual({ name: 'Ферма', phone: '0888', clientNumber: '9' });
+  });
+});
+
+describe('buildOrderShipmentInput', () => {
+  const cfg = {
+    configured: true,
+    defaultServiceId: 505,
+    defaultPackage: { weightKg: 1.5, contents: 'Хранителни продукти' },
+  } as any;
+
+  it('maps a door order to a Speedy shipment input with COD when unpaid cod', () => {
+    const input = buildOrderShipmentInput(
+      cfg,
+      {
+        customerName: 'Иван',
+        customerPhone: '0888',
+        deliveryAddress: 'ул. Шипка 5',
+        paymentMethod: 'cod',
+        paidAt: null,
+        totalStotinki: 5000,
+      } as any,
+      100, // resolved siteId
+    );
+    expect(input.deliveryMode).toBe('address');
+    expect(input.siteId).toBe(100);
+    expect(input.serviceId).toBe(505);
+    expect(input.weightGrams).toBe(1500);
+    expect(input.codAmountStotinki).toBe(5000);
+    expect(input.receiverName).toBe('Иван');
+    expect(input.receiverPhone).toBe('0888');
+  });
+
+  it('does NOT collect COD on a paid order or online payment', () => {
+    // paid COD order → no COD collected
+    const paidCod = buildOrderShipmentInput(
+      cfg,
+      {
+        customerName: 'Мария',
+        customerPhone: '0899',
+        deliveryAddress: 'ул. Витоша 1',
+        paymentMethod: 'cod',
+        paidAt: new Date('2026-06-01'),
+        totalStotinki: 3000,
+      } as any,
+      200,
+    );
+    expect(paidCod.codAmountStotinki).toBeUndefined();
+
+    // online payment → no COD regardless of paidAt
+    const online = buildOrderShipmentInput(
+      cfg,
+      {
+        customerName: 'Петър',
+        customerPhone: '0877',
+        deliveryAddress: 'ул. Раковски 5',
+        paymentMethod: 'online',
+        paidAt: null,
+        totalStotinki: 2000,
+      } as any,
+      300,
+    );
+    expect(online.codAmountStotinki).toBeUndefined();
   });
 });

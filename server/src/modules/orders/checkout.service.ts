@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { eq } from 'drizzle-orm';
 import { type Database, orders, tenants } from '@fermeribg/db';
@@ -6,6 +6,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { OrdersService } from './orders.service';
 import { StripeService, type CheckoutLine } from '../stripe/stripe.service';
 import { EcontService } from '../econt/econt.service';
+import { SpeedyService } from '../speedy/speedy.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import {
@@ -14,6 +15,7 @@ import {
   applyFreeThreshold,
   freeThresholdStotinki,
   econtMode,
+  speedyEnabled,
   codEnabled,
   type DeliveryConfig,
 } from './delivery-pricing';
@@ -36,11 +38,14 @@ type PlacedOrder = Awaited<ReturnType<OrdersService['create']>>;
  */
 @Injectable()
 export class CheckoutService {
+  private readonly logger = new Logger(CheckoutService.name);
+
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly ordersService: OrdersService,
     private readonly stripe: StripeService,
     private readonly econt: EcontService,
+    private readonly speedy: SpeedyService,
     private readonly orderConfirmation: OrderConfirmationService,
     private readonly config: ConfigService,
   ) {}
@@ -187,11 +192,17 @@ export class CheckoutService {
     order: {
       tenantId: string | null;
       deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address' | null;
+      /** Chosen carrier for courier methods. Accepted values: 'econt' | 'speedy'. Free-form DB text. */
+      carrier?: string | null;
       customerName: string | null;
       customerPhone: string | null;
       econtOffice: string | null;
       deliveryAddress: string | null;
       deliveryCity: string | null;
+      /** Payment method — used to determine the COD surcharge for live courier quotes. */
+      paymentMethod?: 'online' | 'cod' | null;
+      /** Order total in stotinki — passed as the COD amount when paymentMethod is 'cod'. */
+      totalStotinki?: number | null;
       items: { productName: string | null; quantity: number }[];
     },
     subtotal: number,
@@ -216,22 +227,57 @@ export class CheckoutService {
       return localFeeStotinki(cfg, subtotal);
     }
 
-    // Econt (office or door). Automatic mode prefers the live courier quote;
-    // manual mode (farm ships itself) always uses the configured flat fee — no
-    // API call. The global free-over threshold then applies on top.
     const door = method === 'econt_address';
+    // COD surcharge: applies only when the customer pays cash on delivery. Non-COD
+    // orders pass 0 so the carrier quote reflects the bare shipping cost.
+    const cod = order.paymentMethod === 'cod' && order.totalStotinki ? order.totalStotinki : 0;
+
+    // Speedy door delivery → live Speedy quote (city name → siteId), COD-aware.
+    // Falls back to the Econt door flat fee if Speedy is unreachable or returns null.
     let fee: number;
-    if (econtMode(cfg) === 'auto' && order.tenantId) {
+    if (door && order.carrier === 'speedy' && speedyEnabled(cfg) && order.tenantId && order.deliveryCity) {
+      fee = (await this.quoteSpeedyDoor(order.tenantId, order.deliveryCity, cod)) ?? econtFallbackFee(cfg, true);
+    } else if (econtMode(cfg) === 'auto' && order.tenantId) {
+      // Econt automatic mode — live courier quote, fall back to configured flat fee.
       const live = await this.econt.estimateShipping(
         order.tenantId,
         order,
         order.items.map((i) => ({ name: i.productName, qty: i.quantity })),
+        undefined,
+        cod,
       );
       fee = live ?? econtFallbackFee(cfg, door);
     } else {
+      // Econt manual mode (farm ships itself) or Econt off — always flat fee, no API call.
       fee = econtFallbackFee(cfg, door);
     }
     return applyFreeThreshold(fee, subtotal, freeThresholdStotinki(cfg));
+  }
+
+  /**
+   * Live Speedy door quote (city → siteId → estimate), COD-aware.
+   * Returns null on any failure — caller falls back to the configured flat fee.
+   */
+  private async quoteSpeedyDoor(
+    tenantId: string,
+    deliveryCity: string,
+    codAmountStotinki: number,
+  ): Promise<number | null> {
+    try {
+      const sites = await this.speedy.searchSites(tenantId, deliveryCity);
+      const siteId = sites[0]?.id;
+      if (!siteId) return null;
+      return await this.speedy.estimateShipping(tenantId, {
+        siteId,
+        weightGrams: undefined,
+        codAmountStotinki,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[speedy] checkout quote failed for ${tenantId}/${deliveryCity}, using fallback: ${err instanceof Error ? err.message : err}`,
+      );
+      return null;
+    }
   }
 
   /** Load the tenant's `settings.delivery` config (null when unset → legacy defaults). */

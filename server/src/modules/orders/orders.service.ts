@@ -30,7 +30,8 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { EcontService } from '../econt/econt.service';
-import { buildPublicMethods, codEnabled, type DeliveryConfig } from './delivery-pricing';
+import { CarrierFulfillmentService } from './carrier-fulfillment.service';
+import { buildPublicMethods, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { scheduledForDay } from './order-scheduling';
 import { decideDecrement, restoreRemaining } from '../availability/availability.util';
 
@@ -308,6 +309,7 @@ export class OrdersService {
     private readonly orderEmail: OrderConfirmationService,
     private readonly econt: EcontService,
     private readonly cache: PublicCacheService,
+    private readonly carrierFulfillment: CarrierFulfillmentService,
   ) {}
 
   /**
@@ -332,7 +334,8 @@ export class OrdersService {
       // ownSlots defaults on.
       address: deliveryEnabled && methods.ownSlots,
       econt: methods.econtOffice,
-      econt_address: methods.econtAddress,
+      // Door delivery is allowed when Econt address is on OR Speedy is configured.
+      econt_address: courierDoorEnabled(cfg),
     };
     if (!allowed[method]) {
       throw new BadRequestException('Избраният начин на доставка не е наличен.');
@@ -691,10 +694,10 @@ export class OrdersService {
     if (!row) throw new NotFoundException('Поръчката не е намерена');
     if (dto.status === 'confirmed' && prev?.status !== 'confirmed') {
       void this.orderEmail.sendForOrder(id);
-      // Self-gating + idempotent: only fires for Econt orders on a farm with
-      // auto-create enabled. Covers COD/cash Econt orders, which never reach the
-      // Stripe paid-webhook (its only other trigger).
-      void this.econt.autoCreateForOrder(id);
+      // Idempotent dispatcher: routes to Speedy or Econt based on orders.carrier.
+      // Only fires when the carrier has auto-create enabled. Covers COD/cash orders
+      // (Econt/Speedy), which never reach the Stripe paid-webhook.
+      void this.carrierFulfillment.autoCreateForOrder(id);
     }
     // First transition into `cancelled`: return each item's reserved stock to its
     // active availability window (best-effort — only while the window is still
@@ -920,7 +923,7 @@ export class OrdersService {
           /* email is best-effort */
         }
         try {
-          await this.econt.autoCreateForOrder(id);
+          await this.carrierFulfillment.autoCreateForOrder(id);
         } catch {
           /* waybill is best-effort */
         }
@@ -979,6 +982,22 @@ export class OrdersService {
       method,
       dto.paymentMethod ?? 'online',
     );
+
+    // Carrier selection: only meaningful for door (econt_address) delivery.
+    // If the farm runs both carriers (comparisonActive), the DTO carries the
+    // customer's choice; otherwise we default to whichever carrier is live.
+    const deliveryCfg = (tenant.settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
+    let carrier: 'econt' | 'speedy' | null = null;
+    if (method === 'econt_address') {
+      carrier = dto.carrier ?? (econtMode(deliveryCfg) === 'auto' ? 'econt' : speedyEnabled(deliveryCfg) ? 'speedy' : 'econt');
+      if (carrier === 'speedy' && !speedyEnabled(deliveryCfg)) {
+        throw new BadRequestException('Избраният куриер не е наличен.');
+      }
+      if (carrier === 'econt' && econtMode(deliveryCfg) === 'off') {
+        throw new BadRequestException('Избраният куриер не е наличен.');
+      }
+    }
+
     // A farm with a lapsed subscription can't take new orders — mirrors the
     // ActiveSubscriptionGuard on the admin side. Grace (`past_due`) still sells;
     // only a fully `inactive` (grace-expired / cancelled) farm is blocked.
@@ -1193,6 +1212,8 @@ export class OrdersService {
           deliveryLat: isLocal && lat != null ? String(lat) : null,
           deliveryLng: isLocal && lng != null ? String(lng) : null,
           econtOffice: isEcontOffice ? dto.econtOffice ?? null : null,
+          // Which courier the customer selected for door delivery (null for non-door).
+          carrier,
           // Customer's payment choice; checkout may normalize 'online'→'cod'
           // when the farm has no usable Stripe account.
           paymentMethod: dto.paymentMethod ?? 'online',

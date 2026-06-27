@@ -567,6 +567,25 @@ export class EcontService {
     return Math.ceil(weightKg / WEIGHT_BUCKET_KG) * WEIGHT_BUCKET_KG;
   }
 
+  /** Cache key for a live estimate. COD bucketed to 10€ (1000 stotinki) so COD
+   *  baskets still share entries without colliding with the non-COD price for the
+   *  same destination. The `:cod0` suffix is always present so COD and non-COD
+   *  calls NEVER share a cache entry (price differs by the COD surcharge). */
+  private estimateKeyFor(
+    tenantId: string,
+    order: { deliveryType?: string | null; deliveryCity?: string | null; econtOffice: string | null },
+    weightKg: number,
+    codAmountStotinki: number,
+  ): string {
+    const weightBucket = this.bucketWeight(weightKg);
+    const destination =
+      order.deliveryType === 'econt_address'
+        ? `city:${(order.deliveryCity ?? '').toLowerCase()}`
+        : `office:${order.econtOffice ?? ''}`;
+    const codBucket = codAmountStotinki > 0 ? Math.ceil(codAmountStotinki / 1000) * 1000 : 0;
+    return `econt:estimate:${tenantId}:${destination}:${weightBucket}kg:cod${codBucket}`;
+  }
+
   /** Price-only estimate (Econt `mode:calculate`). Returns stotinki, or null on any failure. */
   async estimateShipping(
     tenantId: string,
@@ -581,6 +600,7 @@ export class EcontService {
     },
     items: { name: string | null; qty: number }[],
     weightKgOverride?: number,
+    codAmountStotinki?: number,            // NEW: when > 0, price WITH cash-on-delivery
   ): Promise<number | null> {
     try {
       // Share one tenant-settings read between loadStored here and the resolveCreds
@@ -594,14 +614,12 @@ export class EcontService {
       //   - destination: office code (econt) OR city name (econt_address).
       //   - weightBucket: raw package weight rounded up to nearest 0.5kg so near-
       //     identical baskets reuse the same entry without an extra live call.
+      //   - codBucket  : COD amount bucketed to 1000 stotinki — COD and non-COD
+      //     prices differ (COD surcharge), so they MUST NOT share a cache entry.
       // We deliberately exclude customerName/phone — those don't affect price.
       const rawWeightKg = weightKgOverride ?? (econt.defaultPackage?.weightKg ?? 1);
-      const weightBucket = this.bucketWeight(rawWeightKg);
-      const destination =
-        order.deliveryType === 'econt_address'
-          ? `city:${(order.deliveryCity ?? '').toLowerCase()}`
-          : `office:${order.econtOffice ?? ''}`;
-      const estimateKey = `econt:estimate:${tenantId}:${destination}:${weightBucket}kg`;
+      const cod = codAmountStotinki ?? 0;
+      const estimateKey = this.estimateKeyFor(tenantId, order, rawWeightKg, cod);
 
       const cachedEstimate = await this.cache.get<number>(estimateKey);
       if (cachedEstimate !== null) return cachedEstimate;
@@ -612,7 +630,12 @@ export class EcontService {
       const econtForLabel = weightKgOverride != null
         ? { ...econt, defaultPackage: { ...econt.defaultPackage, weightKg: weightKgOverride } }
         : econt;
-      const label = this.buildLabel(econtForLabel, order, items);
+      // Inject COD onto the order shape so buildLabel emits services.cdAmount →
+      // the calculate price includes the COD fee. paidAt absent → treated as unpaid.
+      const orderForLabel = cod > 0
+        ? { ...order, paymentMethod: 'cod' as const, paidAt: null, totalStotinki: cod }
+        : order;
+      const label = this.buildLabel(econtForLabel, orderForLabel, items);
       // Short timeout: this runs inline during checkout, so prefer the flat-fee
       // fallback over making the customer wait on a slow courier API.
       const data = await this.callTenant(
@@ -929,6 +952,11 @@ export class EcontService {
           labelPdfUrl: shipments.labelPdfUrl,
           codAmount: shipments.codAmountStotinki,
           trackingJson: shipments.trackingJson,
+          // Carrier columns — needed to route panel actions (print/void/refresh) correctly.
+          carrier: shipments.carrier,
+          orderCarrier: orders.carrier,
+          trackingNumber: shipments.trackingNumber,
+          carrierShipmentId: shipments.carrierShipmentId,
         })
         .from(orders)
         .leftJoin(shipments, eq(shipments.orderId, orders.id))
@@ -953,6 +981,10 @@ export class EcontService {
           labelPdfUrl: shipments.labelPdfUrl,
           codAmount: shipments.codAmountStotinki,
           trackingJson: shipments.trackingJson,
+          // Carrier columns — needed to route panel actions (print/void/refresh) correctly.
+          carrier: shipments.carrier,
+          trackingNumber: shipments.trackingNumber,
+          carrierShipmentId: shipments.carrierShipmentId,
         })
         .from(shipments)
         .where(and(eq(shipments.tenantId, tenantId), isNull(shipments.orderId)))
@@ -1093,6 +1125,14 @@ export interface ShipmentJoinRow {
   labelPdfUrl: string | null;
   codAmount: number | null;
   trackingJson: unknown;
+  /** Carrier recorded on the shipments row (set for Speedy; null for legacy Econt rows). */
+  carrier: string | null;
+  /** Carrier recorded on the order (the customer's choice at checkout). */
+  orderCarrier: string | null;
+  /** Speedy barcode / Econt-fallback tracking number from the shipments row. */
+  trackingNumber: string | null;
+  /** Speedy internal shipment id (carrierShipmentId column). */
+  carrierShipmentId: string | null;
 }
 
 /** Admin shipments-table row. */
@@ -1102,6 +1142,8 @@ export interface AdminShipment {
   customerName: string;
   method: 'econtOffice' | 'econtAddress';
   status: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused';
+  /** Which carrier owns this shipment — used by the panel to route print/void/refresh. */
+  carrier: 'econt' | 'speedy';
   trackingNumber?: string;
   priceStotinki?: number;
   codAmountStotinki?: number;
@@ -1142,17 +1184,26 @@ export interface ManualShipmentRow {
   labelPdfUrl: string | null;
   codAmount: number | null;
   trackingJson: unknown;
+  /** Carrier recorded on the shipments row (set for Speedy; null for legacy Econt rows). */
+  carrier: string | null;
+  /** Speedy barcode / tracking number from the shipments row. */
+  trackingNumber: string | null;
+  /** Speedy internal shipment id (carrierShipmentId column). */
+  carrierShipmentId: string | null;
 }
 
 /** Map a stored order-less shipment onto the admin shipments-table shape. */
 export function mapManualShipmentRow(r: ManualShipmentRow): AdminShipment {
+  // econtShipmentNumber for Econt rows; trackingNumber (Speedy barcode) for Speedy rows.
+  const ref = r.shipmentNumber ?? r.trackingNumber ?? null;
   return {
     orderId: r.shipmentId, // no order — use the shipment id as the row key
     orderNumber: 'Ръчна',
     customerName: r.receiverName ?? '—',
     method: r.deliveryMode === 'address' ? 'econtAddress' : 'econtOffice',
-    status: uiShipmentStatus(r.shipmentNumber, r.shipmentStatus),
-    trackingNumber: r.shipmentNumber ?? undefined,
+    carrier: (r.carrier ?? 'econt') as 'econt' | 'speedy',
+    status: uiShipmentStatus(ref, r.shipmentStatus),
+    trackingNumber: ref ?? undefined,
     priceStotinki: r.courierPrice ?? undefined,
     codAmountStotinki: r.codAmount ?? undefined,
     labelPdfUrl: r.labelPdfUrl ?? undefined,
@@ -1164,13 +1215,16 @@ export function mapManualShipmentRow(r: ManualShipmentRow): AdminShipment {
 
 /** Map a joined query row onto the admin shipments-table shape. */
 export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
+  // econtShipmentNumber for Econt rows; trackingNumber (Speedy barcode) for Speedy rows.
+  const ref = r.shipmentNumber ?? r.trackingNumber ?? null;
   return {
     orderId: r.orderId,
     orderNumber: r.orderId.slice(0, 8),
     customerName: r.customerName ?? '—',
     method: r.deliveryType === 'econt_address' ? 'econtAddress' : 'econtOffice',
-    status: uiShipmentStatus(r.shipmentNumber, r.shipmentStatus),
-    trackingNumber: r.shipmentNumber ?? undefined,
+    carrier: (r.carrier ?? r.orderCarrier ?? 'econt') as 'econt' | 'speedy',
+    status: uiShipmentStatus(ref, r.shipmentStatus),
+    trackingNumber: ref ?? undefined,
     priceStotinki: r.courierPrice ?? r.total ?? undefined,
     codAmountStotinki: r.codAmount ?? undefined,
     labelPdfUrl: r.labelPdfUrl ?? undefined,
