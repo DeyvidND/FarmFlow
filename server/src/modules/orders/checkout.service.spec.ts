@@ -38,7 +38,7 @@ function makeOrder(over: Record<string, any> = {}) {
   };
 }
 
-function build(order: any, opts: { canCard?: boolean } = {}) {
+function build(order: any, opts: { canCard?: boolean; speedy?: any } = {}) {
   const db = makeDb();
   const ordersService = { create: jest.fn().mockResolvedValue(order) };
   const stripe = {
@@ -48,16 +48,18 @@ function build(order: any, opts: { canCard?: boolean } = {}) {
       .mockResolvedValue({ checkoutUrl: 'https://stripe/cs', checkoutSessionId: 'cs_1' }),
   };
   const econt = { estimateShipping: jest.fn().mockResolvedValue(null) };
+  const speedy = opts.speedy ?? { searchSites: jest.fn().mockResolvedValue([]), estimateShipping: jest.fn().mockResolvedValue(null) };
   const orderConfirmation = { sendReceived: jest.fn().mockResolvedValue(undefined) };
   const svc = new CheckoutService(
     db as never,
     ordersService as never,
     stripe as never,
     econt as never,
+    speedy as never,
     orderConfirmation as never,
     cfg({ STOREFRONT_URL: 'https://shop' }) as never,
   );
-  return { svc, db, ordersService, stripe, econt, orderConfirmation };
+  return { svc, db, ordersService, stripe, econt, speedy, orderConfirmation };
 }
 
 const dto = (over: Record<string, any> = {}) =>
@@ -117,5 +119,28 @@ describe('CheckoutService.create (Stripe path)', () => {
     const out = await svc.create('slug', dto({ paymentMethod: 'online' }));
     expect(out.checkoutUrl).toBeNull();
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('CheckoutService.shippingStotinki (Speedy door path)', () => {
+  it('prices a Speedy door order via the Speedy estimate (COD-aware)', async () => {
+    const speedyStub = {
+      searchSites: jest.fn().mockResolvedValue([{ id: 100 }]),
+      estimateShipping: jest.fn().mockResolvedValue(420),
+    };
+    const { svc } = build(makeOrder(), { speedy: speedyStub });
+    const fee = await (svc as any).shippingStotinki(
+      {
+        tenantId: 't1', deliveryType: 'econt_address', carrier: 'speedy',
+        customerName: 'x', customerPhone: 'y', econtOffice: null,
+        deliveryAddress: 'ул', deliveryCity: 'Варна',
+        paymentMethod: 'cod', totalStotinki: 5000,
+        items: [{ productName: 'p', quantity: 1 }],
+      },
+      3000,
+      { econt: { mode: 'auto' }, speedy: { configured: true }, pricing: { freeThresholdStotinki: 0 } },
+    );
+    expect(speedyStub.estimateShipping).toHaveBeenCalledWith('t1', { siteId: 100, weightGrams: undefined, codAmountStotinki: 5000 });
+    expect(fee).toBe(420);
   });
 });
