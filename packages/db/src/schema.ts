@@ -342,6 +342,9 @@ export const orders = pgTable(
     orderNumber: integer('order_number'),
     totalStotinki: integer('total_stotinki').notNull(),
     deliveryType: deliveryTypeEnum('delivery_type').notNull().default('address'),
+    // Which courier the customer chose when both carriers were offered (door delivery
+    // comparison). NULL = legacy / single-carrier order; carrier inferred from deliveryType.
+    carrier: text('carrier'),
     deliveryAddress: text('delivery_address'),
     // Settlement for Econt door delivery (the structured city Econt needs to route
     // a waybill to an address). NULL for office/local delivery.
