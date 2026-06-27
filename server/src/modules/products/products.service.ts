@@ -10,6 +10,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
 import { encodeImageJob } from '../../common/queue/image-job';
 import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
+import { positionCase } from '../../common/db/reorder.util';
 import { decodeCursor } from '../../common/pagination/cursor';
 
 /** Lean product shape for cross-page consumers (farmer/section counts, low-stock
@@ -114,14 +115,13 @@ export class ProductsService {
    *  global and per-category reordering — the client computes the position
    *  values (full 0..N-1 sequence for global, slot-preserving for per-category). */
   async reorder(tenantId: string, dto: ReorderDto): Promise<{ ok: true }> {
-    await this.db.transaction(async (tx) => {
-      for (const it of dto.items) {
-        await tx
-          .update(products)
-          .set({ position: it.position })
-          .where(and(eq(products.id, it.id), eq(products.tenantId, tenantId)));
-      }
-    });
+    if (dto.items.length) {
+      // One UPDATE … SET position = CASE … END instead of a statement per row.
+      await this.db
+        .update(products)
+        .set({ position: positionCase(products.id, products.position, dto.items) })
+        .where(and(inArray(products.id, dto.items.map((i) => i.id)), eq(products.tenantId, tenantId)));
+    }
     await this.cache.invalidate(tenantId);
     return { ok: true };
   }
@@ -520,21 +520,19 @@ export class ProductsService {
   ): Promise<ProductMedia[]> {
     await this.findOne(id, tenantId, farmerScope);
 
-    // One transaction so a mid-loop failure can't leave a half-applied order.
-    await this.db.transaction(async (tx) => {
-      for (const it of dto.items) {
-        await tx
-          .update(productMedia)
-          .set({ position: it.position })
-          .where(
-            and(
-              eq(productMedia.id, it.id),
-              eq(productMedia.productId, id),
-              eq(productMedia.tenantId, tenantId),
-            ),
-          );
-      }
-    });
+    // One UPDATE … CASE … END instead of a statement per row.
+    if (dto.items.length) {
+      await this.db
+        .update(productMedia)
+        .set({ position: positionCase(productMedia.id, productMedia.position, dto.items) })
+        .where(
+          and(
+            inArray(productMedia.id, dto.items.map((i) => i.id)),
+            eq(productMedia.productId, id),
+            eq(productMedia.tenantId, tenantId),
+          ),
+        );
+    }
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
 

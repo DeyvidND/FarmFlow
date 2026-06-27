@@ -236,9 +236,9 @@ export class EcontService {
     return { ...safe, configured: !!econt.configured, isDemo: tenant.isDemo, env: tenant.isDemo ? 'demo' : 'prod' };
   }
 
-  private async resolveCreds(tenantId: string): Promise<ResolvedCreds> {
+  private async resolveCreds(tenantId: string, cache?: Map<string, unknown>): Promise<ResolvedCreds> {
     if (!this.encKey) throw new BadRequestException('ENCRYPTION_KEY не е конфигуриран');
-    const { econt } = await this.loadStored(tenantId);
+    const { econt } = await this.loadStored(tenantId, cache);
     if (!econt.configured || !econt.username || !econt.passwordEnc) {
       throw new BadRequestException('Econt не е конфигуриран за тази ферма');
     }
@@ -293,8 +293,9 @@ export class EcontService {
     path: string,
     body: unknown,
     timeoutMs?: number,
+    cache?: Map<string, unknown>,
   ): Promise<any> {
-    const c = await this.resolveCreds(tenantId);
+    const c = await this.resolveCreds(tenantId, cache);
     return this.call(c.base, c.username, c.password, path, body, timeoutMs);
   }
 
@@ -582,7 +583,10 @@ export class EcontService {
     weightKgOverride?: number,
   ): Promise<number | null> {
     try {
-      const { econt } = await this.loadStored(tenantId);
+      // Share one tenant-settings read between loadStored here and the resolveCreds
+      // inside callTenant below (was two identical SELECTs per estimate on cache miss).
+      const store = new Map<string, unknown>();
+      const { econt } = await this.loadStored(tenantId, store);
       if (!econt.configured) return null;
 
       // Build the cache key before calling Econt. Key dimensions:
@@ -616,6 +620,7 @@ export class EcontService {
         'Shipments/LabelService.createLabel.json',
         { label, mode: 'calculate' },
         6000,
+        store,
       );
       // Econt bills in EUR (Bulgaria adopted the euro, 2026), so totalPrice is already
       // EUR — ×100 → stotinki, no BGN→EUR conversion. App currency is EUR end-to-end.
@@ -685,13 +690,15 @@ export class EcontService {
 
   /** Create the Econt waybill (label) for an order and persist a shipment row. */
   async createLabel(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
-    const { econt } = await this.loadStored(tenantId);
+    // Share one settings read between loadStored and the callTenant→resolveCreds below.
+    const store = new Map<string, unknown>();
+    const { econt } = await this.loadStored(tenantId, store);
     const { order, items } = await this.orderForShipment(tenantId, orderId);
     const label = this.buildLabel(econt, order, items);
     const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
       label,
       mode: 'create',
-    });
+    }, undefined, store);
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
     // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted

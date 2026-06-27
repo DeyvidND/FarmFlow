@@ -10,6 +10,7 @@ import type { Farmer, FarmerMedia, PublicFarmer } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
 import { encodeImageJob } from '../../common/queue/image-job';
+import { positionCase } from '../../common/db/reorder.util';
 import { CreateFarmerDto } from './dto/create-farmer.dto';
 import { UpdateFarmerDto } from './dto/update-farmer.dto';
 import { StorageService } from '../storage/storage.service';
@@ -47,14 +48,12 @@ export class FarmersService {
   /** Persist a new display order for the tenant's farmers. Tenant-scoped, one
    *  transaction; busts the catalog + public farmers caches. */
   async reorder(tenantId: string, dto: ReorderDto): Promise<{ ok: true }> {
-    await this.db.transaction(async (tx) => {
-      for (const it of dto.items) {
-        await tx
-          .update(farmers)
-          .set({ position: it.position })
-          .where(and(eq(farmers.id, it.id), eq(farmers.tenantId, tenantId)));
-      }
-    });
+    if (dto.items.length) {
+      await this.db
+        .update(farmers)
+        .set({ position: positionCase(farmers.id, farmers.position, dto.items) })
+        .where(and(inArray(farmers.id, dto.items.map((i) => i.id)), eq(farmers.tenantId, tenantId)));
+    }
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
     return { ok: true };
@@ -351,21 +350,19 @@ export class FarmersService {
   ): Promise<FarmerMedia[]> {
     await this.findOne(id, tenantId);
 
-    // One transaction so a mid-loop failure can't leave a half-applied order.
-    await this.db.transaction(async (tx) => {
-      for (const it of dto.items) {
-        await tx
-          .update(farmerMedia)
-          .set({ position: it.position })
-          .where(
-            and(
-              eq(farmerMedia.id, it.id),
-              eq(farmerMedia.farmerId, id),
-              eq(farmerMedia.tenantId, tenantId),
-            ),
-          );
-      }
-    });
+    // One UPDATE … CASE … END instead of a statement per row.
+    if (dto.items.length) {
+      await this.db
+        .update(farmerMedia)
+        .set({ position: positionCase(farmerMedia.id, farmerMedia.position, dto.items) })
+        .where(
+          and(
+            inArray(farmerMedia.id, dto.items.map((i) => i.id)),
+            eq(farmerMedia.farmerId, id),
+            eq(farmerMedia.tenantId, tenantId),
+          ),
+        );
+    }
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));

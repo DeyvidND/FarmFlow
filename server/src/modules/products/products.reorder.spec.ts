@@ -1,19 +1,18 @@
 import { ProductsService } from './products.service';
 
-/** Minimal transaction-aware Drizzle mock: `transaction(cb)` runs `cb(tx)` where
- *  `tx.update().set().where()` is chainable and records calls. */
+/** Minimal Drizzle mock: `update().set().where()` is chainable and records calls.
+ *  Reorder now persists every position in ONE `UPDATE … SET position = CASE … END`. */
 function makeDb() {
-  const tx: any = {};
-  tx.update = jest.fn(() => tx);
-  tx.set = jest.fn(() => tx);
-  tx.where = jest.fn(() => tx);
-  const db: any = { transaction: jest.fn(async (cb: any) => cb(tx)) };
-  return { db, tx };
+  const db: any = {};
+  db.update = jest.fn(() => db);
+  db.set = jest.fn(() => db);
+  db.where = jest.fn(() => db);
+  return db;
 }
 
 describe('ProductsService.reorder', () => {
-  it('persists each position in one transaction and busts the catalog cache', async () => {
-    const { db, tx } = makeDb();
+  it('persists all positions in one UPDATE and busts the catalog cache', async () => {
+    const db = makeDb();
     const cache = { invalidate: jest.fn() };
     const svc = new ProductsService(db, {} as never, cache as never, {} as never, {} as never, {} as never);
 
@@ -24,10 +23,21 @@ describe('ProductsService.reorder', () => {
       ],
     });
 
-    expect(db.transaction).toHaveBeenCalledTimes(1);
-    expect(tx.update).toHaveBeenCalledTimes(2);
-    expect(tx.set).toHaveBeenCalledWith({ position: 0 });
-    expect(tx.set).toHaveBeenCalledWith({ position: 1 });
+    // One statement for the whole batch (was one UPDATE per row in a transaction).
+    expect(db.update).toHaveBeenCalledTimes(1);
+    expect(db.set).toHaveBeenCalledTimes(1);
+    expect(cache.invalidate).toHaveBeenCalledWith('t1');
+    expect(out).toEqual({ ok: true });
+  });
+
+  it('skips the UPDATE when there are no items but still busts the cache', async () => {
+    const db = makeDb();
+    const cache = { invalidate: jest.fn() };
+    const svc = new ProductsService(db, {} as never, cache as never, {} as never, {} as never, {} as never);
+
+    const out = await svc.reorder('t1', { items: [] });
+
+    expect(db.update).not.toHaveBeenCalled();
     expect(cache.invalidate).toHaveBeenCalledWith('t1');
     expect(out).toEqual({ ok: true });
   });

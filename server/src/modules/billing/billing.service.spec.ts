@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BillingService } from './billing.service';
 import { EmailService } from '../../common/email/email.service';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
 /**
@@ -40,6 +41,11 @@ async function build(db: any, config: any, email: any): Promise<BillingService> 
       { provide: DB_TOKEN, useValue: db },
       { provide: ConfigService, useValue: config },
       { provide: EmailService, useValue: email },
+      // summary() is cached; get→null keeps every call computing fresh (as before).
+      {
+        provide: PublicCacheService,
+        useValue: { get: jest.fn(async () => null), set: jest.fn(async () => undefined) },
+      },
     ],
   }).compile();
   jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);

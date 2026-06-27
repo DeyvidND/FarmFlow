@@ -934,7 +934,16 @@ export class OrdersService {
    * snapshot product name/price, enforce slot capacity with a row lock
    * (double-booking impossible), compute the total, create the pending order.
    */
-  async create(slug: string, dto: CreateOrderDto): Promise<OrderWithItems> {
+  async create(
+    slug: string,
+    dto: CreateOrderDto,
+    // The checkout path already resolved the tenant by slug for its Stripe pre-flight —
+    // it passes the row here so intake doesn't re-SELECT it. Omitted by other callers.
+    preloadedTenant?: Pick<
+      typeof tenants.$inferSelect,
+      'id' | 'farmLat' | 'farmLng' | 'subscriptionStatus' | 'settings' | 'deliveryEnabled'
+    >,
+  ): Promise<OrderWithItems> {
     // Three delivery methods: local farm delivery (slots + route + coords),
     // Econt → office, Econt → home address. Only local delivery consumes a slot
     // and is geocoded for the farm's route; the Econt methods are courier-shipped.
@@ -944,18 +953,22 @@ export class OrdersService {
 
     // Resolve the tenant (+ farm coords) up front so geocoding can run outside
     // the transaction (no network call while holding row locks).
-    const [tenant] = await this.db
-      .select({
-        id: tenants.id,
-        farmLat: tenants.farmLat,
-        farmLng: tenants.farmLng,
-        subscriptionStatus: tenants.subscriptionStatus,
-        settings: tenants.settings,
-        deliveryEnabled: tenants.deliveryEnabled,
-      })
-      .from(tenants)
-      .where(eq(tenants.slug, slug))
-      .limit(1);
+    const tenant =
+      preloadedTenant ??
+      (
+        await this.db
+          .select({
+            id: tenants.id,
+            farmLat: tenants.farmLat,
+            farmLng: tenants.farmLng,
+            subscriptionStatus: tenants.subscriptionStatus,
+            settings: tenants.settings,
+            deliveryEnabled: tenants.deliveryEnabled,
+          })
+          .from(tenants)
+          .where(eq(tenants.slug, slug))
+          .limit(1)
+      )[0];
     if (!tenant) throw new NotFoundException('Фермата не е намерена');
 
     // Server-side backstop: the chosen delivery + payment methods must actually

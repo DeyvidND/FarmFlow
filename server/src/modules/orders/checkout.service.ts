@@ -54,9 +54,10 @@ export class CheckoutService {
     slug: string,
     dto: CreateOrderDto,
     preloadedCfg?: DeliveryConfig | null,
+    preloadedTenant?: Parameters<OrdersService['create']>[2],
   ): Promise<{ order: PlacedOrder; subtotal: number; shipping: number; grandTotal: number }> {
     // Order intake — snapshot, row-lock the slot, 409 on overflow, status pending.
-    const order = await this.ordersService.create(slug, dto);
+    const order = await this.ordersService.create(slug, dto, preloadedTenant);
     const subtotal = order.items.reduce((sum, i) => sum + i.priceStotinki * i.quantity, 0);
     const shipping = await this.shippingStotinki(order, subtotal, preloadedCfg);
     const grandTotal = subtotal + shipping;
@@ -88,9 +89,16 @@ export class CheckoutService {
     // Stripe branch below.
     const [tenant] = await this.db
       .select({
-        settings: tenants.settings,
+        // Stripe pre-flight fields…
         stripeAccountId: tenants.stripeAccountId,
         stripeChargesEnabled: tenants.stripeChargesEnabled,
+        // …plus everything OrdersService.create needs, so intake reuses this one read.
+        id: tenants.id,
+        farmLat: tenants.farmLat,
+        farmLng: tenants.farmLng,
+        subscriptionStatus: tenants.subscriptionStatus,
+        settings: tenants.settings,
+        deliveryEnabled: tenants.deliveryEnabled,
       })
       .from(tenants)
       .where(eq(tenants.slug, slug))
@@ -119,8 +127,8 @@ export class CheckoutService {
       }
     }
 
-    // 1. Order intake + shipping folded into the total (cfg reused, no extra read).
-    const { order, shipping, grandTotal } = await this.createAndFold(slug, dto, cfg);
+    // 1. Order intake + shipping folded into the total (tenant + cfg reused, no re-read).
+    const { order, shipping, grandTotal } = await this.createAndFold(slug, dto, cfg, tenant);
 
     const wantsCod = dto.paymentMethod === 'cod';
 

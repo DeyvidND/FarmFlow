@@ -11,6 +11,7 @@ import Stripe from 'stripe';
 import { type Database, tenants, emailPushes } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
+import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { priceForRecipients } from './billing.pricing';
 
 // stripe@22 ships `export = StripeConstructor`; derive the client type from the
@@ -60,6 +61,7 @@ export class BillingService {
     @Inject(DB_TOKEN) private readonly db: Database,
     config: ConfigService,
     private readonly email: EmailService,
+    private readonly cache: PublicCacheService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     // Таймаут 15 с + 2 автоматични retry (с Retry-After на 429) вместо SDK-дефолта 80 с / без retry.
@@ -166,8 +168,19 @@ export class BillingService {
 
   /* -------------------------------- summary -------------------------------- */
 
-  /** Billing snapshot for the farmer Payments page. Never throws. */
+  /** Billing snapshot for the farmer Payments page. Never throws. Cached 60 s — the
+   *  card + invoice data changes rarely, so this spares two Stripe API calls per
+   *  page refresh (the TTL self-expires; no write-path busting needed). */
   async summary(tenantId: string): Promise<BillingSummary> {
+    const key = `billing:summary:${tenantId}`;
+    const cached = await this.cache.get<BillingSummary>(key);
+    if (cached) return cached;
+    const result = await this.computeSummary(tenantId);
+    await this.cache.set(key, result, 60);
+    return result;
+  }
+
+  private async computeSummary(tenantId: string): Promise<BillingSummary> {
     const base: BillingSummary = {
       enabled: this.isEnabled(),
       plan: 'standard',

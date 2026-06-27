@@ -8,6 +8,7 @@ import type { Subcategory, SubcategoryMedia, PublicSubcategory } from '@fermerib
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
 import { encodeImageJob } from '../../common/queue/image-job';
+import { positionCase } from '../../common/db/reorder.util';
 import { CreateSubcategoryDto } from './dto/create-subcategory.dto';
 import { UpdateSubcategoryDto } from './dto/update-subcategory.dto';
 import { StorageService } from '../storage/storage.service';
@@ -42,14 +43,12 @@ export class SubcategoriesService {
   /** Persist a new display order for the tenant's subcategories. Tenant-scoped,
    *  one transaction; busts the catalog + public subcategories caches. */
   async reorder(tenantId: string, dto: ReorderDto): Promise<{ ok: true }> {
-    await this.db.transaction(async (tx) => {
-      for (const it of dto.items) {
-        await tx
-          .update(subcategories)
-          .set({ position: it.position })
-          .where(and(eq(subcategories.id, it.id), eq(subcategories.tenantId, tenantId)));
-      }
-    });
+    if (dto.items.length) {
+      await this.db
+        .update(subcategories)
+        .set({ position: positionCase(subcategories.id, subcategories.position, dto.items) })
+        .where(and(inArray(subcategories.id, dto.items.map((i) => i.id)), eq(subcategories.tenantId, tenantId)));
+    }
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.subcategories(tenantId));
     return { ok: true };
@@ -251,21 +250,19 @@ export class SubcategoriesService {
   ): Promise<SubcategoryMedia[]> {
     await this.findOne(id, tenantId);
 
-    // One transaction so a mid-loop failure can't leave a half-applied order.
-    await this.db.transaction(async (tx) => {
-      for (const it of dto.items) {
-        await tx
-          .update(subcategoryMedia)
-          .set({ position: it.position })
-          .where(
-            and(
-              eq(subcategoryMedia.id, it.id),
-              eq(subcategoryMedia.subcategoryId, id),
-              eq(subcategoryMedia.tenantId, tenantId),
-            ),
-          );
-      }
-    });
+    // One UPDATE … CASE … END instead of a statement per row.
+    if (dto.items.length) {
+      await this.db
+        .update(subcategoryMedia)
+        .set({ position: positionCase(subcategoryMedia.id, subcategoryMedia.position, dto.items) })
+        .where(
+          and(
+            inArray(subcategoryMedia.id, dto.items.map((i) => i.id)),
+            eq(subcategoryMedia.subcategoryId, id),
+            eq(subcategoryMedia.tenantId, tenantId),
+          ),
+        );
+    }
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.subcategories(tenantId));
