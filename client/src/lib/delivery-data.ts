@@ -150,13 +150,13 @@ export const ECONT_OFFICES: EcontOffice[] = [
   { code: '1055', name: 'Автомат Варна Гранд Мол', address: 'бул. Академик Курчатов 1', cityName: 'Варна', workingHours: 'Всеки ден 09:00–21:00', dist: '5.3 км' },
 ];
 
-/** Mock shipments (orders with Econt waybills). */
+/** Mock shipments (orders with carrier waybills). */
 export const MOCK_SHIPMENTS: Shipment[] = [
-  { orderId: '1042', orderNumber: '1042', customerName: 'Иван Петров', method: 'econtAddress', status: 'created', trackingNumber: '1052 7788 4421', priceStotinki: 690, history: [{ at: '30 май, 09:12', label: 'Създадена товарителница', location: 'Варна' }] },
-  { orderId: '1041', orderNumber: '1041', customerName: 'Мария Георгиева', method: 'econtOffice', status: 'shipped', trackingNumber: '1052 7788 4398', priceStotinki: 499, history: [{ at: '30 май, 08:40', label: 'Създадена товарителница', location: 'Варна' }, { at: '30 май, 13:05', label: 'Приета в офис', location: 'Офис Варна Център' }, { at: '30 май, 17:20', label: 'В транзит', location: 'Разпределителен център Варна' }] },
-  { orderId: '1040', orderNumber: '1040', customerName: 'Димитър Иванов', method: 'econtOffice', status: 'delivered', trackingNumber: '1052 7701 9930', priceStotinki: 499, history: [{ at: '29 май, 10:00', label: 'Създадена товарителница', location: 'Варна' }, { at: '29 май, 15:30', label: 'В транзит', location: 'РЦ Варна' }, { at: '30 май, 11:18', label: 'Доставена', location: 'Офис Варна Чайка' }] },
-  { orderId: '1039', orderNumber: '1039', customerName: 'Елена Стоянова', method: 'ownSlots', status: 'pending', priceStotinki: 0, history: [] },
-  { orderId: '1037', orderNumber: '1037', customerName: 'Георги Тодоров', method: 'econtAddress', status: 'returned', trackingNumber: '1052 7700 1247', priceStotinki: 690, history: [{ at: '27 май, 09:30', label: 'Създадена товарителница', location: 'Варна' }, { at: '28 май, 14:00', label: 'Неуспешна доставка', location: 'Варна' }, { at: '29 май, 16:40', label: 'Върната към подател', location: 'РЦ Варна' }] },
+  { orderId: '1042', orderNumber: '1042', customerName: 'Иван Петров', method: 'econtAddress', carrier: 'econt', status: 'created', trackingNumber: '1052 7788 4421', priceStotinki: 690, history: [{ at: '30 май, 09:12', label: 'Създадена товарителница', location: 'Варна' }] },
+  { orderId: '1041', orderNumber: '1041', customerName: 'Мария Георгиева', method: 'econtOffice', carrier: 'econt', status: 'shipped', trackingNumber: '1052 7788 4398', priceStotinki: 499, history: [{ at: '30 май, 08:40', label: 'Създадена товарителница', location: 'Варна' }, { at: '30 май, 13:05', label: 'Приета в офис', location: 'Офис Варна Център' }, { at: '30 май, 17:20', label: 'В транзит', location: 'Разпределителен център Варна' }] },
+  { orderId: '1040', orderNumber: '1040', customerName: 'Димитър Иванов', method: 'econtOffice', carrier: 'econt', status: 'delivered', trackingNumber: '1052 7701 9930', priceStotinki: 499, history: [{ at: '29 май, 10:00', label: 'Създадена товарителница', location: 'Варна' }, { at: '29 май, 15:30', label: 'В транзит', location: 'РЦ Варна' }, { at: '30 май, 11:18', label: 'Доставена', location: 'Офис Варна Чайка' }] },
+  { orderId: '1039', orderNumber: '1039', customerName: 'Елена Стоянова', method: 'ownSlots', carrier: 'econt', status: 'pending', priceStotinki: 0, history: [] },
+  { orderId: '1037', orderNumber: '1037', customerName: 'Георги Тодоров', method: 'econtAddress', carrier: 'econt', status: 'returned', trackingNumber: '1052 7700 1247', priceStotinki: 690, history: [{ at: '27 май, 09:30', label: 'Създадена товарителница', location: 'Варна' }, { at: '28 май, 14:00', label: 'Неуспешна доставка', location: 'Варна' }, { at: '29 май, 16:40', label: 'Върната към подател', location: 'РЦ Варна' }] },
 ];
 
 export const SHIPMENT_META: Record<ShipmentStatus, { label: string; tone: 'gray' | 'amber' | 'green' | 'red' }> = {

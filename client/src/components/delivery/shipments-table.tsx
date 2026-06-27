@@ -53,9 +53,11 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
     setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const allSel = shown.length > 0 && shown.every((r) => sel.includes(r.orderId));
 
-  const createLabel = async (id: string) => {
+  const createLabel = async (orderId: string) => {
+    const r = rows.find((x) => x.orderId === orderId);
+    const carrier = r?.carrier ?? 'econt';
     try {
-      await createShipment(id);
+      await createShipment(orderId, carrier);
       await reload();
       toast.success('Товарителницата е създадена');
     } catch (err) {
@@ -65,7 +67,7 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
   const voidLabel = async (r: Shipment) => {
     if (!r.shipmentId) return;
     try {
-      await voidShipment(r.shipmentId);
+      await voidShipment(r.shipmentId, r.carrier);
       await reload();
       toast.info?.('Товарителницата е отказана');
     } catch (err) {
@@ -75,7 +77,7 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
   const refreshTrack = async (r: Shipment) => {
     if (!r.shipmentId) return;
     try {
-      await refreshShipment(r.shipmentId);
+      await refreshShipment(r.shipmentId, r.carrier);
       await reload();
       toast.success('Проследяването е обновено');
     } catch (err) {
@@ -88,7 +90,7 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
   };
   const printOne = (r: Shipment) => {
     if (!r.shipmentId) return;
-    window.open(`/bff/econt/shipments/${r.shipmentId}/label.pdf`, '_blank', 'noopener');
+    window.open(`/bff/${r.carrier}/shipments/${r.shipmentId}/label.pdf`, '_blank', 'noopener');
   };
   const bulkCreate = () => {
     sel.forEach((id) => {
@@ -98,14 +100,23 @@ export function ShipmentsTable({ toast }: { toast: Toast }) {
     setSel([]);
   };
   const printSelected = () => {
-    const ids = sel
-      .map((id) => rows.find((x) => x.orderId === id)?.shipmentId)
-      .filter((x): x is string => !!x);
-    if (!ids.length) {
+    // Group selected shipmentIds by carrier so we open one PDF tab per carrier.
+    const byCarrier = new Map<string, string[]>();
+    for (const id of sel) {
+      const r = rows.find((x) => x.orderId === id);
+      if (r?.shipmentId) {
+        const c = r.carrier;
+        if (!byCarrier.has(c)) byCarrier.set(c, []);
+        byCarrier.get(c)!.push(r.shipmentId);
+      }
+    }
+    if (byCarrier.size === 0) {
       toast.info?.('Избери товарителници със създаден етикет');
       return;
     }
-    window.open(`/bff/econt/labels.pdf?ids=${ids.join(',')}`, '_blank', 'noopener');
+    for (const [carrier, ids] of byCarrier) {
+      window.open(`/bff/${carrier}/labels.pdf?ids=${ids.join(',')}`, '_blank', 'noopener');
+    }
   };
 
   const grid = 'grid-cols-[32px_72px_1.2fr_0.9fr_1fr_1.2fr_0.8fr_110px]';

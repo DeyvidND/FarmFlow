@@ -300,19 +300,21 @@ export interface ShipmentEvent {
   location?: string;
 }
 
-/** An order with its Econt waybill (mock for now). */
+/** An order with its carrier waybill. */
 export interface Shipment {
   orderId: string;
   orderNumber: string;
   customerName: string;
   method: DeliveryMethodKey;
   status: ShipmentStatus;
+  /** Which carrier owns this shipment — used to route print/create/void/refresh actions. */
+  carrier: 'econt' | 'speedy';
   trackingNumber?: string;
   priceStotinki?: number;
   history?: ShipmentEvent[];
-  /** The Econt shipment row id (present once a waybill exists) — for void/refresh. */
+  /** The shipment row id (present once a waybill exists) — for void/refresh. */
   shipmentId?: string;
-  /** When set, the farm can print the Econt waybill PDF. */
+  /** When set, the farm can print the carrier waybill PDF. */
   labelPdfUrl?: string;
 }
 

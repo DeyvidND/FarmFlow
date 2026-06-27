@@ -952,6 +952,11 @@ export class EcontService {
           labelPdfUrl: shipments.labelPdfUrl,
           codAmount: shipments.codAmountStotinki,
           trackingJson: shipments.trackingJson,
+          // Carrier columns — needed to route panel actions (print/void/refresh) correctly.
+          carrier: shipments.carrier,
+          orderCarrier: orders.carrier,
+          trackingNumber: shipments.trackingNumber,
+          carrierShipmentId: shipments.carrierShipmentId,
         })
         .from(orders)
         .leftJoin(shipments, eq(shipments.orderId, orders.id))
@@ -976,6 +981,10 @@ export class EcontService {
           labelPdfUrl: shipments.labelPdfUrl,
           codAmount: shipments.codAmountStotinki,
           trackingJson: shipments.trackingJson,
+          // Carrier columns — needed to route panel actions (print/void/refresh) correctly.
+          carrier: shipments.carrier,
+          trackingNumber: shipments.trackingNumber,
+          carrierShipmentId: shipments.carrierShipmentId,
         })
         .from(shipments)
         .where(and(eq(shipments.tenantId, tenantId), isNull(shipments.orderId)))
@@ -1116,6 +1125,14 @@ export interface ShipmentJoinRow {
   labelPdfUrl: string | null;
   codAmount: number | null;
   trackingJson: unknown;
+  /** Carrier recorded on the shipments row (set for Speedy; null for legacy Econt rows). */
+  carrier: string | null;
+  /** Carrier recorded on the order (the customer's choice at checkout). */
+  orderCarrier: string | null;
+  /** Speedy barcode / Econt-fallback tracking number from the shipments row. */
+  trackingNumber: string | null;
+  /** Speedy internal shipment id (carrierShipmentId column). */
+  carrierShipmentId: string | null;
 }
 
 /** Admin shipments-table row. */
@@ -1125,6 +1142,8 @@ export interface AdminShipment {
   customerName: string;
   method: 'econtOffice' | 'econtAddress';
   status: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused';
+  /** Which carrier owns this shipment — used by the panel to route print/void/refresh. */
+  carrier: 'econt' | 'speedy';
   trackingNumber?: string;
   priceStotinki?: number;
   codAmountStotinki?: number;
@@ -1165,17 +1184,26 @@ export interface ManualShipmentRow {
   labelPdfUrl: string | null;
   codAmount: number | null;
   trackingJson: unknown;
+  /** Carrier recorded on the shipments row (set for Speedy; null for legacy Econt rows). */
+  carrier: string | null;
+  /** Speedy barcode / tracking number from the shipments row. */
+  trackingNumber: string | null;
+  /** Speedy internal shipment id (carrierShipmentId column). */
+  carrierShipmentId: string | null;
 }
 
 /** Map a stored order-less shipment onto the admin shipments-table shape. */
 export function mapManualShipmentRow(r: ManualShipmentRow): AdminShipment {
+  // econtShipmentNumber for Econt rows; trackingNumber (Speedy barcode) for Speedy rows.
+  const ref = r.shipmentNumber ?? r.trackingNumber ?? null;
   return {
     orderId: r.shipmentId, // no order — use the shipment id as the row key
     orderNumber: 'Ръчна',
     customerName: r.receiverName ?? '—',
     method: r.deliveryMode === 'address' ? 'econtAddress' : 'econtOffice',
-    status: uiShipmentStatus(r.shipmentNumber, r.shipmentStatus),
-    trackingNumber: r.shipmentNumber ?? undefined,
+    carrier: (r.carrier ?? 'econt') as 'econt' | 'speedy',
+    status: uiShipmentStatus(ref, r.shipmentStatus),
+    trackingNumber: ref ?? undefined,
     priceStotinki: r.courierPrice ?? undefined,
     codAmountStotinki: r.codAmount ?? undefined,
     labelPdfUrl: r.labelPdfUrl ?? undefined,
@@ -1187,13 +1215,16 @@ export function mapManualShipmentRow(r: ManualShipmentRow): AdminShipment {
 
 /** Map a joined query row onto the admin shipments-table shape. */
 export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
+  // econtShipmentNumber for Econt rows; trackingNumber (Speedy barcode) for Speedy rows.
+  const ref = r.shipmentNumber ?? r.trackingNumber ?? null;
   return {
     orderId: r.orderId,
     orderNumber: r.orderId.slice(0, 8),
     customerName: r.customerName ?? '—',
     method: r.deliveryType === 'econt_address' ? 'econtAddress' : 'econtOffice',
-    status: uiShipmentStatus(r.shipmentNumber, r.shipmentStatus),
-    trackingNumber: r.shipmentNumber ?? undefined,
+    carrier: (r.carrier ?? r.orderCarrier ?? 'econt') as 'econt' | 'speedy',
+    status: uiShipmentStatus(ref, r.shipmentStatus),
+    trackingNumber: ref ?? undefined,
     priceStotinki: r.courierPrice ?? r.total ?? undefined,
     codAmountStotinki: r.codAmount ?? undefined,
     labelPdfUrl: r.labelPdfUrl ?? undefined,
