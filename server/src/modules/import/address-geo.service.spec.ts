@@ -4,13 +4,21 @@ import type { ImportAiService } from './import.ai';
 
 const POINT = { lat: 42.69, lng: 23.32 };
 
-function make(geocode: jest.Mock, repair: jest.Mock = jest.fn().mockResolvedValue([])) {
-  const maps = { geocode } as unknown as MapsService;
+function make(geocode: jest.Mock, repair: jest.Mock = jest.fn().mockResolvedValue([]), enabled = true) {
+  const maps = { geocode, enabled } as unknown as MapsService;
   const ai = { repairAddresses: repair } as unknown as ImportAiService;
   return new AddressGeoService(maps, ai);
 }
 
 describe('AddressGeoService', () => {
+  it('skips the check (all ok / empty) when Google maps is disabled (no key)', async () => {
+    const geocode = jest.fn();
+    const svc = make(geocode, jest.fn(), false);
+    expect(await svc.checkOne('каквото и да е', 'София')).toEqual({ status: 'ok' });
+    expect(await svc.checkMany([{ rowIndex: 1, address: 'x', city: 'София' }])).toEqual(new Map());
+    expect(geocode).not.toHaveBeenCalled();
+  });
+
   it('checkOne → ok when geocode finds a point', async () => {
     const svc = make(jest.fn().mockResolvedValue(POINT));
     expect(await svc.checkOne('ул. Витоша 1', 'София')).toEqual({ status: 'ok' });

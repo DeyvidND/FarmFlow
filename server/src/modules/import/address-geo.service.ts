@@ -29,6 +29,9 @@ export class AddressGeoService {
   }
 
   async checkOne(address: string, city: string | null): Promise<AddressGeo> {
+    // No Google key → geocoding is disabled. Treat every address as eligible rather
+    // than flagging them all as "not found" (graceful degradation, not false negatives).
+    if (!this.maps.enabled) return { status: 'ok' };
     if (!address?.trim()) return { status: 'unresolved' };
     if (await this.eligible(address, city)) return { status: 'ok' };
     const [fix] = await this.ai.repairAddresses([{ index: 0, address, city }]);
@@ -43,6 +46,8 @@ export class AddressGeoService {
     items: { rowIndex: number; address: string; city: string | null }[],
   ): Promise<Map<number, AddressGeo>> {
     const out = new Map<number, AddressGeo>();
+    // No Google key → skip the check entirely; no row gets a "not found" flag.
+    if (!this.maps.enabled) return out;
     const broken: { index: number; address: string; city: string | null }[] = [];
 
     // Pass 1 — pooled eligibility.
