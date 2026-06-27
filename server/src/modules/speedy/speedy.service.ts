@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, desc, inArray, isNotNull, notInArray } from 'drizzle-orm';
-import { type Database, tenants, shipments } from '@fermeribg/db';
+import { type Database, tenants, shipments, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
@@ -9,7 +9,7 @@ import { SpeedyClient, type SpeedyCreds } from './speedy.client';
 import {
   type SpeedyStored, slimSites, slimOffices, slimStreets, slimContractClients,
   type SpeedySite, type SpeedyOffice, type SpeedyStreet, type SenderSuggestion,
-  buildShipmentRequest, parseTrackStatus, parsePayouts, type CanonicalStatus,
+  buildShipmentRequest, buildOrderShipmentInput, parseTrackStatus, parsePayouts, type CanonicalStatus,
 } from './speedy.helpers';
 import { mergePdfs } from '../econt/econt.service';
 import { SpeedyManualShipmentDto } from './dto/speedy-manual-shipment.dto';
@@ -249,6 +249,77 @@ export class SpeedyService {
         receiverCity: input.siteId != null ? String(input.siteId) : null,
         weightKg: input.weightGrams ? String(input.weightGrams / 1000) : null,
         contents: input.contents ?? null,
+      })
+      .returning();
+    return row;
+  }
+
+  /** Load a tenant-scoped order for waybill creation. Throws if absent. */
+  private async orderForShipment(tenantId: string, orderId: string) {
+    const [row] = await this.db
+      .select({
+        tenantId: orders.tenantId,
+        deliveryCity: orders.deliveryCity,
+        deliveryAddress: orders.deliveryAddress,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        paymentMethod: orders.paymentMethod,
+        paidAt: orders.paidAt,
+        totalStotinki: orders.totalStotinki,
+      })
+      .from(orders)
+      .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Поръчката не е намерена');
+    return row;
+  }
+
+  /** Create the Speedy waybill for an order and UPSERT a shipments row (one per order). */
+  async createLabelForOrder(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
+    const { speedy } = await this.loadStored(tenantId);
+    if (!speedy.configured) throw new BadRequestException('Speedy не е конфигуриран за тази ферма');
+
+    const order = await this.orderForShipment(tenantId, orderId);
+    const sites = await this.searchSites(tenantId, order.deliveryCity ?? '');
+    const siteId = sites[0]?.id;
+    if (!siteId) throw new BadRequestException('Населеното място не е намерено в Speedy');
+
+    const creds = await this.resolveCreds(tenantId);
+    const input = buildOrderShipmentInput(speedy, order, siteId);
+    const body = buildShipmentRequest(speedy, input);
+    const data = await this.client.call(creds, 'shipment', body);
+
+    const shipmentId: string | null = data?.id != null ? String(data.id) : null;
+    const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
+    const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
+    const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
+    const codAmount = input.codAmountStotinki && input.codAmountStotinki > 0 ? Math.round(input.codAmountStotinki) : null;
+
+    const [row] = await this.db
+      .insert(shipments)
+      .values({
+        tenantId,
+        orderId,
+        carrier: 'speedy',
+        carrierShipmentId: shipmentId,
+        trackingNumber: barcode,
+        status: barcode ? 'created' : 'pending',
+        courierPriceStotinki: typeof priceEur === 'number' ? Math.round(priceEur * 100) : null,
+        codAmountStotinki: codAmount,
+        trackingJson: data ?? null,
+        deliveryMode: 'address',
+      })
+      .onConflictDoUpdate({
+        target: shipments.orderId,
+        set: {
+          carrier: 'speedy',
+          carrierShipmentId: shipmentId,
+          trackingNumber: barcode,
+          status: barcode ? 'created' : 'pending',
+          courierPriceStotinki: typeof priceEur === 'number' ? Math.round(priceEur * 100) : null,
+          codAmountStotinki: codAmount,
+          updatedAt: new Date(),
+        },
       })
       .returning();
     return row;

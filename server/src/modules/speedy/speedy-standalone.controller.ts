@@ -64,6 +64,13 @@ export class SpeedyStandaloneController {
     return this.speedy.createManualShipment(t, dto);
   }
 
+  /** Create the Speedy waybill (label) for a storefront order. */
+  @UseGuards(ActivationGuard)
+  @Post('orders/:orderId/label')
+  createForOrder(@CurrentTenant() t: string, @Param('orderId', ParseUUIDPipe) orderId: string) {
+    return this.speedy.createLabelForOrder(t, orderId);
+  }
+
   @Post('shipments/:id/refresh')
   refresh(@CurrentTenant() t: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.speedy.refreshStatus(t, id);

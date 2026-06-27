@@ -109,3 +109,35 @@ describe('SpeedyService.estimateShipping', () => {
     expect((body as any).service?.additionalServices?.cod?.amount).toBeGreaterThan(0);
   });
 });
+
+describe('SpeedyService.createLabelForOrder', () => {
+  let svc: SpeedyService;
+
+  beforeEach(() => {
+    svc = makeService();
+  });
+
+  it('createLabelForOrder upserts an order-linked Speedy shipment', async () => {
+    const call = jest.fn().mockResolvedValue({ id: 'S1', parcels: [{ barcode: 'BC1' }], price: { total: 4.2 } });
+    (svc as any).client = { call };
+    (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
+    (svc as any).loadStored = jest.fn().mockResolvedValue({ speedy: { configured: true, defaultServiceId: 505 } });
+    (svc as any).searchSites = jest.fn().mockResolvedValue([{ id: 100 }]);
+    (svc as any).orderForShipment = jest.fn().mockResolvedValue({
+      tenantId: 't1', deliveryCity: 'Варна', customerName: 'И', customerPhone: '0888',
+      deliveryAddress: 'ул', paymentMethod: 'cod', paidAt: null, totalStotinki: 5000,
+    });
+
+    // Mock db.insert(...).values(...).onConflictDoUpdate(...).returning()
+    const returning = jest.fn().mockResolvedValue([{ carrier: 'speedy', carrierShipmentId: 'S1', trackingNumber: 'BC1', status: 'created' }]);
+    const onConflictDoUpdate = jest.fn().mockReturnValue({ returning });
+    const values = jest.fn().mockReturnValue({ onConflictDoUpdate });
+    const insert = jest.fn().mockReturnValue({ values });
+    (svc as any).db = { insert };
+
+    const row = await svc.createLabelForOrder('t1', 'order-1');
+    expect(call).toHaveBeenCalledWith(expect.anything(), 'shipment', expect.anything());
+    expect(insert).toHaveBeenCalled();
+    expect(row.carrier).toBe('speedy');
+  });
+});
