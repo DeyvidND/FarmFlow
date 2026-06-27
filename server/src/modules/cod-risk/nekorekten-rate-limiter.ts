@@ -21,6 +21,10 @@ export interface ReserveResult {
   ok: boolean;
   limit: 'minute' | 'day' | null;
   retryAfterSeconds: number;
+  /** The exact counter keys this reservation incremented (present on ok:true). Pass
+   *  them to refund() so a call that straddles a minute boundary decrements the bucket
+   *  it actually incremented, not whichever minute is current at refund time. */
+  keys?: { minKey: string; dayKey: string };
 }
 
 /**
@@ -158,7 +162,7 @@ export class NekorektenRateLimiter {
 
       const [ok, limitStr, retryAfterSeconds] = result;
       if (ok === 1) {
-        return { ok: true, limit: null, retryAfterSeconds: 0 };
+        return { ok: true, limit: null, retryAfterSeconds: 0, keys: { minKey, dayKey } };
       }
       return {
         ok: false,
@@ -176,9 +180,12 @@ export class NekorektenRateLimiter {
    * (network error / timeout / 5xx) so quota isn't wasted on a non-answer.
    * Best-effort: errors are swallowed.
    */
-  async refund(): Promise<void> {
+  async refund(keys?: { minKey: string; dayKey: string }): Promise<void> {
     try {
-      const { minKey, dayKey } = sofiaBuckets();
+      // Prefer the keys captured at reserve time; fall back to the current buckets for
+      // back-compat. Using the reserved keys avoids leaking quota from the wrong minute
+      // when the API call spanned a minute boundary.
+      const { minKey, dayKey } = keys ?? sofiaBuckets();
       await Promise.all([
         this.redis.decr(minKey),
         this.redis.decr(dayKey),

@@ -23,17 +23,20 @@ const errMsg = (e: unknown) =>
 
 export function AvailabilityClient({
   products,
+  initialWindows = [],
   role = 'admin',
   farmers = [],
   multiFarmer = false,
 }: {
   products: PickerProduct[];
+  /** Windows server-rendered by the page; avoids a client fetch + loading flash on load. */
+  initialWindows?: AvailabilityWindow[];
   role?: 'admin' | 'farmer';
   /** Owner-only: list of producers for the farmer-filter dropdown. */
   farmers?: { id: string; name: string }[];
   multiFarmer?: boolean;
 }) {
-  const [windows, setWindows] = React.useState<AvailabilityWindow[]>([]);
+  const [windows, setWindows] = React.useState<AvailabilityWindow[]>(initialWindows);
   const [editing, setEditing] = React.useState<{
     productId: string;
     existingWindow?: AvailabilityWindow;
@@ -46,6 +49,7 @@ export function AvailabilityClient({
   const [selectedFarmerId, setSelectedFarmerId] = React.useState<string>('');
   const showFarmerPicker = role === 'admin' && multiFarmer && farmers.length > 0;
 
+  // Windows are server-rendered (initialWindows); reload() only re-pulls after an edit.
   const reload = React.useCallback(async () => {
     try {
       setWindows(await listAvailabilityWindows());
@@ -53,10 +57,6 @@ export function AvailabilityClient({
       toast.error(errMsg(e));
     }
   }, []);
-
-  React.useEffect(() => {
-    void reload();
-  }, [reload]);
 
   // Filter products client-side when the owner has a farmer selected.
   const visibleProducts =

@@ -65,7 +65,7 @@ export class NekorektenClient {
     } catch (err) {
       // Network error / timeout — refund the reservation.
       this.logger.warn(`nekorekten check network error: ${err instanceof Error ? err.message : err}`);
-      await this.limiter.refund();
+      await this.limiter.refund(reservation.keys);
       return { configured: true, found: false, count: 0, reports: [], status: 'unavailable' };
     }
 
@@ -96,7 +96,7 @@ export class NekorektenClient {
     if (!res.ok) {
       // 5xx / other non-ok — refund the reservation (non-answer).
       this.logger.warn(`nekorekten check HTTP ${res.status}`);
-      await this.limiter.refund();
+      await this.limiter.refund(reservation.keys);
       return { configured: true, found: false, count: 0, reports: [], status: 'unavailable' };
     }
 
