@@ -393,6 +393,51 @@ describe('slimClientProfiles', () => {
   });
 });
 
+describe('EcontService.estimateKeyFor', () => {
+  const svc = new EcontService(
+    {} as never,
+    { get: () => '' } as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  );
+  const keyFor = (tenantId: string, order: Record<string, unknown>, weightKg: number, cod: number): string =>
+    (svc as any).estimateKeyFor(tenantId, order, weightKg, cod);
+
+  const order = {
+    customerName: '—', customerPhone: '—',
+    deliveryType: 'econt_address' as const, econtOffice: null,
+    deliveryAddress: 'Варна', deliveryCity: 'Варна', totalStotinki: null,
+  };
+
+  it('caches COD and non-COD estimates under different keys', () => {
+    const plainKey = keyFor('t1', order, 1, 0);
+    const codKey = keyFor('t1', order, 1, 5000);
+    expect(plainKey).not.toEqual(codKey);
+    expect(codKey).toContain('cod');
+  });
+
+  it('non-COD key ends with :cod0', () => {
+    const key = keyFor('t1', order, 1, 0);
+    expect(key).toMatch(/:cod0$/);
+  });
+
+  it('COD key buckets amount to nearest 1000 stotinki', () => {
+    // 5000 stotinki → bucket 5000, 5001 stotinki → bucket 6000
+    const key5000 = keyFor('t1', order, 1, 5000);
+    const key5001 = keyFor('t1', order, 1, 5001);
+    expect(key5000).toMatch(/:cod5000$/);
+    expect(key5001).toMatch(/:cod6000$/);
+  });
+
+  it('office destination uses office code not city', () => {
+    const officeOrder = { ...order, deliveryType: 'econt', econtOffice: '1234' };
+    const key = keyFor('t1', officeOrder, 1, 0);
+    expect(key).toContain('office:1234');
+    expect(key).not.toContain('city:');
+  });
+});
+
 describe('buildCourierRequest', () => {
   const senderAddress = { sender: { name: 'Ферма', phone: '0888', mode: 'address', cityName: 'Бургас', address: 'ул. 1' } };
   it('door sender → senderAddress + attached numbers + packCount', () => {
