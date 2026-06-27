@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Search,
@@ -505,6 +505,13 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
     initial,
     listTenants,
   );
+  // Eagerly pull the remaining pages so client-side search + multi-key sort cover
+  // EVERY farm, not just the first page (was: a farm on page 2+ never matched a
+  // search). Platform-total farms is a small set (tens), and the sort already needs
+  // the full list — so draining here is scale-appropriate (unlike per-farm orders).
+  useEffect(() => {
+    if (hasMore && !loading) void loadMore();
+  }, [hasMore, loading, loadMore]);
   const [q, setQ] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState<PlatformTenant | null>(null);
