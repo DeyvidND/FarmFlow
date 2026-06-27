@@ -26,5 +26,5 @@ export default async function PanelLayout({ children }: { children: React.ReactN
     return <ForcePasswordModal />;
   }
 
-  return <PanelChrome>{children}</PanelChrome>;
+  return <PanelChrome email={me.email}>{children}</PanelChrome>;
 }

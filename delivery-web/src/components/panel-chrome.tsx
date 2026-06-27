@@ -14,7 +14,7 @@ const NAV = [
   { href: '/help', label: 'Помощ', icon: HelpCircle },
 ] as const;
 
-export function PanelChrome({ children }: { children: React.ReactNode }) {
+export function PanelChrome({ children, email }: { children: React.ReactNode; email?: string }) {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -57,6 +57,17 @@ export function PanelChrome({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          {email && (
+            <div
+              title={`Влязъл като ${email}`}
+              className="inline-flex h-[44px] shrink-0 items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3 shadow-ff-sm"
+            >
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ff-green-700 text-[12px] font-extrabold uppercase text-white">
+                {email.trim()[0] ?? '?'}
+              </span>
+              <span className="max-w-[200px] truncate text-[13px] font-bold text-ff-ink-2 max-lg:hidden">{email}</span>
+            </div>
+          )}
           <button
             onClick={logout}
             className="inline-flex h-[44px] shrink-0 items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2"
