@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { eq } from 'drizzle-orm';
 import { type Database, orders, tenants } from '@fermeribg/db';
@@ -38,6 +38,8 @@ type PlacedOrder = Awaited<ReturnType<OrdersService['create']>>;
  */
 @Injectable()
 export class CheckoutService {
+  private readonly logger = new Logger(CheckoutService.name);
+
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly ordersService: OrdersService,
@@ -190,8 +192,8 @@ export class CheckoutService {
     order: {
       tenantId: string | null;
       deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address' | null;
-      /** Chosen carrier for courier methods. `speedy` routes door quotes via SpeedyService. */
-      carrier?: 'econt' | 'speedy' | string | null;
+      /** Chosen carrier for courier methods. Accepted values: 'econt' | 'speedy'. Free-form DB text. */
+      carrier?: string | null;
       customerName: string | null;
       customerPhone: string | null;
       econtOffice: string | null;
@@ -232,30 +234,11 @@ export class CheckoutService {
 
     // Speedy door delivery → live Speedy quote (city name → siteId), COD-aware.
     // Falls back to the Econt door flat fee if Speedy is unreachable or returns null.
-    if (door && order.carrier === 'speedy' && speedyEnabled(cfg) && order.tenantId && order.deliveryCity) {
-      let live: number | null = null;
-      try {
-        const sites = await this.speedy.searchSites(order.tenantId, order.deliveryCity);
-        const siteId = sites[0]?.id;
-        if (siteId) {
-          live = await this.speedy.estimateShipping(order.tenantId, {
-            siteId,
-            weightGrams: undefined,
-            codAmountStotinki: cod,
-          });
-        }
-      } catch {
-        live = null;
-      }
-      const fee = live ?? econtFallbackFee(cfg, true);
-      return applyFreeThreshold(fee, subtotal, freeThresholdStotinki(cfg));
-    }
-
-    // Econt (office or door). Automatic mode prefers the live courier quote;
-    // manual mode (farm ships itself) always uses the configured flat fee — no
-    // API call. The global free-over threshold then applies on top.
     let fee: number;
-    if (econtMode(cfg) === 'auto' && order.tenantId) {
+    if (door && order.carrier === 'speedy' && speedyEnabled(cfg) && order.tenantId && order.deliveryCity) {
+      fee = (await this.quoteSpeedyDoor(order.tenantId, order.deliveryCity, cod)) ?? econtFallbackFee(cfg, true);
+    } else if (econtMode(cfg) === 'auto' && order.tenantId) {
+      // Econt automatic mode — live courier quote, fall back to configured flat fee.
       const live = await this.econt.estimateShipping(
         order.tenantId,
         order,
@@ -265,9 +248,36 @@ export class CheckoutService {
       );
       fee = live ?? econtFallbackFee(cfg, door);
     } else {
+      // Econt manual mode (farm ships itself) or Econt off — always flat fee, no API call.
       fee = econtFallbackFee(cfg, door);
     }
     return applyFreeThreshold(fee, subtotal, freeThresholdStotinki(cfg));
+  }
+
+  /**
+   * Live Speedy door quote (city → siteId → estimate), COD-aware.
+   * Returns null on any failure — caller falls back to the configured flat fee.
+   */
+  private async quoteSpeedyDoor(
+    tenantId: string,
+    deliveryCity: string,
+    codAmountStotinki: number,
+  ): Promise<number | null> {
+    try {
+      const sites = await this.speedy.searchSites(tenantId, deliveryCity);
+      const siteId = sites[0]?.id;
+      if (!siteId) return null;
+      return await this.speedy.estimateShipping(tenantId, {
+        siteId,
+        weightGrams: undefined,
+        codAmountStotinki,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[speedy] checkout quote failed for ${tenantId}/${deliveryCity}, using fallback: ${err instanceof Error ? err.message : err}`,
+      );
+      return null;
+    }
   }
 
   /** Load the tenant's `settings.delivery` config (null when unset → legacy defaults). */
