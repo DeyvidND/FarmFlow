@@ -558,7 +558,9 @@ export function ImportClient() {
                       {(() => {
                         const all = r.validation?.issues ?? [];
                         if (!all.length) return null;
-                        const fix = all.find((i) => i.suggestion);
+                        // Only the address-fix issue carries a geocodable replacement; other
+                        // issues' suggestions are advice text, not something to paste into the field.
+                        const fix = all.find((i) => i.code === 'address_fixable' && i.suggestion);
                         return (
                           <tr className={`border-b border-ff-border-2 last:border-0 ${rowBg(r.validationStatus)}`}>
                             <td />
@@ -623,7 +625,7 @@ export function ImportClient() {
                   <div className="text-[12.5px] text-ff-red">
                     {(r.validation?.issues ?? []).map((i) => i.message).filter(Boolean).join('; ')}
                     {(() => {
-                      const fix = (r.validation?.issues ?? []).find((i) => i.suggestion);
+                      const fix = (r.validation?.issues ?? []).find((i) => i.code === 'address_fixable' && i.suggestion);
                       return fix?.suggestion ? (
                         <button
                           type="button"
