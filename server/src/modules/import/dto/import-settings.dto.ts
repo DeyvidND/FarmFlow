@@ -1,5 +1,11 @@
-import { IsString, IsIn, IsOptional, IsInt, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsString, IsIn, IsOptional, IsInt, IsBoolean, Min } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
+
+/** Multipart fields arrive as strings ('true'/'false'); coerce to a real boolean.
+ *  Anything other than the literal 'false'/'0' counts as true, so an omitted flag
+ *  (handled by @IsOptional) keeps the service default of "on". */
+const toBool = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? !['false', '0', ''].includes(value.toLowerCase()) : value;
 
 /** Batch-level defaults posted alongside the uploaded file (multipart fields are strings;
  *  numeric fields are coerced via @Type).
@@ -25,4 +31,12 @@ export class ImportSettingsDto {
 
   @IsOptional() @Type(() => Number) @IsInt() @Min(1)
   speedyServiceId?: number;
+
+  /** Operator-toggled checks (defaults on). When off, the matching pass is skipped:
+   *  aiAudit → the OpenAI row review, addressCheck → the address geo/repair pass. */
+  @IsOptional() @Transform(toBool) @IsBoolean()
+  aiAudit?: boolean;
+
+  @IsOptional() @Transform(toBool) @IsBoolean()
+  addressCheck?: boolean;
 }

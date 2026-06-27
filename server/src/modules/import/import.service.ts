@@ -51,7 +51,11 @@ export class ImportService {
     };
     const normalized = raw.map((r, i) => normalizeRow(r, i + 1, defaults));
 
-    const verdicts = await this.ai.review(normalized);
+    // Operator-toggled checks (default on when the flag is omitted). Off → skip the pass.
+    const aiAudit = settings.aiAudit !== false;
+    const addressCheck = settings.addressCheck !== false;
+
+    const verdicts = aiAudit ? await this.ai.review(normalized) : [];
     const verdictByIndex = new Map(verdicts.map((v) => [v.index, v]));
 
     const counts: Record<RowStatus, number> = { ok: 0, warn: 0, error: 0 };
@@ -98,9 +102,11 @@ export class ImportService {
 
     // Address-eligibility: only address-mode, non-error rows with an address. One
     // batched AI repair call for all broken addresses (see AddressGeoService).
-    const geoCands = allProcessed.filter(
-      (p) => p.validation.status !== 'error' && p.row.deliveryMode === 'address' && p.row.address,
-    );
+    const geoCands = addressCheck
+      ? allProcessed.filter(
+          (p) => p.validation.status !== 'error' && p.row.deliveryMode === 'address' && p.row.address,
+        )
+      : [];
     const geo = await this.addressGeo.checkMany(
       geoCands.map((p) => ({ rowIndex: p.row.rowIndex, address: p.row.address!, city: p.row.city })),
     );

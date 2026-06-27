@@ -39,7 +39,9 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
           </div>
         </div>
 
-        <nav className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {/* Primary nav — flat text links; only the active page gets a filled pill, so the
+            bar reads like a header rather than a row of buttons. */}
+        <nav className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {NAV.map(({ href, label, icon: Icon }) => {
             const active = isActive(href);
             return (
@@ -47,34 +49,37 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
                 key={href}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className={`inline-flex h-[44px] shrink-0 items-center gap-2 rounded-xl border px-3.5 text-[13.5px] font-bold transition-all ${
+                title={label}
+                className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13.5px] font-bold transition-colors ${
                   active
-                    ? 'border-ff-green-700 bg-ff-green-700 text-white shadow-ff-md'
-                    : 'border-ff-border bg-ff-surface text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2'
+                    ? 'bg-ff-green-700 text-white'
+                    : 'text-ff-ink-2 hover:bg-ff-surface-2'
                 }`}
               >
-                <Icon size={17} /> <span className="max-md:hidden">{label}</span>
+                <Icon size={17} /> <span className="max-lg:hidden">{label}</span>
               </Link>
             );
           })}
+        </nav>
+
+        {/* Account cluster — avatar + a compact logout, set apart from the nav by a divider. */}
+        <div className="flex shrink-0 items-center gap-2 border-l border-ff-border pl-3">
           {email && (
-            <div
+            <span
               title={`Влязъл като ${email}`}
-              className="inline-flex h-[44px] shrink-0 items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3 shadow-ff-sm"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ff-green-700 text-[13px] font-extrabold uppercase text-white"
             >
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ff-green-700 text-[12px] font-extrabold uppercase text-white">
-                {email.trim()[0] ?? '?'}
-              </span>
-              <span className="max-w-[200px] truncate text-[13px] font-bold text-ff-ink-2 max-lg:hidden">{email}</span>
-            </div>
+              {email.trim()[0] ?? '?'}
+            </span>
           )}
           <button
             onClick={logout}
-            className="inline-flex h-[44px] shrink-0 items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2"
+            title="Изход"
+            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-2.5 text-[13.5px] font-bold text-ff-ink-2 transition-colors hover:bg-ff-surface-2"
           >
-            <LogOut size={17} /> <span className="max-md:hidden">Изход</span>
+            <LogOut size={18} /> <span className="max-md:hidden">Изход</span>
           </button>
-        </nav>
+        </div>
       </header>
 
       <CarrierOnboarding />

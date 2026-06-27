@@ -7,6 +7,7 @@ import {
   ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment, riskCheckBulk, addressSuggest,
   type ImportRow, type QuoteResult, type RiskBulkEntry, type RiskBulkMeta, type AddressPrediction,
 } from '@/lib/api-client';
+import { getImportPrefs } from '@/lib/import-prefs';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 const priceEur = (st: number | null | undefined) => (st == null ? '—' : `${(st / 100).toFixed(2)} €`);
@@ -205,10 +206,12 @@ export function ImportClient() {
     setBusy(true);
     try {
       // Carrier/currency/weight are no longer chosen up front — upload just the file.
-      const data = await uploadBatch(file);
+      // The operator's check toggles (Settings) ride along as multipart flags.
+      const prefs = getImportPrefs();
+      const data = await uploadBatch(file, { aiAudit: String(prefs.aiAudit), addressCheck: String(prefs.addressCheck) });
       setBatchId(data.batch.id);
       setRows(data.rows);
-      setAi(data.batch.aiReport?.aiAvailable ? '' : 'AI проверка недостъпна — само базова проверка.');
+      setAi(!prefs.aiAudit ? 'AI проверката е изключена в Настройки.' : data.batch.aiReport?.aiAvailable ? '' : 'AI проверка недостъпна — само базова проверка.');
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   }
 
@@ -240,6 +243,12 @@ export function ImportClient() {
     return entry && entry.available ? entry.priceStotinki : null;
   };
 
+  // Per-row quote memo keyed by the inputs that affect price. Reopening the confirm
+  // modal (or two identical rows) reuses the quote instead of re-pricing — each
+  // compareShipment is a server geocode+quote behind a 30/min throttle. Edits change
+  // the key, so a corrected row is always re-priced.
+  const quoteCache = useRef(new Map<string, QuoteResult>());
+
   // Open the confirm modal and price the WHOLE batch with both carriers, so the operator
   // ships every order with the single cheaper courier. Runs a tiny concurrency pool to
   // stay under the compare throttle (30/min).
@@ -254,7 +263,12 @@ export function ImportClient() {
     const worker = async () => {
       for (let r = queue.shift(); r; r = queue.shift()) {
         try {
-          const q = await compareShipment({ destinationCity: r.city!, deliveryMode: r.deliveryMode!, weightGrams: r.weightGrams ?? undefined });
+          const key = `${r.city}|${r.deliveryMode}|${r.weightGrams ?? ''}`;
+          let q = quoteCache.current.get(key);
+          if (!q) {
+            q = await compareShipment({ destinationCity: r.city!, deliveryMode: r.deliveryMode!, weightGrams: r.weightGrams ?? undefined });
+            quoteCache.current.set(key, q);
+          }
           const ep = carrierPrice(q, 'econt');
           const sp = carrierPrice(q, 'speedy');
           if (ep == null) eUn++; else eSum += ep;

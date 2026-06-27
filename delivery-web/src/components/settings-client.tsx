@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Truck, Zap, Plug, CheckCircle2, XCircle, AlertTriangle, Check } from 'lucide-react';
+import { Truck, Zap, Plug, CheckCircle2, XCircle, AlertTriangle, Check, Sparkles, MapPin } from 'lucide-react';
 import {
   ApiError, getAccountStatus, getEcontConfig, getSpeedyConfig, saveEcontCredentials, saveSpeedyCredentials,
   type EcontConfig, type SpeedyConfig,
 } from '@/lib/api-client';
+import { getImportPrefs, setImportPref, type ImportPrefs } from '@/lib/import-prefs';
 import { cn } from '@/lib/utils';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -44,12 +45,85 @@ function EnvRow({ isDemo }: { isDemo: boolean | null }) {
   );
 }
 
-type Section = 'carriers' | 'password';
+type Section = 'carriers' | 'checks' | 'password';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'carriers', label: 'Куриерски акаунти' },
+  { id: 'checks', label: 'Проверки при внос' },
   { id: 'password', label: 'Смяна на парола' },
 ];
+
+/** A row with an icon, title, helper text and an on/off switch on the right. */
+function ToggleRow({
+  icon: Icon, title, desc, checked, onChange,
+}: { icon: typeof Sparkles; title: string; desc: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-start gap-3.5 rounded-xl border border-ff-border bg-ff-surface p-4 shadow-ff-sm">
+      <div className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-ff-green-50 text-ff-green-700">
+        <Icon size={18} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[14.5px] font-extrabold text-ff-ink">{title}</div>
+        <p className="mt-0.5 text-[13px] leading-snug text-ff-ink-2">{desc}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={title}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          'relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors',
+          checked ? 'bg-ff-green-600' : 'bg-ff-border',
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-ff-sm transition-transform',
+            checked && 'translate-x-5',
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
+function ChecksSection() {
+  const [prefs, setPrefs] = useState<ImportPrefs>({ aiAudit: true, addressCheck: true });
+
+  useEffect(() => { setPrefs(getImportPrefs()); }, []);
+
+  function update(key: keyof ImportPrefs, value: boolean) {
+    setImportPref(key, value);
+    setPrefs((p) => ({ ...p, [key]: value }));
+    toast.success(value ? 'Проверката е включена' : 'Проверката е изключена');
+  }
+
+  return (
+    <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-sm">
+      <h2 className="text-[16px] font-extrabold">Проверки при внос</h2>
+      <p className="mt-1 mb-4 text-[13.5px] text-ff-muted">
+        Изключи някоя проверка, ако искаш по-бърз внос. Прилага се при следващото качване на файл.
+      </p>
+      <div className="flex flex-col gap-3">
+        <ToggleRow
+          icon={Sparkles}
+          title="Одит с ChatGPT"
+          desc="ChatGPT преглежда редовете и маркира съмнителни имена, телефони и градове. Изисква интернет; малко по-бавно."
+          checked={prefs.aiAudit}
+          onChange={(v) => update('aiAudit', v)}
+        />
+        <ToggleRow
+          icon={MapPin}
+          title="Проверка на адреси"
+          desc="Сверява адресите с Google и предлага поправка, ако адресът не се намира. Само за доставка „адрес“."
+          checked={prefs.addressCheck}
+          onChange={(v) => update('addressCheck', v)}
+        />
+      </div>
+    </div>
+  );
+}
 
 function PasswordSection() {
   const [current, setCurrent] = useState('');
@@ -329,6 +403,8 @@ export function SettingsClient() {
               </div>
             </>
           )}
+
+          {section === 'checks' && <ChecksSection />}
 
           {section === 'password' && <PasswordSection />}
         </div>
