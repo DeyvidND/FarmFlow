@@ -501,11 +501,13 @@ export class SpeedyService {
   }
 
   /** Price-only estimate (Speedy /calculate) for a destination site + weight.
-   *  City-level base shipping (no COD). Returns stotinki, or null on any failure
-   *  (never throws — used by the cross-carrier quote). Cached 8h. */
+   *  Optionally includes COD so the quote reflects the real price when COD is
+   *  requested. Returns stotinki, or null on any failure (never throws — used
+   *  by the cross-carrier quote). Cached 8h; COD dimension keeps COD/non-COD
+   *  prices in separate cache entries. */
   async estimateShipping(
     tenantId: string,
-    input: { siteId: number; weightGrams?: number },
+    input: { siteId: number; weightGrams?: number; codAmountStotinki?: number },
   ): Promise<number | null> {
     try {
       const { speedy } = await this.loadStored(tenantId);
@@ -513,14 +515,19 @@ export class SpeedyService {
 
       const weightKg = input.weightGrams ? input.weightGrams / 1000 : (speedy.defaultPackage?.weightKg ?? 1);
       const weightBucket = Math.ceil(weightKg / WEIGHT_BUCKET_KG) * WEIGHT_BUCKET_KG;
-      const key = `speedy:estimate:${tenantId}:${input.siteId}:${weightBucket}kg`;
+      // Bucket COD to the nearest 10 BGN (1000 stotinki) to avoid a separate
+      // cache entry per exact order total while still isolating COD/non-COD prices.
+      const cod = input.codAmountStotinki && input.codAmountStotinki > 0 ? input.codAmountStotinki : 0;
+      const codBucket = cod > 0 ? Math.ceil(cod / 1000) * 1000 : 0;
+      const key = `speedy:estimate:${tenantId}:${input.siteId}:${weightBucket}kg:cod${codBucket}`;
       const cached = await this.cache.get<number>(key);
       if (cached !== null) return cached;
 
       const creds = await this.resolveCreds(tenantId);
       const serviceId = speedy.defaultServiceId ?? SPEEDY_DEFAULT_SERVICE_ID;
-      // Reuse the create-body builder with a placeholder receiver at the site
-      // (address mode → siteId; no COD). /calculate takes the same body as /shipment.
+      // Reuse the create-body builder with a placeholder receiver at the site.
+      // /calculate accepts the same body as /shipment. Pass COD so the price
+      // returned by Speedy already includes the COD service fee.
       const body = buildShipmentRequest(speedy, {
         receiverName: '—',
         receiverPhone: '—',
@@ -528,6 +535,7 @@ export class SpeedyService {
         siteId: input.siteId,
         serviceId,
         weightGrams: input.weightGrams,
+        ...(cod > 0 ? { codAmountStotinki: cod } : {}),
       });
       // Short timeout: this runs inline behind the quote endpoint.
       const data = await this.client.call(creds, 'calculate', body, 6000);
