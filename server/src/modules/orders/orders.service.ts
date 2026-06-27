@@ -23,8 +23,8 @@ import { effectivePriceStotinki } from '../products/promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday, bgDayBounds, bgDate } from '../../common/time/bg-time';
-import { buildPage, clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
-import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
+import { buildPage, clampLimit } from '../../common/pagination/keyset';
+import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
@@ -347,12 +347,26 @@ export class OrdersService {
    * (no N+1). Status/search filtering is client-side over accumulated pages, so
    * the server only paginates (no per-request filters here).
    */
+  /**
+   * One numbered page of the Поръчки screen. The panel renders a numbered footer and
+   * searches/filters over the whole order set, so this paginates by page number
+   * (offset) with a total count — instead of the keyset «load more» used elsewhere —
+   * and pushes the status filter + free-text search into SQL (was: the client drained
+   * every page on mount and filtered in memory). Newest-first (createdAt, id).
+   */
   async findAll(
     tenantId: string,
-    opts: { cursor?: string; limit?: number } = {},
-  ): Promise<Paginated<SerializedOrder>> {
+    opts: {
+      page?: number;
+      limit?: number;
+      status?: 'pending' | 'confirmed' | 'delivered' | 'cancelled';
+      q?: string;
+    } = {},
+  ): Promise<{ items: SerializedOrder[]; total: number }> {
     const lim = clampLimit(opts.limit);
-    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    const page = opts.page && opts.page > 0 ? Math.floor(opts.page) : 1;
+    const offset = (page - 1) * lim;
+    const q = (opts.q ?? '').trim();
     const conds = [eq(orders.tenantId, tenantId)];
 
     // Subscription gating: an inactive tenant only sees the last 7 days of orders.
@@ -365,25 +379,26 @@ export class OrdersService {
       conds.push(sql`${orders.createdAt} >= now() - interval '7 days'`);
     }
 
-    if (cur) conds.push(keysetAfter(orders.createdAt, orders.id, cur, 'desc'));
+    if (opts.status) conds.push(eq(orders.status, opts.status));
+    if (q) conds.push(this.paymentSearchCond(q));
+    const where = and(...conds)!;
 
-    const rows = await this.db
-      .select(orderWithSlot)
-      .from(orders)
-      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
-      .where(and(...conds)!)
-      .orderBy(desc(orders.createdAt), desc(orders.id))
-      .limit(lim + 1);
+    // Count + page run concurrently. The count drives the numbered footer; both share
+    // the same predicate, served by the (tenant_id, status) / (tenant_id, created_at) idx.
+    const [countRow, rows] = await Promise.all([
+      this.db.select({ n: sql<number>`count(*)::int` }).from(orders).where(where),
+      this.db
+        .select(orderWithSlot)
+        .from(orders)
+        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+        .where(where)
+        .orderBy(desc(orders.createdAt), desc(orders.id))
+        .limit(lim)
+        .offset(offset),
+    ]);
 
-    const hasMore = rows.length > lim;
-    const pageRows = hasMore ? rows.slice(0, lim) : rows;
-    const items = (await this.attachItems(pageRows)).map(serializeOrder);
-    const last = pageRows[pageRows.length - 1];
-    return {
-      items,
-      nextCursor:
-        hasMore && last ? encodeCursor({ createdAt: last.createdAt!, id: last.id }) : null,
-    };
+    const items = (await this.attachItems(rows)).map(serializeOrder);
+    return { items, total: countRow[0]?.n ?? 0 };
   }
 
   /**

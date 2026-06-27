@@ -15,6 +15,12 @@ export interface Paginated<T> {
   total?: number;
 }
 
+/** Numbered-page response (offset pagination) — e.g. GET /orders. */
+export interface Paged<T> {
+  items: T[];
+  total: number;
+}
+
 export type ReviewStatus = 'pending' | 'published' | 'hidden';
 
 /** Admin view of a review (GET /reviews). */

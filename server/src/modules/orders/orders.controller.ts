@@ -10,13 +10,13 @@ import { CheckoutService } from './checkout.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { PaymentsQueryDto } from './dto/payments-query.dto';
+import { OrdersQueryDto } from './dto/orders-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
-import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 import type { TenantRequestUser } from '@fermeribg/types';
 
 @ApiTags('orders')
@@ -27,10 +27,17 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
-  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
-  findAll(@CurrentTenant() tenantId: string, @Query() q: PaginationQueryDto) {
-    return this.ordersService.findAll(tenantId, { cursor: q.cursor, limit: q.limit });
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'q', required: false })
+  findAll(@CurrentTenant() tenantId: string, @Query() q: OrdersQueryDto) {
+    return this.ordersService.findAll(tenantId, {
+      page: q.page,
+      limit: q.limit,
+      status: q.status,
+      q: q.q,
+    });
   }
 
   // Declared before `:id` routes so the literal segment wins.

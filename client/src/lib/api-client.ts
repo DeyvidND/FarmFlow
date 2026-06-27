@@ -10,6 +10,7 @@ import type {
   FarmerAccess,
   MediaItem,
   Order,
+  Paged,
   Paginated,
   PaymentStatus,
   Product,
@@ -522,8 +523,15 @@ export const openSlotDay = (date: string) =>
   );
 
 // ---- Orders ----
-export const listOrders = (cursor?: string) =>
-  apiFetch<Paginated<Order>>(`orders${qs(cursor)}`);
+export const listOrders = (opts?: { page?: number; limit?: number; q?: string; status?: string }) => {
+  const p = new URLSearchParams();
+  if (opts?.page) p.set('page', String(opts.page));
+  if (opts?.limit) p.set('limit', String(opts.limit));
+  if (opts?.q) p.set('q', opts.q);
+  if (opts?.status && opts.status !== 'all') p.set('status', opts.status);
+  const query = p.toString();
+  return apiFetch<Paged<Order>>(`orders${query ? `?${query}` : ''}`);
+};
 
 export const updateOrderStatus = (id: string, status: string) =>
   apiFetch<Order>(`orders/${id}/status`, { method: 'PATCH', ...json({ status }) }, 'Неуспешна промяна на статуса');

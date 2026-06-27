@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Search, MapPin, Package, Store, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, timeFromIso, hhmm, relDayLabel, type OrderStatus } from '@/lib/utils';
@@ -11,9 +11,8 @@ import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
 import { OrderPanel } from './order-panel';
 import { ApiError, listOrders, updateOrderStatus } from '@/lib/api-client';
-import { useLoadAllList } from '@/hooks/use-load-all-list';
 import { Pagination } from '@/components/ui/pagination';
-import type { Order, Paginated } from '@/lib/types';
+import type { Order, Paged } from '@/lib/types';
 
 const FILTERS: [string, string][] = [
   ['all', 'Всички'],
@@ -22,44 +21,68 @@ const FILTERS: [string, string][] = [
   ['delivered', 'Доставени'],
   ['cancelled', 'Отказани'],
 ];
-/** Orders shown per page in the numbered footer. */
-const PAGE_SIZE = 12;
+/** Orders per numbered page. Exported so the server page seeds the same first page. */
+export const ORDERS_PAGE_SIZE = 12;
+const SEARCH_DEBOUNCE_MS = 300;
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 /** Human order ref — the per-tenant number, falling back to a short id for legacy rows. */
 const orderNo = (o: Order) => (o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(0, 8)}`);
 
-export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
-  // Load every page up front so search/filter/pagination cover *all* orders.
-  const { items: orders, setItems: setOrders, loading } = useLoadAllList<Order>(initial, listOrders);
+export function OrdersClient({ initial }: { initial: Paged<Order> }) {
+  // Server-side search / filter / pagination — the screen no longer drains every
+  // page on mount. The server-rendered `initial` is page 1 (all statuses, no query).
+  const [orders, setOrders] = useState<Order[]>(initial.items);
+  const [total, setTotal] = useState(initial.total);
   const [q, setQ] = useState('');
+  const [dq, setDq] = useState(''); // debounced query actually sent to the API
   const [filter, setFilter] = useState('all');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [help, setHelp] = useState(false);
   const [page, setPage] = useState(1);
 
-  const filtered = useMemo(
-    () =>
-      orders.filter((o) => {
-        if (filter !== 'all' && o.status !== filter) return false;
-        if (!q) return true;
-        const needle = q.toLowerCase();
-        return [o.customerName, o.customerPhone, o.customerEmail, o.id].some((f) =>
-          (f ?? '').toLowerCase().includes(needle),
-        );
-      }),
-    [orders, filter, q],
-  );
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  // Filtering/search narrows the set → jump back to page 1.
+  // Debounce the search box so typing doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDq(q.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // A new search term or status tab always restarts at page 1.
   useEffect(() => {
     setPage(1);
-  }, [filter, q]);
-  // Keep the page in range as the loaded set grows / shrinks.
+  }, [dq, filter]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await listOrders({
+        page,
+        limit: ORDERS_PAGE_SIZE,
+        q: dq || undefined,
+        status: filter,
+      });
+      setOrders(res.items);
+      setTotal(res.total);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [page, dq, filter]);
+
+  // Skip the very first run: the server already rendered page 1 / all / no query.
+  const hydrated = useRef(false);
   useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    if (!hydrated.current) {
+      hydrated.current = true;
+      if (page === 1 && !dq && filter === 'all') return;
+    }
+    void load();
+  }, [load, page, dq, filter]);
+
+  const pageCount = Math.max(1, Math.ceil(total / ORDERS_PAGE_SIZE));
+  const paged = orders;
   const active = orders.find((o) => o.id === activeId) ?? null;
 
   async function revertStatus(id: string, to: OrderStatus) {
@@ -67,6 +90,7 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
     try {
       await updateOrderStatus(id, to);
       toast.success('Върнато');
+      void load(); // reconcile membership (the row may leave/enter the active filter) + counts
     } catch (e) {
       toast.error(errMsg(e));
     }
@@ -82,6 +106,7 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
         action: { label: 'Отмени', onClick: () => void revertStatus(o.id, prev) },
       });
       setActiveId(null);
+      void load(); // reconcile: a row may leave a status tab; keep counts/pagination correct
     } catch (e) {
       setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status: prev } : x)));
       toast.error(errMsg(e));
@@ -234,14 +259,14 @@ export function OrdersClient({ initial }: { initial: Paginated<Order> }) {
           ))}
         </div>
 
-        {filtered.length === 0 && (
+        {orders.length === 0 && (
           <p className="px-5 py-12 text-center text-sm text-ff-muted">
             {loading ? 'Зареждане…' : 'Няма поръчки за този филтър.'}
           </p>
         )}
       </div>
 
-      <Pagination page={page} pageCount={pageCount} onPage={setPage} total={filtered.length} />
+      <Pagination page={page} pageCount={pageCount} onPage={setPage} total={total} />
       {loading && (
         <p className="mt-2 text-center text-[12px] text-ff-muted">Зареждане на още поръчки…</p>
       )}
