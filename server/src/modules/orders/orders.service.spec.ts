@@ -199,6 +199,7 @@ describe('OrdersService.create() carrier persist', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     await svc.create(
@@ -222,6 +223,7 @@ describe('OrdersService.create() carrier persist', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     await svc.create(
@@ -241,6 +243,7 @@ describe('OrdersService.create() carrier persist', () => {
     const svc = new OrdersService(
       db as never,
       { geocode: jest.fn() } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -272,6 +275,7 @@ describe('OrdersService.create() carrier persist', () => {
     const svc = new OrdersService(
       db as never,
       { geocode: jest.fn() } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

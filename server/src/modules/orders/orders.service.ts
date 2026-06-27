@@ -30,6 +30,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { EcontService } from '../econt/econt.service';
+import { CarrierFulfillmentService } from './carrier-fulfillment.service';
 import { buildPublicMethods, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { scheduledForDay } from './order-scheduling';
 import { decideDecrement, restoreRemaining } from '../availability/availability.util';
@@ -308,6 +309,7 @@ export class OrdersService {
     private readonly orderEmail: OrderConfirmationService,
     private readonly econt: EcontService,
     private readonly cache: PublicCacheService,
+    private readonly carrierFulfillment: CarrierFulfillmentService,
   ) {}
 
   /**
@@ -692,10 +694,10 @@ export class OrdersService {
     if (!row) throw new NotFoundException('Поръчката не е намерена');
     if (dto.status === 'confirmed' && prev?.status !== 'confirmed') {
       void this.orderEmail.sendForOrder(id);
-      // Self-gating + idempotent: only fires for Econt orders on a farm with
-      // auto-create enabled. Covers COD/cash Econt orders, which never reach the
-      // Stripe paid-webhook (its only other trigger).
-      void this.econt.autoCreateForOrder(id);
+      // Idempotent dispatcher: routes to Speedy or Econt based on orders.carrier.
+      // Only fires when the carrier has auto-create enabled. Covers COD/cash orders
+      // (Econt/Speedy), which never reach the Stripe paid-webhook.
+      void this.carrierFulfillment.autoCreateForOrder(id);
     }
     // First transition into `cancelled`: return each item's reserved stock to its
     // active availability window (best-effort — only while the window is still
@@ -921,7 +923,7 @@ export class OrdersService {
           /* email is best-effort */
         }
         try {
-          await this.econt.autoCreateForOrder(id);
+          await this.carrierFulfillment.autoCreateForOrder(id);
         } catch {
           /* waybill is best-effort */
         }

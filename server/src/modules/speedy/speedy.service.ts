@@ -136,6 +136,40 @@ export class SpeedyService {
     return { ...safe, configured: !!speedy.configured, isDemo: tenant.isDemo, env: tenant.isDemo ? 'demo' : 'prod' };
   }
 
+  /**
+   * Auto-create the Speedy waybill for a freshly-paid/confirmed order when the
+   * farm enabled the "create label on paid order" toggle (`speedy.label.autoCreate`).
+   * Best-effort and non-throwing: it must never disrupt the payment webhook or
+   * order-confirm flow that triggers it. Idempotent: skips if a waybill already exists.
+   */
+  async autoCreateForOrder(orderId: string): Promise<void> {
+    try {
+      const [order] = await this.db
+        .select({ tenantId: orders.tenantId })
+        .from(orders)
+        .where(eq(orders.id, orderId))
+        .limit(1);
+      if (!order?.tenantId) return;
+
+      const { speedy } = await this.loadStored(order.tenantId);
+      if (!speedy.configured || speedy.label?.autoCreate !== true) return;
+
+      const [existing] = await this.db
+        .select({ id: shipments.carrierShipmentId })
+        .from(shipments)
+        .where(eq(shipments.orderId, orderId))
+        .limit(1);
+      if (existing?.id) return; // waybill already created
+
+      await this.createLabelForOrder(order.tenantId, orderId);
+      this.logger.log(`[speedy] auto-created waybill for order ${orderId}`);
+    } catch (err) {
+      this.logger.warn(
+        `[speedy] auto-create failed for order ${orderId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
   /* ------------------------------- location -------------------------------- */
 
   async searchSites(tenantId: string, q?: string, cache?: Map<string, unknown>): Promise<SpeedySite[]> {

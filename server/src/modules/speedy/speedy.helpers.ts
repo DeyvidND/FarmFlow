@@ -60,6 +60,8 @@ export interface SpeedyStored {
   };
   defaultPackage?: { parcelsCount?: number; weightKg?: number; contents?: string };
   cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
+  // Print-time + auto-create toggle — mirrors Econt's label.autoCreate field.
+  label?: { autoCreate?: boolean };
   [k: string]: unknown;
 }
 

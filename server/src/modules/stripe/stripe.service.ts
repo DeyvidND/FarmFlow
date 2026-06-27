@@ -16,6 +16,7 @@ import {
 } from '../../common/cache/public-cache.service';
 import { BillingService } from '../billing/billing.service';
 import { EcontService } from '../econt/econt.service';
+import { CarrierFulfillmentService } from '../orders/carrier-fulfillment.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 
 // stripe@22 ships `export = StripeConstructor`, so the rich `Stripe.*` type
@@ -103,6 +104,7 @@ export class StripeService {
     private readonly econt: EcontService,
     private readonly orderEmail: OrderConfirmationService,
     private readonly publicCache: PublicCacheService,
+    private readonly carrierFulfillment: CarrierFulfillmentService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
@@ -738,10 +740,10 @@ export class StripeService {
     // Bust connectSummary cache — balance/recent-payments са се променили.
     await this.publicCache.del(`stripe:summary:${tenantId}`);
 
-    // Fire-and-forget: auto-create the Econt waybill if the farm enabled it +
-    // email the buyer their confirmation. Neither must block or fail the webhook
-    // (both swallow their own errors).
-    void this.econt.autoCreateForOrder(orderId);
+    // Fire-and-forget: auto-create the carrier waybill (Econt or Speedy, routed
+    // by orders.carrier) if the farm enabled it + email the buyer confirmation.
+    // Neither must block or fail the webhook (both swallow their own errors).
+    void this.carrierFulfillment.autoCreateForOrder(orderId);
     void this.orderEmail.sendForOrder(orderId);
   }
 

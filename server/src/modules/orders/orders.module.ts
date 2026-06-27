@@ -3,13 +3,14 @@ import { OrdersService } from './orders.service';
 import { OrdersController, PublicOrdersController } from './orders.controller';
 import { CheckoutService } from './checkout.service';
 import { PublicCheckoutController } from './checkout.controller';
+import { CarrierFulfillmentModule } from './carrier-fulfillment.module';
 import { StripeModule } from '../stripe/stripe.module';
 import { EcontModule } from '../econt/econt.module';
 import { SpeedyCoreModule } from '../speedy/speedy-core.module';
 import { OrderEmailModule } from '../order-email/order-email.module';
 
 @Module({
-  imports: [StripeModule, EcontModule, SpeedyCoreModule, OrderEmailModule],
+  imports: [StripeModule, EcontModule, SpeedyCoreModule, CarrierFulfillmentModule, OrderEmailModule],
   controllers: [OrdersController, PublicOrdersController, PublicCheckoutController],
   providers: [OrdersService, CheckoutService],
 })
