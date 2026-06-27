@@ -10,6 +10,7 @@ import {
   type SpeedyStored, slimSites, slimOffices, slimStreets, slimContractClients,
   type SpeedySite, type SpeedyOffice, type SpeedyStreet, type SenderSuggestion,
   buildShipmentRequest, buildOrderShipmentInput, parseTrackStatus, parsePayouts, type CanonicalStatus,
+  SPEEDY_DEFAULT_SERVICE_ID,
 } from './speedy.helpers';
 import { mergePdfs } from '../econt/econt.service';
 import { SpeedyManualShipmentDto } from './dto/speedy-manual-shipment.dto';
@@ -27,9 +28,6 @@ const MAX_BULK_LABELS = 50;
 // identical parcels reuse one entry.
 const ESTIMATE_TTL = 60 * 60 * 8; // 8 hours
 const WEIGHT_BUCKET_KG = 0.5;
-// Fallback Speedy courier-service code when the tenant set no defaultServiceId.
-// spike: confirm a valid default service id via /services/destination.
-const SPEEDY_DEFAULT_SERVICE_ID = 505;
 
 /** A Speedy shipment row shaped for the standalone shipments table. */
 export interface SpeedyShipment {

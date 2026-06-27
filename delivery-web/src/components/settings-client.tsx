@@ -211,7 +211,7 @@ export function SettingsClient() {
   const [isDemo, setIsDemo] = useState<boolean | null>(null);
 
   const [econtForm, setEcontForm] = useState({ username: '', password: '' });
-  const [speedyForm, setSpeedyForm] = useState({ userName: '', password: '', clientSystemId: '', defaultServiceId: '' });
+  const [speedyForm, setSpeedyForm] = useState({ userName: '', password: '' });
 
   const [savingE, setSavingE] = useState(false);
   const [savingS, setSavingS] = useState(false);
@@ -234,8 +234,6 @@ export function SettingsClient() {
         setSpeedyForm((f) => ({
           ...f,
           userName: c.userName ?? '',
-          clientSystemId: c.clientSystemId != null ? String(c.clientSystemId) : '',
-          defaultServiceId: c.defaultServiceId != null ? String(c.defaultServiceId) : '',
         }));
       })
       .catch((e) => toast.error(`Speedy: ${errMsg(e)}`));
@@ -264,8 +262,6 @@ export function SettingsClient() {
       const res = await saveSpeedyCredentials({
         userName: speedyForm.userName.trim(),
         password: speedyForm.password,
-        ...(speedyForm.clientSystemId.trim() ? { clientSystemId: Number(speedyForm.clientSystemId) } : {}),
-        ...(speedyForm.defaultServiceId.trim() ? { defaultServiceId: Number(speedyForm.defaultServiceId) } : {}),
       });
       toast.success('Speedy е свързан');
       setSpeedyForm((f) => ({ ...f, password: '' }));
@@ -383,16 +379,6 @@ export function SettingsClient() {
                     <div>
                       <label className={lbl} htmlFor="speedy-pass">Парола</label>
                       <input id="speedy-pass" type="password" className={inp} autoComplete="new-password" placeholder={speedy?.configured ? 'Въведи нова, за да смениш' : ''} value={speedyForm.password} onChange={(e) => setSpeedyForm({ ...speedyForm, password: e.target.value })} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className={lbl} htmlFor="speedy-csid">Client System ID</label>
-                        <input id="speedy-csid" type="number" inputMode="numeric" className={inp} placeholder="по избор" value={speedyForm.clientSystemId} onChange={(e) => setSpeedyForm({ ...speedyForm, clientSystemId: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className={lbl} htmlFor="speedy-svc">Услуга по подр.</label>
-                        <input id="speedy-svc" type="number" inputMode="numeric" className={inp} placeholder="по избор" value={speedyForm.defaultServiceId} onChange={(e) => setSpeedyForm({ ...speedyForm, defaultServiceId: e.target.value })} />
-                      </div>
                     </div>
                   </div>
 

@@ -4,6 +4,12 @@
 export type CanonicalStatus =
   | 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused';
 
+/** Default Speedy courier-service code used for every shipment when the tenant set
+ *  no explicit service. Farmers don't know Speedy service codes, so the UI omits the
+ *  field and we ship on this one service across estimate AND label creation.
+ *  // spike: confirm 505 is the correct door/office service for the live contract. */
+export const SPEEDY_DEFAULT_SERVICE_ID = 505;
+
 /** stotinki (EUR cents) → a 2-decimal EUR number for the Speedy API. */
 export function toEur(stotinki: number): number {
   return Math.round(stotinki) / 100;
@@ -248,7 +254,7 @@ export function buildOrderShipmentInput(
     receiverPhone: order.customerPhone ?? '—',
     deliveryMode: 'address',
     siteId,
-    serviceId: cfg.defaultServiceId ?? 0,
+    serviceId: cfg.defaultServiceId ?? SPEEDY_DEFAULT_SERVICE_ID,
     weightGrams: Math.round(weightKg * 1000),
     contents: cfg.defaultPackage?.contents,
     ...(collectCod ? { codAmountStotinki: order.totalStotinki! } : {}),

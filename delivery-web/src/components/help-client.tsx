@@ -222,16 +222,15 @@ export function HelpClient() {
                 Документация: <ExtLink href="https://api.speedy.bg/web-api.html">api.speedy.bg</ExtLink>.
               </Step>
               <Step n={3} title="Въведи данните в „Настройки“">
-                „Настройки" → карта <b>Speedy</b>: <b>Среда</b>, <b>Потребител</b> (API user), <b>Парола</b>. По избор <b>Client System ID</b>
-                (за договори с няколко обекта). Задай и <b>Услуга по подразбиране</b> (serviceId, напр. 505) — иначе Speedy пратки няма да се създават.
+                „Настройки" → карта <b>Speedy</b>: <b>Среда</b>, <b>Потребител</b> (API user) и <b>Парола</b>. Това е всичко —
+                услугата за доставка е настроена по подразбиране.
               </Step>
             </div>
             <div className="flex flex-col gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
-              <BrowserMock url="api.speedy.bg" fields={['API потребител', 'Парола', 'Client System ID']} highlight={0} button="API достъп" />
+              <BrowserMock url="api.speedy.bg" fields={['API потребител', 'Парола']} highlight={0} button="API достъп" />
               <HelpShot src="/help/speedy-api-user.png" alt="Speedy API потребител" caption="Снимка: API данни (добави при желание)" />
             </div>
           </div>
-          <div className="mt-4"><Callout tone="warn" title="„Услуга по подразбиране“ е важна">Ако избереш Speedy за пратка, но не си задал serviceId, ще видиш грешка „Задай услуга по подразбиране за Speedy в Настройки". Попитай Speedy кой service code ползваш.</Callout></div>
         </Section>
 
         {/* ---------------------------------------------------------------- */}
@@ -282,7 +281,6 @@ export function HelpClient() {
             <Faq q="В каква валута са сумите?">Всичко е в евро (EUR). Наложеният платеж във файла се чете в евро.</Faq>
             <Faq q="Какво тегло да сложа?">Колоната „Тегло" е в килограми във файла. Празно тегло → ползва се 1 кг по подразбиране.</Faq>
             <Faq q="Каква е разликата между „Демо“ и „Реална“ среда?">Демо е за тестове — не създава истински товарителници. Реална създава реални пратки, които куриерът ще вземе.</Faq>
-            <Faq q="Speedy дава грешка за serviceId. Какво да правя?">Отвори „Настройки" → Speedy и попълни „Услуга по подразбиране" (serviceId). Попитай Speedy кой код ползва договорът ти.</Faq>
             <Faq q="Услугата ми „не е активна“. Защо?">Активирането се прави от администратор. Свържи куриерските акаунти; щом услугата е активна, ще можеш да създаваш пратки.</Faq>
           </div>
         </Section>
