@@ -27,9 +27,12 @@ export class ShippingQuoteService {
   async compare(tenantId: string, input: CompareShipmentDto): Promise<QuoteResult> {
     // Resolve one weight up front and price both carriers at it (fair compare).
     const weightGrams = input.weightGrams ?? DEFAULT_WEIGHT_GRAMS;
+    // COD surcharge must flow to both carriers so the comparison stays honest.
+    // Default to 0 (no COD) to preserve existing behaviour when omitted.
+    const cod = input.codAmountStotinki ?? 0;
     const [econtRes, speedyRes] = await Promise.allSettled([
-      this.econtEstimate(tenantId, input, weightGrams),
-      this.speedyEstimate(tenantId, input, weightGrams),
+      this.econtEstimate(tenantId, input, weightGrams, cod),
+      this.speedyEstimate(tenantId, input, weightGrams, cod),
     ]);
     const econtStotinki = econtRes.status === 'fulfilled' ? econtRes.value : null;
     const speedyStotinki = speedyRes.status === 'fulfilled' ? speedyRes.value : null;
@@ -37,7 +40,7 @@ export class ShippingQuoteService {
   }
 
   /** Econt city-level estimate (door-to-city), priced at the shared weight. */
-  private async econtEstimate(tenantId: string, input: CompareShipmentDto, weightGrams: number): Promise<number | null> {
+  private async econtEstimate(tenantId: string, input: CompareShipmentDto, weightGrams: number, cod: number): Promise<number | null> {
     const order = {
       customerName: '—',
       customerPhone: '—',
@@ -48,16 +51,16 @@ export class ShippingQuoteService {
       deliveryCity: input.destinationCity,
       totalStotinki: null,
     };
-    return this.econt.estimateShipping(tenantId, order, [], weightGrams / 1000);
+    return this.econt.estimateShipping(tenantId, order, [], weightGrams / 1000, cod);
   }
 
   /** Speedy city-level estimate: resolve the typed city → siteId, then /calculate. */
-  private async speedyEstimate(tenantId: string, input: CompareShipmentDto, weightGrams: number): Promise<number | null> {
+  private async speedyEstimate(tenantId: string, input: CompareShipmentDto, weightGrams: number, cod: number): Promise<number | null> {
     try {
       const sites = await this.speedy.searchSites(tenantId, input.destinationCity);
       const siteId = sites[0]?.id;
       if (!siteId) return null;
-      return await this.speedy.estimateShipping(tenantId, { siteId, weightGrams });
+      return await this.speedy.estimateShipping(tenantId, { siteId, weightGrams, codAmountStotinki: cod });
     } catch {
       // searchSites throws when Speedy isn't configured for this tenant → unavailable.
       return null;
