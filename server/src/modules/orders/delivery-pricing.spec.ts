@@ -8,6 +8,9 @@ import {
   codEnabled,
   DELIVERY_DEFAULTS,
   type DeliveryConfig,
+  speedyEnabled,
+  comparisonActive,
+  courierDoorEnabled,
 } from './delivery-pricing';
 
 describe('delivery-pricing', () => {
@@ -117,5 +120,23 @@ describe('delivery-pricing', () => {
       expect(pub.addressFeeStotinki).toBe(0);
       expect(pub.freeThresholdStotinki).toBe(3000);
     });
+  });
+});
+
+describe('carrier-comparison helpers', () => {
+  it('speedyEnabled true only when speedy.configured', () => {
+    expect(speedyEnabled({ speedy: { configured: true } } as any)).toBe(true);
+    expect(speedyEnabled({ speedy: { configured: false } } as any)).toBe(false);
+    expect(speedyEnabled(null)).toBe(false);
+  });
+  it('comparisonActive needs econt auto AND speedy configured', () => {
+    expect(comparisonActive({ econt: { mode: 'auto' }, speedy: { configured: true } } as any)).toBe(true);
+    expect(comparisonActive({ econt: { mode: 'manual' }, speedy: { configured: true } } as any)).toBe(false);
+    expect(comparisonActive({ econt: { mode: 'auto' } } as any)).toBe(false);
+  });
+  it('courierDoorEnabled when econtAddress method on OR speedy configured', () => {
+    expect(courierDoorEnabled({ methods: { econtAddress: { enabled: true } } } as any)).toBe(true);
+    expect(courierDoorEnabled({ speedy: { configured: true } } as any)).toBe(true);
+    expect(courierDoorEnabled({} as any)).toBe(false);
   });
 });
