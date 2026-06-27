@@ -53,11 +53,12 @@ export class CheckoutService {
   private async createAndFold(
     slug: string,
     dto: CreateOrderDto,
+    preloadedCfg?: DeliveryConfig | null,
   ): Promise<{ order: PlacedOrder; subtotal: number; shipping: number; grandTotal: number }> {
     // Order intake — snapshot, row-lock the slot, 409 on overflow, status pending.
     const order = await this.ordersService.create(slug, dto);
     const subtotal = order.items.reduce((sum, i) => sum + i.priceStotinki * i.quantity, 0);
-    const shipping = await this.shippingStotinki(order, subtotal);
+    const shipping = await this.shippingStotinki(order, subtotal, preloadedCfg);
     const grandTotal = subtotal + shipping;
     if (grandTotal !== order.totalStotinki) {
       await this.db
@@ -103,20 +104,23 @@ export class CheckoutService {
       this.stripe.isEnabledForAccount(tenant.stripeAccountId) &&
       tenant.stripeChargesEnabled;
 
+    // The delivery cfg is already in the settings we just read — reuse it for both the
+    // COD pre-flight and the shipping calc below, so loadDelivery doesn't re-query.
+    const cfg = (tenant?.settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
+
     // Pre-flight: an 'online' choice on a farm that can't take cards silently
     // falls back to COD — but only if the farm actually offers COD. Reject here
     // (before booking a slot) rather than recording an order the farm can honour
     // by no payment method. (An explicit COD choice is already validated during
     // intake by assertMethodAllowed, so it's not re-checked here.)
     if (dto.paymentMethod !== 'cod' && !canCard) {
-      const cfg = (tenant?.settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
       if (!codEnabled(cfg)) {
         throw new BadRequestException('Плащането с наложен платеж не е налично.');
       }
     }
 
-    // 1. Order intake + shipping folded into the total.
-    const { order, shipping, grandTotal } = await this.createAndFold(slug, dto);
+    // 1. Order intake + shipping folded into the total (cfg reused, no extra read).
+    const { order, shipping, grandTotal } = await this.createAndFold(slug, dto, cfg);
 
     const wantsCod = dto.paymentMethod === 'cod';
 
@@ -183,13 +187,21 @@ export class CheckoutService {
       items: { productName: string | null; quantity: number }[];
     },
     subtotal: number,
+    // `undefined` = not supplied (load it); `null`/value = use as-is. Lets the card
+    // checkout path pass the delivery cfg it already read instead of re-querying.
+    preloadedCfg?: DeliveryConfig | null,
   ): Promise<number> {
     const method = order.deliveryType ?? 'address';
     // Market pickup — the customer collects at the stand, no delivery, no fee.
     if (method === 'pickup') return 0;
 
     // Per-tenant delivery config (settings.delivery). Absent → legacy defaults.
-    const cfg = order.tenantId ? await this.loadDelivery(order.tenantId) : null;
+    const cfg =
+      preloadedCfg !== undefined
+        ? preloadedCfg
+        : order.tenantId
+          ? await this.loadDelivery(order.tenantId)
+          : null;
 
     // Local self-delivery — config base fee (free / flat) + global free-over threshold.
     if (method === 'address') {
