@@ -42,42 +42,44 @@ export class ImportResolveService {
     private readonly speedy: SpeedyService,
   ) {}
 
-  /** Resolve a row's human-typed location into carrier ids/codes. Never throws. */
-  async resolve(tenantId: string, row: NormalizedRow): Promise<ResolveResult> {
+  /** Resolve a row's human-typed location into carrier ids/codes. Never throws.
+   *  `cache` is an optional per-batch memo so the tenant's settings are read once for
+   *  the whole import instead of on every row's carrier lookup (see loadStored). */
+  async resolve(tenantId: string, row: NormalizedRow, cache?: Map<string, unknown>): Promise<ResolveResult> {
     try {
       return row.carrier === 'speedy'
-        ? await this.resolveSpeedy(tenantId, row)
-        : await this.resolveEcont(tenantId, row);
+        ? await this.resolveSpeedy(tenantId, row, cache)
+        : await this.resolveEcont(tenantId, row, cache);
     } catch {
       // A location-lookup outage shouldn't block the import; leave it unresolved.
       return { refs: {}, ambiguous: false, unresolved: row.deliveryMode === 'office' ? 'office' : 'city' };
     }
   }
 
-  private async resolveEcont(tenantId: string, row: NormalizedRow): Promise<ResolveResult> {
+  private async resolveEcont(tenantId: string, row: NormalizedRow, cache?: Map<string, unknown>): Promise<ResolveResult> {
     // Econt addresses are free-text; only office mode needs a resolved office CODE.
     if (row.deliveryMode !== 'office' || !row.office) return { refs: {}, ambiguous: false, unresolved: null };
     // If the cell already looks like an office code, pass it through.
     if (/^\d{3,}$/.test(row.office)) return { refs: { econtOfficeCode: row.office }, ambiguous: false, unresolved: null };
-    const cities = await this.econt.searchCities(tenantId, row.city ?? row.office);
+    const cities = await this.econt.searchCities(tenantId, row.city ?? row.office, cache);
     const cityId = cities[0]?.id;
     if (!cityId) return { refs: {}, ambiguous: false, unresolved: 'office' };
-    const offices = await this.econt.getOfficesForCity(tenantId, cityId);
+    const offices = await this.econt.getOfficesForCity(tenantId, cityId, cache);
     const hit = matchByName(offices, row.office, (o) => o.name);
     if (!hit) return { refs: {}, ambiguous: offices.length > 1, unresolved: 'office' };
     return { refs: { econtOfficeCode: hit.code }, ambiguous: false, unresolved: null };
   }
 
-  private async resolveSpeedy(tenantId: string, row: NormalizedRow): Promise<ResolveResult> {
+  private async resolveSpeedy(tenantId: string, row: NormalizedRow, cache?: Map<string, unknown>): Promise<ResolveResult> {
     if (!row.city) return { refs: {}, ambiguous: false, unresolved: 'city' };
-    const sites = await this.speedy.searchSites(tenantId, row.city);
+    const sites = await this.speedy.searchSites(tenantId, row.city, cache);
     const site = pickBest(sites, row.city, (s) => s.name);
     if (!site.chosen) {
       return { refs: { siteCandidates: site.candidates }, ambiguous: site.ambiguous, unresolved: 'city' };
     }
     const siteId = site.chosen.id;
     if (row.deliveryMode === 'office') {
-      const offices = await this.speedy.getOffices(tenantId, siteId);
+      const offices = await this.speedy.getOffices(tenantId, siteId, cache);
       const office = row.office ? matchByName(offices, row.office, (o) => o.name) : null;
       if (!office) return { refs: { siteId }, ambiguous: offices.length > 1, unresolved: 'office' };
       return { refs: { siteId, officeId: office.id }, ambiguous: false, unresolved: null };
@@ -85,7 +87,7 @@ export class ImportResolveService {
     // address mode: best-effort street resolution
     const refs: Record<string, unknown> = { siteId };
     if (row.address) {
-      const streets = await this.speedy.getStreets(tenantId, siteId, row.address);
+      const streets = await this.speedy.getStreets(tenantId, siteId, row.address, cache);
       const street = pickBest(streets, row.address, (s) => s.name);
       if (street.chosen) refs.streetId = street.chosen.id;
     }

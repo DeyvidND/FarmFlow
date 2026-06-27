@@ -156,7 +156,17 @@ export class EcontService {
 
   /* ------------------------------ credentials ------------------------------ */
 
-  private async loadStored(tenantId: string): Promise<{ tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored }> {
+  private async loadStored(
+    tenantId: string,
+    cache?: Map<string, unknown>,
+  ): Promise<{ tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored }> {
+    // Optional per-call memo (bulk import passes one Map per batch): the same tenant's
+    // settings are read once per batch instead of on every row's city/office lookup.
+    // Absent for all other callers, so their behavior is unchanged (no staleness).
+    const ck = `econt:${tenantId}`;
+    if (cache?.has(ck)) {
+      return cache.get(ck) as { tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored };
+    }
     const [row] = await this.db
       .select({ id: tenants.id, slug: tenants.slug, settings: tenants.settings, isDemo: tenants.isDemo })
       .from(tenants)
@@ -166,7 +176,9 @@ export class EcontService {
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
     const delivery = (settings.delivery as Record<string, unknown> | null) ?? {};
     const econt = (delivery.econt as EcontStored | null) ?? {};
-    return { tenant: { id: row.id, slug: row.slug, settings, isDemo: !!row.isDemo }, econt };
+    const result = { tenant: { id: row.id, slug: row.slug, settings, isDemo: !!row.isDemo }, econt };
+    cache?.set(ck, result);
+    return result;
   }
 
   /** Validate creds against Econt (getCities), then store username + encrypted password. */
@@ -359,8 +371,8 @@ export class EcontService {
    * (~5.6k rows) is fetched once from Econt and cached; subsequent queries are
    * filtered in-memory (prefix matches first). Requires Econt credentials.
    */
-  async searchCities(tenantId: string, q?: string): Promise<EcontCityView[]> {
-    const { tenant } = await this.loadStored(tenantId);
+  async searchCities(tenantId: string, q?: string, cache?: Map<string, unknown>): Promise<EcontCityView[]> {
+    const { tenant } = await this.loadStored(tenantId, cache);
     const key = `econt:cities:${tenant.slug}`;
     let list = await this.cache.get<EcontCityView[]>(key);
     if (!list) {
@@ -400,9 +412,9 @@ export class EcontService {
   }
 
   /** Offices in one city (with coordinates + hours) for the admin picker/map. */
-  async getOfficesForCity(tenantId: string, cityId: number): Promise<EcontOfficeView[]> {
+  async getOfficesForCity(tenantId: string, cityId: number, cache?: Map<string, unknown>): Promise<EcontOfficeView[]> {
     if (!cityId) return [];
-    const { tenant } = await this.loadStored(tenantId);
+    const { tenant } = await this.loadStored(tenantId, cache);
     const key = `econt:officesByCity:${tenant.slug}:${cityId}`;
     const cached = await this.cache.get<EcontOfficeView[]>(key);
     if (cached) return cached;
@@ -894,51 +906,53 @@ export class EcontService {
    * and rows that already have one carry its tracking number + status.
    */
   async listShipments(tenantId: string): Promise<AdminShipment[]> {
-    const rows = await this.db
-      .select({
-        orderId: orders.id,
-        customerName: orders.customerName,
-        deliveryType: orders.deliveryType,
-        total: orders.totalStotinki,
-        shipmentId: shipments.id,
-        shipmentNumber: shipments.econtShipmentNumber,
-        shipmentStatus: shipments.status,
-        courierPrice: shipments.courierPriceStotinki,
-        labelPdfUrl: shipments.labelPdfUrl,
-        codAmount: shipments.codAmountStotinki,
-        trackingJson: shipments.trackingJson,
-      })
-      .from(orders)
-      .leftJoin(shipments, eq(shipments.orderId, orders.id))
-      .where(
-        and(
-          eq(orders.tenantId, tenantId),
-          inArray(orders.deliveryType, ['econt', 'econt_address']),
-          ne(orders.status, 'cancelled'),
-        ),
-      )
-      .orderBy(desc(orders.createdAt));
+    // The order-join query and the manual (order-less) query are independent — run
+    // them concurrently rather than back-to-back on this hot admin-panel endpoint.
+    const [rows, manual] = await Promise.all([
+      this.db
+        .select({
+          orderId: orders.id,
+          customerName: orders.customerName,
+          deliveryType: orders.deliveryType,
+          total: orders.totalStotinki,
+          shipmentId: shipments.id,
+          shipmentNumber: shipments.econtShipmentNumber,
+          shipmentStatus: shipments.status,
+          courierPrice: shipments.courierPriceStotinki,
+          labelPdfUrl: shipments.labelPdfUrl,
+          codAmount: shipments.codAmountStotinki,
+          trackingJson: shipments.trackingJson,
+        })
+        .from(orders)
+        .leftJoin(shipments, eq(shipments.orderId, orders.id))
+        .where(
+          and(
+            eq(orders.tenantId, tenantId),
+            inArray(orders.deliveryType, ['econt', 'econt_address']),
+            ne(orders.status, 'cancelled'),
+          ),
+        )
+        .orderBy(desc(orders.createdAt)),
+      // Manual (order-less) shipments created in the standalone app.
+      this.db
+        .select({
+          shipmentId: shipments.id,
+          orderId: shipments.orderId,
+          receiverName: shipments.receiverName,
+          deliveryMode: shipments.deliveryMode,
+          shipmentNumber: shipments.econtShipmentNumber,
+          shipmentStatus: shipments.status,
+          courierPrice: shipments.courierPriceStotinki,
+          labelPdfUrl: shipments.labelPdfUrl,
+          codAmount: shipments.codAmountStotinki,
+          trackingJson: shipments.trackingJson,
+        })
+        .from(shipments)
+        .where(and(eq(shipments.tenantId, tenantId), isNull(shipments.orderId)))
+        .orderBy(desc(shipments.createdAt)),
+    ]);
 
     const orderShipments = rows.map(mapShipmentRow);
-
-    // Manual (order-less) shipments created in the standalone app.
-    const manual = await this.db
-      .select({
-        shipmentId: shipments.id,
-        orderId: shipments.orderId,
-        receiverName: shipments.receiverName,
-        deliveryMode: shipments.deliveryMode,
-        shipmentNumber: shipments.econtShipmentNumber,
-        shipmentStatus: shipments.status,
-        courierPrice: shipments.courierPriceStotinki,
-        labelPdfUrl: shipments.labelPdfUrl,
-        codAmount: shipments.codAmountStotinki,
-        trackingJson: shipments.trackingJson,
-      })
-      .from(shipments)
-      .where(and(eq(shipments.tenantId, tenantId), isNull(shipments.orderId)))
-      .orderBy(desc(shipments.createdAt));
-
     return [...manual.map(mapManualShipmentRow), ...orderShipments];
   }
 
@@ -950,7 +964,19 @@ export class EcontService {
       .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)))
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
-    if (!row.econtShipmentNumber) return row;
+    return this.refreshStatusForRow(row);
+  }
+
+  /**
+   * Refresh one shipment from Econt given its already-loaded row. Split out from
+   * {@link refreshStatus} so the batch cron can pass the rows it already selected
+   * instead of re-SELECTing each (incl. the large trackingJson) per shipment.
+   */
+  private async refreshStatusForRow(
+    row: typeof shipments.$inferSelect,
+  ): Promise<typeof shipments.$inferSelect> {
+    if (!row.econtShipmentNumber || !row.tenantId) return row;
+    const tenantId = row.tenantId;
     const data = await this.callTenant(tenantId, 'Shipments/ShipmentService.getShipmentStatuses.json', {
       shipmentNumbers: [row.econtShipmentNumber],
     });
@@ -965,7 +991,7 @@ export class EcontService {
         codSettledAt: cod.settledAt ?? row.codSettledAt,
         updatedAt: new Date(),
       })
-      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)))
+      .where(and(eq(shipments.id, row.id), eq(shipments.tenantId, tenantId)))
       .returning();
     const newStatus = uiShipmentStatus(updated.econtShipmentNumber, updated.status);
     // Skip the "shipped" email for order-less (standalone) shipments: there is no
@@ -995,23 +1021,23 @@ export class EcontService {
    * "shipped" email (via refreshStatus) and COD reconciliation (Phase C).
    */
   async refreshActiveShipments(): Promise<{ refreshed: number }> {
+    // Only Econt rows that carry a waybill — narrows the scan from the whole table
+    // (every carrier, every status, incl. terminal) to the carrier index prefix.
+    // Terminal-state exclusion stays in JS: stored `status` is Econt's raw text and
+    // uiShipmentStatus maps it by substring, which can't be expressed sargably.
+    // Selecting full rows lets refreshStatusForRow run without a per-shipment re-SELECT.
     const rows = await this.db
-      .select({
-        id: shipments.id,
-        tenantId: shipments.tenantId,
-        number: shipments.econtShipmentNumber,
-        status: shipments.status,
-      })
-      .from(shipments);
+      .select()
+      .from(shipments)
+      .where(and(eq(shipments.carrier, 'econt'), isNotNull(shipments.econtShipmentNumber)));
     let refreshed = 0;
     for (const r of rows) {
-      if (!r.number) continue;
       if (!r.tenantId) continue;
       // Skip terminal states (delivered + returned/refused) — no point re-polling Econt.
-      const ui = uiShipmentStatus(r.number, r.status);
+      const ui = uiShipmentStatus(r.econtShipmentNumber, r.status);
       if (ui === 'delivered' || ui === 'returned' || ui === 'refused') continue;
       try {
-        await this.refreshStatus(r.tenantId, r.id);
+        await this.refreshStatusForRow(r);
         refreshed++;
       } catch (err) {
         this.logger.warn(

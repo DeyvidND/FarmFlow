@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, desc, inArray } from 'drizzle-orm';
+import { and, eq, desc, inArray, isNotNull, notInArray } from 'drizzle-orm';
 import { type Database, tenants, shipments } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -61,7 +61,15 @@ export class SpeedyService {
 
   private async loadStored(
     tenantId: string,
+    cache?: Map<string, unknown>,
   ): Promise<{ tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored }> {
+    // Optional per-call memo (bulk import passes one Map per batch): reads the tenant
+    // settings once per batch instead of on every row's site/office/street lookup.
+    // Absent for all other callers, so their behavior is unchanged (no staleness).
+    const ck = `speedy:${tenantId}`;
+    if (cache?.has(ck)) {
+      return cache.get(ck) as { tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored };
+    }
     const [row] = await this.db
       .select({ id: tenants.id, slug: tenants.slug, settings: tenants.settings, isDemo: tenants.isDemo })
       .from(tenants)
@@ -71,7 +79,9 @@ export class SpeedyService {
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
     const delivery = (settings.delivery as Record<string, unknown> | null) ?? {};
     const speedy = (delivery.speedy as SpeedyStored | null) ?? {};
-    return { tenant: { id: row.id, slug: row.slug, settings, isDemo: !!row.isDemo }, speedy };
+    const result = { tenant: { id: row.id, slug: row.slug, settings, isDemo: !!row.isDemo }, speedy };
+    cache?.set(ck, result);
+    return result;
   }
 
   private async resolveCreds(tenantId: string): Promise<SpeedyCreds> {
@@ -128,8 +138,8 @@ export class SpeedyService {
 
   /* ------------------------------- location -------------------------------- */
 
-  async searchSites(tenantId: string, q?: string): Promise<SpeedySite[]> {
-    const { tenant } = await this.loadStored(tenantId);
+  async searchSites(tenantId: string, q?: string, cache?: Map<string, unknown>): Promise<SpeedySite[]> {
+    const { tenant } = await this.loadStored(tenantId, cache);
     const key = `speedy:sites:${tenant.slug}`;
     let list = await this.cache.get<SpeedySite[]>(key);
     if (list === null) {
@@ -150,9 +160,9 @@ export class SpeedyService {
     return [...starts, ...contains].slice(0, 20);
   }
 
-  async getOffices(tenantId: string, siteId: number): Promise<SpeedyOffice[]> {
+  async getOffices(tenantId: string, siteId: number, cache?: Map<string, unknown>): Promise<SpeedyOffice[]> {
     if (!siteId) return [];
-    const { tenant } = await this.loadStored(tenantId);
+    const { tenant } = await this.loadStored(tenantId, cache);
     const key = `speedy:offices:${tenant.slug}:${siteId}`;
     const cached = await this.cache.get<SpeedyOffice[]>(key);
     if (cached !== null) return cached;
@@ -163,9 +173,9 @@ export class SpeedyService {
     return list;
   }
 
-  async getStreets(tenantId: string, siteId: number, q?: string): Promise<SpeedyStreet[]> {
+  async getStreets(tenantId: string, siteId: number, q?: string, cache?: Map<string, unknown>): Promise<SpeedyStreet[]> {
     if (!siteId) return [];
-    const { tenant } = await this.loadStored(tenantId);
+    const { tenant } = await this.loadStored(tenantId, cache);
     const key = `speedy:streets:${tenant.slug}:${siteId}`;
     let list = await this.cache.get<SpeedyStreet[]>(key);
     if (list === null) {
@@ -345,9 +355,20 @@ export class SpeedyService {
       .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
-    if (!row.trackingNumber) return row;
+    return this.refreshStatusForRow(row);
+  }
 
-    const creds = await this.resolveCreds(tenantId);
+  /**
+   * Refresh one Speedy shipment from its already-loaded row. Split out from
+   * {@link refreshStatus} so the batch cron passes the rows it already selected
+   * instead of re-SELECTing each (incl. the large trackingJson) per shipment.
+   */
+  private async refreshStatusForRow(
+    row: typeof shipments.$inferSelect,
+  ): Promise<typeof shipments.$inferSelect> {
+    if (!row.trackingNumber || !row.tenantId) return row;
+
+    const creds = await this.resolveCreds(row.tenantId);
     const data = await this.client.call(creds, 'track', { parcels: [{ id: row.trackingNumber }] });
     const parcel = Array.isArray(data?.parcels) ? data.parcels[0] : null;
     const operations: any[] = Array.isArray(parcel?.operations) ? parcel.operations : [];
@@ -356,7 +377,7 @@ export class SpeedyService {
     const [updated] = await this.db
       .update(shipments)
       .set({ status, trackingJson: parcel ?? row.trackingJson, updatedAt: new Date() })
-      .where(eq(shipments.id, shipmentId))
+      .where(eq(shipments.id, row.id))
       .returning();
 
     // COD-risk strike on a returned/refused COD parcel. Best-effort — must never turn
@@ -369,19 +390,30 @@ export class SpeedyService {
     return updated;
   }
 
+  // Speedy stores the canonical UI status (parseTrackStatus), so terminal states can
+  // be excluded in SQL — unlike Econt, whose `status` holds raw substring text.
+  private static readonly TERMINAL_STATUSES = ['delivered', 'returned', 'refused'];
+
   /** Refresh every not-yet-final Speedy shipment with a barcode, across all tenants.
    *  Best-effort per shipment — one Speedy failure never aborts the batch. */
   async refreshActiveShipments(): Promise<{ refreshed: number }> {
+    // Index-served (carrier, status) range scan over only live Speedy shipments;
+    // full rows so refreshStatusForRow runs without a per-shipment re-SELECT.
     const rows = await this.db
-      .select({ id: shipments.id, tenantId: shipments.tenantId, barcode: shipments.trackingNumber, status: shipments.status })
+      .select()
       .from(shipments)
-      .where(eq(shipments.carrier, 'speedy'));
+      .where(
+        and(
+          eq(shipments.carrier, 'speedy'),
+          isNotNull(shipments.trackingNumber),
+          notInArray(shipments.status, SpeedyService.TERMINAL_STATUSES),
+        ),
+      );
     let refreshed = 0;
     for (const r of rows) {
-      if (!r.barcode || !r.tenantId) continue;
-      if (r.status === 'delivered' || r.status === 'returned' || r.status === 'refused') continue;
+      if (!r.tenantId) continue;
       try {
-        await this.refreshStatus(r.tenantId, r.id);
+        await this.refreshStatusForRow(r);
         refreshed++;
       } catch (err) {
         this.logger.warn(`[speedy] refresh failed for shipment ${r.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -415,6 +447,9 @@ export class SpeedyService {
       .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')));
 
     const out: Array<{ shipmentId: string; expectedStotinki: number | null; settledAt: string | null }> = [];
+    // Collect newly-settled rows, then write them in one parallel batch instead of a
+    // serial UPDATE-per-row on the request path (set is bounded by the 60-day window).
+    const settleWrites: Array<Promise<unknown>> = [];
     for (const r of rows) {
       if (r.expected == null) continue;
       const payout = r.barcode ? settledByBarcode.get(r.barcode) : undefined;
@@ -422,12 +457,15 @@ export class SpeedyService {
       if (payout?.settledAt && !r.settledAt) {
         const d = new Date(payout.settledAt);
         if (!Number.isNaN(d.getTime())) {
-          await this.db.update(shipments).set({ codSettledAt: d, updatedAt: new Date() }).where(eq(shipments.id, r.shipmentId));
+          settleWrites.push(
+            this.db.update(shipments).set({ codSettledAt: d, updatedAt: new Date() }).where(eq(shipments.id, r.shipmentId)),
+          );
           settledAt = d.toISOString();
         }
       }
       out.push({ shipmentId: r.shipmentId, expectedStotinki: r.expected, settledAt });
     }
+    if (settleWrites.length) await Promise.all(settleWrites);
     return out;
   }
 

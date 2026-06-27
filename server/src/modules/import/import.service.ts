@@ -69,11 +69,14 @@ export class ImportService {
       .returning();
 
     const CONCURRENCY = 8;
+    // One memo for the whole batch: the tenant's delivery settings are read once
+    // instead of on every row's carrier lookup (see ImportResolveService.resolve).
+    const storeCache = new Map<string, unknown>();
     const processRow = async (row: NormalizedRow) => {
       const det = validateRow(row);
       const resolved = det.status === 'error'
         ? { refs: {}, ambiguous: false, unresolved: null as string | null }
-        : await this.resolver.resolve(tenantId, row);
+        : await this.resolver.resolve(tenantId, row, storeCache);
       let validation = mergeAi(det, verdictByIndex.get(row.rowIndex));
       if (resolved.ambiguous || resolved.unresolved) {
         const status: RowStatus = validation.status === 'error' ? 'error' : 'warn';
