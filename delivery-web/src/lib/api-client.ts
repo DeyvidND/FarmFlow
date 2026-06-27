@@ -58,10 +58,12 @@ export interface QuoteResult {
   cheapest: 'econt' | 'speedy' | null;
 }
 
-/** Price both carriers for a destination (delivery price only, no COD). Used by the
- *  import editor to auto-pick the cheaper courier per row. */
+/** Price both carriers for a destination. When `codAmountStotinki` is supplied the
+ *  COD surcharge is folded into each carrier's quote, so the cheaper courier stays
+ *  honest for наложен-платеж rows. Used by the import editor to auto-pick the cheaper
+ *  courier per row. */
 export const compareShipment = async (
-  input: { destinationCity: string; deliveryMode: 'office' | 'address'; weightGrams?: number },
+  input: { destinationCity: string; deliveryMode: 'office' | 'address'; weightGrams?: number; codAmountStotinki?: number },
 ): Promise<QuoteResult> =>
   (await bff('shipping/compare', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
