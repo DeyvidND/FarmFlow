@@ -198,34 +198,42 @@ export class BillingService {
       return base;
     }
 
-    try {
-      const customer = await this.client.customers.retrieve(t.stripeCustomerId, {
-        expand: ['invoice_settings.default_payment_method'],
-      });
-      const pm = (customer as { invoice_settings?: { default_payment_method?: { card?: { brand?: string; last4?: string } } } })
-        .invoice_settings?.default_payment_method;
-      if (pm?.card) {
-        base.hasCard = true;
-        base.cardBrand = pm.card.brand ?? null;
-        base.cardLast4 = pm.card.last4 ?? null;
-      }
-    } catch (err) {
-      this.logger.warn(`billing customer read failed (${tenantId}): ${this.errText(err)}`);
-    }
-
-    try {
-      const invs = await this.client.invoices.list({ customer: t.stripeCustomerId, limit: 6 });
-      base.invoices = invs.data.map((i) => ({
-        amountStotinki: i.amount_due,
-        status: i.status ?? 'unknown',
-        date: new Date((i.created ?? 0) * 1000).toISOString(),
-        url: i.hosted_invoice_url ?? null,
-      }));
-      const open = invs.data.find((i) => i.status === 'draft' || i.status === 'open');
-      base.estimatedNextStotinki = open ? open.amount_due : this.basePrice;
-    } catch (err) {
-      this.logger.warn(`billing invoices read failed (${tenantId}): ${this.errText(err)}`);
-    }
+    const customerId = t.stripeCustomerId;
+    // The customer (card) and invoices reads are independent Stripe calls — run them
+    // concurrently. Each keeps its own try/catch so one failing doesn't void the other.
+    await Promise.all([
+      (async () => {
+        try {
+          const customer = await this.client!.customers.retrieve(customerId, {
+            expand: ['invoice_settings.default_payment_method'],
+          });
+          const pm = (customer as { invoice_settings?: { default_payment_method?: { card?: { brand?: string; last4?: string } } } })
+            .invoice_settings?.default_payment_method;
+          if (pm?.card) {
+            base.hasCard = true;
+            base.cardBrand = pm.card.brand ?? null;
+            base.cardLast4 = pm.card.last4 ?? null;
+          }
+        } catch (err) {
+          this.logger.warn(`billing customer read failed (${tenantId}): ${this.errText(err)}`);
+        }
+      })(),
+      (async () => {
+        try {
+          const invs = await this.client!.invoices.list({ customer: customerId, limit: 6 });
+          base.invoices = invs.data.map((i) => ({
+            amountStotinki: i.amount_due,
+            status: i.status ?? 'unknown',
+            date: new Date((i.created ?? 0) * 1000).toISOString(),
+            url: i.hosted_invoice_url ?? null,
+          }));
+          const open = invs.data.find((i) => i.status === 'draft' || i.status === 'open');
+          base.estimatedNextStotinki = open ? open.amount_due : this.basePrice;
+        } catch (err) {
+          this.logger.warn(`billing invoices read failed (${tenantId}): ${this.errText(err)}`);
+        }
+      })(),
+    ]);
 
     return base;
   }

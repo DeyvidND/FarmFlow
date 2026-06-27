@@ -54,6 +54,24 @@ export class RecommendationsService {
     private readonly availability: AvailabilityService,
   ) {}
 
+  /**
+   * In-process single-flight for the two expensive sales aggregates. When the 600 s
+   * cache expires on a busy shop, concurrent storefront/cart requests would all miss
+   * and fire the same self-join at once (thundering herd). This coalesces them into
+   * one recompute; the rest await the shared Promise. Keys mirror the Redis keys.
+   * Mirrors PlatformInsightsService.inflight. (No Redis lock — staleness tolerance is
+   * high and the audience is a handful of storefront requests.)
+   */
+  private readonly inflight = new Map<string, Promise<unknown>>();
+
+  private singleFlight<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    const existing = this.inflight.get(key) as Promise<T> | undefined;
+    if (existing) return existing;
+    const run = compute().finally(() => this.inflight.delete(key));
+    this.inflight.set(key, run);
+    return run;
+  }
+
   /** Sales-ranked product ids for the „Най-продавани" chip (highest qty first),
    *  capped at {@link BEST_SELLER_LIMIT}. Empty when the chip is toggled off or
    *  the farm has no sales yet. Redis-cached per tenant (10 min). */
@@ -109,21 +127,23 @@ export class RecommendationsService {
     const cached = await this.publicCache.get<string[]>(key);
     if (cached) return cached;
 
-    const rows = await this.db
-      .select({
-        productId: orderItems.productId,
-        qty: sql<number>`sum(${orderItems.quantity})::int`,
-      })
-      .from(orderItems)
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .where(and(eq(orders.tenantId, tenantId), LIVE, sql`${orderItems.productId} is not null`))
-      .groupBy(orderItems.productId)
-      .orderBy(desc(sql`sum(${orderItems.quantity})`))
-      .limit(BEST_SELLER_LIMIT);
+    return this.singleFlight(key, async () => {
+      const rows = await this.db
+        .select({
+          productId: orderItems.productId,
+          qty: sql<number>`sum(${orderItems.quantity})::int`,
+        })
+        .from(orderItems)
+        .innerJoin(orders, eq(orders.id, orderItems.orderId))
+        .where(and(eq(orders.tenantId, tenantId), LIVE, sql`${orderItems.productId} is not null`))
+        .groupBy(orderItems.productId)
+        .orderBy(desc(sql`sum(${orderItems.quantity})`))
+        .limit(BEST_SELLER_LIMIT);
 
-    const ids = rows.map((r) => r.productId).filter((id): id is string => !!id);
-    await this.publicCache.set(key, ids, BEST_SELLER_TTL);
-    return ids;
+      const ids = rows.map((r) => r.productId).filter((id): id is string => !!id);
+      await this.publicCache.set(key, ids, BEST_SELLER_TTL);
+      return ids;
+    });
   }
 
   /**
@@ -142,46 +162,48 @@ export class RecommendationsService {
     const cached = await this.publicCache.get<Record<string, string[]>>(key);
     if (cached) return cached;
 
-    const co = alias(orderItems, 'co'); // the co-bought item in the same basket
-    const rows = await this.db
-      .select({
-        anchor: orderItems.productId,
-        other: co.productId,
-        baskets: sql<number>`count(distinct ${orderItems.orderId})::int`,
-        qty: sql<number>`sum(${co.quantity})::int`,
-      })
-      .from(orderItems)
-      .innerJoin(
-        co,
-        and(eq(co.orderId, orderItems.orderId), sql`${co.productId} <> ${orderItems.productId}`),
-      )
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .where(
-        and(
-          eq(orders.tenantId, tenantId),
-          LIVE,
-          sql`${orderItems.productId} is not null`,
-          sql`${co.productId} is not null`,
-        ),
-      )
-      .groupBy(orderItems.productId, co.productId)
-      // anchor groups the rows; within each, strongest pairing (baskets, then qty) first.
-      .orderBy(
-        asc(orderItems.productId),
-        desc(sql`count(distinct ${orderItems.orderId})`),
-        desc(sql`sum(${co.quantity})`),
-      )
-      .limit(PAIR_SCAN_LIMIT);
+    return this.singleFlight(key, async () => {
+      const co = alias(orderItems, 'co'); // the co-bought item in the same basket
+      const rows = await this.db
+        .select({
+          anchor: orderItems.productId,
+          other: co.productId,
+          baskets: sql<number>`count(distinct ${orderItems.orderId})::int`,
+          qty: sql<number>`sum(${co.quantity})::int`,
+        })
+        .from(orderItems)
+        .innerJoin(
+          co,
+          and(eq(co.orderId, orderItems.orderId), sql`${co.productId} <> ${orderItems.productId}`),
+        )
+        .innerJoin(orders, eq(orders.id, orderItems.orderId))
+        .where(
+          and(
+            eq(orders.tenantId, tenantId),
+            LIVE,
+            sql`${orderItems.productId} is not null`,
+            sql`${co.productId} is not null`,
+          ),
+        )
+        .groupBy(orderItems.productId, co.productId)
+        // anchor groups the rows; within each, strongest pairing (baskets, then qty) first.
+        .orderBy(
+          asc(orderItems.productId),
+          desc(sql`count(distinct ${orderItems.orderId})`),
+          desc(sql`sum(${co.quantity})`),
+        )
+        .limit(PAIR_SCAN_LIMIT);
 
-    // Rows arrive grouped by anchor and pre-ranked, so push in order and cap per anchor.
-    const map: Record<string, string[]> = {};
-    for (const r of rows) {
-      if (!r.anchor || !r.other) continue;
-      const list = (map[r.anchor] ??= []);
-      if (list.length < CO_PER_ANCHOR) list.push(r.other);
-    }
+      // Rows arrive grouped by anchor and pre-ranked, so push in order and cap per anchor.
+      const map: Record<string, string[]> = {};
+      for (const r of rows) {
+        if (!r.anchor || !r.other) continue;
+        const list = (map[r.anchor] ??= []);
+        if (list.length < CO_PER_ANCHOR) list.push(r.other);
+      }
 
-    await this.publicCache.set(key, map, COOCCUR_TTL);
-    return map;
+      await this.publicCache.set(key, map, COOCCUR_TTL);
+      return map;
+    });
   }
 }

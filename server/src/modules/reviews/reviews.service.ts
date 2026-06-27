@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import { type Database, tenants, products, reviews } from '@fermeribg/db';
+import { type Database, products, reviews } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
@@ -40,13 +40,9 @@ export class ReviewsService {
   ) {}
 
   private async resolveTenantId(slug: string): Promise<string> {
-    const [tenant] = await this.db
-      .select({ id: tenants.id })
-      .from(tenants)
-      .where(eq(tenants.slug, slug))
-      .limit(1);
-    if (!tenant) throw new NotFoundException('Фермата не е намерена');
-    return tenant.id;
+    // Use the shared Redis slug→tenant resolver (warm = zero Postgres), same as the
+    // public reads in this module, instead of a dedicated uncached query.
+    return (await this.publicCache.resolveTenant(this.db, slug)).id;
   }
 
   /** Public: published reviews + average rating + count. */

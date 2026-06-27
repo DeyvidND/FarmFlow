@@ -195,23 +195,13 @@ export class ArticlesService {
   }
 
   async findPublicArticleBySlug(slug: string, articleSlug: string): Promise<PublicArticle> {
-    const tenant = await this.tenantBySlug(slug);
-
-    const [row] = await this.db
-      .select()
-      .from(articles)
-      .where(
-        and(
-          eq(articles.tenantId, tenant.id),
-          eq(articles.slug, articleSlug),
-          eq(articles.status, 'published'),
-        ),
-      )
-      .limit(1);
-    if (!row) throw new NotFoundException('Статията не е намерена');
-
-    const [withMedia] = await this.attachMedia([row]);
-    return toPublicArticle(withMedia);
+    // Serve from the Redis-cached published list (same pattern as
+    // products.findPublicProductBySlug) instead of two fresh Postgres reads
+    // (article row + attachMedia) on every public article-page hit.
+    const list = await this.findPublicBySlug(slug);
+    const article = list.find((a) => a.slug === articleSlug);
+    if (!article) throw new NotFoundException('Статията не е намерена');
+    return article;
   }
 
   // ---- Helpers ----

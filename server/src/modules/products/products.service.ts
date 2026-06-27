@@ -363,36 +363,41 @@ export class ProductsService {
         throw new BadRequestException('Промо цената трябва да е под редовната цена на варианта');
       }
     }
-    const existing = await this.db
-      .select({ id: productVariants.id })
-      .from(productVariants)
-      .where(and(eq(productVariants.productId, productId), isNull(productVariants.deletedAt)));
-    const { inserts, updates, deleteIds } = planVariantWrites(variants, existing.map((r) => r.id));
-    for (const ins of inserts) {
-      await this.db.insert(productVariants).values({ ...ins, productId });
-    }
-    for (const upd of updates) {
-      const { id, ...set } = upd;
-      await this.db
-        .update(productVariants)
-        .set(set)
-        .where(and(eq(productVariants.id, id), eq(productVariants.productId, productId)));
-    }
-    if (deleteIds.length) {
-      await this.db
-        .update(productVariants)
-        .set({ deletedAt: new Date() })
-        .where(and(eq(productVariants.productId, productId), inArray(productVariants.id, deleteIds)));
-    }
-    // Keep products.priceStotinki = cheapest variant (for sort + "от X"); leave it
-    // untouched when the product has no variants.
-    const cheapest = cheapestVariantPrice(variants);
-    if (cheapest != null) {
-      await this.db
-        .update(products)
-        .set({ priceStotinki: cheapest })
-        .where(and(eq(products.id, productId), eq(products.tenantId, tenantId)));
-    }
+    // One transaction so a mid-replace failure can't leave a partial variant set
+    // plus a stale products.priceStotinki sync. Inserts are batched into a single
+    // statement instead of one round-trip per variant.
+    await this.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: productVariants.id })
+        .from(productVariants)
+        .where(and(eq(productVariants.productId, productId), isNull(productVariants.deletedAt)));
+      const { inserts, updates, deleteIds } = planVariantWrites(variants, existing.map((r) => r.id));
+      if (inserts.length) {
+        await tx.insert(productVariants).values(inserts.map((ins) => ({ ...ins, productId })));
+      }
+      for (const upd of updates) {
+        const { id, ...set } = upd;
+        await tx
+          .update(productVariants)
+          .set(set)
+          .where(and(eq(productVariants.id, id), eq(productVariants.productId, productId)));
+      }
+      if (deleteIds.length) {
+        await tx
+          .update(productVariants)
+          .set({ deletedAt: new Date() })
+          .where(and(eq(productVariants.productId, productId), inArray(productVariants.id, deleteIds)));
+      }
+      // Keep products.priceStotinki = cheapest variant (for sort + "от X"); leave it
+      // untouched when the product has no variants.
+      const cheapest = cheapestVariantPrice(variants);
+      if (cheapest != null) {
+        await tx
+          .update(products)
+          .set({ priceStotinki: cheapest })
+          .where(and(eq(products.id, productId), eq(products.tenantId, tenantId)));
+      }
+    });
   }
 
   // ---- Gallery (multi-image) ----
@@ -621,8 +626,12 @@ export class ProductsService {
       .where(and(eq(products.tenantId, tenant.id), eq(products.isActive, true)))
       .orderBy(asc(products.position), asc(products.createdAt), asc(products.id));
 
-    const mediaByProduct = await this.mediaUrlsByProduct(rows.map((r) => r.id));
-    const varsByProduct = await this.variantsByProduct(rows.map((r) => r.id));
+    const ids = rows.map((r) => r.id);
+    // Independent batch loads — run concurrently on the cold-cache catalog build.
+    const [mediaByProduct, varsByProduct] = await Promise.all([
+      this.mediaUrlsByProduct(ids),
+      this.variantsByProduct(ids),
+    ]);
     const now = new Date();
     const result = rows.map((p) =>
       buildPublicProduct(p, mediaByProduct.get(p.id) ?? [], varsByProduct.get(p.id) ?? [], now),
