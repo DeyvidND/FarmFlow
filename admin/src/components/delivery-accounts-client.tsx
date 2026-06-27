@@ -396,6 +396,8 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
   const [showAdd, setShowAdd] = useState(false);
   const [detail, setDetail] = useState<DeliveryAccount | null>(null);
   const [invite, setInvite] = useState<{ name: string; link: string } | null>(null);
+  // Account awaiting an explicit "send the invite email" confirmation (no auto-send on click).
+  const [confirmInvite, setConfirmInvite] = useState<DeliveryAccount | null>(null);
 
   const needle = q.trim().toLowerCase();
   const rows = items.filter((a) => !needle || a.name.toLowerCase().includes(needle) || (a.email ?? '').toLowerCase().includes(needle) || a.slug.toLowerCase().includes(needle));
@@ -480,7 +482,7 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
                     <Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} />
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); resendInvite(a); }}
+                      onClick={(e) => { e.stopPropagation(); setConfirmInvite(a); }}
                       disabled={inviteId === a.id}
                       title="Изпрати покана за задаване на парола"
                       className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12px] font-bold text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-60"
@@ -508,7 +510,7 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
                   <Toggle on={a.active} disabled={busyId === a.id} onChange={(v) => toggle(a, v)} />
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); resendInvite(a); }}
+                    onClick={(e) => { e.stopPropagation(); setConfirmInvite(a); }}
                     disabled={inviteId === a.id}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12px] font-bold text-ff-ink-2 active:bg-ff-surface-2 disabled:opacity-60"
                   >
@@ -539,6 +541,35 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
 
       {showAdd && <CreateDialog onClose={() => setShowAdd(false)} onCreated={(a) => setItems((p) => [a, ...p])} />}
       {detail && <ShipmentHistoryDrawer account={detail} onClose={() => setDetail(null)} />}
+
+      {confirmInvite && (
+        <>
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setConfirmInvite(null)} />
+          <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
+            <div className="mb-3 flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-green-50 text-ff-green-700"><Send size={18} /></span>
+              <div className="min-w-0">
+                <h2 className="text-[17px] font-extrabold">Изпрати покана по имейл?</h2>
+                <p className="mt-0.5 text-[13.5px] text-ff-ink-2">
+                  На <strong>{confirmInvite.name}</strong> ще се изпрати имейл с връзка за задаване на парола
+                  {confirmInvite.email ? <> на <strong>{confirmInvite.email}</strong>.</> : '.'}
+                </p>
+                {!confirmInvite.email && <p className="mt-1 text-[12.5px] font-bold text-ff-amber-600">Този акаунт няма имейл — пращането ще се провали.</p>}
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2.5">
+              <button onClick={() => setConfirmInvite(null)} className="rounded-xl border border-ff-border bg-ff-surface px-4 py-2.5 text-[13.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2">Откажи</button>
+              <button
+                onClick={() => { const a = confirmInvite; setConfirmInvite(null); resendInvite(a); }}
+                disabled={inviteId === confirmInvite.id}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-ff-green-700 px-4 py-2.5 text-[13.5px] font-bold text-white hover:brightness-95 disabled:opacity-60"
+              >
+                <Send size={14} /> Изпрати покана
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {invite && (
         <>
