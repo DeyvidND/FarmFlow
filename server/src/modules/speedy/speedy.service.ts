@@ -318,6 +318,7 @@ export class SpeedyService {
           status: barcode ? 'created' : 'pending',
           courierPriceStotinki: typeof priceEur === 'number' ? Math.round(priceEur * 100) : null,
           codAmountStotinki: codAmount,
+          trackingJson: data ?? null,
           updatedAt: new Date(),
         },
       })
