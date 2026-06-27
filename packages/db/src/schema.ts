@@ -142,6 +142,12 @@ export const users = pgTable(
       .where(sql`${t.farmerId} is not null`),
     // listAccess: WHERE tenant_id=? AND role='farmer' — currently a seq-scan.
     tenantRoleIdx: index('users_tenant_role_idx').on(t.tenantId, t.role),
+    // Login matches case-insensitively (auth.service: `lower(email) = ?`). The
+    // unique index on raw `email` can't serve that predicate, so login was a full
+    // seq-scan of users. Functional index makes it sargable. NON-unique on purpose:
+    // case-collisions in legacy rows must not block the index build (uniqueness is
+    // already enforced by `users_email_unique` on the raw column).
+    emailLowerIdx: index('users_email_lower_idx').on(sql`lower(${t.email})`),
   }),
 );
 
@@ -461,6 +467,11 @@ export const shipments = pgTable(
     orderUnique: uniqueIndex('shipments_order_unique').on(t.orderId),
     // Tenant-scoped shipment list + scoped delete.
     tenantIdx: index('shipments_tenant_idx').on(t.tenantId),
+    // Status-refresh crons scan live (non-terminal) shipments per carrier; also
+    // serves Speedy listShipments (WHERE carrier='speedy'). Was a full-table scan.
+    carrierStatusIdx: index('shipments_carrier_status_idx').on(t.carrier, t.status),
+    // cod-risk listCandidates: WHERE tenant_id=? AND report_status='candidate'.
+    tenantReportIdx: index('shipments_tenant_report_idx').on(t.tenantId, t.reportStatus),
   }),
 );
 
