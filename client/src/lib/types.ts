@@ -290,6 +290,14 @@ export interface SpeedyConfig {
 /** Which carrier fulfils a door order when the farm runs BOTH carriers. */
 export type CarrierPolicy = 'customer' | 'cheapest' | 'econt' | 'speedy';
 
+/** Carrier-agnostic handling policy applied to every COD/courier shipment.
+ *  inspectBeforePay only ever applies to наложен платеж; ignored on prepaid. */
+export type InspectBeforePay = 'off' | 'open' | 'test';
+export interface HandlingPolicy {
+  inspectBeforePay: InspectBeforePay; // отвори / тествай преди плащане
+  refrigerated: boolean;              // хладилна доставка
+}
+
 /** The full per-tenant delivery config blob (without the master `enabled` flag,
  *  which maps to the tenant's `deliveryEnabled` column). */
 export interface DeliveryConfig {
@@ -305,6 +313,8 @@ export interface DeliveryConfig {
   cod?: { enabled: boolean };
   /** Card (online/Stripe) toggle. Absent → enabled; off → COD-only even with Stripe connected. */
   card?: { enabled: boolean };
+  /** Shared handling policy (inspect-before-pay + refrigerated). Absent → all off. */
+  handling?: HandlingPolicy;
 }
 
 /** A Speedy settlement (нас. място) for the sender-site autocomplete. */

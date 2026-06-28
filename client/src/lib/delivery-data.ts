@@ -90,6 +90,7 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
   carrierPolicy: 'customer',
   cod: { enabled: true },
   card: { enabled: true },
+  handling: { inspectBeforePay: 'off', refrigerated: false },
 };
 
 /** Two retired price-types collapse to `flat`:
@@ -143,6 +144,10 @@ export function hydrateDelivery(saved: DeliveryConfig | null | undefined): Deliv
     carrierPolicy: saved.carrierPolicy ?? d.carrierPolicy,
     cod: { enabled: saved?.cod?.enabled ?? d.cod?.enabled ?? true },
     card: { enabled: saved?.card?.enabled ?? d.card?.enabled ?? true },
+    handling: {
+      inspectBeforePay: saved?.handling?.inspectBeforePay ?? d.handling!.inspectBeforePay,
+      refrigerated: saved?.handling?.refrigerated ?? d.handling!.refrigerated,
+    },
   };
 }
 
