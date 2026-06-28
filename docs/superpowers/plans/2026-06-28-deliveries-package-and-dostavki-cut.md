@@ -8,6 +8,8 @@
 
 **Tech Stack:** Drizzle/Postgres (hand-written migrations — generate is broken @0059) · NestJS · Next.js × (client panel, admin, storefront, delivery-web) · Jest. Money in stotinki.
 
+**Status (2026-06-28):** Phase 1 ✅ shipped (migration 0067 + platform toggle + storefront gate + panel gate; tsc+builds+specs green). Phases 2-4 staged below. Branch `feat/delivery-simplify`. ⚠️ deploy needs migration 0067 + redeploy. dostavki access gate deferred into Phase 2 (SSO) to avoid touching the separate standalone-product activation.
+
 ---
 
 ## Decisions baked in (stated assumptions — user said "proceed without asking")
