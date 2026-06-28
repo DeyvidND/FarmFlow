@@ -107,6 +107,7 @@ export class CheckoutService {
         subscriptionStatus: tenants.subscriptionStatus,
         settings: tenants.settings,
         deliveryEnabled: tenants.deliveryEnabled,
+        deliveriesPackageEnabled: tenants.deliveriesPackageEnabled,
       })
       .from(tenants)
       .where(eq(tenants.slug, slug))

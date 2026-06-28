@@ -321,11 +321,17 @@ export class OrdersService {
   private assertMethodAllowed(
     settings: unknown,
     deliveryEnabled: boolean,
+    deliveriesPackageEnabled: boolean,
     method: 'pickup' | 'address' | 'econt' | 'econt_address',
     paymentMethod: 'online' | 'cod',
   ): void {
     const cfg = (settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
     const methods = buildPublicMethods(cfg);
+    // Courier (Econt/Speedy) delivery requires the super-admin „пакет Доставки".
+    // When the package is off the farm offers ONLY pickup + self-delivery,
+    // regardless of its stored carrier config — mirrors the storefront cache gate
+    // so a crafted checkout can't bypass the entitlement and create a courier order.
+    const courierOk = deliveriesPackageEnabled;
     const allowed: Record<string, boolean> = {
       pickup: methods.pickup,
       // Self-delivery availability is the SAME signal the storefront gates on:
@@ -333,9 +339,9 @@ export class OrdersService {
       // flag. A farm with deliveryEnabled=false offers no local delivery even if
       // ownSlots defaults on.
       address: deliveryEnabled && methods.ownSlots,
-      econt: methods.econtOffice,
+      econt: courierOk && methods.econtOffice,
       // Door delivery is allowed when Econt address is on OR Speedy is configured.
-      econt_address: courierDoorEnabled(cfg),
+      econt_address: courierOk && courierDoorEnabled(cfg),
     };
     if (!allowed[method]) {
       throw new BadRequestException('Избраният начин на доставка не е наличен.');
@@ -944,7 +950,8 @@ export class OrdersService {
     // it passes the row here so intake doesn't re-SELECT it. Omitted by other callers.
     preloadedTenant?: Pick<
       typeof tenants.$inferSelect,
-      'id' | 'farmLat' | 'farmLng' | 'subscriptionStatus' | 'settings' | 'deliveryEnabled'
+      | 'id' | 'farmLat' | 'farmLng' | 'subscriptionStatus' | 'settings' | 'deliveryEnabled'
+      | 'deliveriesPackageEnabled'
     >,
   ): Promise<OrderWithItems> {
     // Three delivery methods: local farm delivery (slots + route + coords),
@@ -967,6 +974,7 @@ export class OrdersService {
             subscriptionStatus: tenants.subscriptionStatus,
             settings: tenants.settings,
             deliveryEnabled: tenants.deliveryEnabled,
+            deliveriesPackageEnabled: tenants.deliveriesPackageEnabled,
           })
           .from(tenants)
           .where(eq(tenants.slug, slug))
@@ -979,6 +987,7 @@ export class OrdersService {
     this.assertMethodAllowed(
       tenant.settings,
       tenant.deliveryEnabled,
+      tenant.deliveriesPackageEnabled,
       method,
       dto.paymentMethod ?? 'online',
     );
