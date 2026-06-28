@@ -3,6 +3,7 @@ import {
   Inject,
   UnauthorizedException,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -11,7 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { createHash } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
-import { type Database, users } from '@fermeribg/db';
+import { type Database, users, tenants } from '@fermeribg/db';
 import type { JwtPayload } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
@@ -297,9 +298,62 @@ export class AuthService {
     return { ok: true };
   }
 
+  /**
+   * Mint a short-TTL, single-purpose token to hand a logged-in farmer off to the
+   * standalone delivery app (dostavki). Signed with a DERIVED secret so it can never
+   * be replayed as an auth token; the URL only carries this, never the real session.
+   * Exchanged server-side at the delivery app via `handoffLogin`.
+   */
+  async issueDeliveryHandoff(userId: string, tenantId: string): Promise<{ token: string }> {
+    const token = await this.jwt.signAsync(
+      { sub: userId, tid: tenantId, type: 'delivery-handoff' },
+      { secret: this.handoffSecret(), expiresIn: '120s' },
+    );
+    return { token };
+  }
+
+  /**
+   * Exchange a valid delivery-handoff token for a real delivery session — and gate
+   * on the tenant's „пакет Доставки". This is the authoritative dostavki access gate
+   * for FarmFlow shop accounts (standalone delivery-only accounts use their own
+   * activation). Backs the delivery-web `?handoff=` login.
+   */
+  async handoffLogin(token: string): Promise<{ accessToken: string }> {
+    let payload: { sub?: string; tid?: string; type?: string };
+    try {
+      payload = await this.jwt.verifyAsync(token, { secret: this.handoffSecret() });
+    } catch {
+      throw new UnauthorizedException('Връзката е невалидна или изтекла');
+    }
+    if (payload?.type !== 'delivery-handoff' || !payload.sub) {
+      throw new UnauthorizedException('Връзката е невалидна или изтекла');
+    }
+    const [user] = await this.db.select().from(users).where(eq(users.id, payload.sub)).limit(1);
+    if (!user || !user.tenantId) throw new UnauthorizedException();
+    const [tenant] = await this.db
+      .select({ pkg: tenants.deliveriesPackageEnabled })
+      .from(tenants)
+      .where(eq(tenants.id, user.tenantId))
+      .limit(1);
+    if (!tenant?.pkg) throw new ForbiddenException('Пакетът „Доставки" не е активен за този магазин');
+    return this.sign(
+      user.id,
+      user.tenantId,
+      user.role,
+      user.mustChangePassword,
+      user.tokenVersion,
+      user.farmerId,
+    );
+  }
+
   /** Reset tokens use a derived secret so they can't be replayed as auth tokens. */
   private resetSecret(): string {
     return `${this.config.getOrThrow<string>('JWT_SECRET')}::pwreset`;
+  }
+
+  /** Handoff tokens use their own derived secret — never valid as an auth token. */
+  private handoffSecret(): string {
+    return `${this.config.getOrThrow<string>('JWT_SECRET')}::handoff`;
   }
 
   /** Short fingerprint of the password hash — binds a reset token to one password. */

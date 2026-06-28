@@ -417,4 +417,46 @@ describe('AuthService', () => {
   it('does NOT expose a register method on the service', () => {
     expect(typeof (service as any).register).toBe('undefined');
   });
+
+  // ── delivery handoff (SSO to dostavki) ─────────────────────────────────────
+  describe('delivery handoff', () => {
+    it('issueDeliveryHandoff signs a typed, short-TTL token with the derived secret', async () => {
+      (jwtService.signAsync as jest.Mock).mockResolvedValueOnce('handoff-token');
+      const out = await service.issueDeliveryHandoff(USER_ID, TENANT_ID);
+      expect(out).toEqual({ token: 'handoff-token' });
+      expect(jwtService.signAsync).toHaveBeenCalledWith(
+        { sub: USER_ID, tid: TENANT_ID, type: 'delivery-handoff' },
+        { secret: 'test-secret::handoff', expiresIn: '120s' },
+      );
+    });
+
+    it('handoffLogin rejects an invalid/expired token', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockRejectedValueOnce(new Error('bad'));
+      await expect(service.handoffLogin('x')).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('handoffLogin rejects a token of the wrong type', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValueOnce({ sub: USER_ID, type: 'tenant' });
+      await expect(service.handoffLogin('x')).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('handoffLogin denies a tenant without the deliveries package', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValueOnce({ sub: USER_ID, type: 'delivery-handoff' });
+      db.limit
+        .mockResolvedValueOnce([{ id: USER_ID, tenantId: TENANT_ID, role: 'admin', tokenVersion: 0 }])
+        .mockResolvedValueOnce([{ pkg: false }]);
+      await expect(service.handoffLogin('x')).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('handoffLogin issues a session when valid and the package is on', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValueOnce({ sub: USER_ID, type: 'delivery-handoff' });
+      db.limit
+        .mockResolvedValueOnce([
+          { id: USER_ID, tenantId: TENANT_ID, role: 'admin', tokenVersion: 0, mustChangePassword: false, farmerId: null },
+        ])
+        .mockResolvedValueOnce([{ pkg: true }]);
+      const out = await service.handoffLogin('x');
+      expect(out).toEqual({ accessToken: 'signed-token' });
+    });
+  });
 });

@@ -9,6 +9,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateNavDto } from './dto/update-nav.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user-id.decorator';
+import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 
 @ApiTags('auth')
@@ -70,5 +71,19 @@ export class AuthController {
   @HttpCode(200)
   updateNav(@CurrentUserId() userId: string, @Body() dto: UpdateNavDto) {
     return this.authService.updateHiddenNav(userId, dto.hidden);
+  }
+
+  // Hands a logged-in farmer off to the standalone delivery app (dostavki): mints a
+  // short-TTL, single-purpose token (derived secret, useless as an auth token) the
+  // panel puts in the deep-link URL. dostavki exchanges it for a real session.
+  @ApiOperation({ summary: 'Mint a short-TTL handoff token for the delivery app (dostavki)' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Roles('admin', 'farmer')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('delivery-handoff')
+  @HttpCode(200)
+  deliveryHandoff(@CurrentUserId() userId: string, @CurrentTenant() tenantId: string) {
+    return this.authService.issueDeliveryHandoff(userId, tenantId);
   }
 }
