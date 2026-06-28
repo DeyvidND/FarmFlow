@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { SpeedyService } from '../speedy/speedy.service';
 import { SpeedyCredentialsDto } from '../speedy/dto/speedy-credentials.dto';
+import { SpeedyProfileDto } from '../speedy/dto/speedy-profile.dto';
 import { SpeedyManualShipmentDto } from '../speedy/dto/speedy-manual-shipment.dto';
 import { SpeedyValidateAddressDto } from '../speedy/dto/speedy-validate-address.dto';
 import { SpeedyCourierRequestDto } from '../speedy/dto/speedy-courier-request.dto';
@@ -23,6 +24,11 @@ export class SpeedyStandaloneController {
   @Get('config')
   config(@CurrentTenant() t: string) {
     return this.speedy.getConfig(t);
+  }
+  // Save the sender/package/COD profile (credentials stay on /credentials).
+  @Post('profile')
+  saveProfile(@CurrentTenant() t: string, @Body() dto: SpeedyProfileDto) {
+    return this.speedy.saveProfile(t, dto);
   }
   @Get('profiles')
   profiles(@CurrentTenant() t: string) {

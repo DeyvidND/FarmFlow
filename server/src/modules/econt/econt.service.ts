@@ -229,6 +229,44 @@ export class EcontService implements CarrierAdapter {
     return { configured: true, env };
   }
 
+  /**
+   * Persist the sender/package/COD profile (NOT credentials) into
+   * settings.delivery.econt. Merges over the stored blob so the encrypted password
+   * is untouched. Backs the dostavki profile editor (the panel writes the same blob
+   * via tenants/me; this is the standalone-app path).
+   */
+  async saveProfile(
+    tenantId: string,
+    input: {
+      sender?: {
+        name?: string; phone?: string; cityId?: number; cityName?: string;
+        mode?: 'office' | 'address'; officeCode?: string; address?: string;
+      };
+      defaultPackage?: { weightKg?: number; contents?: string; dimensions?: string };
+      cod?: { enabled?: boolean; feePayer?: 'customer' | 'farm' };
+      label?: { paper?: string; autoCreate?: boolean };
+    },
+  ): Promise<{ ok: true }> {
+    const { tenant, econt } = await this.loadStored(tenantId);
+    const nextEcont: EcontStored = {
+      ...econt,
+      ...(input.sender !== undefined ? { sender: { ...(econt.sender ?? {}), ...input.sender } } : {}),
+      ...(input.defaultPackage !== undefined
+        ? { defaultPackage: { ...(econt.defaultPackage ?? {}), ...input.defaultPackage } }
+        : {}),
+      ...(input.cod !== undefined ? { cod: { ...(econt.cod ?? {}), ...input.cod } } : {}),
+      ...(input.label !== undefined ? { label: { ...(econt.label ?? {}), ...input.label } } : {}),
+    };
+    const nextSettings = {
+      ...tenant.settings,
+      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
+    };
+    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // The sender/package feed the storefront delivery estimate + label payload.
+    await this.cache.del(publicCacheKeys.tenant(tenant.slug));
+    return { ok: true };
+  }
+
   /** Public-safe config view (no secrets). `env`/`isDemo` are account-derived so
    *  the operator panel can show a read-only environment badge (no env picker). */
   async getConfig(tenantId: string): Promise<Record<string, unknown>> {
