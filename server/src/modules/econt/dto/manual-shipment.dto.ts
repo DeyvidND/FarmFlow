@@ -36,4 +36,5 @@ export class ManualShipmentDto {
   @IsOptional() @IsBoolean() smsNotification?: boolean;
   @IsOptional() @IsBoolean() refrigerated?: boolean;
   @IsOptional() @IsInt() @Min(0) declaredValueStotinki?: number;
+  @IsOptional() @IsIn(['off', 'open', 'test']) inspectBeforePay?: 'off' | 'open' | 'test';
 }

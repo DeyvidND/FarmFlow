@@ -1332,6 +1332,7 @@ export interface ManualOrderShape {
   smsNotification?: boolean;
   refrigerated?: boolean;
   declaredValueStotinki?: number;
+  inspectBeforePay?: InspectMode;
 }
 
 /** Turn hand-entered receiver input into the order-like shape buildLabel needs.
@@ -1349,6 +1350,7 @@ export function buildManualOrderShape(input: {
   smsNotification?: boolean;
   refrigerated?: boolean;
   declaredValueStotinki?: number;
+  inspectBeforePay?: InspectMode;
 }): ManualOrderShape {
   const hasCod = !!input.codAmountStotinki && input.codAmountStotinki > 0;
   return {
@@ -1366,6 +1368,9 @@ export function buildManualOrderShape(input: {
     ...(input.smsNotification ? { smsNotification: true } : {}),
     ...(input.refrigerated ? { refrigerated: true } : {}),
     ...(input.declaredValueStotinki ? { declaredValueStotinki: input.declaredValueStotinki } : {}),
+    ...(input.inspectBeforePay && input.inspectBeforePay !== 'off'
+      ? { inspectBeforePay: input.inspectBeforePay }
+      : {}),
   };
 }
 

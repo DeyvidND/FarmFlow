@@ -464,6 +464,19 @@ describe('buildManualOrderShape', () => {
     expect(o.totalStotinki).toBeNull();
     expect(o.weightKg).toBeUndefined();
   });
+
+  it('passes inspectBeforePay through to the order shape', () => {
+    const o = buildManualOrderShape({
+      receiverName: 'Х', receiverPhone: '0', deliveryMode: 'office',
+      receiverOfficeCode: '1', codAmountStotinki: 1000, inspectBeforePay: 'open',
+    });
+    expect(o.inspectBeforePay).toBe('open');
+  });
+
+  it('omits inspectBeforePay when off/absent', () => {
+    const o = buildManualOrderShape({ receiverName: 'Х', receiverPhone: '0', deliveryMode: 'office' });
+    expect(o.inspectBeforePay).toBeUndefined();
+  });
 });
 
 describe('mapManualShipmentRow', () => {
