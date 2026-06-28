@@ -13,6 +13,7 @@ import { hydrateDelivery } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
 import { MethodsSection, GlobalRulesSection } from './methods-section';
 import { CarrierPolicySection } from './carrier-policy-section';
+import { HandlingSection } from './handling-section';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -102,6 +103,7 @@ export function DeliveryClient({
       <div className="flex flex-col gap-4">
         <MethodsSection cfg={cfg} mut={mut} slotFreeCount={slotFreeCount} />
         <GlobalRulesSection cfg={cfg} mut={mut} />
+        <HandlingSection cfg={cfg} mut={mut} />
         {comparisonActive && <CarrierPolicySection cfg={cfg} mut={mut} />}
       </div>
 
