@@ -69,6 +69,8 @@ export interface PlatformTenantDetail {
   graceUntil: string | null;
   createdAt: string | null;
   deliveryEnabled: boolean;
+  /** Super-admin „пакет Доставки" gate (panel + deliveries add-on). */
+  deliveriesPackageEnabled: boolean;
   multiFarmer: boolean;
   multiSubcat: boolean;
   econtConfigured: boolean;

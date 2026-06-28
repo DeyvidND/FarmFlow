@@ -147,6 +147,9 @@ export interface TenantProfile {
   articlesEnabled: boolean;
   reviewsEnabled: boolean;
   deliveryEnabled: boolean;
+  /** Super-admin „пакет Доставки" gate. When false, the panel hides delivery
+   *  config + the dostavki deep-link, and the storefront offers no courier. */
+  deliveriesPackageEnabled: boolean;
   /** «Продукт на седмицата» highlight config. */
   productOfWeekEnabled: boolean;
   productOfWeekMode: 'manual' | 'auto';

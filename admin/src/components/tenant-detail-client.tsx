@@ -152,6 +152,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
     phone: d.phone ?? '',
     siteUrl: d.siteUrl ?? '',
     deliveryEnabled: d.deliveryEnabled,
+    deliveriesPackageEnabled: d.deliveriesPackageEnabled,
     multiFarmer: d.multiFarmer,
     multiSubcat: d.multiSubcat,
   });
@@ -164,6 +165,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
       phone: d.phone ?? '',
       siteUrl: d.siteUrl ?? '',
       deliveryEnabled: d.deliveryEnabled,
+      deliveriesPackageEnabled: d.deliveriesPackageEnabled,
       multiFarmer: d.multiFarmer,
       multiSubcat: d.multiSubcat,
     });
@@ -185,6 +187,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
           phone: form.phone.trim() || undefined,
           siteUrl: form.siteUrl.trim() || undefined,
           deliveryEnabled: form.deliveryEnabled,
+          deliveriesPackageEnabled: form.deliveriesPackageEnabled,
           multiFarmer: form.multiFarmer,
           multiSubcat: form.multiSubcat,
         }),
@@ -257,6 +260,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
           )}
           <div className="flex flex-wrap justify-end gap-2">
             <Flag on={d.deliveryEnabled} label="Доставка" icon={<Truck size={13} />} />
+            <Flag on={d.deliveriesPackageEnabled} label="Пакет Доставки" icon={<Truck size={13} />} />
             <Flag on={deliveryOn} label="Доставка акаунт" icon={<Truck size={13} />} />
             <Flag on={d.econtConfigured} label="Еконт" icon={<Truck size={13} />} />
             <Flag on={d.stripeConnected} label="Stripe" icon={<CreditCard size={13} />} />
@@ -311,6 +315,11 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
               checked={form.deliveryEnabled}
               onChange={(v) => setForm({ ...form, deliveryEnabled: v })}
               label="Доставка"
+            />
+            <Toggle
+              checked={form.deliveriesPackageEnabled}
+              onChange={(v) => setForm({ ...form, deliveriesPackageEnabled: v })}
+              label="Пакет Доставки"
             />
             <Toggle
               checked={form.multiFarmer}

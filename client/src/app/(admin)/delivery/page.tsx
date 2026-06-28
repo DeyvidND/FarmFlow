@@ -11,11 +11,12 @@ const WEEK_TO = '2026-05-31';
 
 async function load(): Promise<{
   enabled: boolean;
+  packageEnabled: boolean;
   delivery: DeliveryConfig | null;
   slotFreeCount: number;
 }> {
   const token = cookies().get(SESSION_COOKIE)?.value;
-  if (!token) return { enabled: false, delivery: null, slotFreeCount: 0 };
+  if (!token) return { enabled: false, packageEnabled: false, delivery: null, slotFreeCount: 0 };
   const headers = { Authorization: `Bearer ${token}` };
 
   const [tRes, sRes] = await Promise.all([
@@ -30,13 +31,26 @@ async function load(): Promise<{
 
   return {
     enabled: !!tenant.deliveryEnabled,
+    // Absent (legacy payload) → treat as enabled so nothing hides unexpectedly.
+    packageEnabled: tenant.deliveriesPackageEnabled !== false,
     delivery: (tenant.delivery as DeliveryConfig | null) ?? null,
     slotFreeCount,
   };
 }
 
 export default async function DeliveryPage() {
-  const { enabled, delivery, slotFreeCount } = await load();
+  const { enabled, packageEnabled, delivery, slotFreeCount } = await load();
+  if (!packageEnabled) {
+    return (
+      <div className="animate-ff-fade-up mx-auto mt-10 max-w-[520px] rounded-[14px] border border-ff-border bg-ff-surface p-6 text-center">
+        <h1 className="font-display text-[20px] font-extrabold text-ff-ink">Доставки не са включени</h1>
+        <p className="mt-2 text-[14px] leading-relaxed text-ff-ink-2">
+          Пакетът „Доставки“ не е активен за този магазин. За да приемаш поръчки с куриер (Еконт/Speedy)
+          и да печаташ товарителници, се свържи с екипа на ФермериБГ да го активира.
+        </p>
+      </div>
+    );
+  }
   return (
     <DeliveryClient initialEnabled={enabled} initialDelivery={delivery} slotFreeCount={slotFreeCount} />
   );
