@@ -12,6 +12,7 @@ import { hydrateDelivery } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
 import { MethodsSection, GlobalRulesSection } from './methods-section';
 import { EcontConnectionSection } from './econt-section';
+import { SpeedyConnectionSection, CarrierPolicySection } from './speedy-section';
 import { OfficePickerPreview } from './office-picker-preview';
 import { ShipmentsTable } from './shipments-table';
 
@@ -55,6 +56,9 @@ export function DeliveryClient({
 
   const econtReady = cfg.econt.configured;
   const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
+  // The carrier-policy picker is only meaningful with BOTH carriers live (mirrors
+  // the server `comparisonActive`) — otherwise the single live carrier always wins.
+  const comparisonActive = econtMode === 'auto' && !!cfg.speedy?.configured;
 
   const save = async () => {
     setSaving(true);
@@ -108,6 +112,8 @@ export function DeliveryClient({
           </div>
         )}
         {econtMode !== 'off' && <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />}
+        {econtMode !== 'off' && <SpeedyConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />}
+        {comparisonActive && <CarrierPolicySection cfg={cfg} mut={mut} />}
         {econtMode === 'auto' && <OfficePickerPreview configured={econtReady} />}
         {econtMode === 'auto' && <ShipmentsTable toast={toastAdapter} />}
       </div>

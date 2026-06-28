@@ -23,6 +23,10 @@ import type {
   Slot,
   SlotRule,
   SlotRuleInput,
+  SpeedyConfig,
+  SpeedyOffice,
+  SpeedySenderSuggestion,
+  SpeedySite,
   StatsSummary,
   StatsRange,
   Subcategory,
@@ -792,6 +796,38 @@ export interface CodReconRow {
 }
 export const getCodReconciliation = () =>
   apiFetch<CodReconRow[]>('econt/cod-reconciliation');
+
+// ---- Speedy (second courier) ----
+/** Public Speedy config (GET /speedy/config) — encrypted password is stripped. */
+export interface SpeedyConfigView extends SpeedyConfig {
+  isDemo?: boolean;
+}
+
+export const getSpeedyConfig = () => apiFetch<SpeedyConfigView>('speedy/config');
+
+export const saveSpeedyCredentials = (data: {
+  env?: 'demo' | 'prod';
+  userName: string;
+  password: string;
+  clientSystemId?: number;
+  defaultServiceId?: number;
+}) =>
+  apiFetch<{ configured: true }>(
+    'speedy/credentials',
+    { method: 'POST', ...json(data) },
+    'Неуспешна връзка със Speedy — провери данните',
+  );
+
+/** Live Speedy settlement autocomplete (requires a connected Speedy account). */
+export const listSpeedySites = (q?: string) =>
+  apiFetch<SpeedySite[]>(`speedy/sites${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+
+/** Live Speedy offices for one settlement — sender office picker. */
+export const listSpeedyOffices = (siteId: number) =>
+  apiFetch<SpeedyOffice[]>(`speedy/offices?siteId=${siteId}`);
+
+/** Speedy contract-client suggestions to prefill the sender profile. */
+export const listSpeedyProfiles = () => apiFetch<SpeedySenderSuggestion[]>('speedy/profiles');
 
 // ---- Newsletters ----
 export interface Subscriber {

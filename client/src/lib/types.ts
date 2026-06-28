@@ -253,6 +253,40 @@ export interface EcontConfig {
   nomenclature: { lastSyncedAt: string; cities: number; offices: number };
 }
 
+/** Sender profile for Speedy waybills (id-based addresses). Mirrors the server
+ *  `SpeedyStored.sender`; `siteName` is a client-only display label. */
+export interface SpeedySender {
+  contactName?: string;
+  phone?: string;
+  mode?: 'office' | 'address';
+  officeId?: number;
+  officeName?: string;
+  siteId?: number;
+  siteName?: string;
+  streetId?: number;
+  streetName?: string;
+  streetNo?: string;
+}
+
+/** Per-tenant Speedy config (settings.delivery.speedy). The encrypted password is
+ *  owned by the server and never reaches the client (mirrors EcontConfig). */
+export interface SpeedyConfig {
+  env?: 'demo' | 'prod';
+  /** True once credentials have been validated + saved. */
+  configured?: boolean;
+  userName?: string;
+  clientSystemId?: number;
+  /** Default Speedy courier-service code used for estimates. */
+  defaultServiceId?: number;
+  sender?: SpeedySender;
+  defaultPackage?: { parcelsCount?: number; weightKg?: number; contents?: string };
+  cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
+  label?: { autoCreate?: boolean };
+}
+
+/** Which carrier fulfils a door order when the farm runs BOTH carriers. */
+export type CarrierPolicy = 'customer' | 'cheapest' | 'econt' | 'speedy';
+
 /** The full per-tenant delivery config blob (without the master `enabled` flag,
  *  which maps to the tenant's `deliveryEnabled` column). */
 export interface DeliveryConfig {
@@ -260,10 +294,35 @@ export interface DeliveryConfig {
   schedule: DeliverySchedule;
   pricing: DeliveryPricing;
   econt: EcontConfig;
+  /** Live Speedy integration (second courier). Absent → not offered. */
+  speedy?: SpeedyConfig;
+  /** Which carrier wins a door order when both are live. Absent → 'customer'. */
+  carrierPolicy?: CarrierPolicy;
   /** Customer-facing наложен платеж (COD) toggle. Absent → treated as enabled. */
   cod?: { enabled: boolean };
   /** Card (online/Stripe) toggle. Absent → enabled; off → COD-only even with Stripe connected. */
   card?: { enabled: boolean };
+}
+
+/** A Speedy settlement (нас. място) for the sender-site autocomplete. */
+export interface SpeedySite {
+  id: number;
+  name: string;
+  postCode: string | null;
+}
+
+/** A Speedy office for the sender office picker. */
+export interface SpeedyOffice {
+  id: number;
+  name: string;
+  address: string | null;
+}
+
+/** A Speedy contract-client suggestion (prefills the sender profile). */
+export interface SpeedySenderSuggestion {
+  name: string;
+  phone: string;
+  clientNumber: string | null;
 }
 
 /** Econt office nomenclature row (global, mock for now). */
