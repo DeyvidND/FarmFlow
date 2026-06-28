@@ -63,4 +63,18 @@ describe('buildQuoteResult', () => {
       expect(r.selected).toBeNull();
     });
   });
+
+  describe('courier markup', () => {
+    it('adds markup to each available price; ordering + cheapest unchanged', () => {
+      const r = buildQuoteResult(450, 390, 'customer', 100);
+      expect(r.quotes.find((q) => q.carrier === 'econt')!.priceStotinki).toBe(550);
+      expect(r.quotes.find((q) => q.carrier === 'speedy')!.priceStotinki).toBe(490);
+      expect(r.cheapest).toBe('speedy'); // still the cheaper after a uniform markup
+    });
+    it('leaves an unavailable (null) carrier null', () => {
+      const r = buildQuoteResult(450, null, 'customer', 100);
+      expect(r.quotes.find((q) => q.carrier === 'econt')!.priceStotinki).toBe(550);
+      expect(r.quotes.find((q) => q.carrier === 'speedy')!.priceStotinki).toBeNull();
+    });
+  });
 });

@@ -31,6 +31,6 @@ export class PublicShippingQuoteController {
     if (!meta.comparisonActive) {
       return { quotes: [], cheapest: null, policy: meta.carrierPolicy, selected: null };
     }
-    return this.quote.compare(meta.id, dto, meta.carrierPolicy);
+    return this.quote.compare(meta.id, dto, meta.carrierPolicy, meta.courierMarkupStotinki);
   }
 }

@@ -242,3 +242,39 @@ describe('CheckoutService.shippingStotinki (cheapest policy → picks + persists
     expect(db.set).not.toHaveBeenCalled();
   });
 });
+
+describe('CheckoutService.shippingStotinki (courier markup)', () => {
+  const markupCfg = {
+    econt: { mode: 'auto' },
+    speedy: { configured: true },
+    pricing: { freeThresholdStotinki: 0, courierMarkupStotinki: 80 },
+  } as const;
+
+  it('adds the markup on top of a live Speedy door quote', async () => {
+    const speedyStub = {
+      searchSites: jest.fn().mockResolvedValue([{ id: 100 }]),
+      estimateShipping: jest.fn().mockResolvedValue(420),
+    };
+    const { svc } = build(makeOrder(), { speedy: speedyStub });
+    const fee = await (svc as any).shippingStotinki(speedyOrder(), 3000, markupCfg);
+    expect(fee).toBe(500); // 420 live + 80 markup
+  });
+
+  it('adds the markup on top of the flat fallback when the carrier is unreachable', async () => {
+    const speedyStub = { searchSites: jest.fn().mockResolvedValue([]), estimateShipping: jest.fn() };
+    const { svc } = build(makeOrder(), { speedy: speedyStub });
+    const fee = await (svc as any).shippingStotinki(speedyOrder(), 3000, markupCfg);
+    expect(fee).toBe(670); // 590 fallback + 80 markup
+  });
+
+  it('free-over threshold still zeroes a marked-up courier fee', async () => {
+    const speedyStub = {
+      searchSites: jest.fn().mockResolvedValue([{ id: 100 }]),
+      estimateShipping: jest.fn().mockResolvedValue(420),
+    };
+    const { svc } = build(makeOrder(), { speedy: speedyStub });
+    const cfg = { ...markupCfg, pricing: { freeThresholdStotinki: 2000, courierMarkupStotinki: 80 } };
+    const fee = await (svc as any).shippingStotinki(speedyOrder(), 3000, cfg); // subtotal 3000 ≥ 2000
+    expect(fee).toBe(0);
+  });
+});

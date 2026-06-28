@@ -82,6 +82,8 @@ export function MethodsSection({
               slotFreeCount={slotFreeCount}
               freeThreshold={cfg.pricing.freeThresholdStotinki}
               onFreeThresholdChange={(v) => mut((d) => (d.pricing.freeThresholdStotinki = v))}
+              markup={cfg.pricing.courierMarkupStotinki ?? 0}
+              onMarkupChange={(v) => mut((d) => (d.pricing.courierMarkupStotinki = v))}
             />
           ))}
         </div>
@@ -106,6 +108,8 @@ function MethodCard({
   slotFreeCount,
   freeThreshold,
   onFreeThresholdChange,
+  markup,
+  onMarkupChange,
 }: {
   mkey: DeliveryMethodKey;
   m: DeliveryMethod;
@@ -113,12 +117,17 @@ function MethodCard({
   slotFreeCount: number;
   freeThreshold: number;
   onFreeThresholdChange: (v: number) => void;
+  markup: number;
+  onMarkupChange: (v: number) => void;
 }) {
   const router = useRouter();
   const meta = METHOD_META[mkey];
   const Icon = METHOD_ICON[mkey];
   const patch = (fn: (x: DeliveryMethod) => void) => mut((d) => fn(d.methods[mkey]));
   const hasPricing = mkey !== 'pickup';
+  // Courier markup (farm's margin on the Econt/Speedy price) applies to the courier
+  // methods only — the live courier price is what it sits on top of.
+  const isCourier = mkey === 'econtOffice' || mkey === 'econtAddress';
 
   return (
     <div className="overflow-hidden rounded-xl border border-ff-green-100 bg-ff-green-50">
@@ -252,6 +261,18 @@ function MethodCard({
                 value={m.minOrderStotinki ?? 0}
                 onChange={(v) => patch((x) => (x.minOrderStotinki = v))}
               />
+            )}
+            {isCourier && (
+              <div className="sm:col-span-2">
+                <LvInput
+                  label="Надценка върху куриерската цена"
+                  value={markup}
+                  onChange={onMarkupChange}
+                />
+                <p className="mt-1.5 text-[12.5px] text-ff-muted">
+                  Добавя се върху цената на куриера, която клиентът плаща (твоят марж). 0 = без надценка.
+                </p>
+              </div>
             )}
           </>
         )}

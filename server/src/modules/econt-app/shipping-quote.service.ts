@@ -25,7 +25,12 @@ export class ShippingQuoteService {
     private readonly speedy: SpeedyService,
   ) {}
 
-  async compare(tenantId: string, input: CompareShipmentDto, policy: CarrierPolicy = 'customer'): Promise<QuoteResult> {
+  async compare(
+    tenantId: string,
+    input: CompareShipmentDto,
+    policy: CarrierPolicy = 'customer',
+    markupStotinki = 0,
+  ): Promise<QuoteResult> {
     // Resolve one weight up front and price both carriers at it (fair compare).
     const weightGrams = input.weightGrams ?? DEFAULT_WEIGHT_GRAMS;
     // COD surcharge must flow to both carriers so the comparison stays honest.
@@ -37,7 +42,7 @@ export class ShippingQuoteService {
     ]);
     const econtStotinki = econtRes.status === 'fulfilled' ? econtRes.value : null;
     const speedyStotinki = speedyRes.status === 'fulfilled' ? speedyRes.value : null;
-    return buildQuoteResult(econtStotinki, speedyStotinki, policy);
+    return buildQuoteResult(econtStotinki, speedyStotinki, policy, markupStotinki);
   }
 
   /** Econt city-level estimate (door-to-city), priced at the shared weight. */

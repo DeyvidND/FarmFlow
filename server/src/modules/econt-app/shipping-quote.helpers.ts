@@ -34,10 +34,16 @@ export function buildQuoteResult(
   econtStotinki: number | null,
   speedyStotinki: number | null,
   policy: CarrierPolicy = 'customer',
+  markupStotinki = 0,
 ): QuoteResult {
+  // The farm's courier markup is added to each available price so the picker shows
+  // exactly what checkout will charge. Uniform across carriers → ordering unchanged.
+  const withMarkup = (p: number | null) => (p == null ? null : p + markupStotinki);
+  const econt = withMarkup(econtStotinki);
+  const speedy = withMarkup(speedyStotinki);
   const raw: CarrierQuote[] = [
-    { carrier: 'econt', priceStotinki: econtStotinki, available: econtStotinki != null },
-    { carrier: 'speedy', priceStotinki: speedyStotinki, available: speedyStotinki != null },
+    { carrier: 'econt', priceStotinki: econt, available: econt != null },
+    { carrier: 'speedy', priceStotinki: speedy, available: speedy != null },
   ];
   const quotes = [...raw].sort((a, b) => {
     if (a.available !== b.available) return a.available ? -1 : 1;

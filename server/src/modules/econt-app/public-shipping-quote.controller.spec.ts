@@ -34,13 +34,14 @@ describe('PublicShippingQuoteController.compare', () => {
       id: 't1',
       comparisonActive: true,
       carrierPolicy: 'cheapest',
+      courierMarkupStotinki: 200,
     });
     (quote.compare as jest.Mock).mockResolvedValue(quoteResult);
 
     const ctrl = new PublicShippingQuoteController(db, tenantCache, quote);
     const result = await ctrl.compare('test-farm', DTO);
 
-    expect((quote.compare as jest.Mock)).toHaveBeenCalledWith('t1', DTO, 'cheapest');
+    expect((quote.compare as jest.Mock)).toHaveBeenCalledWith('t1', DTO, 'cheapest', 200);
     expect(result).toBe(quoteResult);
   });
 });
