@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Truck, Zap, Plug, CheckCircle2, XCircle, AlertTriangle, Check, Sparkles, MapPin } from 'lucide-react';
 import {
   ApiError, getAccountStatus, getEcontConfig, getSpeedyConfig, saveEcontCredentials, saveSpeedyCredentials,
+  disconnectEcont, disconnectSpeedy,
   type EcontConfig, type SpeedyConfig,
 } from '@/lib/api-client';
 import { getImportPrefs, setImportPref, type ImportPrefs } from '@/lib/import-prefs';
@@ -216,6 +217,9 @@ export function SettingsClient() {
   const [savingE, setSavingE] = useState(false);
   const [savingS, setSavingS] = useState(false);
 
+  const [editE, setEditE] = useState(false);
+  const [editS, setEditS] = useState(false);
+
   useEffect(() => {
     getAccountStatus()
       .then((s) => setActive(s.active))
@@ -252,6 +256,7 @@ export function SettingsClient() {
       // Use the save response to flip the badge instead of re-fetching the whole
       // config (the mount-loaded fields are still valid; only `configured` changes).
       setEcont((c) => ({ ...(c ?? {}), configured: res.configured }));
+      setEditE(false);
     } catch (err) { toast.error(errMsg(err)); } finally { setSavingE(false); }
   }
 
@@ -267,7 +272,30 @@ export function SettingsClient() {
       setSpeedyForm((f) => ({ ...f, password: '' }));
       // Use the save response to flip the badge instead of re-fetching the whole config.
       setSpeedy((c) => ({ ...(c ?? {}), configured: res.configured }));
+      setEditS(false);
     } catch (err) { toast.error(errMsg(err)); } finally { setSavingS(false); }
+  }
+
+  async function disconnectEcontFn() {
+    if (!confirm('Да премахна ли връзката с Еконт? Данните на подателя се запазват.')) return;
+    try {
+      await disconnectEcont();
+      setEcont((c) => ({ ...(c ?? {}), configured: false }));
+      setEcontForm({ username: '', password: '' });
+      setEditE(false);
+      toast.success('Еконт е премахнат');
+    } catch (e) { toast.error(errMsg(e)); }
+  }
+
+  async function disconnectSpeedyFn() {
+    if (!confirm('Да премахна ли връзката със Speedy? Данните на подателя се запазват.')) return;
+    try {
+      await disconnectSpeedy();
+      setSpeedy((c) => ({ ...(c ?? {}), configured: false }));
+      setSpeedyForm({ userName: '', password: '' });
+      setEditS(false);
+      toast.success('Speedy е премахнат');
+    } catch (e) { toast.error(errMsg(e)); }
   }
 
   const btn = 'inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-ff-green-700 px-4 text-[13.5px] font-bold text-white hover:brightness-95 disabled:opacity-60';
@@ -341,21 +369,34 @@ export function SettingsClient() {
                     <StatusBadge configured={!!econt?.configured} />
                   </div>
 
-                  <div className="mt-4 space-y-3">
-                    <EnvRow isDemo={isDemo} />
-                    <div>
-                      <label className={lbl} htmlFor="econt-user">Потребител</label>
-                      <input id="econt-user" className={inp} autoComplete="off" value={econtForm.username} onChange={(e) => setEcontForm({ ...econtForm, username: e.target.value })} />
+                  {econt?.configured && !editE ? (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-2 text-[13.5px] font-bold text-ff-green-700">
+                        <CheckCircle2 size={16} /> Свързан{econt?.username ? <span className="text-ff-ink-2 font-semibold"> · потребител {econt.username}</span> : null}
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <button type="button" onClick={() => setEditE(true)} className="rounded-xl border border-ff-border px-4 py-2 text-[13px] font-bold">Промени</button>
+                        <button type="button" onClick={disconnectEcontFn} className="rounded-xl border border-[#e7b8b0] px-4 py-2 text-[13px] font-bold text-ff-red">Премахни</button>
+                      </div>
                     </div>
-                    <div>
-                      <label className={lbl} htmlFor="econt-pass">Парола</label>
-                      <input id="econt-pass" type="password" className={inp} autoComplete="new-password" placeholder={econt?.configured ? 'Въведи нова, за да смениш' : ''} value={econtForm.password} onChange={(e) => setEcontForm({ ...econtForm, password: e.target.value })} />
-                    </div>
-                  </div>
-
-                  <button type="submit" disabled={savingE || !econtForm.username.trim() || !econtForm.password} className={btn + ' mt-4 w-full'}>
-                    <Plug size={16} /> {savingE ? 'Запазвам…' : 'Запази'}
-                  </button>
+                  ) : (
+                    <>
+                      <div className="mt-4 space-y-3">
+                        <EnvRow isDemo={isDemo} />
+                        <div>
+                          <label className={lbl} htmlFor="econt-user">Потребител</label>
+                          <input id="econt-user" className={inp} autoComplete="off" value={econtForm.username} onChange={(e) => setEcontForm({ ...econtForm, username: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className={lbl} htmlFor="econt-pass">Парола</label>
+                          <input id="econt-pass" type="password" className={inp} autoComplete="new-password" placeholder={econt?.configured ? 'Въведи нова, за да смениш' : ''} value={econtForm.password} onChange={(e) => setEcontForm({ ...econtForm, password: e.target.value })} />
+                        </div>
+                      </div>
+                      <button type="submit" disabled={savingE || !econtForm.username.trim() || !econtForm.password} className={btn + ' mt-4 w-full'}>
+                        <Plug size={16} /> {savingE ? 'Запазвам…' : 'Запази'}
+                      </button>
+                    </>
+                  )}
                 </form>
 
                 {/* ---- Speedy ---- */}
@@ -370,21 +411,34 @@ export function SettingsClient() {
                     <StatusBadge configured={!!speedy?.configured} />
                   </div>
 
-                  <div className="mt-4 space-y-3">
-                    <EnvRow isDemo={isDemo} />
-                    <div>
-                      <label className={lbl} htmlFor="speedy-user">Потребител</label>
-                      <input id="speedy-user" className={inp} autoComplete="off" value={speedyForm.userName} onChange={(e) => setSpeedyForm({ ...speedyForm, userName: e.target.value })} />
+                  {speedy?.configured && !editS ? (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-2 text-[13.5px] font-bold text-ff-green-700">
+                        <CheckCircle2 size={16} /> Свързан{speedy?.userName ? <span className="text-ff-ink-2 font-semibold"> · потребител {speedy.userName}</span> : null}
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <button type="button" onClick={() => setEditS(true)} className="rounded-xl border border-ff-border px-4 py-2 text-[13px] font-bold">Промени</button>
+                        <button type="button" onClick={disconnectSpeedyFn} className="rounded-xl border border-[#e7b8b0] px-4 py-2 text-[13px] font-bold text-ff-red">Премахни</button>
+                      </div>
                     </div>
-                    <div>
-                      <label className={lbl} htmlFor="speedy-pass">Парола</label>
-                      <input id="speedy-pass" type="password" className={inp} autoComplete="new-password" placeholder={speedy?.configured ? 'Въведи нова, за да смениш' : ''} value={speedyForm.password} onChange={(e) => setSpeedyForm({ ...speedyForm, password: e.target.value })} />
-                    </div>
-                  </div>
-
-                  <button type="submit" disabled={savingS || !speedyForm.userName.trim() || !speedyForm.password} className={btn + ' mt-4 w-full'}>
-                    <Plug size={16} /> {savingS ? 'Запазвам…' : 'Запази'}
-                  </button>
+                  ) : (
+                    <>
+                      <div className="mt-4 space-y-3">
+                        <EnvRow isDemo={isDemo} />
+                        <div>
+                          <label className={lbl} htmlFor="speedy-user">Потребител</label>
+                          <input id="speedy-user" className={inp} autoComplete="off" value={speedyForm.userName} onChange={(e) => setSpeedyForm({ ...speedyForm, userName: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className={lbl} htmlFor="speedy-pass">Парола</label>
+                          <input id="speedy-pass" type="password" className={inp} autoComplete="new-password" placeholder={speedy?.configured ? 'Въведи нова, за да смениш' : ''} value={speedyForm.password} onChange={(e) => setSpeedyForm({ ...speedyForm, password: e.target.value })} />
+                        </div>
+                      </div>
+                      <button type="submit" disabled={savingS || !speedyForm.userName.trim() || !speedyForm.password} className={btn + ' mt-4 w-full'}>
+                        <Plug size={16} /> {savingS ? 'Запазвам…' : 'Запази'}
+                      </button>
+                    </>
+                  )}
                 </form>
               </div>
             </>
