@@ -14,6 +14,17 @@ import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewStatusDto } from './dto/update-review-status.dto';
 import { orderReviewsByIds } from './home-reviews';
 
+/**
+ * Defense-in-depth: reviews are plain text. Strip any HTML tags on submit so a
+ * stored `<script>`/`<img onerror>` can never execute even if a downstream
+ * (e.g. third-party) storefront renders the body as raw HTML. Known renderers
+ * already escape at output; this removes the markup at the source. Preserves
+ * text content and line breaks; only tags are dropped.
+ */
+export function stripTags(s: string | null | undefined): string {
+  return (s ?? '').replace(/<[^>]*>/g, '').trim();
+}
+
 /** Cap on reviews returned to the storefront; count/average still cover all. */
 const PUBLIC_REVIEWS_LIMIT = 60;
 
@@ -149,10 +160,10 @@ export class ReviewsService {
     await this.db.insert(reviews).values({
       tenantId,
       productId: dto.productId ?? null,
-      authorName: dto.authorName.trim(),
-      authorLocation: dto.authorLocation?.trim() || null,
+      authorName: stripTags(dto.authorName),
+      authorLocation: stripTags(dto.authorLocation) || null,
       rating: dto.rating,
-      body: dto.body.trim(),
+      body: stripTags(dto.body),
       status: 'pending',
     });
     return { ok: true, status: 'pending' };
