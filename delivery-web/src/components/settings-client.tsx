@@ -8,6 +8,7 @@ import {
   type EcontConfig, type SpeedyConfig,
 } from '@/lib/api-client';
 import { getImportPrefs, setImportPref, type ImportPrefs } from '@/lib/import-prefs';
+import { CarrierProfileSection } from './carrier-profile-section';
 import { cn } from '@/lib/utils';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -45,10 +46,11 @@ function EnvRow({ isDemo }: { isDemo: boolean | null }) {
   );
 }
 
-type Section = 'carriers' | 'checks' | 'password';
+type Section = 'carriers' | 'profile' | 'checks' | 'password';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'carriers', label: 'Куриерски акаунти' },
+  { id: 'profile', label: 'Профил на подател' },
   { id: 'checks', label: 'Проверки при внос' },
   { id: 'password', label: 'Смяна на парола' },
 ];
@@ -389,6 +391,8 @@ export function SettingsClient() {
               </div>
             </>
           )}
+
+          {section === 'profile' && <CarrierProfileSection />}
 
           {section === 'checks' && <ChecksSection />}
 

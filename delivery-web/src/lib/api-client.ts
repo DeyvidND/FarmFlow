@@ -274,6 +274,10 @@ export const riskReport = async (shipmentId: string): Promise<{ reported: true }
 
 /* ------------------------------- settings --------------------------------- */
 
+export interface EcontSender {
+  name?: string; phone?: string; cityId?: number; cityName?: string;
+  mode?: 'office' | 'address'; officeCode?: string; address?: string;
+}
 /** Econt config blob (credentials stripped of the encrypted password). */
 export interface EcontConfig {
   configured?: boolean;
@@ -281,7 +285,15 @@ export interface EcontConfig {
   /** Account-derived (super-admin demo flag); the operator can't change it. */
   isDemo?: boolean;
   username?: string;
+  sender?: EcontSender;
+  defaultPackage?: { weightKg?: number; contents?: string; dimensions?: string };
+  cod?: { enabled?: boolean; feePayer?: 'customer' | 'farm' };
+  label?: { paper?: 'A4' | 'A6'; autoCreate?: boolean };
   [k: string]: unknown;
+}
+export interface SpeedySender {
+  contactName?: string; phone?: string; mode?: 'office' | 'address';
+  officeId?: number; siteId?: number; siteName?: string; streetId?: number; streetNo?: string;
 }
 /** Speedy config blob (credentials stripped of the encrypted password). */
 export interface SpeedyConfig {
@@ -292,8 +304,47 @@ export interface SpeedyConfig {
   userName?: string;
   clientSystemId?: number;
   defaultServiceId?: number;
+  sender?: SpeedySender;
+  defaultPackage?: { parcelsCount?: number; weightKg?: number; contents?: string };
+  cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
+  label?: { autoCreate?: boolean };
   [k: string]: unknown;
 }
+
+/** Live nomenclature rows for the sender pickers. */
+export interface EcontCity { id: number; name: string; postCode: string | null; }
+export interface EcontOfficeLive { code: string; name: string; city: string | null; address: string | null; }
+export interface SpeedySite { id: number; name: string; postCode: string | null; }
+export interface SpeedyOffice { id: number; name: string; address: string | null; }
+
+export const listEcontCities = async (q?: string): Promise<EcontCity[]> =>
+  (await bff(`shipping/cities${q ? `?q=${encodeURIComponent(q)}` : ''}`)).json();
+export const listEcontOffices = async (cityId: number): Promise<EcontOfficeLive[]> =>
+  (await bff(`shipping/offices?cityId=${cityId}`)).json();
+export const listSpeedySites = async (q?: string): Promise<SpeedySite[]> =>
+  (await bff(`speedy/sites${q ? `?q=${encodeURIComponent(q)}` : ''}`)).json();
+export const listSpeedyOffices = async (siteId: number): Promise<SpeedyOffice[]> =>
+  (await bff(`speedy/offices?siteId=${siteId}`)).json();
+
+/** Save the Econt sender/package/COD profile (credentials are saved separately). */
+export const saveEcontProfile = async (body: {
+  sender?: EcontSender;
+  defaultPackage?: { weightKg?: number; contents?: string };
+  cod?: { enabled?: boolean; feePayer?: 'customer' | 'farm' };
+}): Promise<{ ok: true }> =>
+  (await bff('shipping/profile', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }, 'Запазването се провали')).json();
+
+/** Save the Speedy sender/package/COD profile. */
+export const saveSpeedyProfile = async (body: {
+  sender?: SpeedySender;
+  defaultPackage?: { parcelsCount?: number; weightKg?: number; contents?: string };
+  cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
+}): Promise<{ ok: true }> =>
+  (await bff('speedy/profile', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }, 'Запазването се провали')).json();
 
 export interface EcontCredentialsInput {
   env?: 'demo' | 'prod';
