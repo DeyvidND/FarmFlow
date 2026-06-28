@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { ApiError, saveDelivery } from '@/lib/api-client';
 import { hydrateDelivery } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
-import { MethodsSection } from './methods-section';
+import { MethodsSection, GlobalRulesSection } from './methods-section';
 import { EcontConnectionSection } from './econt-section';
 import { OfficePickerPreview } from './office-picker-preview';
 import { ShipmentsTable } from './shipments-table';
@@ -98,6 +98,7 @@ export function DeliveryClient({
 
       <div className="flex flex-col gap-4">
         <MethodsSection cfg={cfg} mut={mut} slotFreeCount={slotFreeCount} />
+        <GlobalRulesSection cfg={cfg} mut={mut} />
         {econtMode !== 'off' && !econtReady && (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
             <AlertTriangle size={16} className="shrink-0 text-ff-amber-600" />
