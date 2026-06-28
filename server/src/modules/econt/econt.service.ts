@@ -466,6 +466,19 @@ export class EcontService implements CarrierAdapter {
 
   /* ------------------------------- shipments ------------------------------- */
 
+  /** Read the carrier-agnostic handling policy off the tenant settings blob.
+   *  Defensive: any missing/odd shape → everything off. */
+  private resolveHandling(settings: unknown): { refrigerated: boolean; inspectBeforePay: InspectMode } {
+    const s = (settings as Record<string, unknown> | null) ?? {};
+    const delivery = (s.delivery as Record<string, unknown> | null) ?? {};
+    const h = (delivery.handling as Record<string, unknown> | null) ?? {};
+    const mode = h.inspectBeforePay;
+    return {
+      refrigerated: h.refrigerated === true,
+      inspectBeforePay: mode === 'open' || mode === 'test' ? mode : 'off',
+    };
+  }
+
   private async orderForShipment(tenantId: string, orderId: string) {
     const [order] = await this.db
       .select()
@@ -766,9 +779,14 @@ export class EcontService implements CarrierAdapter {
   async createLabel(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
     // Share one settings read between loadStored and the callTenant→resolveCreds below.
     const store = new Map<string, unknown>();
-    const { econt } = await this.loadStored(tenantId, store);
+    const { tenant, econt } = await this.loadStored(tenantId, store);
     const { order, items } = await this.orderForShipment(tenantId, orderId);
-    const label = this.buildLabel(econt, order, items);
+    const handling = this.resolveHandling(tenant.settings);
+    const label = this.buildLabel(
+      econt,
+      { ...order, refrigerated: handling.refrigerated, inspectBeforePay: handling.inspectBeforePay },
+      items,
+    );
     const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
       label,
       mode: 'create',

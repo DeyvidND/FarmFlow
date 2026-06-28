@@ -171,6 +171,26 @@ describe('EcontService.buildLabel', () => {
   });
 });
 
+describe('EcontService.resolveHandling', () => {
+  const svc = new EcontService(
+    {} as never, { get: () => '' } as never, {} as never, {} as never, {} as never,
+  );
+  const resolve = (settings: unknown): { refrigerated: boolean; inspectBeforePay: string } =>
+    (svc as unknown as { resolveHandling: (s: unknown) => { refrigerated: boolean; inspectBeforePay: string } })
+      .resolveHandling(settings);
+
+  it('reads handling from settings.delivery.handling', () => {
+    expect(resolve({ delivery: { handling: { inspectBeforePay: 'open', refrigerated: true } } }))
+      .toEqual({ refrigerated: true, inspectBeforePay: 'open' });
+  });
+
+  it('defaults to off/false when absent or shapeless', () => {
+    expect(resolve({})).toEqual({ refrigerated: false, inspectBeforePay: 'off' });
+    expect(resolve(null)).toEqual({ refrigerated: false, inspectBeforePay: 'off' });
+    expect(resolve({ delivery: {} })).toEqual({ refrigerated: false, inspectBeforePay: 'off' });
+  });
+});
+
 describe('EcontService.codAmountFor', () => {
   const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
   const cod = (order: Record<string, unknown>): number | null =>
