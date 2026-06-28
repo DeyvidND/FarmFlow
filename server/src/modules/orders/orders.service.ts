@@ -31,7 +31,7 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from './carrier-fulfillment.service';
-import { buildPublicMethods, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
+import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { scheduledForDay } from './order-scheduling';
 import { decideDecrement, restoreRemaining } from '../availability/availability.util';
 
@@ -989,7 +989,18 @@ export class OrdersService {
     const deliveryCfg = (tenant.settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
     let carrier: 'econt' | 'speedy' | null = null;
     if (method === 'econt_address') {
-      carrier = dto.carrier ?? (econtMode(deliveryCfg) === 'auto' ? 'econt' : speedyEnabled(deliveryCfg) ? 'speedy' : 'econt');
+      const policy = carrierPolicy(deliveryCfg);
+      if (policy === 'econt' || policy === 'speedy') {
+        // Farm forces one carrier — the customer's pick is ignored.
+        carrier = policy;
+      } else if (policy === 'cheapest') {
+        // Leave unresolved: the checkout prices both door carriers and persists
+        // the cheaper one before fulfillment dispatches.
+        carrier = null;
+      } else {
+        // 'customer' — the storefront picker's choice, with a live-carrier default.
+        carrier = dto.carrier ?? (econtMode(deliveryCfg) === 'auto' ? 'econt' : speedyEnabled(deliveryCfg) ? 'speedy' : 'econt');
+      }
       if (carrier === 'speedy' && !speedyEnabled(deliveryCfg)) {
         throw new BadRequestException('Избраният куриер не е наличен.');
       }

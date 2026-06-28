@@ -3,6 +3,7 @@ import { EcontService } from '../econt/econt.service';
 import { SpeedyService } from '../speedy/speedy.service';
 import { CompareShipmentDto } from './dto/compare-shipment.dto';
 import { buildQuoteResult, type QuoteResult } from './shipping-quote.helpers';
+import type { CarrierPolicy } from '../orders/delivery-pricing';
 
 // Shared default weight (grams) when the producer leaves it blank. Applied to BOTH
 // carriers so the compare always prices the SAME parcel — otherwise each carrier
@@ -24,7 +25,7 @@ export class ShippingQuoteService {
     private readonly speedy: SpeedyService,
   ) {}
 
-  async compare(tenantId: string, input: CompareShipmentDto): Promise<QuoteResult> {
+  async compare(tenantId: string, input: CompareShipmentDto, policy: CarrierPolicy = 'customer'): Promise<QuoteResult> {
     // Resolve one weight up front and price both carriers at it (fair compare).
     const weightGrams = input.weightGrams ?? DEFAULT_WEIGHT_GRAMS;
     // COD surcharge must flow to both carriers so the comparison stays honest.
@@ -36,7 +37,7 @@ export class ShippingQuoteService {
     ]);
     const econtStotinki = econtRes.status === 'fulfilled' ? econtRes.value : null;
     const speedyStotinki = speedyRes.status === 'fulfilled' ? speedyRes.value : null;
-    return buildQuoteResult(econtStotinki, speedyStotinki);
+    return buildQuoteResult(econtStotinki, speedyStotinki, policy);
   }
 
   /** Econt city-level estimate (door-to-city), priced at the shared weight. */

@@ -29,8 +29,8 @@ export class PublicShippingQuoteController {
   async compare(@Param('slug') slug: string, @Body() dto: CompareShipmentDto) {
     const meta = await this.tenantCache.resolveTenant(this.db, slug);
     if (!meta.comparisonActive) {
-      return { quotes: [], cheapest: null };
+      return { quotes: [], cheapest: null, policy: meta.carrierPolicy, selected: null };
     }
-    return this.quote.compare(meta.id, dto);
+    return this.quote.compare(meta.id, dto, meta.carrierPolicy);
   }
 }

@@ -11,6 +11,7 @@ import {
   speedyEnabled,
   comparisonActive,
   courierDoorEnabled,
+  carrierPolicy,
 } from './delivery-pricing';
 
 describe('delivery-pricing', () => {
@@ -138,5 +139,13 @@ describe('carrier-comparison helpers', () => {
     expect(courierDoorEnabled({ methods: { econtAddress: { enabled: true } } } as any)).toBe(true);
     expect(courierDoorEnabled({ speedy: { configured: true } } as any)).toBe(true);
     expect(courierDoorEnabled({} as any)).toBe(false);
+  });
+  it('carrierPolicy defaults to customer; echoes a valid saved policy; rejects junk', () => {
+    expect(carrierPolicy(null)).toBe('customer');
+    expect(carrierPolicy({} as any)).toBe('customer');
+    expect(carrierPolicy({ carrierPolicy: 'cheapest' } as any)).toBe('cheapest');
+    expect(carrierPolicy({ carrierPolicy: 'econt' } as any)).toBe('econt');
+    expect(carrierPolicy({ carrierPolicy: 'speedy' } as any)).toBe('speedy');
+    expect(carrierPolicy({ carrierPolicy: 'bogus' } as any)).toBe('customer');
   });
 });

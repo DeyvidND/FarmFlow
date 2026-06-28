@@ -189,3 +189,56 @@ describe('CheckoutService.shippingStotinki (Speedy door path)', () => {
     expect(fee).toBe(590);
   });
 });
+
+/** cheapest-policy cfg: both carriers live, server prices both and ships the cheaper. */
+const cheapestCfg = {
+  econt: { mode: 'auto' },
+  speedy: { configured: true },
+  pricing: { freeThresholdStotinki: 0 },
+  carrierPolicy: 'cheapest',
+} as const;
+
+describe('CheckoutService.shippingStotinki (cheapest policy → picks + persists cheaper carrier)', () => {
+  it('Speedy cheaper → carrier persisted to speedy, fee = speedy price', async () => {
+    const speedyStub = {
+      searchSites: jest.fn().mockResolvedValue([{ id: 100 }]),
+      estimateShipping: jest.fn().mockResolvedValue(420),
+    };
+    const { svc, db, econt } = build(makeOrder(), { speedy: speedyStub });
+    (econt.estimateShipping as jest.Mock).mockResolvedValue(500); // econt dearer
+    const order = speedyOrder({ id: 'order-9', carrier: null });
+    const fee = await (svc as any).shippingStotinki(order, 3000, cheapestCfg);
+    expect(fee).toBe(420);
+    expect(order.carrier).toBe('speedy'); // mutated for the rest of checkout
+    expect(db.set).toHaveBeenCalledWith({ carrier: 'speedy' }); // persisted for fulfillment
+  });
+
+  it('Econt cheaper (and tie) → carrier persisted to econt, fee = econt price', async () => {
+    const speedyStub = {
+      searchSites: jest.fn().mockResolvedValue([{ id: 100 }]),
+      estimateShipping: jest.fn().mockResolvedValue(500), // speedy dearer
+    };
+    const { svc, db, econt } = build(makeOrder(), { speedy: speedyStub });
+    (econt.estimateShipping as jest.Mock).mockResolvedValue(420);
+    const order = speedyOrder({ id: 'order-10', carrier: null });
+    const fee = await (svc as any).shippingStotinki(order, 3000, cheapestCfg);
+    expect(fee).toBe(420);
+    expect(order.carrier).toBe('econt');
+    expect(db.set).toHaveBeenCalledWith({ carrier: 'econt' });
+  });
+
+  it('neither carrier prices → falls through to the normal path (no carrier persisted)', async () => {
+    const speedyStub = {
+      searchSites: jest.fn().mockResolvedValue([]), // speedy unavailable
+      estimateShipping: jest.fn(),
+    };
+    const { svc, db, econt } = build(makeOrder(), { speedy: speedyStub });
+    (econt.estimateShipping as jest.Mock).mockResolvedValue(null); // econt unavailable
+    const order = speedyOrder({ id: 'order-11', carrier: null });
+    const fee = await (svc as any).shippingStotinki(order, 3000, cheapestCfg);
+    // Both legs null → pickCheaper returns null → normal econt path → fallback 590.
+    expect(fee).toBe(590);
+    expect(order.carrier).toBeNull();
+    expect(db.set).not.toHaveBeenCalled();
+  });
+});

@@ -14,12 +14,13 @@ describe('PublicShippingQuoteController.compare', () => {
     (tenantCache.resolveTenant as jest.Mock).mockResolvedValue({
       id: 't1',
       comparisonActive: false,
+      carrierPolicy: 'customer',
     });
 
     const ctrl = new PublicShippingQuoteController(db, tenantCache, quote);
     const result = await ctrl.compare('test-farm', DTO);
 
-    expect(result).toEqual({ quotes: [], cheapest: null });
+    expect(result).toEqual({ quotes: [], cheapest: null, policy: 'customer', selected: null });
     expect((quote.compare as jest.Mock)).not.toHaveBeenCalled();
   });
 
@@ -32,13 +33,14 @@ describe('PublicShippingQuoteController.compare', () => {
     (tenantCache.resolveTenant as jest.Mock).mockResolvedValue({
       id: 't1',
       comparisonActive: true,
+      carrierPolicy: 'cheapest',
     });
     (quote.compare as jest.Mock).mockResolvedValue(quoteResult);
 
     const ctrl = new PublicShippingQuoteController(db, tenantCache, quote);
     const result = await ctrl.compare('test-farm', DTO);
 
-    expect((quote.compare as jest.Mock)).toHaveBeenCalledWith('t1', DTO);
+    expect((quote.compare as jest.Mock)).toHaveBeenCalledWith('t1', DTO, 'cheapest');
     expect(result).toBe(quoteResult);
   });
 });

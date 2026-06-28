@@ -10,10 +10,12 @@ import {
   codEnabled,
   cardEnabled,
   speedyEnabled,
+  carrierPolicy,
   type PublicDelivery,
   type PublicMethods,
   type DeliveryConfig,
   type EcontMode,
+  type CarrierPolicy,
 } from '../../modules/orders/delivery-pricing';
 import { buildPublicContact, type PublicContact } from '../../modules/tenants/site-contact';
 import { resolveLanding, type PublicLanding } from '../../modules/tenants/landing';
@@ -64,6 +66,9 @@ export interface TenantMeta {
   // carriers (so the storefront should show the carrier-comparison picker).
   speedyConfigured: boolean;
   comparisonActive: boolean;
+  // How a door order picks its carrier when both run (customer | cheapest | econt | speedy).
+  // The storefront reads this to decide picker behaviour; only meaningful when comparisonActive.
+  carrierPolicy: CarrierPolicy;
   // Whether наложен платеж (COD) is offered — gates the storefront's COD radio.
   codEnabled: boolean;
   // Internal: whether the farm accepts card payment (the farmer's override). Folded
@@ -234,6 +239,7 @@ export class PublicCacheService {
       econtMode: mode,
       speedyConfigured: speedyEnabled(delivery),
       comparisonActive: mode === 'auto' && speedyEnabled(delivery),
+      carrierPolicy: carrierPolicy(delivery),
       codEnabled: codEnabled(delivery),
       cardEnabled: cardEnabled(delivery),
       stripeAccountId: row.stripeAccountId ?? null,

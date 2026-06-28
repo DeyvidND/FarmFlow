@@ -33,4 +33,34 @@ describe('buildQuoteResult', () => {
     expect(r.quotes.map((q) => q.carrier)).toEqual(['econt', 'speedy']);
     expect(r.cheapest).toBe('econt');
   });
+
+  describe('policy → selected', () => {
+    it('default (customer) → selected = cheapest, policy echoed', () => {
+      const r = buildQuoteResult(450, 390);
+      expect(r.policy).toBe('customer');
+      expect(r.selected).toBe('speedy'); // the cheaper one, as a default pre-select
+    });
+    it('cheapest policy → selected = cheapest', () => {
+      const r = buildQuoteResult(450, 390, 'cheapest');
+      expect(r.selected).toBe('speedy');
+    });
+    it('econt forced + available → selected = econt even when speedy cheaper', () => {
+      const r = buildQuoteResult(450, 390, 'econt');
+      expect(r.selected).toBe('econt');
+      expect(r.cheapest).toBe('speedy'); // cheapest still reports the true low price
+    });
+    it('speedy forced + available → selected = speedy even when econt cheaper', () => {
+      const r = buildQuoteResult(300, 390, 'speedy');
+      expect(r.selected).toBe('speedy');
+      expect(r.cheapest).toBe('econt');
+    });
+    it('forced carrier unavailable → falls back to cheapest available', () => {
+      const r = buildQuoteResult(450, null, 'speedy');
+      expect(r.selected).toBe('econt'); // speedy down → use the available one
+    });
+    it('forced carrier, neither available → selected null', () => {
+      const r = buildQuoteResult(null, null, 'econt');
+      expect(r.selected).toBeNull();
+    });
+  });
 });

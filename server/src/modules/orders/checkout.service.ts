@@ -17,6 +17,8 @@ import {
   econtMode,
   speedyEnabled,
   codEnabled,
+  carrierPolicy,
+  comparisonActive,
   type DeliveryConfig,
 } from './delivery-pricing';
 
@@ -190,6 +192,7 @@ export class CheckoutService {
    */
   private async shippingStotinki(
     order: {
+      id?: string;
       tenantId: string | null;
       deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address' | null;
       /** Chosen carrier for courier methods. Accepted values: 'econt' | 'speedy'. Free-form DB text. */
@@ -232,6 +235,28 @@ export class CheckoutService {
     // orders pass 0 so the carrier quote reflects the bare shipping cost.
     const cod = order.paymentMethod === 'cod' && order.totalStotinki ? order.totalStotinki : 0;
 
+    // 'cheapest' policy — a door order left without a carrier (orders.service defers
+    // the pick) is priced on BOTH live carriers here; the cheaper one wins and is
+    // persisted so fulfillment dispatches to it. Falls through to the normal path
+    // when neither carrier returns a price.
+    if (
+      door &&
+      order.carrier == null &&
+      carrierPolicy(cfg) === 'cheapest' &&
+      comparisonActive(cfg) &&
+      order.tenantId &&
+      order.deliveryCity
+    ) {
+      const picked = await this.pickCheaperDoorCarrier(order, cod);
+      if (picked) {
+        if (order.id) {
+          await this.db.update(orders).set({ carrier: picked.carrier }).where(eq(orders.id, order.id));
+        }
+        order.carrier = picked.carrier;
+        return applyFreeThreshold(picked.fee, subtotal, freeThresholdStotinki(cfg));
+      }
+    }
+
     // Speedy door delivery → live Speedy quote (city name → siteId), COD-aware.
     // Falls back to the Econt door flat fee if Speedy is unreachable or returns null.
     let fee: number;
@@ -252,6 +277,35 @@ export class CheckoutService {
       fee = econtFallbackFee(cfg, door);
     }
     return applyFreeThreshold(fee, subtotal, freeThresholdStotinki(cfg));
+  }
+
+  /**
+   * Price a door order on BOTH carriers and return the cheaper available one.
+   * Each leg degrades to null independently; ties (and a single available carrier)
+   * keep Econt-first. Returns null only when neither carrier prices the parcel,
+   * letting the caller fall back to the normal single-carrier path.
+   */
+  private async pickCheaperDoorCarrier(
+    order: Parameters<CheckoutService['shippingStotinki']>[0],
+    cod: number,
+  ): Promise<{ carrier: 'econt' | 'speedy'; fee: number } | null> {
+    const [econtFee, speedyFee] = await Promise.all([
+      this.econt
+        .estimateShipping(
+          order.tenantId!,
+          order,
+          order.items.map((i) => ({ name: i.productName, qty: i.quantity })),
+          undefined,
+          cod,
+        )
+        .catch(() => null),
+      this.quoteSpeedyDoor(order.tenantId!, order.deliveryCity!, cod),
+    ]);
+    if (econtFee == null && speedyFee == null) return null;
+    if (speedyFee != null && (econtFee == null || speedyFee < econtFee)) {
+      return { carrier: 'speedy', fee: speedyFee };
+    }
+    return { carrier: 'econt', fee: econtFee! };
   }
 
   /**

@@ -34,6 +34,26 @@ export interface DeliveryConfig {
   speedy?: { configured?: boolean };
   cod?: { enabled?: boolean };
   card?: { enabled?: boolean };
+  /** How a door order picks its carrier when the farm runs both (see CarrierPolicy). */
+  carrierPolicy?: CarrierPolicy;
+}
+
+/**
+ * Which carrier fulfils a до-адрес (door) order when the farm runs BOTH Econt and
+ * Speedy. Only consulted while `comparisonActive` — a single-carrier farm always
+ * uses its one live carrier regardless.
+ *  - `customer` — the storefront shows a picker; the customer's choice wins
+ *                 (the default, and what the smart-comparison UI drives).
+ *  - `cheapest` — the server prices both at checkout and ships the cheaper one.
+ *  - `econt`    — always Econt, ignore the customer's pick.
+ *  - `speedy`   — always Speedy, ignore the customer's pick.
+ */
+export type CarrierPolicy = 'customer' | 'cheapest' | 'econt' | 'speedy';
+
+/** Resolve the farm's carrier policy. Defaults to `customer` (absent → let the buyer pick). */
+export function carrierPolicy(cfg: DeliveryConfig | null | undefined): CarrierPolicy {
+  const p = cfg?.carrierPolicy;
+  return p === 'cheapest' || p === 'econt' || p === 'speedy' ? p : 'customer';
 }
 
 /**
