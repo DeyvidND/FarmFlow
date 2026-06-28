@@ -5,6 +5,7 @@ import { type Database, tenants, shipments, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
+import { deriveSenderFromFarm } from '../econt/econt.sender';
 import { SpeedyClient, type SpeedyCreds } from './speedy.client';
 import {
   type SpeedyStored, slimSites, slimOffices, slimStreets, slimContractClients,
@@ -97,6 +98,35 @@ export class SpeedyService implements CarrierAdapter {
     };
   }
 
+  /** Merge a derived sender into the speedy blob ONLY when none is set yet. */
+  private maybeSeedSender(
+    speedy: Record<string, unknown>,
+    farmName: string,
+    contact: { phone?: string | null; address?: string | null } | null | undefined,
+    profiles: { name: string; phone: string; clientNumber?: string | null }[] | null | undefined,
+  ): Record<string, unknown> {
+    const existing = speedy.sender as Record<string, unknown> | undefined;
+    if (existing && Object.keys(existing).length) return speedy;
+    return { ...speedy, sender: deriveSenderFromFarm(farmName, contact ?? null, profiles ?? []) };
+  }
+
+  private clearCredsBlob(speedy: Record<string, unknown>): Record<string, unknown> {
+    const { userName: _u, passwordEnc: _p, ...rest } = speedy;
+    return { ...rest, configured: false };
+  }
+
+  async disconnect(tenantId: string): Promise<{ configured: false }> {
+    const { tenant, speedy } = await this.loadStored(tenantId);
+    const nextSpeedy = this.clearCredsBlob(speedy);
+    const nextSettings = {
+      ...tenant.settings,
+      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), speedy: nextSpeedy },
+    };
+    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`);
+    return { configured: false };
+  }
+
   /** Validate creds against Speedy (a cheap /client call), then store encrypted. */
   async saveCredentials(tenantId: string, input: SpeedyCredentialsDto): Promise<{ configured: true }> {
     if (!this.encKey) {
@@ -120,9 +150,22 @@ export class SpeedyService implements CarrierAdapter {
       ...(input.defaultServiceId != null ? { defaultServiceId: input.defaultServiceId } : {}),
       configured: true,
     };
+    let seededSpeedy: Record<string, unknown> = nextSpeedy;
+    try {
+      let profiles: { name: string; phone: string; clientNumber: string | null }[] = [];
+      try {
+        const data = await this.client.call(
+          { base: SPEEDY_BASE, userName: input.userName, password: input.password, clientSystemId: input.clientSystemId },
+          'client/contract', {},
+        );
+        profiles = slimContractClients(data);
+      } catch { /* no contract clients → fall back */ }
+      const contact = (tenant.settings.contact ?? null) as { phone?: string | null; address?: string | null } | null;
+      seededSpeedy = this.maybeSeedSender(nextSpeedy, tenant.slug, contact, profiles);
+    } catch { /* optional */ }
     const nextSettings = {
       ...tenant.settings,
-      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), speedy: nextSpeedy },
+      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), speedy: seededSpeedy },
     };
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
     await this.cache.del(`speedy:sites:${tenant.slug}`);

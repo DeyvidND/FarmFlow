@@ -141,3 +141,23 @@ describe('SpeedyService.createLabelForOrder', () => {
     expect(row.carrier).toBe('speedy');
   });
 });
+
+describe('SpeedyService.maybeSeedSender (unit)', () => {
+  const svc = new SpeedyService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+  const seed = (speedy: unknown, farmName: string, contact: unknown, profiles: unknown) =>
+    (svc as unknown as {
+      maybeSeedSender: (s: any, n: string, c: any, p: any) => Record<string, unknown>;
+    }).maybeSeedSender(speedy, farmName, contact, profiles);
+
+  it('seeds sender when empty, from the contract client', () => {
+    const out = seed({ userName: 'u' }, 'Ферма', { phone: '0700' },
+      [{ name: 'Клиент', phone: '0888', clientNumber: '9' }]);
+    expect(out.sender).toEqual({ name: 'Клиент', phone: '0888', mode: 'office' });
+  });
+
+  it('does NOT overwrite an existing sender', () => {
+    const existing = { name: 'Ръчно', phone: '0999', mode: 'office' };
+    const out = seed({ userName: 'u', sender: existing }, 'Ферма', { phone: '0700' }, []);
+    expect(out.sender).toEqual(existing);
+  });
+});

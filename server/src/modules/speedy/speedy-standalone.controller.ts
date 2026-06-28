@@ -21,6 +21,10 @@ export class SpeedyStandaloneController {
   saveCredentials(@CurrentTenant() t: string, @Body() dto: SpeedyCredentialsDto) {
     return this.speedy.saveCredentials(t, dto);
   }
+  @Delete('credentials')
+  disconnect(@CurrentTenant() t: string) {
+    return this.speedy.disconnect(t);
+  }
   @Get('config')
   config(@CurrentTenant() t: string) {
     return this.speedy.getConfig(t);
