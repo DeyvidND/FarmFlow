@@ -18,6 +18,7 @@ import { SpeedyCredentialsDto } from './dto/speedy-credentials.dto';
 import { SpeedyValidateAddressDto } from './dto/speedy-validate-address.dto';
 import { SpeedyCourierRequestDto } from './dto/speedy-courier-request.dto';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
+import type { CarrierAdapter } from '../orders/carrier-adapter';
 
 const SPEEDY_BASE = 'https://api.speedy.bg/v1';
 const NOMENCLATURE_TTL = 60 * 60 * 24; // 1 day
@@ -41,7 +42,7 @@ export interface SpeedyShipment {
 }
 
 @Injectable()
-export class SpeedyService {
+export class SpeedyService implements CarrierAdapter {
   private readonly logger = new Logger(SpeedyService.name);
   private readonly encKey: string;
 

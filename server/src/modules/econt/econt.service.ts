@@ -14,6 +14,7 @@ import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-c
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
 import { ShipmentEmailService } from './shipment-email.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
+import type { CarrierAdapter } from '../orders/carrier-adapter';
 
 const DEMO_BASE = 'https://demo.econt.com/ee/services';
 const PROD_BASE = 'https://ee.econt.com/services';
@@ -140,7 +141,7 @@ function slimOfficeView(o: any): EcontOfficeView {
  * unaffected (orders still record `econtOffice` as before).
  */
 @Injectable()
-export class EcontService {
+export class EcontService implements CarrierAdapter {
   private readonly logger = new Logger(EcontService.name);
   private readonly encKey: string;
 
@@ -712,6 +713,12 @@ export class EcontService {
   }
 
   /** Create the Econt waybill (label) for an order and persist a shipment row. */
+  /** {@link CarrierAdapter} alias for {@link createLabel} — keeps the on-demand
+   *  label op name uniform with Speedy's `createLabelForOrder`. */
+  createLabelForOrder(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
+    return this.createLabel(tenantId, orderId);
+  }
+
   async createLabel(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
     // Share one settings read between loadStored and the callTenant→resolveCreds below.
     const store = new Map<string, unknown>();
