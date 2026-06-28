@@ -590,10 +590,11 @@ export class EcontService implements CarrierAdapter {
     if (order.smsNotification) services.smsNotification = true;
     // Refrigerated/perishable handling (Econt `refrigeratedPack` is an int count).
     if (order.refrigerated) services.refrigeratedPack = 1;
-    // Преглед/тест преди плащане — only on a COD parcel (cuts refusals on food).
+    // Преглед/тест преди плащане — top-level label fields, only on a COD parcel
+    // (cuts refusals on food). payAfterAccept/payAfterTest live on the label, not services.
     if (collectCod) {
-      const inspect = econtInspectService(order.inspectBeforePay);
-      if (inspect) Object.assign(services, inspect);
+      const inspect = econtInspectLabelFields(order.inspectBeforePay);
+      if (inspect) Object.assign(label, inspect);
     }
     // Declared value / insurance (обявена стойност), in EUR.
     if (order.declaredValueStotinki && order.declaredValueStotinki > 0) {
@@ -1305,14 +1306,16 @@ export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
 export type InspectMode = 'off' | 'open' | 'test';
 
 /**
- * Econt „преглед/тест преди плащане" service fragment, merged into label.services.
- * Only meaningful on a COD shipment (the caller gates on collectCod).
- * // spike: confirm the exact Econt `services` key + values against the live API
- * // (demo) before the real-creds demo. Single source of truth → one-line fix here.
+ * Econt „преглед/тест преди плащане" → TOP-LEVEL ShippingLabel boolean fields
+ * (NOT under `services`). Confirmed against the Econt model doc
+ * (ee.econt.com/services/Shipments): `payAfterAccept` = „пратката може да се
+ * прегледа преди плащане", `payAfterTest` = „може да се тества преди плащане".
+ * Only meaningful on a COD shipment (the caller gates on collectCod). Ignored by
+ * Econt for automat/post-station deliveries.
  */
-export function econtInspectService(mode?: InspectMode | null): Record<string, unknown> | null {
-  if (mode === 'open') return { invoiceBeforePayCD: 1 }; // отвори преди плащане
-  if (mode === 'test') return { invoiceBeforePayCD: 2 }; // тествай преди плащане
+export function econtInspectLabelFields(mode?: InspectMode | null): Record<string, unknown> | null {
+  if (mode === 'open') return { payAfterAccept: true }; // отвори/прегледай преди плащане
+  if (mode === 'test') return { payAfterTest: true };   // тествай преди плащане
   return null;
 }
 

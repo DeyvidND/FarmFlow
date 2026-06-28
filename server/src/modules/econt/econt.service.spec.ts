@@ -126,7 +126,7 @@ describe('EcontService.buildLabel', () => {
     expect(label.services).toBeUndefined();
   });
 
-  it('emits inspect-before-pay (open) on a COD order', () => {
+  it('sets payAfterAccept (top-level) for inspect=open on a COD order', () => {
     const label = build(
       { sender, defaultPackage: { weightKg: 1 } },
       {
@@ -134,10 +134,11 @@ describe('EcontService.buildLabel', () => {
         totalStotinki: 1000, paymentMethod: 'cod', inspectBeforePay: 'open',
       },
     );
-    expect(label.services).toMatchObject({ invoiceBeforePayCD: 1 });
+    expect(label.payAfterAccept).toBe(true);
+    expect(label.payAfterTest).toBeUndefined();
   });
 
-  it('emits inspect-before-pay (test) on a COD order', () => {
+  it('sets payAfterTest (top-level) for inspect=test on a COD order', () => {
     const label = build(
       { sender, defaultPackage: { weightKg: 1 } },
       {
@@ -145,10 +146,11 @@ describe('EcontService.buildLabel', () => {
         totalStotinki: 1000, paymentMethod: 'cod', inspectBeforePay: 'test',
       },
     );
-    expect(label.services).toMatchObject({ invoiceBeforePayCD: 2 });
+    expect(label.payAfterTest).toBe(true);
+    expect(label.payAfterAccept).toBeUndefined();
   });
 
-  it('does NOT emit inspect on a prepaid order even when set', () => {
+  it('does NOT set pay-after-* on a prepaid order even when set', () => {
     const label = build(
       { sender, defaultPackage: { weightKg: 1 } },
       {
@@ -156,10 +158,12 @@ describe('EcontService.buildLabel', () => {
         totalStotinki: 1000, paymentMethod: 'online', inspectBeforePay: 'open',
       },
     );
+    expect(label.payAfterAccept).toBeUndefined();
+    expect(label.payAfterTest).toBeUndefined();
     expect(label.services).toBeUndefined();
   });
 
-  it('inspect off → no inspect service', () => {
+  it('inspect off → no pay-after-* fields', () => {
     const label = build(
       { sender, defaultPackage: { weightKg: 1 } },
       {
@@ -167,7 +171,8 @@ describe('EcontService.buildLabel', () => {
         totalStotinki: 1000, paymentMethod: 'cod', inspectBeforePay: 'off',
       },
     );
-    expect(label.services?.invoiceBeforePayCD).toBeUndefined();
+    expect(label.payAfterAccept).toBeUndefined();
+    expect(label.payAfterTest).toBeUndefined();
   });
 });
 
