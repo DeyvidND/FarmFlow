@@ -470,6 +470,13 @@
       "when": 1782810000000,
       "tag": "0066_orders_carrier",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1782896400000,
+      "tag": "0067_deliveries_package",
+      "breakpoints": true
     }
   ]
 }

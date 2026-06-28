@@ -188,6 +188,7 @@ export class PublicCacheService {
         phone: tenants.phone,
         email: tenants.email,
         deliveryEnabled: tenants.deliveryEnabled,
+        deliveriesPackageEnabled: tenants.deliveriesPackageEnabled,
         multiFarmer: tenants.multiFarmer,
         multiSubcat: tenants.multiSubcat,
         articlesEnabled: tenants.articlesEnabled,
@@ -226,8 +227,13 @@ export class PublicCacheService {
         }
       | null;
     const delivery = settingsObj?.delivery;
-    const { settings: _settings, ...rest } = row;
-    const mode = econtMode(delivery);
+    // The super-admin „пакет Доставки" gate. When off, the storefront offers no
+    // carrier (Econt/Speedy) delivery at all — only pickup + self-delivery slots,
+    // which are not part of the courier add-on. Internal: dropped from the payload.
+    const { settings: _settings, deliveriesPackageEnabled: pkg, ...rest } = row;
+    const pkgOn = pkg !== false;
+    const mode = pkgOn ? econtMode(delivery) : 'off';
+    const speedyOn = pkgOn && speedyEnabled(delivery);
     const media: Record<string, { url: string }> = {};
     for (const [k, v] of Object.entries(settingsObj?.media ?? {})) {
       if (typeof v?.url === 'string' && v.url) media[k] = { url: v.url };
@@ -241,15 +247,18 @@ export class PublicCacheService {
       ...rest,
       econtEnabled: mode !== 'off',
       econtMode: mode,
-      speedyConfigured: speedyEnabled(delivery),
-      comparisonActive: mode === 'auto' && speedyEnabled(delivery),
+      speedyConfigured: speedyOn,
+      comparisonActive: mode === 'auto' && speedyOn,
       carrierPolicy: carrierPolicy(delivery),
       courierMarkupStotinki: courierMarkupStotinki(delivery),
       codEnabled: codEnabled(delivery),
       cardEnabled: cardEnabled(delivery),
       stripeAccountId: row.stripeAccountId ?? null,
       delivery: buildPublicDelivery(delivery),
-      methods: buildPublicMethods(delivery),
+      // Package off → force the courier methods off (keep pickup + self-delivery).
+      methods: pkgOn
+        ? buildPublicMethods(delivery)
+        : { ...buildPublicMethods(delivery), econtOffice: false, econtAddress: false },
       media,
       contact: buildPublicContact(settingsObj?.contact),
       faviconUrl,
