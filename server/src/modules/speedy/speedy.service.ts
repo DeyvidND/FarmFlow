@@ -129,6 +129,42 @@ export class SpeedyService implements CarrierAdapter {
     return { configured: true };
   }
 
+  /**
+   * Persist the Speedy sender/package/COD profile (NOT credentials) into
+   * settings.delivery.speedy. Merges over the stored blob so passwordEnc is
+   * untouched. Backs the dostavki profile editor.
+   */
+  async saveProfile(
+    tenantId: string,
+    input: {
+      sender?: {
+        contactName?: string; phone?: string; mode?: 'office' | 'address';
+        officeId?: number; siteId?: number; streetId?: number; streetNo?: string;
+      };
+      defaultPackage?: { parcelsCount?: number; weightKg?: number; contents?: string };
+      cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
+      label?: { autoCreate?: boolean };
+    },
+  ): Promise<{ ok: true }> {
+    const { tenant, speedy } = await this.loadStored(tenantId);
+    const nextSpeedy: SpeedyStored = {
+      ...speedy,
+      ...(input.sender !== undefined ? { sender: { ...(speedy.sender ?? {}), ...input.sender } } : {}),
+      ...(input.defaultPackage !== undefined
+        ? { defaultPackage: { ...(speedy.defaultPackage ?? {}), ...input.defaultPackage } }
+        : {}),
+      ...(input.cod !== undefined ? { cod: { ...(speedy.cod ?? {}), ...input.cod } } : {}),
+      ...(input.label !== undefined ? { label: { ...(speedy.label ?? {}), ...input.label } } : {}),
+    };
+    const nextSettings = {
+      ...tenant.settings,
+      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), speedy: nextSpeedy },
+    };
+    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    await this.cache.del(`tenant:${tenant.slug}`);
+    return { ok: true };
+  }
+
   async getConfig(tenantId: string): Promise<Record<string, unknown>> {
     const { tenant, speedy } = await this.loadStored(tenantId);
     const { passwordEnc: _pw, ...safe } = speedy;
