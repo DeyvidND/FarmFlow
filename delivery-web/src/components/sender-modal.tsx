@@ -88,8 +88,7 @@ function Autocomplete({ value, disabled, notReadyHint, search, onPick }: {
 /**
  * Edit one carrier's sender (name/phone + drop-off office/address), with package +
  * COD collapsed under „Разширени". Replaces the standalone „Профил на подател" page —
- * opened from the SenderStrip on Пратки/Внос. State and save calls are moved verbatim
- * from carrier-profile-section.tsx (EcontProfileCard / SpeedyProfileCard).
+ * opened from the SenderStrip on Пратки/Внос.
  */
 export function SenderModal({
   carrier,
