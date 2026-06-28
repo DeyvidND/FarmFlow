@@ -160,6 +160,7 @@ export interface PlatformTenantDetail {
   graceUntil: Date | null;
   createdAt: Date | null;
   deliveryEnabled: boolean;
+  deliveriesPackageEnabled: boolean;
   multiFarmer: boolean;
   multiSubcat: boolean;
   econtConfigured: boolean;
@@ -477,6 +478,7 @@ export class PlatformService {
       graceUntil: t.graceUntil,
       createdAt: t.createdAt,
       deliveryEnabled: t.deliveryEnabled,
+      deliveriesPackageEnabled: t.deliveriesPackageEnabled,
       multiFarmer: t.multiFarmer,
       multiSubcat: t.multiSubcat,
       econtConfigured,
@@ -883,6 +885,8 @@ export class PlatformService {
     if (dto.email !== undefined) patch.email = dto.email;
     if (dto.phone !== undefined) patch.phone = dto.phone;
     if (dto.deliveryEnabled !== undefined) patch.deliveryEnabled = dto.deliveryEnabled;
+    if (dto.deliveriesPackageEnabled !== undefined)
+      patch.deliveriesPackageEnabled = dto.deliveriesPackageEnabled;
     if (dto.multiFarmer !== undefined) patch.multiFarmer = dto.multiFarmer;
     if (dto.multiSubcat !== undefined) patch.multiSubcat = dto.multiSubcat;
 

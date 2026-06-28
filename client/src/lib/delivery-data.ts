@@ -79,6 +79,15 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
     label: { paper: 'A6', autoCreate: true },
     nomenclature: { lastSyncedAt: 'никога', cities: 0, offices: 0 },
   },
+  speedy: {
+    env: 'prod',
+    configured: false,
+    sender: { mode: 'office' },
+    defaultPackage: { weightKg: 1.5, parcelsCount: 1, contents: 'Хранителни продукти' },
+    cod: { enabled: true, processingType: 'CASH' },
+    label: { autoCreate: true },
+  },
+  carrierPolicy: 'customer',
   cod: { enabled: true },
   card: { enabled: true },
 };
@@ -123,6 +132,15 @@ export function hydrateDelivery(saved: DeliveryConfig | null | undefined): Deliv
       label: { ...d.econt.label, ...saved.econt?.label },
       nomenclature: { ...d.econt.nomenclature, ...saved.econt?.nomenclature },
     },
+    speedy: {
+      ...d.speedy,
+      ...saved.speedy,
+      sender: { ...d.speedy?.sender, ...saved.speedy?.sender },
+      defaultPackage: { ...d.speedy?.defaultPackage, ...saved.speedy?.defaultPackage },
+      cod: { ...d.speedy?.cod, ...saved.speedy?.cod },
+      label: { ...d.speedy?.label, ...saved.speedy?.label },
+    },
+    carrierPolicy: saved.carrierPolicy ?? d.carrierPolicy,
     cod: { enabled: saved?.cod?.enabled ?? d.cod?.enabled ?? true },
     card: { enabled: saved?.card?.enabled ?? d.card?.enabled ?? true },
   };

@@ -80,10 +80,6 @@ export function MethodsSection({
               m={cfg.methods[key]}
               mut={mut}
               slotFreeCount={slotFreeCount}
-              freeThreshold={cfg.pricing.freeThresholdStotinki}
-              onFreeThresholdChange={(v) => mut((d) => (d.pricing.freeThresholdStotinki = v))}
-              markup={cfg.pricing.courierMarkupStotinki ?? 0}
-              onMarkupChange={(v) => mut((d) => (d.pricing.courierMarkupStotinki = v))}
             />
           ))}
         </div>
@@ -106,28 +102,17 @@ function MethodCard({
   m,
   mut,
   slotFreeCount,
-  freeThreshold,
-  onFreeThresholdChange,
-  markup,
-  onMarkupChange,
 }: {
   mkey: DeliveryMethodKey;
   m: DeliveryMethod;
   mut: Mut;
   slotFreeCount: number;
-  freeThreshold: number;
-  onFreeThresholdChange: (v: number) => void;
-  markup: number;
-  onMarkupChange: (v: number) => void;
 }) {
   const router = useRouter();
   const meta = METHOD_META[mkey];
   const Icon = METHOD_ICON[mkey];
   const patch = (fn: (x: DeliveryMethod) => void) => mut((d) => fn(d.methods[mkey]));
   const hasPricing = mkey !== 'pickup';
-  // Courier markup (farm's margin on the Econt/Speedy price) applies to the courier
-  // methods only — the live courier price is what it sits on top of.
-  const isCourier = mkey === 'econtOffice' || mkey === 'econtAddress';
 
   return (
     <div className="overflow-hidden rounded-xl border border-ff-green-100 bg-ff-green-50">
@@ -229,16 +214,11 @@ function MethodCard({
                   />
                 </DLabel>
                 {m.pricing?.type === 'flat' && (
-                  <div className="mt-2.5 grid grid-cols-2 gap-3 max-w-[460px]">
+                  <div className="mt-2.5 max-w-[220px]">
                     <LvInput
                       label="Фиксирана такса"
                       value={m.pricing.feeStotinki ?? 0}
                       onChange={(v) => patch((x) => (x.pricing!.feeStotinki = v))}
-                    />
-                    <LvInput
-                      label="Безплатно над сума"
-                      value={freeThreshold}
-                      onChange={onFreeThresholdChange}
                     />
                   </div>
                 )}
@@ -262,21 +242,57 @@ function MethodCard({
                 onChange={(v) => patch((x) => (x.minOrderStotinki = v))}
               />
             )}
-            {isCourier && (
-              <div className="sm:col-span-2">
-                <LvInput
-                  label="Надценка върху куриерската цена"
-                  value={markup}
-                  onChange={onMarkupChange}
-                />
-                <p className="mt-1.5 text-[12.5px] text-ff-muted">
-                  Добавя се върху цената на куриера, която клиентът плаща (твоят марж). 0 = без надценка.
-                </p>
-              </div>
-            )}
           </>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The two delivery values that apply across **all** methods at once — the global
+ * free-over threshold and the courier markup. Kept in one section so a farmer
+ * can't edit „one method card" and silently change a rule that affects every
+ * method (the old per-card inputs all wrote the same global value).
+ */
+export function GlobalRulesSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut }) {
+  const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
+  const courierOn = econtMode !== 'off';
+  return (
+    <DSection
+      title="Общи правила"
+      helper="Важат за всички методи наведнъж."
+      info={
+        <>
+          „Безплатно над сума“ и надценката върху куриера са общи за магазина — задаваш ги
+          веднъж тук, а не за всеки метод поотделно.
+        </>
+      }
+    >
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        <div>
+          <LvInput
+            label="Безплатна доставка над сума"
+            value={cfg.pricing.freeThresholdStotinki}
+            onChange={(v) => mut((d) => (d.pricing.freeThresholdStotinki = v))}
+          />
+          <p className="mt-1.5 text-[12.5px] text-ff-muted">
+            Поръчка над тази сума пътува безплатно с всеки метод. 0 = без безплатна доставка.
+          </p>
+        </div>
+        {courierOn && (
+          <div>
+            <LvInput
+              label="Надценка върху куриерската цена"
+              value={cfg.pricing.courierMarkupStotinki ?? 0}
+              onChange={(v) => mut((d) => (d.pricing.courierMarkupStotinki = v))}
+            />
+            <p className="mt-1.5 text-[12.5px] text-ff-muted">
+              Твоят марж върху цената на Еконт/Speedy, която клиентът плаща. 0 = без надценка.
+            </p>
+          </div>
+        )}
+      </div>
+    </DSection>
   );
 }

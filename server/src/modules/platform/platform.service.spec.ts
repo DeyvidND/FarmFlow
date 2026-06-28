@@ -258,6 +258,20 @@ describe('PlatformService', () => {
       // must not contain 'javascript'
       expect(text).not.toContain('javascript');
     });
+
+    it('persists the deliveriesPackageEnabled flag in the column patch', async () => {
+      setupExisting();
+
+      let capturedSet: any;
+      db.set.mockImplementationOnce((val: any) => { capturedSet = val; return db; });
+
+      await service.updateTenant(TENANT_ID, { deliveriesPackageEnabled: false });
+
+      expect(capturedSet?.deliveriesPackageEnabled).toBe(false);
+      // The flag changes the cached storefront methods/econtEnabled, so the
+      // tenant:slug profile cache must be busted (among the farmers/subcats keys).
+      expect(cacheDel.mock.calls.flat()).toContain('tenant:ferma-test');
+    });
   });
 
   // ── tenantDetail ─────────────────────────────────────────────────────────
@@ -277,6 +291,7 @@ describe('PlatformService', () => {
         graceUntil: null,
         createdAt: new Date('2024-01-01'),
         deliveryEnabled: false,
+        deliveriesPackageEnabled: true,
         multiFarmer: false,
         multiSubcat: false,
         stripeAccountId: null,

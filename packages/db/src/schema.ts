@@ -45,6 +45,11 @@ export const tenants = pgTable('tenants', {
   subscriptionSince: timestamp('subscription_since'),
   // Farmer opts in to self-delivery; only then do slots surface on the storefront.
   deliveryEnabled: boolean('delivery_enabled').notNull().default(false),
+  // Super-admin „пакет Доставки" gate (farmer panel + deliveries add-on). When off,
+  // the panel hides delivery config + the dostavki deep-link, the storefront offers
+  // no courier methods, and the dostavki app denies access. Default true so existing
+  // farms are unaffected; super-admin turns it off for panel-only tenants.
+  deliveriesPackageEnabled: boolean('deliveries_package_enabled').notNull().default(true),
   // Optional catalog groupings — when on, the matching admin page + product link
   // field + storefront grouping/attribution activate. Default off.
   multiFarmer: boolean('multi_farmer').notNull().default(false),

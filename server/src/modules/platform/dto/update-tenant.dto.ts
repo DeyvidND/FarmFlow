@@ -34,6 +34,11 @@ export class UpdateTenantDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
+  deliveriesPackageEnabled?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
   multiFarmer?: boolean;
 
   @ApiPropertyOptional()

@@ -198,7 +198,7 @@ export class TenantsService {
         // Carry the encrypted Econt password over from storage — the client no
         // longer receives it (toPublicTenant strips it), so a plain
         // delivery-settings save must not wipe it.
-        nextSettings.delivery = preserveEcontSecret(existing.delivery, sanitizeDelivery(delivery));
+        nextSettings.delivery = applyDeliverySecrets(existing.delivery, delivery);
       }
       if (routing !== undefined) {
         nextSettings.routing = await this.resolveRouting(existing.routing, routing);
@@ -595,67 +595,89 @@ export class TenantsService {
   }
 }
 
-/**
- * Never persist Econt API secrets in the settings.delivery jsonb. The normal
- * client keeps the password in local state and only sends `econt.configured` /
- * `econt.username`, but enforce it server-side so no caller (or attacker) can
- * stash a plaintext courier password in the blob. (Encrypted storage will land
- * with the live Econt integration.)
- */
-function sanitizeDelivery(delivery: Record<string, unknown>): Record<string, unknown> {
-  const econt = delivery.econt;
-  if (econt && typeof econt === 'object' && !Array.isArray(econt)) {
-    // Strip every credential field, INCLUDING `passwordEnc`: the encrypted-secret
-    // slot is owned solely by EcontService.saveCredentials. A client must never be
-    // able to write it (preserveEcontSecret then carries the stored value forward).
-    const { password, apiPassword, pass, passwordEnc, ...safeEcont } =
-      econt as Record<string, unknown>;
-    void password;
-    void apiPassword;
-    void pass;
-    void passwordEnc;
-    return { ...delivery, econt: safeEcont };
-  }
-  return delivery;
-}
+/** Carrier keys whose credential fields live in settings.delivery and must never
+ *  be client-writable: the encrypted password slot is owned solely by each
+ *  carrier service's saveCredentials. Add a carrier here and it's covered on every
+ *  path (sanitize-in, preserve, strip-out) at once. */
+const CARRIER_KEYS = ['econt', 'speedy'] as const;
+type CarrierKey = (typeof CARRIER_KEYS)[number];
 
-/** Carry the stored encrypted Econt password into an incoming delivery blob when
- *  the client didn't send one — so a delivery-settings save doesn't erase creds
- *  the client never sees. */
-function preserveEcontSecret(
-  existingDelivery: unknown,
-  incoming: Record<string, unknown>,
-): Record<string, unknown> {
-  const inc = incoming.econt;
-  if (!inc || typeof inc !== 'object' || Array.isArray(inc)) return incoming;
-  const incEcont = inc as Record<string, unknown>;
-  if (incEcont.passwordEnc) return incoming;
-  const prevEcont =
-    existingDelivery && typeof existingDelivery === 'object' && !Array.isArray(existingDelivery)
-      ? (existingDelivery as Record<string, unknown>).econt
-      : undefined;
-  const prevEnc =
-    prevEcont && typeof prevEcont === 'object' && !Array.isArray(prevEcont)
-      ? (prevEcont as Record<string, unknown>).passwordEnc
-      : undefined;
-  if (typeof prevEnc !== 'string' || !prevEnc) return incoming;
-  return { ...incoming, econt: { ...incEcont, passwordEnc: prevEnc } };
-}
-
-/** Remove Econt secrets (encrypted or plaintext) from a delivery blob before it
- *  leaves the server. The AES-GCM ciphertext is useless without ENCRYPTION_KEY,
- *  but the client never needs it. */
-function stripEcontSecrets(delivery: unknown): unknown {
-  if (!delivery || typeof delivery !== 'object' || Array.isArray(delivery)) return delivery ?? null;
-  const d = delivery as Record<string, unknown>;
-  const econt = d.econt;
-  if (!econt || typeof econt !== 'object' || Array.isArray(econt)) return delivery;
-  const { passwordEnc, password, apiPassword, pass, ...safeEcont } = econt as Record<string, unknown>;
-  void passwordEnc;
+/** Strip every credential field (plaintext + `passwordEnc`) from one carrier blob. */
+function stripCarrierCreds(carrier: Record<string, unknown>): Record<string, unknown> {
+  const { password, apiPassword, pass, passwordEnc, ...safe } = carrier;
   void password;
   void apiPassword;
   void pass;
-  return { ...d, econt: safeEcont };
+  void passwordEnc;
+  return safe;
+}
+
+/**
+ * Never persist carrier API secrets in the settings.delivery jsonb. The normal
+ * client keeps the password in local state and only sends non-secret config
+ * (`configured`, sender, package…), but enforce it server-side so no caller (or
+ * attacker) can stash a courier password in the blob. Applies to every carrier in
+ * CARRIER_KEYS so adding a carrier can't silently reopen the hole.
+ */
+function sanitizeDelivery(delivery: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...delivery };
+  for (const key of CARRIER_KEYS) {
+    const c = out[key];
+    if (c && typeof c === 'object' && !Array.isArray(c)) {
+      out[key] = stripCarrierCreds(c as Record<string, unknown>);
+    }
+  }
+  return out;
+}
+
+/** Carry the stored encrypted password for one carrier into an incoming delivery
+ *  blob when the client didn't send one — so a delivery-settings save doesn't erase
+ *  creds the client never sees (they get stripped on the way out). */
+function preserveCarrierSecret(
+  existingDelivery: unknown,
+  incoming: Record<string, unknown>,
+  key: CarrierKey,
+): Record<string, unknown> {
+  const inc = incoming[key];
+  if (!inc || typeof inc !== 'object' || Array.isArray(inc)) return incoming;
+  const incCarrier = inc as Record<string, unknown>;
+  if (incCarrier.passwordEnc) return incoming;
+  const prevCarrier =
+    existingDelivery && typeof existingDelivery === 'object' && !Array.isArray(existingDelivery)
+      ? (existingDelivery as Record<string, unknown>)[key]
+      : undefined;
+  const prevEnc =
+    prevCarrier && typeof prevCarrier === 'object' && !Array.isArray(prevCarrier)
+      ? (prevCarrier as Record<string, unknown>).passwordEnc
+      : undefined;
+  if (typeof prevEnc !== 'string' || !prevEnc) return incoming;
+  return { ...incoming, [key]: { ...incCarrier, passwordEnc: prevEnc } };
+}
+
+/** The single delivery-secrets entry point updateMe uses: strip any client-sent
+ *  creds, then carry every carrier's stored secret forward. */
+export function applyDeliverySecrets(
+  existingDelivery: unknown,
+  delivery: Record<string, unknown>,
+): Record<string, unknown> {
+  let next = sanitizeDelivery(delivery);
+  for (const key of CARRIER_KEYS) next = preserveCarrierSecret(existingDelivery, next, key);
+  return next;
+}
+
+/** Remove carrier secrets (encrypted or plaintext) from a delivery blob before it
+ *  leaves the server. The AES-GCM ciphertext is useless without ENCRYPTION_KEY, but
+ *  the client never needs it. */
+export function stripCarrierSecrets(delivery: unknown): unknown {
+  if (!delivery || typeof delivery !== 'object' || Array.isArray(delivery)) return delivery ?? null;
+  const d = { ...(delivery as Record<string, unknown>) };
+  for (const key of CARRIER_KEYS) {
+    const c = d[key];
+    if (c && typeof c === 'object' && !Array.isArray(c)) {
+      d[key] = stripCarrierCreds(c as Record<string, unknown>);
+    }
+  }
+  return d;
 }
 
 /** Read the raw site-media map (slot key → { url, key }) from a settings blob. */
@@ -691,5 +713,5 @@ export function toPublicMedia(media: unknown): PublicMediaMap {
 function toPublicTenant(t: Tenant): PublicTenant {
   const { stripeAccountId, settings, ...rest } = t;
   const s = settings as Record<string, unknown> | null;
-  return { ...rest, delivery: stripEcontSecrets(s?.delivery) ?? null, routing: s?.routing ?? null };
+  return { ...rest, delivery: stripCarrierSecrets(s?.delivery) ?? null, routing: s?.routing ?? null };
 }

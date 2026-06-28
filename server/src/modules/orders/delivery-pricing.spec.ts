@@ -29,7 +29,8 @@ describe('delivery-pricing', () => {
       expect(methodBaseFee({ type: 'flat' }, 490)).toBe(490);
     });
     it('freeOver and legacy/unknown types are treated as flat (per-method free-over ignored)', () => {
-      expect(methodBaseFee({ type: 'freeOver', feeStotinki: 700, freeOverStotinki: 3000 }, 490)).toBe(700);
+      // `freeOver` was removed from the union but may still exist in old saved configs.
+      expect(methodBaseFee({ type: 'freeOver' as never, feeStotinki: 700 }, 490)).toBe(700);
       // `byWeight` was removed from the union but may still exist in old saved configs.
       expect(methodBaseFee({ type: 'byWeight' as never, feeStotinki: 800 }, 490)).toBe(800);
     });
