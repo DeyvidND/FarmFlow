@@ -377,3 +377,9 @@ export const saveSpeedyCredentials = async (body: SpeedyCredentialsInput): Promi
   (await bff('speedy/credentials', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }, 'Запазването се провали')).json();
+
+export const disconnectEcont = async (): Promise<{ configured: false }> =>
+  (await bff('shipping/credentials', { method: 'DELETE' }, 'Премахването се провали')).json();
+
+export const disconnectSpeedy = async (): Promise<{ configured: false }> =>
+  (await bff('speedy/credentials', { method: 'DELETE' }, 'Премахването се провали')).json();
