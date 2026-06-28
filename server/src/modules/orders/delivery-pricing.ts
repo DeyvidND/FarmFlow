@@ -8,12 +8,11 @@
  * is unchanged until a farmer edits the delivery page.
  */
 
-export type DeliveryPricingType = 'free' | 'flat' | 'freeOver';
+export type DeliveryPricingType = 'free' | 'flat';
 
 export interface MethodPricing {
   type?: DeliveryPricingType;
   feeStotinki?: number;
-  freeOverStotinki?: number;
 }
 
 export interface MethodConfig {
@@ -98,10 +97,11 @@ export const DELIVERY_DEFAULTS = {
 } as const;
 
 /**
- * Base fee for a method from its pricing block. No free-over here — that is the
- * single global threshold (step 3 of the checkout calc). `freeOver` (and any legacy
- * `byWeight`) is treated as flat: per-method free-over is deferred, and weight
- * pricing was removed since it never had a configurable fee.
+ * Base fee for a method from its pricing block. Two types only: `free` → 0,
+ * `flat` → `feeStotinki`. Per-method free-over is superseded by the single global
+ * threshold (step 3 of the checkout calc). Legacy/unknown stored types (`freeOver`,
+ * `byWeight` from removed models) fall through to `feeStotinki ?? fallback`, so old
+ * saved blobs keep charging the same flat amount.
  */
 export function methodBaseFee(pricing: MethodPricing | undefined, fallbackFee: number): number {
   if (!pricing || !pricing.type) return fallbackFee;

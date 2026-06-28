@@ -177,14 +177,13 @@ export interface RoutingConfig {
 // ---- Delivery configuration (persisted to tenant.settings.delivery) ----
 
 export type DeliveryMethodKey = 'econtOffice' | 'econtAddress' | 'ownSlots' | 'pickup';
-export type PricingType = 'free' | 'flat' | 'freeOver';
+export type PricingType = 'free' | 'flat';
 export type Payer = 'customer' | 'farm';
 
 /** Per-method price rule. Money in integer stotinki (cents). */
 export interface MethodPricing {
   type: PricingType;
   feeStotinki?: number;
-  freeOverStotinki?: number;
 }
 
 export interface DeliveryMethod {
