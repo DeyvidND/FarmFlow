@@ -40,6 +40,7 @@ const TENANT = {
   subscriptionStatus: 'active',
   settings: { delivery: DELIVERY_CFG },
   deliveryEnabled: true,
+  deliveriesPackageEnabled: true,
 };
 
 // The fake order returned by the orders insert.

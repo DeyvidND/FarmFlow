@@ -10,10 +10,11 @@ describe('OrdersService.assertMethodAllowed', () => {
     deliveryEnabled: boolean,
     method: string,
     payment: 'online' | 'cod',
+    packageEnabled = true,
   ) =>
     (svc as unknown as {
-      assertMethodAllowed: (s: unknown, d: boolean, m: string, p: string) => void;
-    }).assertMethodAllowed(settings, deliveryEnabled, method, payment);
+      assertMethodAllowed: (s: unknown, d: boolean, pkg: boolean, m: string, p: string) => void;
+    }).assertMethodAllowed(settings, deliveryEnabled, packageEnabled, method, payment);
 
   it('pickup always allowed; Econt rejected by default (off)', () => {
     expect(() => check(null, false, 'pickup', 'online')).not.toThrow();
@@ -48,5 +49,19 @@ describe('OrdersService.assertMethodAllowed', () => {
 
   it('COD allowed by default (no config)', () => {
     expect(() => check(null, true, 'address', 'cod')).not.toThrow();
+  });
+
+  it('courier (Econt/Speedy) requires the deliveries package; pickup + self-delivery do not', () => {
+    const office = { delivery: { methods: { econtOffice: { enabled: true } } } };
+    const door = { delivery: { methods: { econtAddress: { enabled: true } } } };
+    // package ON (default) → courier allowed
+    expect(() => check(office, false, 'econt', 'online')).not.toThrow();
+    expect(() => check(door, false, 'econt_address', 'online')).not.toThrow();
+    // package OFF → courier rejected even though the config enables it
+    expect(() => check(office, false, 'econt', 'online', false)).toThrow(BadRequestException);
+    expect(() => check(door, false, 'econt_address', 'online', false)).toThrow(BadRequestException);
+    // pickup + self-delivery stay available without the package
+    expect(() => check(null, true, 'address', 'online', false)).not.toThrow();
+    expect(() => check(null, false, 'pickup', 'online', false)).not.toThrow();
   });
 });
