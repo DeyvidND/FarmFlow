@@ -27,7 +27,7 @@ const PICKUP_COPY = 'Клиентът идва и си взема поръчка
 const SELF_COPY =
   'Ти разнасяш сам, по график. Клиентът избира свободен час; ти обикаляш по маршрут. Не минава през куриер.';
 const COURIER_COPY =
-  'Поръчката стига с Еконт; клиентът дава адрес. Как изпращаш (ръчно или Еконт онлайн) се избира в „Доставка“.';
+  'Поръчката стига с куриер (Еконт/Speedy); клиентът дава адрес. Свързване на куриер, подател и пратки — в приложението „Доставка“.';
 
 export function SetupPanel({
   initialEnabled,
@@ -203,7 +203,7 @@ export function SetupPanel({
           desc={COURIER_COPY}
           on={courierOn}
           onToggle={toggleCourier}
-          configLink={{ href: '/settings?config=delivery', label: 'Настрой Еконт (ръчно / онлайн)' }}
+          configLink={{ href: '/settings?config=delivery', label: 'Цени и правила за доставка' }}
         />
       </CardGroup>
 

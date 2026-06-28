@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Check, SlidersHorizontal, AlertTriangle, Truck, ExternalLink } from 'lucide-react';
+import { Check, SlidersHorizontal, Truck, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -12,20 +12,17 @@ import { DBadge } from './ui';
 import { hydrateDelivery } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
 import { MethodsSection, GlobalRulesSection } from './methods-section';
-import { EcontConnectionSection } from './econt-section';
-import { SpeedyConnectionSection, CarrierPolicySection } from './speedy-section';
-import { OfficePickerPreview } from './office-picker-preview';
-import { ShipmentsTable } from './shipments-table';
+import { CarrierPolicySection } from './carrier-policy-section';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
-const toastAdapter = { success: toast.success, info: toast.info, error: toast.error };
 
 /**
- * Доставка — **configuration only**. The on/off switches (which methods + COD are
- * offered, whether the courier is on) live in „Методи и цени"
- * (`/setup`, под Настройки → Конфигурации); this page sets up the details of the methods that are switched on:
- * prices, the Econt connection/sender/package, the office map and shipments. The
- * tenant's `deliveryEnabled` flag is carried through unchanged on save.
+ * Доставка — **storefront delivery setup only**. The on/off switches (which methods
+ * + COD are offered, whether the courier is on) live in „Методи и цени"
+ * (`/setup`); this page sets the methods' prices + the global rules + the carrier
+ * policy. Connecting the carriers, the sender profile and shipment monitoring live
+ * in the standalone delivery app (dostavki) — reached via „Управлявай доставки →".
+ * The tenant's `deliveryEnabled` flag is carried through unchanged on save.
  */
 export function DeliveryClient({
   initialEnabled,
@@ -55,7 +52,6 @@ export function DeliveryClient({
 
   const dirty = JSON.stringify(cfg) !== JSON.stringify(savedCfg);
 
-  const econtReady = cfg.econt.configured;
   const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
   // The carrier-policy picker is only meaningful with BOTH carriers live (mirrors
   // the server `comparisonActive`) — otherwise the single live carrier always wins.
@@ -106,19 +102,7 @@ export function DeliveryClient({
       <div className="flex flex-col gap-4">
         <MethodsSection cfg={cfg} mut={mut} slotFreeCount={slotFreeCount} />
         <GlobalRulesSection cfg={cfg} mut={mut} />
-        {econtMode !== 'off' && !econtReady && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
-            <AlertTriangle size={16} className="shrink-0 text-ff-amber-600" />
-            <span className="text-[12.5px] font-bold text-ff-amber-600">
-              Куриерът е включен, но Еконт още не е свързан — клиентите няма да виждат доставка с куриер, докато не въведеш данните по-долу и не провериш връзката.
-            </span>
-          </div>
-        )}
-        {econtMode !== 'off' && <EcontConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />}
-        {econtMode !== 'off' && <SpeedyConnectionSection cfg={cfg} mut={mut} toast={toastAdapter} />}
         {comparisonActive && <CarrierPolicySection cfg={cfg} mut={mut} />}
-        {econtMode === 'auto' && <OfficePickerPreview configured={econtReady} />}
-        {econtMode === 'auto' && <ShipmentsTable toast={toastAdapter} />}
       </div>
 
       {/* sticky save bar */}
