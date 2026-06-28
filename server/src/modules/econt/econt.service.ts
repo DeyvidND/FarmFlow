@@ -508,6 +508,7 @@ export class EcontService implements CarrierAdapter {
       smsNotification?: boolean | null;
       refrigerated?: boolean | null;
       declaredValueStotinki?: number | null;
+      inspectBeforePay?: InspectMode | null;
     },
     items: { name: string | null; qty: number }[],
   ): Record<string, unknown> {
@@ -576,6 +577,11 @@ export class EcontService implements CarrierAdapter {
     if (order.smsNotification) services.smsNotification = true;
     // Refrigerated/perishable handling (Econt `refrigeratedPack` is an int count).
     if (order.refrigerated) services.refrigeratedPack = 1;
+    // Преглед/тест преди плащане — only on a COD parcel (cuts refusals on food).
+    if (collectCod) {
+      const inspect = econtInspectService(order.inspectBeforePay);
+      if (inspect) Object.assign(services, inspect);
+    }
     // Declared value / insurance (обявена стойност), in EUR.
     if (order.declaredValueStotinki && order.declaredValueStotinki > 0) {
       services.declaredValueAmount = Math.round(order.declaredValueStotinki) / 100;
@@ -1276,6 +1282,20 @@ export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
     shipmentId: r.shipmentId ?? undefined,
     history: mapTrackingEvents(r.trackingJson),
   };
+}
+
+export type InspectMode = 'off' | 'open' | 'test';
+
+/**
+ * Econt „преглед/тест преди плащане" service fragment, merged into label.services.
+ * Only meaningful on a COD shipment (the caller gates on collectCod).
+ * // spike: confirm the exact Econt `services` key + values against the live API
+ * // (demo) before the real-creds demo. Single source of truth → one-line fix here.
+ */
+export function econtInspectService(mode?: InspectMode | null): Record<string, unknown> | null {
+  if (mode === 'open') return { invoiceBeforePayCD: 1 }; // отвори преди плащане
+  if (mode === 'test') return { invoiceBeforePayCD: 2 }; // тествай преди плащане
+  return null;
 }
 
 /** The order-like shape `buildLabel` consumes, plus the optional service flags. */

@@ -125,6 +125,50 @@ describe('EcontService.buildLabel', () => {
     );
     expect(label.services).toBeUndefined();
   });
+
+  it('emits inspect-before-pay (open) on a COD order', () => {
+    const label = build(
+      { sender, defaultPackage: { weightKg: 1 } },
+      {
+        customerName: 'Х', customerPhone: '0', deliveryType: 'econt', econtOffice: '1',
+        totalStotinki: 1000, paymentMethod: 'cod', inspectBeforePay: 'open',
+      },
+    );
+    expect(label.services).toMatchObject({ invoiceBeforePayCD: 1 });
+  });
+
+  it('emits inspect-before-pay (test) on a COD order', () => {
+    const label = build(
+      { sender, defaultPackage: { weightKg: 1 } },
+      {
+        customerName: 'Х', customerPhone: '0', deliveryType: 'econt', econtOffice: '1',
+        totalStotinki: 1000, paymentMethod: 'cod', inspectBeforePay: 'test',
+      },
+    );
+    expect(label.services).toMatchObject({ invoiceBeforePayCD: 2 });
+  });
+
+  it('does NOT emit inspect on a prepaid order even when set', () => {
+    const label = build(
+      { sender, defaultPackage: { weightKg: 1 } },
+      {
+        customerName: 'Х', customerPhone: '0', deliveryType: 'econt', econtOffice: '1',
+        totalStotinki: 1000, paymentMethod: 'online', inspectBeforePay: 'open',
+      },
+    );
+    expect(label.services).toBeUndefined();
+  });
+
+  it('inspect off → no inspect service', () => {
+    const label = build(
+      { sender, defaultPackage: { weightKg: 1 } },
+      {
+        customerName: 'Х', customerPhone: '0', deliveryType: 'econt', econtOffice: '1',
+        totalStotinki: 1000, paymentMethod: 'cod', inspectBeforePay: 'off',
+      },
+    );
+    expect(label.services?.invoiceBeforePayCD).toBeUndefined();
+  });
 });
 
 describe('EcontService.codAmountFor', () => {
