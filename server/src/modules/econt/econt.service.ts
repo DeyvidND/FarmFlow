@@ -12,6 +12,7 @@ import { type Database, tenants, orders, orderItems, shipments } from '@fermerib
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
+import { deriveSenderFromFarm } from './econt.sender';
 import { ShipmentEmailService } from './shipment-email.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
 import type { CarrierAdapter } from '../orders/carrier-adapter';
@@ -203,13 +204,25 @@ export class EcontService implements CarrierAdapter {
       countryCode: COUNTRY,
     });
 
-    const nextEcont: EcontStored = {
+    let nextEcont: EcontStored = {
       ...econt,
       env,
       username: input.username,
       passwordEnc: encryptSecret(input.password, this.encKey),
       configured: true,
     };
+    // Best-effort: seed the sender from the farm's own data so the operator never
+    // has to fill a profile form. Never let a derivation hiccup fail the connect.
+    try {
+      let profiles: { name: string; phone: string; clientNumber: string | null }[] = [];
+      try {
+        const data = await this.call(base, input.username, input.password, 'Profile/ProfileService.getClientProfiles.json', {});
+        profiles = slimClientProfiles(data);
+      } catch { /* no profiles → fall back to contact/farm name */ }
+      const contact = (tenant.settings.contact ?? null) as { phone?: string | null; address?: string | null } | null;
+      nextEcont = this.maybeSeedSender(nextEcont, tenant.slug, contact, profiles) as EcontStored;
+    } catch { /* seeding is optional */ }
+
     const nextSettings = {
       ...tenant.settings,
       delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
@@ -465,6 +478,42 @@ export class EcontService implements CarrierAdapter {
   }
 
   /* ------------------------------- shipments ------------------------------- */
+
+  /** Merge a derived sender into the econt blob ONLY when none is set yet.
+   *  Pure (no I/O) so it is unit-testable; the async fetch happens in the caller. */
+  private maybeSeedSender(
+    econt: Record<string, unknown>,
+    farmName: string,
+    contact: { phone?: string | null; address?: string | null } | null | undefined,
+    profiles: { name: string; phone: string; clientNumber?: string | null }[] | null | undefined,
+  ): Record<string, unknown> {
+    const existing = econt.sender as Record<string, unknown> | undefined;
+    if (existing && Object.keys(existing).length) return econt;
+    return { ...econt, sender: deriveSenderFromFarm(farmName, contact ?? null, profiles ?? []) };
+  }
+
+  /** Strip creds off a carrier blob (keep sender/profile). Pure → unit-tested. */
+  private clearCredsBlob(econt: Record<string, unknown>): Record<string, unknown> {
+    const { username: _u, passwordEnc: _p, ...rest } = econt;
+    return { ...rest, configured: false };
+  }
+
+  /** Disconnect Econt: clear creds (keep the sender profile), bust caches. */
+  async disconnect(tenantId: string): Promise<{ configured: false }> {
+    const { tenant, econt } = await this.loadStored(tenantId);
+    const nextEcont = this.clearCredsBlob(econt);
+    const nextSettings = {
+      ...tenant.settings,
+      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
+    };
+    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    await this.cache.del(
+      publicCacheKeys.tenant(tenant.slug),
+      `econt:offices:${tenant.slug}`,
+      `econt:cities:${tenant.slug}`,
+    );
+    return { configured: false };
+  }
 
   /** Read the carrier-agnostic handling policy off the tenant settings blob.
    *  Defensive: any missing/odd shape → everything off. */

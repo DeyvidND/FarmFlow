@@ -43,6 +43,10 @@ export class EcontStandaloneController {
   saveCredentials(@CurrentTenant() t: string, @Body() dto: EcontCredentialsDto) {
     return this.econt.saveCredentials(t, dto);
   }
+  @Delete('credentials')
+  disconnect(@CurrentTenant() t: string) {
+    return this.econt.disconnect(t);
+  }
   @Get('config')
   config(@CurrentTenant() t: string) {
     return this.econt.getConfig(t);

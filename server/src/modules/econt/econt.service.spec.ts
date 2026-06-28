@@ -1,5 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow, parseAddressValidation, slimClientProfiles, buildCourierRequest } from './econt.service';
+import { deriveSenderFromFarm } from './econt.sender';
 
 // buildLabel is a pure mapping (no I/O), so we can construct the service with
 // stub deps and call it directly. These assert the payload matches the Econt
@@ -619,5 +620,41 @@ describe('buildCourierRequest', () => {
     );
     expect(body.senderOfficeCode).toBe('99');
     expect(body.senderAddress).toBeUndefined();
+  });
+});
+
+describe('EcontService.maybeSeedSender (unit)', () => {
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+  const seed = (econt: unknown, farmName: string, contact: unknown, profiles: unknown) =>
+    (svc as unknown as {
+      maybeSeedSender: (e: any, n: string, c: any, p: any) => Record<string, unknown>;
+    }).maybeSeedSender(econt, farmName, contact, profiles);
+
+  it('seeds sender when empty, from the Econt profile', () => {
+    const out = seed({ username: 'u' }, 'Ферма', { phone: '0700' },
+      [{ name: 'Профил', phone: '0888', clientNumber: null }]);
+    expect(out.sender).toEqual({ name: 'Профил', phone: '0888', mode: 'office' });
+  });
+
+  it('does NOT overwrite an existing sender', () => {
+    const existing = { name: 'Ръчно', phone: '0999', mode: 'office', officeCode: '1' };
+    const out = seed({ username: 'u', sender: existing }, 'Ферма', { phone: '0700' },
+      [{ name: 'Профил', phone: '0888', clientNumber: null }]);
+    expect(out.sender).toEqual(existing);
+  });
+});
+
+describe('EcontService.clearCredsBlob (unit)', () => {
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+  const clear = (econt: unknown) =>
+    (svc as unknown as { clearCredsBlob: (e: any) => Record<string, unknown> }).clearCredsBlob(econt);
+
+  it('clears username/passwordEnc/configured but keeps sender', () => {
+    const out = clear({ username: 'u', passwordEnc: 'enc', configured: true, env: 'demo',
+      sender: { name: 'Ферма', mode: 'office' } });
+    expect(out.configured).toBe(false);
+    expect(out.username).toBeUndefined();
+    expect(out.passwordEnc).toBeUndefined();
+    expect(out.sender).toEqual({ name: 'Ферма', mode: 'office' });
   });
 });
