@@ -6,7 +6,9 @@
 
 **Architecture:** Delivery config is one JSONB blob `tenants.settings.delivery`, hydrated client-side (`hydrateDelivery`) and read server-side by pure functions in `delivery-pricing.ts`. The farmer edits it across two screens: `/settings?config=setup` (on/off toggles) and `/settings?config=delivery` (details). Money is integer stotinki end-to-end.
 
-**Tech Stack:** Next.js (client panel) · NestJS + Drizzle (server) · Vitest (server tests) · TypeScript everywhere.
+**Tech Stack:** Next.js (client panel) · NestJS + Drizzle (server) · Jest (server tests — `cd server && npx jest`) · TypeScript everywhere.
+
+**Status (2026-06-28):** Phase 1 (D+E) ✅ shipped. Phase 2 (C+B) ✅ shipped (build/tests green; ⚠️ needs live Speedy smoke before deploy). A ✅ decided skip. Branch `feat/delivery-simplify`.
 
 ---
 
