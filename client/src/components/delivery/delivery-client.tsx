@@ -3,11 +3,12 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Check, SlidersHorizontal, AlertTriangle } from 'lucide-react';
+import { Check, SlidersHorizontal, AlertTriangle, Truck, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { ApiError, saveDelivery } from '@/lib/api-client';
+import { ApiError, saveDelivery, requestDeliveryHandoff } from '@/lib/api-client';
+import { DBadge } from './ui';
 import { hydrateDelivery } from '@/lib/delivery-data';
 import type { DeliveryConfig } from '@/lib/types';
 import { MethodsSection, GlobalRulesSection } from './methods-section';
@@ -100,6 +101,8 @@ export function DeliveryClient({
         <span className="shrink-0 text-[13px] font-bold text-ff-green-700">Към панела →</span>
       </Link>
 
+      <DeliveryHandoffCard cfg={cfg} />
+
       <div className="flex flex-col gap-4">
         <MethodsSection cfg={cfg} mut={mut} slotFreeCount={slotFreeCount} />
         <GlobalRulesSection cfg={cfg} mut={mut} />
@@ -140,6 +143,49 @@ export function DeliveryClient({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Deep-link to the standalone delivery app (dostavki) with a one-click SSO
+ *  handoff — no second login. Shows which carriers are connected; the heavy
+ *  connect/monitor work (labels, tracking, COD, import) lives over there. */
+function DeliveryHandoffCard({ cfg }: { cfg: DeliveryConfig }) {
+  const [busy, setBusy] = React.useState(false);
+  const econtOn = cfg.econt.configured;
+  const speedyOn = !!cfg.speedy?.configured;
+  const open = async () => {
+    setBusy(true);
+    try {
+      const { token } = await requestDeliveryHandoff();
+      const base = process.env.NEXT_PUBLIC_DELIVERY_URL ?? 'https://dostavki.fermeribg.com';
+      window.open(
+        `${base}/api/session/handoff?token=${encodeURIComponent(token)}`,
+        '_blank',
+        'noopener',
+      );
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Възникна грешка');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-[14px] border border-ff-green-100 bg-ff-green-50 px-4 py-3.5">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
+        <Truck size={18} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[14px] font-extrabold text-ff-ink">Пратки и куриери</div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12.5px] text-ff-ink-2">
+          <DBadge tone={econtOn ? 'green' : 'gray'}>{econtOn ? 'Еконт ✓' : 'Еконт —'}</DBadge>
+          <DBadge tone={speedyOn ? 'green' : 'gray'}>{speedyOn ? 'Speedy ✓' : 'Speedy —'}</DBadge>
+          <span className="ml-1">Печат на товарителници, проследяване и внос — в „Доставка“.</span>
+        </div>
+      </div>
+      <Button variant="primary" size="sm" onClick={open} disabled={busy}>
+        <ExternalLink size={15} /> {busy ? 'Отваряне…' : 'Управлявай доставки'}
+      </Button>
     </div>
   );
 }

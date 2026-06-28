@@ -721,6 +721,15 @@ export const saveDelivery = (data: { deliveryEnabled: boolean; delivery: Deliver
     'Неуспешно записване на настройките',
   );
 
+/** Mint a short-TTL token to open the standalone delivery app (dostavki) without a
+ *  second login. The panel hands this off via the dostavki `?handoff=` landing. */
+export const requestDeliveryHandoff = () =>
+  apiFetch<{ token: string }>(
+    'auth/delivery-handoff',
+    { method: 'POST' },
+    'Неуспешно отваряне на доставки',
+  );
+
 // ---- Econt (courier) ----
 export interface EcontConfigView {
   env?: 'demo' | 'prod';
