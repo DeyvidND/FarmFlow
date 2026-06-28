@@ -8,6 +8,7 @@ import {
   type ImportRow, type QuoteResult, type RiskBulkEntry, type RiskBulkMeta, type AddressPrediction,
 } from '@/lib/api-client';
 import { getImportPrefs } from '@/lib/import-prefs';
+import { SenderStrip } from './sender-strip';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 const priceEur = (st: number | null | undefined) => (st == null ? '—' : `${(st / 100).toFixed(2)} €`);
@@ -396,6 +397,7 @@ export function ImportClient() {
 
   return (
     <div className="animate-ff-fade-up">
+      <SenderStrip />
       <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Масов внос на пратки</h1>
       <p className="mt-1 text-[13.5px] text-ff-muted">Качи Excel или CSV с поръчки. Накрая натисни „Потвърди поръчки" — куриерът се избира сам, по най-добра цена за цялата партида.</p>
 

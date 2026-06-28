@@ -8,6 +8,7 @@ import {
   ApiError, listEcontShipments, listSpeedyShipments, refreshShipment, downloadLabel,
   type ShipmentRow, type ShipmentStatus, type Carrier,
 } from '@/lib/api-client';
+import { SenderStrip } from './sender-strip';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -96,6 +97,7 @@ export function ShipmentsClient() {
 
   return (
     <div className="animate-ff-fade-up">
+      <SenderStrip />
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Пратки</h1>
