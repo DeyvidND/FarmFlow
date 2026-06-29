@@ -111,7 +111,7 @@ jobs:
           script: |
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u DeyvidND --password-stdin
             cd /opt/fermeribg
-            docker compose pull api web admin econt delivery-web
+            docker compose pull api web admin econt delivery-web worker
             docker compose up -d
             docker image prune -f
             docker compose ps

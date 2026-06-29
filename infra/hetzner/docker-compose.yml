@@ -46,12 +46,40 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+      # Web-only: HTTP + enqueue. BullMQ processors and the repeatable (cron) jobs
+      # run in the dedicated `worker` container, so heavy jobs never compete with
+      # request handling on this process's event loop. api still runs DB migrations
+      # on boot (not worker-gated).
+      APP_ROLE: web
       DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       # Target origin for the delivery-account set-password ("invite") link the api
       # mints on createDeliveryAccount — must point at the delivery panel, not the
       # farmer panel (PUBLIC_APP_URL).
       DELIVERY_PUBLIC_URL: https://dostavki.fermeribg.com
+
+  # Background worker — SAME image as api, but APP_ROLE=worker so it runs the BullMQ
+  # processors AND registers the repeatable (cron) jobs, while api/econt stay web-only.
+  # Keeps heavy work (Econt/Speedy label gen + 30-min refresh crons, transactional &
+  # bulk email, billing, image resize, daily digest/demo-cleanup) off the request event
+  # loop. No ingress: the default HTTP listener it still binds on :3000 is just unrouted.
+  # registerRepeatable is idempotent (keyed by job id), so a brief deploy overlap can't
+  # double-fire a cron. depends_on api so migrations are applied before processors boot.
+  worker:
+    image: ghcr.io/deyvidnd/farmflow-api:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      api: { condition: service_started }
+    env_file: [.env]
+    environment:
+      NODE_ENV: production
+      APP_ROLE: worker
+      PORT: "3000"
+      DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
 
   web:
     image: ghcr.io/deyvidnd/farmflow-web:${IMAGE_TAG:-latest}
@@ -74,7 +102,7 @@ services:
 
   # Standalone delivery app (dostavki.fermeribg.com). SAME image as api, different
   # entrypoint (dist/main.econt.js, listens on 3100). APP_ROLE=web so the Econt/Speedy
-  # 30-min refresh crons run ONLY in the api container — this one must NOT double-run
+  # 30-min refresh crons run ONLY in the `worker` container — this one must NOT double-run
   # them. No published port: the Cloudflare tunnel routes the hostname to econt:3100
   # over the compose network. depends_on api so DB migrations (api runs them on boot)
   # are applied before this starts.
