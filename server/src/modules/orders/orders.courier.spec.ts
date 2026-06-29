@@ -8,6 +8,7 @@
  * passed to each orders/orderItems insert so we can assert the split.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { orderItems, orders, shipments } from '@fermeribg/db';
 import { OrdersService } from './orders.service';
 
 const TENANT_ID = 'tenant-1';
@@ -47,13 +48,15 @@ const DTO = {
  * Build a fake tx. `farmerRows` is the canned result of the farmers SELECT;
  * `nextNumber` seeds the order-number SELECT. orders insert returns the values
  * it was given plus an id; orderItems insert echoes its values with an id.
- * Captured insert args land in `ordersValues` / `itemsValues`.
+ * Captured insert args land in `ordersValues` / `itemsValues` / `shipmentsValues`
+ * — branched on which table `insert(table)` was called with.
  */
 function makeTx(
   farmerRows: Array<{ id: string; name: string | null; courierEnabled: boolean }>,
   nextNumber: number,
   ordersValues: any[],
   itemsValues: any[],
+  shipmentsValues: any[] = [],
 ) {
   let selectCall = 0;
   const tx: any = {
@@ -71,8 +74,13 @@ function makeTx(
     insert: jest.fn((table: unknown) => {
       const c: any = {};
       c.values = jest.fn((v: any) => {
-        // orders insert gets a single object; orderItems gets an array.
-        if (Array.isArray(v)) {
+        // Branch on the target table: shipments draft (single object) →
+        // shipmentsValues; orders (single object) → ordersValues; orderItems
+        // (array) → itemsValues.
+        if (table === shipments) {
+          shipmentsValues.push(v);
+          c.__rows = [{ id: `shipment-${shipmentsValues.length}`, ...v }];
+        } else if (Array.isArray(v)) {
           itemsValues.push(v);
           c.__rows = v.map((row: any, i: number) => ({ id: `item-${itemsValues.length}-${i}`, ...row }));
         } else {
@@ -81,6 +89,9 @@ function makeTx(
         }
         return c;
       });
+      // Draft shipment insert chains .onConflictDoNothing(); make it a no-op
+      // terminator that still resolves like .returning() would.
+      c.onConflictDoNothing = jest.fn(() => Promise.resolve(c.__rows));
       c.returning = jest.fn(() => Promise.resolve(c.__rows));
       return c;
     }),
@@ -119,6 +130,7 @@ describe('OrdersService.createCourierOrders()', () => {
   it('splits a 2-farmer cart into 2 single-farmer COD orders', async () => {
     const ordersValues: any[] = [];
     const itemsValues: any[] = [];
+    const shipmentsValues: any[] = [];
     const tx = makeTx(
       [
         { id: FARMER_A, name: 'Ферма А', courierEnabled: true },
@@ -127,6 +139,7 @@ describe('OrdersService.createCourierOrders()', () => {
       7, // nextNumber
       ordersValues,
       itemsValues,
+      shipmentsValues,
     );
     const db = buildDb(tx, settingsReady(FARMER_A, FARMER_B));
     const svc = makeSvc(db);
@@ -173,6 +186,27 @@ describe('OrdersService.createCourierOrders()', () => {
     expect(result[1].farmerName).toBe('Ферма Б');
     expect(result[0].items).toHaveLength(2);
     expect(result[1].items).toHaveLength(2);
+
+    // Phase 3 distribution: one DRAFT shipment dropped per order, same tx — keyed
+    // to its order, scoped to the order's farmer, COD = the order total.
+    expect(tx.insert).toHaveBeenCalledWith(shipments);
+    expect(shipmentsValues).toHaveLength(2);
+    const [sA, sB] = shipmentsValues;
+    for (const s of [sA, sB]) {
+      expect(s.tenantId).toBe(TENANT_ID);
+      expect(s.status).toBe('draft');
+      expect(s.deliveryMode).toBe('address');
+      // carrier is OMITTED so the NOT-NULL column defaults to its 'econt'
+      // placeholder — 'draft' status is the unshipped marker, not the carrier.
+      expect(s.carrier).toBeUndefined();
+    }
+    // The mock stamps order-N ids in insert order (order-1 = A, order-2 = B).
+    expect(sA.orderId).toBe('order-1');
+    expect(sA.farmerId).toBe(FARMER_A);
+    expect(sA.codAmountStotinki).toBe(2 * 500 + 1 * 300); // 1300 = order A total
+    expect(sB.orderId).toBe('order-2');
+    expect(sB.farmerId).toBe(FARMER_B);
+    expect(sB.codAmountStotinki).toBe(3 * 100 + 1 * 200); // 500 = order B total
   });
 
   it('throws BadRequestException when a product has no farmer (and inserts nothing)', async () => {

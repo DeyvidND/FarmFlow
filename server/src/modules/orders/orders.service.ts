@@ -17,6 +17,7 @@ import {
   deliverySlots,
   tenants,
   farmers,
+  shipments,
 } from '@fermeribg/db';
 import type { Product, ProductVariant } from '@fermeribg/types';
 import { effectivePriceStotinki } from '../products/promo.util';
@@ -1393,6 +1394,22 @@ export class OrdersService {
           .insert(orderItems)
           .values(lines.map(({ farmerId: _f, ...line }) => ({ ...line, orderId: order.id })))
           .returning();
+        // Phase 3: distribution — drop a DRAFT shipment into the farmer's queue.
+        // No carrier call (status='draft'); the farmer picks the carrier + finalizes
+        // in dostavki later. carrier is OMITTED so it defaults to the 'econt'
+        // placeholder (the column is NOT NULL) — 'draft' status is the unshipped
+        // marker, not carrier. Idempotent via the shipments_order_unique index.
+        await tx
+          .insert(shipments)
+          .values({
+            tenantId: tenant.id,
+            orderId: order.id,
+            farmerId: fid,
+            status: 'draft',
+            codAmountStotinki: total,
+            deliveryMode: 'address',
+          })
+          .onConflictDoNothing({ target: shipments.orderId });
         out.push({
           ...order,
           slotFrom: null,
