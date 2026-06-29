@@ -67,6 +67,28 @@ describe('EcontService.buildLabel', () => {
     expect(label.shipmentDimensionsL).toBeUndefined();
   });
 
+  it('courier draft (deliveryType=courier) → ADDRESS delivery to the door, never an office code', () => {
+    const label = build(
+      { sender, defaultPackage: { weightKg: 3 }, cod: { enabled: true, feePayer: 'farm' } },
+      {
+        customerName: 'Стоян',
+        customerPhone: '0833',
+        deliveryType: 'courier',
+        deliveryCity: 'Пловдив',
+        deliveryAddress: 'бул. България 12',
+        econtOffice: null,
+        totalStotinki: 4200,
+        paymentMethod: 'cod',
+      },
+    );
+    // Courier = address delivery: ship to the customer's door, NOT a receiver office.
+    expect(label.receiverAddress).toEqual({ city: { name: 'Пловдив' }, other: 'бул. България 12' });
+    expect(label.receiverOfficeCode).toBeUndefined();
+    // Weight from the farmer's defaultPackage; COD = order total in EUR.
+    expect(label.weight).toBe(3);
+    expect(label.services).toMatchObject({ cdAmount: 42, cdType: 'get', cdCurrency: 'EUR' });
+  });
+
   it('online order → no COD even when the farm has a COD/feePayer config', () => {
     const label = build(
       { sender, defaultPackage: { weightKg: 1 }, cod: { enabled: true, feePayer: 'customer' } },
@@ -269,6 +291,24 @@ describe('mapShipmentRow', () => {
     expect(out.priceStotinki).toBe(5000);
     expect(out.labelPdfUrl).toBeUndefined();
     expect(out.codAmountStotinki).toBeUndefined();
+  });
+
+  it('courier order → econtAddress method (courier IS door delivery, not an office)', () => {
+    const out = mapShipmentRow({
+      orderId: '77777777-8888-9999-aaaa-bbbbbbbbbbbb',
+      customerName: 'Стоян',
+      deliveryType: 'courier',
+      total: 4200,
+      shipmentId: 'eeee',
+      shipmentNumber: null,
+      shipmentStatus: 'draft',
+      courierPrice: null,
+      labelPdfUrl: null,
+      codAmount: 4200,
+      trackingJson: null,
+      ...econtBase,
+    });
+    expect(out.method).toBe('econtAddress');
   });
 
   it('no waybill yet → pending status, no tracking number', () => {
@@ -675,6 +715,68 @@ describe('EcontService.listShipments (farmer-scoped)', () => {
     expect(out[0].codAmountStotinki).toBe(2400);
     expect(out[0].status).toBe('pending'); // draft, no number → uiShipmentStatus → pending
     expect(select).toHaveBeenCalledTimes(1); // single query, NOT the admin's two-query Promise.all
+  });
+});
+
+describe('EcontService.createLabel (finalize courier draft)', () => {
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+
+  it('finalizes a courier draft → ADDRESS waybill, stamps farmerId + carrier, updates orders.carrier', async () => {
+    // Farmer's own creds/config (per-farmer defaultPackage weight) come via loadStored.
+    (svc as any).loadStored = jest.fn().mockResolvedValue({
+      tenant: { id: 't1', settings: {} },
+      econt: {
+        sender: { name: 'Ферма', phone: '0888', mode: 'office', officeCode: '1234' },
+        defaultPackage: { weightKg: 2.5 },
+      },
+    });
+    // A courier order: address delivery, COD, owning farmer set on the order.
+    (svc as any).orderForShipment = jest.fn().mockResolvedValue({
+      order: {
+        tenantId: 't1', farmerId: 'farmer-1',
+        customerName: 'Стоян', customerPhone: '0833',
+        deliveryType: 'courier', econtOffice: null,
+        deliveryCity: 'Пловдив', deliveryAddress: 'бул. България 12',
+        totalStotinki: 4200, paymentMethod: 'cod', paidAt: null,
+      },
+      items: [{ name: 'Домати', qty: 2 }],
+    });
+    (svc as any).resolveHandling = jest.fn().mockReturnValue({ refrigerated: false, inspectBeforePay: 'off' });
+    const callTenant = jest.fn().mockResolvedValue({ label: { shipmentNumber: '1051000000009', pdfURL: 'x.pdf', totalPrice: 6.9 } });
+    (svc as any).callTenant = callTenant;
+
+    // db.insert(...).values(...).onConflictDoUpdate(...).returning()
+    const returning = jest.fn().mockResolvedValue([{ orderId: 'order-1', farmerId: 'farmer-1', carrier: 'econt', status: 'created' }]);
+    const onConflictDoUpdate = jest.fn().mockReturnValue({ returning });
+    const values = jest.fn().mockReturnValue({ onConflictDoUpdate });
+    const insert = jest.fn().mockReturnValue({ values });
+    // db.update(orders).set(...).where(...)
+    const updWhere = jest.fn().mockResolvedValue(undefined);
+    const updSet = jest.fn().mockReturnValue({ where: updWhere });
+    const update = jest.fn().mockReturnValue({ set: updSet });
+    (svc as any).db = { insert, update };
+
+    const row = await svc.createLabel('t1', 'order-1', 'farmer-1');
+
+    // (a) ADDRESS label — door, not an office code.
+    // callTenant(tenantId, path, { label, mode }, ...) → body is arg index 2.
+    const label = callTenant.mock.calls[0][2].label;
+    expect(label.receiverAddress).toEqual({ city: { name: 'Пловдив' }, other: 'бул. България 12' });
+    expect(label.receiverOfficeCode).toBeUndefined();
+    expect(label.weight).toBe(2.5); // farmer defaultPackage.weightKg
+    // (b) shipments upsert stamps farmerId + carrier in BOTH insert values and update set.
+    const insertVals = values.mock.calls[0][0];
+    expect(insertVals.farmerId).toBe('farmer-1');
+    expect(insertVals.carrier).toBe('econt');
+    expect(insertVals.status).toBe('created');
+    const updateSet = onConflictDoUpdate.mock.calls[0][0].set;
+    expect(updateSet.farmerId).toBe('farmer-1');
+    expect(updateSet.carrier).toBe('econt');
+    expect(updateSet.status).toBe('created');
+    // (c) orders.carrier persisted = 'econt'.
+    expect(update).toHaveBeenCalled();
+    expect(updSet.mock.calls[0][0]).toEqual({ carrier: 'econt' });
+    expect(row.carrier).toBe('econt');
   });
 });
 

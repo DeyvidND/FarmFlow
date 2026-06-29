@@ -136,11 +136,54 @@ describe('SpeedyService.createLabelForOrder', () => {
     const onConflictDoUpdate = jest.fn().mockReturnValue({ returning });
     const values = jest.fn().mockReturnValue({ onConflictDoUpdate });
     const insert = jest.fn().mockReturnValue({ values });
-    (svc as any).db = { insert };
+    const updWhere = jest.fn().mockResolvedValue(undefined);
+    const updSet = jest.fn().mockReturnValue({ where: updWhere });
+    const update = jest.fn().mockReturnValue({ set: updSet });
+    (svc as any).db = { insert, update };
 
     const row = await svc.createLabelForOrder('t1', 'order-1');
     expect(call).toHaveBeenCalledWith(expect.anything(), 'shipment', expect.anything());
     expect(insert).toHaveBeenCalled();
+    expect(row.carrier).toBe('speedy');
+  });
+
+  it('finalizes a courier draft → Speedy ADDRESS waybill, stamps farmerId + orders.carrier=speedy', async () => {
+    const call = jest.fn().mockResolvedValue({ id: 'S9', parcels: [{ barcode: 'BC9' }], price: { total: 5.5 } });
+    (svc as any).client = { call };
+    (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
+    (svc as any).loadStored = jest.fn().mockResolvedValue({ speedy: { configured: true, defaultServiceId: 505, defaultPackage: { weightKg: 2.5 } } });
+    (svc as any).searchSites = jest.fn().mockResolvedValue([{ id: 200 }]);
+    // A courier order carries its owning farmer_id (Phase-3 split).
+    (svc as any).orderForShipment = jest.fn().mockResolvedValue({
+      tenantId: 't1', farmerId: 'farmer-1', deliveryCity: 'Пловдив', customerName: 'Стоян', customerPhone: '0833',
+      deliveryAddress: 'бул. България 12', paymentMethod: 'cod', paidAt: null, totalStotinki: 4200,
+    });
+
+    const returning = jest.fn().mockResolvedValue([{ carrier: 'speedy', farmerId: 'farmer-1', status: 'created' }]);
+    const onConflictDoUpdate = jest.fn().mockReturnValue({ returning });
+    const values = jest.fn().mockReturnValue({ onConflictDoUpdate });
+    const insert = jest.fn().mockReturnValue({ values });
+    const updWhere = jest.fn().mockResolvedValue(undefined);
+    const updSet = jest.fn().mockReturnValue({ where: updWhere });
+    const update = jest.fn().mockReturnValue({ set: updSet });
+    (svc as any).db = { insert, update };
+
+    const row = await svc.createLabelForOrder('t1', 'order-1', 'farmer-1');
+
+    // Always ADDRESS mode for Speedy (door); request body recipient = the door site.
+    const body = call.mock.calls[0][2] as any;
+    expect(body.recipient?.address?.siteId).toBe(200);
+    expect(body.recipient?.pickupOfficeId).toBeUndefined();
+    // farmerId stamped in BOTH insert values and update set.
+    const insertVals = values.mock.calls[0][0];
+    expect(insertVals.farmerId).toBe('farmer-1');
+    expect(insertVals.carrier).toBe('speedy');
+    const updateSet = onConflictDoUpdate.mock.calls[0][0].set;
+    expect(updateSet.farmerId).toBe('farmer-1');
+    expect(updateSet.carrier).toBe('speedy');
+    // orders.carrier persisted = 'speedy'.
+    expect(update).toHaveBeenCalled();
+    expect(updSet.mock.calls[0][0]).toEqual({ carrier: 'speedy' });
     expect(row.carrier).toBe('speedy');
   });
 });

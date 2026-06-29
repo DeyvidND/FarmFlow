@@ -609,7 +609,13 @@ export class EcontService implements CarrierAdapter {
       .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
       .limit(1);
     if (!order) throw new NotFoundException('Поръчката не е намерена');
-    if (order.deliveryType !== 'econt' && order.deliveryType !== 'econt_address') {
+    // 'courier' = a farmer-shipped per-farmer order (Phase 3); it finalizes through
+    // the SAME farmer-scoped createLabel as Econt door delivery (address mode).
+    if (
+      order.deliveryType !== 'econt' &&
+      order.deliveryType !== 'econt_address' &&
+      order.deliveryType !== 'courier'
+    ) {
       throw new BadRequestException('Поръчката не е с доставка чрез Econt');
     }
     const items = await this.db
@@ -678,8 +684,9 @@ export class EcontService implements CarrierAdapter {
       label.senderOfficeCode = sender.officeCode ?? undefined;
     }
 
-    // Where it goes: a receiver office, or the customer's door.
-    if (order.deliveryType === 'econt_address') {
+    // Where it goes: a receiver office, or the customer's door. A 'courier' order
+    // (farmer-shipped, Phase 3) is ALWAYS door delivery → address branch.
+    if (order.deliveryType === 'econt_address' || order.deliveryType === 'courier') {
       label.receiverAddress = {
         city: { name: order.deliveryCity ?? '' },
         other: order.deliveryAddress ?? '',
@@ -921,12 +928,18 @@ export class EcontService implements CarrierAdapter {
     // price and the persisted/charged price can't diverge. EUR (BG euro 2026) → ×100 = stotinki.
     const priceEur: number | undefined = out.totalPrice ?? out.totalPriceVAT;
     const codAmount = this.codAmountFor(order);
+    // The owning farmer for a finalized waybill: prefer the order's own farmer_id
+    // (the true owner, set on a Phase-3 courier split) and fall back to the caller's
+    // farmerId arg. Stays null for legacy tenant-level Econt orders.
+    const ownerFarmerId = (order as { farmerId?: string | null }).farmerId ?? farmerId ?? null;
 
     const [row] = await this.db
       .insert(shipments)
       .values({
         tenantId,
         orderId,
+        farmerId: ownerFarmerId,
+        carrier: 'econt',
         econtShipmentNumber: number,
         status: number ? 'created' : 'pending',
         labelPdfUrl: out.pdfURL ?? null,
@@ -937,6 +950,10 @@ export class EcontService implements CarrierAdapter {
       .onConflictDoUpdate({
         target: shipments.orderId,
         set: {
+          // Finalizing a courier DRAFT: set/preserve the owning farmer + carrier so a
+          // waybill always carries its true owner and the carrier that produced it.
+          farmerId: ownerFarmerId,
+          carrier: 'econt',
           econtShipmentNumber: number,
           status: number ? 'created' : 'pending',
           labelPdfUrl: out.pdfURL ?? null,
@@ -945,6 +962,9 @@ export class EcontService implements CarrierAdapter {
         },
       })
       .returning();
+    // Persist the chosen carrier on the order so the courier list / UI reflects which
+    // carrier shipped a previously carrier-neutral courier draft.
+    await this.db.update(orders).set({ carrier: 'econt' }).where(eq(orders.id, orderId));
     return row;
   }
 
@@ -1467,7 +1487,8 @@ export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
     orderId: r.orderId,
     orderNumber: r.orderId.slice(0, 8),
     customerName: r.customerName ?? '—',
-    method: r.deliveryType === 'econt_address' ? 'econtAddress' : 'econtOffice',
+    // Courier IS door delivery, so it maps to the address method on every path.
+    method: (r.deliveryType === 'econt_address' || r.deliveryType === 'courier') ? 'econtAddress' : 'econtOffice',
     carrier: (r.carrier ?? r.orderCarrier ?? 'econt') as 'econt' | 'speedy',
     status: uiShipmentStatus(ref, r.shipmentStatus),
     trackingNumber: ref ?? undefined,

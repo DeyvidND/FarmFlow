@@ -445,6 +445,7 @@ export class SpeedyService implements CarrierAdapter {
     const [row] = await this.db
       .select({
         tenantId: orders.tenantId,
+        farmerId: orders.farmerId,
         deliveryCity: orders.deliveryCity,
         deliveryAddress: orders.deliveryAddress,
         customerName: orders.customerName,
@@ -480,12 +481,17 @@ export class SpeedyService implements CarrierAdapter {
     const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
     const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
     const codAmount = input.codAmountStotinki && input.codAmountStotinki > 0 ? Math.round(input.codAmountStotinki) : null;
+    // The owning farmer for a finalized waybill: prefer the order's own farmer_id (set
+    // on a Phase-3 courier split) and fall back to the caller's farmerId arg. Stays null
+    // for legacy tenant-level Speedy orders.
+    const ownerFarmerId = (order as { farmerId?: string | null }).farmerId ?? farmerId ?? null;
 
     const [row] = await this.db
       .insert(shipments)
       .values({
         tenantId,
         orderId,
+        farmerId: ownerFarmerId,
         carrier: 'speedy',
         carrierShipmentId: shipmentId,
         trackingNumber: barcode,
@@ -498,6 +504,9 @@ export class SpeedyService implements CarrierAdapter {
       .onConflictDoUpdate({
         target: shipments.orderId,
         set: {
+          // Finalizing a courier DRAFT: set/preserve the owning farmer + carrier so a
+          // waybill always carries its true owner and the carrier that produced it.
+          farmerId: ownerFarmerId,
           carrier: 'speedy',
           carrierShipmentId: shipmentId,
           trackingNumber: barcode,
@@ -509,6 +518,9 @@ export class SpeedyService implements CarrierAdapter {
         },
       })
       .returning();
+    // Persist the chosen carrier on the order so the courier list / UI reflects which
+    // carrier shipped a previously carrier-neutral courier draft.
+    await this.db.update(orders).set({ carrier: 'speedy' }).where(eq(orders.id, orderId));
     return row;
   }
 
