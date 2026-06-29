@@ -23,10 +23,21 @@ import {
   type DeliveryConfig,
 } from './delivery-pricing';
 
+/** One leg of a courier split — shown on the storefront confirmation page. */
+export interface CourierOrderLeg {
+  orderId: string;
+  orderNumber: number | null;
+  farmerId: string | null;
+  farmerName: string | null;
+  totalStotinki: number;
+}
+
 export interface CheckoutResult {
   orderId: string;
   /** Stripe-hosted Checkout URL, or `null` for the cash path (go to confirmation). */
   checkoutUrl: string | null;
+  /** Present only for delivery_type='courier' — the N single-farmer COD orders. */
+  orders?: CourierOrderLeg[];
 }
 
 /** The full order row + items as returned by OrdersService.create. */
@@ -93,6 +104,25 @@ export class CheckoutService {
   }
 
   async create(slug: string, dto: CreateOrderDto): Promise<CheckoutResult> {
+    // Courier delivery splits the cart into one single-farmer COD order per farmer.
+    // It never opens a Stripe session and folds no delivery fee — short-circuit here.
+    if (dto.deliveryType === 'courier') {
+      const placed = await this.ordersService.createCourierOrders(slug, dto);
+      // COD → final now; send the "received" mail per leg (best-effort, detached).
+      for (const o of placed) void this.orderConfirmation.sendReceived(o.id);
+      return {
+        orderId: placed[0]?.id,
+        checkoutUrl: null,
+        orders: placed.map((o) => ({
+          orderId: o.id,
+          orderNumber: o.orderNumber,
+          farmerId: o.farmerId,
+          farmerName: o.farmerName,
+          totalStotinki: o.totalStotinki,
+        })),
+      };
+    }
+
     // Resolve the farm ONCE — drives both the pre-flight payment check and the
     // Stripe branch below.
     const [tenant] = await this.db

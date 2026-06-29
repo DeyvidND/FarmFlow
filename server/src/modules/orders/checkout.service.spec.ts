@@ -38,9 +38,12 @@ function makeOrder(over: Record<string, any> = {}) {
   };
 }
 
-function build(order: any, opts: { canCard?: boolean; speedy?: any } = {}) {
+function build(order: any, opts: { canCard?: boolean; speedy?: any; courierOrders?: any[] } = {}) {
   const db = makeDb();
-  const ordersService = { create: jest.fn().mockResolvedValue(order) };
+  const ordersService = {
+    create: jest.fn().mockResolvedValue(order),
+    createCourierOrders: jest.fn().mockResolvedValue(opts.courierOrders ?? []),
+  };
   const stripe = {
     isEnabledForAccount: jest.fn().mockReturnValue(opts.canCard ?? false),
     createCheckoutSession: jest
@@ -240,6 +243,41 @@ describe('CheckoutService.shippingStotinki (cheapest policy → picks + persists
     expect(fee).toBe(590);
     expect(order.carrier).toBeNull();
     expect(db.set).not.toHaveBeenCalled();
+  });
+});
+
+describe('CheckoutService.create (courier split)', () => {
+  const courierLegs = [
+    { id: 'o1', orderNumber: 7, farmerId: 'fA', farmerName: 'Ферма А', totalStotinki: 1300, items: [] },
+    { id: 'o2', orderNumber: 8, farmerId: 'fB', farmerName: 'Ферма Б', totalStotinki: 500, items: [] },
+  ] as any[];
+
+  it('delivery_type=courier → splits into N legs, no Stripe, no single-order intake', async () => {
+    const { svc, ordersService, stripe, orderConfirmation } = build(
+      makeOrder(),
+      { courierOrders: courierLegs },
+    );
+
+    const out = await svc.create('slug', dto({ deliveryType: 'courier', paymentMethod: 'cod' }));
+
+    // Returns the first order id + null checkoutUrl + 2 mapped legs.
+    expect(out.orderId).toBe('o1');
+    expect(out.checkoutUrl).toBeNull();
+    expect(out.orders).toHaveLength(2);
+    expect(out.orders![0]).toEqual({
+      orderId: 'o1', orderNumber: 7, farmerId: 'fA', farmerName: 'Ферма А', totalStotinki: 1300,
+    });
+    expect(out.orders![1]).toEqual({
+      orderId: 'o2', orderNumber: 8, farmerId: 'fB', farmerName: 'Ферма Б', totalStotinki: 500,
+    });
+
+    // The single-order intake path must NOT have been called.
+    expect((ordersService as any).create).not.toHaveBeenCalled();
+    // Stripe session must NOT have been opened.
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+    // "Received" mail fired for each leg.
+    expect(orderConfirmation.sendReceived).toHaveBeenCalledWith('o1');
+    expect(orderConfirmation.sendReceived).toHaveBeenCalledWith('o2');
   });
 });
 
