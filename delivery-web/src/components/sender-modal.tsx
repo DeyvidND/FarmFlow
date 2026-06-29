@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { Search } from 'lucide-react';
+import { Search, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
 import {
   ApiError,
   getEcontConfig, getSpeedyConfig,
   saveEcontProfile, saveSpeedyProfile,
+  saveEcontSenders, saveSpeedySenders,
   listEcontCities, listEcontOffices,
   listSpeedySites, listSpeedyOffices,
-  type EcontSender, type SpeedySender,
+  type EcontPickupPoint, type SpeedyPickupPoint,
   type EcontOfficeLive, type SpeedyOffice,
 } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
@@ -86,9 +87,10 @@ function Autocomplete({ value, disabled, notReadyHint, search, onPick }: {
 }
 
 /**
- * Edit one carrier's sender (name/phone + drop-off office/address), with package +
- * COD collapsed under „Разширени". Replaces the standalone „Профил на подател" page —
- * opened from the SenderStrip on Пратки/Внос.
+ * Pickup-point list manager. Shows all saved sender points for a carrier;
+ * lets the user activate, edit, delete, or add points — then saves the whole
+ * book via saveEcontSenders / saveSpeedySenders. Package + COD stay per-farm
+ * under „Разширени" and are saved via the existing saveEcontProfile / saveSpeedyProfile.
  */
 export function SenderModal({
   carrier,
@@ -103,223 +105,356 @@ export function SenderModal({
 }) {
   const [advanced, setAdvanced] = useState(false);
 
-  // ── Econt state (used when carrier === 'econt') ──────────────────────────
+  // ── List state ───────────────────────────────────────────────────────────
+  type EPoint = EcontPickupPoint;
+  type SPoint = SpeedyPickupPoint;
+  const [ePoints, setEPoints] = useState<EPoint[]>([]);
+  const [sPoints, setSPoints] = useState<SPoint[]>([]);
+  const [activeId, setActiveId] = useState<string>('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // ── Configured flag ──────────────────────────────────────────────────────
   const [eConfigured, setEConfigured] = useState(false);
-  const [eSender, setESender] = useState<EcontSender>({ mode: 'office' });
+  const [sConfigured, setSConfigured] = useState(false);
+
+  // ── Package + COD (farm-level) ───────────────────────────────────────────
   const [ePkg, setEPkg] = useState<{ weightKg?: number; contents?: string }>({});
   const [eCod, setECod] = useState<{ enabled?: boolean; feePayer?: 'customer' | 'farm' }>({ enabled: true, feePayer: 'customer' });
-  const [eOffices, setEOffices] = useState<EcontOfficeLive[]>([]);
-  const [eSaving, setESaving] = useState(false);
-
-  // ── Speedy state (used when carrier === 'speedy') ────────────────────────
-  const [sConfigured, setSConfigured] = useState(false);
-  const [sSender, setSSender] = useState<SpeedySender>({ mode: 'office' });
   const [sPkg, setSPkg] = useState<{ parcelsCount?: number; weightKg?: number; contents?: string }>({});
   const [sCod, setSCod] = useState<{ enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' }>({ enabled: true, processingType: 'CASH' });
-  const [sOffices, setSOffices] = useState<SpeedyOffice[]>([]);
-  const [sSaving, setSSaving] = useState(false);
 
-  // Load the config for the active carrier when the modal opens.
+  // ── Office lists (keyed to the currently-editing point) ─────────────────
+  const [eOffices, setEOffices] = useState<EcontOfficeLive[]>([]);
+  const [sOffices, setSOffices] = useState<SpeedyOffice[]>([]);
+
+  const [saving, setSaving] = useState(false);
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  const ePoint = ePoints.find((p) => p.id === editingId);
+  const sPoint = sPoints.find((p) => p.id === editingId);
+
+  const updateEPoint = useCallback((patch: Partial<EPoint>) => {
+    setEPoints((ps) => ps.map((p) => (p.id === editingId ? { ...p, ...patch } : p)));
+  }, [editingId]);
+
+  const updateSPoint = useCallback((patch: Partial<SPoint>) => {
+    setSPoints((ps) => ps.map((p) => (p.id === editingId ? { ...p, ...patch } : p)));
+  }, [editingId]);
+
+  // ── Load on open ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
+    setEditingId(null);
+    setAdvanced(false);
     if (carrier === 'econt') {
       getEcontConfig().then((c) => {
         setEConfigured(!!c.configured);
-        if (c.sender) setESender({ mode: 'office', ...c.sender });
+        const pts = (c.senders ?? (c.sender ? [{ id: 'p1', label: 'Основна', mode: 'office' as const, ...c.sender }] : [])) as EPoint[];
+        setEPoints(pts);
+        setActiveId(c.activeSenderId ?? pts[0]?.id ?? '');
         if (c.defaultPackage) setEPkg({ weightKg: c.defaultPackage.weightKg, contents: c.defaultPackage.contents });
         if (c.cod) setECod({ enabled: c.cod.enabled ?? true, feePayer: c.cod.feePayer ?? 'customer' });
       }).catch((e) => toast.error(`Econt: ${errMsg(e)}`));
     } else {
       getSpeedyConfig().then((c) => {
         setSConfigured(!!c.configured);
-        if (c.sender) setSSender({ mode: 'office', ...c.sender });
+        const pts = (c.senders ?? (c.sender ? [{ id: 'p1', label: 'Основна', mode: 'office' as const, ...c.sender }] : [])) as SPoint[];
+        setSPoints(pts);
+        setActiveId(c.activeSenderId ?? pts[0]?.id ?? '');
         if (c.defaultPackage) setSPkg({ parcelsCount: c.defaultPackage.parcelsCount, weightKg: c.defaultPackage.weightKg, contents: c.defaultPackage.contents });
         if (c.cod) setSCod({ enabled: c.cod.enabled ?? true, processingType: c.cod.processingType ?? 'CASH' });
       }).catch((e) => toast.error(`Speedy: ${errMsg(e)}`));
     }
   }, [open, carrier]);
 
-  // Fetch Econt offices when city changes.
+  // ── Office fetch — Econt — keyed to editing point's cityId ───────────────
   useEffect(() => {
-    if (carrier !== 'econt' || !eConfigured || !eSender.cityId) { setEOffices([]); return; }
+    if (carrier !== 'econt' || !eConfigured || !ePoint?.cityId) { setEOffices([]); return; }
     let active = true;
-    listEcontOffices(eSender.cityId).then((r) => active && setEOffices(r)).catch(() => active && setEOffices([]));
+    listEcontOffices(ePoint.cityId).then((r) => active && setEOffices(r)).catch(() => active && setEOffices([]));
     return () => { active = false; };
-  }, [carrier, eConfigured, eSender.cityId]);
+  }, [carrier, eConfigured, ePoint?.cityId]);
 
-  // Fetch Speedy offices when site changes.
+  // ── Office fetch — Speedy — keyed to editing point's siteId ──────────────
   useEffect(() => {
-    if (carrier !== 'speedy' || !sConfigured || !sSender.siteId) { setSOffices([]); return; }
+    if (carrier !== 'speedy' || !sConfigured || !sPoint?.siteId) { setSOffices([]); return; }
     let active = true;
-    listSpeedyOffices(sSender.siteId).then((r) => active && setSOffices(r)).catch(() => active && setSOffices([]));
+    listSpeedyOffices(sPoint.siteId).then((r) => active && setSOffices(r)).catch(() => active && setSOffices([]));
     return () => { active = false; };
-  }, [carrier, sConfigured, sSender.siteId]);
+  }, [carrier, sConfigured, sPoint?.siteId]);
 
-  const saving = carrier === 'econt' ? eSaving : sSaving;
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const addPoint = () => {
+    const id = crypto.randomUUID().slice(0, 8);
+    if (carrier === 'econt') {
+      const np: EPoint = { id, label: 'Нова точка', mode: 'office' };
+      setEPoints((ps) => [...ps, np]);
+    } else {
+      const np: SPoint = { id, label: 'Нова точка', mode: 'office' };
+      setSPoints((ps) => [...ps, np]);
+    }
+    setEditingId(id);
+  };
+
+  const deletePoint = (id: string) => {
+    if (carrier === 'econt') {
+      const next = ePoints.filter((p) => p.id !== id);
+      setEPoints(next);
+      if (activeId === id) setActiveId(next[0]?.id ?? '');
+    } else {
+      const next = sPoints.filter((p) => p.id !== id);
+      setSPoints(next);
+      if (activeId === id) setActiveId(next[0]?.id ?? '');
+    }
+    if (editingId === id) setEditingId(null);
+  };
 
   const handleSave = async () => {
-    if (carrier === 'econt') {
-      setESaving(true);
-      try {
-        await saveEcontProfile({ sender: eSender, defaultPackage: { weightKg: ePkg.weightKg, contents: ePkg.contents }, cod: eCod });
-        toast.success('Подателят е запазен');
-        onSaved();
-        onClose();
-      } catch (e) {
-        toast.error(errMsg(e));
-      } finally {
-        setESaving(false);
+    setSaving(true);
+    try {
+      if (carrier === 'econt') {
+        await saveEcontSenders({ senders: ePoints, activeId });
+        await saveEcontProfile({ defaultPackage: { weightKg: ePkg.weightKg, contents: ePkg.contents }, cod: eCod });
+      } else {
+        await saveSpeedySenders({ senders: sPoints, activeId });
+        await saveSpeedyProfile({ defaultPackage: sPkg, cod: sCod });
       }
-    } else {
-      setSSaving(true);
-      try {
-        await saveSpeedyProfile({ sender: sSender, defaultPackage: sPkg, cod: sCod });
-        toast.success('Подателят е запазен');
-        onSaved();
-        onClose();
-      } catch (e) {
-        toast.error(errMsg(e));
-      } finally {
-        setSSaving(false);
-      }
+      toast.success('Точките са запазени');
+      onSaved();
+      onClose();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setSaving(false);
     }
   };
 
   if (!open) return null;
 
+  const isEcont = carrier === 'econt';
+  const points = isEcont ? ePoints : sPoints;
+  const configured = isEcont ? eConfigured : sConfigured;
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="w-full max-w-[560px] rounded-2xl bg-ff-surface p-5 shadow-xl"
+        className="w-full max-w-[580px] max-h-[90vh] overflow-y-auto rounded-2xl bg-ff-surface p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="font-display text-[18px] font-extrabold">
-          Подател — {carrier === 'econt' ? 'Еконт' : 'Speedy'}
+          Точки на подаване — {isEcont ? 'Еконт' : 'Speedy'}
         </h2>
         <p className="mt-1 text-[13px] text-ff-muted">
-          Тези данни влизат автоматично във всяка товарителница. Попълнени са от профила
-          ти — смени само ако е нужно.
+          Управлявай адресите, от които подаваш пратки. Активната точка влиза автоматично в товарителниците.
         </p>
 
-        <div className="mt-4 space-y-3">
-          {/* ── Econt fields ── */}
-          {carrier === 'econt' && (
-            <>
-              {!eConfigured && (
-                <p className="text-[12.5px] text-ff-amber-600">
-                  Свържи Econt акаунта в „Куриерски акаунти", за да избираш град и офис на живо.
-                </p>
-              )}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className={lbl}>Име на подател</label>
-                  <input className={inp} value={eSender.name ?? ''} onChange={(e) => setESender({ ...eSender, name: e.target.value })} />
-                </div>
-                <div>
-                  <label className={lbl}>Телефон</label>
-                  <input className={inp} value={eSender.phone ?? ''} onChange={(e) => setESender({ ...eSender, phone: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <label className={lbl}>Град</label>
-                <Autocomplete
-                  value={eSender.cityName ?? ''} disabled={!eConfigured}
-                  notReadyHint="Първо свържи Econt акаунта."
-                  search={listEcontCities}
-                  onPick={(c) => setESender({ ...eSender, cityId: c.id, cityName: c.name, officeCode: undefined })}
-                />
-              </div>
-              <div>
-                <label className={lbl}>Подаване</label>
-                <Seg
-                  value={eSender.mode === 'address' ? 'address' : 'office'}
-                  onChange={(v) => setESender({ ...eSender, mode: v })}
-                  options={[{ value: 'office', label: 'От офис' }, { value: 'address', label: 'От адрес' }]}
-                />
-              </div>
-              {eSender.mode === 'address' ? (
-                <div>
-                  <label className={lbl}>Адрес на подаване</label>
-                  <input className={inp} value={eSender.address ?? ''} onChange={(e) => setESender({ ...eSender, address: e.target.value })} />
-                </div>
-              ) : (
-                <div>
-                  <label className={lbl}>Офис на подаване</label>
-                  {!eConfigured
-                    ? <div className={cn(inp, 'flex items-center text-ff-muted')}>Свържи Econt</div>
-                    : eOffices.length === 0
-                      ? <div className={cn(inp, 'flex items-center text-ff-muted')}>{eSender.cityName ? `Няма офиси в „${eSender.cityName}"` : 'Първо избери град'}</div>
-                      : (
-                        <select className={cn(inp, 'cursor-pointer')} value={eSender.officeCode ?? ''} onChange={(e) => setESender({ ...eSender, officeCode: e.target.value })}>
-                          <option value="" disabled>Избери офис…</option>
-                          {eOffices.map((o) => <option key={o.code} value={o.code}>{o.name}{o.address ? ` — ${o.address}` : ''}</option>)}
-                        </select>
-                      )}
-                </div>
-              )}
-            </>
+        {/* ── Point list ── */}
+        <div className="mt-4 space-y-2">
+          {points.length === 0 && (
+            <p className="text-[13px] text-ff-muted">Няма добавени точки. Добави поне една.</p>
           )}
+          {points.map((pt) => {
+            const isActive = pt.id === activeId;
+            const isEditing = pt.id === editingId;
+            const nameDisplay = isEcont
+              ? (pt as EPoint).name
+              : (pt as SPoint).contactName;
+            const officeDisplay = isEcont
+              ? ((pt as EPoint).officeCode ? `офис ${(pt as EPoint).officeCode}` : '')
+              : ((pt as SPoint).officeId != null ? `офис ${(pt as SPoint).officeId}` : '');
+            const cityDisplay = isEcont
+              ? ((pt as EPoint).cityName ?? '')
+              : ((pt as SPoint).siteName ?? '');
+            const place = officeDisplay || cityDisplay;
 
-          {/* ── Speedy fields ── */}
-          {carrier === 'speedy' && (
-            <>
-              {!sConfigured && (
-                <p className="text-[12.5px] text-ff-amber-600">
-                  Свържи Speedy акаунта в „Куриерски акаунти", за да избираш населено място и офис на живо.
-                </p>
-              )}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className={lbl}>Име/контакт на подател</label>
-                  <input className={inp} value={sSender.contactName ?? ''} onChange={(e) => setSSender({ ...sSender, contactName: e.target.value })} />
-                </div>
-                <div>
-                  <label className={lbl}>Телефон</label>
-                  <input className={inp} value={sSender.phone ?? ''} onChange={(e) => setSSender({ ...sSender, phone: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <label className={lbl}>Населено място</label>
-                <Autocomplete
-                  value={sSender.siteName ?? ''} disabled={!sConfigured}
-                  notReadyHint="Първо свържи Speedy акаунта."
-                  search={listSpeedySites}
-                  onPick={(s) => setSSender({ ...sSender, siteId: s.id, siteName: s.name, officeId: undefined })}
-                />
-              </div>
-              <div>
-                <label className={lbl}>Подаване</label>
-                <Seg
-                  value={sSender.mode === 'address' ? 'address' : 'office'}
-                  onChange={(v) => setSSender({ ...sSender, mode: v })}
-                  options={[{ value: 'office', label: 'От офис' }, { value: 'address', label: 'От адрес' }]}
-                />
-              </div>
-              {sSender.mode === 'address' ? (
-                <div>
-                  <label className={lbl}>Улица и номер</label>
-                  <input className={inp} value={sSender.streetNo ?? ''} onChange={(e) => setSSender({ ...sSender, streetNo: e.target.value })} />
-                </div>
-              ) : (
-                <div>
-                  <label className={lbl}>Офис на подаване</label>
-                  {!sConfigured
-                    ? <div className={cn(inp, 'flex items-center text-ff-muted')}>Свържи Speedy</div>
-                    : sOffices.length === 0
-                      ? <div className={cn(inp, 'flex items-center text-ff-muted')}>{sSender.siteName ? `Няма офиси в „${sSender.siteName}"` : 'Първо избери населено място'}</div>
-                      : (
-                        <select className={cn(inp, 'cursor-pointer')} value={sSender.officeId ?? ''} onChange={(e) => setSSender({ ...sSender, officeId: parseInt(e.target.value, 10) || undefined })}>
-                          <option value="" disabled>Избери офис…</option>
-                          {sOffices.map((o) => <option key={o.id} value={o.id}>{o.name}{o.address ? ` — ${o.address}` : ''}</option>)}
-                        </select>
+            return (
+              <div key={pt.id} className="rounded-xl border border-ff-border bg-ff-surface-2">
+                {/* Row header */}
+                <div className="flex items-center gap-2 px-3.5 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13.5px] font-bold text-ff-ink">{pt.label}</span>
+                      {isActive && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-ff-green-100 px-2 py-0.5 text-[11.5px] font-bold text-ff-green-800">
+                          <CheckCircle2 size={11} /> Активна
+                        </span>
                       )}
+                    </div>
+                    {(nameDisplay || place) && (
+                      <div className="text-[12.5px] text-ff-muted">
+                        {nameDisplay}{nameDisplay && place ? ' · ' : ''}{place}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {!isActive && (
+                      <button type="button" onClick={() => setActiveId(pt.id)}
+                        className="rounded-lg border border-ff-border px-2.5 py-1 text-[12px] font-bold text-ff-ink-2 hover:text-ff-ink">
+                        Избери
+                      </button>
+                    )}
+                    <button type="button" onClick={() => setEditingId(isEditing ? null : pt.id)}
+                      className={cn('rounded-lg border px-2.5 py-1 text-[12px] font-bold transition-colors',
+                        isEditing ? 'border-ff-green-500 bg-ff-green-50 text-ff-green-800' : 'border-ff-border text-ff-ink-2 hover:text-ff-ink')}>
+                      <Pencil size={13} />
+                    </button>
+                    <button type="button" onClick={() => deletePoint(pt.id)} disabled={points.length <= 1}
+                      className="rounded-lg border border-ff-border px-2.5 py-1 text-[12px] font-bold text-ff-amber-600 hover:text-ff-amber-700 disabled:cursor-not-allowed disabled:opacity-40">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
-              )}
-            </>
-          )}
+
+                {/* Inline editor */}
+                {isEditing && (
+                  <div className="border-t border-ff-border px-3.5 pb-3.5 pt-3 space-y-3">
+                    {/* Label */}
+                    <div>
+                      <label className={lbl}>Име на точката</label>
+                      <input className={inp} value={pt.label}
+                        onChange={(e) => {
+                          if (isEcont) updateEPoint({ label: e.target.value });
+                          else updateSPoint({ label: e.target.value });
+                        }} />
+                    </div>
+
+                    {/* ── Econt fields ── */}
+                    {isEcont && (() => {
+                      const ep = pt as EPoint;
+                      return (
+                        <>
+                          {!configured && (
+                            <p className="text-[12.5px] text-ff-amber-600">
+                              Свържи Econt акаунта в „Куриерски акаунти", за да избираш град и офис на живо.
+                            </p>
+                          )}
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <label className={lbl}>Име на подател</label>
+                              <input className={inp} value={ep.name ?? ''} onChange={(e) => updateEPoint({ name: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className={lbl}>Телефон</label>
+                              <input className={inp} value={ep.phone ?? ''} onChange={(e) => updateEPoint({ phone: e.target.value })} />
+                            </div>
+                          </div>
+                          <div>
+                            <label className={lbl}>Град</label>
+                            <Autocomplete
+                              value={ep.cityName ?? ''} disabled={!configured}
+                              notReadyHint="Първо свържи Econt акаунта."
+                              search={listEcontCities}
+                              onPick={(c) => updateEPoint({ cityId: c.id, cityName: c.name, officeCode: undefined })}
+                            />
+                          </div>
+                          <div>
+                            <label className={lbl}>Подаване</label>
+                            <Seg
+                              value={ep.mode === 'address' ? 'address' : 'office'}
+                              onChange={(v) => updateEPoint({ mode: v })}
+                              options={[{ value: 'office', label: 'От офис' }, { value: 'address', label: 'От адрес' }]}
+                            />
+                          </div>
+                          {ep.mode === 'address' ? (
+                            <div>
+                              <label className={lbl}>Адрес на подаване</label>
+                              <input className={inp} value={ep.address ?? ''} onChange={(e) => updateEPoint({ address: e.target.value })} />
+                            </div>
+                          ) : (
+                            <div>
+                              <label className={lbl}>Офис на подаване</label>
+                              {!configured
+                                ? <div className={cn(inp, 'flex items-center text-ff-muted')}>Свържи Econt</div>
+                                : eOffices.length === 0
+                                  ? <div className={cn(inp, 'flex items-center text-ff-muted')}>{ep.cityName ? `Няма офиси в „${ep.cityName}"` : 'Първо избери град'}</div>
+                                  : (
+                                    <select className={cn(inp, 'cursor-pointer')} value={ep.officeCode ?? ''}
+                                      onChange={(e) => updateEPoint({ officeCode: e.target.value })}>
+                                      <option value="" disabled>Избери офис…</option>
+                                      {eOffices.map((o) => <option key={o.code} value={o.code}>{o.name}{o.address ? ` — ${o.address}` : ''}</option>)}
+                                    </select>
+                                  )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+
+                    {/* ── Speedy fields ── */}
+                    {!isEcont && (() => {
+                      const sp = pt as SPoint;
+                      return (
+                        <>
+                          {!configured && (
+                            <p className="text-[12.5px] text-ff-amber-600">
+                              Свържи Speedy акаунта в „Куриерски акаунти", за да избираш населено място и офис на живо.
+                            </p>
+                          )}
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <label className={lbl}>Име/контакт на подател</label>
+                              <input className={inp} value={sp.contactName ?? ''} onChange={(e) => updateSPoint({ contactName: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className={lbl}>Телефон</label>
+                              <input className={inp} value={sp.phone ?? ''} onChange={(e) => updateSPoint({ phone: e.target.value })} />
+                            </div>
+                          </div>
+                          <div>
+                            <label className={lbl}>Населено място</label>
+                            <Autocomplete
+                              value={sp.siteName ?? ''} disabled={!configured}
+                              notReadyHint="Първо свържи Speedy акаунта."
+                              search={listSpeedySites}
+                              onPick={(s) => updateSPoint({ siteId: s.id, siteName: s.name, officeId: undefined })}
+                            />
+                          </div>
+                          <div>
+                            <label className={lbl}>Подаване</label>
+                            <Seg
+                              value={sp.mode === 'address' ? 'address' : 'office'}
+                              onChange={(v) => updateSPoint({ mode: v })}
+                              options={[{ value: 'office', label: 'От офис' }, { value: 'address', label: 'От адрес' }]}
+                            />
+                          </div>
+                          {sp.mode === 'address' ? (
+                            <div>
+                              <label className={lbl}>Улица и номер</label>
+                              <input className={inp} value={sp.streetNo ?? ''} onChange={(e) => updateSPoint({ streetNo: e.target.value })} />
+                            </div>
+                          ) : (
+                            <div>
+                              <label className={lbl}>Офис на подаване</label>
+                              {!configured
+                                ? <div className={cn(inp, 'flex items-center text-ff-muted')}>Свържи Speedy</div>
+                                : sOffices.length === 0
+                                  ? <div className={cn(inp, 'flex items-center text-ff-muted')}>{sp.siteName ? `Няма офиси в „${sp.siteName}"` : 'Първо избери населено място'}</div>
+                                  : (
+                                    <select className={cn(inp, 'cursor-pointer')} value={sp.officeId ?? ''}
+                                      onChange={(e) => updateSPoint({ officeId: parseInt(e.target.value, 10) || undefined })}>
+                                      <option value="" disabled>Избери офис…</option>
+                                      {sOffices.map((o) => <option key={o.id} value={o.id}>{o.name}{o.address ? ` — ${o.address}` : ''}</option>)}
+                                    </select>
+                                  )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Add point button */}
+          <button type="button" onClick={addPoint}
+            className="mt-1 text-[13px] font-bold text-ff-green-700 hover:underline">
+            + Добави точка
+          </button>
         </div>
 
-        {/* ── Advanced (package + COD) ── */}
+        {/* ── Advanced (package + COD, farm-level) ── */}
         <button
           type="button"
           onClick={() => setAdvanced((v) => !v)}
@@ -328,7 +463,7 @@ export function SenderModal({
           {advanced ? '− Скрий разширени' : '+ Разширени (пакет, наложен платеж)'}
         </button>
 
-        {advanced && carrier === 'econt' && (
+        {advanced && isEcont && (
           <div className="mt-2 space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
@@ -356,7 +491,7 @@ export function SenderModal({
           </div>
         )}
 
-        {advanced && carrier === 'speedy' && (
+        {advanced && !isEcont && (
           <div className="mt-2 space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
