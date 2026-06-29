@@ -118,14 +118,18 @@ export class SpeedyStandaloneController {
   @Roles('admin', 'farmer')
   @Get('shipments')
   list(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
-    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    // Phase 3 single-source decision: Speedy is the NON-authoritative carrier for a
+    // farmer's carrier-neutral courier drafts → returns [] when `f` is set (Econt owns
+    // the farmer's courier queue; avoids double-listing per carrier tab). Admin path
+    // (no `f`) is unchanged — tenant-wide Speedy shipments.
     return this.speedy.listShipments(t, f);
   }
 
   @Roles('admin', 'farmer')
   @Get('cod-reconciliation')
   cod(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
-    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    // Phase 3: Speedy intentionally returns [] for a farmer (Econt reconciles the
+    // carrier-neutral courier COD); tenant-wide admin reconciliation otherwise.
     return this.speedy.codReconciliation(t, f);
   }
 

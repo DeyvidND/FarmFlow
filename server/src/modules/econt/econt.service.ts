@@ -1106,8 +1106,9 @@ export class EcontService implements CarrierAdapter {
 
   /** COD-via-Econt reconciliation rows for the Плащания screen. */
   async codReconciliation(tenantId: string, farmerId?: string): Promise<CodReconRow[]> {
-    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
-    if (farmerId) return [];
+    // Phase 3: a farmer reconciles their OWN courier COD — scope on shipments.farmerId
+    // (set on the companion draft) on top of the admin path's tenant + COD-present
+    // filters. farmerId == null keeps the tenant-wide admin path unchanged.
     const rows = await this.db
       .select({
         orderId: shipments.orderId,
@@ -1116,7 +1117,13 @@ export class EcontService implements CarrierAdapter {
         settledAt: shipments.codSettledAt,
       })
       .from(shipments)
-      .where(and(eq(shipments.tenantId, tenantId), isNotNull(shipments.codAmountStotinki)));
+      .where(
+        and(
+          eq(shipments.tenantId, tenantId),
+          isNotNull(shipments.codAmountStotinki),
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      );
     // TODO(econt-app v2): order-less standalone shipments with COD are excluded here
     // (the Плащания screen keys on orderId). Surface their collected/settled state in a
     // dedicated standalone COD view when the standalone app's payments screen lands.
@@ -1136,8 +1143,43 @@ export class EcontService implements CarrierAdapter {
    * and rows that already have one carry its tracking number + status.
    */
   async listShipments(tenantId: string, farmerId?: string): Promise<AdminShipment[]> {
-    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
-    if (farmerId) return [];
+    // Phase 3: a farmer sees their OWN courier queue. Econt is the single source of the
+    // carrier-neutral courier list (a draft has no carrier until ship time, so Speedy
+    // returns [] to avoid listing each draft twice — once per carrier tab). We join the
+    // farmer's non-cancelled courier orders to their (draft/finalized) shipment row and
+    // emit the SAME AdminShipment shape as the admin path via mapShipmentRow.
+    if (farmerId) {
+      const rows = await this.db
+        .select({
+          orderId: orders.id,
+          customerName: orders.customerName,
+          deliveryType: orders.deliveryType,
+          total: orders.totalStotinki,
+          shipmentId: shipments.id,
+          shipmentNumber: shipments.econtShipmentNumber,
+          shipmentStatus: shipments.status,
+          courierPrice: shipments.courierPriceStotinki,
+          labelPdfUrl: shipments.labelPdfUrl,
+          codAmount: shipments.codAmountStotinki,
+          trackingJson: shipments.trackingJson,
+          carrier: shipments.carrier,
+          orderCarrier: orders.carrier,
+          trackingNumber: shipments.trackingNumber,
+          carrierShipmentId: shipments.carrierShipmentId,
+        })
+        .from(orders)
+        .leftJoin(shipments, eq(shipments.orderId, orders.id))
+        .where(
+          and(
+            eq(orders.tenantId, tenantId),
+            eq(orders.deliveryType, 'courier'),
+            eq(orders.farmerId, farmerId),
+            ne(orders.status, 'cancelled'),
+          ),
+        )
+        .orderBy(desc(orders.createdAt));
+      return rows.map(mapShipmentRow);
+    }
     // The order-join query and the manual (order-less) query are independent — run
     // them concurrently rather than back-to-back on this hot admin-panel endpoint.
     const [rows, manual] = await Promise.all([

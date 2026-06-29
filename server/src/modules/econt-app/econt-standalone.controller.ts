@@ -135,14 +135,17 @@ export class EcontStandaloneController {
   @Roles('admin', 'farmer')
   @Get('shipments')
   list(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
-    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    // Phase 3: Econt is the single source of the farmer's carrier-neutral courier queue —
+    // listShipments returns the farmer's own courier orders + drafts when `f` is set,
+    // and the tenant-wide admin list otherwise.
     return this.econt.listShipments(t, f);
   }
 
   @Roles('admin', 'farmer')
   @Get('cod-reconciliation')
   cod(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
-    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    // Phase 3: scoped on shipments.farmerId for a farmer (their own courier COD);
+    // tenant-wide for the admin (no `f`).
     return this.econt.codReconciliation(t, f);
   }
 

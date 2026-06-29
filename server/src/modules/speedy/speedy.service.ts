@@ -514,7 +514,12 @@ export class SpeedyService implements CarrierAdapter {
 
   /** Speedy shipments for this tenant (order-less), newest first. */
   async listShipments(tenantId: string, farmerId?: string): Promise<SpeedyShipment[]> {
-    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    // Phase 3 single-source decision: a courier draft is carrier-NEUTRAL until the
+    // farmer picks a carrier at ship time, so EVERY farmer courier draft is listed
+    // exactly once — under Econt (the authoritative carrier-neutral source). Speedy
+    // intentionally returns [] for a farmer; otherwise each draft would appear twice
+    // in the dostavki UI (once per carrier tab). The tenant-wide admin path (no
+    // farmerId) below is unchanged. See EcontService.listShipments' farmer branch.
     if (farmerId) return [];
     const rows = await this.db
       .select({
@@ -691,7 +696,11 @@ export class SpeedyService implements CarrierAdapter {
   /** COD payout reconciliation for the last 60 days (Очаквано → Преведено). Stamps
    *  codSettledAt on matched Speedy shipments and returns the screen rows. */
   async codReconciliation(tenantId: string, farmerId?: string): Promise<Array<{ shipmentId: string; expectedStotinki: number | null; settledAt: string | null }>> {
-    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    // Phase 3 single-source decision (mirror of listShipments): a farmer's courier COD
+    // is reconciled once, under Econt (the carrier-neutral authority for courier drafts).
+    // Speedy returns [] for a farmer to avoid double-listing per carrier tab; the
+    // tenant-wide admin path (no farmerId) below is unchanged. Returning early also
+    // skips resolveCreds — a farmer has no Speedy contract behind a carrier-neutral draft.
     if (farmerId) return [];
     const creds = await this.resolveCreds(tenantId, farmerId);
     const toDate = new Date();

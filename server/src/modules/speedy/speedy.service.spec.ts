@@ -145,6 +145,34 @@ describe('SpeedyService.createLabelForOrder', () => {
   });
 });
 
+describe('SpeedyService farmer-scoped single-source decision', () => {
+  let svc: SpeedyService;
+
+  beforeEach(() => {
+    svc = makeService();
+  });
+
+  it('listShipments returns [] for a farmer (Econt is the single source of the courier list)', async () => {
+    // Must never touch the DB for a farmer — Econt owns the carrier-neutral courier queue.
+    const select = jest.fn();
+    (svc as any).db = { select };
+    const out = await svc.listShipments('t1', 'farmer-1');
+    expect(out).toEqual([]);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('codReconciliation returns [] for a farmer (single-source decision)', async () => {
+    const select = jest.fn();
+    const resolveCreds = jest.fn();
+    (svc as any).db = { select };
+    (svc as any).resolveCreds = resolveCreds;
+    const out = await svc.codReconciliation('t1', 'farmer-1');
+    expect(out).toEqual([]);
+    expect(select).not.toHaveBeenCalled();
+    expect(resolveCreds).not.toHaveBeenCalled();
+  });
+});
+
 describe('SpeedyService.maybeSeedSender (unit)', () => {
   const svc = new SpeedyService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
   const seed = (speedy: unknown, farmName: string, contact: unknown, profiles: unknown) =>

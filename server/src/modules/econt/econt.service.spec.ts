@@ -635,6 +635,69 @@ describe('buildCourierRequest', () => {
   });
 });
 
+describe('EcontService.listShipments (farmer-scoped)', () => {
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+
+  it('returns the farmer\'s courier orders joined with shipment drafts (not [])', async () => {
+    // The farmer branch runs a single select(...).from(orders).leftJoin(shipments)
+    // .where(...).orderBy(...) chain and maps each row via mapShipmentRow.
+    const joined = [
+      {
+        orderId: '11111111-2222-3333-4444-555555555555',
+        customerName: 'Иван',
+        deliveryType: 'courier',
+        total: 2400,
+        shipmentId: 'ship-1',
+        shipmentNumber: null,            // draft → no Econt waybill number yet
+        shipmentStatus: 'draft',
+        courierPrice: null,
+        labelPdfUrl: null,
+        codAmount: 2400,
+        trackingJson: null,
+        carrier: null,
+        orderCarrier: null,
+        trackingNumber: null,
+        carrierShipmentId: null,
+      },
+    ];
+    const orderBy = jest.fn().mockResolvedValue(joined);
+    const where = jest.fn().mockReturnValue({ orderBy });
+    const leftJoin = jest.fn().mockReturnValue({ where });
+    const from = jest.fn().mockReturnValue({ leftJoin });
+    const select = jest.fn().mockReturnValue({ from });
+    (svc as any).db = { select };
+
+    const out = await svc.listShipments('t1', 'farmer-1');
+    expect(out).toHaveLength(1);
+    // Reuses mapShipmentRow → AdminShipment shape (draft has no waybill → pending).
+    expect(out[0].orderId).toBe('11111111-2222-3333-4444-555555555555');
+    expect(out[0].customerName).toBe('Иван');
+    expect(out[0].codAmountStotinki).toBe(2400);
+    expect(out[0].status).toBe('pending'); // draft, no number → uiShipmentStatus → pending
+    expect(select).toHaveBeenCalledTimes(1); // single query, NOT the admin's two-query Promise.all
+  });
+});
+
+describe('EcontService.codReconciliation (farmer-scoped)', () => {
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+
+  it('filters shipments by farmerId instead of returning []', async () => {
+    const rows = [
+      { orderId: 'order-1', expected: 2400, collectedAt: null, settledAt: null },
+    ];
+    const where = jest.fn().mockResolvedValue(rows);
+    const from = jest.fn().mockReturnValue({ where });
+    const select = jest.fn().mockReturnValue({ from });
+    (svc as any).db = { select };
+
+    const out = await svc.codReconciliation('t1', 'farmer-1');
+    expect(out).toEqual([
+      { orderId: 'order-1', expectedStotinki: 2400, collectedAt: null, settledAt: null },
+    ]);
+    expect(select).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('EcontService.maybeSeedSender (unit)', () => {
   const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
   const seed = (econt: unknown, farmName: string, contact: unknown, profiles: unknown) =>
