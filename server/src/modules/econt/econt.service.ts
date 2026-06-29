@@ -13,6 +13,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
 import { deriveSenderFromFarm } from './econt.sender';
+import { readSenderBook, applySenderBook, type PickupPoint } from './sender-book';
 import { ShipmentEmailService } from './shipment-email.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
 import type { CarrierAdapter } from '../orders/carrier-adapter';
@@ -280,12 +281,38 @@ export class EcontService implements CarrierAdapter {
     return { ok: true };
   }
 
+  /** Pure: build the next econt blob with the book + mirrored active sender. */
+  private buildSenderBlob(econt: Record<string, unknown>, senders: PickupPoint[], activeId: string): Record<string, unknown> {
+    return applySenderBook(econt, senders, activeId);
+  }
+
+  /** Persist the pickup-point book; mirror the active point into `sender`. */
+  async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }): Promise<{ ok: true }> {
+    const { tenant, econt } = await this.loadStored(tenantId);
+    const nextEcont = this.buildSenderBlob(econt, input.senders, input.activeId);
+    const nextSettings = {
+      ...tenant.settings,
+      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
+    };
+    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    await this.cache.del(publicCacheKeys.tenant(tenant.slug));
+    return { ok: true };
+  }
+
   /** Public-safe config view (no secrets). `env`/`isDemo` are account-derived so
    *  the operator panel can show a read-only environment badge (no env picker). */
   async getConfig(tenantId: string): Promise<Record<string, unknown>> {
     const { tenant, econt } = await this.loadStored(tenantId);
     const { passwordEnc: _pw, ...safe } = econt;
-    return { ...safe, configured: !!econt.configured, isDemo: tenant.isDemo, env: tenant.isDemo ? 'demo' : 'prod' };
+    const book = readSenderBook(econt);
+    return {
+      ...safe,
+      senders: book.senders,
+      activeSenderId: book.activeId,
+      configured: !!econt.configured,
+      isDemo: tenant.isDemo,
+      env: tenant.isDemo ? 'demo' : 'prod',
+    };
   }
 
   private async resolveCreds(tenantId: string, cache?: Map<string, unknown>): Promise<ResolvedCreds> {

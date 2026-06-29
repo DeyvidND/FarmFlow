@@ -11,6 +11,7 @@ import { BulkCheckPhonesDto } from '../cod-risk/dto/bulk-check-phones.dto';
 import { isEcontAccountActive } from './econt-app.helpers';
 import { EcontCredentialsDto } from '../econt/dto/econt-credentials.dto';
 import { EcontProfileDto } from '../econt/dto/econt-profile.dto';
+import { EcontSaveSendersDto } from '../econt/dto/econt-senders.dto';
 import { ManualShipmentDto } from '../econt/dto/manual-shipment.dto';
 import { ValidateAddressDto } from '../econt/dto/validate-address.dto';
 import { CourierRequestDto } from '../econt/dto/courier-request.dto';
@@ -55,6 +56,10 @@ export class EcontStandaloneController {
   @Post('profile')
   saveProfile(@CurrentTenant() t: string, @Body() dto: EcontProfileDto) {
     return this.econt.saveProfile(t, dto);
+  }
+  @Post('senders')
+  saveSenders(@CurrentTenant() t: string, @Body() dto: EcontSaveSendersDto) {
+    return this.econt.saveSenders(t, dto);
   }
   @Get('profiles')
   profiles(@CurrentTenant() t: string) {

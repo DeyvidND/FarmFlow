@@ -658,3 +658,24 @@ describe('EcontService.clearCredsBlob (unit)', () => {
     expect(out.sender).toEqual({ name: 'Ферма', mode: 'office' });
   });
 });
+
+describe('EcontService.buildSenderBlob (unit)', () => {
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+  const build = (econt: unknown, senders: unknown, activeId: string) =>
+    (svc as unknown as {
+      buildSenderBlob: (e: any, s: any, a: string) => Record<string, unknown>;
+    }).buildSenderBlob(econt, senders, activeId);
+
+  it('mirrors the active point into sender + keeps creds', () => {
+    const out = build(
+      { username: 'u', passwordEnc: 'enc', configured: true },
+      [{ id: 'a', label: 'Основна', name: 'Х', mode: 'office', officeCode: '1' },
+       { id: 'b', label: 'Склад', name: 'Y', mode: 'office', officeCode: '2' }],
+      'b',
+    );
+    expect(out.username).toBe('u');
+    expect(out.passwordEnc).toBe('enc');
+    expect(out.activeSenderId).toBe('b');
+    expect(out.sender).toEqual({ name: 'Y', mode: 'office', officeCode: '2' });
+  });
+});
