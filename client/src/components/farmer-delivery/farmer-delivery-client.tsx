@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen, Upload, ChevronDown } from 'lucide-react';
+import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen, Upload, ChevronDown, Plug } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -190,6 +190,11 @@ export function FarmerDeliveryClient() {
   const anyConnected = Boolean(econtConfigured) || Boolean(speedyConfigured);
   const senderPhoneMissing = econtSenderMissing || speedySenderMissing;
 
+  // Until a carrier is connected the dostavki app is empty, so the primary action
+  // is „connect a carrier" (scroll to the cards below), not „open the app".
+  const carriersRef = React.useRef<HTMLDivElement>(null);
+  const scrollToCarriers = () => carriersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   return (
     <div className="animate-ff-fade-up flex flex-col gap-4">
       {/* Page heading */}
@@ -218,9 +223,15 @@ export function FarmerDeliveryClient() {
               <span className="text-ff-muted-2">Speedy</span>
             </div>
           </div>
-          <Button variant="primary" size="sm" onClick={() => handoffTo('/shipments')} disabled={handoffBusy}>
-            <ExternalLink size={15} /> {handoffBusy ? 'Отваряне…' : 'Отвори Доставки'}
-          </Button>
+          {anyConnected ? (
+            <Button variant="primary" size="sm" onClick={() => handoffTo('/shipments')} disabled={handoffBusy}>
+              <ExternalLink size={15} /> {handoffBusy ? 'Отваряне…' : 'Отвори Доставки'}
+            </Button>
+          ) : (
+            <Button variant="primary" size="sm" onClick={scrollToCarriers} disabled={statusLoading}>
+              <Plug size={15} /> Свържи куриер
+            </Button>
+          )}
         </div>
 
         {/* Next-step hint — keyed to whether a carrier is connected yet */}
@@ -286,14 +297,16 @@ export function FarmerDeliveryClient() {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <button
-            type="button"
-            onClick={() => handoffTo('/import')}
-            disabled={handoffBusy}
-            className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-green-700 hover:underline disabled:opacity-60"
-          >
-            <Upload size={14} /> Внеси пратки от Excel
-          </button>
+          {anyConnected && (
+            <button
+              type="button"
+              onClick={() => handoffTo('/import')}
+              disabled={handoffBusy}
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-green-700 hover:underline disabled:opacity-60"
+            >
+              <Upload size={14} /> Внеси пратки от Excel
+            </button>
+          )}
           <button
             type="button"
             onClick={() => handoffTo('/help')}
@@ -306,7 +319,7 @@ export function FarmerDeliveryClient() {
       </div>
 
       {/* Carrier connect cards */}
-      <div className="flex flex-col gap-4">
+      <div ref={carriersRef} className="flex scroll-mt-4 flex-col gap-4">
         {/* Econt */}
         <div className="rounded-[14px] border border-ff-border bg-ff-surface p-5">
           <div className="mb-3 flex items-center justify-between">
