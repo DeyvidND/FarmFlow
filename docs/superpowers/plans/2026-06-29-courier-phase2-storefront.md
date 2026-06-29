@@ -124,7 +124,7 @@ Adding `'courier'` to the pgEnum widens `orders.$inferSelect['deliveryType']` to
 
 - [ ] **Step 5: Build db + typecheck server**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/db build && pnpm --filter @fermeribg/server exec tsc -p tsconfig.json --noEmit`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/db build && pnpm --filter @fermeribg/api exec tsc -p tsconfig.json --noEmit`
 Expected: both succeed (no type errors).
 
 - [ ] **Step 6: Commit**
@@ -181,7 +181,7 @@ describe('farmerCourierReady', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/server exec jest courier-eligibility -- --silent`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/api exec jest courier-eligibility -- --silent`
 Expected: FAIL ("Cannot find module './courier-eligibility'").
 
 - [ ] **Step 3: Write the implementation**
@@ -231,7 +231,7 @@ export function farmerCourierReady(
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/server exec jest courier-eligibility -- --silent`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/api exec jest courier-eligibility -- --silent`
 Expected: PASS (8 assertions).
 
 - [ ] **Step 5: Commit**
@@ -295,7 +295,7 @@ For `customerPhone`:
 
 - [ ] **Step 4: Typecheck**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/server exec tsc -p tsconfig.json --noEmit`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/api exec tsc -p tsconfig.json --noEmit`
 Expected: success.
 
 - [ ] **Step 5: Commit**
@@ -371,12 +371,12 @@ Concretely — inject `PublicCacheService` into each controller (it is already p
 
 - [ ] **Step 4: Build types + typecheck server**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/types build && pnpm --filter @fermeribg/server exec tsc -p tsconfig.json --noEmit`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/types build && pnpm --filter @fermeribg/api exec tsc -p tsconfig.json --noEmit`
 Expected: success.
 
 - [ ] **Step 5: Run farmers service tests**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/server exec jest farmers -- --silent`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/api exec jest farmers -- --silent`
 Expected: PASS (fix any test that asserts the exact `PublicFarmer` shape by adding `courierReady`).
 
 - [ ] **Step 6: Commit**
@@ -458,7 +458,7 @@ Leave the slot lock/capacity check, advisory-lock order-number, `orders` insert,
 
 - [ ] **Step 3: Run the full orders suite (regression)**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/server exec jest orders -- --silent`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/api exec jest orders -- --silent`
 Expected: PASS — same count as before the refactor. If anything fails, the extraction changed behaviour; fix until green (no behaviour change is the bar).
 
 - [ ] **Step 4: Commit**
@@ -487,7 +487,7 @@ Reuse the existing spec's mocking patterns for `db.transaction`, `prepareOrderIt
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/server exec jest orders.courier -- --silent`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/api exec jest orders.courier -- --silent`
 Expected: FAIL (`createCourierOrders` is not a function).
 
 - [ ] **Step 3: Implement `createCourierOrders`**
@@ -617,7 +617,7 @@ Add to `OrdersService`. The returned shape carries enough for the storefront's c
 
 - [ ] **Step 4: Run the courier test**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/server exec jest orders.courier -- --silent`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/api exec jest orders.courier -- --silent`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -684,12 +684,12 @@ In `checkout.service.spec.ts`, add a test: with `dto.deliveryType:'courier'`, `C
 
 - [ ] **Step 4: Run checkout tests**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/server exec jest checkout.service -- --silent`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/api exec jest checkout.service -- --silent`
 Expected: PASS.
 
 - [ ] **Step 5: Full server suite + typecheck**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/server exec tsc -p tsconfig.json --noEmit && pnpm --filter @fermeribg/server test -- --silent`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/api exec tsc -p tsconfig.json --noEmit && pnpm --filter @fermeribg/api test -- --silent`
 Expected: all green.
 
 - [ ] **Step 6: Commit**
@@ -908,7 +908,7 @@ git commit -m "feat(courier): storefront — confirmation page renders per-farme
 
 - [ ] **Step 1: Backend — full suite + typecheck**
 
-Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/db build && pnpm --filter @fermeribg/types build && pnpm --filter @fermeribg/server exec tsc -p tsconfig.json --noEmit && pnpm --filter @fermeribg/server test -- --silent`
+Run: `cd C:\Users\Lenovo\source\repos\FarmFlow && pnpm --filter @fermeribg/db build && pnpm --filter @fermeribg/types build && pnpm --filter @fermeribg/api exec tsc -p tsconfig.json --noEmit && pnpm --filter @fermeribg/api test -- --silent`
 Expected: db + types build; tsc clean; full Jest suite green (≥1014 + new courier/eligibility tests).
 
 - [ ] **Step 2: Storefront — typecheck/build**
