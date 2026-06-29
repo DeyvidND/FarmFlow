@@ -847,7 +847,7 @@ export const listSpeedyProfiles = () => apiFetch<SpeedySenderSuggestion[]>('spee
 
 /** Farmer Econt config via the main-API farmer-aware econt/config endpoint. */
 export const getFarmerEcontConfig = () =>
-  apiFetch<{ configured?: boolean; username?: string }>('econt/config');
+  apiFetch<{ configured?: boolean; username?: string; sender?: { phone?: string | null } | null }>('econt/config');
 
 /** Save/replace the farmer's Econt credentials (econt/credentials). */
 export const saveFarmerEcontCredentials = (data: { username: string; password: string }) =>
@@ -859,7 +859,7 @@ export const saveFarmerEcontCredentials = (data: { username: string; password: s
 
 /** Farmer Speedy config via the main-API farmer-aware speedy/config endpoint. */
 export const getFarmerSpeedyConfig = () =>
-  apiFetch<{ configured?: boolean; userName?: string }>('speedy/config');
+  apiFetch<{ configured?: boolean; userName?: string; sender?: { phone?: string | null } | null }>('speedy/config');
 
 /** Save/replace the farmer's Speedy credentials (speedy/credentials). */
 export const saveFarmerSpeedyCredentials = (data: { userName: string; password: string }) =>

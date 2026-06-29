@@ -96,13 +96,24 @@ export function FarmerDeliveryClient() {
   const [speedyPassword, setSpeedyPassword] = React.useState('');
   const [speedySaving, setSpeedySaving] = React.useState(false);
 
+  // A connected carrier whose seeded sender has no phone → finalize (Еконт) rejects
+  // the label. Warn and point the farmer at dostavki → Настройки to fix the sender.
+  const [econtSenderMissing, setEcontSenderMissing] = React.useState(false);
+  const [speedySenderMissing, setSpeedySenderMissing] = React.useState(false);
+
   // ── On mount: fetch both configs ─────────────────────────────────────────
   React.useEffect(() => {
     getFarmerEcontConfig()
-      .then((cfg) => setEcontConfigured(cfg.configured ?? false))
+      .then((cfg) => {
+        setEcontConfigured(cfg.configured ?? false);
+        setEcontSenderMissing(Boolean(cfg.configured) && !cfg.sender?.phone);
+      })
       .catch(() => setEcontConfigured(false));
     getFarmerSpeedyConfig()
-      .then((cfg) => setSpeedyConfigured(cfg.configured ?? false))
+      .then((cfg) => {
+        setSpeedyConfigured(cfg.configured ?? false);
+        setSpeedySenderMissing(Boolean(cfg.configured) && !cfg.sender?.phone);
+      })
       .catch(() => setSpeedyConfigured(false));
   }, []);
 
@@ -118,6 +129,7 @@ export function FarmerDeliveryClient() {
       // Re-fetch to confirm
       const cfg = await getFarmerEcontConfig();
       setEcontConfigured(cfg.configured ?? true);
+      setEcontSenderMissing(Boolean(cfg.configured ?? true) && !cfg.sender?.phone);
     } catch (err) {
       toast.error(errMsg(err));
     } finally {
@@ -136,6 +148,7 @@ export function FarmerDeliveryClient() {
       setSpeedyPassword('');
       const cfg = await getFarmerSpeedyConfig();
       setSpeedyConfigured(cfg.configured ?? true);
+      setSpeedySenderMissing(Boolean(cfg.configured ?? true) && !cfg.sender?.phone);
     } catch (err) {
       toast.error(errMsg(err));
     } finally {
@@ -147,6 +160,7 @@ export function FarmerDeliveryClient() {
   // can't ship, so we point them at the connect cards instead of the empty app.
   const statusLoading = econtConfigured === undefined || speedyConfigured === undefined;
   const anyConnected = Boolean(econtConfigured) || Boolean(speedyConfigured);
+  const senderPhoneMissing = econtSenderMissing || speedySenderMissing;
 
   return (
     <div className="animate-ff-fade-up flex flex-col gap-4">
@@ -194,6 +208,25 @@ export function FarmerDeliveryClient() {
               Още няма свързан куриер. Свържи Еконт или Speedy по-долу, за да започнеш.
             </div>
           )
+        )}
+
+        {/* Seeded sender has no phone → Еконт rejects the label. Nudge to fix it first. */}
+        {senderPhoneMissing && (
+          <div className="mt-3 flex items-start gap-2 rounded-[10px] border border-[#e7c9a0] bg-ff-amber-softer px-3 py-2 text-[12.5px] text-ff-amber-600">
+            <AlertCircle size={15} className="mt-px shrink-0" />
+            <span>
+              Подателят няма телефон. Добави го в{' '}
+              <button
+                type="button"
+                onClick={() => handoffTo('/settings')}
+                disabled={handoffBusy}
+                className="font-bold underline hover:no-underline disabled:opacity-60"
+              >
+                Доставки → Настройки
+              </button>{' '}
+              преди първата товарителница — иначе Еконт я отказва.
+            </span>
+          </div>
         )}
 
         <ol className="mt-4 grid gap-2.5 sm:grid-cols-2">
