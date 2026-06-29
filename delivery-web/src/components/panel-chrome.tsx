@@ -41,7 +41,9 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
 
         {/* Primary nav — flat text links; only the active page gets a filled pill, so the
             bar reads like a header rather than a row of buttons. */}
-        <nav className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {/* On mobile the labels collapse to icons; let each link grow to an even, finger-
+            sized target (44px tall) so the icon row isn't cramped. Labels return at lg. */}
+        <nav className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto px-2 max-lg:gap-0.5 max-lg:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {NAV.map(({ href, label, icon: Icon }) => {
             const active = isActive(href);
             return (
@@ -50,13 +52,13 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
                 href={href}
                 aria-current={active ? 'page' : undefined}
                 title={label}
-                className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13.5px] font-bold transition-colors ${
+                className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-[13.5px] font-bold transition-colors max-lg:h-11 max-lg:grow max-lg:basis-0 max-lg:px-1 ${
                   active
                     ? 'bg-ff-green-700 text-white'
                     : 'text-ff-ink-2 hover:bg-ff-surface-2'
                 }`}
               >
-                <Icon size={17} /> <span className="max-lg:hidden">{label}</span>
+                <Icon size={18} className="max-lg:size-5" /> <span className="max-lg:hidden">{label}</span>
               </Link>
             );
           })}
@@ -67,7 +69,7 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
           {email && (
             <span
               title={`Влязъл като ${email}`}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ff-green-700 text-[13px] font-extrabold uppercase text-white"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ff-green-700 text-[13px] font-extrabold uppercase text-white max-lg:h-11 max-lg:w-11 max-lg:text-[15px]"
             >
               {email.trim()[0] ?? '?'}
             </span>
@@ -75,9 +77,9 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
           <button
             onClick={logout}
             title="Изход"
-            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-2.5 text-[13.5px] font-bold text-ff-ink-2 transition-colors hover:bg-ff-surface-2"
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg px-2.5 text-[13.5px] font-bold text-ff-ink-2 transition-colors hover:bg-ff-surface-2 max-lg:h-11 max-lg:w-11 max-lg:px-0"
           >
-            <LogOut size={18} /> <span className="max-md:hidden">Изход</span>
+            <LogOut size={18} className="max-lg:size-5" /> <span className="max-md:hidden">Изход</span>
           </button>
         </div>
       </header>
