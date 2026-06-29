@@ -33,6 +33,49 @@ const MAX_BULK_LABELS = 50;
 const ESTIMATE_TTL = 60 * 60 * 8; // 8 hours
 const WEIGHT_BUCKET_KG = 0.5;
 
+/**
+ * JSONB key path for a delivery account's Speedy blob inside `tenants.settings`.
+ * Tenant-level (`delivery.speedy`) when no farmerId — the existing marketplace-admin
+ * account; a per-farmer sub-namespace (`delivery.farmers.<id>.speedy`) otherwise.
+ * The row selector stays `tenants.id = tenantId` in both cases — a farmer's blob
+ * lives INSIDE the marketplace tenant row. Mirrors econtSettingsPath.
+ */
+export function speedySettingsPath(farmerId?: string): string[] {
+  return farmerId ? ['delivery', 'farmers', farmerId, 'speedy'] : ['delivery', 'speedy'];
+}
+
+/** Read the value at a key path from a settings object (undefined if any hop is absent). */
+function readAtPath(settings: unknown, path: string[]): unknown {
+  return path.reduce<any>((o, k) => (o == null ? o : o[k]), settings);
+}
+
+/**
+ * Return a NEW settings object with `value` set at `path`, deep-creating any
+ * missing intermediate objects (e.g. `delivery.farmers.<id>` when a tenant has no
+ * farmers yet) and structurally sharing untouched siblings. Pure — no mutation of
+ * the input.
+ */
+function writeAtPath(
+  settings: Record<string, unknown> | null | undefined,
+  path: string[],
+  value: unknown,
+): Record<string, unknown> {
+  const root: Record<string, unknown> = { ...(settings ?? {}) };
+  let cursor = root;
+  for (let i = 0; i < path.length - 1; i++) {
+    const key = path[i];
+    const existing = cursor[key];
+    const next: Record<string, unknown> =
+      existing && typeof existing === 'object' && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    cursor[key] = next;
+    cursor = next;
+  }
+  cursor[path[path.length - 1]] = value;
+  return root;
+}
+
 /** A Speedy shipment row shaped for the standalone shipments table. */
 export interface SpeedyShipment {
   shipmentId: string;
@@ -64,11 +107,14 @@ export class SpeedyService implements CarrierAdapter {
   private async loadStored(
     tenantId: string,
     cache?: Map<string, unknown>,
+    farmerId?: string,
   ): Promise<{ tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored }> {
     // Optional per-call memo (bulk import passes one Map per batch): reads the tenant
     // settings once per batch instead of on every row's site/office/street lookup.
     // Absent for all other callers, so their behavior is unchanged (no staleness).
-    const ck = `speedy:${tenantId}`;
+    // The memo key is scoped per-farmer so a tenant-level read and a farmer read of
+    // the same tenant row never collide on the cached blob.
+    const ck = `speedy:${tenantId}:${farmerId ?? ''}`;
     if (cache?.has(ck)) {
       return cache.get(ck) as { tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored };
     }
@@ -79,16 +125,17 @@ export class SpeedyService implements CarrierAdapter {
       .limit(1);
     if (!row) throw new NotFoundException('Фермата не е намерена');
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
-    const delivery = (settings.delivery as Record<string, unknown> | null) ?? {};
-    const speedy = (delivery.speedy as SpeedyStored | null) ?? {};
+    // Tenant-level when no farmerId; a per-farmer sub-namespace otherwise. The row
+    // is the SAME marketplace tenant row either way (selector unchanged).
+    const speedy = ((readAtPath(settings, speedySettingsPath(farmerId)) as SpeedyStored | null) ?? {}) as SpeedyStored;
     const result = { tenant: { id: row.id, slug: row.slug, name: row.name, settings, isDemo: !!row.isDemo }, speedy };
     cache?.set(ck, result);
     return result;
   }
 
-  private async resolveCreds(tenantId: string): Promise<SpeedyCreds> {
+  private async resolveCreds(tenantId: string, farmerId?: string): Promise<SpeedyCreds> {
     if (!this.encKey) throw new BadRequestException('ENCRYPTION_KEY не е конфигуриран');
-    const { speedy } = await this.loadStored(tenantId);
+    const { speedy } = await this.loadStored(tenantId, undefined, farmerId);
     if (!speedy.configured || !speedy.userName || !speedy.passwordEnc) {
       throw new BadRequestException('Speedy не е конфигуриран за тази ферма');
     }
@@ -120,20 +167,17 @@ export class SpeedyService implements CarrierAdapter {
     return { ...rest, configured: false };
   }
 
-  async disconnect(tenantId: string): Promise<{ configured: false }> {
-    const { tenant, speedy } = await this.loadStored(tenantId);
+  async disconnect(tenantId: string, farmerId?: string): Promise<{ configured: false }> {
+    const { tenant, speedy } = await this.loadStored(tenantId, undefined, farmerId);
     const nextSpeedy = this.clearCredsBlob(speedy);
-    const nextSettings = {
-      ...tenant.settings,
-      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), speedy: nextSpeedy },
-    };
+    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), nextSpeedy);
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
     await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`);
     return { configured: false };
   }
 
   /** Validate creds against Speedy (a cheap /client call), then store encrypted. */
-  async saveCredentials(tenantId: string, input: SpeedyCredentialsDto): Promise<{ configured: true }> {
+  async saveCredentials(tenantId: string, input: SpeedyCredentialsDto, farmerId?: string): Promise<{ configured: true }> {
     if (!this.encKey) {
       throw new BadRequestException('ENCRYPTION_KEY не е конфигуриран — Speedy не може да се запази');
     }
@@ -144,7 +188,7 @@ export class SpeedyService implements CarrierAdapter {
       {},
     );
 
-    const { tenant, speedy } = await this.loadStored(tenantId);
+    const { tenant, speedy } = await this.loadStored(tenantId, undefined, farmerId);
     // Env is account-derived (demo flag), never operator-chosen — mirrors Econt.
     const nextSpeedy: SpeedyStored = {
       ...speedy,
@@ -168,10 +212,9 @@ export class SpeedyService implements CarrierAdapter {
       const contact = (tenant.settings.contact ?? null) as { phone?: string | null; address?: string | null } | null;
       seededSpeedy = this.maybeSeedSender(nextSpeedy, tenant.name || tenant.slug, contact, profiles);
     } catch { /* optional */ }
-    const nextSettings = {
-      ...tenant.settings,
-      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), speedy: seededSpeedy },
-    };
+    // Deep-create the path so a farmer write under an absent `delivery.farmers`
+    // parent still succeeds, while a tenant-level write keeps targeting delivery.speedy.
+    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), seededSpeedy);
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
     await this.cache.del(`speedy:sites:${tenant.slug}`);
     return { configured: true };
@@ -193,8 +236,9 @@ export class SpeedyService implements CarrierAdapter {
       cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
       label?: { autoCreate?: boolean };
     },
+    farmerId?: string,
   ): Promise<{ ok: true }> {
-    const { tenant, speedy } = await this.loadStored(tenantId);
+    const { tenant, speedy } = await this.loadStored(tenantId, undefined, farmerId);
     const nextSpeedy: SpeedyStored = {
       ...speedy,
       ...(input.sender !== undefined ? { sender: { ...(speedy.sender ?? {}), ...input.sender } } : {}),
@@ -204,10 +248,7 @@ export class SpeedyService implements CarrierAdapter {
       ...(input.cod !== undefined ? { cod: { ...(speedy.cod ?? {}), ...input.cod } } : {}),
       ...(input.label !== undefined ? { label: { ...(speedy.label ?? {}), ...input.label } } : {}),
     };
-    const nextSettings = {
-      ...tenant.settings,
-      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), speedy: nextSpeedy },
-    };
+    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), nextSpeedy);
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
     await this.cache.del(`tenant:${tenant.slug}`);
     return { ok: true };
@@ -217,20 +258,17 @@ export class SpeedyService implements CarrierAdapter {
     return applySenderBook(speedy, senders, activeId);
   }
 
-  async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }): Promise<{ ok: true }> {
-    const { tenant, speedy } = await this.loadStored(tenantId);
+  async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }, farmerId?: string): Promise<{ ok: true }> {
+    const { tenant, speedy } = await this.loadStored(tenantId, undefined, farmerId);
     const nextSpeedy = this.buildSenderBlob(speedy, input.senders, input.activeId);
-    const nextSettings = {
-      ...tenant.settings,
-      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), speedy: nextSpeedy },
-    };
+    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), nextSpeedy);
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
     await this.cache.del(`tenant:${tenant.slug}`);
     return { ok: true };
   }
 
-  async getConfig(tenantId: string): Promise<Record<string, unknown>> {
-    const { tenant, speedy } = await this.loadStored(tenantId);
+  async getConfig(tenantId: string, farmerId?: string): Promise<Record<string, unknown>> {
+    const { tenant, speedy } = await this.loadStored(tenantId, undefined, farmerId);
     const { passwordEnc: _pw, ...safe } = speedy;
     const book = readSenderBook(speedy);
     return {
@@ -258,6 +296,9 @@ export class SpeedyService implements CarrierAdapter {
         .limit(1);
       if (!order?.tenantId) return;
 
+      // Tenant-level by design: triggered by the payment webhook / order-confirm flow,
+      // which has no authenticated-farmer request context. (Per-farmer auto-create
+      // will be revisited once orders carry the owning farmer.)
       const { speedy } = await this.loadStored(order.tenantId);
       if (!speedy.configured || speedy.label?.autoCreate !== true) return;
 
@@ -279,8 +320,8 @@ export class SpeedyService implements CarrierAdapter {
 
   /* ------------------------------- location -------------------------------- */
 
-  async searchSites(tenantId: string, q?: string, cache?: Map<string, unknown>): Promise<SpeedySite[]> {
-    const { tenant } = await this.loadStored(tenantId, cache);
+  async searchSites(tenantId: string, q?: string, cache?: Map<string, unknown>, farmerId?: string): Promise<SpeedySite[]> {
+    const { tenant } = await this.loadStored(tenantId, cache, farmerId);
     const query = (q ?? '').trim();
     // Speedy's location/site returns only ~10 default sites when called WITHOUT a name —
     // the full nomenclature is searched server-side via `name`. Fetching once + filtering
@@ -288,7 +329,7 @@ export class SpeedyService implements CarrierAdapter {
     const key = `speedy:sites:${tenant.slug}:${query.toLowerCase() || '_'}`;
     let list = await this.cache.get<SpeedySite[]>(key);
     if (list === null) {
-      const creds = await this.resolveCreds(tenantId);
+      const creds = await this.resolveCreds(tenantId, farmerId);
       const data = await this.client.callSafe(creds, 'location/site', query ? { countryId: 100, name: query } : { countryId: 100 });
       list = slimSites(data);
       await this.cache.set(key, list, list.length ? NOMENCLATURE_TTL : EMPTY_TTL);
@@ -302,29 +343,29 @@ export class SpeedyService implements CarrierAdapter {
     return [...starts, ...rest].slice(0, 20);
   }
 
-  async getOffices(tenantId: string, siteId: number, cache?: Map<string, unknown>): Promise<SpeedyOffice[]> {
+  async getOffices(tenantId: string, siteId: number, cache?: Map<string, unknown>, farmerId?: string): Promise<SpeedyOffice[]> {
     if (!siteId) return [];
-    const { tenant } = await this.loadStored(tenantId, cache);
+    const { tenant } = await this.loadStored(tenantId, cache, farmerId);
     const key = `speedy:offices:${tenant.slug}:${siteId}`;
     const cached = await this.cache.get<SpeedyOffice[]>(key);
     if (cached !== null) return cached;
-    const creds = await this.resolveCreds(tenantId);
+    const creds = await this.resolveCreds(tenantId, farmerId);
     const data = await this.client.callSafe(creds, 'location/office', { countryId: 100, siteId });
     const list = slimOffices(data);
     await this.cache.set(key, list, list.length ? NOMENCLATURE_TTL : EMPTY_TTL);
     return list;
   }
 
-  async getStreets(tenantId: string, siteId: number, q?: string, cache?: Map<string, unknown>): Promise<SpeedyStreet[]> {
+  async getStreets(tenantId: string, siteId: number, q?: string, cache?: Map<string, unknown>, farmerId?: string): Promise<SpeedyStreet[]> {
     if (!siteId) return [];
-    const { tenant } = await this.loadStored(tenantId, cache);
+    const { tenant } = await this.loadStored(tenantId, cache, farmerId);
     const query = (q ?? '').trim();
     // Same as searchSites: pass `name` so Speedy searches server-side (a bare siteId
     // returns a capped default list), cached per query.
     const key = `speedy:streets:${tenant.slug}:${siteId}:${query.toLowerCase() || '_'}`;
     let list = await this.cache.get<SpeedyStreet[]>(key);
     if (list === null) {
-      const creds = await this.resolveCreds(tenantId);
+      const creds = await this.resolveCreds(tenantId, farmerId);
       const data = await this.client.callSafe(creds, 'location/street', query ? { siteId, name: query } : { siteId });
       list = slimStreets(data);
       await this.cache.set(key, list, list.length ? NOMENCLATURE_TTL : EMPTY_TTL);
@@ -335,8 +376,9 @@ export class SpeedyService implements CarrierAdapter {
   async validateAddress(
     tenantId: string,
     input: SpeedyValidateAddressDto,
+    farmerId?: string,
   ): Promise<{ valid: boolean; status: string | null }> {
-    const creds = await this.resolveCreds(tenantId);
+    const creds = await this.resolveCreds(tenantId, farmerId);
     const address: Record<string, unknown> =
       input.officeId != null
         ? { countryId: 100, siteId: input.siteId, officeId: input.officeId }
@@ -347,8 +389,8 @@ export class SpeedyService implements CarrierAdapter {
     return { valid, status: data?.validationMode ?? null };
   }
 
-  async getClientProfiles(tenantId: string): Promise<SenderSuggestion[]> {
-    const creds = await this.resolveCreds(tenantId);
+  async getClientProfiles(tenantId: string, farmerId?: string): Promise<SenderSuggestion[]> {
+    const creds = await this.resolveCreds(tenantId, farmerId);
     const data = await this.client.call(creds, 'client/contract', {});
     return slimContractClients(data);
   }
@@ -359,9 +401,10 @@ export class SpeedyService implements CarrierAdapter {
   async createManualShipment(
     tenantId: string,
     input: SpeedyManualShipmentDto,
+    farmerId?: string,
   ): Promise<typeof shipments.$inferSelect> {
-    const { speedy } = await this.loadStored(tenantId);
-    const creds = await this.resolveCreds(tenantId);
+    const { speedy } = await this.loadStored(tenantId, undefined, farmerId);
+    const creds = await this.resolveCreds(tenantId, farmerId);
     const body = buildShipmentRequest(speedy, input);
     const data = await this.client.call(creds, 'shipment', body);
 
@@ -418,16 +461,16 @@ export class SpeedyService implements CarrierAdapter {
   }
 
   /** Create the Speedy waybill for an order and UPSERT a shipments row (one per order). */
-  async createLabelForOrder(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
-    const { speedy } = await this.loadStored(tenantId);
+  async createLabelForOrder(tenantId: string, orderId: string, farmerId?: string): Promise<typeof shipments.$inferSelect> {
+    const { speedy } = await this.loadStored(tenantId, undefined, farmerId);
     if (!speedy.configured) throw new BadRequestException('Speedy не е конфигуриран за тази ферма');
 
     const order = await this.orderForShipment(tenantId, orderId);
-    const sites = await this.searchSites(tenantId, order.deliveryCity ?? '');
+    const sites = await this.searchSites(tenantId, order.deliveryCity ?? '', undefined, farmerId);
     const siteId = sites[0]?.id;
     if (!siteId) throw new BadRequestException('Населеното място не е намерено в Speedy');
 
-    const creds = await this.resolveCreds(tenantId);
+    const creds = await this.resolveCreds(tenantId, farmerId);
     const input = buildOrderShipmentInput(speedy, order, siteId);
     const body = buildShipmentRequest(speedy, input);
     const data = await this.client.call(creds, 'shipment', body);
@@ -496,7 +539,7 @@ export class SpeedyService implements CarrierAdapter {
   }
 
   /** One Speedy label PDF (tenant-scoped) — fetched live via /print. */
-  async getLabelPdf(tenantId: string, shipmentId: string): Promise<Buffer> {
+  async getLabelPdf(tenantId: string, shipmentId: string, farmerId?: string): Promise<Buffer> {
     const [row] = await this.db
       .select({ id: shipments.carrierShipmentId, barcode: shipments.trackingNumber })
       .from(shipments)
@@ -505,17 +548,17 @@ export class SpeedyService implements CarrierAdapter {
     if (!row) throw new NotFoundException('Пратката не е намерена');
     const ref = row.id ?? row.barcode;
     if (!ref) throw new NotFoundException('Няма товарителница за тази пратка');
-    const creds = await this.resolveCreds(tenantId);
+    const creds = await this.resolveCreds(tenantId, farmerId);
     return this.client.callBinary(creds, 'print', { paperSize: 'A6', parcels: [{ parcel: { id: ref } }] });
   }
 
   /** Several Speedy labels merged into one PDF (tenant-scoped). */
-  async getLabelsPdf(tenantId: string, shipmentIds: string[]): Promise<Buffer> {
+  async getLabelsPdf(tenantId: string, shipmentIds: string[], farmerId?: string): Promise<Buffer> {
     if (!shipmentIds.length) throw new BadRequestException('Няма избрани товарителници');
     if (shipmentIds.length > MAX_BULK_LABELS) {
       throw new BadRequestException(`Максимум ${MAX_BULK_LABELS} товарителници наведнъж`);
     }
-    const creds = await this.resolveCreds(tenantId);
+    const creds = await this.resolveCreds(tenantId, farmerId);
     const rows = await this.db
       .select({ id: shipments.carrierShipmentId, barcode: shipments.trackingNumber })
       .from(shipments)
@@ -534,7 +577,7 @@ export class SpeedyService implements CarrierAdapter {
   }
 
   /** Cancel a Speedy waybill (pre-pickup) and remove the shipment row. */
-  async voidShipment(tenantId: string, shipmentId: string): Promise<{ id: string }> {
+  async voidShipment(tenantId: string, shipmentId: string, farmerId?: string): Promise<{ id: string }> {
     const [row] = await this.db
       .select({ id: shipments.id, carrierShipmentId: shipments.carrierShipmentId })
       .from(shipments)
@@ -545,7 +588,7 @@ export class SpeedyService implements CarrierAdapter {
     // the cancel (parcel already picked up / past the cancel window) the paid waybill is
     // still LIVE — deleting our row here would orphan it, so we surface the error instead.
     if (row.carrierShipmentId) {
-      const creds = await this.resolveCreds(tenantId);
+      const creds = await this.resolveCreds(tenantId, farmerId);
       try {
         // Speedy requires a cancel reason of >= 4 chars (cancel_comment_too_short).
         await this.client.call(creds, 'shipment/cancel', {
@@ -567,27 +610,29 @@ export class SpeedyService implements CarrierAdapter {
 
   /** Refresh a Speedy shipment's status from /track. Persists the canonical status
    *  and fires the COD-risk hook (best-effort) on a returned/refused COD parcel. */
-  async refreshStatus(tenantId: string, shipmentId: string): Promise<typeof shipments.$inferSelect> {
+  async refreshStatus(tenantId: string, shipmentId: string, farmerId?: string): Promise<typeof shipments.$inferSelect> {
     const [row] = await this.db
       .select()
       .from(shipments)
       .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
-    return this.refreshStatusForRow(row);
+    return this.refreshStatusForRow(row, farmerId);
   }
 
   /**
    * Refresh one Speedy shipment from its already-loaded row. Split out from
    * {@link refreshStatus} so the batch cron passes the rows it already selected
    * instead of re-SELECTing each (incl. the large trackingJson) per shipment.
+   * The cron passes no farmerId (it has no request decorator) → tenant-level creds.
    */
   private async refreshStatusForRow(
     row: typeof shipments.$inferSelect,
+    farmerId?: string,
   ): Promise<typeof shipments.$inferSelect> {
     if (!row.trackingNumber || !row.tenantId) return row;
 
-    const creds = await this.resolveCreds(row.tenantId);
+    const creds = await this.resolveCreds(row.tenantId, farmerId);
     const data = await this.client.call(creds, 'track', { parcels: [{ id: row.trackingNumber }] });
     const parcel = Array.isArray(data?.parcels) ? data.parcels[0] : null;
     const operations: any[] = Array.isArray(parcel?.operations) ? parcel.operations : [];
@@ -643,8 +688,8 @@ export class SpeedyService implements CarrierAdapter {
 
   /** COD payout reconciliation for the last 60 days (Очаквано → Преведено). Stamps
    *  codSettledAt on matched Speedy shipments and returns the screen rows. */
-  async codReconciliation(tenantId: string): Promise<Array<{ shipmentId: string; expectedStotinki: number | null; settledAt: string | null }>> {
-    const creds = await this.resolveCreds(tenantId);
+  async codReconciliation(tenantId: string, farmerId?: string): Promise<Array<{ shipmentId: string; expectedStotinki: number | null; settledAt: string | null }>> {
+    const creds = await this.resolveCreds(tenantId, farmerId);
     const toDate = new Date();
     const fromDate = new Date(toDate.getTime() - 60 * 24 * 60 * 60 * 1000);
     const data = await this.client.callSafe(creds, 'payments', {
@@ -692,8 +737,9 @@ export class SpeedyService implements CarrierAdapter {
   async requestCourier(
     tenantId: string,
     input: SpeedyCourierRequestDto,
+    farmerId?: string,
   ): Promise<{ pickupId: string | null; attached: number; skipped: number }> {
-    const creds = await this.resolveCreds(tenantId);
+    const creds = await this.resolveCreds(tenantId, farmerId);
     const rows = await this.db
       .select({ id: shipments.id, shipmentId: shipments.carrierShipmentId })
       .from(shipments)
@@ -723,7 +769,11 @@ export class SpeedyService implements CarrierAdapter {
    *  Optionally includes COD so the quote reflects the real price when COD is
    *  requested. Returns stotinki, or null on any failure (never throws — used
    *  by the cross-carrier quote). Cached 8h; COD dimension keeps COD/non-COD
-   *  prices in separate cache entries. */
+   *  prices in separate cache entries.
+   *  Tenant-level by design (no farmerId): this runs inline behind the storefront
+   *  checkout/quote, which has no authenticated-farmer request context. Mirrors
+   *  Econt.estimateShipping — the per-farmer paths are the authenticated dostavki
+   *  session methods above. */
   async estimateShipping(
     tenantId: string,
     input: { siteId: number; weightGrams?: number; codAmountStotinki?: number },
