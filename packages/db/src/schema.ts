@@ -442,6 +442,10 @@ export const shipments = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
     tenantId: uuid('tenant_id').references(() => tenants.id),
     orderId: uuid('order_id').references(() => orders.id),
+    // Phase 3 (migration 0071): which farmer owns/ships this courier parcel.
+    // Copied from orders.farmer_id when the draft is created. NULL for tenant-level
+    // (marketplace) Econt/Speedy shipments.
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'set null' }),
     econtShipmentNumber: text('econt_shipment_number'),
     // --- Multi-carrier (Speedy added alongside Econt) ---
     // Which courier owns this row. Existing rows + Econt inserts default 'econt';
@@ -488,6 +492,7 @@ export const shipments = pgTable(
     carrierStatusIdx: index('shipments_carrier_status_idx').on(t.carrier, t.status),
     // cod-risk listCandidates: WHERE tenant_id=? AND report_status='candidate'.
     tenantReportIdx: index('shipments_tenant_report_idx').on(t.tenantId, t.reportStatus),
+    tenantFarmerIdx: index('shipments_tenant_farmer_idx').on(t.tenantId, t.farmerId),
   }),
 );
 

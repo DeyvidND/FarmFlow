@@ -498,6 +498,13 @@
       "when": 1783155600000,
       "tag": "0070_courier_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1783242000000,
+      "tag": "0071_shipments_farmer_id",
+      "breakpoints": true
     }
   ]
 }
