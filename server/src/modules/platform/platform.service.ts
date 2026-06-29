@@ -11,7 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
-import { and, asc, eq, sql, desc, inArray } from 'drizzle-orm';
+import { and, asc, eq, ne, sql, desc, inArray } from 'drizzle-orm';
 import { AuthService } from '../auth/auth.service';
 import { BillingService } from '../billing/billing.service';
 import { emailCostStotinki } from '../billing/billing.pricing';
@@ -571,7 +571,10 @@ export class PlatformService {
             createdAt: shipments.createdAt,
           })
           .from(shipments)
-          .where(inArray(shipments.tenantId, ids))
+          // Exclude courier DRAFTS — un-dispatched parcels carry a COD amount + the
+          // 'econt' carrier placeholder but aren't real shipments yet; counting them
+          // inflates the operator's Econt shipment + pending-COD totals.
+          .where(and(inArray(shipments.tenantId, ids), ne(shipments.status, 'draft')))
       : [];
 
     const byTenant = new Map<string, typeof ship>();
@@ -635,7 +638,8 @@ export class PlatformService {
         econtShipmentNumber: shipments.econtShipmentNumber,
       })
       .from(shipments)
-      .where(eq(shipments.tenantId, tenantId));
+      // Exclude courier drafts (un-dispatched; placeholder carrier/COD) from the overview.
+      .where(and(eq(shipments.tenantId, tenantId), ne(shipments.status, 'draft')));
 
     const recentShipments = [...ship]
       .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
@@ -677,9 +681,11 @@ export class PlatformService {
 
     const lim = clampLimit(opts.limit);
     const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    // Exclude courier drafts (un-dispatched) from the operator's shipment list.
+    const notDraft = ne(shipments.status, 'draft');
     const where = cur
-      ? and(eq(shipments.tenantId, tenantId), keysetAfter(shipments.createdAt, shipments.id, cur, 'desc'))
-      : eq(shipments.tenantId, tenantId);
+      ? and(eq(shipments.tenantId, tenantId), notDraft, keysetAfter(shipments.createdAt, shipments.id, cur, 'desc'))
+      : and(eq(shipments.tenantId, tenantId), notDraft);
 
     const rows = (await this.db
       .select({

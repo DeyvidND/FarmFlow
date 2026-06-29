@@ -13,27 +13,37 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
 import { ActivationGuard } from '../econt-app/activation.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('speedy')
 export class SpeedyStandaloneController {
-  constructor(private readonly speedy: SpeedyService) {}
+  constructor(
+    private readonly speedy: SpeedyService,
+    private readonly publicCache: PublicCacheService,
+  ) {}
 
   // --- account / setup ---
   @Roles('admin', 'farmer')
   @Post('credentials')
-  saveCredentials(
+  async saveCredentials(
     @CurrentTenant() t: string,
     @CurrentFarmer() f: string | undefined,
     @Body() dto: SpeedyCredentialsDto,
   ) {
-    return this.speedy.saveCredentials(t, dto, f);
+    const res = await this.speedy.saveCredentials(t, dto, f);
+    // Farmer (dis)connect flips PublicFarmer.courierReady — bust the storefront cache so the
+    // Куриер option updates without waiting on TTL (mirrors panel; dostavki path lacked it).
+    if (f) await this.publicCache.del(publicCacheKeys.farmers(t));
+    return res;
   }
 
   @Roles('admin', 'farmer')
   @Delete('credentials')
-  disconnect(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
-    return this.speedy.disconnect(t, f);
+  async disconnect(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    const res = await this.speedy.disconnect(t, f);
+    if (f) await this.publicCache.del(publicCacheKeys.farmers(t));
+    return res;
   }
 
   @Roles('admin', 'farmer')

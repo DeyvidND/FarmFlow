@@ -20,6 +20,7 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
 import { ActivationGuard } from './activation.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('shipping')
@@ -28,6 +29,7 @@ export class EcontStandaloneController {
     private readonly econt: EcontService,
     private readonly risk: CodRiskService,
     @Inject(DB_TOKEN) private readonly db: Database,
+    private readonly publicCache: PublicCacheService,
   ) {}
 
   // --- account / setup ---
@@ -46,18 +48,25 @@ export class EcontStandaloneController {
 
   @Roles('admin', 'farmer')
   @Post('credentials')
-  saveCredentials(
+  async saveCredentials(
     @CurrentTenant() t: string,
     @CurrentFarmer() f: string | undefined,
     @Body() dto: EcontCredentialsDto,
   ) {
-    return this.econt.saveCredentials(t, dto, f);
+    const res = await this.econt.saveCredentials(t, dto, f);
+    // A farmer (dis)connecting their carrier flips PublicFarmer.courierReady — bust the
+    // storefront cache so the Куриер option appears/disappears without waiting on TTL.
+    // (Mirrors the panel EcontController; the dostavki connect path lacked this.)
+    if (f) await this.publicCache.del(publicCacheKeys.farmers(t));
+    return res;
   }
 
   @Roles('admin', 'farmer')
   @Delete('credentials')
-  disconnect(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
-    return this.econt.disconnect(t, f);
+  async disconnect(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    const res = await this.econt.disconnect(t, f);
+    if (f) await this.publicCache.del(publicCacheKeys.farmers(t));
+    return res;
   }
 
   @Roles('admin', 'farmer')
