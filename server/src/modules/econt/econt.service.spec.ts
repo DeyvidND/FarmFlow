@@ -813,6 +813,124 @@ describe('EcontService.codReconciliation (farmer-scoped)', () => {
   });
 });
 
+describe('EcontService farmer-ownership scoping (cross-farmer IDOR)', () => {
+  const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+
+  /** Build a db whose select().from().where().limit() resolves to `rows`. Records the where()
+   *  call so a test can assert the farmer scope reached the query. */
+  function selectDb(rows: unknown[]) {
+    const where = jest.fn();
+    const limit = jest.fn().mockResolvedValue(rows);
+    where.mockReturnValue({ limit });
+    const from = jest.fn().mockReturnValue({ where });
+    const select = jest.fn().mockReturnValue({ from });
+    return { db: { select } as any, where, select };
+  }
+
+  describe('voidShipment', () => {
+    it('cross-farmer id → NotFound, NO carrier call, NO delete', async () => {
+      // farmer-2 asks to void a parcel owned by farmer-1: the scoped query finds nothing.
+      const { db } = selectDb([]);
+      const del = jest.fn();
+      db.delete = del;
+      (svc as any).db = db;
+      const callTenant = jest.fn();
+      (svc as any).callTenant = callTenant;
+
+      await expect(svc.voidShipment('t1', 'ship-1', 'farmer-2')).rejects.toThrow('Пратката не е намерена');
+      expect(callTenant).not.toHaveBeenCalled(); // no Econt deleteLabels
+      expect(del).not.toHaveBeenCalled();        // no row deleted
+    });
+
+    it('owning farmer → deletes the label + row', async () => {
+      const { db } = selectDb([{ id: 'ship-1', econtShipmentNumber: '1051000000001' }]);
+      const delWhere = jest.fn().mockResolvedValue(undefined);
+      db.delete = jest.fn().mockReturnValue({ where: delWhere });
+      (svc as any).db = db;
+      const callTenant = jest.fn().mockResolvedValue({});
+      (svc as any).callTenant = callTenant;
+
+      const out = await svc.voidShipment('t1', 'ship-1', 'farmer-1');
+      expect(out).toEqual({ id: 'ship-1' });
+      expect(callTenant).toHaveBeenCalledTimes(1); // deleteLabels for the waybill
+      expect(db.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('admin (no farmerId) → tenant-wide delete still works', async () => {
+      const { db } = selectDb([{ id: 'ship-1', econtShipmentNumber: '1051000000001' }]);
+      const delWhere = jest.fn().mockResolvedValue(undefined);
+      db.delete = jest.fn().mockReturnValue({ where: delWhere });
+      (svc as any).db = db;
+      (svc as any).callTenant = jest.fn().mockResolvedValue({});
+
+      const out = await svc.voidShipment('t1', 'ship-1');
+      expect(out).toEqual({ id: 'ship-1' });
+      expect(db.delete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('getLabelPdf', () => {
+    it('cross-farmer id → NotFound, NO PDF fetch', async () => {
+      const { db } = selectDb([]);
+      (svc as any).db = db;
+      const fetchLabelPdf = jest.fn();
+      (svc as any).fetchLabelPdf = fetchLabelPdf;
+      (svc as any).resolveCreds = jest.fn();
+
+      await expect(svc.getLabelPdf('t1', 'ship-1', 'farmer-2')).rejects.toThrow('Пратката не е намерена');
+      expect(fetchLabelPdf).not.toHaveBeenCalled();
+    });
+
+    it('owning farmer → fetches the PDF', async () => {
+      const { db } = selectDb([{ url: 'https://ee.econt.com/x.pdf' }]);
+      (svc as any).db = db;
+      (svc as any).resolveCreds = jest.fn().mockResolvedValue({ username: 'u', password: 'p' });
+      const fetchLabelPdf = jest.fn().mockResolvedValue(Buffer.from('PDF'));
+      (svc as any).fetchLabelPdf = fetchLabelPdf;
+
+      const out = await svc.getLabelPdf('t1', 'ship-1', 'farmer-1');
+      expect(out.toString()).toBe('PDF');
+      expect(fetchLabelPdf).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('refreshStatus', () => {
+    it('cross-farmer id → NotFound, NO carrier call', async () => {
+      const { db } = selectDb([]);
+      (svc as any).db = db;
+      const refreshStatusForRow = jest.fn();
+      (svc as any).refreshStatusForRow = refreshStatusForRow;
+
+      await expect(svc.refreshStatus('t1', 'ship-1', 'farmer-2')).rejects.toThrow('Пратката не е намерена');
+      expect(refreshStatusForRow).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('requestCourier', () => {
+    it('only the farmer\'s own shipments are eligible (cross-farmer ids drop out)', async () => {
+      // The scoped select returns ONLY farmer-1's shipment even though two ids were requested.
+      const where = jest.fn().mockResolvedValue([{ id: 'ship-1', number: '1051000000001' }]);
+      const from = jest.fn().mockReturnValue({ where });
+      const select = jest.fn().mockReturnValue({ from });
+      const updWhere = jest.fn().mockResolvedValue(undefined);
+      const updSet = jest.fn().mockReturnValue({ where: updWhere });
+      const update = jest.fn().mockReturnValue({ set: updSet });
+      (svc as any).db = { select, update };
+      (svc as any).loadStored = jest.fn().mockResolvedValue({ econt: { sender: { name: 'Ф', phone: '0', mode: 'office', officeCode: '1' } } });
+      (svc as any).callTenant = jest.fn().mockResolvedValue({ courierRequestID: 'CR1', status: 'process' });
+
+      const out = await svc.requestCourier(
+        't1',
+        { shipmentIds: ['ship-1', 'ship-2-other-farmer'], timeFrom: '2026-06-25 10:00', timeTo: '2026-06-25 18:00' } as never,
+        'farmer-1',
+      );
+      // Only ship-1 had a waybill and matched the farmer scope → 1 attached, 1 skipped.
+      expect(out.attached).toBe(1);
+      expect(out.skipped).toBe(1);
+    });
+  });
+});
+
 describe('EcontService.maybeSeedSender (unit)', () => {
   const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
   const seed = (econt: unknown, farmName: string, contact: unknown, profiles: unknown) =>

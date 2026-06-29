@@ -572,7 +572,15 @@ export class SpeedyService implements CarrierAdapter {
     const [row] = await this.db
       .select({ id: shipments.carrierShipmentId, barcode: shipments.trackingNumber })
       .from(shipments)
-      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
+      .where(
+        and(
+          eq(shipments.id, shipmentId),
+          eq(shipments.tenantId, tenantId),
+          eq(shipments.carrier, 'speedy'),
+          // Farmer dostavki session: scope to THEIR own parcel (cross-farmer → not found).
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      )
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
     const ref = row.id ?? row.barcode;
@@ -591,7 +599,15 @@ export class SpeedyService implements CarrierAdapter {
     const rows = await this.db
       .select({ id: shipments.carrierShipmentId, barcode: shipments.trackingNumber })
       .from(shipments)
-      .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy'), inArray(shipments.id, shipmentIds)));
+      .where(
+        and(
+          eq(shipments.tenantId, tenantId),
+          eq(shipments.carrier, 'speedy'),
+          inArray(shipments.id, shipmentIds),
+          // Farmer dostavki session: only THEIR own parcels' labels.
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      );
     const refs = rows.map((r) => r.id ?? r.barcode).filter((x): x is string => !!x);
     const settled = await Promise.allSettled(
       refs.map((ref) => this.client.callBinary(creds, 'print', { paperSize: 'A6', parcels: [{ parcel: { id: ref } }] })),
@@ -610,7 +626,15 @@ export class SpeedyService implements CarrierAdapter {
     const [row] = await this.db
       .select({ id: shipments.id, carrierShipmentId: shipments.carrierShipmentId })
       .from(shipments)
-      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
+      .where(
+        and(
+          eq(shipments.id, shipmentId),
+          eq(shipments.tenantId, tenantId),
+          eq(shipments.carrier, 'speedy'),
+          // Farmer dostavki session: scope to THEIR own parcel (cross-farmer → not found).
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      )
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
     // Only drop the local row once the carrier waybill is actually gone. If Speedy rejects
@@ -631,7 +655,15 @@ export class SpeedyService implements CarrierAdapter {
         );
       }
     }
-    await this.db.delete(shipments).where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)));
+    await this.db
+      .delete(shipments)
+      .where(
+        and(
+          eq(shipments.id, shipmentId),
+          eq(shipments.tenantId, tenantId),
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      );
     return { id: shipmentId };
   }
 
@@ -643,7 +675,15 @@ export class SpeedyService implements CarrierAdapter {
     const [row] = await this.db
       .select()
       .from(shipments)
-      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
+      .where(
+        and(
+          eq(shipments.id, shipmentId),
+          eq(shipments.tenantId, tenantId),
+          eq(shipments.carrier, 'speedy'),
+          // Farmer dostavki session: scope to THEIR own parcel (cross-farmer → not found).
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      )
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
     return this.refreshStatusForRow(row, farmerId);
@@ -778,7 +818,15 @@ export class SpeedyService implements CarrierAdapter {
     const rows = await this.db
       .select({ id: shipments.id, shipmentId: shipments.carrierShipmentId })
       .from(shipments)
-      .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy'), inArray(shipments.id, input.shipmentIds)));
+      .where(
+        and(
+          eq(shipments.tenantId, tenantId),
+          eq(shipments.carrier, 'speedy'),
+          inArray(shipments.id, input.shipmentIds),
+          // Farmer dostavki session: only THEIR own shipments may be attached to a pickup.
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      );
     const sent = rows.filter((r): r is { id: string; shipmentId: string } => !!r.shipmentId);
     if (!sent.length) throw new BadRequestException('Няма товарителници за заявка на куриер');
 

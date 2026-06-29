@@ -229,6 +229,129 @@ describe('SpeedyService farmer-scoped single-source decision', () => {
   });
 });
 
+describe('SpeedyService farmer-ownership scoping (cross-farmer IDOR)', () => {
+  let svc: SpeedyService;
+
+  beforeEach(() => {
+    svc = makeService();
+  });
+
+  /** db whose select().from().where().limit() resolves to `rows`. */
+  function selectDb(rows: unknown[]) {
+    const limit = jest.fn().mockResolvedValue(rows);
+    const where = jest.fn().mockReturnValue({ limit });
+    const from = jest.fn().mockReturnValue({ where });
+    const select = jest.fn().mockReturnValue({ from });
+    return { db: { select } as any, select };
+  }
+
+  describe('voidShipment', () => {
+    it('cross-farmer id → NotFound, NO carrier cancel, NO delete', async () => {
+      // farmer-2 asks to void a parcel owned by farmer-1: the scoped query finds nothing.
+      const { db } = selectDb([]);
+      const del = jest.fn();
+      db.delete = del;
+      (svc as any).db = db;
+      const call = jest.fn();
+      (svc as any).client = { call };
+      (svc as any).resolveCreds = jest.fn();
+
+      await expect(svc.voidShipment('t1', 'ship-1', 'farmer-2')).rejects.toThrow('Пратката не е намерена');
+      expect(call).not.toHaveBeenCalled(); // no Speedy shipment/cancel
+      expect(del).not.toHaveBeenCalled();  // no row deleted
+    });
+
+    it('owning farmer → cancels the waybill + deletes the row', async () => {
+      const { db } = selectDb([{ id: 'ship-1', carrierShipmentId: 'S1' }]);
+      const delWhere = jest.fn().mockResolvedValue(undefined);
+      db.delete = jest.fn().mockReturnValue({ where: delWhere });
+      (svc as any).db = db;
+      const call = jest.fn().mockResolvedValue({});
+      (svc as any).client = { call };
+      (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
+
+      const out = await svc.voidShipment('t1', 'ship-1', 'farmer-1');
+      expect(out).toEqual({ id: 'ship-1' });
+      expect(call).toHaveBeenCalledTimes(1);       // shipment/cancel
+      expect(db.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('admin (no farmerId) → tenant-wide delete still works', async () => {
+      const { db } = selectDb([{ id: 'ship-1', carrierShipmentId: 'S1' }]);
+      const delWhere = jest.fn().mockResolvedValue(undefined);
+      db.delete = jest.fn().mockReturnValue({ where: delWhere });
+      (svc as any).db = db;
+      (svc as any).client = { call: jest.fn().mockResolvedValue({}) };
+      (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
+
+      const out = await svc.voidShipment('t1', 'ship-1');
+      expect(out).toEqual({ id: 'ship-1' });
+      expect(db.delete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('getLabelPdf', () => {
+    it('cross-farmer id → NotFound, NO label fetch', async () => {
+      const { db } = selectDb([]);
+      (svc as any).db = db;
+      const callBinary = jest.fn();
+      (svc as any).client = { callBinary };
+      (svc as any).resolveCreds = jest.fn();
+
+      await expect(svc.getLabelPdf('t1', 'ship-1', 'farmer-2')).rejects.toThrow('Пратката не е намерена');
+      expect(callBinary).not.toHaveBeenCalled();
+    });
+
+    it('owning farmer → fetches the label PDF', async () => {
+      const { db } = selectDb([{ id: 'S1', barcode: 'BC1' }]);
+      (svc as any).db = db;
+      const callBinary = jest.fn().mockResolvedValue(Buffer.from('PDF'));
+      (svc as any).client = { callBinary };
+      (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
+
+      const out = await svc.getLabelPdf('t1', 'ship-1', 'farmer-1');
+      expect(out.toString()).toBe('PDF');
+      expect(callBinary).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('refreshStatus', () => {
+    it('cross-farmer id → NotFound, NO track call', async () => {
+      const { db } = selectDb([]);
+      (svc as any).db = db;
+      const refreshStatusForRow = jest.fn();
+      (svc as any).refreshStatusForRow = refreshStatusForRow;
+
+      await expect(svc.refreshStatus('t1', 'ship-1', 'farmer-2')).rejects.toThrow('Пратката не е намерена');
+      expect(refreshStatusForRow).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('requestCourier', () => {
+    it('only the farmer\'s own shipments are eligible (cross-farmer ids drop out)', async () => {
+      // The scoped select returns ONLY farmer-1's shipment even though two ids were requested.
+      const where = jest.fn().mockResolvedValue([{ id: 'ship-1', shipmentId: 'S1' }]);
+      const from = jest.fn().mockReturnValue({ where });
+      const select = jest.fn().mockReturnValue({ from });
+      const updWhere = jest.fn().mockResolvedValue(undefined);
+      const updSet = jest.fn().mockReturnValue({ where: updWhere });
+      const update = jest.fn().mockReturnValue({ set: updSet });
+      (svc as any).db = { select, update };
+      (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
+      (svc as any).client = { call: jest.fn().mockResolvedValue({ id: 'PU1' }) };
+
+      const out = await svc.requestCourier(
+        't1',
+        { shipmentIds: ['ship-1', 'ship-2-other-farmer'] } as never,
+        'farmer-1',
+      );
+      // Only ship-1 matched the farmer scope and had a waybill → 1 attached, 1 skipped.
+      expect(out.attached).toBe(1);
+      expect(out.skipped).toBe(1);
+    });
+  });
+});
+
 describe('SpeedyService.maybeSeedSender (unit)', () => {
   const svc = new SpeedyService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
   const seed = (speedy: unknown, farmName: string, contact: unknown, profiles: unknown) =>

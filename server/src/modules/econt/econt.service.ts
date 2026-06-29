@@ -1042,7 +1042,14 @@ export class EcontService implements CarrierAdapter {
     const rows = await this.db
       .select({ id: shipments.id, number: shipments.econtShipmentNumber })
       .from(shipments)
-      .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, input.shipmentIds)));
+      .where(
+        and(
+          eq(shipments.tenantId, tenantId),
+          inArray(shipments.id, input.shipmentIds),
+          // Farmer dostavki session: only THEIR own shipments may be attached to a pickup.
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      );
     // Only shipments that already have a waybill go into the request — and only
     // those get the request id stamped back (not every requested id).
     const sent = rows.filter((r): r is { id: string; number: string } => !!r.number);
@@ -1085,7 +1092,14 @@ export class EcontService implements CarrierAdapter {
     const [row] = await this.db
       .select({ url: shipments.labelPdfUrl })
       .from(shipments)
-      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)))
+      .where(
+        and(
+          eq(shipments.id, shipmentId),
+          eq(shipments.tenantId, tenantId),
+          // Farmer dostavki session: scope to THEIR own parcel (cross-farmer → not found).
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      )
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
     if (!row.url) throw new NotFoundException('Няма PDF за тази товарителница');
@@ -1103,7 +1117,14 @@ export class EcontService implements CarrierAdapter {
     const rows = await this.db
       .select({ url: shipments.labelPdfUrl })
       .from(shipments)
-      .where(and(eq(shipments.tenantId, tenantId), inArray(shipments.id, shipmentIds)));
+      .where(
+        and(
+          eq(shipments.tenantId, tenantId),
+          inArray(shipments.id, shipmentIds),
+          // Farmer dostavki session: only THEIR own parcels' labels.
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      );
     const urls = rows.map((r) => r.url).filter((u): u is string => !!u);
     const settled = await Promise.allSettled(urls.map((u) => this.fetchLabelPdf(c, u)));
     const buffers: Buffer[] = [];
@@ -1152,7 +1173,10 @@ export class EcontService implements CarrierAdapter {
         and(
           eq(shipments.tenantId, tenantId),
           isNotNull(shipments.codAmountStotinki),
-          ...(farmerId ? [eq(shipments.farmerId, farmerId), ne(shipments.status, 'draft')] : []),
+          // Never count an un-shipped DRAFT as pending COD — unconditional (defensive),
+          // so admin and farmer paths can't diverge. Farmer path additionally scopes ownership.
+          ne(shipments.status, 'draft'),
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
         ),
       );
     // TODO(econt-app v2): order-less standalone shipments with COD are excluded here
@@ -1275,7 +1299,14 @@ export class EcontService implements CarrierAdapter {
     const [row] = await this.db
       .select()
       .from(shipments)
-      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)))
+      .where(
+        and(
+          eq(shipments.id, shipmentId),
+          eq(shipments.tenantId, tenantId),
+          // Farmer dostavki session: scope to THEIR own parcel (cross-farmer → not found).
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      )
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
     return this.refreshStatusForRow(row, farmerId);
@@ -1369,7 +1400,14 @@ export class EcontService implements CarrierAdapter {
     const [row] = await this.db
       .select()
       .from(shipments)
-      .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)))
+      .where(
+        and(
+          eq(shipments.id, shipmentId),
+          eq(shipments.tenantId, tenantId),
+          // Farmer dostavki session: scope to THEIR own parcel (cross-farmer → not found).
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      )
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
     if (row.econtShipmentNumber) {
@@ -1377,7 +1415,15 @@ export class EcontService implements CarrierAdapter {
         shipmentNumbers: [row.econtShipmentNumber],
       }, undefined, undefined, farmerId);
     }
-    await this.db.delete(shipments).where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)));
+    await this.db
+      .delete(shipments)
+      .where(
+        and(
+          eq(shipments.id, shipmentId),
+          eq(shipments.tenantId, tenantId),
+          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+        ),
+      );
     return { id: shipmentId };
   }
 }
