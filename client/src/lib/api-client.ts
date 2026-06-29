@@ -838,6 +838,35 @@ export const listSpeedyOffices = (siteId: number) =>
 /** Speedy contract-client suggestions to prefill the sender profile. */
 export const listSpeedyProfiles = () => apiFetch<SpeedySenderSuggestion[]>('speedy/profiles');
 
+// ---- Farmer-scoped carrier helpers (standalone shipping/* + speedy/* endpoints) ----
+// These hit the FARMER-AWARE endpoints wired with @CurrentFarmer (Task 7).
+// The farmer panel JWT carries farmerId, so calls here write/read the
+// farmer sub-namespace — NOT the tenant-level econt/* endpoints.
+
+/** Farmer Econt config via the standalone shipping/* path. */
+export const getFarmerEcontConfig = () =>
+  apiFetch<{ configured?: boolean; username?: string }>('shipping/config');
+
+/** Save/replace the farmer's Econt credentials (shipping/credentials). */
+export const saveFarmerEcontCredentials = (data: { username: string; password: string }) =>
+  apiFetch<{ configured: true }>(
+    'shipping/credentials',
+    { method: 'POST', ...json(data) },
+    'Неуспешна връзка с Еконт',
+  );
+
+/** Farmer Speedy config via the standalone speedy/* path. */
+export const getFarmerSpeedyConfig = () =>
+  apiFetch<{ configured?: boolean; userName?: string }>('speedy/config');
+
+/** Save/replace the farmer's Speedy credentials (speedy/credentials). */
+export const saveFarmerSpeedyCredentials = (data: { userName: string; password: string }) =>
+  apiFetch<{ configured: true }>(
+    'speedy/credentials',
+    { method: 'POST', ...json(data) },
+    'Неуспешна връзка със Speedy',
+  );
+
 // ---- Newsletters ----
 export interface Subscriber {
   id: string;

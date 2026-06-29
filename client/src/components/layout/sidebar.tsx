@@ -25,6 +25,7 @@ import {
   Contact,
   ChevronDown,
   MessageSquare,
+  Truck,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -120,6 +121,7 @@ export const FARMER_NAV: NavItem[] = [
   { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоите продукти — добавяй, променяй цени, снимки и наличност.' },
   { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Плащанията за твоите продукти.' },
   { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, desc: 'Колко имаш налично от всеки продукт — намалява при поръчка.' },
+  { href: '/farmer-delivery', label: 'Доставки', Icon: Truck, desc: 'Свържи Speedy/Econt и пращай куриерски поръчки.' },
 ];
 
 const NAV_ORDER_PREFIX = 'navorder:';
