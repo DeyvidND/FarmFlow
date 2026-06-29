@@ -62,16 +62,16 @@ export class SpeedyService implements CarrierAdapter {
   private async loadStored(
     tenantId: string,
     cache?: Map<string, unknown>,
-  ): Promise<{ tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored }> {
+  ): Promise<{ tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored }> {
     // Optional per-call memo (bulk import passes one Map per batch): reads the tenant
     // settings once per batch instead of on every row's site/office/street lookup.
     // Absent for all other callers, so their behavior is unchanged (no staleness).
     const ck = `speedy:${tenantId}`;
     if (cache?.has(ck)) {
-      return cache.get(ck) as { tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored };
+      return cache.get(ck) as { tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored };
     }
     const [row] = await this.db
-      .select({ id: tenants.id, slug: tenants.slug, settings: tenants.settings, isDemo: tenants.isDemo })
+      .select({ id: tenants.id, slug: tenants.slug, name: tenants.name, settings: tenants.settings, isDemo: tenants.isDemo })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
@@ -79,7 +79,7 @@ export class SpeedyService implements CarrierAdapter {
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
     const delivery = (settings.delivery as Record<string, unknown> | null) ?? {};
     const speedy = (delivery.speedy as SpeedyStored | null) ?? {};
-    const result = { tenant: { id: row.id, slug: row.slug, settings, isDemo: !!row.isDemo }, speedy };
+    const result = { tenant: { id: row.id, slug: row.slug, name: row.name, settings, isDemo: !!row.isDemo }, speedy };
     cache?.set(ck, result);
     return result;
   }
@@ -107,7 +107,10 @@ export class SpeedyService implements CarrierAdapter {
   ): Record<string, unknown> {
     const existing = speedy.sender as Record<string, unknown> | undefined;
     if (existing && Object.keys(existing).length) return speedy;
-    return { ...speedy, sender: deriveSenderFromFarm(farmName, contact ?? null, profiles ?? []) };
+    // Speedy's sender schema uses `contactName` (not Еcont's `name`) — remap the
+    // carrier-agnostic derived sender so buildShipmentRequest reads it correctly.
+    const d = deriveSenderFromFarm(farmName, contact ?? null, profiles ?? []);
+    return { ...speedy, sender: { contactName: d.name, phone: d.phone, mode: d.mode } };
   }
 
   private clearCredsBlob(speedy: Record<string, unknown>): Record<string, unknown> {
@@ -161,7 +164,7 @@ export class SpeedyService implements CarrierAdapter {
         profiles = slimContractClients(data);
       } catch { /* no contract clients → fall back */ }
       const contact = (tenant.settings.contact ?? null) as { phone?: string | null; address?: string | null } | null;
-      seededSpeedy = this.maybeSeedSender(nextSpeedy, tenant.slug, contact, profiles);
+      seededSpeedy = this.maybeSeedSender(nextSpeedy, tenant.name || tenant.slug, contact, profiles);
     } catch { /* optional */ }
     const nextSettings = {
       ...tenant.settings,

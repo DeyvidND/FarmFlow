@@ -152,7 +152,7 @@ describe('SpeedyService.maybeSeedSender (unit)', () => {
   it('seeds sender when empty, from the contract client', () => {
     const out = seed({ userName: 'u' }, 'Ферма', { phone: '0700' },
       [{ name: 'Клиент', phone: '0888', clientNumber: '9' }]);
-    expect(out.sender).toEqual({ name: 'Клиент', phone: '0888', mode: 'office' });
+    expect(out.sender).toEqual({ contactName: 'Клиент', phone: '0888', mode: 'office' });
   });
 
   it('does NOT overwrite an existing sender', () => {

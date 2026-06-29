@@ -161,16 +161,16 @@ export class EcontService implements CarrierAdapter {
   private async loadStored(
     tenantId: string,
     cache?: Map<string, unknown>,
-  ): Promise<{ tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored }> {
+  ): Promise<{ tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored }> {
     // Optional per-call memo (bulk import passes one Map per batch): the same tenant's
     // settings are read once per batch instead of on every row's city/office lookup.
     // Absent for all other callers, so their behavior is unchanged (no staleness).
     const ck = `econt:${tenantId}`;
     if (cache?.has(ck)) {
-      return cache.get(ck) as { tenant: { id: string; slug: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored };
+      return cache.get(ck) as { tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored };
     }
     const [row] = await this.db
-      .select({ id: tenants.id, slug: tenants.slug, settings: tenants.settings, isDemo: tenants.isDemo })
+      .select({ id: tenants.id, slug: tenants.slug, name: tenants.name, settings: tenants.settings, isDemo: tenants.isDemo })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
@@ -178,7 +178,7 @@ export class EcontService implements CarrierAdapter {
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
     const delivery = (settings.delivery as Record<string, unknown> | null) ?? {};
     const econt = (delivery.econt as EcontStored | null) ?? {};
-    const result = { tenant: { id: row.id, slug: row.slug, settings, isDemo: !!row.isDemo }, econt };
+    const result = { tenant: { id: row.id, slug: row.slug, name: row.name, settings, isDemo: !!row.isDemo }, econt };
     cache?.set(ck, result);
     return result;
   }
@@ -220,7 +220,7 @@ export class EcontService implements CarrierAdapter {
         profiles = slimClientProfiles(data);
       } catch { /* no profiles → fall back to contact/farm name */ }
       const contact = (tenant.settings.contact ?? null) as { phone?: string | null; address?: string | null } | null;
-      nextEcont = this.maybeSeedSender(nextEcont, tenant.slug, contact, profiles) as EcontStored;
+      nextEcont = this.maybeSeedSender(nextEcont, tenant.name || tenant.slug, contact, profiles) as EcontStored;
     } catch { /* seeding is optional */ }
 
     const nextSettings = {

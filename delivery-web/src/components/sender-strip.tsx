@@ -8,7 +8,11 @@ import { SenderModal } from './sender-modal';
 type Row = {
   carrier: 'econt' | 'speedy';
   label: string;
-  sender: { name?: string; officeCode?: string; cityName?: string } | null;
+  // Еcont uses name/officeCode/cityName; Speedy uses contactName/officeId/siteName.
+  sender: {
+    name?: string; officeCode?: string; cityName?: string;
+    contactName?: string; officeId?: number; siteName?: string;
+  } | null;
   configured: boolean;
 };
 
@@ -37,13 +41,16 @@ export function SenderStrip() {
   return (
     <div className="mb-4 flex flex-col gap-2">
       {rows.map((r) => {
-        const place = r.sender?.officeCode ? `офис ${r.sender.officeCode}` : (r.sender?.cityName ?? '');
-        const hasPickup = !!(r.sender?.officeCode || r.sender?.cityName);
+        const name = r.sender?.name || r.sender?.contactName || '';
+        const office = r.sender?.officeCode || (r.sender?.officeId != null ? String(r.sender.officeId) : '');
+        const city = r.sender?.cityName || r.sender?.siteName || '';
+        const place = office ? `офис ${office}` : city;
+        const hasPickup = !!(office || city);
         return (
           <div key={r.carrier} className="flex items-center justify-between gap-3 rounded-xl border border-ff-border bg-ff-surface-2 px-4 py-2.5">
             <div className="min-w-0 text-[13.5px] text-ff-ink-2">
               {hasPickup ? (
-                <>Подаваш от <b className="text-ff-ink">{r.sender?.name}</b>{place ? <> · {place}</> : null} <span className="text-ff-muted">({r.label})</span></>
+                <>Подаваш от <b className="text-ff-ink">{name}</b>{place ? <> · {place}</> : null} <span className="text-ff-muted">({r.label})</span></>
               ) : (
                 <span className="inline-flex items-center gap-1.5 font-bold text-ff-amber-600">
                   <AlertTriangle size={15} /> Избери офис на подаване ({r.label})
