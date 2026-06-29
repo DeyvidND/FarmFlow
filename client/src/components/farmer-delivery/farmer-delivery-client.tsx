@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen } from 'lucide-react';
+import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,7 +32,7 @@ const FLOW_STEPS: ReadonlyArray<{ title: string; desc: string }> = [
   },
   {
     title: 'Отвори „Доставки“',
-    desc: 'Всички пратки на едно място. Системата сравнява Еконт и Speedy и праща с по-евтиния. Можеш да качиш и цял Excel наведнъж.',
+    desc: 'Поръчките те чакат като готови чернови. Избираш куриер — Еконт или Speedy — и създаваш товарителницата с един клик.',
   },
   {
     title: 'Принтирай и предай',
@@ -176,7 +176,7 @@ export function FarmerDeliveryClient() {
               <span className="text-ff-muted-2">Speedy</span>
             </div>
           </div>
-          <Button variant="primary" size="sm" onClick={() => handoffTo('/import')} disabled={handoffBusy}>
+          <Button variant="primary" size="sm" onClick={() => handoffTo('/shipments')} disabled={handoffBusy}>
             <ExternalLink size={15} /> {handoffBusy ? 'Отваряне…' : 'Отвори Доставки'}
           </Button>
         </div>
@@ -186,7 +186,7 @@ export function FarmerDeliveryClient() {
           anyConnected ? (
             <div className="mt-4 flex items-center gap-2 rounded-[10px] border border-ff-green-100 bg-ff-surface px-3 py-2 text-[12.5px] font-bold text-ff-green-700">
               <CheckCircle2 size={15} className="shrink-0" />
-              Готов си — пускаш пратките си от „Доставки“.
+              Готов си — поръчките с куриер ще те чакат в „Доставки“, готови за изпращане.
             </div>
           ) : (
             <div className="mt-4 flex items-center gap-2 rounded-[10px] border border-[#e7c9a0] bg-ff-amber-softer px-3 py-2 text-[12.5px] font-bold text-ff-amber-600">
@@ -224,14 +224,24 @@ export function FarmerDeliveryClient() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => handoffTo('/help')}
-          disabled={handoffBusy}
-          className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-green-700 hover:underline disabled:opacity-60"
-        >
-          <BookOpen size={14} /> Виж пълното ръководство за свързване
-        </button>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <button
+            type="button"
+            onClick={() => handoffTo('/import')}
+            disabled={handoffBusy}
+            className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-green-700 hover:underline disabled:opacity-60"
+          >
+            <Upload size={14} /> Внеси пратки от Excel
+          </button>
+          <button
+            type="button"
+            onClick={() => handoffTo('/help')}
+            disabled={handoffBusy}
+            className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-green-700 hover:underline disabled:opacity-60"
+          >
+            <BookOpen size={14} /> Пълно ръководство
+          </button>
+        </div>
       </div>
 
       {/* Carrier connect cards */}
