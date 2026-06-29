@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ExternalLink, Truck } from 'lucide-react';
+import { ExternalLink, Truck, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,6 +18,27 @@ const field =
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
+
+/** Plain-language walkthrough of the courier flow, shown to the farmer on the
+ *  „Доставки“ page so the two apps (panel + dostavki) read as one. */
+const FLOW_STEPS: ReadonlyArray<{ title: string; desc: string }> = [
+  {
+    title: 'Свържи куриер',
+    desc: 'Въведи акаунта си в Еконт или Speedy по-долу. Прави се само веднъж.',
+  },
+  {
+    title: 'Клиентът избира „Куриер“',
+    desc: 'При поръчка от магазина ти системата сама подготвя чернова на пратка — с адреса и наложения платеж.',
+  },
+  {
+    title: 'Отвори „Доставки“',
+    desc: 'Всички пратки на едно място. Системата сравнява Еконт и Speedy и праща с по-евтиния. Можеш да качиш и цял Excel наведнъж.',
+  },
+  {
+    title: 'Принтирай и предай',
+    desc: 'Сваляш товарителницата, лепиш я на кашона и я даваш на куриера. Наложеният платеж се връща при теб.',
+  },
+];
 
 function ConfigBadge({ configured }: { configured: boolean | undefined }) {
   if (configured === undefined) {
@@ -48,8 +69,10 @@ export function FarmerDeliveryClient() {
       const { token } = await requestDeliveryHandoff();
       const base =
         process.env.NEXT_PUBLIC_DELIVERY_URL ?? 'https://dostavki.fermeribg.com';
+      // Deep-link straight to the farmer's shipment workspace (/import) — same
+      // login, no second sign-in. `next` is allowlisted server-side in dostavki.
       window.open(
-        `${base}/api/session/handoff?token=${encodeURIComponent(token)}`,
+        `${base}/api/session/handoff?token=${encodeURIComponent(token)}&next=${encodeURIComponent('/import')}`,
         '_blank',
         'noopener',
       );
@@ -127,28 +150,52 @@ export function FarmerDeliveryClient() {
           Доставки
         </h1>
         <p className="mt-0.5 text-[14px] text-ff-ink-2">
-          Свържи куриерски акаунти и управлявай пратките си в приложението за доставки.
+          Свържи куриер веднъж и пращай поръчките си с няколко клика. Управлението на пратките е в приложението „Доставки“.
         </p>
       </div>
 
-      {/* SSO handoff card */}
-      <div className="flex flex-wrap items-center gap-3 rounded-[14px] border border-ff-green-100 bg-ff-green-50 px-4 py-3.5">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
-          <Truck size={18} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[14px] font-extrabold text-ff-ink">Пратки и куриери</div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12.5px] text-ff-ink-2">
-            <ConfigBadge configured={econtConfigured} />
-            <span className="text-ff-muted-2">Еконт</span>
-            <span className="mx-1 text-ff-muted-2">·</span>
-            <ConfigBadge configured={speedyConfigured} />
-            <span className="text-ff-muted-2">Speedy</span>
+      {/* How-it-works + one-click handoff to the dostavki app */}
+      <div className="rounded-[14px] border border-ff-green-100 bg-ff-green-50 p-5">
+        <div className="flex flex-wrap items-start gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
+            <Truck size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-extrabold text-ff-ink">Как работят доставките</div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12.5px] text-ff-ink-2">
+              <ConfigBadge configured={econtConfigured} />
+              <span className="text-ff-muted-2">Еконт</span>
+              <span className="mx-1 text-ff-muted-2">·</span>
+              <ConfigBadge configured={speedyConfigured} />
+              <span className="text-ff-muted-2">Speedy</span>
+            </div>
           </div>
+          <Button variant="primary" size="sm" onClick={openDostavki} disabled={handoffBusy}>
+            <ExternalLink size={15} /> {handoffBusy ? 'Отваряне…' : 'Отвори Доставки'}
+          </Button>
         </div>
-        <Button variant="primary" size="sm" onClick={openDostavki} disabled={handoffBusy}>
-          <ExternalLink size={15} /> {handoffBusy ? 'Отваряне…' : 'Отвори Доставки'}
-        </Button>
+
+        <ol className="mt-4 grid gap-2.5 sm:grid-cols-2">
+          {FLOW_STEPS.map((s, i) => (
+            <li
+              key={s.title}
+              className="flex items-start gap-3 rounded-[12px] border border-ff-green-100 bg-ff-surface px-3.5 py-3"
+            >
+              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-ff-green-700 text-[12.5px] font-extrabold text-white">
+                {i + 1}
+              </span>
+              <div className="min-w-0">
+                <div className="text-[13.5px] font-bold text-ff-ink">{s.title}</div>
+                <div className="mt-0.5 text-[12.5px] leading-snug text-ff-ink-2">{s.desc}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <div className="mt-3 flex items-center gap-1.5 text-[12px] text-ff-ink-2">
+          <Info size={13} className="shrink-0 text-ff-green-700" />
+          Влизаш със същия акаунт — не е нужно второ влизане.
+        </div>
       </div>
 
       {/* Carrier connect cards */}
