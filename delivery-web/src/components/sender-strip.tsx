@@ -14,6 +14,7 @@ type Row = {
     contactName?: string; officeId?: number; siteName?: string;
   } | null;
   configured: boolean;
+  count: number;
 };
 
 /** Compact „Подаваш от: …" strip shown atop Пратки/Внос. One row per connected
@@ -26,10 +27,12 @@ export function SenderStrip() {
     const [e, s] = await Promise.allSettled([getEcontConfig(), getSpeedyConfig()]);
     const next: Row[] = [];
     if (e.status === 'fulfilled' && e.value?.configured) {
-      next.push({ carrier: 'econt', label: 'Еконт', sender: (e.value.sender as Row['sender']) ?? null, configured: true });
+      const ec = e.value;
+      next.push({ carrier: 'econt', label: 'Еконт', sender: (ec.sender as Row['sender']) ?? null, configured: true, count: ec.senders?.length ?? (ec.sender ? 1 : 0) });
     }
     if (s.status === 'fulfilled' && s.value?.configured) {
-      next.push({ carrier: 'speedy', label: 'Speedy', sender: (s.value.sender as Row['sender']) ?? null, configured: true });
+      const sc = s.value;
+      next.push({ carrier: 'speedy', label: 'Speedy', sender: (sc.sender as Row['sender']) ?? null, configured: true, count: sc.senders?.length ?? (sc.sender ? 1 : 0) });
     }
     setRows(next);
   }, []);
@@ -50,7 +53,7 @@ export function SenderStrip() {
           <div key={r.carrier} className="flex items-center justify-between gap-3 rounded-xl border border-ff-border bg-ff-surface-2 px-4 py-2.5">
             <div className="min-w-0 text-[13.5px] text-ff-ink-2">
               {hasPickup ? (
-                <>Подаваш от <b className="text-ff-ink">{name}</b>{place ? <> · {place}</> : null} <span className="text-ff-muted">({r.label})</span></>
+                <>Подаваш от <b className="text-ff-ink">{name}</b>{place ? <> · {place}</> : null}{r.count > 1 ? <> · {r.count} точки</> : null} <span className="text-ff-muted">({r.label})</span></>
               ) : (
                 <span className="inline-flex items-center gap-1.5 font-bold text-ff-amber-600">
                   <AlertTriangle size={15} /> Избери офис на подаване ({r.label})
