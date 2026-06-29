@@ -278,6 +278,7 @@ export interface EcontSender {
   name?: string; phone?: string; cityId?: number; cityName?: string;
   mode?: 'office' | 'address'; officeCode?: string; address?: string;
 }
+export type EcontPickupPoint = EcontSender & { id: string; label: string };
 /** Econt config blob (credentials stripped of the encrypted password). */
 export interface EcontConfig {
   configured?: boolean;
@@ -286,6 +287,8 @@ export interface EcontConfig {
   isDemo?: boolean;
   username?: string;
   sender?: EcontSender;
+  senders?: EcontPickupPoint[];
+  activeSenderId?: string | null;
   defaultPackage?: { weightKg?: number; contents?: string; dimensions?: string };
   cod?: { enabled?: boolean; feePayer?: 'customer' | 'farm' };
   label?: { paper?: 'A4' | 'A6'; autoCreate?: boolean };
@@ -295,6 +298,7 @@ export interface SpeedySender {
   contactName?: string; phone?: string; mode?: 'office' | 'address';
   officeId?: number; siteId?: number; siteName?: string; streetId?: number; streetNo?: string;
 }
+export type SpeedyPickupPoint = SpeedySender & { id: string; label: string };
 /** Speedy config blob (credentials stripped of the encrypted password). */
 export interface SpeedyConfig {
   configured?: boolean;
@@ -305,6 +309,8 @@ export interface SpeedyConfig {
   clientSystemId?: number;
   defaultServiceId?: number;
   sender?: SpeedySender;
+  senders?: SpeedyPickupPoint[];
+  activeSenderId?: string | null;
   defaultPackage?: { parcelsCount?: number; weightKg?: number; contents?: string };
   cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
   label?: { autoCreate?: boolean };
@@ -343,6 +349,18 @@ export const saveSpeedyProfile = async (body: {
   cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
 }): Promise<{ ok: true }> =>
   (await bff('speedy/profile', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }, 'Запазването се провали')).json();
+
+/** Save the Econt pickup-point book + which point is active. */
+export const saveEcontSenders = async (body: { senders: EcontPickupPoint[]; activeId: string }): Promise<{ ok: true }> =>
+  (await bff('shipping/senders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }, 'Запазването се провали')).json();
+
+/** Save the Speedy pickup-point book + which point is active. */
+export const saveSpeedySenders = async (body: { senders: SpeedyPickupPoint[]; activeId: string }): Promise<{ ok: true }> =>
+  (await bff('speedy/senders', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }, 'Запазването се провали')).json();
 
