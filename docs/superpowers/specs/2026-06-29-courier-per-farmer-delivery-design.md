@@ -65,23 +65,30 @@ Customer on chaika → picks delivery:
 
 ## Components
 
-### 1. Delivery account per farmer
-- Generalize the delivery server's scope key from `tenantId` to **`deliveryAccountId`**. Today
-  there is exactly one delivery account (== the marketplace tenant); we add one per
-  participating farmer.
-- New table `delivery_accounts`: `id` (uuid pk), `tenant_id` (marketplace tenant fk),
-  `farmer_id` (fk, unique), `package_enabled` (bool), `created_at`.
-- Carrier credentials and the sender/COD profile become keyed by `delivery_account_id` (today
-  keyed by tenant). The existing single marketplace delivery account keeps working unchanged.
-- **Interface:** the delivery modules (`econt-app`, `speedy`) accept a `deliveryAccountId`
-  scope identical in shape to the current tenant scope — a drop-in substitution.
+### 1. Delivery account per farmer (farmer-scoped storage)
+Credentials are **not** in a table — they live in `tenants.settings.delivery.{econt,speedy}`
+(JSONB), keyed by `tenantId`, encrypted (`passwordEnc` via `encryptSecret`). The delivery
+session JWT **already supports an optional `farmerId`** (`auth.service.ts` `sign()` adds it when
+present). So instead of new tenants or a new table, a farmer's delivery account is a
+**sub-namespace of the marketplace tenant's settings**:
+
+- Farmer credentials/profile live at `tenants.settings.delivery.farmers[<farmerId>].{econt,speedy}`,
+  mirroring the existing tenant-level shape. The marketplace's own creds stay at
+  `settings.delivery.{econt,speedy}` (unchanged).
+- The delivery services (`econt.service`, `speedy.service`, `econt-app`) resolve their storage
+  path through a **single scope helper**: when the request carries `farmerId`, read/write the
+  farmer sub-namespace; otherwise the tenant level. `farmerId` is threaded from the JWT via a
+  `@CurrentFarmer()` decorator into the public service methods.
+- No new tenant rows (avoids tenant-wide cron/insights/billing blast radius). No new table for
+  creds.
 
 ### 2. Per-farmer SSO into dostavki
-- The farmer panel gets a **"Доставки"** button that mints a delivery-handoff token scoped to
-  the farmer's `delivery_account_id`. The existing `/auth/delivery-handoff` mints
-  `{sub, tid, type:'delivery-handoff'}`; here the scope is the delivery account, not the
-  marketplace tenant.
-- Opens the dostavki app scoped to that farmer's account.
+- The farmer panel already has `DeliveryHandoffCard` → `requestDeliveryHandoff()` (POST
+  `/auth/delivery-handoff`) → opens `${DELIVERY_URL}/api/session/handoff?token=…`, and dostavki's
+  `/api/session/handoff` exchanges it at `POST /auth/handoff`. We **reuse this unchanged**, with
+  one change: `issueDeliveryHandoff(userId, tenantId)` includes the user's `farmerId` in the
+  token, so `handoffLogin` mints a **farmer-scoped** delivery session. A farmer subaccount that
+  opens "Доставки" lands in dostavki scoped to their own sub-namespace automatically.
 
 ### 3. Storefront courier option + cart split
 - chaika renders the courier option per the eligibility rule.
@@ -115,14 +122,13 @@ Customer on chaika → picks delivery:
 
 ## Data model changes
 
-- `farmers.courier_enabled` boolean not null default false.
-- New `delivery_accounts` (`id`, `tenant_id`, `farmer_id` unique, `package_enabled`, `created_at`).
-- Carrier credential / profile storage gains a `delivery_account_id` scope (back-compatible with
-  the existing marketplace account).
+- `farmers.courier_enabled` boolean not null default false (migration).
+- Carrier credentials/profile per farmer: **no migration** — a new sub-namespace
+  `tenants.settings.delivery.farmers[<farmerId>]` inside the existing JSONB.
 - `orders.farmer_id` uuid nullable — set for courier/split orders, null for legacy mixed/local
-  orders.
-- `delivery_type` enum gains `'courier'`.
-- Link order → draft shipment (the shipment carries `order_id`).
+  orders (migration; Phase 2).
+- `delivery_type` enum gains `'courier'` (migration; Phase 2).
+- Link order → draft shipment (the shipment carries `order_id`; Phase 3).
 
 All migrations are **hand-written** (drizzle-kit generate has been unreliable since 0059); the
 runtime migrator only needs the `.sql` files + `_journal.json`.
