@@ -500,35 +500,37 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
         {d.recentOrders.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-ff-muted">Все още няма поръчки.</p>
         ) : (
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-                {['Поръчка', 'Клиент', 'Сума', 'Статус', 'Дата'].map((h) => (
-                  <th key={h} className="px-5 py-3 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {d.recentOrders.map((o) => {
-                const st = ORDER_STATUS[o.status ?? ''] ?? { label: o.status ?? '—', tone: 'bg-ff-surface-2 text-ff-muted' };
-                return (
-                  <tr key={o.id} className="border-b border-ff-border-2 last:border-0">
-                    <td className="ff-fig px-5 py-3 text-[13px] font-bold text-ff-ink">№ {o.id.slice(0, 8)}</td>
-                    <td className="px-5 py-3 text-[13.5px] text-ff-ink-2">{o.customerName ?? '—'}</td>
-                    <td className="ff-fig px-5 py-3 text-[14px] font-bold">{eur(o.totalStotinki)}</td>
-                    <td className="px-5 py-3">
-                      <span className={cn('inline-flex rounded-full px-2.5 py-1 text-[12px] font-bold', st.tone)}>
-                        {st.label}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-[13px] text-ff-muted">{dmy(o.createdAt)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
+                  {['Поръчка', 'Клиент', 'Сума', 'Статус', 'Дата'].map((h) => (
+                    <th key={h} className="whitespace-nowrap px-5 py-3 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {d.recentOrders.map((o) => {
+                  const st = ORDER_STATUS[o.status ?? ''] ?? { label: o.status ?? '—', tone: 'bg-ff-surface-2 text-ff-muted' };
+                  return (
+                    <tr key={o.id} className="border-b border-ff-border-2 last:border-0">
+                      <td className="ff-fig whitespace-nowrap px-5 py-3 text-[13px] font-bold text-ff-ink">№ {o.id.slice(0, 8)}</td>
+                      <td className="px-5 py-3 text-[13.5px] text-ff-ink-2">{o.customerName ?? '—'}</td>
+                      <td className="ff-fig whitespace-nowrap px-5 py-3 text-[14px] font-bold">{eur(o.totalStotinki)}</td>
+                      <td className="px-5 py-3">
+                        <span className={cn('inline-flex rounded-full px-2.5 py-1 text-[12px] font-bold', st.tone)}>
+                          {st.label}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-3 text-[13px] text-ff-muted">{dmy(o.createdAt)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

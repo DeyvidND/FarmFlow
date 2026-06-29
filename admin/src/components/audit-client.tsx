@@ -74,7 +74,7 @@ export function AuditClient({ initial }: { initial: Paginated<AuditLog> }) {
             Последни действия (промени) във всички ферми. Филтрите важат за заредените редове.
           </p>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5 max-[560px]:w-full">
           <button
             type="button"
             onClick={() => setErrorsOnly((v) => !v)}
