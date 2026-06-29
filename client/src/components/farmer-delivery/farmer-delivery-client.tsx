@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen, Upload } from 'lucide-react';
+import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen, Upload, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -56,6 +56,34 @@ function ConfigBadge({ configured }: { configured: boolean | undefined }) {
     <span className="inline-flex items-center rounded-full bg-ff-surface-2 px-2.5 py-0.5 text-[12px] font-semibold text-ff-muted-2">
       Не е свързан
     </span>
+  );
+}
+
+/** One numbered step inside a „Откъде да взема тези данни?“ helper. */
+function Stp({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-2">
+      <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-ff-green-100 text-[10.5px] font-extrabold text-ff-green-700">
+        {n}
+      </span>
+      <span>{children}</span>
+    </li>
+  );
+}
+
+/** Collapsible „where do I get these credentials?“ guide under a connect card —
+ *  plain, farmer-friendly steps, hidden by default so the card stays simple. */
+function CredHelp({ children }: { children: React.ReactNode }) {
+  return (
+    <details className="group mb-3 rounded-[10px] border border-ff-border bg-ff-surface-2 px-3 py-2">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[12.5px] font-bold text-ff-ink-2 [&::-webkit-details-marker]:hidden">
+        Откъде да взема тези данни?
+        <ChevronDown size={15} className="shrink-0 text-ff-muted transition-transform group-open:rotate-180" />
+      </summary>
+      <ol className="mt-2 flex flex-col gap-1.5 text-[12.5px] leading-snug text-ff-ink-2">
+        {children}
+      </ol>
+    </details>
   );
 }
 
@@ -290,6 +318,17 @@ export function FarmerDeliveryClient() {
             </div>
             <ConfigBadge configured={econtConfigured} />
           </div>
+
+          <CredHelp>
+            <Stp n={1}>Нужен е фирмен акаунт в Еконт — за товарителници и наложен платеж.</Stp>
+            <Stp n={2}>
+              Влез в профила си на{' '}
+              <a href="https://econt.com" target="_blank" rel="noopener noreferrer" className="font-bold text-ff-green-700 hover:underline">econt.com</a>
+              {' '}— там са твоят потребител и парола. Или кажи в офис на Еконт: „искам да издавам товарителници от моята система“.
+            </Stp>
+            <Stp n={3}>Въведи ги тук веднъж — готово.</Stp>
+          </CredHelp>
+
           <form onSubmit={connectEcont} className="flex flex-col gap-3">
             <label className={labelCls}>
               Потребителско име
@@ -337,6 +376,17 @@ export function FarmerDeliveryClient() {
             </div>
             <ConfigBadge configured={speedyConfigured} />
           </div>
+
+          <CredHelp>
+            <Stp n={1}>Поискай <b>API достъп</b> от Speedy — не става автоматично.</Stp>
+            <Stp n={2}>
+              Пиши на{' '}
+              <a href="mailto:api.registration@speedy.bg" className="font-bold text-ff-green-700 hover:underline">api.registration@speedy.bg</a>
+              {' '}(или кажи на търговеца си от Speedy). Дай име, фирма и телефон.
+            </Stp>
+            <Stp n={3}>Speedy ти праща потребител и парола за API — въведи ги тук.</Stp>
+          </CredHelp>
+
           <form onSubmit={connectSpeedy} className="flex flex-col gap-3">
             <label className={labelCls}>
               Потребителско име
