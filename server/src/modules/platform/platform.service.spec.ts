@@ -409,6 +409,62 @@ describe('PlatformService', () => {
     });
   });
 
+  // ── farmerDetail ────────────────────────────────────────────────────────────
+  describe('farmerDetail', () => {
+    it('404s when the farmer is missing', async () => {
+      db.limit.mockResolvedValueOnce([]); // base lookup → none
+      await expect(service.farmerDetail('missing-uuid')).rejects.toThrow(NotFoundException);
+    });
+
+    it('merges base, counts, COD and recent rows', async () => {
+      const base = {
+        id: 'f1',
+        name: 'Иван',
+        role: 'Пчелар',
+        courierEnabled: true,
+        tenantId: 't1',
+        tenantName: 'Ферма',
+        tenantSlug: 'ferma',
+        settings: { delivery: { farmers: { f1: { econt: { configured: true }, speedy: { configured: false } } } } },
+        userId: 'u1',
+        loginEmail: 'ivan@farm.bg',
+        mustChange: false,
+      };
+      db.where
+        .mockReturnValueOnce(db) // base → limit
+        .mockResolvedValueOnce([{ n: 5 }]) // products
+        .mockResolvedValueOnce([{ n: 3 }]) // courier orders
+        .mockResolvedValueOnce([{ total: 2, drafts: 1, pendingStotinki: 1500, collectedStotinki: 0 }]) // ship agg
+        .mockReturnValue(db); // recentShip + recentOrd where → db
+      db.orderBy.mockReturnValue(db); // recentShip/recentOrd orderBy → db (chain to limit)
+      db.limit
+        .mockResolvedValueOnce([base]) // base lookup
+        .mockResolvedValueOnce([
+          { id: 's1', receiverName: 'Петър', carrier: 'econt', status: 'created', codAmountStotinki: 1500, trackingNumber: 'BG1', createdAt: new Date('2024-03-01') },
+        ]) // recent shipments
+        .mockResolvedValueOnce([
+          { id: 'o1', customerName: 'Петър', totalStotinki: 2000, status: 'confirmed', createdAt: new Date('2024-03-01') },
+        ]); // recent orders
+
+      const result = await service.farmerDetail('f1');
+
+      expect(result).toMatchObject({
+        id: 'f1',
+        name: 'Иван',
+        tenantName: 'Ферма',
+        courierEnabled: true,
+        hasLogin: true,
+        loginEmail: 'ivan@farm.bg',
+        econtConnected: true,
+        speedyConnected: false,
+        counts: { products: 5, courierOrders: 3, shipments: 2, draftShipments: 1 },
+        cod: { pendingStotinki: 1500, collectedStotinki: 0 },
+      });
+      expect(result.recentShipments).toHaveLength(1);
+      expect(result.recentOrders).toHaveLength(1);
+    });
+  });
+
   // ── listAllFarmers ──────────────────────────────────────────────────────────
   describe('listAllFarmers', () => {
     it('returns a cross-tenant farmer row with merged counts + carriers', async () => {

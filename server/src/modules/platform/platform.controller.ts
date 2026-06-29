@@ -107,10 +107,30 @@ export class PlatformController {
     return this.platform.listAllFarmers({ cursor: q.cursor, limit: q.limit });
   }
 
+  /** One farmer's super-admin detail (producer drill-down). */
+  @Get('farmers/:id')
+  farmerDetail(@Param('id', ParseUUIDPipe) id: string) {
+    return this.platform.farmerDetail(id);
+  }
+
   /** Cross-tenant delivery operations snapshot (status + COD + stuck drafts). */
   @Get('delivery/ops')
   deliveryOps() {
     return this.platform.deliveryOps();
+  }
+
+  /** Cross-tenant audit log (mutations by default; pass mutationsOnly=false for all). */
+  @Get('audit')
+  listAuditLogs(@Query() q: PaginationQueryDto, @Query('mutationsOnly') mutationsOnly?: string) {
+    return this.platform.listAuditLogs({ cursor: q.cursor, limit: q.limit, mutationsOnly: mutationsOnly !== 'false' });
+  }
+
+  /** SSO into a farmer's „Доставки" AS them, for super-admin support. Audit-logged. */
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('impersonate/:farmerId')
+  @HttpCode(200)
+  impersonate(@Param('farmerId', ParseUUIDPipe) farmerId: string, @CurrentUser() user: RequestUser) {
+    return this.platform.impersonate(farmerId, (user as { type: 'platform'; adminId: string }).adminId);
   }
 
   @Post('tenants')

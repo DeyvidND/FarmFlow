@@ -231,6 +231,53 @@ export interface GlobalFarmerRow {
   createdAt: Date | null;
 }
 
+/** One enriched audit-log row for the super-admin audit viewer. */
+export interface AuditLogRow {
+  id: string;
+  action: string;
+  path: string;
+  statusCode: number | null;
+  createdAt: Date | null;
+  actorType: 'admin' | 'user' | 'system';
+  actorEmail: string | null;
+  tenantId: string | null;
+  tenantName: string | null;
+}
+
+/** One farmer's full super-admin detail (producer drill-down page). */
+export interface FarmerDetail {
+  id: string;
+  name: string;
+  role: string | null;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  courierEnabled: boolean;
+  hasLogin: boolean;
+  loginEmail: string | null;
+  invitePending: boolean;
+  econtConnected: boolean;
+  speedyConnected: boolean;
+  counts: { products: number; courierOrders: number; shipments: number; draftShipments: number };
+  cod: { pendingStotinki: number; collectedStotinki: number };
+  recentShipments: {
+    id: string;
+    receiverName: string | null;
+    carrier: string | null;
+    status: string;
+    codAmountStotinki: number | null;
+    trackingNumber: string | null;
+    createdAt: Date | null;
+  }[];
+  recentOrders: {
+    id: string;
+    customerName: string | null;
+    totalStotinki: number;
+    status: string | null;
+    createdAt: Date | null;
+  }[];
+}
+
 /** Cross-tenant delivery operations snapshot for the super-admin ops board. */
 export interface DeliveryOpsSummary {
   shipments: { total: number; drafts: number; created: number; shipped: number; delivered: number; returned: number; refused: number };
@@ -767,6 +814,181 @@ export class PlatformService {
       },
       stuckDrafts,
     };
+  }
+
+  /** One farmer's super-admin detail — base + login + carriers, the delivery/order
+   *  counts, COD totals, and recent shipments/orders. 404 if the farmer is gone. */
+  async farmerDetail(farmerId: string): Promise<FarmerDetail> {
+    const [base] = await this.db
+      .select({
+        id: farmers.id,
+        name: farmers.name,
+        role: farmers.role,
+        courierEnabled: farmers.courierEnabled,
+        tenantId: tenants.id,
+        tenantName: tenants.name,
+        tenantSlug: tenants.slug,
+        settings: tenants.settings,
+        userId: users.id,
+        loginEmail: users.email,
+        mustChange: users.mustChangePassword,
+      })
+      .from(farmers)
+      .innerJoin(tenants, eq(farmers.tenantId, tenants.id))
+      .leftJoin(users, and(eq(users.farmerId, farmers.id), eq(users.tenantId, farmers.tenantId)))
+      .where(eq(farmers.id, farmerId))
+      .limit(1);
+    if (!base) throw new NotFoundException('Фермерът не е намерен');
+
+    const prodP = this.db.select({ n: sql<number>`count(*)::int` }).from(products).where(eq(products.farmerId, farmerId));
+    const orderCountP = this.db.select({ n: sql<number>`count(*)::int` }).from(orders).where(eq(orders.farmerId, farmerId));
+    const shipAggP = this.db
+      .select({
+        total: sql<number>`count(*) filter (where ${shipments.status} <> 'draft')::int`,
+        drafts: sql<number>`count(*) filter (where ${shipments.status} = 'draft')::int`,
+        pendingStotinki: sql<number>`coalesce(sum(${shipments.codAmountStotinki}) filter (where ${shipments.status} not in ('draft','returned','refused','cancelled') and ${shipments.codCollectedAt} is null and ${shipments.codSettledAt} is null), 0)::int`,
+        collectedStotinki: sql<number>`coalesce(sum(${shipments.codAmountStotinki}) filter (where ${shipments.codCollectedAt} is not null or ${shipments.codSettledAt} is not null), 0)::int`,
+      })
+      .from(shipments)
+      .where(eq(shipments.farmerId, farmerId));
+    const recentShipP = this.db
+      .select({
+        id: shipments.id,
+        receiverName: shipments.receiverName,
+        carrier: shipments.carrier,
+        status: shipments.status,
+        codAmountStotinki: shipments.codAmountStotinki,
+        trackingNumber: shipments.trackingNumber,
+        createdAt: shipments.createdAt,
+      })
+      .from(shipments)
+      .where(eq(shipments.farmerId, farmerId))
+      .orderBy(desc(shipments.createdAt))
+      .limit(20);
+    const recentOrdP = this.db
+      .select({
+        id: orders.id,
+        customerName: orders.customerName,
+        totalStotinki: orders.totalStotinki,
+        status: orders.status,
+        createdAt: orders.createdAt,
+      })
+      .from(orders)
+      .where(eq(orders.farmerId, farmerId))
+      .orderBy(desc(orders.createdAt))
+      .limit(10);
+
+    const [[prod], [orderCount], [shipAgg], recentShipments, recentOrders] = await Promise.all([
+      prodP,
+      orderCountP,
+      shipAggP,
+      recentShipP,
+      recentOrdP,
+    ]);
+
+    const ns = ((base.settings as any)?.delivery?.farmers?.[base.id] ?? {}) as Record<string, any>;
+    return {
+      id: base.id,
+      name: base.name,
+      role: base.role,
+      tenantId: base.tenantId,
+      tenantName: base.tenantName,
+      tenantSlug: base.tenantSlug,
+      courierEnabled: !!base.courierEnabled,
+      hasLogin: !!base.userId,
+      loginEmail: base.loginEmail ?? null,
+      invitePending: !!base.userId && !!base.mustChange,
+      econtConnected: !!ns?.econt?.configured,
+      speedyConnected: !!ns?.speedy?.configured,
+      counts: {
+        products: prod?.n ?? 0,
+        courierOrders: orderCount?.n ?? 0,
+        shipments: shipAgg?.total ?? 0,
+        draftShipments: shipAgg?.drafts ?? 0,
+      },
+      cod: { pendingStotinki: shipAgg?.pendingStotinki ?? 0, collectedStotinki: shipAgg?.collectedStotinki ?? 0 },
+      recentShipments: recentShipments as FarmerDetail['recentShipments'],
+      recentOrders: recentOrders as FarmerDetail['recentOrders'],
+    };
+  }
+
+  /**
+   * Recent audit-log rows across ALL tenants, enriched with the actor (platform
+   * admin / farmer user / system) and tenant name. Keyset-paginated newest-first.
+   * Defaults to mutations only (POST/PATCH/PUT/DELETE) — GET request noise would
+   * otherwise drown the signal; pass mutationsOnly=false for the raw stream.
+   */
+  async listAuditLogs(
+    opts: { cursor?: string; limit?: number; mutationsOnly?: boolean } = {},
+  ): Promise<Paginated<AuditLogRow>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    const mutationsOnly = opts.mutationsOnly !== false;
+
+    const conds = [];
+    if (mutationsOnly) conds.push(sql`${auditLogs.action} <> 'GET'`);
+    if (cur) conds.push(keysetAfter(auditLogs.createdAt, auditLogs.id, cur, 'desc'));
+
+    const baseQ = this.db
+      .select({
+        id: auditLogs.id,
+        action: auditLogs.action,
+        path: auditLogs.path,
+        statusCode: auditLogs.statusCode,
+        createdAt: auditLogs.createdAt,
+        userEmail: users.email,
+        adminEmail: platformAdmins.email,
+        tenantId: auditLogs.tenantId,
+        tenantName: tenants.name,
+      })
+      .from(auditLogs)
+      .leftJoin(users, eq(auditLogs.userId, users.id))
+      .leftJoin(platformAdmins, eq(auditLogs.adminId, platformAdmins.id))
+      .leftJoin(tenants, eq(auditLogs.tenantId, tenants.id));
+
+    const scoped = conds.length ? baseQ.where(and(...conds)) : baseQ;
+    const rows = await scoped.orderBy(desc(auditLogs.createdAt), desc(auditLogs.id)).limit(lim + 1);
+
+    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    const items: AuditLogRow[] = page.items.map((r) => ({
+      id: r.id,
+      action: r.action,
+      path: r.path,
+      statusCode: r.statusCode,
+      createdAt: r.createdAt,
+      actorType: r.adminEmail ? 'admin' : r.userEmail ? 'user' : 'system',
+      actorEmail: r.adminEmail ?? r.userEmail ?? null,
+      tenantId: r.tenantId,
+      tenantName: r.tenantName,
+    }));
+    return { items, nextCursor: page.nextCursor };
+  }
+
+  /**
+   * Mint a one-click SSO link that opens the farmer's „Доставки" app AS that
+   * farmer — for super-admin support/debug. Reuses the proven, DB-scoped delivery
+   * handoff (120s TTL, signed) so no new auth surface is introduced, and writes an
+   * explicit audit row (who impersonated whom). 400 if the farmer has no login.
+   */
+  async impersonate(farmerId: string, adminId: string): Promise<{ url: string }> {
+    const [u] = await this.db
+      .select({ id: users.id, tenantId: users.tenantId, farmerId: users.farmerId })
+      .from(users)
+      .where(eq(users.farmerId, farmerId))
+      .limit(1);
+    if (!u?.id || !u.tenantId) throw new BadRequestException('Фермерът няма акаунт за вход');
+
+    const { token } = await this.auth.issueDeliveryHandoff(u.id, u.tenantId, u.farmerId ?? undefined);
+    await this.db.insert(auditLogs).values({
+      adminId,
+      tenantId: u.tenantId,
+      action: 'IMPERSONATE',
+      path: `/platform/impersonate/${farmerId}`,
+      statusCode: 200,
+    });
+
+    const base = this.config.get<string>('DELIVERY_URL') ?? 'https://dostavki.fermeribg.com';
+    return { url: `${base}/api/session/handoff?token=${encodeURIComponent(token)}` };
   }
 
   /** Toggle a farm's subscription (active/inactive). */

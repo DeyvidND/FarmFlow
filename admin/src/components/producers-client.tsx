@@ -80,7 +80,13 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
               {rows.map((f) => (
                 <tr key={f.id} className="border-b border-ff-border-2 align-top last:border-0">
                   <td className="px-4 py-3">
-                    <div className="text-[13.5px] font-bold text-ff-ink">{f.name}</div>
+                    <Link
+                      href={`/producers/${f.id}`}
+                      className="inline-flex items-center gap-1 text-[13.5px] font-bold text-ff-ink no-underline hover:text-ff-green-700 hover:underline"
+                    >
+                      {f.name}
+                      <ChevronRight size={14} className="text-ff-muted-2" />
+                    </Link>
                     {f.role && <div className="text-[12px] text-ff-muted">{f.role}</div>}
                   </td>
                   <td className="px-4 py-3">

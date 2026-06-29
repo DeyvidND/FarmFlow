@@ -87,6 +87,63 @@ export const listAllFarmers = (cursor?: string) =>
     `platform/farmers${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
   );
 
+/** One farmer's super-admin detail (producer drill-down page). */
+export interface FarmerDetail {
+  id: string;
+  name: string;
+  role: string | null;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  courierEnabled: boolean;
+  hasLogin: boolean;
+  loginEmail: string | null;
+  invitePending: boolean;
+  econtConnected: boolean;
+  speedyConnected: boolean;
+  counts: { products: number; courierOrders: number; shipments: number; draftShipments: number };
+  cod: { pendingStotinki: number; collectedStotinki: number };
+  recentShipments: {
+    id: string;
+    receiverName: string | null;
+    carrier: string | null;
+    status: string;
+    codAmountStotinki: number | null;
+    trackingNumber: string | null;
+    createdAt: string | null;
+  }[];
+  recentOrders: {
+    id: string;
+    customerName: string | null;
+    totalStotinki: number;
+    status: string | null;
+    createdAt: string | null;
+  }[];
+}
+
+/** One enriched audit-log row for the super-admin audit viewer. */
+export interface AuditLog {
+  id: string;
+  action: string;
+  path: string;
+  statusCode: number | null;
+  createdAt: string | null;
+  actorType: 'admin' | 'user' | 'system';
+  actorEmail: string | null;
+  tenantId: string | null;
+  tenantName: string | null;
+}
+
+/** Next page of the cross-tenant audit log (mutations only, newest-first). */
+export const listAuditLogs = (cursor?: string) =>
+  apiFetch<Paginated<AuditLog>>(
+    `platform/audit${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+  );
+
+/** Mint a one-click SSO link to open the farmer's „Доставки" as them (super-admin). */
+export const impersonateFarmer = (farmerId: string) =>
+  apiFetch<{ url: string }>(`platform/impersonate/${farmerId}`, { method: 'POST' }, 'Неуспешно влизане като фермер');
+
 /** Cross-tenant delivery operations snapshot (super-admin ops board). */
 export interface DeliveryOps {
   shipments: { total: number; drafts: number; created: number; shipped: number; delivered: number; returned: number; refused: number };
