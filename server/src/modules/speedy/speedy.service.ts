@@ -290,11 +290,15 @@ export class SpeedyService implements CarrierAdapter {
   async autoCreateForOrder(orderId: string): Promise<void> {
     try {
       const [order] = await this.db
-        .select({ tenantId: orders.tenantId })
+        .select({ tenantId: orders.tenantId, deliveryType: orders.deliveryType })
         .from(orders)
         .where(eq(orders.id, orderId))
         .limit(1);
       if (!order?.tenantId) return;
+      // A courier (per-farmer) order is shipped by the farmer with their OWN creds via the
+      // dostavki finalize flow — never tenant-level auto-created. Mirror of Econt's gate
+      // (since orderForShipment now accepts deliveryType='courier', gate it here too).
+      if (order.deliveryType === 'courier') return;
 
       // Tenant-level by design: triggered by the payment webhook / order-confirm flow,
       // which has no authenticated-farmer request context. (Per-farmer auto-create

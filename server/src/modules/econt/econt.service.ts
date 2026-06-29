@@ -1137,7 +1137,9 @@ export class EcontService implements CarrierAdapter {
   async codReconciliation(tenantId: string, farmerId?: string): Promise<CodReconRow[]> {
     // Phase 3: a farmer reconciles their OWN courier COD — scope on shipments.farmerId
     // (set on the companion draft) on top of the admin path's tenant + COD-present
-    // filters. farmerId == null keeps the tenant-wide admin path unchanged.
+    // filters. Exclude un-shipped DRAFTS (status='draft' carries codAmount from creation
+    // but no parcel exists yet) so the farmer's „Очаквано" total isn't inflated by orders
+    // they haven't dispatched. farmerId == null keeps the tenant-wide admin path unchanged.
     const rows = await this.db
       .select({
         orderId: shipments.orderId,
@@ -1150,7 +1152,7 @@ export class EcontService implements CarrierAdapter {
         and(
           eq(shipments.tenantId, tenantId),
           isNotNull(shipments.codAmountStotinki),
-          ...(farmerId ? [eq(shipments.farmerId, farmerId)] : []),
+          ...(farmerId ? [eq(shipments.farmerId, farmerId), ne(shipments.status, 'draft')] : []),
         ),
       );
     // TODO(econt-app v2): order-less standalone shipments with COD are excluded here
