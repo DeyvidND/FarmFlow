@@ -32,6 +32,7 @@ import { OrderConfirmationService } from '../order-email/order-confirmation.serv
 import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from './carrier-fulfillment.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
+import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay } from './order-scheduling';
 import { decideDecrement, restoreRemaining } from '../availability/availability.util';
 
@@ -1282,6 +1283,126 @@ export class OrdersService {
         .returning();
 
       return { ...order, slotFrom, slotTo, slotDate, items: inserted };
+    });
+  }
+
+  /**
+   * Courier checkout: split a (possibly multi-farmer) cart into ONE single-farmer
+   * COD order per farmer. All-or-nothing in a single transaction — if any farmer is
+   * not courier-ready, or any item lacks a farmer, nothing is created (the stock
+   * reservations roll back). No platform delivery fee: each order's total is that
+   * farmer's line subtotal. `carrier` stays NULL (the farmer picks it at ship time);
+   * `slotId` is null (courier never consumes a slot). Order numbers are assigned
+   * sequentially under the per-tenant advisory lock, as in {@link create}.
+   */
+  async createCourierOrders(
+    slug: string,
+    dto: CreateOrderDto,
+  ): Promise<(OrderWithItems & { farmerName: string | null })[]> {
+    const [tenant] = await this.db
+      .select({
+        id: tenants.id,
+        subscriptionStatus: tenants.subscriptionStatus,
+        settings: tenants.settings,
+      })
+      .from(tenants)
+      .where(eq(tenants.slug, slug))
+      .limit(1);
+    if (!tenant) throw new NotFoundException('Фермата не е намерена');
+    if (tenant.subscriptionStatus === 'inactive') {
+      throw new ForbiddenException('Магазинът временно не приема поръчки.');
+    }
+    // Courier is COD only; the platform never takes courier money by card.
+    const cfg = (tenant.settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
+    if (!codEnabled(cfg)) {
+      throw new BadRequestException('Плащането с наложен платеж не е налично.');
+    }
+
+    return this.db.transaction(async (tx) => {
+      const { items: prepared } = await this.reserveCartItems(tx, tenant.id, dto.items, null);
+
+      // Every courier line must resolve to a farmer (the split key).
+      if (prepared.some((i) => i.farmerId == null)) {
+        throw new BadRequestException('Куриерска доставка изисква продукти с фермер.');
+      }
+
+      // Group lines by farmer (Map preserves first-seen order → stable numbering).
+      const groups = new Map<string, PreparedItem[]>();
+      for (const it of prepared) {
+        const fid = it.farmerId!;
+        const list = groups.get(fid);
+        if (list) list.push(it);
+        else groups.set(fid, [it]);
+      }
+      const farmerIds = [...groups.keys()];
+
+      // Backstop: every farmer in the cart must be courier-ready (enabled + carrier
+      // connected). The storefront already gates on this; re-check server-side so a
+      // crafted request can't create an unshippable courier order.
+      const farmerRows = await tx
+        .select({ id: farmers.id, name: farmers.name, courierEnabled: farmers.courierEnabled })
+        .from(farmers)
+        .where(and(eq(farmers.tenantId, tenant.id), inArray(farmers.id, farmerIds)));
+      const farmerById = new Map(farmerRows.map((f) => [f.id, f]));
+      for (const fid of farmerIds) {
+        const f = farmerById.get(fid);
+        const ready =
+          !!f && farmerCourierReady(f.courierEnabled, farmerDeliveryNamespace(tenant.settings, fid));
+        if (!ready) {
+          throw new BadRequestException('Един от фермерите не предлага куриерска доставка.');
+        }
+      }
+
+      // Sequential per-tenant order numbers (advisory lock as in create()).
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenant.id}, 0))`);
+      const [{ nextNumber }] = await tx
+        .select({ nextNumber: sql<number>`coalesce(max(${orders.orderNumber}), 0) + 1` })
+        .from(orders)
+        .where(eq(orders.tenantId, tenant.id));
+
+      const out: (OrderWithItems & { farmerName: string | null })[] = [];
+      let n = nextNumber;
+      for (const fid of farmerIds) {
+        const lines = groups.get(fid)!;
+        const total = lines.reduce((s, i) => s + i.priceStotinki * i.quantity, 0);
+        const [order] = await tx
+          .insert(orders)
+          .values({
+            tenantId: tenant.id,
+            farmerId: fid,
+            orderNumber: n++,
+            customerName: dto.customerName,
+            customerPhone: dto.customerPhone,
+            customerEmail: dto.customerEmail,
+            slotId: null,
+            status: 'pending',
+            totalStotinki: total, // no platform delivery fee for courier
+            deliveryType: 'courier',
+            carrier: null, // farmer picks the carrier at ship time
+            deliveryAddress: dto.deliveryAddress ?? null,
+            deliveryCity: dto.deliveryCity ?? null,
+            deliveryNote: null,
+            deliveryLat: null,
+            deliveryLng: null,
+            econtOffice: null,
+            paymentMethod: 'cod',
+            notes: dto.notes ?? null,
+          })
+          .returning();
+        const inserted = await tx
+          .insert(orderItems)
+          .values(lines.map(({ farmerId: _f, ...line }) => ({ ...line, orderId: order.id })))
+          .returning();
+        out.push({
+          ...order,
+          slotFrom: null,
+          slotTo: null,
+          slotDate: null,
+          items: inserted,
+          farmerName: farmerById.get(fid)?.name ?? null,
+        });
+      }
+      return out;
     });
   }
 
