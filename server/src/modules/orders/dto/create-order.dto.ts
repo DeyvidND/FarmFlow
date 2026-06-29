@@ -32,14 +32,16 @@ export class CreateOrderDto {
   items: CreateOrderItemDto[];
 
   @ApiPropertyOptional()
-  @IsOptional()
+  @ValidateIf((o) => o.deliveryType === 'courier')
   @IsString()
+  @IsNotEmpty({ message: 'Името е задължително за куриерска доставка' })
   @MaxLength(120)
   customerName?: string;
 
   @ApiPropertyOptional()
-  @IsOptional()
+  @ValidateIf((o) => o.deliveryType === 'courier')
   @IsString()
+  @IsNotEmpty({ message: 'Телефонът е задължителен за куриерска доставка' })
   @MaxLength(40)
   customerPhone?: string;
 
@@ -53,16 +55,16 @@ export class CreateOrderDto {
   @IsUUID()
   slotId?: string;
 
-  @ApiPropertyOptional({ enum: ['pickup', 'address', 'econt', 'econt_address'], default: 'address' })
+  @ApiPropertyOptional({ enum: ['pickup', 'address', 'econt', 'econt_address', 'courier'], default: 'address' })
   @IsOptional()
-  @IsEnum(['pickup', 'address', 'econt', 'econt_address'])
-  deliveryType?: 'pickup' | 'address' | 'econt' | 'econt_address';
+  @IsEnum(['pickup', 'address', 'econt', 'econt_address', 'courier'])
+  deliveryType?: 'pickup' | 'address' | 'econt' | 'econt_address' | 'courier';
 
   // Required only for the address-based methods: local farm delivery (`address`)
   // or Econt door delivery (`econt_address`). Market `pickup` and Econt office
   // (`econt`) carry no street address.
   @ApiPropertyOptional({ description: 'Street address (required for address / econt_address)' })
-  @ValidateIf((o) => (o.deliveryType ?? 'address') === 'address' || o.deliveryType === 'econt_address')
+  @ValidateIf((o) => (o.deliveryType ?? 'address') === 'address' || o.deliveryType === 'econt_address' || o.deliveryType === 'courier')
   @IsString()
   @IsNotEmpty({ message: 'Адресът за доставка е задължителен' })
   @MaxLength(300)
@@ -73,7 +75,7 @@ export class CreateOrderDto {
   // label without a structured city is rejected by Econt as ExInvalidCity), so
   // fail fast at checkout rather than after the customer has already ordered.
   @ApiPropertyOptional({ description: 'City/settlement (required for Econt door delivery)' })
-  @ValidateIf((o) => o.deliveryType === 'econt_address')
+  @ValidateIf((o) => o.deliveryType === 'econt_address' || o.deliveryType === 'courier')
   @IsString()
   @IsNotEmpty({ message: 'Населеното място е задължително за доставка до адрес с Еконт' })
   @MaxLength(120)

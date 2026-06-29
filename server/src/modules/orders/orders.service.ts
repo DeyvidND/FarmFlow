@@ -322,7 +322,7 @@ export class OrdersService {
     settings: unknown,
     deliveryEnabled: boolean,
     deliveriesPackageEnabled: boolean,
-    method: 'pickup' | 'address' | 'econt' | 'econt_address',
+    method: 'pickup' | 'address' | 'econt' | 'econt_address' | 'courier',
     paymentMethod: 'online' | 'cod',
   ): void {
     const cfg = (settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
@@ -342,6 +342,8 @@ export class OrdersService {
       econt: courierOk && methods.econtOffice,
       // Door delivery is allowed when Econt address is on OR Speedy is configured.
       econt_address: courierOk && courierDoorEnabled(cfg),
+      // Farmer-own courier delivery requires the deliveries package.
+      courier: courierOk,
     };
     if (!allowed[method]) {
       throw new BadRequestException('Избраният начин на доставка не е наличен.');
