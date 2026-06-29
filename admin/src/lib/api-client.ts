@@ -99,6 +99,23 @@ export interface PlatformTenantDetail {
     status: string | null;
     createdAt: string | null;
   }[];
+  farmers: {
+    id: string;
+    name: string;
+    role: string | null;
+    courierEnabled: boolean;
+    hasLogin: boolean;
+    loginEmail: string | null;
+    invitePending: boolean;
+    econtConnected: boolean;
+    speedyConnected: boolean;
+    products: number;
+    courierOrders: number;
+    courierRevenueStotinki: number;
+    shipments: number;
+    draftShipments: number;
+    codPendingStotinki: number;
+  }[];
 }
 
 export interface PlatformEmailBillingRow {

@@ -69,6 +69,20 @@ function Flag({ on, label, icon }: { on: boolean; label: string; icon: React.Rea
   );
 }
 
+function CarrierPill({ on, label }: { on: boolean; label: string }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-bold',
+        on ? 'bg-ff-green-50 text-ff-green-700' : 'bg-ff-surface-2 text-ff-muted-2',
+      )}
+    >
+      {on && <Check size={11} />}
+      {label}
+    </span>
+  );
+}
+
 const INPUT =
   'w-full rounded-lg border border-ff-border bg-ff-surface px-3 py-2 text-[14px] text-ff-ink outline-none focus:border-ff-green-500 focus:ring-2 focus:ring-ff-green-100';
 
@@ -394,6 +408,88 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
           value={String(d.emailUsage.pushCount)}
           sub={d.emailUsage.pushCount ? `дължи ${eur(d.emailUsage.owedStotinki)}` : 'няма'}
         />
+      </div>
+
+      {/* farmers + their deliveries — the producer↔login↔carrier↔shipment view */}
+      <div className="mt-4 overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ff-border-2 px-5 py-3.5">
+          <h2 className="flex items-center gap-2 text-[15px] font-extrabold">
+            <Users size={16} className="text-ff-green-600" /> Фермери и доставки
+          </h2>
+          {d.farmers.length > 0 && (
+            <span className="text-[12.5px] text-ff-muted">
+              {d.farmers.length} {d.farmers.length === 1 ? 'фермер' : 'фермери'} ·{' '}
+              {d.farmers.filter((f) => f.hasLogin).length} с достъп ·{' '}
+              {d.farmers.filter((f) => f.courierEnabled).length} с куриер
+            </span>
+          )}
+        </div>
+        {d.farmers.length === 0 ? (
+          <p className="px-5 py-10 text-center text-sm text-ff-muted">Тази ферма няма добавени фермери.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
+                  {['Фермер', 'Вход', 'Куриер', 'Свързани', 'Продукти', 'Поръчки', 'Пратки', 'НП чака'].map((h) => (
+                    <th key={h} className="whitespace-nowrap px-4 py-3 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {d.farmers.map((f) => (
+                  <tr key={f.id} className="border-b border-ff-border-2 last:border-0 align-top">
+                    <td className="px-4 py-3">
+                      <div className="text-[13.5px] font-bold text-ff-ink">{f.name}</div>
+                      {f.role && <div className="text-[12px] text-ff-muted">{f.role}</div>}
+                    </td>
+                    <td className="px-4 py-3 text-[13px] text-ff-ink-2">
+                      {f.hasLogin ? (
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          {f.loginEmail ?? '—'}
+                          {f.invitePending && (
+                            <span className="rounded-full bg-ff-amber-soft px-2 py-0.5 text-[11px] font-bold text-ff-amber-600">
+                              покана
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-ff-muted-2">няма достъп</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={cn(
+                          'inline-flex rounded-full px-2.5 py-1 text-[12px] font-bold',
+                          f.courierEnabled ? 'bg-ff-green-50 text-ff-green-700' : 'bg-ff-surface-2 text-ff-muted-2',
+                        )}
+                      >
+                        {f.courierEnabled ? 'Вкл' : 'Изкл'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        <CarrierPill on={f.econtConnected} label="Еконт" />
+                        <CarrierPill on={f.speedyConnected} label="Speedy" />
+                      </div>
+                    </td>
+                    <td className="ff-fig px-4 py-3 text-[13.5px] text-ff-ink-2">{f.products}</td>
+                    <td className="ff-fig px-4 py-3 text-[13.5px] text-ff-ink-2">{f.courierOrders}</td>
+                    <td className="ff-fig whitespace-nowrap px-4 py-3 text-[13.5px] text-ff-ink-2">
+                      {f.shipments}
+                      {f.draftShipments > 0 && (
+                        <span className="ml-1 text-[12px] text-ff-amber-600">+{f.draftShipments} чернови</span>
+                      )}
+                    </td>
+                    <td className="ff-fig px-4 py-3 text-[13.5px] font-bold text-ff-ink">{eur(f.codPendingStotinki)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* recent orders */}

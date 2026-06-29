@@ -328,6 +328,11 @@ describe('PlatformService', () => {
       db.orderBy.mockReturnValueOnce(db);
       // 2nd limit() call = recentOrdersP resolves to []
       db.limit.mockResolvedValueOnce([]);
+      // Per-farmer aggregates added after recentOrders (calls 8-11):
+      //  8. farmersBaseP: …leftJoin().where()→orderBy() — where #8 falls through to the
+      //     default db, orderBy #2 falls through to the default [] → no farmers.
+      //  9-11. prod/order/ship per-farmer aggregates end in .groupBy() → resolve to [].
+      db.groupBy.mockResolvedValue([]);
     }
 
     it('returns siteUrl from settings.siteUrl (sanitized — trailing slash stripped)', async () => {
@@ -352,6 +357,55 @@ describe('PlatformService', () => {
       const result = await service.tenantDetail(TENANT_ID);
 
       expect(result.siteUrl).toBe('');
+    });
+
+    it('builds a per-farmer breakdown: login, carriers and merged counts', async () => {
+      const tenantRow = makeTenantRow({
+        settings: {
+          delivery: { farmers: { 'farmer-1': { econt: { configured: true }, speedy: { configured: false } } } },
+        },
+      });
+      // where: #1 tenant→db, #2-6 aggregates→[{}], #7-11 →db (recentOrders + 4 farmer queries)
+      db.where
+        .mockReturnValueOnce(db)
+        .mockReturnValueOnce(Promise.resolve([{}]))
+        .mockReturnValueOnce(Promise.resolve([{}]))
+        .mockReturnValueOnce(Promise.resolve([{}]))
+        .mockReturnValueOnce(Promise.resolve([{}]))
+        .mockReturnValueOnce(Promise.resolve([{}]))
+        .mockReturnValue(db);
+      db.limit
+        .mockResolvedValueOnce([tenantRow]) // tenant lookup
+        .mockResolvedValueOnce([]);         // recentOrders
+      db.orderBy
+        .mockReturnValueOnce(db)            // recentOrders → limit
+        .mockResolvedValueOnce([           // farmersBaseP terminal
+          { id: 'farmer-1', name: 'Иван', role: 'Пчелар', courierEnabled: true, userId: 'u1', loginEmail: 'ivan@farm.bg', mustChange: false },
+        ]);
+      db.groupBy
+        .mockResolvedValueOnce([{ farmerId: 'farmer-1', n: 5 }])                                       // products
+        .mockResolvedValueOnce([{ farmerId: 'farmer-1', n: 3, revenueStotinki: 4200 }])               // courier orders
+        .mockResolvedValueOnce([{ farmerId: 'farmer-1', total: 2, drafts: 1, codPendingStotinki: 1500 }]); // shipments
+
+      const result = await service.tenantDetail(TENANT_ID);
+
+      expect(result.farmers).toHaveLength(1);
+      expect(result.farmers[0]).toMatchObject({
+        id: 'farmer-1',
+        name: 'Иван',
+        courierEnabled: true,
+        hasLogin: true,
+        loginEmail: 'ivan@farm.bg',
+        invitePending: false,
+        econtConnected: true,
+        speedyConnected: false,
+        products: 5,
+        courierOrders: 3,
+        courierRevenueStotinki: 4200,
+        shipments: 2,
+        draftShipments: 1,
+        codPendingStotinki: 1500,
+      });
     });
   });
 

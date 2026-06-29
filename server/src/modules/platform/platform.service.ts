@@ -187,6 +187,25 @@ export interface PlatformTenantDetail {
     status: string | null;
     createdAt: Date | null;
   }[];
+  // Per-farmer (producer) breakdown for the super-admin relationship view: each
+  // farmer of this tenant, their login, carrier connection and courier activity.
+  farmers: {
+    id: string;
+    name: string;
+    role: string | null;
+    courierEnabled: boolean;
+    hasLogin: boolean;
+    loginEmail: string | null;
+    invitePending: boolean;
+    econtConnected: boolean;
+    speedyConnected: boolean;
+    products: number;
+    courierOrders: number;
+    courierRevenueStotinki: number;
+    shipments: number;
+    draftShipments: number;
+    codPendingStotinki: number;
+  }[];
 }
 
 @Injectable()
@@ -454,18 +473,86 @@ export class PlatformService {
       .orderBy(desc(orders.createdAt))
       .limit(8);
 
-    const [[o], [p], [s], [r], [e], recentOrders] = await Promise.all([
-      oP,
-      pP,
-      sP,
-      rP,
-      eP,
-      recentOrdersP,
-    ]);
+    // Per-farmer breakdown: every producer of this tenant + their login (left
+    // join), so a farmer with no login still shows. Carrier connection comes from
+    // the settings namespace below; the three count maps attribute products,
+    // courier orders and shipments to each farmer.
+    const farmersBaseP = this.db
+      .select({
+        id: farmers.id,
+        name: farmers.name,
+        role: farmers.role,
+        courierEnabled: farmers.courierEnabled,
+        userId: users.id,
+        loginEmail: users.email,
+        mustChange: users.mustChangePassword,
+      })
+      .from(farmers)
+      .leftJoin(users, and(eq(users.farmerId, farmers.id), eq(users.tenantId, id)))
+      .where(eq(farmers.tenantId, id))
+      .orderBy(asc(farmers.position), asc(farmers.createdAt));
+
+    const prodByFarmerP = this.db
+      .select({ farmerId: products.farmerId, n: sql<number>`count(*)::int` })
+      .from(products)
+      .where(and(eq(products.tenantId, id), sql`${products.farmerId} is not null`))
+      .groupBy(products.farmerId);
+
+    const orderByFarmerP = this.db
+      .select({
+        farmerId: orders.farmerId,
+        n: sql<number>`count(*)::int`,
+        revenueStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.status} <> 'cancelled'), 0)::int`,
+      })
+      .from(orders)
+      .where(and(eq(orders.tenantId, id), sql`${orders.farmerId} is not null`))
+      .groupBy(orders.farmerId);
+
+    const shipByFarmerP = this.db
+      .select({
+        farmerId: shipments.farmerId,
+        total: sql<number>`count(*) filter (where ${shipments.status} <> 'draft')::int`,
+        drafts: sql<number>`count(*) filter (where ${shipments.status} = 'draft')::int`,
+        codPendingStotinki: sql<number>`coalesce(sum(${shipments.codAmountStotinki}) filter (where ${shipments.status} <> 'draft' and ${shipments.codCollectedAt} is null), 0)::int`,
+      })
+      .from(shipments)
+      .where(and(eq(shipments.tenantId, id), sql`${shipments.farmerId} is not null`))
+      .groupBy(shipments.farmerId);
+
+    const [[o], [p], [s], [r], [e], recentOrders, farmerRows, prodByFarmer, orderByFarmer, shipByFarmer] =
+      await Promise.all([oP, pP, sP, rP, eP, recentOrdersP, farmersBaseP, prodByFarmerP, orderByFarmerP, shipByFarmerP]);
 
     const settings = (t.settings as Record<string, any> | null) ?? {};
     const econtConfigured = !!settings?.delivery?.econt?.configured;
     const deliveryAccount = deliveryCapabilities(settings).delivery;
+
+    // Merge the per-farmer aggregates + the carrier namespace into one row each.
+    const prodMap = new Map(prodByFarmer.map((x) => [x.farmerId, x.n]));
+    const orderMap = new Map(orderByFarmer.map((x) => [x.farmerId, x]));
+    const shipMap = new Map(shipByFarmer.map((x) => [x.farmerId, x]));
+    const farmerNs = (settings?.delivery?.farmers ?? {}) as Record<string, any>;
+    const farmerList = farmerRows.map((f) => {
+      const ns = farmerNs[f.id] ?? {};
+      const om = orderMap.get(f.id);
+      const sm = shipMap.get(f.id);
+      return {
+        id: f.id,
+        name: f.name,
+        role: f.role,
+        courierEnabled: !!f.courierEnabled,
+        hasLogin: !!f.userId,
+        loginEmail: f.loginEmail ?? null,
+        invitePending: !!f.userId && !!f.mustChange,
+        econtConnected: !!ns?.econt?.configured,
+        speedyConnected: !!ns?.speedy?.configured,
+        products: prodMap.get(f.id) ?? 0,
+        courierOrders: om?.n ?? 0,
+        courierRevenueStotinki: om?.revenueStotinki ?? 0,
+        shipments: sm?.total ?? 0,
+        draftShipments: sm?.drafts ?? 0,
+        codPendingStotinki: sm?.codPendingStotinki ?? 0,
+      };
+    });
 
     return {
       id: t.id,
@@ -491,6 +578,7 @@ export class PlatformService {
       reviews: r,
       emailUsage: e,
       recentOrders,
+      farmers: farmerList,
     };
   }
 
