@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 
 /**
  * Farmer-aware Speedy credential + config endpoints on the MAIN API only.
@@ -24,7 +25,10 @@ import { Roles } from '../../common/decorators/roles.decorator';
 @UseGuards(JwtAuthGuard)
 @Controller('speedy')
 export class SpeedyConfigController {
-  constructor(private readonly speedy: SpeedyService) {}
+  constructor(
+    private readonly speedy: SpeedyService,
+    private readonly publicCache: PublicCacheService,
+  ) {}
 
   /** Current Speedy config (no secrets). Farmer-scoped when farmerId present. */
   @Roles('admin', 'farmer')
@@ -39,21 +43,25 @@ export class SpeedyConfigController {
   /** Validate + store Speedy API credentials. Farmer-scoped when farmerId present. */
   @Roles('admin', 'farmer')
   @Post('credentials')
-  saveCredentials(
+  async saveCredentials(
     @CurrentTenant() t: string,
     @CurrentFarmer() f: string | undefined,
     @Body() dto: SpeedyCredentialsDto,
   ) {
-    return this.speedy.saveCredentials(t, dto, f);
+    const res = await this.speedy.saveCredentials(t, dto, f);
+    if (f) await this.publicCache.del(publicCacheKeys.farmers(t));
+    return res;
   }
 
   /** Remove Speedy credentials (disconnect). Farmer-scoped when farmerId present. */
   @Roles('admin', 'farmer')
   @Delete('credentials')
-  disconnect(
+  async disconnect(
     @CurrentTenant() t: string,
     @CurrentFarmer() f: string | undefined,
   ) {
-    return this.speedy.disconnect(t, f);
+    const res = await this.speedy.disconnect(t, f);
+    if (f) await this.publicCache.del(publicCacheKeys.farmers(t));
+    return res;
   }
 }

@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { and, eq, asc, inArray, sql } from 'drizzle-orm';
-import { type Database, farmers, farmerMedia, users, auditLogs, orders } from '@fermeribg/db';
+import { type Database, farmers, farmerMedia, users, auditLogs, orders, tenants } from '@fermeribg/db';
 import * as argon2 from 'argon2';
 import { AuthService } from '../auth/auth.service';
 import type { Farmer, FarmerMedia, PublicFarmer } from '@fermeribg/types';
@@ -22,6 +22,7 @@ import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { optimizeImage } from '../storage/image.util';
 import { smartFocal, smartFocalFromUrl } from '../storage/smart-crop.util';
 import { tenantSlug } from '../../common/tenant-slug.util';
+import { farmerCourierReady, farmerDeliveryNamespace } from '../orders/courier-eligibility';
 
 @Injectable()
 export class FarmersService {
@@ -437,6 +438,12 @@ export class FarmersService {
       .where(eq(farmers.tenantId, tenant.id))
       .orderBy(asc(farmers.position), asc(farmers.createdAt));
     const mediaByFarmer = await this.mediaUrlsByFarmer(rows.map((r) => r.id));
+    const [tRow] = await this.db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenant.id))
+      .limit(1);
+    const settings = tRow?.settings ?? null;
     // Strip personal farmer contact (email + phone) — the storefront renders the
     // tenant's public contact, never an individual farmer's. (email leak fixed in
     // 248c330; phone was the same class of over-exposure on a world-readable API.)
@@ -444,7 +451,11 @@ export class FarmersService {
       ({ tenantId: _tenantId, email: _email, phone: _phone, ...rest }) => {
       const urls = mediaByFarmer.get(rest.id) ?? [];
       const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
-      return { ...rest, images };
+      const courierReady = farmerCourierReady(
+        rest.courierEnabled,
+        farmerDeliveryNamespace(settings, rest.id),
+      );
+      return { ...rest, images, courierReady };
     });
     await this.publicCache.set(key, result);
     return result;

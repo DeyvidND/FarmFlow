@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 
 /** Admin (tenant-scoped) Econt setup + shipment management. */
 @ApiTags('econt')
@@ -25,28 +26,35 @@ import { Roles } from '../../common/decorators/roles.decorator';
 @UseGuards(JwtAuthGuard)
 @Controller('econt')
 export class EcontController {
-  constructor(private readonly econt: EcontService) {}
+  constructor(
+    private readonly econt: EcontService,
+    private readonly publicCache: PublicCacheService,
+  ) {}
 
   /** Validate + store the farm's Econt API credentials (password encrypted).
    *  Farmers can store their own creds in the per-farmer sub-namespace. */
   @Roles('admin', 'farmer')
   @Post('credentials')
-  saveCredentials(
+  async saveCredentials(
     @CurrentTenant() tenantId: string,
     @CurrentFarmer() f: string | undefined,
     @Body() dto: EcontCredentialsDto,
   ) {
-    return this.econt.saveCredentials(tenantId, dto, f);
+    const res = await this.econt.saveCredentials(tenantId, dto, f);
+    if (f) await this.publicCache.del(publicCacheKeys.farmers(tenantId));
+    return res;
   }
 
   /** Remove Econt credentials (disconnect). Farmer-scoped when farmerId present. */
   @Roles('admin', 'farmer')
   @Delete('credentials')
-  disconnect(
+  async disconnect(
     @CurrentTenant() tenantId: string,
     @CurrentFarmer() f: string | undefined,
   ) {
-    return this.econt.disconnect(tenantId, f);
+    const res = await this.econt.disconnect(tenantId, f);
+    if (f) await this.publicCache.del(publicCacheKeys.farmers(tenantId));
+    return res;
   }
 
   /** Current Econt config (no secrets). Farmer-scoped when farmerId present. */
