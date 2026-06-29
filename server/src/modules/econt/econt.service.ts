@@ -72,6 +72,49 @@ interface ResolvedCreds {
   password: string;
 }
 
+/**
+ * JSONB key path for a delivery account's Econt blob inside `tenants.settings`.
+ * Tenant-level (`delivery.econt`) when no farmerId — the existing marketplace-admin
+ * account; a per-farmer sub-namespace (`delivery.farmers.<id>.econt`) otherwise.
+ * The row selector stays `tenants.id = tenantId` in both cases — a farmer's blob
+ * lives INSIDE the marketplace tenant row.
+ */
+export function econtSettingsPath(farmerId?: string): string[] {
+  return farmerId ? ['delivery', 'farmers', farmerId, 'econt'] : ['delivery', 'econt'];
+}
+
+/** Read the value at a key path from a settings object (undefined if any hop is absent). */
+function readAtPath(settings: unknown, path: string[]): unknown {
+  return path.reduce<any>((o, k) => (o == null ? o : o[k]), settings);
+}
+
+/**
+ * Return a NEW settings object with `value` set at `path`, deep-creating any
+ * missing intermediate objects (e.g. `delivery.farmers.<id>` when a tenant has no
+ * farmers yet) and structurally sharing untouched siblings. Pure — no mutation of
+ * the input.
+ */
+function writeAtPath(
+  settings: Record<string, unknown> | null | undefined,
+  path: string[],
+  value: unknown,
+): Record<string, unknown> {
+  const root: Record<string, unknown> = { ...(settings ?? {}) };
+  let cursor = root;
+  for (let i = 0; i < path.length - 1; i++) {
+    const key = path[i];
+    const existing = cursor[key];
+    const next: Record<string, unknown> =
+      existing && typeof existing === 'object' && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    cursor[key] = next;
+    cursor = next;
+  }
+  cursor[path[path.length - 1]] = value;
+  return root;
+}
+
 /** A city for the admin sender/office-picker autocomplete. */
 export interface EcontCityView {
   id: number;
@@ -162,11 +205,14 @@ export class EcontService implements CarrierAdapter {
   private async loadStored(
     tenantId: string,
     cache?: Map<string, unknown>,
+    farmerId?: string,
   ): Promise<{ tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored }> {
     // Optional per-call memo (bulk import passes one Map per batch): the same tenant's
     // settings are read once per batch instead of on every row's city/office lookup.
     // Absent for all other callers, so their behavior is unchanged (no staleness).
-    const ck = `econt:${tenantId}`;
+    // The memo key is scoped per-farmer so a tenant-level read and a farmer read of
+    // the same tenant row never collide on the cached blob.
+    const ck = `econt:${tenantId}:${farmerId ?? ''}`;
     if (cache?.has(ck)) {
       return cache.get(ck) as { tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored };
     }
@@ -177,8 +223,9 @@ export class EcontService implements CarrierAdapter {
       .limit(1);
     if (!row) throw new NotFoundException('Фермата не е намерена');
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
-    const delivery = (settings.delivery as Record<string, unknown> | null) ?? {};
-    const econt = (delivery.econt as EcontStored | null) ?? {};
+    // Tenant-level when no farmerId; a per-farmer sub-namespace otherwise. The row
+    // is the SAME marketplace tenant row either way (selector unchanged).
+    const econt = ((readAtPath(settings, econtSettingsPath(farmerId)) as EcontStored | null) ?? {}) as EcontStored;
     const result = { tenant: { id: row.id, slug: row.slug, name: row.name, settings, isDemo: !!row.isDemo }, econt };
     cache?.set(ck, result);
     return result;
@@ -188,6 +235,7 @@ export class EcontService implements CarrierAdapter {
   async saveCredentials(
     tenantId: string,
     input: { env?: 'demo' | 'prod'; username: string; password: string },
+    farmerId?: string,
   ): Promise<{ configured: true; env: 'demo' | 'prod' }> {
     if (!this.encKey) {
       throw new BadRequestException('ENCRYPTION_KEY не е конфигуриран — Econt не може да се запази');
@@ -196,7 +244,7 @@ export class EcontService implements CarrierAdapter {
     // flag (set by super-admin). Demo accounts hit Econt's demo API and never
     // create real waybills; real accounts always hit prod. This makes it
     // impossible to accidentally print a real label from a test account.
-    const { tenant, econt } = await this.loadStored(tenantId);
+    const { tenant, econt } = await this.loadStored(tenantId, undefined, farmerId);
     const env: 'demo' | 'prod' = tenant.isDemo ? 'demo' : 'prod';
     const base = env === 'prod' ? PROD_BASE : DEMO_BASE;
 
@@ -224,10 +272,9 @@ export class EcontService implements CarrierAdapter {
       nextEcont = this.maybeSeedSender(nextEcont, tenant.name || tenant.slug, contact, profiles) as EcontStored;
     } catch { /* seeding is optional */ }
 
-    const nextSettings = {
-      ...tenant.settings,
-      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
-    };
+    // Deep-create the path so a farmer write under an absent `delivery.farmers`
+    // parent still succeeds, while a tenant-level write keeps targeting delivery.econt.
+    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
     // Bust the tenant profile (econtMode/econtEnabled) AND the nomenclature caches:
     // switching demo↔prod (or to a different account) makes the previously cached
@@ -260,8 +307,9 @@ export class EcontService implements CarrierAdapter {
       cod?: { enabled?: boolean; feePayer?: 'customer' | 'farm' };
       label?: { paper?: string; autoCreate?: boolean };
     },
+    farmerId?: string,
   ): Promise<{ ok: true }> {
-    const { tenant, econt } = await this.loadStored(tenantId);
+    const { tenant, econt } = await this.loadStored(tenantId, undefined, farmerId);
     const nextEcont: EcontStored = {
       ...econt,
       ...(input.sender !== undefined ? { sender: { ...(econt.sender ?? {}), ...input.sender } } : {}),
@@ -271,10 +319,7 @@ export class EcontService implements CarrierAdapter {
       ...(input.cod !== undefined ? { cod: { ...(econt.cod ?? {}), ...input.cod } } : {}),
       ...(input.label !== undefined ? { label: { ...(econt.label ?? {}), ...input.label } } : {}),
     };
-    const nextSettings = {
-      ...tenant.settings,
-      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
-    };
+    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
     // The sender/package feed the storefront delivery estimate + label payload.
     await this.cache.del(publicCacheKeys.tenant(tenant.slug));
@@ -287,13 +332,10 @@ export class EcontService implements CarrierAdapter {
   }
 
   /** Persist the pickup-point book; mirror the active point into `sender`. */
-  async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }): Promise<{ ok: true }> {
-    const { tenant, econt } = await this.loadStored(tenantId);
+  async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }, farmerId?: string): Promise<{ ok: true }> {
+    const { tenant, econt } = await this.loadStored(tenantId, undefined, farmerId);
     const nextEcont = this.buildSenderBlob(econt, input.senders, input.activeId);
-    const nextSettings = {
-      ...tenant.settings,
-      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
-    };
+    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
     await this.cache.del(publicCacheKeys.tenant(tenant.slug));
     return { ok: true };
@@ -301,8 +343,8 @@ export class EcontService implements CarrierAdapter {
 
   /** Public-safe config view (no secrets). `env`/`isDemo` are account-derived so
    *  the operator panel can show a read-only environment badge (no env picker). */
-  async getConfig(tenantId: string): Promise<Record<string, unknown>> {
-    const { tenant, econt } = await this.loadStored(tenantId);
+  async getConfig(tenantId: string, farmerId?: string): Promise<Record<string, unknown>> {
+    const { tenant, econt } = await this.loadStored(tenantId, undefined, farmerId);
     const { passwordEnc: _pw, ...safe } = econt;
     const book = readSenderBook(econt);
     return {
@@ -315,9 +357,9 @@ export class EcontService implements CarrierAdapter {
     };
   }
 
-  private async resolveCreds(tenantId: string, cache?: Map<string, unknown>): Promise<ResolvedCreds> {
+  private async resolveCreds(tenantId: string, cache?: Map<string, unknown>, farmerId?: string): Promise<ResolvedCreds> {
     if (!this.encKey) throw new BadRequestException('ENCRYPTION_KEY не е конфигуриран');
-    const { econt } = await this.loadStored(tenantId, cache);
+    const { econt } = await this.loadStored(tenantId, cache, farmerId);
     if (!econt.configured || !econt.username || !econt.passwordEnc) {
       throw new BadRequestException('Econt не е конфигуриран за тази ферма');
     }
@@ -373,31 +415,32 @@ export class EcontService implements CarrierAdapter {
     body: unknown,
     timeoutMs?: number,
     cache?: Map<string, unknown>,
+    farmerId?: string,
   ): Promise<any> {
-    const c = await this.resolveCreds(tenantId, cache);
+    const c = await this.resolveCreds(tenantId, cache, farmerId);
     return this.call(c.base, c.username, c.password, path, body, timeoutMs);
   }
 
   /* ----------------------------- nomenclature ------------------------------ */
 
-  async getCities(tenantId: string): Promise<any[]> {
+  async getCities(tenantId: string, farmerId?: string): Promise<any[]> {
     const data = await this.callTenant(tenantId, 'Nomenclatures/NomenclaturesService.getCities.json', {
       countryCode: COUNTRY,
-    });
+    }, undefined, undefined, farmerId);
     return data?.cities ?? [];
   }
 
-  async getOffices(tenantId: string, cityId?: number): Promise<any[]> {
+  async getOffices(tenantId: string, cityId?: number, farmerId?: string): Promise<any[]> {
     const body: Record<string, unknown> = { countryCode: COUNTRY };
     if (cityId) body.cityID = cityId;
-    const data = await this.callTenant(tenantId, 'Nomenclatures/NomenclaturesService.getOffices.json', body);
+    const data = await this.callTenant(tenantId, 'Nomenclatures/NomenclaturesService.getOffices.json', body, undefined, undefined, farmerId);
     return data?.offices ?? [];
   }
 
   /** Sync the office nomenclature into Redis (shared by the storefront picker). */
-  async syncNomenclature(tenantId: string): Promise<{ cities: number; offices: number }> {
-    const { tenant } = await this.loadStored(tenantId);
-    const [cities, offices] = await Promise.all([this.getCities(tenantId), this.getOffices(tenantId)]);
+  async syncNomenclature(tenantId: string, farmerId?: string): Promise<{ cities: number; offices: number }> {
+    const { tenant } = await this.loadStored(tenantId, undefined, farmerId);
+    const [cities, offices] = await Promise.all([this.getCities(tenantId, farmerId), this.getOffices(tenantId, undefined, farmerId)]);
     const slim = offices.map((o: any) => ({
       code: o.code,
       name: o.name,
@@ -451,12 +494,12 @@ export class EcontService implements CarrierAdapter {
    * (~5.6k rows) is fetched once from Econt and cached; subsequent queries are
    * filtered in-memory (prefix matches first). Requires Econt credentials.
    */
-  async searchCities(tenantId: string, q?: string, cache?: Map<string, unknown>): Promise<EcontCityView[]> {
-    const { tenant } = await this.loadStored(tenantId, cache);
+  async searchCities(tenantId: string, q?: string, cache?: Map<string, unknown>, farmerId?: string): Promise<EcontCityView[]> {
+    const { tenant } = await this.loadStored(tenantId, cache, farmerId);
     const key = `econt:cities:${tenant.slug}`;
     let list = await this.cache.get<EcontCityView[]>(key);
     if (!list) {
-      const cities = await this.getCities(tenantId);
+      const cities = await this.getCities(tenantId, farmerId);
       list = cities.map((c: any) => ({ id: c.id, name: c.name, postCode: c.postCode ?? null }));
       await this.cache.set(key, list, NOMENCLATURE_TTL);
     }
@@ -476,11 +519,15 @@ export class EcontService implements CarrierAdapter {
   async validateAddress(
     tenantId: string,
     input: import('./dto/validate-address.dto').ValidateAddressDto,
+    farmerId?: string,
   ): Promise<AddressValidation> {
     const data = await this.callTenant(
       tenantId,
       'Nomenclatures/AddressService.validateAddress.json',
       { address: { city: { name: input.city }, other: input.address } },
+      undefined,
+      undefined,
+      farmerId,
     );
     // Econt returns { address: {...}, validationStatus, serviceInfo } — `validationStatus`
     // is a SIBLING of `address`, NOT inside it. Passing `data.address` (the old code) lost
@@ -489,19 +536,19 @@ export class EcontService implements CarrierAdapter {
   }
 
   /** Fetch the farm's saved Econt sender profiles (auto-fill + creds check). */
-  async getClientProfiles(tenantId: string): Promise<SenderSuggestion[]> {
-    const data = await this.callTenant(tenantId, 'Profile/ProfileService.getClientProfiles.json', {});
+  async getClientProfiles(tenantId: string, farmerId?: string): Promise<SenderSuggestion[]> {
+    const data = await this.callTenant(tenantId, 'Profile/ProfileService.getClientProfiles.json', {}, undefined, undefined, farmerId);
     return slimClientProfiles(data);
   }
 
   /** Offices in one city (with coordinates + hours) for the admin picker/map. */
-  async getOfficesForCity(tenantId: string, cityId: number, cache?: Map<string, unknown>): Promise<EcontOfficeView[]> {
+  async getOfficesForCity(tenantId: string, cityId: number, cache?: Map<string, unknown>, farmerId?: string): Promise<EcontOfficeView[]> {
     if (!cityId) return [];
-    const { tenant } = await this.loadStored(tenantId, cache);
+    const { tenant } = await this.loadStored(tenantId, cache, farmerId);
     const key = `econt:officesByCity:${tenant.slug}:${cityId}`;
     const cached = await this.cache.get<EcontOfficeView[]>(key);
     if (cached) return cached;
-    const offices = await this.getOffices(tenantId, cityId);
+    const offices = await this.getOffices(tenantId, cityId, farmerId);
     const slim = offices.map(slimOfficeView).filter((o) => o.code && o.name);
     await this.cache.set(key, slim, NOMENCLATURE_TTL);
     return slim;
@@ -529,13 +576,10 @@ export class EcontService implements CarrierAdapter {
   }
 
   /** Disconnect Econt: clear creds (keep the sender profile), bust caches. */
-  async disconnect(tenantId: string): Promise<{ configured: false }> {
-    const { tenant, econt } = await this.loadStored(tenantId);
+  async disconnect(tenantId: string, farmerId?: string): Promise<{ configured: false }> {
+    const { tenant, econt } = await this.loadStored(tenantId, undefined, farmerId);
     const nextEcont = this.clearCredsBlob(econt);
-    const nextSettings = {
-      ...tenant.settings,
-      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), econt: nextEcont },
-    };
+    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
     await this.cache.del(
       publicCacheKeys.tenant(tenant.slug),
@@ -852,14 +896,14 @@ export class EcontService implements CarrierAdapter {
   /** Create the Econt waybill (label) for an order and persist a shipment row. */
   /** {@link CarrierAdapter} alias for {@link createLabel} — keeps the on-demand
    *  label op name uniform with Speedy's `createLabelForOrder`. */
-  createLabelForOrder(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
-    return this.createLabel(tenantId, orderId);
+  createLabelForOrder(tenantId: string, orderId: string, farmerId?: string): Promise<typeof shipments.$inferSelect> {
+    return this.createLabel(tenantId, orderId, farmerId);
   }
 
-  async createLabel(tenantId: string, orderId: string): Promise<typeof shipments.$inferSelect> {
+  async createLabel(tenantId: string, orderId: string, farmerId?: string): Promise<typeof shipments.$inferSelect> {
     // Share one settings read between loadStored and the callTenant→resolveCreds below.
     const store = new Map<string, unknown>();
-    const { tenant, econt } = await this.loadStored(tenantId, store);
+    const { tenant, econt } = await this.loadStored(tenantId, store, farmerId);
     const { order, items } = await this.orderForShipment(tenantId, orderId);
     const handling = this.resolveHandling(tenant.settings);
     const label = this.buildLabel(
@@ -870,7 +914,7 @@ export class EcontService implements CarrierAdapter {
     const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
       label,
       mode: 'create',
-    }, undefined, store);
+    }, undefined, store, farmerId);
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
     // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted
@@ -909,8 +953,9 @@ export class EcontService implements CarrierAdapter {
   async createManualShipment(
     tenantId: string,
     input: import('./dto/manual-shipment.dto').ManualShipmentDto,
+    farmerId?: string,
   ): Promise<typeof shipments.$inferSelect> {
-    const { econt } = await this.loadStored(tenantId);
+    const { econt } = await this.loadStored(tenantId, undefined, farmerId);
     const shape = buildManualOrderShape(input);
     // Per-shipment weight/contents override the farm's defaultPackage for this label.
     const econtForLabel: EcontStored = {
@@ -925,7 +970,7 @@ export class EcontService implements CarrierAdapter {
     const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
       label,
       mode: 'create',
-    });
+    }, undefined, undefined, farmerId);
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
     // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted
@@ -961,8 +1006,9 @@ export class EcontService implements CarrierAdapter {
   async requestCourier(
     tenantId: string,
     input: import('./dto/courier-request.dto').CourierRequestDto,
+    farmerId?: string,
   ): Promise<{ requestId: string | null; status: string | null; attached: number; skipped: number }> {
-    const { econt } = await this.loadStored(tenantId);
+    const { econt } = await this.loadStored(tenantId, undefined, farmerId);
     // Resolve our shipment ids → Econt waybill numbers (tenant-scoped).
     const rows = await this.db
       .select({ id: shipments.id, number: shipments.econtShipmentNumber })
@@ -975,7 +1021,7 @@ export class EcontService implements CarrierAdapter {
     if (!numbers.length) throw new BadRequestException('Няма товарителници за заявка на куриер');
 
     const body = buildCourierRequest(econt, numbers, { timeFrom: input.timeFrom, timeTo: input.timeTo });
-    const data = await this.callTenant(tenantId, 'Shipments/ShipmentService.requestCourier.json', body);
+    const data = await this.callTenant(tenantId, 'Shipments/ShipmentService.requestCourier.json', body, undefined, undefined, farmerId);
     const requestId: string | null =
       data?.courierRequestID != null ? String(data.courierRequestID) : data?.id != null ? String(data.id) : null;
     const status: string | null = data?.status ?? (requestId ? 'process' : null);
@@ -992,18 +1038,21 @@ export class EcontService implements CarrierAdapter {
   }
 
   /** Poll an Econt courier-pickup request's status. */
-  async getRequestCourierStatus(tenantId: string, requestId: string): Promise<{ status: string | null }> {
+  async getRequestCourierStatus(tenantId: string, requestId: string, farmerId?: string): Promise<{ status: string | null }> {
     const data = await this.callTenant(
       tenantId,
       'Shipments/ShipmentService.getRequestCourierStatus.json',
       { requestCourierId: requestId },
+      undefined,
+      undefined,
+      farmerId,
     );
     const status: string | null = data?.status ?? data?.requestCourierStatus ?? null;
     return { status };
   }
 
   /** Fetch one shipment's label PDF (tenant-scoped) as a Buffer. */
-  async getLabelPdf(tenantId: string, shipmentId: string): Promise<Buffer> {
+  async getLabelPdf(tenantId: string, shipmentId: string, farmerId?: string): Promise<Buffer> {
     const [row] = await this.db
       .select({ url: shipments.labelPdfUrl })
       .from(shipments)
@@ -1011,17 +1060,17 @@ export class EcontService implements CarrierAdapter {
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
     if (!row.url) throw new NotFoundException('Няма PDF за тази товарителница');
-    const c = await this.resolveCreds(tenantId);
+    const c = await this.resolveCreds(tenantId, undefined, farmerId);
     return this.fetchLabelPdf(c, row.url);
   }
 
   /** Fetch + merge several shipments' label PDFs (tenant-scoped) into one Buffer. */
-  async getLabelsPdf(tenantId: string, shipmentIds: string[]): Promise<Buffer> {
+  async getLabelsPdf(tenantId: string, shipmentIds: string[], farmerId?: string): Promise<Buffer> {
     if (!shipmentIds.length) throw new BadRequestException('Няма избрани товарителници');
     if (shipmentIds.length > MAX_BULK_LABELS) {
       throw new BadRequestException(`Максимум ${MAX_BULK_LABELS} товарителници наведнъж`);
     }
-    const c = await this.resolveCreds(tenantId);
+    const c = await this.resolveCreds(tenantId, undefined, farmerId);
     const rows = await this.db
       .select({ url: shipments.labelPdfUrl })
       .from(shipments)
@@ -1145,29 +1194,31 @@ export class EcontService implements CarrierAdapter {
   }
 
   /** Refresh a shipment's status from Econt. */
-  async refreshStatus(tenantId: string, shipmentId: string): Promise<typeof shipments.$inferSelect> {
+  async refreshStatus(tenantId: string, shipmentId: string, farmerId?: string): Promise<typeof shipments.$inferSelect> {
     const [row] = await this.db
       .select()
       .from(shipments)
       .where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)))
       .limit(1);
     if (!row) throw new NotFoundException('Пратката не е намерена');
-    return this.refreshStatusForRow(row);
+    return this.refreshStatusForRow(row, farmerId);
   }
 
   /**
    * Refresh one shipment from Econt given its already-loaded row. Split out from
    * {@link refreshStatus} so the batch cron can pass the rows it already selected
    * instead of re-SELECTing each (incl. the large trackingJson) per shipment.
+   * The cron passes no farmerId (it has no request decorator) → tenant-level creds.
    */
   private async refreshStatusForRow(
     row: typeof shipments.$inferSelect,
+    farmerId?: string,
   ): Promise<typeof shipments.$inferSelect> {
     if (!row.econtShipmentNumber || !row.tenantId) return row;
     const tenantId = row.tenantId;
     const data = await this.callTenant(tenantId, 'Shipments/ShipmentService.getShipmentStatuses.json', {
       shipmentNumbers: [row.econtShipmentNumber],
-    });
+    }, undefined, undefined, farmerId);
     const st = data?.shipmentStatuses?.[0]?.status ?? data?.shipmentStatuses?.[0] ?? null;
     const cod = parseCodReconciliation(st);
     const [updated] = await this.db
@@ -1237,7 +1288,7 @@ export class EcontService implements CarrierAdapter {
   }
 
   /** Void (delete) an Econt label and remove the shipment row. */
-  async voidShipment(tenantId: string, shipmentId: string): Promise<{ id: string }> {
+  async voidShipment(tenantId: string, shipmentId: string, farmerId?: string): Promise<{ id: string }> {
     const [row] = await this.db
       .select()
       .from(shipments)
@@ -1247,7 +1298,7 @@ export class EcontService implements CarrierAdapter {
     if (row.econtShipmentNumber) {
       await this.callTenant(tenantId, 'Shipments/LabelService.deleteLabels.json', {
         shipmentNumbers: [row.econtShipmentNumber],
-      });
+      }, undefined, undefined, farmerId);
     }
     await this.db.delete(shipments).where(and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId)));
     return { id: shipmentId };
