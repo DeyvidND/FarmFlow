@@ -342,8 +342,12 @@ export class OrdersService {
       econt: courierOk && methods.econtOffice,
       // Door delivery is allowed when Econt address is on OR Speedy is configured.
       econt_address: courierOk && courierDoorEnabled(cfg),
-      // Farmer-own courier delivery requires the deliveries package.
-      courier: courierOk,
+      // Per-farmer courier is NEVER a single-order intake method: it must split the
+      // cart into one COD order per farmer via createCourierOrders. Reject it here so
+      // a courier POST to the single-order path can't create an unsplit order (no
+      // farmer_id, folded fee). CheckoutService routes delivery_type='courier' to the
+      // split path before intake is ever reached.
+      courier: false,
     };
     if (!allowed[method]) {
       throw new BadRequestException('Избраният начин на доставка не е наличен.');
