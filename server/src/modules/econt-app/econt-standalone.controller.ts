@@ -161,6 +161,21 @@ export class EcontStandaloneController {
     return this.econt.createManualShipment(t, dto, f);
   }
 
+  /** Finalize a storefront order (incl. a Phase-3 courier DRAFT) into an Econt
+   *  waybill — the farmer-scoped twin of Speedy's `orders/:orderId/label`. The
+   *  dostavki UI's „Създай товарителница" button on a courier draft POSTs here
+   *  when the farmer picks Econt. Activation-gated (real, paid waybill). */
+  @Roles('admin', 'farmer')
+  @UseGuards(ActivationGuard)
+  @Post('orders/:orderId/label')
+  createForOrder(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+  ) {
+    return this.econt.createLabelForOrder(t, orderId, f);
+  }
+
   @Roles('admin', 'farmer')
   @Post('shipments/:id/refresh')
   refresh(
