@@ -201,9 +201,27 @@ export class FarmersService {
       .where(eq(farmerMedia.farmerId, id));
     await Promise.all(media.map((m) => this.deleteObject(m.url)));
     if (farmer.imageUrl) await this.deleteObject(farmer.imageUrl);
-    await this.db
-      .delete(farmers)
-      .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)));
+    await this.db.transaction(async (tx) => {
+      // The farmer's login (users.farmer_id = id) is ON DELETE cascade, but the cascade
+      // can't drop a login still referenced by orders.customer_id / audit_logs.user_id
+      // (both ON DELETE NO ACTION) — so deleting a farmer who ever logged in (audit row)
+      // or is an order's customer would fail with an FK violation, leaving the farmer +
+      // login + its UNIQUE email stuck ("този имейл вече се използва" on re-add). Null
+      // those refs first (mirror revokeAccess) so the cascade removes the login cleanly
+      // and frees the email for re-use.
+      const [login] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.farmerId, id), eq(users.tenantId, tenantId)))
+        .limit(1);
+      if (login) {
+        await tx.update(auditLogs).set({ userId: null }).where(eq(auditLogs.userId, login.id));
+        await tx.update(orders).set({ customerId: null }).where(eq(orders.customerId, login.id));
+      }
+      await tx
+        .delete(farmers)
+        .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)));
+    });
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
     return { id };
