@@ -340,7 +340,9 @@ export const orders = pgTable(
     customerName: text('customer_name'),
     customerPhone: text('customer_phone'),
     customerEmail: text('customer_email'),
-    slotId: uuid('slot_id').references(() => deliverySlots.id),
+    // Deleting a slot orphans its orders (set null) rather than being blocked by
+    // the FK — see migration 0068. The app refuses to delete a slot with a live order.
+    slotId: uuid('slot_id').references(() => deliverySlots.id, { onDelete: 'set null' }),
     status: orderStatusEnum('status').default('pending'),
     // Human-friendly per-tenant order number (#1, #2, …) shown to the farmer and
     // customer. Assigned on create; NULL only on legacy rows until backfilled.

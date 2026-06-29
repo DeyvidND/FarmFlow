@@ -477,6 +477,13 @@
       "when": 1782896400000,
       "tag": "0067_deliveries_package",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1782982800000,
+      "tag": "0068_slot_delete_set_null",
+      "breakpoints": true
     }
   ]
 }

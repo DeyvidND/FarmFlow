@@ -1,3 +1,4 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { SlotsService, PUBLIC_SLOT_COLUMNS } from './slots.service';
 
 describe('PUBLIC_SLOT_COLUMNS', () => {
@@ -78,5 +79,80 @@ describe('SlotsService.materializeRule', () => {
       timeFrom: '11:00',
       timeTo: '12:00',
     });
+  });
+});
+
+/** db stub for remove(): 1st select = slot lookup (.limit), 2nd select = live-order
+ *  count (awaited .where). delete() records that it ran. */
+function removeDb(opts: {
+  slot: { id: string; date: string; generated: boolean } | null;
+  liveCount: number;
+  onDelete?: () => void;
+}) {
+  let nthSelect = 0;
+  const slotSel = {
+    from: () => slotSel,
+    where: () => slotSel,
+    limit: async () => (opts.slot ? [opts.slot] : []),
+  };
+  const liveSel = {
+    from: () => liveSel,
+    where: async () => [{ n: opts.liveCount }],
+  };
+  return {
+    select: () => (nthSelect++ === 0 ? slotSel : liveSel),
+    delete: () => ({
+      where: async () => {
+        opts.onDelete?.();
+      },
+    }),
+    update: () => ({ set: () => ({ where: async () => undefined }) }),
+  } as never;
+}
+
+describe('SlotsService.remove', () => {
+  it('404s when the slot is not the tenant’s', async () => {
+    const svc = new SlotsService(removeDb({ slot: null, liveCount: 0 }), {} as never);
+    await expect(svc.remove('s1', 't1')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('refuses (400) when the slot still holds a live order — never reaches delete', async () => {
+    let deleted = false;
+    const svc = new SlotsService(
+      removeDb({
+        slot: { id: 's1', date: '2026-06-30', generated: false },
+        liveCount: 1,
+        onDelete: () => (deleted = true),
+      }),
+      {} as never,
+    );
+    await expect(svc.remove('s1', 't1')).rejects.toBeInstanceOf(BadRequestException);
+    expect(deleted).toBe(false);
+  });
+
+  it('deletes a free slot (no live order)', async () => {
+    let deleted = false;
+    const svc = new SlotsService(
+      removeDb({
+        slot: { id: 's1', date: '2026-06-30', generated: false },
+        liveCount: 0,
+        onDelete: () => (deleted = true),
+      }),
+      {} as never,
+    );
+    await expect(svc.remove('s1', 't1')).resolves.toEqual({ id: 's1' });
+    expect(deleted).toBe(true);
+  });
+
+  it('skips the date in the rule when a generated slot is deleted', async () => {
+    const svc = new SlotsService(
+      removeDb({ slot: { id: 's1', date: '2026-06-30', generated: true }, liveCount: 0 }),
+      {} as never,
+    );
+    const skip = jest
+      .spyOn(svc as unknown as { addSkipDate: (t: string, d: string) => Promise<void> }, 'addSkipDate')
+      .mockResolvedValue(undefined);
+    await svc.remove('s1', 't1');
+    expect(skip).toHaveBeenCalledWith('t1', '2026-06-30');
   });
 });

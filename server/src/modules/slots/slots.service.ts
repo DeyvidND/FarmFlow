@@ -115,18 +115,41 @@ export class SlotsService {
   }
 
   async remove(id: string, tenantId: string): Promise<{ id: string }> {
-    const [row] = await this.db
-      .delete(deliverySlots)
-      .where(and(eq(deliverySlots.id, id), eq(deliverySlots.tenantId, tenantId)))
-      .returning({
+    // Verify ownership first (tenant-scoped) so a busy-slot 400 can't leak another
+    // tenant's data — a foreign id just 404s.
+    const [slot] = await this.db
+      .select({
         id: deliverySlots.id,
         date: deliverySlots.date,
         generated: deliverySlots.generated,
-      });
-    if (!row) throw new NotFoundException('Слотът не е намерен');
+      })
+      .from(deliverySlots)
+      .where(and(eq(deliverySlots.id, id), eq(deliverySlots.tenantId, tenantId)))
+      .limit(1);
+    if (!slot) throw new NotFoundException('Слотът не е намерен');
+
+    // Refuse to delete a slot that still holds a live (non-cancelled) order —
+    // silently dropping a customer's booked delivery is not this button's job
+    // (mirrors closeDay). The farmer cancels or moves the order first. A raw delete
+    // here would also blow up on the orders.slot_id FK with a 500. Cancelled orders
+    // are detached automatically by the FK's ON DELETE SET NULL, so the delete below
+    // can't FK-fail.
+    const [live] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(orders)
+      .where(and(eq(orders.slotId, id), ne(orders.status, 'cancelled')));
+    if ((live?.n ?? 0) > 0) {
+      throw new BadRequestException(
+        'Слотът има активна поръчка — отменете или преместете поръчката, преди да изтриете слота',
+      );
+    }
+
+    await this.db
+      .delete(deliverySlots)
+      .where(and(eq(deliverySlots.id, id), eq(deliverySlots.tenantId, tenantId)));
     // A deleted generated slot must not be recreated by the rule on the next run.
-    if (row.generated) await this.addSkipDate(tenantId, row.date);
-    return { id: row.id };
+    if (slot.generated) await this.addSkipDate(tenantId, slot.date);
+    return { id: slot.id };
   }
 
   /**
