@@ -40,6 +40,22 @@ type ItemRow = typeof orderItems.$inferSelect;
 type SlotTimes = { slotFrom: string | null; slotTo: string | null; slotDate: string | null };
 type OrderWithItems = OrderRow & SlotTimes & { items: ItemRow[] };
 
+/** A drizzle transaction handle (same query surface as the db). */
+type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+/** One validated, stock-reserved, priced cart line ready to insert as an
+ *  order_item — plus the owning farmer (from the product), needed to split a
+ *  courier cart per farmer. `farmerId` is stripped before the order_items insert. */
+interface PreparedItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  priceStotinki: number;
+  variantId: string | null;
+  variantLabel: string | null;
+  farmerId: string | null;
+}
+
 const orderWithSlot = {
   ...getTableColumns(orders),
   slotFrom: deliverySlots.timeFrom,
@@ -945,6 +961,159 @@ export class OrdersService {
   }
 
   /**
+   * Validate the cart, reserve stock (availability windows + variant stock), price
+   * each line, and — when a slot is given (local delivery) — lock it and enforce
+   * the one-order-per-slot capacity. Runs inside an open transaction; mutates the
+   * locked rows (the reservation). Shared by single-order intake ({@link create})
+   * and the courier split ({@link createCourierOrders}). Returns the priced lines
+   * (with each line's owning farmer) plus the resolved slot times. Throws
+   * Bad/Conflict exactly as the inline intake logic did.
+   */
+  private async reserveCartItems(
+    tx: Tx,
+    tenantId: string,
+    dtoItems: CreateOrderDto['items'],
+    slotId: string | null,
+  ): Promise<{ items: PreparedItem[]; slotFrom: string | null; slotTo: string | null; slotDate: string | null }> {
+    const productIds = dtoItems.map((i) => i.productId);
+    const prods = await tx
+      .select()
+      .from(products)
+      .where(and(eq(products.tenantId, tenantId), inArray(products.id, productIds)));
+    const byId = new Map(prods.map((p) => [p.id, p]));
+
+    // Load + lock the chosen variants (ordered by id so concurrent intakes acquire
+    // locks in a consistent order — deadlock-free). Soft-deleted variants excluded.
+    const variantIds = dtoItems.map((i) => i.variantId).filter((v): v is string => !!v);
+    const variantRows = variantIds.length
+      ? await tx
+          .select()
+          .from(productVariants)
+          .where(and(inArray(productVariants.id, variantIds), isNull(productVariants.deletedAt)))
+          .for('update')
+          .orderBy(asc(productVariants.id))
+      : [];
+    const variantById = new Map(variantRows.map((v) => [v.id, v]));
+
+    // Which ordered products have live variants → a selection is mandatory.
+    const orderedIds = dtoItems.map((i) => i.productId);
+    const productsWithVariants = new Set(
+      (
+        await tx
+          .select({ pid: productVariants.productId })
+          .from(productVariants)
+          .where(and(inArray(productVariants.productId, orderedIds), isNull(productVariants.deletedAt)))
+      ).map((r) => r.pid),
+    );
+
+    for (const it of dtoItems) {
+      const p = byId.get(it.productId);
+      if (!p || !p.isActive) throw new BadRequestException('Невалиден или неактивен продукт');
+      if (requiresVariantSelection(productsWithVariants.has(it.productId), it.variantId)) {
+        throw new BadRequestException('Изберете вариант');
+      }
+      if (it.variantId) {
+        const v = variantById.get(it.variantId);
+        if (!v || v.productId !== it.productId) throw new BadRequestException('Невалиден вариант');
+      }
+    }
+
+    // Slot (local delivery only): lock the row + enforce one-order-per-slot. When
+    // slotId is null (courier / non-local) this whole block is skipped.
+    let slotFrom: string | null = null;
+    let slotTo: string | null = null;
+    let slotDate: string | null = null;
+    if (slotId) {
+      const [slot] = await tx
+        .select()
+        .from(deliverySlots)
+        .where(and(eq(deliverySlots.id, slotId), eq(deliverySlots.tenantId, tenantId)))
+        .for('update')
+        .limit(1);
+      if (!slot) throw new BadRequestException('Слотът не е намерен');
+      slotFrom = slot.timeFrom;
+      slotTo = slot.timeTo;
+      slotDate = slot.date;
+
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(orders)
+        .where(and(eq(orders.slotId, slotId), ne(orders.status, 'cancelled')));
+      if (count >= 1) throw new ConflictException('Слотът е запълнен');
+    }
+
+    // Per-item availability-window enforcement (lock all active windows in one
+    // ordered statement — deadlock-free). Products with no active window unaffected.
+    const today = bgToday();
+    const orderedProductIds = dtoItems.map((it) => it.productId);
+    const activeWindows = orderedProductIds.length
+      ? await tx
+          .select()
+          .from(productAvailabilityWindows)
+          .where(
+            and(
+              inArray(productAvailabilityWindows.productId, orderedProductIds),
+              eq(productAvailabilityWindows.tenantId, tenantId),
+              lte(productAvailabilityWindows.startsAt, today),
+              gte(productAvailabilityWindows.endsAt, today),
+            ),
+          )
+          .for('update')
+          .orderBy(asc(productAvailabilityWindows.productId))
+      : [];
+    const winByProduct = new Map(activeWindows.map((w) => [w.productId, w]));
+    for (const it of dtoItems) {
+      const active = winByProduct.get(it.productId) ?? null;
+      const decision = decideDecrement(active, it.quantity);
+      if (!decision.ok) {
+        const p = byId.get(it.productId);
+        throw new ConflictException(`Няма достатъчна наличност: ${p?.name ?? 'продукт'}`);
+      }
+      if (active && decision.newRemaining != null) active.remaining = decision.newRemaining;
+    }
+    for (const w of activeWindows) {
+      await tx
+        .update(productAvailabilityWindows)
+        .set({ remaining: w.remaining })
+        .where(eq(productAvailabilityWindows.id, w.id));
+    }
+
+    // Variant stock decrement (mirrors the window block; stockQuantity null = unlimited).
+    for (const it of dtoItems) {
+      if (!it.variantId) continue;
+      const v = variantById.get(it.variantId)!;
+      const active = v.stockQuantity == null ? null : { remaining: v.stockQuantity };
+      const decision = decideDecrement(active, it.quantity);
+      if (!decision.ok) throw new ConflictException(`Няма достатъчна наличност: ${v.label}`);
+      if (v.stockQuantity != null && decision.newRemaining != null) v.stockQuantity = decision.newRemaining;
+    }
+    for (const v of variantRows) {
+      if (v.stockQuantity != null) {
+        await tx.update(productVariants).set({ stockQuantity: v.stockQuantity }).where(eq(productVariants.id, v.id));
+      }
+    }
+
+    // Promo expiry is coarse (date-level), so a plain wall-clock Date is correct.
+    const now = new Date();
+    const items: PreparedItem[] = dtoItems.map((it) => {
+      const p = byId.get(it.productId)!;
+      const variant = it.variantId ? variantById.get(it.variantId)! : null;
+      const line = resolveLineUnit(p, variant, now);
+      return {
+        productId: p.id,
+        productName: line.label,
+        quantity: it.quantity,
+        priceStotinki: line.unitStotinki,
+        variantId: line.variantId,
+        variantLabel: line.variantLabel,
+        farmerId: p.farmerId ?? null,
+      };
+    });
+
+    return { items, slotFrom, slotTo, slotDate };
+  }
+
+  /**
    * Public intake from a storefront. In one transaction: resolve the tenant,
    * snapshot product name/price, enforce slot capacity with a row lock
    * (double-booking impossible), compute the total, create the pending order.
@@ -1054,158 +1223,18 @@ export class OrdersService {
     }
 
     return this.db.transaction(async (tx) => {
-      const productIds = dto.items.map((i) => i.productId);
-      const prods = await tx
-        .select()
-        .from(products)
-        .where(and(eq(products.tenantId, tenant.id), inArray(products.id, productIds)));
-      const byId = new Map(prods.map((p) => [p.id, p]));
-
-      // Load + lock the chosen variants (ordered by id so concurrent intakes
-      // acquire locks in a consistent order — deadlock-free, mirroring the
-      // availability-window lock). Soft-deleted variants are excluded so a stale
-      // storefront can't order against a removed variant.
-      const variantIds = dto.items.map((i) => i.variantId).filter((v): v is string => !!v);
-      const variantRows = variantIds.length
-        ? await tx
-            .select()
-            .from(productVariants)
-            .where(and(inArray(productVariants.id, variantIds), isNull(productVariants.deletedAt)))
-            .for('update')
-            .orderBy(asc(productVariants.id))
-        : [];
-      const variantById = new Map(variantRows.map((v) => [v.id, v]));
-
-      // Which ordered products have live variants → a selection is mandatory.
-      // Existence check only (not locked): a superset of the chosen variants'
-      // products, computed independently of variantRows.
-      const orderedIds = dto.items.map((i) => i.productId);
-      const productsWithVariants = new Set(
-        (
-          await tx
-            .select({ pid: productVariants.productId })
-            .from(productVariants)
-            .where(and(inArray(productVariants.productId, orderedIds), isNull(productVariants.deletedAt)))
-        ).map((r) => r.pid),
-      );
-
-      for (const it of dto.items) {
-        const p = byId.get(it.productId);
-        if (!p || !p.isActive) throw new BadRequestException('Невалиден или неактивен продукт');
-        if (requiresVariantSelection(productsWithVariants.has(it.productId), it.variantId)) {
-          throw new BadRequestException('Изберете вариант');
-        }
-        if (it.variantId) {
-          const v = variantById.get(it.variantId);
-          if (!v || v.productId !== it.productId) throw new BadRequestException('Невалиден вариант');
-        }
-      }
-
-      // Only local farm delivery uses a slot; Econt orders are courier-shipped
-      // and never count against the farm's delivery capacity.
+      // Only local farm delivery consumes a slot; courier/Econt orders never count
+      // against the farm's delivery capacity.
       const slotId = isLocal ? dto.slotId ?? null : null;
-      let slotFrom: string | null = null;
-      let slotTo: string | null = null;
-      let slotDate: string | null = null;
-      if (slotId) {
-        // Lock the slot row so concurrent intakes serialize on it.
-        const [slot] = await tx
-          .select()
-          .from(deliverySlots)
-          .where(and(eq(deliverySlots.id, slotId), eq(deliverySlots.tenantId, tenant.id)))
-          .for('update')
-          .limit(1);
-        if (!slot) throw new BadRequestException('Слотът не е намерен');
-        slotFrom = slot.timeFrom;
-        slotTo = slot.timeTo;
-        slotDate = slot.date;
-
-        // A slot holds exactly one order — any live order means it's taken.
-        const [{ count }] = await tx
-          .select({ count: sql<number>`count(*)::int` })
-          .from(orders)
-          .where(and(eq(orders.slotId, slotId), ne(orders.status, 'cancelled')));
-        if (count >= 1) throw new ConflictException('Слотът е запълнен');
-      }
-
-      // Per-item availability-window enforcement. A product with an active window
-      // (today within range) sells from that window's `remaining`. Lock every
-      // ordered product's active window in ONE statement (ordered by product_id so
-      // concurrent intakes acquire locks in a consistent order — deadlock-free),
-      // mirroring the slot-capacity guard above. Products with no active window are
-      // unaffected (today's behavior).
-      const today = bgToday();
-      const orderedProductIds = dto.items.map((it) => it.productId);
-      const activeWindows = orderedProductIds.length
-        ? await tx
-            .select()
-            .from(productAvailabilityWindows)
-            .where(
-              and(
-                inArray(productAvailabilityWindows.productId, orderedProductIds),
-                eq(productAvailabilityWindows.tenantId, tenant.id),
-                lte(productAvailabilityWindows.startsAt, today),
-                gte(productAvailabilityWindows.endsAt, today),
-              ),
-            )
-            .for('update')
-            .orderBy(asc(productAvailabilityWindows.productId))
-        : [];
-      // Non-overlap guarantee: at most one active window per product.
-      const winByProduct = new Map(activeWindows.map((w) => [w.productId, w]));
-      for (const it of dto.items) {
-        const active = winByProduct.get(it.productId) ?? null;
-        const decision = decideDecrement(active, it.quantity);
-        if (!decision.ok) {
-          const p = byId.get(it.productId);
-          throw new ConflictException(`Няма достатъчна наличност: ${p?.name ?? 'продукт'}`);
-        }
-        // Mutate the locked window in memory so repeated line items for the same
-        // product chain their decrements (matches the old per-item re-read).
-        if (active && decision.newRemaining != null) active.remaining = decision.newRemaining;
-      }
-      for (const w of activeWindows) {
-        await tx
-          .update(productAvailabilityWindows)
-          .set({ remaining: w.remaining })
-          .where(eq(productAvailabilityWindows.id, w.id));
-      }
-
-      // Variant stock decrement — mirrors the availability-window block above,
-      // reusing decideDecrement. `stockQuantity == null` = unlimited (no limit).
-      // Mutate the locked row in memory so repeated line items for the same
-      // variant chain their decrements; persist once per variant after.
-      for (const it of dto.items) {
-        if (!it.variantId) continue;
-        const v = variantById.get(it.variantId)!;
-        const active = v.stockQuantity == null ? null : { remaining: v.stockQuantity };
-        const decision = decideDecrement(active, it.quantity);
-        if (!decision.ok) throw new ConflictException(`Няма достатъчна наличност: ${v.label}`);
-        if (v.stockQuantity != null && decision.newRemaining != null) v.stockQuantity = decision.newRemaining;
-      }
-      for (const v of variantRows) {
-        if (v.stockQuantity != null) {
-          await tx.update(productVariants).set({ stockQuantity: v.stockQuantity }).where(eq(productVariants.id, v.id));
-        }
-      }
-
-      // Promo expiry is coarse (date-level), so a plain wall-clock Date is correct.
-      const now = new Date();
-      let total = 0;
-      const items = dto.items.map((it) => {
-        const p = byId.get(it.productId)!;
-        const variant = it.variantId ? variantById.get(it.variantId)! : null;
-        const line = resolveLineUnit(p, variant, now);
-        total += line.unitStotinki * it.quantity;
-        return {
-          productId: p.id,
-          productName: line.label,
-          quantity: it.quantity,
-          priceStotinki: line.unitStotinki,
-          variantId: line.variantId,
-          variantLabel: line.variantLabel,
-        };
-      });
+      const { items: prepared, slotFrom, slotTo, slotDate } = await this.reserveCartItems(
+        tx,
+        tenant.id,
+        dto.items,
+        slotId,
+      );
+      const total = prepared.reduce((s, i) => s + i.priceStotinki * i.quantity, 0);
+      // order_items has no farmer_id column — strip it before insert.
+      const items = prepared.map(({ farmerId: _f, ...line }) => line);
 
       // Next per-tenant order number (#1, #2, …). The advisory lock serializes
       // concurrent intakes for this tenant so two orders can't claim the same
