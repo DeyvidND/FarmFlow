@@ -218,7 +218,7 @@ export function HelpClient() {
                 <ExtLink href="https://www.speedy.bg/en/system-integration">speedy.bg/system-integration</ExtLink>.
               </Step>
               <Step n={2} title="Поискай API достъп">
-                Пиши на <ExtLink href="mailto:api.support@speedy.bg">api.support@speedy.bg</ExtLink> за <b>API потребител и парола</b> (за проба поискай тестов акаунт).
+                Пиши на <ExtLink href="mailto:api.registration@speedy.bg">api.registration@speedy.bg</ExtLink> за <b>API потребител и парола</b> (за проба поискай тестов акаунт).
                 Документация: <ExtLink href="https://api.speedy.bg/web-api.html">api.speedy.bg</ExtLink>.
               </Step>
               <Step n={3} title="Въведи данните в „Настройки“">
@@ -290,7 +290,7 @@ export function HelpClient() {
           <div className="flex items-center gap-2.5"><Mail size={18} className="text-ff-green-700" /><h2 className="font-display text-[16px] font-extrabold">Нужда от още помощ?</h2></div>
           <div className="mt-2 grid gap-2 text-[13px] text-ff-ink-2 sm:grid-cols-2">
             <p>Econt интеграция: <ExtLink href="mailto:support_integrations@econt.com">support_integrations@econt.com</ExtLink></p>
-            <p>Speedy API: <ExtLink href="mailto:api.support@speedy.bg">api.support@speedy.bg</ExtLink></p>
+            <p>Speedy API: <ExtLink href="mailto:api.registration@speedy.bg">api.registration@speedy.bg</ExtLink></p>
           </div>
         </section>
       </div>
