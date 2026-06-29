@@ -16,6 +16,8 @@ import { EcontService } from './econt.service';
 import { EcontCredentialsDto } from './dto/econt-credentials.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 /** Admin (tenant-scoped) Econt setup + shipment management. */
 @ApiTags('econt')
@@ -25,16 +27,36 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 export class EcontController {
   constructor(private readonly econt: EcontService) {}
 
-  /** Validate + store the farm's Econt API credentials (password encrypted). */
+  /** Validate + store the farm's Econt API credentials (password encrypted).
+   *  Farmers can store their own creds in the per-farmer sub-namespace. */
+  @Roles('admin', 'farmer')
   @Post('credentials')
-  saveCredentials(@CurrentTenant() tenantId: string, @Body() dto: EcontCredentialsDto) {
-    return this.econt.saveCredentials(tenantId, dto);
+  saveCredentials(
+    @CurrentTenant() tenantId: string,
+    @CurrentFarmer() f: string | undefined,
+    @Body() dto: EcontCredentialsDto,
+  ) {
+    return this.econt.saveCredentials(tenantId, dto, f);
   }
 
-  /** Current Econt config (no secrets). */
+  /** Remove Econt credentials (disconnect). Farmer-scoped when farmerId present. */
+  @Roles('admin', 'farmer')
+  @Delete('credentials')
+  disconnect(
+    @CurrentTenant() tenantId: string,
+    @CurrentFarmer() f: string | undefined,
+  ) {
+    return this.econt.disconnect(tenantId, f);
+  }
+
+  /** Current Econt config (no secrets). Farmer-scoped when farmerId present. */
+  @Roles('admin', 'farmer')
   @Get('config')
-  config(@CurrentTenant() tenantId: string) {
-    return this.econt.getConfig(tenantId);
+  config(
+    @CurrentTenant() tenantId: string,
+    @CurrentFarmer() f: string | undefined,
+  ) {
+    return this.econt.getConfig(tenantId, f);
   }
 
   /** Pull the office nomenclature from Econt into the storefront cache. */
