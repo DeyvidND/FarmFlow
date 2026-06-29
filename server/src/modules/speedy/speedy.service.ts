@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, desc, inArray, isNotNull, notInArray } from 'drizzle-orm';
 import { type Database, tenants, shipments, orders } from '@fermeribg/db';
@@ -467,6 +467,12 @@ export class SpeedyService implements CarrierAdapter {
     if (!speedy.configured) throw new BadRequestException('Speedy не е конфигуриран за тази ферма');
 
     const order = await this.orderForShipment(tenantId, orderId);
+    // Phase 3 authz: a farmer may only finalize THEIR OWN per-farmer order (orderForShipment
+    // scopes by tenant, not farmer). Admin (no farmerId) bypasses; tenant-level orders unaffected.
+    const orderFarmerId = (order as { farmerId?: string | null }).farmerId ?? null;
+    if (farmerId && orderFarmerId && orderFarmerId !== farmerId) {
+      throw new ForbiddenException('Поръчката принадлежи на друга ферма');
+    }
     const sites = await this.searchSites(tenantId, order.deliveryCity ?? '', undefined, farmerId);
     const siteId = sites[0]?.id;
     if (!siteId) throw new BadRequestException('Населеното място не е намерено в Speedy');

@@ -186,6 +186,19 @@ describe('SpeedyService.createLabelForOrder', () => {
     expect(updSet.mock.calls[0][0]).toEqual({ carrier: 'speedy' });
     expect(row.carrier).toBe('speedy');
   });
+
+  it('rejects finalizing another farmer\'s courier order (authz) before any carrier call', async () => {
+    const call = jest.fn();
+    (svc as any).client = { call };
+    (svc as any).loadStored = jest.fn().mockResolvedValue({ speedy: { configured: true } });
+    (svc as any).searchSites = jest.fn();
+    // Order owned by farmer-1; caller is farmer-2.
+    (svc as any).orderForShipment = jest.fn().mockResolvedValue({
+      tenantId: 't1', farmerId: 'farmer-1', deliveryCity: 'Пловдив', deliveryAddress: 'x', paymentMethod: 'cod',
+    });
+    await expect(svc.createLabelForOrder('t1', 'order-1', 'farmer-2')).rejects.toThrow('друга ферма');
+    expect(call).not.toHaveBeenCalled(); // no waybill created
+  });
 });
 
 describe('SpeedyService farmer-scoped single-source decision', () => {

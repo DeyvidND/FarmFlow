@@ -5,6 +5,7 @@ import {
   Logger,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, desc, inArray, ne, isNotNull, isNull } from 'drizzle-orm';
@@ -912,6 +913,14 @@ export class EcontService implements CarrierAdapter {
     const store = new Map<string, unknown>();
     const { tenant, econt } = await this.loadStored(tenantId, store, farmerId);
     const { order, items } = await this.orderForShipment(tenantId, orderId);
+    // Phase 3 authz: a farmer may only finalize THEIR OWN per-farmer order. orderForShipment
+    // scopes by tenant, not farmer, so without this a farmer could finalize another farmer's
+    // courier order (same tenant) onto their own carrier account. Admin (no farmerId) bypasses;
+    // tenant-level orders (no farmer_id) are unaffected.
+    const orderFarmerId = (order as { farmerId?: string | null }).farmerId ?? null;
+    if (farmerId && orderFarmerId && orderFarmerId !== farmerId) {
+      throw new ForbiddenException('Поръчката принадлежи на друга ферма');
+    }
     const handling = this.resolveHandling(tenant.settings);
     const label = this.buildLabel(
       econt,

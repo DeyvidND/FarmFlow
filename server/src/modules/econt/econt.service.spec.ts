@@ -778,6 +778,19 @@ describe('EcontService.createLabel (finalize courier draft)', () => {
     expect(updSet.mock.calls[0][0]).toEqual({ carrier: 'econt' });
     expect(row.carrier).toBe('econt');
   });
+
+  it('rejects finalizing another farmer\'s courier order (authz) before any carrier call', async () => {
+    (svc as any).loadStored = jest.fn().mockResolvedValue({ tenant: { id: 't1', settings: {} }, econt: {} });
+    // Order owned by farmer-1; caller is farmer-2.
+    (svc as any).orderForShipment = jest.fn().mockResolvedValue({
+      order: { tenantId: 't1', farmerId: 'farmer-1', deliveryType: 'courier' },
+      items: [],
+    });
+    const callTenant = jest.fn();
+    (svc as any).callTenant = callTenant;
+    await expect(svc.createLabel('t1', 'order-1', 'farmer-2')).rejects.toThrow('друга ферма');
+    expect(callTenant).not.toHaveBeenCalled(); // no waybill created
+  });
 });
 
 describe('EcontService.codReconciliation (farmer-scoped)', () => {
