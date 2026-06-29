@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { RefreshCw, FileDown, Package, Upload } from 'lucide-react';
+import { RefreshCw, FileDown, Package, Upload, FilePlus } from 'lucide-react';
 import {
   ApiError, listEcontShipments, listSpeedyShipments, refreshShipment, downloadLabel,
+  finalizeCourierDraft,
   type ShipmentRow, type ShipmentStatus, type Carrier,
 } from '@/lib/api-client';
 import { SenderStrip } from './sender-strip';
@@ -44,10 +45,18 @@ const StatusPill = ({ s }: { s: ShipmentStatus }) => (
 const carrierLabel = (c: Carrier) => (c === 'speedy' ? 'Speedy' : 'Econt');
 const money = (st: number | null | undefined) => (st == null ? '—' : `${st} ст.`);
 
+// A courier DRAFT: an order-backed row with no waybill yet (the farmer must pick a
+// carrier and create the товарителница). Finalized rows have a trackingNumber; order-less
+// manual rows have no orderId, so neither is offered the picker.
+const isCourierDraft = (r: ShipmentRow): r is ShipmentRow & { orderId: string } =>
+  !r.trackingNumber && !!r.orderId;
+
 export function ShipmentsClient() {
   const [rows, setRows] = useState<ShipmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  // Per-draft chosen carrier (keyed by rowKey); defaults to Econt when unset.
+  const [draftCarrier, setDraftCarrier] = useState<Record<string, Carrier>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,7 +92,21 @@ export function ShipmentsClient() {
     catch (e) { toast.error(errMsg(e)); } finally { setBusyKey(null); }
   }
 
+  // Finalize a courier draft into a real waybill with the farmer's chosen carrier.
+  async function createWaybill(r: ShipmentRow & { orderId: string }) {
+    const carrier = draftCarrier[r.rowKey] ?? 'econt';
+    setBusyKey(r.rowKey);
+    try {
+      await finalizeCourierDraft(carrier, r.orderId);
+      toast.success('Товарителницата е създадена');
+      await load(); // row flips to a finalized waybill (number + label PDF).
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusyKey(null); }
+  }
+
   const btn = 'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 text-[12.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-50';
+  // The "Създай товарителница" CTA — green, matching the page's primary action style.
+  const ctaBtn = 'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ff-green-700 px-2.5 text-[12.5px] font-bold text-white shadow-ff-sm hover:brightness-95 disabled:opacity-50';
+  const carrierSelect = 'h-9 rounded-lg border border-ff-border bg-ff-surface px-2 text-[12.5px] font-bold text-ff-ink-2';
 
   const total = rows.length;
   const by = (s: ShipmentStatus) => rows.filter((r) => r.status === s).length;
@@ -94,6 +117,20 @@ export function ShipmentsClient() {
     { label: 'Създадени', n: by('created') + by('pending'), cls: 'bg-ff-amber-soft text-ff-amber-600' },
     { label: 'Проблемни', n: by('returned') + by('refused'), cls: 'bg-[#FBE9E7] text-ff-red' },
   ];
+
+  // Reusable carrier picker for a draft row (controlled via draftCarrier state).
+  const CarrierPicker = ({ r, className }: { r: ShipmentRow; className?: string }) => (
+    <select
+      aria-label="Куриер за товарителницата"
+      value={draftCarrier[r.rowKey] ?? 'econt'}
+      disabled={busyKey === r.rowKey}
+      onChange={(e) => setDraftCarrier((m) => ({ ...m, [r.rowKey]: e.target.value as Carrier }))}
+      className={`${carrierSelect} ${className ?? ''}`}
+    >
+      <option value="econt">Econt</option>
+      <option value="speedy">Speedy</option>
+    </select>
+  );
 
   return (
     <div className="animate-ff-fade-up">
@@ -143,66 +180,91 @@ export function ShipmentsClient() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.rowKey} className="border-b border-ff-border-2 last:border-0">
-                    <td className="px-3 py-2.5 font-semibold text-ff-ink">{r.receiver || '—'}</td>
-                    <td className="px-3 py-2.5 text-ff-ink-2">{carrierLabel(r.carrier)}</td>
-                    <td className="px-3 py-2.5 text-ff-ink-2">{r.method ?? '—'}</td>
-                    <td className="px-3 py-2.5"><StatusPill s={r.status} /></td>
-                    <td className="px-3 py-2.5 ff-fig text-ff-ink-2">{r.trackingNumber || '—'}</td>
-                    <td className="px-3 py-2.5 ff-fig text-ff-ink-2">{money(r.codAmountStotinki)}</td>
-                    <td className="px-3 py-2.5 ff-fig text-ff-ink-2">{money(r.priceStotinki)}</td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex justify-end gap-1.5">
-                        {r.shipmentId && (
-                          <button onClick={() => refresh(r)} disabled={busyKey === r.rowKey} className={btn} title="Опресни статус">
-                            <RefreshCw size={14} className={busyKey === r.rowKey ? 'animate-spin' : ''} />
-                          </button>
-                        )}
-                        {r.shipmentId && (
-                          <button onClick={() => label(r)} disabled={busyKey === r.rowKey} className={btn} title="Свали етикет">
-                            <FileDown size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const draft = isCourierDraft(r);
+                  return (
+                    <tr key={r.rowKey} className="border-b border-ff-border-2 last:border-0">
+                      <td className="px-3 py-2.5 font-semibold text-ff-ink">{r.receiver || '—'}</td>
+                      {/* For a draft the carrier isn't decided yet → show a dash, not a carrier name. */}
+                      <td className="px-3 py-2.5 text-ff-ink-2">{draft ? '—' : carrierLabel(r.carrier)}</td>
+                      <td className="px-3 py-2.5 text-ff-ink-2">{r.method ?? '—'}</td>
+                      <td className="px-3 py-2.5"><StatusPill s={r.status} /></td>
+                      <td className="px-3 py-2.5 ff-fig text-ff-ink-2">{r.trackingNumber || '—'}</td>
+                      <td className="px-3 py-2.5 ff-fig text-ff-ink-2">{money(r.codAmountStotinki)}</td>
+                      <td className="px-3 py-2.5 ff-fig text-ff-ink-2">{money(r.priceStotinki)}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {draft ? (
+                            <>
+                              <CarrierPicker r={r} />
+                              <button onClick={() => createWaybill(r)} disabled={busyKey === r.rowKey} className={ctaBtn} title="Създай товарителница">
+                                <FilePlus size={14} /> Създай товарителница
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {r.shipmentId && (
+                                <button onClick={() => refresh(r)} disabled={busyKey === r.rowKey} className={btn} title="Опресни статус">
+                                  <RefreshCw size={14} className={busyKey === r.rowKey ? 'animate-spin' : ''} />
+                                </button>
+                              )}
+                              {r.shipmentId && (
+                                <button onClick={() => label(r)} disabled={busyKey === r.rowKey} className={btn} title="Свали етикет">
+                                  <FileDown size={14} />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
           {/* mobile cards */}
           <div className="mt-4 hidden flex-col gap-3 max-[900px]:flex">
-            {rows.map((r) => (
-              <div key={r.rowKey} className="rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-[15px] font-bold text-ff-ink">{r.receiver || '—'}</div>
-                    <div className="mt-0.5 text-[12.5px] font-semibold text-ff-muted">{carrierLabel(r.carrier)} · {r.method ?? '—'}</div>
+            {rows.map((r) => {
+              const draft = isCourierDraft(r);
+              return (
+                <div key={r.rowKey} className="rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-[15px] font-bold text-ff-ink">{r.receiver || '—'}</div>
+                      <div className="mt-0.5 text-[12.5px] font-semibold text-ff-muted">{(draft ? '—' : carrierLabel(r.carrier))} · {r.method ?? '—'}</div>
+                    </div>
+                    <StatusPill s={r.status} />
                   </div>
-                  <StatusPill s={r.status} />
+                  <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-[13px]">
+                    <dt className="text-ff-muted">Товарителница</dt>
+                    <dd className="ff-fig text-right text-ff-ink-2">{r.trackingNumber || '—'}</dd>
+                    <dt className="text-ff-muted">НП</dt>
+                    <dd className="ff-fig text-right text-ff-ink-2">{money(r.codAmountStotinki)}</dd>
+                    <dt className="text-ff-muted">Цена</dt>
+                    <dd className="ff-fig text-right text-ff-ink-2">{money(r.priceStotinki)}</dd>
+                  </dl>
+                  {draft ? (
+                    <div className="mt-3 flex gap-2">
+                      <CarrierPicker r={r} className="h-11" />
+                      <button onClick={() => createWaybill(r)} disabled={busyKey === r.rowKey} className={ctaBtn + ' h-11 flex-1'}>
+                        <FilePlus size={15} /> Създай товарителница
+                      </button>
+                    </div>
+                  ) : r.shipmentId ? (
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={() => refresh(r)} disabled={busyKey === r.rowKey} className={btn + ' h-11 flex-1'}>
+                        <RefreshCw size={15} className={busyKey === r.rowKey ? 'animate-spin' : ''} /> Опресни
+                      </button>
+                      <button onClick={() => label(r)} disabled={busyKey === r.rowKey} className={btn + ' h-11 flex-1'}>
+                        <FileDown size={15} /> Етикет
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-                <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-[13px]">
-                  <dt className="text-ff-muted">Товарителница</dt>
-                  <dd className="ff-fig text-right text-ff-ink-2">{r.trackingNumber || '—'}</dd>
-                  <dt className="text-ff-muted">НП</dt>
-                  <dd className="ff-fig text-right text-ff-ink-2">{money(r.codAmountStotinki)}</dd>
-                  <dt className="text-ff-muted">Цена</dt>
-                  <dd className="ff-fig text-right text-ff-ink-2">{money(r.priceStotinki)}</dd>
-                </dl>
-                {r.shipmentId && (
-                  <div className="mt-3 flex gap-2">
-                    <button onClick={() => refresh(r)} disabled={busyKey === r.rowKey} className={btn + ' h-11 flex-1'}>
-                      <RefreshCw size={15} className={busyKey === r.rowKey ? 'animate-spin' : ''} /> Опресни
-                    </button>
-                    <button onClick={() => label(r)} disabled={busyKey === r.rowKey} className={btn + ' h-11 flex-1'}>
-                      <FileDown size={15} /> Етикет
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

@@ -112,6 +112,12 @@ export interface ShipmentRow {
   rowKey: string;
   /** Persisted shipment id used by refresh / label endpoints (absent until created). */
   shipmentId?: string | null;
+  /** Source order id — the path param for finalizing a courier draft into a waybill.
+   *  Set only for order-backed Econt rows; null for order-less manual rows (where the
+   *  backend overloads `orderId` as a row key, not a navigable order id). */
+  orderId?: string | null;
+  /** Human order reference, shown next to the receiver on draft rows. */
+  orderNumber?: string | null;
   receiver: string;
   method: string | null;
   status: ShipmentStatus;
@@ -159,6 +165,10 @@ export const listEcontShipments = async (): Promise<ShipmentRow[]> => {
     carrier: 'econt' as const,
     rowKey: `econt:${r.shipmentId ?? r.orderId}`,
     shipmentId: r.shipmentId ?? null,
+    // For a manual (order-less) row the backend overloads `orderId` as a row key, so
+    // never treat it as a finalizable order id — only real courier orders get one.
+    orderId: r.manual ? null : r.orderId,
+    orderNumber: r.manual ? null : r.orderNumber,
     receiver: r.customerName,
     method: econtMethodLabel(r.method),
     status: r.status,
@@ -186,6 +196,15 @@ export const listSpeedyShipments = async (): Promise<ShipmentRow[]> => {
 };
 
 const carrierBase = (c: Carrier) => (c === 'speedy' ? 'speedy' : 'shipping');
+
+/** Finalize a courier DRAFT (an order with no waybill yet) into a real waybill with the
+ *  farmer's chosen carrier. Routes to that carrier's order-label endpoint:
+ *   - econt  → POST shipping/orders/:orderId/label
+ *   - speedy → POST speedy/orders/:orderId/label
+ *  Both are farmer-scoped on the dostavki backend (createLabelForOrder(t, orderId, f)). */
+export const finalizeCourierDraft = async (carrier: Carrier, orderId: string): Promise<void> => {
+  await bff(`${carrierBase(carrier)}/orders/${orderId}/label`, { method: 'POST' }, 'Създаването на товарителница се провали');
+};
 
 export const refreshShipment = async (carrier: Carrier, id: string): Promise<void> => {
   await bff(`${carrierBase(carrier)}/shipments/${id}/refresh`, { method: 'POST' }, 'Опресняването се провали');
