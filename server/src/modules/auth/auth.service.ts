@@ -304,9 +304,9 @@ export class AuthService {
    * be replayed as an auth token; the URL only carries this, never the real session.
    * Exchanged server-side at the delivery app via `handoffLogin`.
    */
-  async issueDeliveryHandoff(userId: string, tenantId: string): Promise<{ token: string }> {
+  async issueDeliveryHandoff(userId: string, tenantId: string, farmerId?: string): Promise<{ token: string }> {
     const token = await this.jwt.signAsync(
-      { sub: userId, tid: tenantId, type: 'delivery-handoff' },
+      { sub: userId, tid: tenantId, ...(farmerId ? { fid: farmerId } : {}), type: 'delivery-handoff' },
       { secret: this.handoffSecret(), expiresIn: '120s' },
     );
     return { token };
@@ -319,7 +319,7 @@ export class AuthService {
    * activation). Backs the delivery-web `?handoff=` login.
    */
   async handoffLogin(token: string): Promise<{ accessToken: string }> {
-    let payload: { sub?: string; tid?: string; type?: string };
+    let payload: { sub?: string; tid?: string; fid?: string; type?: string };
     try {
       payload = await this.jwt.verifyAsync(token, { secret: this.handoffSecret() });
     } catch {

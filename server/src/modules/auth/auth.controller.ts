@@ -10,6 +10,7 @@ import { UpdateNavDto } from './dto/update-nav.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user-id.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 
 @ApiTags('auth')
@@ -83,7 +84,11 @@ export class AuthController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('delivery-handoff')
   @HttpCode(200)
-  deliveryHandoff(@CurrentUserId() userId: string, @CurrentTenant() tenantId: string) {
-    return this.authService.issueDeliveryHandoff(userId, tenantId);
+  deliveryHandoff(
+    @CurrentUserId() userId: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentFarmer() farmerId?: string,
+  ) {
+    return this.authService.issueDeliveryHandoff(userId, tenantId, farmerId);
   }
 }

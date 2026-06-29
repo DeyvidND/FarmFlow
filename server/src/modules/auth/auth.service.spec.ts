@@ -458,5 +458,14 @@ describe('AuthService', () => {
       const out = await service.handoffLogin('x');
       expect(out).toEqual({ accessToken: 'signed-token' });
     });
+
+    it('includes farmerId in the handoff token when the user is a farmer', async () => {
+      (jwtService.signAsync as jest.Mock).mockResolvedValueOnce('handoff-token');
+      await service.issueDeliveryHandoff(USER_ID, TENANT_ID, 'farmer-1');
+      expect(jwtService.signAsync).toHaveBeenCalledWith(
+        { sub: USER_ID, tid: TENANT_ID, fid: 'farmer-1', type: 'delivery-handoff' },
+        expect.objectContaining({ expiresIn: '120s' }),
+      );
+    });
   });
 });
