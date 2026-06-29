@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, Info } from 'lucide-react';
+import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, Info, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, hhmm, type OrderStatus } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -57,7 +57,7 @@ export function DashboardClient({
   const ns = summary.nextSlot;
   const stats = [
     { Icon: Package, label: 'Поръчки днес', value: summary.orderCount, sub: `${delta >= 0 ? '+' : ''}${delta} спрямо вчера`, tone: 'green' as const },
-    { Icon: Coins, label: 'Оборот днес', value: moneyFromStotinki(summary.revenueStotinki), sub: 'без отказани', tone: 'amber' as const },
+    { Icon: Coins, label: 'Оборот днес', value: moneyFromStotinki(summary.revenueStotinki), sub: 'без отказани и доставка', tone: 'amber' as const },
     { Icon: Hourglass, label: 'Чакат потвърждение', value: summary.pendingCount, sub: summary.pendingCount ? 'изискват действие' : 'всичко чисто', tone: 'amber' as const },
     { Icon: Clock, label: 'Следващ свободен час', value: ns ? `${hhmm(ns.timeFrom)} – ${hhmm(ns.timeTo)}` : '—', sub: ns ? 'свободен' : 'няма свободни', tone: 'green' as const },
   ];
@@ -219,6 +219,16 @@ export function DashboardClient({
           <StatCard key={s.label} {...s} index={i} />
         ))}
       </div>
+
+      {summary.deliveryRevenueStotinki > 0 && (
+        <div className="mt-2.5 flex items-center gap-2 text-[13px] text-ff-muted">
+          <Truck size={15} className="shrink-0 text-ff-ink-2" />
+          <span>
+            Такси за доставка днес (не влизат в оборота):{' '}
+            <span className="font-bold text-ff-ink-2">{moneyFromStotinki(summary.deliveryRevenueStotinki)}</span>
+          </span>
+        </div>
+      )}
 
       <div className="mt-4 grid grid-cols-[1.6fr_1fr] items-start gap-4 max-[900px]:grid-cols-1">
         <OrdersFeed orders={feed} onOpen={setActiveId} onSeeAll={() => router.push('/orders')} />

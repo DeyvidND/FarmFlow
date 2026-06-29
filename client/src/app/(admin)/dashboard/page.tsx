@@ -12,6 +12,7 @@ const EMPTY: DashboardSummary = {
   orderCount: 0,
   orderDelta: 0,
   revenueStotinki: 0,
+  deliveryRevenueStotinki: 0,
   pendingCount: 0,
   nextSlot: null,
   slots: [],

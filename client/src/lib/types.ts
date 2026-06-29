@@ -489,7 +489,10 @@ export interface DashboardSummary {
   date: string;
   orderCount: number;
   orderDelta: number;
+  /** Product turnover for the day (delivery fees excluded). */
   revenueStotinki: number;
+  /** Delivery fees collected today, kept apart from turnover. */
+  deliveryRevenueStotinki: number;
   pendingCount: number;
   nextSlot: DashboardSlot | null;
   slots: DashboardSlot[];
@@ -530,7 +533,10 @@ export interface StatsSummary {
   /** Resolved window (BG dates, both inclusive). */
   from: string;
   to: string;
+  /** Product turnover (delivery fees excluded). */
   revenueStotinki: number;
+  /** Delivery fees collected in the window, kept apart from turnover. */
+  deliveryRevenueStotinki: number;
   orderCount: number;
   avgOrderStotinki: number;
   prevRevenueStotinki: number;

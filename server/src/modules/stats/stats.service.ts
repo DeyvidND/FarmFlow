@@ -64,8 +64,11 @@ export interface StatsSummary {
   /** Resolved window (BG calendar dates, both inclusive). */
   from: string;
   to: string;
-  /** Current window. */
+  /** Current window. Product turnover only — delivery fees are excluded. */
   revenueStotinki: number;
+  /** Delivery fees collected in the window (order total − product lines). Shown
+   *  separately so the fixed self-delivery fee never inflates оборот. */
+  deliveryRevenueStotinki: number;
   orderCount: number;
   avgOrderStotinki: number;
   /** Equal-length window immediately before — for the delta arrows. */
@@ -261,27 +264,45 @@ export class StatsService {
     const live = sql`${orders.status} is distinct from 'cancelled'`;
     // Customer identity for loyalty: phone, else email, else account id.
     const keyExpr = sql<string>`coalesce(nullif(${orders.customerPhone}, ''), nullif(${orders.customerEmail}, ''), ${orders.customerId}::text)`;
+    // Product turnover (оборот) = line money only — never the order total, which
+    // also carries the delivery fee. Delivery is surfaced separately below.
+    const lineRev = sql`${orderItems.quantity} * ${orderItems.priceStotinki}`;
+    const inCur = sql`${orders.createdAt} >= ${since} and ${orders.createdAt} < ${toExcl} and ${live}`;
+    const inPrev = sql`${orders.createdAt} >= ${prevSince} and ${orders.createdAt} < ${since} and ${live}`;
 
-    // ── Headline aggregate: current + previous window in one filtered scan,
-    //    served by the (tenant_id, created_at, id) index. ──
+    // ── Headline aggregate: order counts + order TOTAL (incl. delivery), current
+    //    + previous window in one scan served by (tenant_id, created_at, id). The
+    //    total feeds the delivery split — product turnover comes from itemsAgg. ──
     const aggP = this.db
       .select({
-        orderCount: sql<number>`count(*) filter (where ${orders.createdAt} >= ${since} and ${orders.createdAt} < ${toExcl} and ${live})::int`,
-        revenue: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.createdAt} >= ${since} and ${orders.createdAt} < ${toExcl} and ${live}), 0)::int`,
-        prevOrderCount: sql<number>`count(*) filter (where ${orders.createdAt} >= ${prevSince} and ${orders.createdAt} < ${since} and ${live})::int`,
-        prevRevenue: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.createdAt} >= ${prevSince} and ${orders.createdAt} < ${since} and ${live}), 0)::int`,
+        orderCount: sql<number>`count(*) filter (where ${inCur})::int`,
+        total: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${inCur}), 0)::int`,
+        prevOrderCount: sql<number>`count(*) filter (where ${inPrev})::int`,
       })
       .from(orders)
       .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, prevSince), lt(orders.createdAt, toExcl)));
 
-    // ── Payment split (current window). ──
+    // ── Product turnover: line-item money for the same two windows (no products
+    //    join, so line items of deleted products still count toward turnover). ──
+    const itemsAggP = this.db
+      .select({
+        revenue: sql<number>`coalesce(sum(${lineRev}) filter (where ${inCur}), 0)::int`,
+        prevRevenue: sql<number>`coalesce(sum(${lineRev}) filter (where ${inPrev}), 0)::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, prevSince), lt(orders.createdAt, toExcl)));
+
+    // ── Payment split (current window): product money by parent order method, so
+    //    наложен платеж + карта sum back to оборот (delivery excluded). ──
     const paymentP = this.db
       .select({
         method: orders.paymentMethod,
-        count: sql<number>`count(*)::int`,
-        revenue: sql<number>`coalesce(sum(${orders.totalStotinki}), 0)::int`,
+        count: sql<number>`count(distinct ${orders.id})::int`,
+        revenue: sql<number>`coalesce(sum(${lineRev}), 0)::int`,
       })
-      .from(orders)
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), lt(orders.createdAt, toExcl), live))
       .groupBy(orders.paymentMethod);
 
@@ -329,10 +350,11 @@ export class StatsService {
     const seriesP = this.db
       .select({
         t: bucketExpr,
-        orders: sql<number>`count(*) filter (where ${live})::int`,
-        revenueStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${live}), 0)::int`,
+        orders: sql<number>`count(distinct ${orders.id}) filter (where ${live})::int`,
+        revenueStotinki: sql<number>`coalesce(sum(${lineRev}) filter (where ${live}), 0)::int`,
       })
-      .from(orders)
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), lt(orders.createdAt, toExcl)))
       // Bucket is the first SELECT column — reference it by position (same reason
       // as topProducts above; the BG_TZ bound param breaks GROUP BY by expression).
@@ -370,18 +392,20 @@ export class StatsService {
     const weekdayP = this.db
       .select({
         dow: dowExpr,
-        orders: sql<number>`count(*) filter (where ${live})::int`,
-        revenueStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${live}), 0)::int`,
+        orders: sql<number>`count(distinct ${orders.id}) filter (where ${live})::int`,
+        revenueStotinki: sql<number>`coalesce(sum(${lineRev}) filter (where ${live}), 0)::int`,
       })
-      .from(orders)
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), lt(orders.createdAt, toExcl)))
       // dow carries the BG_TZ bound param — group/order by position (see above).
       .groupBy(sql`1`)
       .orderBy(sql`1`);
 
-    const [[agg], paymentRows, topProducts, winKeys, priorKeys, seriesRows, activeProducts, sold, weekdayRows] =
+    const [[agg], [items], paymentRows, topProducts, winKeys, priorKeys, seriesRows, activeProducts, sold, weekdayRows] =
       await Promise.all([
         aggP,
+        itemsAggP,
         paymentP,
         topP,
         winKeysP,
@@ -424,10 +448,12 @@ export class StatsService {
       bucket,
       from,
       to,
-      revenueStotinki: agg.revenue,
+      revenueStotinki: items.revenue,
+      // Delivery = order total − product lines (never below 0 on odd legacy rows).
+      deliveryRevenueStotinki: Math.max(0, agg.total - items.revenue),
       orderCount: agg.orderCount,
-      avgOrderStotinki: agg.orderCount ? Math.round(agg.revenue / agg.orderCount) : 0,
-      prevRevenueStotinki: agg.prevRevenue,
+      avgOrderStotinki: agg.orderCount ? Math.round(items.revenue / agg.orderCount) : 0,
+      prevRevenueStotinki: items.prevRevenue,
       prevOrderCount: agg.prevOrderCount,
       customerCount: ret.customerCount,
       returningCustomers: ret.returningCustomers,
@@ -618,6 +644,8 @@ export class StatsService {
     const farmerResult: StatsSummary = {
       range, bucket, from, to,
       revenueStotinki: agg.revenue,
+      // A producer's turnover is already line-item only; delivery is never theirs.
+      deliveryRevenueStotinki: 0,
       orderCount: agg.orderCount,
       avgOrderStotinki: agg.orderCount ? Math.round(agg.revenue / agg.orderCount) : 0,
       prevRevenueStotinki: agg.prevRevenue,

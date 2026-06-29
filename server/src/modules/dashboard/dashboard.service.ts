@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { and, eq, gte, lt, sql } from 'drizzle-orm';
-import { type Database, orders, deliverySlots, tenants } from '@fermeribg/db';
+import { type Database, orders, orderItems, deliverySlots, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { bgToday, bgDayBounds, bgAddDays } from '../../common/time/bg-time';
 
@@ -17,7 +17,10 @@ export interface DashboardSummary {
   orderCount: number;
   /** Today's order count minus yesterday's. */
   orderDelta: number;
+  /** Product turnover for the day (non-cancelled) — delivery fees excluded. */
   revenueStotinki: number;
+  /** Delivery fees collected today (order total − product lines), shown apart. */
+  deliveryRevenueStotinki: number;
   pendingCount: number;
   /** First free (un-booked) active slot today, or null. */
   nextSlot: DashboardSlot | null;
@@ -42,10 +45,27 @@ export class DashboardService {
     const aggP = this.db
       .select({
         orderCount: sql<number>`count(*)::int`,
-        revenueStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.status} <> 'cancelled'), 0)::int`,
+        // Order total (incl. delivery) — split into turnover vs delivery below.
+        totalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.status} <> 'cancelled'), 0)::int`,
         pendingCount: sql<number>`count(*) filter (where ${orders.status} = 'pending')::int`,
       })
       .from(orders)
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          gte(orders.createdAt, today.from),
+          lt(orders.createdAt, today.to),
+        ),
+      );
+
+    // Product turnover for the day: line-item money only (no delivery fee). No
+    // products join, so line items of since-deleted products still count.
+    const productRevP = this.db
+      .select({
+        revenueStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.status} <> 'cancelled'), 0)::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .where(
         and(
           eq(orders.tenantId, tenantId),
@@ -90,8 +110,9 @@ export class DashboardService {
       .groupBy(deliverySlots.id, deliverySlots.timeFrom, deliverySlots.timeTo)
       .orderBy(deliverySlots.timeFrom);
 
-    const [[agg], [{ yesterday }], [tenant], slotRows] = await Promise.all([
+    const [[agg], [prod], [{ yesterday }], [tenant], slotRows] = await Promise.all([
       aggP,
+      productRevP,
       yesterdayP,
       tenantP,
       slotRowsP,
@@ -108,7 +129,8 @@ export class DashboardService {
       date: day,
       orderCount: agg.orderCount,
       orderDelta: agg.orderCount - yesterday,
-      revenueStotinki: agg.revenueStotinki,
+      revenueStotinki: prod.revenueStotinki,
+      deliveryRevenueStotinki: Math.max(0, agg.totalStotinki - prod.revenueStotinki),
       pendingCount: agg.pendingCount,
       nextSlot: slots.find((s) => s.booked === 0) ?? null,
       slots,

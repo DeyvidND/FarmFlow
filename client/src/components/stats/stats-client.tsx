@@ -16,6 +16,7 @@ import {
   Banknote,
   PackageX,
   CalendarRange,
+  Truck,
   type LucideIcon,
 } from 'lucide-react';
 import { cn, moneyFromStotinki } from '@/lib/utils';
@@ -415,6 +416,16 @@ export function StatsClient({
               />
             )}
           </div>
+
+          {data.deliveryRevenueStotinki > 0 && (
+            <div className="-mt-1 flex items-center gap-2 text-[13px] text-ff-muted">
+              <Truck size={15} className="shrink-0 text-ff-ink-2" />
+              <span>
+                Такси за доставка (не влизат в оборота):{' '}
+                <span className="font-bold text-ff-ink-2">{moneyFromStotinki(data.deliveryRevenueStotinki)}</span>
+              </span>
+            </div>
+          )}
 
           {/* top products + payment split */}
           {(
