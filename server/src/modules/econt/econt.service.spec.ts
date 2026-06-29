@@ -540,6 +540,18 @@ describe('parseAddressValidation', () => {
   });
 });
 
+describe('EcontService.validateAddress', () => {
+  it('reads top-level validationStatus (sibling of address), not address.validationStatus', async () => {
+    const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+    // Live Econt shape: { address: {...}, validationStatus, serviceInfo } — status is a sibling.
+    (svc as unknown as { callTenant: (...a: unknown[]) => Promise<unknown> }).callTenant = jest
+      .fn()
+      .mockResolvedValue({ address: { city: { name: 'София' }, fullAddress: 'бул. Витоша 1' }, validationStatus: 'normal' });
+    const out = await svc.validateAddress('t1', { city: 'София', address: 'бул. Витоша 1' } as never);
+    expect(out).toEqual({ valid: true, status: 'normal' });
+  });
+});
+
 describe('slimClientProfiles', () => {
   it('maps Econt client profiles to sender suggestions', () => {
     const out = slimClientProfiles({

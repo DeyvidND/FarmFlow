@@ -57,7 +57,7 @@ describe('SpeedyService.estimateShipping', () => {
     (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
     const cache = { get: jest.fn().mockResolvedValue(null), set: jest.fn() };
     (svc as any).cache = cache;
-    const call = jest.fn().mockResolvedValue({ price: { total: 8.5 } });
+    const call = jest.fn().mockResolvedValue({ calculations: [{ serviceId: 505, price: { total: 8.5, currency: 'EUR' } }] });
     (svc as any).client = { call };
 
     const result = await svc.estimateShipping('t1', { siteId: 100, weightGrams: 1500 });
@@ -77,7 +77,7 @@ describe('SpeedyService.estimateShipping', () => {
     (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
     const cache = { get: jest.fn().mockResolvedValue(null), set: jest.fn() };
     (svc as any).cache = cache;
-    (svc as any).client = { call: jest.fn().mockResolvedValue({ price: { total: 0 } }) };
+    (svc as any).client = { call: jest.fn().mockResolvedValue({ calculations: [{ price: { total: 0 } }] }) };
 
     const result = await svc.estimateShipping('t1', { siteId: 100 });
     expect(result).toBeNull();
@@ -90,7 +90,7 @@ describe('SpeedyService.estimateShipping', () => {
   });
 
   it('prices COD with a distinct cache key and passes cod to the request body', async () => {
-    const call = jest.fn().mockResolvedValue({ price: { total: 5 } });
+    const call = jest.fn().mockResolvedValue({ calculations: [{ price: { total: 5 } }] });
     (svc as any).client = { call };
     (svc as any).loadStored = jest.fn().mockResolvedValue({
       speedy: { configured: true, defaultServiceId: 505 },
@@ -105,8 +105,11 @@ describe('SpeedyService.estimateShipping', () => {
     expect(cache.set.mock.calls[0][0]).toContain('cod');
     // body is the 3rd arg (index 2) of client.call(creds, path, body, timeout)
     const body = call.mock.calls[0][2];
-    // buildShipmentRequest puts COD under service.additionalServices.cod.amount
+    // buildCalculateRequest puts COD under service.additionalServices.cod.amount,
+    // and the destination under recipient.addressLocation (NOT recipient.address).
     expect((body as any).service?.additionalServices?.cod?.amount).toBeGreaterThan(0);
+    expect((body as any).service?.serviceIds).toEqual([505]);
+    expect((body as any).recipient?.addressLocation?.siteId).toBe(100);
   });
 });
 

@@ -1,7 +1,7 @@
 import {
   parseTrackStatus, trackingUrl, buildShipmentRequest, parsePayouts,
   slimSites, slimOffices, slimStreets, slimContractClients, toEur,
-  buildOrderShipmentInput,
+  buildOrderShipmentInput, buildCalculateRequest, parseCalculatePrice,
 } from './speedy.helpers';
 
 describe('toEur', () => {
@@ -58,7 +58,7 @@ describe('buildShipmentRequest', () => {
     defaultPackage: { parcelsCount: 1, weightKg: 1, contents: 'Хранителни продукти' },
   };
 
-  it('builds an office-delivery body with id-based recipient address', () => {
+  it('builds an office-delivery body with recipient.pickupOfficeId and NO address', () => {
     const body = buildShipmentRequest(cfg, {
       receiverName: 'Иван Петров', receiverPhone: '0899445566',
       deliveryMode: 'office', officeId: 123, serviceId: 505,
@@ -66,13 +66,18 @@ describe('buildShipmentRequest', () => {
     expect(body.recipient.clientName).toBe('Иван Петров');
     expect(body.recipient.phone1.number).toBe('0899445566');
     expect(body.recipient.privatePerson).toBe(true);
-    expect(body.recipient.address.officeId).toBe(123);
+    // Office delivery: pickupOfficeId at recipient level, NO recipient.address
+    // (a present address is validated as a door address and rejected live).
+    expect(body.recipient.pickupOfficeId).toBe(123);
+    expect(body.recipient.address).toBeUndefined();
     expect(body.service.serviceId).toBe(505);
     expect(body.content.parcelsCount).toBe(1);
+    // content.package is REQUIRED on create (Speedy 605 without it).
+    expect(body.content.package).toBe('BOX');
     expect(body.service.additionalServices).toBeUndefined();
   });
 
-  it('builds a door-address body with siteId/streetId/streetNo', () => {
+  it('builds a door-address body with siteId/streetId/streetNo (no pickupOfficeId)', () => {
     const body = buildShipmentRequest(cfg, {
       receiverName: 'Иван', receiverPhone: '0899445566',
       deliveryMode: 'address', siteId: 68134, streetId: 3109, streetNo: '1A', serviceId: 505,
@@ -81,6 +86,8 @@ describe('buildShipmentRequest', () => {
     expect(body.recipient.address.streetId).toBe(3109);
     expect(body.recipient.address.streetNo).toBe('1A');
     expect(body.recipient.address.officeId).toBeUndefined();
+    expect(body.recipient.pickupOfficeId).toBeUndefined();
+    expect(body.content.package).toBe('BOX');
   });
 
   it('adds COD in EUR when a COD amount is given', () => {
@@ -102,6 +109,38 @@ describe('buildShipmentRequest', () => {
     expect(body.content.totalWeight).toBe(1.5);
     expect(body.content.parcelsCount).toBe(2);
     expect(body.content.contents).toBe('Мед');
+  });
+});
+
+describe('buildCalculateRequest', () => {
+  const cfg = { defaultPackage: { weightKg: 1, parcelsCount: 1 } } as any;
+
+  it('uses the /calculate shape: serviceIds[] + recipient.addressLocation (NOT address)', () => {
+    const body = buildCalculateRequest(cfg, { siteId: 68134, serviceId: 505, weightGrams: 1500 }) as any;
+    expect(body.service.serviceIds).toEqual([505]);
+    expect(body.service.serviceId).toBeUndefined();
+    expect(body.recipient.addressLocation.siteId).toBe(68134);
+    expect(body.recipient.address).toBeUndefined();
+    expect(body.content.totalWeight).toBe(1.5);
+    expect(body.payment.courierServicePayer).toBe('RECIPIENT');
+  });
+
+  it('adds COD in EUR onto service.additionalServices when requested', () => {
+    const body = buildCalculateRequest(cfg, { siteId: 68134, serviceId: 505, codAmountStotinki: 2000 }) as any;
+    expect(body.service.additionalServices.cod.amount).toBe(20);
+    expect(body.service.additionalServices.cod.currencyCode).toBe('EUR');
+  });
+});
+
+describe('parseCalculatePrice', () => {
+  it('reads calculations[0].price.total (live shape)', () => {
+    expect(parseCalculatePrice({ calculations: [{ serviceId: 505, price: { total: 5.72, amount: 4.77, currency: 'EUR' } }] })).toBe(5.72);
+  });
+  it('falls back to price.amount and returns null when absent', () => {
+    expect(parseCalculatePrice({ calculations: [{ price: { amount: 3.32 } }] })).toBe(3.32);
+    expect(parseCalculatePrice({ calculations: [] })).toBeNull();
+    expect(parseCalculatePrice({ error: { message: 'x' } })).toBeNull();
+    expect(parseCalculatePrice(null)).toBeNull();
   });
 });
 

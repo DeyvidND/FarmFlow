@@ -482,7 +482,10 @@ export class EcontService implements CarrierAdapter {
       'Nomenclatures/AddressService.validateAddress.json',
       { address: { city: { name: input.city }, other: input.address } },
     );
-    return parseAddressValidation(data?.address ?? data);
+    // Econt returns { address: {...}, validationStatus, serviceInfo } — `validationStatus`
+    // is a SIBLING of `address`, NOT inside it. Passing `data.address` (the old code) lost
+    // it → every address read as invalid. Pass the whole response so the parser finds it.
+    return parseAddressValidation(data);
   }
 
   /** Fetch the farm's saved Econt sender profiles (auto-fill + creds check). */

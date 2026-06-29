@@ -11,7 +11,8 @@ import { SpeedyClient, type SpeedyCreds } from './speedy.client';
 import {
   type SpeedyStored, slimSites, slimOffices, slimStreets, slimContractClients,
   type SpeedySite, type SpeedyOffice, type SpeedyStreet, type SenderSuggestion,
-  buildShipmentRequest, buildOrderShipmentInput, parseTrackStatus, parsePayouts, type CanonicalStatus,
+  buildShipmentRequest, buildCalculateRequest, parseCalculatePrice,
+  buildOrderShipmentInput, parseTrackStatus, parsePayouts, type CanonicalStatus,
   SPEEDY_DEFAULT_SERVICE_ID,
 } from './speedy.helpers';
 import { mergePdfs } from '../econt/econt.service';
@@ -280,24 +281,25 @@ export class SpeedyService implements CarrierAdapter {
 
   async searchSites(tenantId: string, q?: string, cache?: Map<string, unknown>): Promise<SpeedySite[]> {
     const { tenant } = await this.loadStored(tenantId, cache);
-    const key = `speedy:sites:${tenant.slug}`;
+    const query = (q ?? '').trim();
+    // Speedy's location/site returns only ~10 default sites when called WITHOUT a name —
+    // the full nomenclature is searched server-side via `name`. Fetching once + filtering
+    // locally (the old approach) found 0 for "София". Pass the query through, cache per query.
+    const key = `speedy:sites:${tenant.slug}:${query.toLowerCase() || '_'}`;
     let list = await this.cache.get<SpeedySite[]>(key);
     if (list === null) {
       const creds = await this.resolveCreds(tenantId);
-      const data = await this.client.callSafe(creds, 'location/site', { countryId: 100 });
+      const data = await this.client.callSafe(creds, 'location/site', query ? { countryId: 100, name: query } : { countryId: 100 });
       list = slimSites(data);
       await this.cache.set(key, list, list.length ? NOMENCLATURE_TTL : EMPTY_TTL);
     }
-    const query = (q ?? '').trim().toLowerCase();
     if (!query) return list.slice(0, 20);
+    // Rank prefix matches first within Speedy's server-side results.
+    const ql = query.toLowerCase();
     const starts: SpeedySite[] = [];
-    const contains: SpeedySite[] = [];
-    for (const s of list) {
-      const n = s.name.toLowerCase();
-      if (n.startsWith(query)) starts.push(s);
-      else if (n.includes(query)) contains.push(s);
-    }
-    return [...starts, ...contains].slice(0, 20);
+    const rest: SpeedySite[] = [];
+    for (const s of list) (s.name.toLowerCase().startsWith(ql) ? starts : rest).push(s);
+    return [...starts, ...rest].slice(0, 20);
   }
 
   async getOffices(tenantId: string, siteId: number, cache?: Map<string, unknown>): Promise<SpeedyOffice[]> {
@@ -316,17 +318,18 @@ export class SpeedyService implements CarrierAdapter {
   async getStreets(tenantId: string, siteId: number, q?: string, cache?: Map<string, unknown>): Promise<SpeedyStreet[]> {
     if (!siteId) return [];
     const { tenant } = await this.loadStored(tenantId, cache);
-    const key = `speedy:streets:${tenant.slug}:${siteId}`;
+    const query = (q ?? '').trim();
+    // Same as searchSites: pass `name` so Speedy searches server-side (a bare siteId
+    // returns a capped default list), cached per query.
+    const key = `speedy:streets:${tenant.slug}:${siteId}:${query.toLowerCase() || '_'}`;
     let list = await this.cache.get<SpeedyStreet[]>(key);
     if (list === null) {
       const creds = await this.resolveCreds(tenantId);
-      const data = await this.client.callSafe(creds, 'location/street', { siteId });
+      const data = await this.client.callSafe(creds, 'location/street', query ? { siteId, name: query } : { siteId });
       list = slimStreets(data);
       await this.cache.set(key, list, list.length ? NOMENCLATURE_TTL : EMPTY_TTL);
     }
-    const query = (q ?? '').trim().toLowerCase();
-    if (!query) return list.slice(0, 20);
-    return list.filter((s) => s.name.toLowerCase().includes(query)).slice(0, 20);
+    return list.slice(0, 20);
   }
 
   async validateAddress(
@@ -544,7 +547,11 @@ export class SpeedyService implements CarrierAdapter {
     if (row.carrierShipmentId) {
       const creds = await this.resolveCreds(tenantId);
       try {
-        await this.client.call(creds, 'shipment/cancel', { shipmentId: row.carrierShipmentId });
+        // Speedy requires a cancel reason of >= 4 chars (cancel_comment_too_short).
+        await this.client.call(creds, 'shipment/cancel', {
+          shipmentId: row.carrierShipmentId,
+          comment: 'Анулирана от ФермериБГ',
+        });
       } catch (err) {
         this.logger.warn(`[speedy] cancel failed for ${row.carrierShipmentId}: ${err instanceof Error ? err.message : err}`);
         throw new BadRequestException(
@@ -737,13 +744,10 @@ export class SpeedyService implements CarrierAdapter {
 
       const creds = await this.resolveCreds(tenantId);
       const serviceId = speedy.defaultServiceId ?? SPEEDY_DEFAULT_SERVICE_ID;
-      // Reuse the create-body builder with a placeholder receiver at the site.
-      // /calculate accepts the same body as /shipment. Pass COD so the price
-      // returned by Speedy already includes the COD service fee.
-      const body = buildShipmentRequest(speedy, {
-        receiverName: '—',
-        receiverPhone: '—',
-        deliveryMode: 'address',
+      // /calculate has its OWN body shape (serviceIds[] + recipient.addressLocation) —
+      // it is NOT the /shipment body. Pass COD so the returned price already includes
+      // the COD service fee.
+      const body = buildCalculateRequest(speedy, {
         siteId: input.siteId,
         serviceId,
         weightGrams: input.weightGrams,
@@ -751,11 +755,11 @@ export class SpeedyService implements CarrierAdapter {
       });
       // Short timeout: this runs inline behind the quote endpoint.
       const data = await this.client.call(creds, 'calculate', body, 6000);
-      // spike: confirm the /calculate price field name vs live API.
-      const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
+      // Live price path: calculations[0].price.total (no top-level price).
+      const priceEur = parseCalculatePrice(data);
       // Reject 0 / NaN / Infinity too — never cache a bogus "free shipping" 0 for 8h.
-      if (!Number.isFinite(priceEur) || (priceEur as number) <= 0) return null;
-      const stotinki = Math.round((priceEur as number) * 100);
+      if (priceEur == null || !Number.isFinite(priceEur) || priceEur <= 0) return null;
+      const stotinki = Math.round(priceEur * 100);
       await this.cache.set(key, stotinki, ESTIMATE_TTL);
       return stotinki;
     } catch (err) {

@@ -64,7 +64,7 @@ export interface SpeedyStored {
     streetId?: number;
     streetNo?: string;
   };
-  defaultPackage?: { parcelsCount?: number; weightKg?: number; contents?: string };
+  defaultPackage?: { parcelsCount?: number; weightKg?: number; contents?: string; packaging?: string };
   cod?: { enabled?: boolean; processingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER' };
   // Print-time + auto-create toggle — mirrors Econt's label.autoCreate field.
   label?: { autoCreate?: boolean };
@@ -87,6 +87,7 @@ export interface ManualInput {
   weightGrams?: number;
   parcelsCount?: number;
   contents?: string;
+  packaging?: string;
   codAmountStotinki?: number;
   declaredValueStotinki?: number;
   codProcessingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER';
@@ -94,9 +95,12 @@ export interface ManualInput {
 
 /**
  * Build the Speedy POST /shipment body from the farm's sender profile + hand-entered
- * receiver. Addresses are id-based (siteId/streetId/streetNo for a door, officeId for
- * an office). COD + declared value ride on service.additionalServices in EUR.
- * // spike: verify sender/recipient/address field names + payer enums vs live API.
+ * receiver. Field shapes verified live against api.speedy.bg/v1:
+ *  - Office delivery uses `recipient.pickupOfficeId` with NO `recipient.address` — a
+ *    present address is validated as a DOOR address and rejected (`details_required`).
+ *  - Door delivery uses the id-based `recipient.address` (siteId/streetId/streetNo).
+ *  - `content.package` (packaging type) is REQUIRED — create fails 605 without it.
+ *  - COD + declared value ride on `service.additionalServices` in EUR.
  */
 export function buildShipmentRequest(cfg: SpeedyStored, input: ManualInput): Record<string, unknown> {
   const sender = cfg.sender ?? {};
@@ -104,20 +108,8 @@ export function buildShipmentRequest(cfg: SpeedyStored, input: ManualInput): Rec
   const contents = input.contents || pkg.contents || 'Хранителни продукти';
   const weightKg = input.weightGrams ? input.weightGrams / 1000 : (pkg.weightKg ?? 1);
   const parcelsCount = input.parcelsCount ?? pkg.parcelsCount ?? 1;
-
-  const recipientAddress: Record<string, unknown> =
-    input.deliveryMode === 'office'
-      ? { countryId: 100, officeId: input.officeId }
-      : {
-          countryId: 100,
-          siteId: input.siteId,
-          ...(input.streetId ? { streetId: input.streetId } : {}),
-          ...(input.streetNo ? { streetNo: input.streetNo } : {}),
-          ...(input.blockNo ? { blockNo: input.blockNo } : {}),
-          ...(input.entranceNo ? { entranceNo: input.entranceNo } : {}),
-          ...(input.floorNo ? { floorNo: input.floorNo } : {}),
-          ...(input.apartmentNo ? { apartmentNo: input.apartmentNo } : {}),
-        };
+  // Speedy requires a packaging type on create (content.package); default to a box.
+  const packaging = input.packaging || pkg.packaging || 'BOX';
 
   const additionalServices: Record<string, unknown> = {};
   if (input.codAmountStotinki && input.codAmountStotinki > 0) {
@@ -141,20 +133,80 @@ export function buildShipmentRequest(cfg: SpeedyStored, input: ManualInput): Rec
   };
   if (sender.mode === 'office' && sender.officeId) senderBlock.dropoffOfficeId = sender.officeId;
 
+  const recipient: Record<string, unknown> = {
+    phone1: { number: input.receiverPhone },
+    clientName: input.receiverName,
+    privatePerson: true,
+  };
+  if (input.deliveryMode === 'office') {
+    recipient.pickupOfficeId = input.officeId;
+  } else {
+    recipient.address = {
+      countryId: 100,
+      siteId: input.siteId,
+      ...(input.streetId ? { streetId: input.streetId } : {}),
+      ...(input.streetNo ? { streetNo: input.streetNo } : {}),
+      ...(input.blockNo ? { blockNo: input.blockNo } : {}),
+      ...(input.entranceNo ? { entranceNo: input.entranceNo } : {}),
+      ...(input.floorNo ? { floorNo: input.floorNo } : {}),
+      ...(input.apartmentNo ? { apartmentNo: input.apartmentNo } : {}),
+    };
+  }
+
   return {
     sender: senderBlock,
-    recipient: {
-      phone1: { number: input.receiverPhone },
-      clientName: input.receiverName,
-      privatePerson: true,
-      address: recipientAddress,
-    },
+    recipient,
     service,
-    content: { parcelsCount, totalWeight: weightKg, contents },
-    // Default: recipient pays courier (COD use-case). // spike: confirm payer enum.
+    content: { parcelsCount, totalWeight: weightKg, contents, package: packaging },
+    // Default: recipient pays courier (COD use-case). Verified enum 'RECIPIENT'.
     payment: { courierServicePayer: 'RECIPIENT' },
     ref1: contents.slice(0, 30),
   };
+}
+
+/**
+ * Build the Speedy POST /calculate body. The pricing endpoint has a DIFFERENT shape
+ * than /shipment (verified live): the service rides in `service.serviceIds` (an ARRAY)
+ * and the destination in `recipient.addressLocation` — NOT `recipient.address`. Reusing
+ * the /shipment body here returns `calculation.recipient.address.required` (no price).
+ */
+export function buildCalculateRequest(
+  cfg: SpeedyStored,
+  input: { siteId: number; serviceId: number; weightGrams?: number; codAmountStotinki?: number },
+): Record<string, unknown> {
+  const pkg = cfg.defaultPackage ?? {};
+  const weightKg = input.weightGrams ? input.weightGrams / 1000 : (pkg.weightKg ?? 1);
+  const parcelsCount = pkg.parcelsCount ?? 1;
+
+  const service: Record<string, unknown> = { autoAdjustPickupDate: true, serviceIds: [input.serviceId] };
+  if (input.codAmountStotinki && input.codAmountStotinki > 0) {
+    service.additionalServices = {
+      cod: {
+        amount: toEur(input.codAmountStotinki),
+        processingType: cfg.cod?.processingType ?? 'CASH',
+        currencyCode: 'EUR',
+      },
+    };
+  }
+
+  return {
+    recipient: { privatePerson: true, addressLocation: { siteId: input.siteId } },
+    service,
+    content: { parcelsCount, totalWeight: weightKg },
+    payment: { courierServicePayer: 'RECIPIENT' },
+  };
+}
+
+/** Read the first calculation's total price (EUR) from a live /calculate response.
+ *  Real shape: `{ calculations: [{ price: { total, amount, currency } }] }` — there is
+ *  NO top-level `price`. Returns null when no calculation/price is present. */
+export function parseCalculatePrice(res: unknown): number | null {
+  const r = (res ?? {}) as Record<string, any>;
+  const calcs: any[] = Array.isArray(r.calculations) ? r.calculations : [];
+  if (!calcs.length) return null;
+  const price = (calcs[0]?.price ?? {}) as Record<string, any>;
+  const total = price.total ?? price.amount;
+  return Number.isFinite(total) ? Number(total) : null;
 }
 
 export interface SpeedyPayout {

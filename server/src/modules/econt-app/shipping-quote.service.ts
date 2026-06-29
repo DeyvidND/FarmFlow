@@ -48,8 +48,11 @@ export class ShippingQuoteService {
   /** Econt city-level estimate (door-to-city), priced at the shared weight. */
   private async econtEstimate(tenantId: string, input: CompareShipmentDto, weightGrams: number, cod: number): Promise<number | null> {
     const order = {
-      customerName: '—',
-      customerPhone: '—',
+      customerName: 'Получател',
+      // Econt's calculate REJECTS an invalid phone ('—') and returns no price → the whole
+      // compare showed Econt as unavailable. There's no real recipient yet at quote time,
+      // so use a valid-format placeholder so the price-only estimate succeeds.
+      customerPhone: '0888000000',
       // City-level estimate for both modes (no office code needed → always prices).
       deliveryType: 'econt_address' as const,
       econtOffice: null,
