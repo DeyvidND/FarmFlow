@@ -110,6 +110,7 @@ export interface Farmer {
   coverCrop: CoverCrop | null;
   position: number;
   createdAt: string;
+  courierEnabled?: boolean;
 }
 
 export interface FarmerAccess {

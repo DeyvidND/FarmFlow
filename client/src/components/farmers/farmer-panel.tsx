@@ -54,6 +54,7 @@ export function FarmerPanel({
   const [phone, setPhone] = useState(farmer.phone ?? '+359 ');
   const [email, setEmail] = useState(farmer.email ?? '');
   const [since, setSince] = useState(farmer.since ?? '2026');
+  const [courierEnabled, setCourierEnabled] = useState(farmer.courierEnabled ?? false);
   // Panel-login state — one email field below feeds both the daily-delivery digest
   // and (when access is granted) the producer's login.
   const [acc, setAcc] = useState<FarmerAccess | undefined>(access);
@@ -98,6 +99,7 @@ export function FarmerPanel({
         email: email.trim() || null,
         since: since.trim(),
         coverCrop,
+        courierEnabled,
       };
       const saved = isNew ? await createFarmer(data) : await updateFarmer(farmer.id!, data);
       // New farmer + "give panel access" ticked → invite right away with the same
@@ -262,6 +264,16 @@ export function FarmerPanel({
             <span className="text-[11px] font-semibold text-ff-muted-2">
               Същият имейл се ползва и за дневния списък с доставки, и за входа в панела.
             </span>
+          </label>
+
+          <label className="flex cursor-pointer items-center gap-2.5 text-[13px] font-semibold text-ff-ink-2">
+            <input
+              type="checkbox"
+              checked={courierEnabled}
+              onChange={(e) => setCourierEnabled(e.target.checked)}
+              className="h-4 w-4 accent-ff-green-600"
+            />
+            Куриерска доставка (фермерът праща сам с негов Speedy/Econt)
           </label>
 
           {/* Panel access — invite straight from here with the email above. */}
