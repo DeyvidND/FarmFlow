@@ -4,6 +4,7 @@ import {
 import { SpeedyService } from '../speedy/speedy.service';
 import { SpeedyCredentialsDto } from '../speedy/dto/speedy-credentials.dto';
 import { SpeedyProfileDto } from '../speedy/dto/speedy-profile.dto';
+import { SpeedySaveSendersDto } from '../speedy/dto/speedy-senders.dto';
 import { SpeedyManualShipmentDto } from '../speedy/dto/speedy-manual-shipment.dto';
 import { SpeedyValidateAddressDto } from '../speedy/dto/speedy-validate-address.dto';
 import { SpeedyCourierRequestDto } from '../speedy/dto/speedy-courier-request.dto';
@@ -33,6 +34,10 @@ export class SpeedyStandaloneController {
   @Post('profile')
   saveProfile(@CurrentTenant() t: string, @Body() dto: SpeedyProfileDto) {
     return this.speedy.saveProfile(t, dto);
+  }
+  @Post('senders')
+  saveSenders(@CurrentTenant() t: string, @Body() dto: SpeedySaveSendersDto) {
+    return this.speedy.saveSenders(t, dto as never);
   }
   @Get('profiles')
   profiles(@CurrentTenant() t: string) {

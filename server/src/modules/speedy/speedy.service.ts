@@ -6,6 +6,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
 import { deriveSenderFromFarm } from '../econt/econt.sender';
+import { readSenderBook, applySenderBook, type PickupPoint } from '../econt/sender-book';
 import { SpeedyClient, type SpeedyCreds } from './speedy.client';
 import {
   type SpeedyStored, slimSites, slimOffices, slimStreets, slimContractClients,
@@ -211,10 +212,34 @@ export class SpeedyService implements CarrierAdapter {
     return { ok: true };
   }
 
+  private buildSenderBlob(speedy: Record<string, unknown>, senders: PickupPoint[], activeId: string): Record<string, unknown> {
+    return applySenderBook(speedy, senders, activeId);
+  }
+
+  async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }): Promise<{ ok: true }> {
+    const { tenant, speedy } = await this.loadStored(tenantId);
+    const nextSpeedy = this.buildSenderBlob(speedy, input.senders, input.activeId);
+    const nextSettings = {
+      ...tenant.settings,
+      delivery: { ...((tenant.settings.delivery as Record<string, unknown>) ?? {}), speedy: nextSpeedy },
+    };
+    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    await this.cache.del(`tenant:${tenant.slug}`);
+    return { ok: true };
+  }
+
   async getConfig(tenantId: string): Promise<Record<string, unknown>> {
     const { tenant, speedy } = await this.loadStored(tenantId);
     const { passwordEnc: _pw, ...safe } = speedy;
-    return { ...safe, configured: !!speedy.configured, isDemo: tenant.isDemo, env: tenant.isDemo ? 'demo' : 'prod' };
+    const book = readSenderBook(speedy);
+    return {
+      ...safe,
+      senders: book.senders,
+      activeSenderId: book.activeId,
+      configured: !!speedy.configured,
+      isDemo: tenant.isDemo,
+      env: tenant.isDemo ? 'demo' : 'prod',
+    };
   }
 
   /**

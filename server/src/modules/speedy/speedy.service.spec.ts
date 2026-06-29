@@ -161,3 +161,23 @@ describe('SpeedyService.maybeSeedSender (unit)', () => {
     expect(out.sender).toEqual(existing);
   });
 });
+
+describe('SpeedyService.buildSenderBlob (unit)', () => {
+  const svc = new SpeedyService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+  const build = (speedy: unknown, senders: unknown, activeId: string) =>
+    (svc as unknown as {
+      buildSenderBlob: (s: any, ss: any, a: string) => Record<string, unknown>;
+    }).buildSenderBlob(speedy, senders, activeId);
+
+  it('mirrors the active Speedy point (contactName) into sender + keeps creds', () => {
+    const out = build(
+      { userName: 'u', passwordEnc: 'enc', configured: true },
+      [{ id: 'a', label: 'Основна', contactName: 'Х', mode: 'office', officeId: 1 },
+       { id: 'b', label: 'Склад', contactName: 'Y', mode: 'office', officeId: 2 }],
+      'b',
+    );
+    expect(out.userName).toBe('u');
+    expect(out.activeSenderId).toBe('b');
+    expect(out.sender).toEqual({ contactName: 'Y', mode: 'office', officeId: 2 });
+  });
+});

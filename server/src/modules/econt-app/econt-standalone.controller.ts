@@ -59,7 +59,7 @@ export class EcontStandaloneController {
   }
   @Post('senders')
   saveSenders(@CurrentTenant() t: string, @Body() dto: EcontSaveSendersDto) {
-    return this.econt.saveSenders(t, dto);
+    return this.econt.saveSenders(t, dto as never);
   }
   @Get('profiles')
   profiles(@CurrentTenant() t: string) {
