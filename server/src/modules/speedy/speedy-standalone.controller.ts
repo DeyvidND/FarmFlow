@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
 import { ActivationGuard } from '../econt-app/activation.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @UseGuards(JwtAuthGuard)
 @Controller('speedy')
@@ -19,6 +20,7 @@ export class SpeedyStandaloneController {
   constructor(private readonly speedy: SpeedyService) {}
 
   // --- account / setup ---
+  @Roles('admin', 'farmer')
   @Post('credentials')
   saveCredentials(
     @CurrentTenant() t: string,
@@ -28,17 +30,20 @@ export class SpeedyStandaloneController {
     return this.speedy.saveCredentials(t, dto, f);
   }
 
+  @Roles('admin', 'farmer')
   @Delete('credentials')
   disconnect(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
     return this.speedy.disconnect(t, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('config')
   config(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
     return this.speedy.getConfig(t, f);
   }
 
   // Save the sender/package/COD profile (credentials stay on /credentials).
+  @Roles('admin', 'farmer')
   @Post('profile')
   saveProfile(
     @CurrentTenant() t: string,
@@ -48,6 +53,7 @@ export class SpeedyStandaloneController {
     return this.speedy.saveProfile(t, dto, f);
   }
 
+  @Roles('admin', 'farmer')
   @Post('senders')
   saveSenders(
     @CurrentTenant() t: string,
@@ -57,12 +63,14 @@ export class SpeedyStandaloneController {
     return this.speedy.saveSenders(t, dto as never, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('profiles')
   profiles(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
     return this.speedy.getClientProfiles(t, f);
   }
 
   // --- location pickers ---
+  @Roles('admin', 'farmer')
   @Get('sites')
   sites(
     @CurrentTenant() t: string,
@@ -73,6 +81,7 @@ export class SpeedyStandaloneController {
     return this.speedy.searchSites(t, q, undefined, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('offices')
   offices(
     @CurrentTenant() t: string,
@@ -83,6 +92,7 @@ export class SpeedyStandaloneController {
     return this.speedy.getOffices(t, siteId ? Number(siteId) : 0, undefined, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('streets')
   streets(
     @CurrentTenant() t: string,
@@ -94,6 +104,7 @@ export class SpeedyStandaloneController {
     return this.speedy.getStreets(t, siteId ? Number(siteId) : 0, q, undefined, f);
   }
 
+  @Roles('admin', 'farmer')
   @Post('validate-address')
   validateAddress(
     @CurrentTenant() t: string,
@@ -104,18 +115,22 @@ export class SpeedyStandaloneController {
   }
 
   // --- shipments ---
+  @Roles('admin', 'farmer')
   @Get('shipments')
-  list(@CurrentTenant() t: string) {
-    // listShipments does not accept farmerId — tenant-scoped only
-    return this.speedy.listShipments(t);
+  list(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    return this.speedy.listShipments(t, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('cod-reconciliation')
   cod(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
     return this.speedy.codReconciliation(t, f);
   }
 
   // Creating a real waybill is the paid action → activation-gated.
+  @Roles('admin', 'farmer')
   @UseGuards(ActivationGuard)
   @Post('shipments')
   create(
@@ -127,6 +142,7 @@ export class SpeedyStandaloneController {
   }
 
   /** Create the Speedy waybill (label) for a storefront order. */
+  @Roles('admin', 'farmer')
   @UseGuards(ActivationGuard)
   @Post('orders/:orderId/label')
   createForOrder(
@@ -137,6 +153,7 @@ export class SpeedyStandaloneController {
     return this.speedy.createLabelForOrder(t, orderId, f);
   }
 
+  @Roles('admin', 'farmer')
   @Post('shipments/:id/refresh')
   refresh(
     @CurrentTenant() t: string,
@@ -146,6 +163,7 @@ export class SpeedyStandaloneController {
     return this.speedy.refreshStatus(t, id, f);
   }
 
+  @Roles('admin', 'farmer')
   @Delete('shipments/:id')
   void(
     @CurrentTenant() t: string,
@@ -156,6 +174,7 @@ export class SpeedyStandaloneController {
   }
 
   // --- courier pickup (paid action) ---
+  @Roles('admin', 'farmer')
   @UseGuards(ActivationGuard)
   @Post('courier')
   courier(
@@ -167,6 +186,7 @@ export class SpeedyStandaloneController {
   }
 
   // --- print ---
+  @Roles('admin', 'farmer')
   @Get('labels.pdf')
   async labels(
     @CurrentTenant() t: string,
@@ -178,6 +198,7 @@ export class SpeedyStandaloneController {
     return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="labels.pdf"' });
   }
 
+  @Roles('admin', 'farmer')
   @Get('shipments/:id/label.pdf')
   async label(
     @CurrentTenant() t: string,

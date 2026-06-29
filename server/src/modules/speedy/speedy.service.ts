@@ -513,7 +513,9 @@ export class SpeedyService implements CarrierAdapter {
   }
 
   /** Speedy shipments for this tenant (order-less), newest first. */
-  async listShipments(tenantId: string): Promise<SpeedyShipment[]> {
+  async listShipments(tenantId: string, farmerId?: string): Promise<SpeedyShipment[]> {
+    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    if (farmerId) return [];
     const rows = await this.db
       .select({
         shipmentId: shipments.id,
@@ -689,6 +691,8 @@ export class SpeedyService implements CarrierAdapter {
   /** COD payout reconciliation for the last 60 days (Очаквано → Преведено). Stamps
    *  codSettledAt on matched Speedy shipments and returns the screen rows. */
   async codReconciliation(tenantId: string, farmerId?: string): Promise<Array<{ shipmentId: string; expectedStotinki: number | null; settledAt: string | null }>> {
+    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    if (farmerId) return [];
     const creds = await this.resolveCreds(tenantId, farmerId);
     const toDate = new Date();
     const fromDate = new Date(toDate.getTime() - 60 * 24 * 60 * 60 * 1000);

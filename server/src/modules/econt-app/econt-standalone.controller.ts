@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
 import { ActivationGuard } from './activation.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @UseGuards(JwtAuthGuard)
 @Controller('shipping')
@@ -32,6 +33,7 @@ export class EcontStandaloneController {
   // --- account / setup ---
   // Activation is super-admin-controlled; the panel reads it (read-only) to show
   // the account's Активен/Неактивен status on the settings screen.
+  @Roles('admin', 'farmer')
   @Get('account')
   async account(@CurrentTenant() t: string) {
     const [row] = await this.db
@@ -42,6 +44,7 @@ export class EcontStandaloneController {
     return { active: isEcontAccountActive(row?.settings) };
   }
 
+  @Roles('admin', 'farmer')
   @Post('credentials')
   saveCredentials(
     @CurrentTenant() t: string,
@@ -51,17 +54,20 @@ export class EcontStandaloneController {
     return this.econt.saveCredentials(t, dto, f);
   }
 
+  @Roles('admin', 'farmer')
   @Delete('credentials')
   disconnect(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
     return this.econt.disconnect(t, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('config')
   config(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
     return this.econt.getConfig(t, f);
   }
 
   // Save the sender/package/COD profile (credentials stay on /credentials).
+  @Roles('admin', 'farmer')
   @Post('profile')
   saveProfile(
     @CurrentTenant() t: string,
@@ -71,6 +77,7 @@ export class EcontStandaloneController {
     return this.econt.saveProfile(t, dto, f);
   }
 
+  @Roles('admin', 'farmer')
   @Post('senders')
   saveSenders(
     @CurrentTenant() t: string,
@@ -80,16 +87,19 @@ export class EcontStandaloneController {
     return this.econt.saveSenders(t, dto as never, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('profiles')
   profiles(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
     return this.econt.getClientProfiles(t, f);
   }
 
+  @Roles('admin', 'farmer')
   @Post('nomenclature/sync')
   sync(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
     return this.econt.syncNomenclature(t, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('cities')
   cities(
     @CurrentTenant() t: string,
@@ -100,6 +110,7 @@ export class EcontStandaloneController {
     return this.econt.searchCities(t, q, undefined, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('offices')
   offices(
     @CurrentTenant() t: string,
@@ -110,6 +121,7 @@ export class EcontStandaloneController {
     return this.econt.getOfficesForCity(t, cityId ? Number(cityId) : 0, undefined, f);
   }
 
+  @Roles('admin', 'farmer')
   @Post('validate-address')
   validateAddress(
     @CurrentTenant() t: string,
@@ -120,19 +132,22 @@ export class EcontStandaloneController {
   }
 
   // --- shipments ---
+  @Roles('admin', 'farmer')
   @Get('shipments')
-  list(@CurrentTenant() t: string) {
-    // listShipments does not accept farmerId — tenant-scoped only
-    return this.econt.listShipments(t);
+  list(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    return this.econt.listShipments(t, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('cod-reconciliation')
-  cod(@CurrentTenant() t: string) {
-    // codReconciliation does not accept farmerId — tenant-scoped only
-    return this.econt.codReconciliation(t);
+  cod(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    return this.econt.codReconciliation(t, f);
   }
 
   // Creating a real waybill is the paid action → activation-gated.
+  @Roles('admin', 'farmer')
   @UseGuards(ActivationGuard)
   @Post('shipments')
   create(
@@ -143,6 +158,7 @@ export class EcontStandaloneController {
     return this.econt.createManualShipment(t, dto, f);
   }
 
+  @Roles('admin', 'farmer')
   @Post('shipments/:id/refresh')
   refresh(
     @CurrentTenant() t: string,
@@ -152,6 +168,7 @@ export class EcontStandaloneController {
     return this.econt.refreshStatus(t, id, f);
   }
 
+  @Roles('admin', 'farmer')
   @Delete('shipments/:id')
   void(
     @CurrentTenant() t: string,
@@ -162,6 +179,7 @@ export class EcontStandaloneController {
   }
 
   // --- courier pickup (paid action) ---
+  @Roles('admin', 'farmer')
   @UseGuards(ActivationGuard)
   @Post('courier')
   courier(
@@ -172,6 +190,7 @@ export class EcontStandaloneController {
     return this.econt.requestCourier(t, dto, f);
   }
 
+  @Roles('admin', 'farmer')
   @Get('courier/:requestId')
   courierStatus(
     @CurrentTenant() t: string,
@@ -182,6 +201,7 @@ export class EcontStandaloneController {
   }
 
   // --- print ---
+  @Roles('admin', 'farmer')
   @Get('labels.pdf')
   async labels(
     @CurrentTenant() t: string,
@@ -193,6 +213,7 @@ export class EcontStandaloneController {
     return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="labels.pdf"' });
   }
 
+  @Roles('admin', 'farmer')
   @Get('shipments/:id/label.pdf')
   async label(
     @CurrentTenant() t: string,

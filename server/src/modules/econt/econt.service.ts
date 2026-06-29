@@ -1105,7 +1105,9 @@ export class EcontService implements CarrierAdapter {
   }
 
   /** COD-via-Econt reconciliation rows for the Плащания screen. */
-  async codReconciliation(tenantId: string): Promise<CodReconRow[]> {
+  async codReconciliation(tenantId: string, farmerId?: string): Promise<CodReconRow[]> {
+    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    if (farmerId) return [];
     const rows = await this.db
       .select({
         orderId: shipments.orderId,
@@ -1133,7 +1135,9 @@ export class EcontService implements CarrierAdapter {
    * shipments table: every Econt order is shown so the farm can create a waybill,
    * and rows that already have one carry its tracking number + status.
    */
-  async listShipments(tenantId: string): Promise<AdminShipment[]> {
+  async listShipments(tenantId: string, farmerId?: string): Promise<AdminShipment[]> {
+    // Phase 1: farmer sees none until shipment.farmerId lands (Phase 3); empty avoids tenant-wide leak.
+    if (farmerId) return [];
     // The order-join query and the manual (order-less) query are independent — run
     // them concurrently rather than back-to-back on this hot admin-panel endpoint.
     const [rows, manual] = await Promise.all([
