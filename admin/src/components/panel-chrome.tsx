@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 const NAV_LINK =
-  'inline-flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2';
+  'inline-flex shrink-0 items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2';
 
 export function PanelChrome({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -20,7 +20,7 @@ export function PanelChrome({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-ff-bg">
       <header className="sticky top-0 z-10 flex h-[var(--topbar-h,64px)] items-center justify-between border-b border-ff-border bg-[rgba(251,248,241,0.85)] px-8 backdrop-blur-md max-sm:px-4">
-        <div className="flex items-center gap-[11px]">
+        <div className="flex shrink-0 items-center gap-[11px]">
           <div className="grid h-[38px] w-[38px] place-items-center rounded-[11px] bg-ff-green-700 text-[#EAF1E4]">
             <Leaf size={22} strokeWidth={1.9} />
           </div>
@@ -29,7 +29,7 @@ export function PanelChrome({ children }: { children: React.ReactNode }) {
             <div className="mt-0.5 text-[11.5px] font-semibold text-ff-muted">Администрация</div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="ml-3 flex min-w-0 items-center gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Link href="/tenants" className={NAV_LINK}>
             <Users size={17} /> <span className="max-sm:hidden">Фермери</span>
           </Link>

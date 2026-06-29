@@ -28,6 +28,12 @@
       "port": 3009
     },
     {
+      "name": "admin-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@fermeribg/admin", "exec", "next", "dev", "-p", "3002"],
+      "port": 3002
+    },
+    {
       "name": "advert",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
