@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ExternalLink, Truck, Info } from 'lucide-react';
+import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -63,16 +63,17 @@ export function FarmerDeliveryClient() {
   // ── SSO handoff ──────────────────────────────────────────────────────────
   const [handoffBusy, setHandoffBusy] = React.useState(false);
 
-  const openDostavki = async () => {
+  // One-click SSO into dostavki, landing on a specific page — same login, no
+  // second sign-in. `next` is allowlisted server-side in dostavki, so an unknown
+  // value just falls back to the role default.
+  const handoffTo = async (next: string) => {
     setHandoffBusy(true);
     try {
       const { token } = await requestDeliveryHandoff();
       const base =
         process.env.NEXT_PUBLIC_DELIVERY_URL ?? 'https://dostavki.fermeribg.com';
-      // Deep-link straight to the farmer's shipment workspace (/import) — same
-      // login, no second sign-in. `next` is allowlisted server-side in dostavki.
       window.open(
-        `${base}/api/session/handoff?token=${encodeURIComponent(token)}&next=${encodeURIComponent('/import')}`,
+        `${base}/api/session/handoff?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`,
         '_blank',
         'noopener',
       );
@@ -142,6 +143,11 @@ export function FarmerDeliveryClient() {
     }
   };
 
+  // Readiness drives the next-step hint: until a carrier is connected the farmer
+  // can't ship, so we point them at the connect cards instead of the empty app.
+  const statusLoading = econtConfigured === undefined || speedyConfigured === undefined;
+  const anyConnected = Boolean(econtConfigured) || Boolean(speedyConfigured);
+
   return (
     <div className="animate-ff-fade-up flex flex-col gap-4">
       {/* Page heading */}
@@ -170,10 +176,25 @@ export function FarmerDeliveryClient() {
               <span className="text-ff-muted-2">Speedy</span>
             </div>
           </div>
-          <Button variant="primary" size="sm" onClick={openDostavki} disabled={handoffBusy}>
+          <Button variant="primary" size="sm" onClick={() => handoffTo('/import')} disabled={handoffBusy}>
             <ExternalLink size={15} /> {handoffBusy ? 'Отваряне…' : 'Отвори Доставки'}
           </Button>
         </div>
+
+        {/* Next-step hint — keyed to whether a carrier is connected yet */}
+        {!statusLoading && (
+          anyConnected ? (
+            <div className="mt-4 flex items-center gap-2 rounded-[10px] border border-ff-green-100 bg-ff-surface px-3 py-2 text-[12.5px] font-bold text-ff-green-700">
+              <CheckCircle2 size={15} className="shrink-0" />
+              Готов си — пускаш пратките си от „Доставки“.
+            </div>
+          ) : (
+            <div className="mt-4 flex items-center gap-2 rounded-[10px] border border-[#e7c9a0] bg-ff-amber-softer px-3 py-2 text-[12.5px] font-bold text-ff-amber-600">
+              <AlertCircle size={15} className="shrink-0" />
+              Още няма свързан куриер. Свържи Еконт или Speedy по-долу, за да започнеш.
+            </div>
+          )
+        )}
 
         <ol className="mt-4 grid gap-2.5 sm:grid-cols-2">
           {FLOW_STEPS.map((s, i) => (
@@ -192,10 +213,25 @@ export function FarmerDeliveryClient() {
           ))}
         </ol>
 
-        <div className="mt-3 flex items-center gap-1.5 text-[12px] text-ff-ink-2">
-          <Info size={13} className="shrink-0 text-ff-green-700" />
-          Влизаш със същия акаунт — не е нужно второ влизане.
+        <div className="mt-3.5 flex flex-col gap-1.5 text-[12px] text-ff-ink-2">
+          <div className="flex items-start gap-1.5">
+            <ShieldCheck size={13} className="mt-px shrink-0 text-ff-green-700" />
+            Плащаш само цената на куриера — без такса от платформата. Истинска товарителница се създава чак щом потвърдиш пратката.
+          </div>
+          <div className="flex items-start gap-1.5">
+            <Info size={13} className="mt-px shrink-0 text-ff-green-700" />
+            Влизаш със същия акаунт — не е нужно второ влизане.
+          </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => handoffTo('/help')}
+          disabled={handoffBusy}
+          className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-green-700 hover:underline disabled:opacity-60"
+        >
+          <BookOpen size={14} /> Виж пълното ръководство за свързване
+        </button>
       </div>
 
       {/* Carrier connect cards */}
@@ -206,7 +242,7 @@ export function FarmerDeliveryClient() {
             <div>
               <div className="text-[15px] font-extrabold text-ff-ink">Еконт</div>
               <div className="mt-0.5 text-[12.5px] text-ff-ink-2">
-                Въведи потребителско име и парола от акаунта си в Еконт.
+                Същите данни като в e-Econt профила ти (бизнес клиент).
               </div>
             </div>
             <ConfigBadge configured={econtConfigured} />
@@ -253,7 +289,7 @@ export function FarmerDeliveryClient() {
             <div>
               <div className="text-[15px] font-extrabold text-ff-ink">Speedy</div>
               <div className="mt-0.5 text-[12.5px] text-ff-ink-2">
-                Въведи потребителско име и парола от акаунта си в Speedy.
+                Нужен е API потребител от Speedy — различен от логина в сайта.
               </div>
             </div>
             <ConfigBadge configured={speedyConfigured} />
