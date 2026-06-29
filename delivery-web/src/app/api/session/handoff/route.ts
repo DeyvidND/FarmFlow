@@ -17,7 +17,7 @@ import { API_BASE, SESSION_COOKIE, SESSION_MAX_AGE } from '@/lib/session';
  */
 function landingFor(token: string): string {
   try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf8'));
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
     return payload?.role === 'farmer' ? '/settings' : '/shipments';
   } catch {
     return '/shipments';

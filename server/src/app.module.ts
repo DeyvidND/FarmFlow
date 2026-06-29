@@ -40,7 +40,7 @@ import { RecommendationsModule } from './modules/recommendations/recommendations
 import { StorageModule } from './modules/storage/storage.module';
 import { ArticlesModule } from './modules/articles/articles.module';
 import { EcontModule } from './modules/econt/econt.module';
-import { SpeedyCoreModule } from './modules/speedy/speedy-core.module';
+import { SpeedyConfigModule } from './modules/speedy/speedy-config.module';
 import { DigestModule } from './modules/digest/digest.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
@@ -125,7 +125,7 @@ import { ImageQueueModule } from './modules/image-queue/image-queue.module';
     StorageModule,
     ArticlesModule,
     EcontModule,
-    SpeedyCoreModule, // Speedy refresh cron runs in the worker process; no controllers here.
+    SpeedyConfigModule, // SpeedyConfigController (main API only) + SpeedyCoreModule (cron/worker).
     DigestModule,
     NewsletterModule,
     AvailabilityModule,

@@ -15,8 +15,9 @@ import { MapsModule } from '../../common/maps/maps.module';
 import { MustChangePasswordGuard } from '../../common/guards/must-change-password.guard';
 import { TenantRolesGuard } from '../../common/guards/tenant-roles.guard';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
-// Controller-less core modules: reuse AuthService + EcontService WITHOUT mounting
-// FarmFlow's `/auth/*` and `/econt/*` controllers on the standalone domain.
+// Controller-less core modules: reuse AuthService + EcontService + SpeedyService WITHOUT
+// mounting FarmFlow's `/auth/*`, `/econt/*`, or SpeedyConfigController on this process.
+// SpeedyConfigController is main-API-only (SpeedyConfigModule → AppModule).
 import { AuthCoreModule } from '../auth/auth-core.module';
 import { EcontCoreModule } from '../econt/econt-core.module';
 import { SpeedyCoreModule } from '../speedy/speedy-core.module';
@@ -55,7 +56,7 @@ import { ImportModule } from '../import/import.module';
     MapsModule, // ShippingQuoteController.addressSuggest + (via ImportModule) AddressGeoService inject MapsService
     AuthCoreModule, // JwtModule + JwtStrategy + AuthService (no /auth/* controller)
     EcontCoreModule, // EcontService + ShipmentEmailService (no /econt/* controllers)
-    SpeedyCoreModule, // SpeedyService + refresh queue/processor (no /speedy/* controllers)
+    SpeedyCoreModule, // SpeedyService + refresh queue/processor; SpeedyConfigController lives in SpeedyConfigModule (main API only)
     ImportModule,
   ],
   controllers: [EcontHealthController, StandaloneAuthController, EcontStandaloneController, SpeedyStandaloneController, ShippingQuoteController, PublicShippingQuoteController],

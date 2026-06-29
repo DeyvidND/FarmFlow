@@ -8,16 +8,16 @@ import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator'
 import { Roles } from '../../common/decorators/roles.decorator';
 
 /**
- * Farmer-aware Speedy credential + config endpoints on the MAIN API.
+ * Farmer-aware Speedy credential + config endpoints on the MAIN API only.
  *
- * The panel talks only to the main API (AppModule / api:3000).  This thin
- * controller gives farmers a way to connect Speedy from the inline "Доставки"
- * form without hitting the dostavki-backend process.
+ * Loaded exclusively via {@link SpeedyConfigModule} → {@link AppModule}.
+ * The dostavki backend ({@link EcontAppModule}) imports {@link SpeedyCoreModule}
+ * directly and mounts {@link SpeedyStandaloneController} — so the two
+ * `@Controller('speedy')` controllers are structurally in separate NestJS
+ * application instances and never register in the same process.
  *
  * Scope: only the three credential-management routes.  All shipment/label/
  * nomenclature routes remain on SpeedyStandaloneController (dostavki-backend).
- * The two controllers live in different NestJS application instances and never
- * load together, so the shared `@Controller('speedy')` prefix is safe.
  */
 @ApiTags('speedy')
 @ApiBearerAuth()

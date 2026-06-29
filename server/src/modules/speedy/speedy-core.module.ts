@@ -3,18 +3,19 @@ import { BullModule } from '@nestjs/bullmq';
 import { SpeedyService } from './speedy.service';
 import { SpeedyClient } from './speedy.client';
 import { SpeedyProcessor } from './speedy.processor';
-import { SpeedyConfigController } from './speedy-config.controller';
 import { SPEEDY_QUEUE } from '../../common/queue/queue.constants';
 import { RUN_WORKERS } from '../../config/app-role';
 import { CodRiskModule } from '../cod-risk/cod-risk.module';
 
 /**
- * Speedy providers + the thin credential-management controller for the main API.
+ * Speedy providers WITHOUT controllers — mirrors {@link EcontCoreModule}.
  *
- * `SpeedyConfigController` exposes GET/POST/DELETE on `speedy/config|credentials`
- * so the farmer panel (→ main API) can connect Speedy farmer-scoped without
- * hitting the dostavki-backend process.  All shipment/label routes remain on
- * `SpeedyStandaloneController` which loads only in the dostavki-backend process.
+ * Imported by both {@link AppModule} (via {@link SpeedyConfigModule}) and the
+ * dostavki backend ({@link EcontAppModule}) so each process gets SpeedyService
+ * without also mounting the other's controllers.
+ *
+ * - Main API mounts {@link SpeedyConfigController} via {@link SpeedyConfigModule}.
+ * - Dostavki backend mounts {@link SpeedyStandaloneController} directly.
  *
  * The processor only runs when this process is a worker (RUN_WORKERS).
  */
@@ -31,7 +32,6 @@ import { CodRiskModule } from '../cod-risk/cod-risk.module';
     }),
     CodRiskModule,
   ],
-  controllers: [SpeedyConfigController],
   providers: [SpeedyService, SpeedyClient, ...(RUN_WORKERS ? [SpeedyProcessor] : [])],
   exports: [SpeedyService, CodRiskModule],
 })
