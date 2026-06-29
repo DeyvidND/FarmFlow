@@ -17,6 +17,7 @@ import { ValidateAddressDto } from '../econt/dto/validate-address.dto';
 import { CourierRequestDto } from '../econt/dto/courier-request.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
 import { ActivationGuard } from './activation.guard';
 
 @UseGuards(JwtAuthGuard)
@@ -40,95 +41,165 @@ export class EcontStandaloneController {
       .limit(1);
     return { active: isEcontAccountActive(row?.settings) };
   }
+
   @Post('credentials')
-  saveCredentials(@CurrentTenant() t: string, @Body() dto: EcontCredentialsDto) {
-    return this.econt.saveCredentials(t, dto);
+  saveCredentials(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Body() dto: EcontCredentialsDto,
+  ) {
+    return this.econt.saveCredentials(t, dto, f);
   }
+
   @Delete('credentials')
-  disconnect(@CurrentTenant() t: string) {
-    return this.econt.disconnect(t);
+  disconnect(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    return this.econt.disconnect(t, f);
   }
+
   @Get('config')
-  config(@CurrentTenant() t: string) {
-    return this.econt.getConfig(t);
+  config(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    return this.econt.getConfig(t, f);
   }
+
   // Save the sender/package/COD profile (credentials stay on /credentials).
   @Post('profile')
-  saveProfile(@CurrentTenant() t: string, @Body() dto: EcontProfileDto) {
-    return this.econt.saveProfile(t, dto);
+  saveProfile(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Body() dto: EcontProfileDto,
+  ) {
+    return this.econt.saveProfile(t, dto, f);
   }
+
   @Post('senders')
-  saveSenders(@CurrentTenant() t: string, @Body() dto: EcontSaveSendersDto) {
-    return this.econt.saveSenders(t, dto as never);
+  saveSenders(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Body() dto: EcontSaveSendersDto,
+  ) {
+    return this.econt.saveSenders(t, dto as never, f);
   }
+
   @Get('profiles')
-  profiles(@CurrentTenant() t: string) {
-    return this.econt.getClientProfiles(t);
+  profiles(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    return this.econt.getClientProfiles(t, f);
   }
+
   @Post('nomenclature/sync')
-  sync(@CurrentTenant() t: string) {
-    return this.econt.syncNomenclature(t);
+  sync(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+    return this.econt.syncNomenclature(t, f);
   }
+
   @Get('cities')
-  cities(@CurrentTenant() t: string, @Query('q') q?: string) {
-    return this.econt.searchCities(t, q);
+  cities(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Query('q') q?: string,
+  ) {
+    // searchCities(tenantId, q?, cache?, farmerId?)
+    return this.econt.searchCities(t, q, undefined, f);
   }
+
   @Get('offices')
-  offices(@CurrentTenant() t: string, @Query('cityId') cityId?: string) {
-    return this.econt.getOfficesForCity(t, cityId ? Number(cityId) : 0);
+  offices(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Query('cityId') cityId?: string,
+  ) {
+    // getOfficesForCity(tenantId, cityId, cache?, farmerId?)
+    return this.econt.getOfficesForCity(t, cityId ? Number(cityId) : 0, undefined, f);
   }
+
   @Post('validate-address')
-  validateAddress(@CurrentTenant() t: string, @Body() dto: ValidateAddressDto) {
-    return this.econt.validateAddress(t, dto);
+  validateAddress(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Body() dto: ValidateAddressDto,
+  ) {
+    return this.econt.validateAddress(t, dto, f);
   }
 
   // --- shipments ---
   @Get('shipments')
   list(@CurrentTenant() t: string) {
+    // listShipments does not accept farmerId — tenant-scoped only
     return this.econt.listShipments(t);
   }
+
   @Get('cod-reconciliation')
   cod(@CurrentTenant() t: string) {
+    // codReconciliation does not accept farmerId — tenant-scoped only
     return this.econt.codReconciliation(t);
   }
 
   // Creating a real waybill is the paid action → activation-gated.
   @UseGuards(ActivationGuard)
   @Post('shipments')
-  create(@CurrentTenant() t: string, @Body() dto: ManualShipmentDto) {
-    return this.econt.createManualShipment(t, dto);
+  create(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Body() dto: ManualShipmentDto,
+  ) {
+    return this.econt.createManualShipment(t, dto, f);
   }
 
   @Post('shipments/:id/refresh')
-  refresh(@CurrentTenant() t: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.econt.refreshStatus(t, id);
+  refresh(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.econt.refreshStatus(t, id, f);
   }
+
   @Delete('shipments/:id')
-  void(@CurrentTenant() t: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.econt.voidShipment(t, id);
+  void(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.econt.voidShipment(t, id, f);
   }
 
   // --- courier pickup (paid action) ---
   @UseGuards(ActivationGuard)
   @Post('courier')
-  courier(@CurrentTenant() t: string, @Body() dto: CourierRequestDto) {
-    return this.econt.requestCourier(t, dto);
+  courier(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Body() dto: CourierRequestDto,
+  ) {
+    return this.econt.requestCourier(t, dto, f);
   }
+
   @Get('courier/:requestId')
-  courierStatus(@CurrentTenant() t: string, @Param('requestId') requestId: string) {
-    return this.econt.getRequestCourierStatus(t, requestId);
+  courierStatus(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Param('requestId') requestId: string,
+  ) {
+    return this.econt.getRequestCourierStatus(t, requestId, f);
   }
 
   // --- print ---
   @Get('labels.pdf')
-  async labels(@CurrentTenant() t: string, @Query('ids') ids: string): Promise<StreamableFile> {
+  async labels(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Query('ids') ids: string,
+  ): Promise<StreamableFile> {
     const list = (ids ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-    const buf = await this.econt.getLabelsPdf(t, list);
+    const buf = await this.econt.getLabelsPdf(t, list, f);
     return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="labels.pdf"' });
   }
+
   @Get('shipments/:id/label.pdf')
-  async label(@CurrentTenant() t: string, @Param('id', ParseUUIDPipe) id: string): Promise<StreamableFile> {
-    const buf = await this.econt.getLabelPdf(t, id);
+  async label(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<StreamableFile> {
+    const buf = await this.econt.getLabelPdf(t, id, f);
     return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="label.pdf"' });
   }
 
