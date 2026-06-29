@@ -51,6 +51,17 @@ services:
       # request handling on this process's event loop. api still runs DB migrations
       # on boot (not worker-gated).
       APP_ROLE: web
+      # Per-role pg pool sizing. This is the request-serving hot path, so it gets
+      # the largest pool. Pools are per-process and additive against the single
+      # Postgres: api(16) + worker(12) + econt(8) = 36 steady, leaving ample
+      # headroom under Postgres' default max_connections=100 (minus 3 reserved for
+      # superuser) for the brief boot-time migrate/bootstrap pools and manual psql.
+      # Bump this (and max_connections) together, never one alone.
+      DB_POOL_MAX: "16"
+      # Sample 10% of requests for latency tracing so slow routes/queries are
+      # visible in Sentry (errors are always captured; this adds performance spans).
+      # Inert unless SENTRY_DSN is set. Overrides any value from env_file.
+      SENTRY_TRACES_SAMPLE_RATE: "0.1"
       DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       # Target origin for the delivery-account set-password ("invite") link the api
@@ -78,6 +89,11 @@ services:
       NODE_ENV: production
       APP_ROLE: worker
       PORT: "3000"
+      # Drains queues + crons (label gen, carrier refresh, bulk email, image
+      # resize). Concurrency-bounded per processor, so a moderate pool suffices.
+      DB_POOL_MAX: "12"
+      # Latency tracing for queue jobs/crons (inert unless SENTRY_DSN set).
+      SENTRY_TRACES_SAMPLE_RATE: "0.1"
       DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
 
@@ -120,6 +136,11 @@ services:
       NODE_ENV: production
       APP_ROLE: web
       PORT_ECONT: "3100"
+      # Standalone delivery panel API — lower traffic than the storefront api, so
+      # the smallest of the three pools. Web-only (crons run in `worker`).
+      DB_POOL_MAX: "8"
+      # Latency tracing for the delivery API (inert unless SENTRY_DSN set).
+      SENTRY_TRACES_SAMPLE_RATE: "0.1"
       DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       CORS_ORIGIN_ECONT: https://dostavki.fermeribg.com

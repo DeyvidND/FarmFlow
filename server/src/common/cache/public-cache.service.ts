@@ -129,9 +129,27 @@ export const publicCacheKeys = {
   // the full `reviews:` summary so the landing edit + a publish/hide can bust the
   // home block without clobbering the storefront's reviews-page cache.
   homeReviews: (tenantId: string) => `home-reviews:${tenantId}`,
+  // The fully-assembled `/public/:slug/bootstrap` bundle, cached as a ready-to-send
+  // JSON string (keyed by slug, not tenant id — the request only has the slug). A
+  // warm hit returns the bytes directly: no fan-out to the 7 sub-caches, no parse,
+  // no re-stringify. Short-lived + NOT invalidated on write (see BOOTSTRAP_BUNDLE_TTL).
+  bootstrap: (slug: string) => `bootstrap:${slug}`,
 };
 
 export const PUBLIC_CACHE_TTL = 300;
+
+/**
+ * TTL for the assembled bootstrap bundle. Deliberately short and self-expiring
+ * rather than invalidated on every write that touches a sub-piece (products,
+ * profile, reviews, …) — that would add a brittle 8th bust site to a dozen call
+ * paths. The CDN already serves this endpoint with `s-maxage=60`, so end users
+ * tolerate up to a minute of staleness regardless; a 15 s origin cache is tighter
+ * than that window and adds no user-visible staleness, while collapsing the
+ * per-request fan-out under concurrency. A farmer edit shows at the origin within
+ * 15 s (the sub-caches themselves are still busted immediately for every other
+ * reader of those resources).
+ */
+export const BOOTSTRAP_BUNDLE_TTL = 15;
 
 /**
  * Sentinel stored under `tenant:{slug}` when the slug does not exist in the
@@ -159,6 +177,19 @@ export class PublicCacheService {
 
   async set(key: string, value: unknown, ttlSeconds = PUBLIC_CACHE_TTL): Promise<void> {
     await this.redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+  }
+
+  /**
+   * Raw string get/set — for callers that cache an already-serialized payload and
+   * want to return it verbatim (no JSON.parse on read, no re-stringify on write).
+   * Used by the bootstrap bundle hot path.
+   */
+  async getString(key: string): Promise<string | null> {
+    return this.redis.get(key);
+  }
+
+  async setString(key: string, value: string, ttlSeconds = PUBLIC_CACHE_TTL): Promise<void> {
+    await this.redis.set(key, value, 'EX', ttlSeconds);
   }
 
   async del(...keys: string[]): Promise<void> {
