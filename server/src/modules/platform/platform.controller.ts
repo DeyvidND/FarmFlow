@@ -101,6 +101,12 @@ export class PlatformController {
     return this.platform.tenantDetail(id);
   }
 
+  /** Cross-tenant farmer (producer) directory — every farmer of every tenant. */
+  @Get('farmers')
+  listAllFarmers(@Query() q: PaginationQueryDto) {
+    return this.platform.listAllFarmers({ cursor: q.cursor, limit: q.limit });
+  }
+
   @Post('tenants')
   @HttpCode(201)
   createTenant(@Body() dto: CreateTenantDto) {

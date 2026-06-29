@@ -409,6 +409,56 @@ describe('PlatformService', () => {
     });
   });
 
+  // ── listAllFarmers ──────────────────────────────────────────────────────────
+  describe('listAllFarmers', () => {
+    it('returns a cross-tenant farmer row with merged counts + carriers', async () => {
+      const farmerRow = {
+        id: 'f1',
+        name: 'Иван',
+        role: 'Пчелар',
+        createdAt: new Date('2024-02-01'),
+        courierEnabled: true,
+        tenantId: 't1',
+        tenantName: 'Ферма Тест',
+        tenantSlug: 'ferma-test',
+        isDemo: false,
+        settings: { delivery: { farmers: { f1: { econt: { configured: true }, speedy: { configured: false } } } } },
+        userId: 'u1',
+        loginEmail: 'ivan@farm.bg',
+        mustChange: false,
+      };
+      // base query: …innerJoin().leftJoin().orderBy().limit() — orderBy returns db, limit = rows.
+      db.orderBy.mockReturnValueOnce(db);
+      db.limit.mockResolvedValueOnce([farmerRow]);
+      // 3 per-page count queries each end in .groupBy().
+      db.groupBy
+        .mockResolvedValueOnce([{ farmerId: 'f1', n: 7 }])                                          // products
+        .mockResolvedValueOnce([{ farmerId: 'f1', n: 4 }])                                          // courier orders
+        .mockResolvedValueOnce([{ farmerId: 'f1', total: 3, drafts: 1, codPendingStotinki: 2500 }]); // shipments
+
+      const result = await service.listAllFarmers({});
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]).toMatchObject({
+        id: 'f1',
+        name: 'Иван',
+        tenantName: 'Ферма Тест',
+        isDemo: false,
+        courierEnabled: true,
+        hasLogin: true,
+        loginEmail: 'ivan@farm.bg',
+        invitePending: false,
+        econtConnected: true,
+        speedyConnected: false,
+        products: 7,
+        courierOrders: 4,
+        shipments: 3,
+        draftShipments: 1,
+        codPendingStotinki: 2500,
+      });
+    });
+  });
+
   // ── deleteTenant ────────────────────────────────────────────────────────────
   describe('deleteTenant', () => {
     it('refuses to hard-delete a non-demo tenant without a matching slug', async () => {

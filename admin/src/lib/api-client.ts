@@ -58,6 +58,35 @@ export const listTenants = (cursor?: string) =>
     `platform/tenants${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
   );
 
+/** One farmer (producer) in the cross-tenant directory. */
+export interface GlobalFarmer {
+  id: string;
+  name: string;
+  role: string | null;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  isDemo: boolean;
+  courierEnabled: boolean;
+  hasLogin: boolean;
+  loginEmail: string | null;
+  invitePending: boolean;
+  econtConnected: boolean;
+  speedyConnected: boolean;
+  products: number;
+  courierOrders: number;
+  shipments: number;
+  draftShipments: number;
+  codPendingStotinki: number;
+  createdAt: string | null;
+}
+
+/** Next page of the cross-tenant farmer directory (client-side "load more"). */
+export const listAllFarmers = (cursor?: string) =>
+  apiFetch<Paginated<GlobalFarmer>>(
+    `platform/farmers${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+  );
+
 export interface PlatformTenantDetail {
   id: string;
   name: string;

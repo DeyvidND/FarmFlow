@@ -208,6 +208,29 @@ export interface PlatformTenantDetail {
   }[];
 }
 
+/** One row of the super-admin cross-tenant farmer (producer) directory. */
+export interface GlobalFarmerRow {
+  id: string;
+  name: string;
+  role: string | null;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  isDemo: boolean;
+  courierEnabled: boolean;
+  hasLogin: boolean;
+  loginEmail: string | null;
+  invitePending: boolean;
+  econtConnected: boolean;
+  speedyConnected: boolean;
+  products: number;
+  courierOrders: number;
+  shipments: number;
+  draftShipments: number;
+  codPendingStotinki: number;
+  createdAt: Date | null;
+}
+
 @Injectable()
 export class PlatformService {
   private readonly logger = new Logger(PlatformService.name);
@@ -580,6 +603,103 @@ export class PlatformService {
       recentOrders,
       farmers: farmerList,
     };
+  }
+
+  /**
+   * Every farmer (producer) across ALL tenants — the super-admin cross-tenant
+   * directory. Keyset-paginated newest-first; the per-page count maps attribute
+   * products / courier orders / shipments to each farmer (scoped to the page's
+   * ids, like listDeliveryAccounts), and carriers come from the farmer's tenant
+   * settings namespace. Search + sort stay client-side over the drained list.
+   */
+  async listAllFarmers(
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<Paginated<GlobalFarmerRow>> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+
+    const base = this.db
+      .select({
+        id: farmers.id,
+        name: farmers.name,
+        role: farmers.role,
+        createdAt: farmers.createdAt,
+        courierEnabled: farmers.courierEnabled,
+        tenantId: tenants.id,
+        tenantName: tenants.name,
+        tenantSlug: tenants.slug,
+        isDemo: tenants.isDemo,
+        settings: tenants.settings,
+        userId: users.id,
+        loginEmail: users.email,
+        mustChange: users.mustChangePassword,
+      })
+      .from(farmers)
+      .innerJoin(tenants, eq(farmers.tenantId, tenants.id))
+      .leftJoin(users, and(eq(users.farmerId, farmers.id), eq(users.tenantId, farmers.tenantId)));
+
+    const scoped = cur ? base.where(keysetAfter(farmers.createdAt, farmers.id, cur, 'desc')) : base;
+    const rows = await scoped.orderBy(desc(farmers.createdAt), desc(farmers.id)).limit(lim + 1);
+
+    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    const ids = page.items.map((r) => r.id);
+
+    const [prodCounts, orderCounts, shipCounts] = ids.length
+      ? await Promise.all([
+          this.db
+            .select({ farmerId: products.farmerId, n: sql<number>`count(*)::int` })
+            .from(products)
+            .where(inArray(products.farmerId, ids))
+            .groupBy(products.farmerId),
+          this.db
+            .select({ farmerId: orders.farmerId, n: sql<number>`count(*)::int` })
+            .from(orders)
+            .where(inArray(orders.farmerId, ids))
+            .groupBy(orders.farmerId),
+          this.db
+            .select({
+              farmerId: shipments.farmerId,
+              total: sql<number>`count(*) filter (where ${shipments.status} <> 'draft')::int`,
+              drafts: sql<number>`count(*) filter (where ${shipments.status} = 'draft')::int`,
+              codPendingStotinki: sql<number>`coalesce(sum(${shipments.codAmountStotinki}) filter (where ${shipments.status} <> 'draft' and ${shipments.codCollectedAt} is null), 0)::int`,
+            })
+            .from(shipments)
+            .where(inArray(shipments.farmerId, ids))
+            .groupBy(shipments.farmerId),
+        ])
+      : [[], [], []];
+
+    const prodMap = new Map(prodCounts.map((x) => [x.farmerId, x.n]));
+    const orderMap = new Map(orderCounts.map((x) => [x.farmerId, x.n]));
+    const shipMap = new Map(shipCounts.map((x) => [x.farmerId, x]));
+
+    const items: GlobalFarmerRow[] = page.items.map((r) => {
+      const ns = ((r.settings as any)?.delivery?.farmers?.[r.id] ?? {}) as Record<string, any>;
+      const sm = shipMap.get(r.id);
+      return {
+        id: r.id,
+        name: r.name,
+        role: r.role,
+        tenantId: r.tenantId,
+        tenantName: r.tenantName,
+        tenantSlug: r.tenantSlug,
+        isDemo: !!r.isDemo,
+        courierEnabled: !!r.courierEnabled,
+        hasLogin: !!r.userId,
+        loginEmail: r.loginEmail ?? null,
+        invitePending: !!r.userId && !!r.mustChange,
+        econtConnected: !!ns?.econt?.configured,
+        speedyConnected: !!ns?.speedy?.configured,
+        products: prodMap.get(r.id) ?? 0,
+        courierOrders: orderMap.get(r.id) ?? 0,
+        shipments: sm?.total ?? 0,
+        draftShipments: sm?.drafts ?? 0,
+        codPendingStotinki: sm?.codPendingStotinki ?? 0,
+        createdAt: r.createdAt,
+      };
+    });
+
+    return { items, nextCursor: page.nextCursor };
   }
 
   /** Toggle a farm's subscription (active/inactive). */
