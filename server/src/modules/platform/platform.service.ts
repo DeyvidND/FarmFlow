@@ -231,6 +231,13 @@ export interface GlobalFarmerRow {
   createdAt: Date | null;
 }
 
+/** Cross-tenant delivery operations snapshot for the super-admin ops board. */
+export interface DeliveryOpsSummary {
+  shipments: { total: number; drafts: number; created: number; shipped: number; delivered: number; returned: number; refused: number };
+  cod: { pendingStotinki: number; collectedStotinki: number; settledStotinki: number; outstandingStotinki: number };
+  stuckDrafts: { farmerId: string | null; farmerName: string; tenantId: string; tenantName: string; count: number; oldestAt: Date | null }[];
+}
+
 @Injectable()
 export class PlatformService {
   private readonly logger = new Logger(PlatformService.name);
@@ -700,6 +707,66 @@ export class PlatformService {
     });
 
     return { items, nextCursor: page.nextCursor };
+  }
+
+  /**
+   * Cross-tenant delivery operations snapshot: one aggregate over all shipments
+   * (status breakdown + COD pending/collected/settled/outstanding) plus the list
+   * of farmers sitting on un-finalized courier DRAFTS (oldest first) — i.e. orders
+   * that came in but where no товарителница has been created yet.
+   */
+  async deliveryOps(): Promise<DeliveryOpsSummary> {
+    const [agg] = await this.db
+      .select({
+        total: sql<number>`count(*) filter (where ${shipments.status} <> 'draft')::int`,
+        drafts: sql<number>`count(*) filter (where ${shipments.status} = 'draft')::int`,
+        created: sql<number>`count(*) filter (where ${shipments.status} = 'created')::int`,
+        shipped: sql<number>`count(*) filter (where ${shipments.status} = 'shipped')::int`,
+        delivered: sql<number>`count(*) filter (where ${shipments.status} = 'delivered')::int`,
+        returned: sql<number>`count(*) filter (where ${shipments.status} = 'returned')::int`,
+        refused: sql<number>`count(*) filter (where ${shipments.status} = 'refused')::int`,
+        pendingStotinki: sql<number>`coalesce(sum(${shipments.codAmountStotinki}) filter (where ${shipments.status} not in ('draft','returned','refused','cancelled') and ${shipments.codCollectedAt} is null and ${shipments.codSettledAt} is null), 0)::int`,
+        collectedStotinki: sql<number>`coalesce(sum(${shipments.codAmountStotinki}) filter (where ${shipments.codCollectedAt} is not null or ${shipments.codSettledAt} is not null), 0)::int`,
+        settledStotinki: sql<number>`coalesce(sum(${shipments.codAmountStotinki}) filter (where ${shipments.codSettledAt} is not null), 0)::int`,
+        outstandingStotinki: sql<number>`coalesce(sum(${shipments.codAmountStotinki}) filter (where ${shipments.codCollectedAt} is not null and ${shipments.codSettledAt} is null), 0)::int`,
+      })
+      .from(shipments);
+
+    const stuckDrafts = (await this.db
+      .select({
+        farmerId: shipments.farmerId,
+        farmerName: farmers.name,
+        tenantId: tenants.id,
+        tenantName: tenants.name,
+        count: sql<number>`count(*)::int`,
+        oldestAt: sql<Date | null>`min(${shipments.createdAt})`,
+      })
+      .from(shipments)
+      .innerJoin(farmers, eq(shipments.farmerId, farmers.id))
+      .innerJoin(tenants, eq(shipments.tenantId, tenants.id))
+      .where(eq(shipments.status, 'draft'))
+      .groupBy(shipments.farmerId, farmers.name, tenants.id, tenants.name)
+      .orderBy(sql`min(${shipments.createdAt}) asc`)
+      .limit(20)) as DeliveryOpsSummary['stuckDrafts'];
+
+    return {
+      shipments: {
+        total: agg?.total ?? 0,
+        drafts: agg?.drafts ?? 0,
+        created: agg?.created ?? 0,
+        shipped: agg?.shipped ?? 0,
+        delivered: agg?.delivered ?? 0,
+        returned: agg?.returned ?? 0,
+        refused: agg?.refused ?? 0,
+      },
+      cod: {
+        pendingStotinki: agg?.pendingStotinki ?? 0,
+        collectedStotinki: agg?.collectedStotinki ?? 0,
+        settledStotinki: agg?.settledStotinki ?? 0,
+        outstandingStotinki: agg?.outstandingStotinki ?? 0,
+      },
+      stuckDrafts,
+    };
   }
 
   /** Toggle a farm's subscription (active/inactive). */

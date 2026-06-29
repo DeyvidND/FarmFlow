@@ -87,6 +87,20 @@ export const listAllFarmers = (cursor?: string) =>
     `platform/farmers${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
   );
 
+/** Cross-tenant delivery operations snapshot (super-admin ops board). */
+export interface DeliveryOps {
+  shipments: { total: number; drafts: number; created: number; shipped: number; delivered: number; returned: number; refused: number };
+  cod: { pendingStotinki: number; collectedStotinki: number; settledStotinki: number; outstandingStotinki: number };
+  stuckDrafts: {
+    farmerId: string | null;
+    farmerName: string;
+    tenantId: string;
+    tenantName: string;
+    count: number;
+    oldestAt: string | null;
+  }[];
+}
+
 export interface PlatformTenantDetail {
   id: string;
   name: string;

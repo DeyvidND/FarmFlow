@@ -107,6 +107,12 @@ export class PlatformController {
     return this.platform.listAllFarmers({ cursor: q.cursor, limit: q.limit });
   }
 
+  /** Cross-tenant delivery operations snapshot (status + COD + stuck drafts). */
+  @Get('delivery/ops')
+  deliveryOps() {
+    return this.platform.deliveryOps();
+  }
+
   @Post('tenants')
   @HttpCode(201)
   createTenant(@Body() dto: CreateTenantDto) {
