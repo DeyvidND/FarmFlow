@@ -196,7 +196,7 @@ export class CheckoutService {
     order: {
       id?: string;
       tenantId: string | null;
-      deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address' | null;
+      deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address' | 'courier' | null;
       /** Chosen carrier for courier methods. Accepted values: 'econt' | 'speedy'. Free-form DB text. */
       carrier?: string | null;
       customerName: string | null;

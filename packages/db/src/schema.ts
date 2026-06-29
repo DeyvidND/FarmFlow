@@ -32,7 +32,7 @@ export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', '
 //  - `pickup`        → customer collects at the market; no delivery, no fee, no slot.
 //  - `econt`         → Econt courier to an office (nationwide; live-priced).
 //  - `econt_address` → Econt courier to a home address / door (nationwide; live-priced).
-export const deliveryTypeEnum = pgEnum('delivery_type', ['pickup', 'address', 'econt', 'econt_address']);
+export const deliveryTypeEnum = pgEnum('delivery_type', ['pickup', 'address', 'econt', 'econt_address', 'courier']);
 export const paymentMethodEnum = pgEnum('payment_method', ['online', 'cod']);
 
 export const tenants = pgTable('tenants', {
@@ -352,6 +352,10 @@ export const orders = pgTable(
     // Which courier the customer chose when both carriers were offered (door delivery
     // comparison). NULL = legacy / single-carrier order; carrier inferred from deliveryType.
     carrier: text('carrier'),
+    // Which farmer this (split) courier order belongs to. Set ONLY on
+    // delivery_type='courier' orders, which are always single-farmer; NULL for
+    // local/pickup/Econt orders. See migration 0070.
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'set null' }),
     deliveryAddress: text('delivery_address'),
     // Settlement for Econt door delivery (the structured city Econt needs to route
     // a waybill to an address). NULL for office/local delivery.
@@ -392,6 +396,8 @@ export const orders = pgTable(
       .where(sql`${t.stripePaymentIntentId} is not null`),
     // One sequence of order numbers per tenant (NULLs allowed for legacy rows).
     tenantNumberUnique: uniqueIndex('orders_tenant_number_unique').on(t.tenantId, t.orderNumber),
+    // Farmer-scoped order lookups (courier split orders).
+    farmerIdx: index('orders_farmer_idx').on(t.farmerId),
   }),
 );
 
