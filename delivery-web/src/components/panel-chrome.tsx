@@ -5,6 +5,7 @@ import { Truck, LogOut, Upload, Package, ShieldAlert, Settings, HelpCircle } fro
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { CarrierOnboarding } from './carrier-onboarding';
+import { ActivationBanner } from './activation-banner';
 
 const NAV = [
   { href: '/import', label: 'Внос', icon: Upload },
@@ -35,7 +36,7 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
           </div>
           <div className="leading-[1.1] max-md:hidden">
             <div className="font-display text-[17px] font-extrabold tracking-[-0.01em]">ФермериБГ · Доставка</div>
-            <div className="mt-0.5 text-[11.5px] font-semibold text-ff-muted">Операторски панел</div>
+            <div className="mt-0.5 text-[11.5px] font-semibold text-ff-muted">Управление на доставки</div>
           </div>
         </div>
 
@@ -84,6 +85,7 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
         </div>
       </header>
 
+      <ActivationBanner />
       <CarrierOnboarding />
 
       <main className="mx-auto max-w-[1100px] px-8 py-8 max-sm:px-4">{children}</main>

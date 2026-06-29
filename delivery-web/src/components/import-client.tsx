@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef, Fragment } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
-import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2, Clock, CloudOff, Info, Truck, Zap, ArrowRight } from 'lucide-react';
+import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2, Clock, CloudOff, Info, Truck, Zap, ArrowRight, Package } from 'lucide-react';
 import {
   ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment, riskCheckBulk, addressSuggest,
   type ImportRow, type QuoteResult, type RiskBulkEntry, type RiskBulkMeta, type AddressPrediction,
@@ -400,6 +401,9 @@ export function ImportClient() {
       <SenderStrip />
       <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Масов внос на пратки</h1>
       <p className="mt-1 text-[13.5px] text-ff-muted">Качи Excel или CSV с поръчки. Накрая натисни „Потвърди поръчки" — куриерът се избира сам, по най-добра цена за цялата партида.</p>
+      <Link href="/shipments" className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-bold text-ff-green-700 hover:underline">
+        <Package size={14} /> Виж създадените пратки
+      </Link>
 
       {/* guide — hidden once a file is loaded into the editor */}
       {rows.length === 0 && (
