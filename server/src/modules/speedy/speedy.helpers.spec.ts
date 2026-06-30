@@ -215,6 +215,40 @@ describe('buildOrderShipmentInput', () => {
     expect(input.receiverPhone).toBe('0888');
   });
 
+  it('puts the free-typed street (+ block hint) into addressNote so Speedy accepts a streetless door order', () => {
+    const input = buildOrderShipmentInput(
+      cfg,
+      {
+        customerName: 'Иван',
+        customerPhone: '0888',
+        deliveryAddress: 'ул. Самоковско шосе 1',
+        deliveryNote: 'бл. 5, ап. 3',
+        paymentMethod: 'online',
+        paidAt: null,
+        totalStotinki: 5000,
+      } as any,
+      100,
+    );
+    expect(input.addressNote).toBe('ул. Самоковско шосе 1, бл. 5, ап. 3');
+    // and it must surface in the actual Speedy request body under recipient.address.addressNote
+    const body = buildShipmentRequest(cfg, input) as any;
+    expect(body.recipient.address.addressNote).toBe('ул. Самоковско шосе 1, бл. 5, ап. 3');
+    expect(body.recipient.address.siteId).toBe(100);
+  });
+
+  it('threads returnReceipt + declaredValue overrides into the request additionalServices', () => {
+    const input = buildOrderShipmentInput(
+      cfg,
+      { customerName: 'Иван', customerPhone: '0888', deliveryAddress: 'ул. Шипка 5', paymentMethod: 'online', paidAt: null, totalStotinki: 0 } as any,
+      100,
+      { returnReceipt: true, declaredValueStotinki: 5000 },
+    );
+    expect(input.returnReceipt).toBe(true);
+    const body = buildShipmentRequest(cfg, input) as any;
+    expect(body.service.additionalServices.returnReceipt).toBe(true);
+    expect(body.service.additionalServices.declaredValue).toEqual({ amount: 50 });
+  });
+
   it('does NOT collect COD on a paid order or online payment', () => {
     // paid COD order → no COD collected
     const paidCod = buildOrderShipmentInput(

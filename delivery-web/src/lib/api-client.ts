@@ -229,6 +229,8 @@ export interface DraftOverrides {
   parcelCount?: number;
   /** Insured value in stotinki (EUR cents); omit/0 = no insurance. */
   declaredValueStotinki?: number;
+  /** „Обратна разписка" — signed delivery receipt back to the sender (Speedy only). */
+  returnReceipt?: boolean;
 }
 
 export const finalizeCourierDraft = async (

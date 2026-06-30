@@ -1,4 +1,4 @@
-import { IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 /**
  * Optional per-shipment overrides the farmer can set when turning a courier DRAFT
@@ -17,4 +17,9 @@ export class FinalizeDraftDto {
 
   /** Insured value in stotinki (EUR cents); 0/absent = no insurance. */
   @IsOptional() @IsInt() @Min(0) @Max(1_000_000) declaredValueStotinki?: number;
+
+  /** „Обратна разписка" — signed delivery receipt returned to the sender. Currently
+   *  honoured by Speedy only; Econt ignores it (kept here so the shared UI payload
+   *  validates for either carrier). */
+  @IsOptional() @IsBoolean() returnReceipt?: boolean;
 }

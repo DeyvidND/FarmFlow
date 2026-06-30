@@ -94,6 +94,12 @@ export interface ManualInput {
   codAmountStotinki?: number;
   declaredValueStotinki?: number;
   codProcessingType?: 'CASH' | 'POSTAL_MONEY_TRANSFER';
+  /** Free-text street/details for a door address WITHOUT a resolved streetId — goes into
+   *  Speedy's `address.addressNote` („Уточнение"). REQUIRED for a storefront door order,
+   *  whose address is a hand-typed string, else Speedy rejects with `details_required`. */
+  addressNote?: string;
+  /** „Обратна разписка" — a signed delivery receipt is returned to the sender. */
+  returnReceipt?: boolean;
 }
 
 /**
@@ -101,7 +107,9 @@ export interface ManualInput {
  * receiver. Field shapes verified live against api.speedy.bg/v1:
  *  - Office delivery uses `recipient.pickupOfficeId` with NO `recipient.address` — a
  *    present address is validated as a DOOR address and rejected (`details_required`).
- *  - Door delivery uses the id-based `recipient.address` (siteId/streetId/streetNo).
+ *  - Door delivery uses the id-based `recipient.address` (siteId/streetId/streetNo), OR
+ *    just `siteId` + free-text `addressNote` when no streetId is resolved (storefront
+ *    orders) — a streetless address with neither is rejected (`details_required`).
  *  - `content.package` (packaging type) is REQUIRED — create fails 605 without it.
  *  - COD + declared value ride on `service.additionalServices` in EUR.
  */
@@ -126,6 +134,8 @@ export function buildShipmentRequest(cfg: SpeedyStored, input: ManualInput): Rec
   if (input.declaredValueStotinki && input.declaredValueStotinki > 0) {
     additionalServices.declaredValue = { amount: toEur(input.declaredValueStotinki) };
   }
+  // „Обратна разписка" — verified live (demo, 2026-06-30) as a plain boolean flag.
+  if (input.returnReceipt) additionalServices.returnReceipt = true;
 
   const service: Record<string, unknown> = { serviceId: input.serviceId, autoAdjustPickupDate: true };
   if (Object.keys(additionalServices).length) service.additionalServices = additionalServices;
@@ -153,6 +163,10 @@ export function buildShipmentRequest(cfg: SpeedyStored, input: ManualInput): Rec
       ...(input.entranceNo ? { entranceNo: input.entranceNo } : {}),
       ...(input.floorNo ? { floorNo: input.floorNo } : {}),
       ...(input.apartmentNo ? { apartmentNo: input.apartmentNo } : {}),
+      // Free-typed street (storefront orders have no resolved streetId): Speedy accepts
+      // the whole address in „Уточнение" (addressNote) — verified live, else it rejects
+      // a streetless door address with `details_required`.
+      ...(input.addressNote ? { addressNote: input.addressNote } : {}),
     };
   }
 
@@ -294,6 +308,8 @@ export function buildOrderShipmentInput(
     customerName: string | null;
     customerPhone: string | null;
     deliveryAddress: string | null;
+    /** Block/entrance/floor/flat hint (бл./вх./ет./ап.) — appended to the address note. */
+    deliveryNote?: string | null;
     paymentMethod?: 'online' | 'cod' | null;
     paidAt?: Date | null;
     totalStotinki?: number | null;
@@ -301,11 +317,13 @@ export function buildOrderShipmentInput(
   siteId: number,
   // Per-shipment overrides the farmer sets at finalize time; each falls back to the
   // farm's package defaults when absent.
-  overrides?: { weightKg?: number; contents?: string; parcelCount?: number; declaredValueStotinki?: number },
+  overrides?: { weightKg?: number; contents?: string; parcelCount?: number; declaredValueStotinki?: number; returnReceipt?: boolean },
 ): ManualInput {
   const collectCod =
     order.paymentMethod === 'cod' && !order.paidAt && !!order.totalStotinki;
   const weightKg = overrides?.weightKg ?? cfg.defaultPackage?.weightKg ?? 1;
+  // The free-typed door address goes into Speedy's „Уточнение" — street + the bl./вх. hint.
+  const addressNote = [order.deliveryAddress, order.deliveryNote].map((s) => s?.trim()).filter(Boolean).join(', ');
 
   return {
     receiverName: order.customerName ?? '—',
@@ -315,7 +333,9 @@ export function buildOrderShipmentInput(
     serviceId: cfg.defaultServiceId ?? SPEEDY_DEFAULT_SERVICE_ID,
     weightGrams: Math.round(weightKg * 1000),
     contents: overrides?.contents ?? cfg.defaultPackage?.contents,
+    ...(addressNote ? { addressNote } : {}),
     ...(overrides?.parcelCount ? { parcelsCount: overrides.parcelCount } : {}),
+    ...(overrides?.returnReceipt ? { returnReceipt: true } : {}),
     ...(overrides?.declaredValueStotinki && overrides.declaredValueStotinki > 0
       ? { declaredValueStotinki: overrides.declaredValueStotinki }
       : {}),

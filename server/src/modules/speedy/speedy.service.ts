@@ -457,6 +457,7 @@ export class SpeedyService implements CarrierAdapter {
         farmerId: orders.farmerId,
         deliveryCity: orders.deliveryCity,
         deliveryAddress: orders.deliveryAddress,
+        deliveryNote: orders.deliveryNote,
         customerName: orders.customerName,
         customerPhone: orders.customerPhone,
         paymentMethod: orders.paymentMethod,

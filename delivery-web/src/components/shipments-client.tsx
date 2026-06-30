@@ -70,7 +70,7 @@ export function ShipmentsClient() {
   // Which draft rows have their „Детайли на пратката" editor open (keyed by rowKey).
   const [openDetails, setOpenDetails] = useState<Set<string>>(new Set());
   // Per-draft package overrides, held as raw input strings (parsed at create time).
-  const [details, setDetails] = useState<Record<string, { weightKg?: string; contents?: string; parcelCount?: string; declaredValueEur?: string }>>({});
+  const [details, setDetails] = useState<Record<string, { weightKg?: string; contents?: string; parcelCount?: string; declaredValueEur?: string; returnReceipt?: boolean }>>({});
 
   const toggleDetails = (rowKey: string) =>
     setOpenDetails((prev) => {
@@ -80,6 +80,8 @@ export function ShipmentsClient() {
     });
   const setDetail = (rowKey: string, k: 'weightKg' | 'contents' | 'parcelCount' | 'declaredValueEur', v: string) =>
     setDetails((m) => ({ ...m, [rowKey]: { ...m[rowKey], [k]: v } }));
+  const setReturnReceipt = (rowKey: string, v: boolean) =>
+    setDetails((m) => ({ ...m, [rowKey]: { ...m[rowKey], returnReceipt: v } }));
   // Rows the farmer has ticked for a batched courier pickup (keyed by rowKey).
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [requesting, setRequesting] = useState(false);
@@ -157,6 +159,8 @@ export function ShipmentsClient() {
     if (Number.isFinite(p) && p > 1) out.parcelCount = p;
     const v = parseFloat(d.declaredValueEur ?? '');
     if (Number.isFinite(v) && v > 0) out.declaredValueStotinki = Math.round(v * 100);
+    // Обратна разписка — only meaningful (and only sent) when Speedy is the chosen carrier.
+    if (d.returnReceipt && (draftCarrier[rowKey] ?? 'econt') === 'speedy') out.returnReceipt = true;
     return out;
   }
 
@@ -295,6 +299,25 @@ export function ShipmentsClient() {
             <input type="number" min="0" step="0.01" inputMode="decimal" placeholder="без" value={d.declaredValueEur ?? ''} disabled={busyKey === r.rowKey} onChange={(e) => setDetail(r.rowKey, 'declaredValueEur', e.target.value)} className={detailInput} />
           </Field>
         </div>
+        {/* Обратна разписка — Speedy-only service (verified live); shown only when Speedy is
+            the chosen carrier so it never appears as a no-op for an Econt draft. */}
+        {(draftCarrier[r.rowKey] ?? 'econt') === 'speedy' && (
+          <label className="mt-3.5 flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={d.returnReceipt ?? false}
+              disabled={busyKey === r.rowKey}
+              onChange={(e) => setReturnReceipt(r.rowKey, e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-ff-green-700"
+            />
+            <span>
+              <span className="text-[12.5px] font-bold text-ff-ink">Обратна разписка</span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-ff-muted">
+                Клиентът подписва разписка при доставка и тя се връща при теб — доказателство, че е получено.
+              </span>
+            </span>
+          </label>
+        )}
       </div>
     );
   };
