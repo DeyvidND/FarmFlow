@@ -580,6 +580,25 @@ export class SpeedyService implements CarrierAdapter {
     }));
   }
 
+  /** The farm's label-paper preference (A4/A6), applied to Speedy /print so the printed
+   *  waybill is the SAME size whichever carrier shipped it. The farmer sets one paper
+   *  choice on the Econt card; we honour it for Speedy too (own `speedy.label.paper`
+   *  wins if ever set). Defaults to A6; any read failure degrades to A6. Both sizes are
+   *  accepted by Speedy /print (verified live). */
+  private async resolvePaperSize(tenantId: string, farmerId?: string): Promise<'A4' | 'A6'> {
+    try {
+      const { tenant } = await this.loadStored(tenantId, undefined, farmerId);
+      const delivery = ((tenant.settings as Record<string, unknown>)?.delivery ?? {}) as {
+        econt?: { label?: { paper?: string } };
+        speedy?: { label?: { paper?: string } };
+      };
+      const paper = delivery.speedy?.label?.paper ?? delivery.econt?.label?.paper;
+      return paper === 'A4' ? 'A4' : 'A6';
+    } catch {
+      return 'A6';
+    }
+  }
+
   /** One Speedy label PDF (tenant-scoped) — fetched live via /print. */
   async getLabelPdf(tenantId: string, shipmentId: string, farmerId?: string): Promise<Buffer> {
     const [row] = await this.db
@@ -599,7 +618,8 @@ export class SpeedyService implements CarrierAdapter {
     const ref = row.id ?? row.barcode;
     if (!ref) throw new NotFoundException('Няма товарителница за тази пратка');
     const creds = await this.resolveCreds(tenantId, farmerId);
-    return this.client.callBinary(creds, 'print', { paperSize: 'A6', parcels: [{ parcel: { id: ref } }] });
+    const paperSize = await this.resolvePaperSize(tenantId, farmerId);
+    return this.client.callBinary(creds, 'print', { paperSize, parcels: [{ parcel: { id: ref } }] });
   }
 
   /** Several Speedy labels merged into one PDF (tenant-scoped). */
@@ -622,8 +642,9 @@ export class SpeedyService implements CarrierAdapter {
         ),
       );
     const refs = rows.map((r) => r.id ?? r.barcode).filter((x): x is string => !!x);
+    const paperSize = await this.resolvePaperSize(tenantId, farmerId);
     const settled = await Promise.allSettled(
-      refs.map((ref) => this.client.callBinary(creds, 'print', { paperSize: 'A6', parcels: [{ parcel: { id: ref } }] })),
+      refs.map((ref) => this.client.callBinary(creds, 'print', { paperSize, parcels: [{ parcel: { id: ref } }] })),
     );
     const buffers: Buffer[] = [];
     settled.forEach((s, i) => {
