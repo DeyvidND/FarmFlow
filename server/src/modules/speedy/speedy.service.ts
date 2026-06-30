@@ -85,6 +85,8 @@ export interface SpeedyShipment {
   trackingNumber: string | null;
   priceStotinki: number | null;
   codAmountStotinki: number | null;
+  /** Courier-pickup request status (null until a pickup is requested for this waybill). */
+  courierRequestStatus: string | null;
 }
 
 @Injectable()
@@ -552,6 +554,7 @@ export class SpeedyService implements CarrierAdapter {
         trackingNumber: shipments.trackingNumber,
         priceStotinki: shipments.courierPriceStotinki,
         codAmountStotinki: shipments.codAmountStotinki,
+        courierRequestStatus: shipments.courierRequestStatus,
       })
       .from(shipments)
       .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
@@ -564,6 +567,7 @@ export class SpeedyService implements CarrierAdapter {
       trackingNumber: r.trackingNumber,
       priceStotinki: r.priceStotinki,
       codAmountStotinki: r.codAmountStotinki,
+      courierRequestStatus: r.courierRequestStatus ?? null,
     }));
   }
 

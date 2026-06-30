@@ -1068,6 +1068,7 @@ export class EcontService implements CarrierAdapter {
           orderCarrier: orders.carrier,
           trackingNumber: shipments.trackingNumber,
           carrierShipmentId: shipments.carrierShipmentId,
+          courierRequestStatus: shipments.courierRequestStatus,
         })
         .from(orders)
         .leftJoin(shipments, eq(shipments.orderId, orders.id))
@@ -1103,6 +1104,7 @@ export class EcontService implements CarrierAdapter {
           orderCarrier: orders.carrier,
           trackingNumber: shipments.trackingNumber,
           carrierShipmentId: shipments.carrierShipmentId,
+          courierRequestStatus: shipments.courierRequestStatus,
         })
         .from(orders)
         .leftJoin(shipments, eq(shipments.orderId, orders.id))
@@ -1131,6 +1133,7 @@ export class EcontService implements CarrierAdapter {
           carrier: shipments.carrier,
           trackingNumber: shipments.trackingNumber,
           carrierShipmentId: shipments.carrierShipmentId,
+          courierRequestStatus: shipments.courierRequestStatus,
         })
         .from(shipments)
         .where(and(eq(shipments.tenantId, tenantId), isNull(shipments.orderId)))

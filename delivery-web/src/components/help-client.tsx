@@ -139,6 +139,7 @@ const TOC = [
   { href: '#econt', label: 'Econt акаунт' },
   { href: '#speedy', label: 'Speedy акаунт' },
   { href: '#import', label: 'Внос на пратки' },
+  { href: '#handover', label: 'Предаване' },
   { href: '#cod', label: 'Проверка на клиент' },
   { href: '#faq', label: 'Въпроси' },
 ];
@@ -169,7 +170,7 @@ export function HelpClient() {
             {[
               { icon: SettingsIcon, t: 'Настройки', d: 'Свържи Econt и/или Speedy акаунт. Прави се веднъж.' },
               { icon: FileSpreadsheet, t: 'Внос', d: 'Качваш Excel/CSV, поправяш редовете, избираш най-евтиния куриер и създаваш пратките.' },
-              { icon: Truck, t: 'Пратки', d: 'Всички създадени пратки, статуси и сваляне на етикети.' },
+              { icon: Truck, t: 'Пратки', d: 'Поръчки от магазина чакат тук като чернови. Създаваш товарителница, сваляш етикет и предаваш — сам до офис или с куриер до адреса ти.' },
               { icon: ShieldAlert, t: 'Проверка на клиент', d: 'Проверка на телефон преди наложен платеж + докладване на проблемни клиенти.' },
             ].map((x) => (
               <div key={x.t} className="flex items-start gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
@@ -253,6 +254,37 @@ export function HelpClient() {
           <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
             <Callout tone="tip" title="Цените идват от куриерите">„Сравни куриери" пита Econt и Speedy за цена на всеки ред и показва двете. По-евтиният се избира автоматично — после може ръчно да смениш куриера в колоната.</Callout>
             <HelpShot src="/help/import-flow.png" alt="Внос екран" caption="Снимка: екран „Внос“ с таблицата (добави при желание)" />
+          </div>
+        </Section>
+
+        {/* ---------------------------------------------------------------- */}
+        <Section id="handover" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Предаване на пратки"
+          intro="Щом товарителницата е готова, я предаваш по един от два начина — ти решаваш за всяка партида.">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+              <div className="flex items-center gap-2 text-[13.5px] font-bold text-ff-ink">
+                <Download size={17} className="text-ff-green-700" /> Принтираш и занасяш
+              </div>
+              <p className="mt-1 text-[12.5px] leading-snug text-ff-muted">
+                Сваляш етикета (бутон „Свали етикет" на екран „Пратки"), лепиш го на кашона и сам го носиш до офис на куриера — или го даваш на минаващ куриер. Без чакане.
+              </p>
+            </div>
+            <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+              <div className="flex items-center gap-2 text-[13.5px] font-bold text-ff-ink">
+                <Truck size={17} className="text-ff-green-700" /> Заявяваш куриер да вземе
+              </div>
+              <p className="mt-1 text-[12.5px] leading-snug text-ff-muted">
+                На екран „Пратки" маркираш готовите пратки (чекбоксове) и натискаш „Заяви куриер да вземе". Куриерът минава и ги взема от адреса ти — не ставаш от фермата.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
+            <Callout tone="info" title="Кое да избера?">
+              Зависи от теб и деня. При 1–2 пратки често е по-бързо да отскочиш до офиса, особено ако бездруго минаваш натам. Съберат ли се повече (горе-долу от 3–4 нагоре) или офисът е далеч — заявката за куриер обикновено си струва.
+            </Callout>
+            <Callout tone="tip" title="Поръчки от магазина идват тук готови">
+              Когато клиент избере „Куриер" в магазина ти, поръчката се появява на екран „Пратки" като <b>чернова</b>. Избираш куриер и натискаш „Създай товарителница" — после я предаваш по един от двата начина горе.
+            </Callout>
           </div>
         </Section>
 

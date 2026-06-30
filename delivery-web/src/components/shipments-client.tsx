@@ -1,12 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { RefreshCw, FileDown, Package, Upload, FilePlus } from 'lucide-react';
+import { RefreshCw, FileDown, Package, Upload, FilePlus, Truck, CheckCircle2, Info, ChevronDown } from 'lucide-react';
 import {
   ApiError, listEcontShipments, listSpeedyShipments, refreshShipment, downloadLabel,
-  finalizeCourierDraft,
+  finalizeCourierDraft, requestCourier,
   type ShipmentRow, type ShipmentStatus, type Carrier,
 } from '@/lib/api-client';
 import { SenderStrip } from './sender-strip';
@@ -51,12 +51,37 @@ const money = (st: number | null | undefined) => (st == null ? '—' : `${st} с
 const isCourierDraft = (r: ShipmentRow): r is ShipmentRow & { orderId: string } =>
   !r.trackingNumber && !!r.orderId;
 
+// A row whose courier pickup has already been requested — show the badge, never re-offer.
+const courierRequested = (r: ShipmentRow) => !!r.courierRequestStatus;
+
+// A finalized waybill that is ready to hand over and hasn't been picked up / closed yet.
+// These are the rows eligible for a courier-pickup request (or for the farmer to drop off
+// at an office themselves). Drafts, already-requested rows, and finished/problem rows opt out.
+const isShippable = (r: ShipmentRow): r is ShipmentRow & { shipmentId: string } =>
+  !!r.shipmentId && !!r.trackingNumber && !courierRequested(r) &&
+  !['delivered', 'returned', 'refused'].includes(r.status);
+
 export function ShipmentsClient() {
   const [rows, setRows] = useState<ShipmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   // Per-draft chosen carrier (keyed by rowKey); defaults to Econt when unset.
   const [draftCarrier, setDraftCarrier] = useState<Record<string, Carrier>>({});
+  // Rows the farmer has ticked for a batched courier pickup (keyed by rowKey).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [requesting, setRequesting] = useState(false);
+  // The handover tip starts collapsed (matches SSR), then auto-opens on a farmer's first
+  // visit only — so a newcomer reads the print-vs-courier choice, but a returning farmer
+  // isn't re-nagged. Marked seen the moment it auto-opens.
+  const tipRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('ff-delivery-handover-tip-seen') !== '1') {
+        if (tipRef.current) tipRef.current.open = true;
+        localStorage.setItem('ff-delivery-handover-tip-seen', '1');
+      }
+    } catch { /* ignore (private mode) */ }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,10 +95,25 @@ export function ShipmentsClient() {
     // Newest first: the lists already come ordered newest→oldest per carrier; keep
     // econt then speedy interleaving stable (no reliable cross-carrier timestamp).
     setRows(merged);
+    setSelected(new Set()); // a fresh list invalidates the old selection
     setLoading(false);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Rows the farmer can request a pickup for, and the live selection over them.
+  const shippable = useMemo(() => rows.filter(isShippable), [rows]);
+  const selectedRows = useMemo(() => shippable.filter((r) => selected.has(r.rowKey)), [shippable, selected]);
+  const allSelected = shippable.length > 0 && selectedRows.length === shippable.length;
+
+  const toggleRow = (rowKey: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey);
+      return next;
+    });
+  const toggleAll = () =>
+    setSelected((prev) => (prev.size === shippable.length ? new Set() : new Set(shippable.map((r) => r.rowKey))));
 
   async function refresh(r: ShipmentRow) {
     if (!r.shipmentId) return;
@@ -101,6 +141,33 @@ export function ShipmentsClient() {
       toast.success('Товарителницата е създадена');
       await load(); // row flips to a finalized waybill (number + label PDF).
     } catch (e) { toast.error(errMsg(e)); } finally { setBusyKey(null); }
+  }
+
+  // Request a courier to collect the ticked waybills. The pickup endpoint is per-carrier,
+  // so split the selection by carrier and fire one request each; report per carrier so a
+  // partial failure (e.g. one carrier not activated) still confirms the other.
+  async function requestPickup() {
+    if (selectedRows.length === 0) return;
+    const byCarrier = new Map<Carrier, string[]>();
+    for (const r of selectedRows) {
+      if (!r.shipmentId) continue;
+      byCarrier.set(r.carrier, [...(byCarrier.get(r.carrier) ?? []), r.shipmentId]);
+    }
+    setRequesting(true);
+    try {
+      const results = await Promise.allSettled(
+        [...byCarrier.entries()].map(([carrier, ids]) =>
+          requestCourier(carrier, ids).then(() => ({ carrier, count: ids.length })),
+        ),
+      );
+      let ok = 0;
+      for (const res of results) {
+        if (res.status === 'fulfilled') { ok += res.value.count; }
+        else { toast.error(errMsg(res.reason)); }
+      }
+      if (ok > 0) toast.success(`Заявен куриер за ${ok} ${ok === 1 ? 'пратка' : 'пратки'}`);
+      await load(); // requested rows come back with a courierRequestStatus → badge, out of selection.
+    } finally { setRequesting(false); }
   }
 
   const btn = 'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 text-[12.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-50';
@@ -132,8 +199,25 @@ export function ShipmentsClient() {
     </select>
   );
 
+  // The „Куриер заявен" badge shown once a pickup has been requested for a row.
+  const RequestedPill = () => (
+    <span className="inline-flex items-center gap-1 rounded-full bg-ff-green-50 px-2.5 py-1 text-[12px] font-bold text-ff-green-700">
+      <CheckCircle2 size={13} /> Куриер заявен
+    </span>
+  );
+
+  const Checkbox = ({ r, className }: { r: ShipmentRow; className?: string }) => (
+    <input
+      type="checkbox"
+      aria-label="Избери за заявка на куриер"
+      checked={selected.has(r.rowKey)}
+      onChange={() => toggleRow(r.rowKey)}
+      className={`h-4 w-4 shrink-0 cursor-pointer accent-ff-green-700 ${className ?? ''}`}
+    />
+  );
+
   return (
-    <div className="animate-ff-fade-up">
+    <div className="animate-ff-fade-up pb-24">
       <SenderStrip />
       <div className="flex items-center justify-between gap-3">
         <div>
@@ -144,6 +228,43 @@ export function ShipmentsClient() {
           <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> <span className="max-sm:hidden">Опресни</span>
         </button>
       </div>
+
+      {/* How to hand over a parcel — the farmer's choice, in plain words. Collapsed by
+          default so it doesn't crowd the table once they know it. */}
+      <details ref={tipRef} className="group mt-4 rounded-xl border border-ff-green-100 bg-ff-green-50 px-4 py-3">
+        <summary className="flex cursor-pointer list-none items-center gap-2.5 [&::-webkit-details-marker]:hidden">
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-ff-green-100 text-ff-green-700">
+            <Truck size={15} />
+          </span>
+          <span className="text-[13.5px] font-extrabold text-ff-ink">Как да предадеш готовите пратки?</span>
+          <ChevronDown size={16} className="ml-auto shrink-0 text-ff-green-700 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+          <div className="rounded-lg border border-ff-green-100 bg-ff-surface px-3.5 py-3">
+            <div className="flex items-center gap-1.5 text-[13px] font-bold text-ff-ink">
+              <FileDown size={14} className="text-ff-green-700" /> Принтирам и занасям
+            </div>
+            <p className="mt-1 text-[12.5px] leading-snug text-ff-ink-2">
+              Сваляш етикета, лепиш го на кашона и сам го носиш до офис на куриера (или го даваш на минаващ куриер). Без чакане.
+            </p>
+          </div>
+          <div className="rounded-lg border border-ff-green-100 bg-ff-surface px-3.5 py-3">
+            <div className="flex items-center gap-1.5 text-[13px] font-bold text-ff-ink">
+              <Truck size={14} className="text-ff-green-700" /> Куриер идва да вземе
+            </div>
+            <p className="mt-1 text-[12.5px] leading-snug text-ff-ink-2">
+              Маркираш готовите пратки и заявяваш куриер да мине и да ги вземе наведнъж — не ставаш от фермата.
+            </p>
+          </div>
+        </div>
+        <div className="mt-2.5 flex items-start gap-1.5 text-[12px] leading-snug text-ff-ink-2">
+          <Info size={13} className="mt-px shrink-0 text-ff-green-700" />
+          <span>
+            Кое е по-изгодно — зависи от теб и деня. При 1–2 пратки често е по-бързо да отскочиш до офиса, особено ако бездруго минаваш натам.
+            Съберат ли се повече (горе-долу от 3–4 нагоре) или офисът е далеч, заявката за куриер обикновено си струва. Решаваш ти за всяка партида.
+          </span>
+        </div>
+      </details>
 
       {loading && rows.length === 0 ? (
         <p className="mt-6 text-[14px] text-ff-muted">Зареждам…</p>
@@ -174,6 +295,16 @@ export function ShipmentsClient() {
             <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
+                  <th className="w-10 px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      aria-label="Избери всички готови за куриер"
+                      checked={allSelected}
+                      disabled={shippable.length === 0}
+                      onChange={toggleAll}
+                      className="h-4 w-4 cursor-pointer accent-ff-green-700 disabled:opacity-40"
+                    />
+                  </th>
                   {['Получател', 'Куриер', 'Метод', 'Статус', 'Товарителница', 'НП (ст.)', 'Цена (ст.)', ''].map((h) => (
                     <th key={h} className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.03em] text-ff-muted">{h}</th>
                   ))}
@@ -182,8 +313,10 @@ export function ShipmentsClient() {
               <tbody>
                 {rows.map((r) => {
                   const draft = isCourierDraft(r);
+                  const canShip = isShippable(r);
                   return (
                     <tr key={r.rowKey} className="border-b border-ff-border-2 last:border-0">
+                      <td className="px-3 py-2.5">{canShip ? <Checkbox r={r} /> : null}</td>
                       <td className="px-3 py-2.5 font-semibold text-ff-ink">{r.receiver || '—'}</td>
                       {/* For a draft the carrier isn't decided yet → show a dash, not a carrier name. */}
                       <td className="px-3 py-2.5 text-ff-ink-2">{draft ? '—' : carrierLabel(r.carrier)}</td>
@@ -203,6 +336,7 @@ export function ShipmentsClient() {
                             </>
                           ) : (
                             <>
+                              {courierRequested(r) && <RequestedPill />}
                               {r.shipmentId && (
                                 <button onClick={() => refresh(r)} disabled={busyKey === r.rowKey} className={btn} title="Опресни статус">
                                   <RefreshCw size={14} className={busyKey === r.rowKey ? 'animate-spin' : ''} />
@@ -228,12 +362,16 @@ export function ShipmentsClient() {
           <div className="mt-4 hidden flex-col gap-3 max-[900px]:flex">
             {rows.map((r) => {
               const draft = isCourierDraft(r);
+              const canShip = isShippable(r);
               return (
                 <div key={r.rowKey} className="rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-[15px] font-bold text-ff-ink">{r.receiver || '—'}</div>
-                      <div className="mt-0.5 text-[12.5px] font-semibold text-ff-muted">{(draft ? '—' : carrierLabel(r.carrier))} · {r.method ?? '—'}</div>
+                    <div className="flex min-w-0 items-start gap-2.5">
+                      {canShip && <Checkbox r={r} className="mt-1" />}
+                      <div className="min-w-0">
+                        <div className="truncate text-[15px] font-bold text-ff-ink">{r.receiver || '—'}</div>
+                        <div className="mt-0.5 text-[12.5px] font-semibold text-ff-muted">{(draft ? '—' : carrierLabel(r.carrier))} · {r.method ?? '—'}</div>
+                      </div>
                     </div>
                     <StatusPill s={r.status} />
                   </div>
@@ -253,20 +391,46 @@ export function ShipmentsClient() {
                       </button>
                     </div>
                   ) : r.shipmentId ? (
-                    <div className="mt-3 flex gap-2">
-                      <button onClick={() => refresh(r)} disabled={busyKey === r.rowKey} className={btn + ' h-11 flex-1'}>
-                        <RefreshCw size={15} className={busyKey === r.rowKey ? 'animate-spin' : ''} /> Опресни
-                      </button>
-                      <button onClick={() => label(r)} disabled={busyKey === r.rowKey} className={btn + ' h-11 flex-1'}>
-                        <FileDown size={15} /> Етикет
-                      </button>
-                    </div>
+                    <>
+                      {courierRequested(r) && <div className="mt-3"><RequestedPill /></div>}
+                      <div className="mt-3 flex gap-2">
+                        <button onClick={() => refresh(r)} disabled={busyKey === r.rowKey} className={btn + ' h-11 flex-1'}>
+                          <RefreshCw size={15} className={busyKey === r.rowKey ? 'animate-spin' : ''} /> Опресни
+                        </button>
+                        <button onClick={() => label(r)} disabled={busyKey === r.rowKey} className={btn + ' h-11 flex-1'}>
+                          <FileDown size={15} /> Етикет
+                        </button>
+                      </div>
+                    </>
                   ) : null}
                 </div>
               );
             })}
           </div>
         </>
+      )}
+
+      {/* Sticky pickup bar — appears only while rows are ticked. Keeps the courier action
+          one tap away no matter how far the farmer has scrolled. */}
+      {selectedRows.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-ff-border bg-ff-surface/95 px-4 py-3 shadow-ff-lg backdrop-blur">
+          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[13.5px] font-extrabold text-ff-ink">
+                {selectedRows.length} {selectedRows.length === 1 ? 'избрана пратка' : 'избрани пратки'}
+              </div>
+              <div className="truncate text-[12px] text-ff-muted">Куриерът ще мине и ще ги вземе от адреса ти.</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setSelected(new Set())} disabled={requesting} className={btn + ' h-11'}>
+                Откажи
+              </button>
+              <button onClick={requestPickup} disabled={requesting} className={ctaBtn + ' h-11 px-4'}>
+                <Truck size={16} /> {requesting ? 'Заявявам…' : 'Заяви куриер да вземе'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

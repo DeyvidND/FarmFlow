@@ -125,6 +125,9 @@ export interface ShipmentRow {
   priceStotinki?: number | null;
   codAmountStotinki?: number | null;
   labelPdfUrl?: string | null;
+  /** Set once a courier pickup has been requested for this waybill — drives the
+   *  „Куриер заявен" pill and keeps the row out of a second pickup request. */
+  courierRequestStatus?: string | null;
 }
 
 /** Server `AdminShipment` (econt) — see econt.service.ts. */
@@ -139,6 +142,7 @@ interface EcontAdminShipment {
   codAmountStotinki?: number;
   labelPdfUrl?: string;
   shipmentId?: string;
+  courierRequestStatus?: string | null;
   manual?: boolean;
   history: { at: string; label: string; location?: string }[];
 }
@@ -152,6 +156,7 @@ interface SpeedyAdminShipment {
   trackingNumber: string | null;
   priceStotinki: number | null;
   codAmountStotinki: number | null;
+  courierRequestStatus?: string | null;
 }
 
 const econtMethodLabel = (m: EcontAdminShipment['method']): string =>
@@ -176,6 +181,7 @@ export const listEcontShipments = async (): Promise<ShipmentRow[]> => {
     priceStotinki: r.priceStotinki ?? null,
     codAmountStotinki: r.codAmountStotinki ?? null,
     labelPdfUrl: r.labelPdfUrl ?? null,
+    courierRequestStatus: r.courierRequestStatus ?? null,
   }));
 };
 
@@ -192,6 +198,7 @@ export const listSpeedyShipments = async (): Promise<ShipmentRow[]> => {
     priceStotinki: r.priceStotinki,
     codAmountStotinki: r.codAmountStotinki,
     labelPdfUrl: null,
+    courierRequestStatus: r.courierRequestStatus ?? null,
   }));
 };
 
@@ -216,6 +223,18 @@ export const downloadLabel = async (carrier: Carrier, id: string): Promise<void>
   const url = URL.createObjectURL(blob);
   window.open(url, '_blank');
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
+
+/** Ask the carrier to send a courier to collect already-created waybills (a paid
+ *  action — the backend gates Econt behind ActivationGuard). The pickup endpoints are
+ *  per-carrier, so the caller groups its selection by carrier and calls once per carrier:
+ *   - econt  → POST shipping/courier
+ *   - speedy → POST speedy/courier
+ *  Both accept `{ shipmentIds }` (our shipment UUIDs) and persist a courierRequestStatus. */
+export const requestCourier = async (carrier: Carrier, shipmentIds: string[]): Promise<void> => {
+  await bff(`${carrierBase(carrier)}/courier`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shipmentIds }),
+  }, 'Заявката за куриер се провали');
 };
 
 /* -------------------------------- COD risk -------------------------------- */

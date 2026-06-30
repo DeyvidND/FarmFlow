@@ -35,6 +35,8 @@ export interface ShipmentJoinRow {
   trackingNumber: string | null;
   /** Speedy internal shipment id (carrierShipmentId column). */
   carrierShipmentId: string | null;
+  /** Courier-pickup request status persisted on the shipments row (null until requested). */
+  courierRequestStatus?: string | null;
 }
 
 /** Admin shipments-table row. */
@@ -51,6 +53,9 @@ export interface AdminShipment {
   codAmountStotinki?: number;
   labelPdfUrl?: string;
   shipmentId?: string;
+  /** Set once a courier pickup has been requested for this waybill (e.g. 'process').
+   *  Drives the „Куриер заявен" pill + excludes the row from re-requesting. */
+  courierRequestStatus?: string | null;
   // True for order-less standalone shipments. For those, `orderId` carries the
   // shipment id as a row key (there is no order) — consumers must NOT use it as a
   // navigable order id when `manual` is set.
@@ -92,6 +97,8 @@ export interface ManualShipmentRow {
   trackingNumber: string | null;
   /** Speedy internal shipment id (carrierShipmentId column). */
   carrierShipmentId: string | null;
+  /** Courier-pickup request status persisted on the shipments row (null until requested). */
+  courierRequestStatus?: string | null;
 }
 
 /** Map a stored order-less shipment onto the admin shipments-table shape. */
@@ -110,6 +117,7 @@ export function mapManualShipmentRow(r: ManualShipmentRow): AdminShipment {
     codAmountStotinki: r.codAmount ?? undefined,
     labelPdfUrl: r.labelPdfUrl ?? undefined,
     shipmentId: r.shipmentId,
+    courierRequestStatus: r.courierRequestStatus ?? null,
     manual: true,
     history: mapTrackingEvents(r.trackingJson),
   };
@@ -132,6 +140,7 @@ export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
     codAmountStotinki: r.codAmount ?? undefined,
     labelPdfUrl: r.labelPdfUrl ?? undefined,
     shipmentId: r.shipmentId ?? undefined,
+    courierRequestStatus: r.courierRequestStatus ?? null,
     history: mapTrackingEvents(r.trackingJson),
   };
 }
