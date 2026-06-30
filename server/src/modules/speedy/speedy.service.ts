@@ -15,7 +15,7 @@ import {
   buildOrderShipmentInput, parseTrackStatus, parsePayouts, type CanonicalStatus,
   SPEEDY_DEFAULT_SERVICE_ID,
 } from './speedy.helpers';
-import { mergePdfs } from '../econt/econt.service';
+import { mergePdfs } from '../econt/econt.mappers';
 import { SpeedyManualShipmentDto } from './dto/speedy-manual-shipment.dto';
 import { SpeedyCredentialsDto } from './dto/speedy-credentials.dto';
 import { SpeedyValidateAddressDto } from './dto/speedy-validate-address.dto';
