@@ -419,7 +419,8 @@ export class SpeedyService implements CarrierAdapter {
     const shipmentId: string | null = data?.id != null ? String(data.id) : null;
     const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
     const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
-    // spike: confirm the create-shipment price field name(s) vs live API.
+    // Confirmed live (demo, 2026-06-30): create returns `id` + `parcels[].barcode` and
+    // `price.total` (EUR) — verified with a multi-parcel + declaredValue + COD shipment.
     const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
     const codAmount = input.codAmountStotinki && input.codAmountStotinki > 0 ? Math.round(input.codAmountStotinki) : null;
 

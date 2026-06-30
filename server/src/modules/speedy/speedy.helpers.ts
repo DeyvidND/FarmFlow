@@ -7,7 +7,10 @@ export type CanonicalStatus =
 /** Default Speedy courier-service code used for every shipment when the tenant set
  *  no explicit service. Farmers don't know Speedy service codes, so the UI omits the
  *  field and we ship on this one service across estimate AND label creation.
- *  // spike: confirm 505 is the correct door/office service for the live contract. */
+ *  Confirmed live (demo, 2026-06-30): service 505 = „СТАНДАРТ 24 ЧАСА" / STANDARD 24
+ *  HOURS — the standard door/office parcel service (the route's other services are
+ *  pallet/tyres, irrelevant to a farm parcel), so the single hardcoded default is
+ *  correct and a service picker would add no farmer value. */
 export const SPEEDY_DEFAULT_SERVICE_ID = 505;
 
 /** stotinki (EUR cents) → a 2-decimal EUR number for the Speedy API. */
