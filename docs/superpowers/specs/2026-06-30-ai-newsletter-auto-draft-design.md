@@ -22,7 +22,8 @@ In:
   builds a newsletter **draft** from fresh catalog content and notifies the farmer.
 - AI-written copy (subject + intro + per-product one-liners) with a deterministic
   fallback when AI is unavailable or fails.
-- A per-tenant opt-in toggle (`settings.autoNewsletter`, default **off**).
+- A per-tenant opt-in toggle (`settings.autoNewsletter`, default **off**) — backend
+  endpoint only; the farmer-facing checkbox UI is a follow-up, not in this plan.
 - Dedup so unreviewed auto-drafts don't pile up.
 - A manual "generate my draft now" trigger for testing.
 
@@ -134,13 +135,15 @@ the id). Dedup query: exists a `newsletter_campaigns` row for the tenant with
 'weekly', '0 8 * * 4')`; `process` handles `'weekly'` (fan-out) and `'tenant'`
 (one draft). Worker-gated in the module providers.
 
-### 7. Opt-in toggle
+### 7. Opt-in toggle (backend only this plan)
 - Backend: `PATCH /newsletter/auto-settings { enabled: boolean }` (tenant-scoped,
-  `JwtAuthGuard`) → writes `settings.autoNewsletter` (jsonb merge, mirroring how
-  other `settings.*` flags are persisted). `GET` value surfaced via the existing
-  newsletter/quote payload or a small addition.
-- Frontend: a checkbox „Автоматичен седмичен бюлетин (чернова)" on the newsletter
-  screen, default reflecting the stored flag. Minimal — one toggle + helper text.
+  `JwtAuthGuard`) → writes `settings.autoNewsletter` via the jsonb-merge pattern used
+  for other `settings.*` flags (`jsonb_set(coalesce(settings,'{}'), array['autoNewsletter'], …)`).
+  The current value is surfaced in the existing `GET /newsletter/quote` response
+  (add an `autoNewsletter: boolean` field) so a UI can bind later.
+- **Frontend checkbox is a follow-up, NOT in this plan.** The operator enables a farm
+  via the PATCH endpoint in the meantime. Descoped to ship the automation engine first
+  and keep this plan backend-only + fully testable.
 
 ### 8. Manual test endpoint
 `POST /newsletter/auto-draft-test` (tenant-scoped) → `generateForTenant(currentTenant)`
