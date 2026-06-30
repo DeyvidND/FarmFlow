@@ -7,3 +7,4 @@ export const CLEANUP_QUEUE = 'cleanup';
 export const ECONT_QUEUE = 'econt';
 export const SPEEDY_QUEUE = 'speedy';
 export const PRODUCTS_QUEUE = 'products';
+export const OPERATOR_DIGEST_QUEUE = 'operator-digest';

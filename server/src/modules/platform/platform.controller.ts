@@ -20,6 +20,7 @@ import { Throttle } from '@nestjs/throttler';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
 import { ProductExtractService } from './product-extract.service';
+import { OperatorDigestService } from './operator-digest.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import { SetPremiumDto } from './dto/set-premium.dto';
@@ -58,6 +59,7 @@ export class PlatformController {
     private readonly platform: PlatformService,
     private readonly insights: PlatformInsightsService,
     private readonly productExtract: ProductExtractService,
+    private readonly operatorDigest: OperatorDigestService,
   ) {}
 
   /** Current super-admin identity — backs the panel's server-side auth gate. */
@@ -179,6 +181,14 @@ export class PlatformController {
     const content = await this.productExtract.parseToText(file, text);
     const products = await this.productExtract.extract(content);
     return { products };
+  }
+
+  /** Manual trigger: build + send today's operator digest now (to SUPER_ADMIN_EMAIL).
+   *  Returns the same outcome the daily cron would produce. */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('digest/operator-test')
+  runOperatorDigest() {
+    return this.operatorDigest.runDaily();
   }
 
   /** Super-admin onboarding seed — bulk-create catalog (products/farmers/categories)
