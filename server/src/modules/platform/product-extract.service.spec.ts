@@ -1,8 +1,11 @@
 import { BadRequestException, BadGatewayException } from '@nestjs/common';
 import { ProductExtractService } from './product-extract.service';
 
-/** Build a service with a stubbed config; OpenAI client is swapped per-test. */
-function makeSvc(key: string | null = 'sk-test') {
+/** Build a service with a stubbed config. Default key=null so the constructor
+ *  never instantiates a real OpenAI client (which left a worker handle dangling
+ *  under parallel load → "worker failed to exit gracefully" + flaky timeouts).
+ *  The extract tests inject their own mock `client` directly. */
+function makeSvc(key: string | null = null) {
   const config = { get: (k: string, d?: unknown) => (k === 'OPENAI_API_KEY' ? key : d) } as any;
   return new ProductExtractService(config);
 }
