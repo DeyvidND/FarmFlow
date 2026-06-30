@@ -23,7 +23,7 @@ import {
 } from '@/lib/api';
 import { shippingFor, type StorefrontDelivery } from '@/lib/shipping';
 import { SlotPicker } from '@/components/slot-picker';
-import { AddressFields } from '@/components/address-fields';
+import { AddressFields, composeGeocodeLine, type AddressParts } from '@/components/address-fields';
 import { toast } from '@/components/toast';
 
 export function CheckoutClient({
@@ -64,6 +64,10 @@ export function CheckoutClient({
     showSelf ? 'address' : showEcont ? 'econt' : showPickup ? 'pickup' : 'address',
   );
   const [addressInput, setAddressInput] = useState('');
+  // Structured parts of the farm-delivery address (from AddressFields) — lets us send
+  // the block/entrance as `deliveryNote` and the city/postcode on their own fields,
+  // instead of folding everything into the geocoded `deliveryAddress` string.
+  const [addressParts, setAddressParts] = useState<AddressParts | null>(null);
   // Structured settlement for Econt door (econt_address) — the courier needs a
   // city to route the waybill; the server requires it for door delivery.
   const [cityInput, setCityInput] = useState('');
@@ -118,9 +122,15 @@ export function CheckoutClient({
         slotId: isPickup ? undefined : (slotId ?? undefined),
         deliveryType: sentDeliveryType,
         // Manual Econt + self-delivery carry an address; auto Econt carries an office.
+        // Farm self-delivery sends the geocoder-clean line (street+town, no block) so the
+        // pin doesn't snap to a wrong point; the block/entrance rides on deliveryNote.
         deliveryAddress: isPickup
           ? undefined
-          : (!isEcont || manualEcont ? addressInput.trim() || undefined : undefined),
+          : !isEcont && addressParts
+            ? composeGeocodeLine(addressParts) || undefined
+            : (!isEcont || manualEcont ? addressInput.trim() || undefined : undefined),
+        deliveryNote:
+          !isPickup && !isEcont && addressParts?.extra.trim() ? addressParts.extra.trim() : undefined,
         deliveryCity:
           sentDeliveryType === 'econt_address' ? cityInput.trim() || undefined : undefined,
         deliveryLat: isPickup || isEcont ? undefined : addressLat ?? undefined,
@@ -342,8 +352,9 @@ export function CheckoutClient({
                         Адрес за доставка
                       </label>
                       <AddressFields
-                        onChange={(text) => {
+                        onChange={(text, parts) => {
                           setAddressInput(text);
+                          setAddressParts(parts);
                           // Structured text → server geocodes (region+town disambiguate).
                           setAddressLat(null);
                           setAddressLng(null);

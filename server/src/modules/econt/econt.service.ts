@@ -778,6 +778,13 @@ export class EcontService implements CarrierAdapter {
     if (farmerId && orderFarmerId && orderFarmerId !== farmerId) {
       throw new ForbiddenException('Поръчката принадлежи на друга ферма');
     }
+    // A door waybill needs a settlement name; without it Econt rejects mid-call with an
+    // opaque ExInvalidCity. Fail fast with a clear message the farmer can act on.
+    const odt = (order as { deliveryType?: string | null }).deliveryType;
+    const ocity = (order as { deliveryCity?: string | null }).deliveryCity;
+    if ((odt === 'courier' || odt === 'econt_address') && !ocity?.trim()) {
+      throw new BadRequestException('Липсва град за доставка — попълни населено място, преди да създадеш товарителница.');
+    }
     const handling = resolveHandling(tenant.settings);
     // Per-shipment weight/contents override the farm's defaultPackage for this one label;
     // parcel count + declared value go straight onto the built label.
@@ -842,6 +849,9 @@ export class EcontService implements CarrierAdapter {
           econtShipmentNumber: number,
           status: number ? 'created' : 'pending',
           labelPdfUrl: out.pdfURL ?? null,
+          // Refresh the persisted price on re-finalize too — else a re-shipped draft keeps
+          // the stale insert-time price.
+          courierPriceStotinki: typeof priceEur === 'number' ? Math.round(priceEur * 100) : null,
           codAmountStotinki: codAmount,
           updatedAt: new Date(),
         },

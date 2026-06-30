@@ -79,6 +79,7 @@ export interface CreateOrderDto {
   slotId?: string; // uuid
   deliveryType?: DeliveryType;
   deliveryAddress?: string;
+  deliveryNote?: string; // block/entrance/floor/flat — kept out of geocoding (display + route)
   deliveryCity?: string; // structured settlement — required for Econt door (econt_address)
   deliveryLat?: number; // precise pin from the checkout map/autocomplete
   deliveryLng?: number;

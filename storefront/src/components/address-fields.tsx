@@ -38,6 +38,18 @@ export function composeAddress(p: AddressParts): string {
     .join(', ');
 }
 
+/** Like composeAddress but WITHOUT the block/entrance detail (`extra`). Sent as
+ *  `deliveryAddress` so the server geocodes a clean street+town line — the block goes
+ *  to `deliveryNote` instead, which the geocoder ignores (a hand-typed "бл. 5 вх. А"
+ *  otherwise snaps the pin to the wrong point). */
+export function composeGeocodeLine(p: AddressParts): string {
+  const streetLine = [p.street, p.streetNo].filter((s) => s.trim()).join(' ');
+  return [streetLine, p.city, p.oblast && `обл. ${p.oblast}`, p.postcode]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
 export function AddressFields({
   onChange,
 }: {
