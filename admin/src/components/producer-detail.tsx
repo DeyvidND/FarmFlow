@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronRight, Package, Truck, Wallet, ShoppingBasket, Check 
 import { cn, eur, dmy } from '@/lib/utils';
 import type { FarmerDetail } from '@/lib/api-client';
 import { ImpersonateButton } from './impersonate-button';
+import { ProductImportDialog } from './product-import-dialog';
 
 const SHIP_STATUS: Record<string, { label: string; tone: string }> = {
   pending: { label: 'Чакаща', tone: 'bg-ff-surface-2 text-ff-ink-2' },
@@ -87,7 +88,10 @@ export function ProducerDetail({ farmer: f }: { farmer: FarmerDetail }) {
           </div>
         </div>
         <div className="flex flex-col items-end gap-2.5">
-          <ImpersonateButton farmerId={f.id} hasLogin={f.hasLogin} />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ProductImportDialog tenantId={f.tenantId} farmerId={f.id} farmerName={f.name} />
+            <ImpersonateButton farmerId={f.id} hasLogin={f.hasLogin} />
+          </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <span
               className={cn(
