@@ -389,6 +389,50 @@ export const resetTenantPassword = (id: string) =>
     'Неуспешно нулиране на паролата',
   );
 
+// ── AI product import (super-admin onboarding) ──
+
+/** One AI-extracted product row, editable in the preview before commit. */
+export interface ExtractedProduct {
+  name: string;
+  priceStotinki: number;
+  unit: string;
+  weight?: string;
+  category?: string;
+  description?: string;
+}
+
+/**
+ * Send a pasted price list (text) and/or an uploaded file (.txt/.csv/.xlsx) to the
+ * AI extractor. Multipart: do NOT set content-type — the browser sets the boundary
+ * and the BFF forwards it. Returns rows only (no products created yet).
+ */
+export const extractProducts = (tenantId: string, input: { file?: File; text?: string }) => {
+  const fd = new FormData();
+  if (input.file) fd.append('file', input.file);
+  if (input.text) fd.append('text', input.text);
+  return apiFetch<{ products: ExtractedProduct[] }>(
+    `platform/tenants/${tenantId}/products/extract`,
+    { method: 'POST', body: fd },
+    'Неуспешно извличане на продукти',
+  );
+};
+
+/** Commit the reviewed rows to the farm's catalog via the existing import endpoint.
+ *  `farmerId` attaches each product to the producer whose page this is. */
+export const importTenantProducts = (
+  tenantId: string,
+  products: (ExtractedProduct & { farmerId?: string; isActive?: boolean })[],
+) =>
+  apiFetch<{ products: number; farmers: number; categories: number; contact: boolean; favicon: boolean }>(
+    `platform/tenants/${tenantId}/import`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ products }),
+    },
+    'Неуспешно създаване на продукти',
+  );
+
 /**
  * Change the super-admin password. Goes through the session route handler (NOT
  * the BFF) because the API bumps tokenVersion on change — the route re-sets the
