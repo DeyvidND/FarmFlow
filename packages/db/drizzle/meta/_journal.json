@@ -512,6 +512,13 @@
       "when": 1783328400000,
       "tag": "0072_audit_logs_farmer_id",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1783328401000,
+      "tag": "0073_newsletter_auto_generated",
+      "breakpoints": true
     }
   ]
 }
