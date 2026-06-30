@@ -9,6 +9,7 @@ import { TenantsModule } from '../tenants/tenants.module';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
 import { PlatformController, PlatformAuthController } from './platform.controller';
+import { ProductExtractService } from './product-extract.service';
 import { DemoCleanupProcessor } from './demo-cleanup.processor';
 import { CLEANUP_QUEUE } from '../../common/queue/queue.constants';
 import { RUN_WORKERS } from '../../config/app-role';
@@ -38,6 +39,7 @@ import { RUN_WORKERS } from '../../config/app-role';
   providers: [
     PlatformService,
     PlatformInsightsService,
+    ProductExtractService,
     ...(RUN_WORKERS ? [DemoCleanupProcessor] : []),
   ],
 })

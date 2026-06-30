@@ -10,12 +10,16 @@ import {
   UseGuards,
   ParseUUIDPipe,
   HttpCode,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
 import { Throttle } from '@nestjs/throttler';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
+import { ProductExtractService } from './product-extract.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import { SetPremiumDto } from './dto/set-premium.dto';
@@ -53,6 +57,7 @@ export class PlatformController {
   constructor(
     private readonly platform: PlatformService,
     private readonly insights: PlatformInsightsService,
+    private readonly productExtract: ProductExtractService,
   ) {}
 
   /** Current super-admin identity — backs the panel's server-side auth gate. */
@@ -144,6 +149,22 @@ export class PlatformController {
   @HttpCode(201)
   createDemo(@Body() dto: CreateDemoDto) {
     return this.platform.createDemoTenant(dto.days);
+  }
+
+  /** AI product extraction for onboarding: messy price list (text or .txt/.csv/.xlsx
+   *  file) -> structured product rows. No DB write — the operator reviews, then POSTs
+   *  the (edited) rows to the import endpoint below. Throttled (each call hits OpenAI). */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('tenants/:id/products/extract')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  async extractProducts(
+    @Param('id', ParseUUIDPipe) _id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body('text') text: string | undefined,
+  ): Promise<{ products: import('./product-extract.service').ExtractedProduct[] }> {
+    const content = await this.productExtract.parseToText(file, text);
+    const products = await this.productExtract.extract(content);
+    return { products };
   }
 
   /** Super-admin onboarding seed — bulk-create catalog (products/farmers/categories)
