@@ -10,8 +10,10 @@ import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
 import { PlatformController, PlatformAuthController } from './platform.controller';
 import { ProductExtractService } from './product-extract.service';
+import { OperatorDigestService } from './operator-digest.service';
+import { OperatorDigestProcessor } from './operator-digest.processor';
 import { DemoCleanupProcessor } from './demo-cleanup.processor';
-import { CLEANUP_QUEUE } from '../../common/queue/queue.constants';
+import { CLEANUP_QUEUE, OPERATOR_DIGEST_QUEUE } from '../../common/queue/queue.constants';
 import { RUN_WORKERS } from '../../config/app-role';
 
 @Module({
@@ -34,13 +36,23 @@ import { RUN_WORKERS } from '../../config/app-role';
         removeOnFail: 200,
       },
     }),
+    BullModule.registerQueue({
+      name: OPERATOR_DIGEST_QUEUE,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: true,
+        removeOnFail: 100,
+      },
+    }),
   ],
   controllers: [PlatformAuthController, PlatformController],
   providers: [
     PlatformService,
     PlatformInsightsService,
     ProductExtractService,
-    ...(RUN_WORKERS ? [DemoCleanupProcessor] : []),
+    OperatorDigestService,
+    ...(RUN_WORKERS ? [DemoCleanupProcessor, OperatorDigestProcessor] : []),
   ],
 })
 export class PlatformModule {}
