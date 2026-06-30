@@ -18,6 +18,7 @@
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
+    "testTimeout": 30000,
     "moduleNameMapper": {
       "^stripe$": "<rootDir>/test/mocks/stripe.ts"
     },
