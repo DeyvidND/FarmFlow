@@ -61,32 +61,54 @@ export class OperatorDigestService {
       return { sent: false, reason: 'no-recipient' };
     }
 
-    const [insights, deliveryOps, billing, pulse] = await Promise.all([
+    // Each section is independent — settle them so one failing query (a section
+    // throwing) degrades to an empty section instead of losing the whole report.
+    // The operator's attention call-list must survive a hiccup in, say, email
+    // billing. A section that fails is logged and treated as "nothing to report"
+    // there; the quiet-day gate below still decides whether anything is sent.
+    const [insightsR, deliveryR, billingR, pulseR] = await Promise.allSettled([
       this.insights.insights(),
       this.platform.deliveryOps(),
       this.platform.emailBilling(),
       this.dailyPulse(),
     ]);
+    const labels = ['insights', 'deliveryOps', 'emailBilling', 'pulse'];
+    [insightsR, deliveryR, billingR, pulseR].forEach((r, i) => {
+      if (r.status === 'rejected') {
+        this.logger.warn(
+          `[operator-digest] section "${labels[i]}" failed (using empty fallback): ${String((r.reason as Error)?.message ?? r.reason)}`,
+        );
+      }
+    });
 
     const { html, text, isEmpty } = assembleDigest(
       {
-        pulse,
-        signals: insights.signals.map((f) => ({
-          name: f.name,
-          phone: f.phone,
-          signals: f.signals.map((s) => ({ label: s.label, action: s.action })),
-        })),
-        stuckDrafts: deliveryOps.stuckDrafts.map((d) => ({
-          farmerName: d.farmerName,
-          tenantName: d.tenantName,
-          count: d.count,
-          oldestAt: d.oldestAt,
-        })),
-        emailTotals: {
-          recipientTotal: billing.totals.recipientTotal,
-          revenueStotinki: billing.totals.revenueStotinki,
-          marginStotinki: billing.totals.marginStotinki,
-        },
+        pulse: pulseR.status === 'fulfilled' ? pulseR.value : { orders24h: 0, revenue24hStotinki: 0, newSignups: [] },
+        signals:
+          insightsR.status === 'fulfilled'
+            ? insightsR.value.signals.map((f) => ({
+                name: f.name,
+                phone: f.phone,
+                signals: f.signals.map((s) => ({ label: s.label, action: s.action })),
+              }))
+            : [],
+        stuckDrafts:
+          deliveryR.status === 'fulfilled'
+            ? deliveryR.value.stuckDrafts.map((d) => ({
+                farmerName: d.farmerName,
+                tenantName: d.tenantName,
+                count: d.count,
+                oldestAt: d.oldestAt,
+              }))
+            : [],
+        emailTotals:
+          billingR.status === 'fulfilled'
+            ? {
+                recipientTotal: billingR.value.totals.recipientTotal,
+                revenueStotinki: billingR.value.totals.revenueStotinki,
+                marginStotinki: billingR.value.totals.marginStotinki,
+              }
+            : { recipientTotal: 0, revenueStotinki: 0, marginStotinki: 0 },
       },
       bgToday(),
     );

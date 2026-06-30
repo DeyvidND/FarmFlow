@@ -52,4 +52,32 @@ describe('OperatorDigestService.runDaily', () => {
     expect(arg.html).toContain('Ферма А');
     expect(arg.html).toContain('0888000000');
   });
+
+  it('still sends a partial report when one section query throws', async () => {
+    const { svc, email, platform } = makeSvc({
+      superAdminEmail: 'op@ferma.bg',
+      signals: [{ name: 'Ферма А', phone: '0888000000', signals: [{ label: 'Няма продукти', action: 'Качи продукти' }] }],
+    });
+    // emailBilling blows up — the attention list must still reach the operator.
+    platform.emailBilling.mockRejectedValue(new Error('billing query down'));
+
+    const res = await svc.runDaily();
+
+    expect(res).toEqual({ sent: true });
+    expect(email.sendMail).toHaveBeenCalledTimes(1);
+    expect(email.sendMail.mock.calls[0][0].html).toContain('Ферма А');
+  });
+
+  it('treats every section failing as a quiet day (no send, no crash)', async () => {
+    const { svc, email, insights, platform } = makeSvc({ superAdminEmail: 'op@ferma.bg' });
+    insights.insights.mockRejectedValue(new Error('insights down'));
+    platform.deliveryOps.mockRejectedValue(new Error('deliveryOps down'));
+    platform.emailBilling.mockRejectedValue(new Error('billing down'));
+    (svc as any).dailyPulse = jest.fn().mockRejectedValue(new Error('pulse down'));
+
+    const res = await svc.runDaily();
+
+    expect(res).toEqual({ sent: false, reason: 'empty' });
+    expect(email.sendMail).not.toHaveBeenCalled();
+  });
 });
