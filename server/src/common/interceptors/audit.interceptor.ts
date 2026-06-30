@@ -38,6 +38,9 @@ export class AuditInterceptor implements NestInterceptor {
             // the row would be silently dropped by the catch below).
             userId: user.userId ?? null,
             adminId: user.adminId ?? null,
+            // Producer drill-down: present only on farmer-role tokens (jwt.strategy
+            // copies payload.farmerId into req.user). Null for owner/admin/system.
+            farmerId: user.farmerId ?? null,
             action: req.method,
             path: req.originalUrl ?? req.url,
             statusCode: res.statusCode ?? null,

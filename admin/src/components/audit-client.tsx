@@ -1,11 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Search, ShieldAlert, User, Server } from 'lucide-react';
+import { Search, ShieldAlert, User, Server, Tractor, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { listAuditLogs, type AuditLog, type Paginated } from '@/lib/api-client';
-import { usePaginatedList } from '@/hooks/use-paginated-list';
+import {
+  listAuditLogs,
+  listTenants,
+  listAllFarmers,
+  type AuditLog,
+  type Paginated,
+} from '@/lib/api-client';
+
+type View = 'all' | 'farm' | 'producer';
 
 const methodTone = (m: string) =>
   m === 'DELETE'
@@ -50,10 +57,91 @@ function Actor({ a }: { a: AuditLog }) {
   );
 }
 
+const TABS: { key: View; label: string; icon: typeof Tractor }[] = [
+  { key: 'all', label: 'Всички', icon: Server },
+  { key: 'farm', label: 'По ферма', icon: Tractor },
+  { key: 'producer', label: 'По производител', icon: Users },
+];
+
 export function AuditClient({ initial }: { initial: Paginated<AuditLog> }) {
-  const { items, loadMore, hasMore, loading } = usePaginatedList<AuditLog>(initial, listAuditLogs);
   const [q, setQ] = useState('');
   const [errorsOnly, setErrorsOnly] = useState(false);
+
+  // Drill-down selection
+  const [view, setView] = useState<View>('all');
+  const [farmId, setFarmId] = useState('');
+  const [producerId, setProducerId] = useState('');
+
+  // Picker option lists (first page is plenty for a drill-down on a small platform).
+  const [farms, setFarms] = useState<{ id: string; name: string }[]>([]);
+  const [producers, setProducers] = useState<{ id: string; name: string; tenantName: string }[]>([]);
+  useEffect(() => {
+    void listTenants().then((p) => setFarms(p.items.map((t) => ({ id: t.id, name: t.name }))));
+    void listAllFarmers().then((p) =>
+      setProducers(p.items.map((f) => ({ id: f.id, name: f.name, tenantName: f.tenantName }))),
+    );
+  }, []);
+
+  // Active feed. 'all' is seeded from SSR; filtered views fetch a fresh first page.
+  const [items, setItems] = useState<AuditLog[]>(initial.items);
+  const [cursor, setCursor] = useState<string | null>(initial.nextCursor);
+  const [loading, setLoading] = useState(false); // load-more
+  const [feedLoading, setFeedLoading] = useState(false); // first page after filter change
+
+  const needsPick = (view === 'farm' && !farmId) || (view === 'producer' && !producerId);
+  const opts = useMemo(
+    () =>
+      view === 'farm' && farmId
+        ? { tenantId: farmId }
+        : view === 'producer' && producerId
+          ? { farmerId: producerId }
+          : undefined,
+    [view, farmId, producerId],
+  );
+  const feedKey = needsPick ? 'none' : view === 'all' ? 'all' : opts!.tenantId ? `t:${opts!.tenantId}` : `f:${opts!.farmerId}`;
+
+  // Reload the first page whenever the active feed changes. Skip the very first run
+  // (the SSR 'all' page is already in state).
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    if (feedKey === 'none') {
+      setItems([]);
+      setCursor(null);
+      return;
+    }
+    let cancelled = false;
+    setFeedLoading(true);
+    listAuditLogs(undefined, opts)
+      .then((page) => {
+        if (cancelled) return;
+        setItems(page.items);
+        setCursor(page.nextCursor);
+      })
+      .finally(() => {
+        if (!cancelled) setFeedLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // opts is keyed by feedKey; re-running on feedKey alone is correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedKey]);
+
+  async function loadMore() {
+    if (!cursor || loading) return;
+    setLoading(true);
+    try {
+      const page = await listAuditLogs(cursor, opts);
+      setItems((prev) => [...prev, ...page.items]);
+      setCursor(page.nextCursor);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const needle = q.trim().toLowerCase();
   const rows = items.filter(
@@ -101,6 +189,58 @@ export function AuditClient({ initial }: { initial: Paginated<AuditLog> }) {
         </div>
       </div>
 
+      {/* Drill-down: by farm or by producer */}
+      <div className="mt-4 flex flex-wrap items-center gap-2.5">
+        <div className="inline-flex rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setView(t.key)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-bold transition-colors',
+                  view === t.key ? 'bg-ff-green-700 text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+                )}
+              >
+                <Icon size={15} /> {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {view === 'farm' && (
+          <select
+            value={farmId}
+            onChange={(e) => setFarmId(e.target.value)}
+            className="h-11 min-w-[220px] rounded-xl border border-ff-border bg-ff-surface px-3 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm outline-none focus:border-ff-green-500"
+          >
+            <option value="">Избери ферма…</option>
+            {farms.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {view === 'producer' && (
+          <select
+            value={producerId}
+            onChange={(e) => setProducerId(e.target.value)}
+            className="h-11 min-w-[260px] rounded-xl border border-ff-border bg-ff-surface px-3 text-[14px] font-bold text-ff-ink-2 shadow-ff-sm outline-none focus:border-ff-green-500"
+          >
+            <option value="">Избери производител…</option>
+            {producers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} · {p.tenantName}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
       <div className="mt-5 overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
@@ -141,12 +281,22 @@ export function AuditClient({ initial }: { initial: Paginated<AuditLog> }) {
         </div>
         {rows.length === 0 && (
           <p className="px-5 py-12 text-center text-sm text-ff-muted">
-            {needle || errorsOnly ? 'Няма съвпадащи редове в заредените.' : 'Все още няма записи.'}
+            {needsPick
+              ? view === 'farm'
+                ? 'Избери ферма, за да видиш нейния одит.'
+                : 'Избери производител, за да видиш неговия одит.'
+              : feedLoading
+                ? 'Зареждане…'
+                : needle || errorsOnly
+                  ? 'Няма съвпадащи редове в заредените.'
+                  : view === 'producer'
+                    ? 'Няма записи за този производител (данните се събират занапред).'
+                    : 'Все още няма записи.'}
           </p>
         )}
       </div>
 
-      {hasMore && (
+      {cursor !== null && !needsPick && (
         <div className="mt-5 flex justify-center">
           <button
             onClick={loadMore}

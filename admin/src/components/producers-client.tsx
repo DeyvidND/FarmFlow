@@ -30,17 +30,19 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
   }, [hasMore, loading, loadMore]);
 
   const [q, setQ] = useState('');
+  const [tab, setTab] = useState<'real' | 'demo'>('real');
   const needle = q.trim().toLowerCase();
-  const rows = items.filter(
-    (f) =>
-      !needle ||
-      f.name.toLowerCase().includes(needle) ||
-      f.tenantName.toLowerCase().includes(needle) ||
-      (f.loginEmail ?? '').toLowerCase().includes(needle),
-  );
+  const matches = (f: GlobalFarmer) =>
+    !needle ||
+    f.name.toLowerCase().includes(needle) ||
+    f.tenantName.toLowerCase().includes(needle) ||
+    (f.loginEmail ?? '').toLowerCase().includes(needle);
+  const realCount = items.filter((f) => !f.isDemo).length;
+  const demoCount = items.filter((f) => f.isDemo).length;
+  const rows = items.filter((f) => (tab === 'real' ? !f.isDemo : f.isDemo) && matches(f));
 
-  const withLogin = items.filter((f) => f.hasLogin).length;
-  const withCourier = items.filter((f) => f.courierEnabled).length;
+  const withLogin = items.filter((f) => f.hasLogin && !f.isDemo).length;
+  const withCourier = items.filter((f) => f.courierEnabled && !f.isDemo).length;
 
   return (
     <div className="animate-ff-fade-up">
@@ -64,7 +66,32 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
         </div>
       </div>
 
-      <div className="mt-5 overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
+      {/* Реални / Демо tabs */}
+      <div className="mt-5 inline-flex rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
+        <button
+          type="button"
+          onClick={() => setTab('real')}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-bold transition-colors',
+            tab === 'real' ? 'bg-ff-green-700 text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+          )}
+        >
+          Реални <span className={cn('text-[12px]', tab === 'real' ? 'text-white/80' : 'text-ff-muted')}>({realCount})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('demo')}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-bold transition-colors',
+            tab === 'demo' ? 'bg-[#3457B1] text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+          )}
+        >
+          <FlaskConical size={15} /> Демо{' '}
+          <span className={cn('text-[12px]', tab === 'demo' ? 'text-white/80' : 'text-ff-muted')}>({demoCount})</span>
+        </button>
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
@@ -145,7 +172,11 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
         </div>
         {rows.length === 0 && (
           <p className="px-5 py-12 text-center text-sm text-ff-muted">
-            {needle ? 'Няма намерени фермери.' : 'Все още няма фермери.'}
+            {needle
+              ? 'Няма намерени фермери.'
+              : tab === 'demo'
+                ? 'Няма демо фермери.'
+                : 'Все още няма фермери.'}
           </p>
         )}
       </div>

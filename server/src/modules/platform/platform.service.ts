@@ -919,7 +919,7 @@ export class PlatformService {
    * otherwise drown the signal; pass mutationsOnly=false for the raw stream.
    */
   async listAuditLogs(
-    opts: { cursor?: string; limit?: number; mutationsOnly?: boolean } = {},
+    opts: { cursor?: string; limit?: number; mutationsOnly?: boolean; tenantId?: string; farmerId?: string } = {},
   ): Promise<Paginated<AuditLogRow>> {
     const lim = clampLimit(opts.limit);
     const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
@@ -927,6 +927,9 @@ export class PlatformService {
 
     const conds = [];
     if (mutationsOnly) conds.push(sql`${auditLogs.action} <> 'GET'`);
+    // Drill-down filters (super-admin audit viewer): scope to one farm or one producer.
+    if (opts.tenantId) conds.push(eq(auditLogs.tenantId, opts.tenantId));
+    if (opts.farmerId) conds.push(eq(auditLogs.farmerId, opts.farmerId));
     if (cur) conds.push(keysetAfter(auditLogs.createdAt, auditLogs.id, cur, 'desc'));
 
     const baseQ = this.db

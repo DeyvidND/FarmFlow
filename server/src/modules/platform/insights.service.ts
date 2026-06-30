@@ -347,6 +347,11 @@ export class PlatformInsightsService {
         settings: tenants.settings,
       })
       .from(tenants)
+      // Demo farms are sample/sandbox accounts — exclude them from all analytics
+      // (adoption %, attention signals, chart-scope dropdown). Their order/product
+      // aggregates are joined by tenantId below, so dropping them here drops them
+      // everywhere downstream.
+      .where(eq(tenants.isDemo, false))
       .orderBy(tenants.name);
 
     const ordersP = this.db
@@ -469,14 +474,18 @@ export class PlatformInsightsService {
 
     const axis = await this.buildAxis(range, cfg.bucket, tenantId);
 
+    // Cross-farm aggregates exclude demo tenants' orders (sample data must not skew
+    // the platform trend). An explicit tenantId scope is honoured as-is — viewing a
+    // single farm's chart, even a demo one, is intentional.
+    const notDemo = sql`${orders.tenantId} in (select ${tenants.id} from ${tenants} where ${tenants.isDemo} = false)`;
     const where =
       axis.since !== null
         ? tenantId
           ? and(gte(orders.createdAt, axis.since), eq(orders.tenantId, tenantId))
-          : gte(orders.createdAt, axis.since)
+          : and(gte(orders.createdAt, axis.since), notDemo)
         : tenantId
           ? eq(orders.tenantId, tenantId)
-          : undefined;
+          : notDemo;
 
     const rows = await this.db
       .select({

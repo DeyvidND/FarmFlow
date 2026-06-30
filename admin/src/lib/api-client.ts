@@ -134,11 +134,16 @@ export interface AuditLog {
   tenantName: string | null;
 }
 
-/** Next page of the cross-tenant audit log (mutations only, newest-first). */
-export const listAuditLogs = (cursor?: string) =>
-  apiFetch<Paginated<AuditLog>>(
-    `platform/audit${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
-  );
+/** Next page of the cross-tenant audit log (mutations only, newest-first).
+ *  Optional tenantId / farmerId scope the feed to one farm or one producer. */
+export const listAuditLogs = (cursor?: string, opts?: { tenantId?: string; farmerId?: string }) => {
+  const p = new URLSearchParams();
+  if (cursor) p.set('cursor', cursor);
+  if (opts?.tenantId) p.set('tenantId', opts.tenantId);
+  if (opts?.farmerId) p.set('farmerId', opts.farmerId);
+  const qs = p.toString();
+  return apiFetch<Paginated<AuditLog>>(`platform/audit${qs ? `?${qs}` : ''}`);
+};
 
 /** Mint a one-click SSO link to open the farmer's „Доставки" as them (super-admin). */
 export const impersonateFarmer = (farmerId: string) =>

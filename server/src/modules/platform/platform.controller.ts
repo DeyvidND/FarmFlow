@@ -119,10 +119,24 @@ export class PlatformController {
     return this.platform.deliveryOps();
   }
 
-  /** Cross-tenant audit log (mutations by default; pass mutationsOnly=false for all). */
+  /** Cross-tenant audit log (mutations by default; pass mutationsOnly=false for all).
+   *  Optional tenantId / farmerId scope the feed to one farm or one producer. */
   @Get('audit')
-  listAuditLogs(@Query() q: PaginationQueryDto, @Query('mutationsOnly') mutationsOnly?: string) {
-    return this.platform.listAuditLogs({ cursor: q.cursor, limit: q.limit, mutationsOnly: mutationsOnly !== 'false' });
+  @ApiQuery({ name: 'tenantId', required: false })
+  @ApiQuery({ name: 'farmerId', required: false })
+  listAuditLogs(
+    @Query() q: PaginationQueryDto,
+    @Query('mutationsOnly') mutationsOnly?: string,
+    @Query('tenantId', new ParseUUIDPipe({ optional: true })) tenantId?: string,
+    @Query('farmerId', new ParseUUIDPipe({ optional: true })) farmerId?: string,
+  ) {
+    return this.platform.listAuditLogs({
+      cursor: q.cursor,
+      limit: q.limit,
+      mutationsOnly: mutationsOnly !== 'false',
+      tenantId,
+      farmerId,
+    });
   }
 
   /** SSO into a farmer's „Доставки" AS them, for super-admin support. Audit-logged. */

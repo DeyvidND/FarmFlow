@@ -609,6 +609,10 @@ export const auditLogs = pgTable(
     // because a platform admin is NOT a row in `users`; writing its id into user_id
     // would violate that FK and silently drop the audit row.
     adminId: uuid('admin_id').references(() => platformAdmins.id),
+    // Producer (farmer sub-account) actor, when the mutating user is a farmer-role
+    // login. NULL for owner/admin/system actions. Lets the super-admin audit viewer
+    // drill into one producer's actions. Populated going forward (no backfill).
+    farmerId: uuid('farmer_id').references(() => farmers.id),
     action: text('action').notNull(), // HTTP method
     path: text('path').notNull(), // request path
     statusCode: integer('status_code'),
@@ -618,6 +622,8 @@ export const auditLogs = pgTable(
     // revokeAccess looks up audit rows by user_id; deleteTenant deletes by tenant_id.
     userIdx: index('audit_logs_user_idx').on(t.userId),
     tenantIdx: index('audit_logs_tenant_idx').on(t.tenantId),
+    // Producer drill-down: filter the audit feed to one farmer, newest-first.
+    farmerIdx: index('audit_logs_farmer_idx').on(t.farmerId, t.createdAt),
   }),
 );
 

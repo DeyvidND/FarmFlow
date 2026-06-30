@@ -523,6 +523,7 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
   const [confirmReset, setConfirmReset] = useState<PlatformTenant | null>(null);
   const [resetCreds, setResetCreds] = useState<{ name: string; email: string; tempPassword: string } | null>(null);
   const [sort, setSort] = useState<SortState>({ key: 'created', dir: 'desc' });
+  const [tab, setTab] = useState<'real' | 'demo'>('real');
 
   function onSort(key: SortKey) {
     setSort((s) =>
@@ -689,41 +690,57 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
         </div>
       </div>
 
-      {/* real farms */}
-      <div className="mt-5">
-        <h2 className="mb-2 flex items-center gap-2 text-[15px] font-extrabold">
-          Ферми <span className="text-[13px] font-bold text-ff-muted">({realFarms.length})</span>
-        </h2>
-        <FarmTable
-          rows={realFarms}
-          busyId={busyId}
-          sort={sort}
-          onSort={onSort}
-          onToggleAccess={onToggle}
-          onTogglePremium={applyPremium}
-          onReset={(t) => setConfirmReset(t)}
-          onDelete={openDelete}
-          emptyText={needle ? 'Няма намерени ферми.' : 'Все още няма ферми.'}
-        />
+      {/* Реални / Демо tabs */}
+      <div className="mt-5 inline-flex rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
+        <button
+          type="button"
+          onClick={() => setTab('real')}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-bold transition-colors',
+            tab === 'real' ? 'bg-ff-green-700 text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+          )}
+        >
+          Реални <span className={cn('text-[12px]', tab === 'real' ? 'text-white/80' : 'text-ff-muted')}>({realFarms.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('demo')}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-bold transition-colors',
+            tab === 'demo' ? 'bg-[#3457B1] text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+          )}
+        >
+          <FlaskConical size={15} /> Демо{' '}
+          <span className={cn('text-[12px]', tab === 'demo' ? 'text-white/80' : 'text-ff-muted')}>({demoFarms.length})</span>
+        </button>
       </div>
 
-      {/* demo farms */}
-      <div className="mt-7">
-        <h2 className="mb-2 flex items-center gap-2 text-[15px] font-extrabold">
-          <FlaskConical size={16} className="text-[#3457B1]" />
-          Демо ферми <span className="text-[13px] font-bold text-ff-muted">({demoFarms.length})</span>
-        </h2>
-        <FarmTable
-          rows={demoFarms}
-          busyId={busyId}
-          sort={sort}
-          onSort={onSort}
-          onToggleAccess={onToggle}
-          onTogglePremium={applyPremium}
-          onReset={(t) => setConfirmReset(t)}
-          onDelete={openDelete}
-          emptyText={needle ? 'Няма намерени демо ферми.' : 'Няма активни демо акаунти.'}
-        />
+      <div className="mt-4">
+        {tab === 'real' ? (
+          <FarmTable
+            rows={realFarms}
+            busyId={busyId}
+            sort={sort}
+            onSort={onSort}
+            onToggleAccess={onToggle}
+            onTogglePremium={applyPremium}
+            onReset={(t) => setConfirmReset(t)}
+            onDelete={openDelete}
+            emptyText={needle ? 'Няма намерени ферми.' : 'Все още няма ферми.'}
+          />
+        ) : (
+          <FarmTable
+            rows={demoFarms}
+            busyId={busyId}
+            sort={sort}
+            onSort={onSort}
+            onToggleAccess={onToggle}
+            onTogglePremium={applyPremium}
+            onReset={(t) => setConfirmReset(t)}
+            onDelete={openDelete}
+            emptyText={needle ? 'Няма намерени демо ферми.' : 'Няма активни демо акаунти.'}
+          />
+        )}
       </div>
 
       {hasMore && (
