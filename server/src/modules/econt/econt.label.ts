@@ -93,6 +93,7 @@ export function buildLabel(
     inspectBeforePay?: InspectMode | null;
   },
   items: { name: string | null; qty: number }[],
+  opts?: { packCount?: number | null },
 ): Record<string, unknown> {
   const sender = (econt.sender ?? {}) as Record<string, any>;
   const senderName: string = sender.name || 'Подател';
@@ -111,7 +112,8 @@ export function buildLabel(
       name: order.customerName ?? 'Клиент',
       phones: [order.customerPhone ?? ''],
     },
-    packCount: 1,
+    // How many physical boxes the parcel is split into; farmer-set, default 1.
+    packCount: opts?.packCount && opts.packCount > 0 ? Math.floor(opts.packCount) : 1,
     shipmentType: 'pack',
     weight: pkg?.weightKg ?? 1,
     shipmentDescription: contents,

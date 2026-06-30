@@ -16,7 +16,8 @@ function makeService(): SpeedyService {
   const cache = { get: jest.fn(), set: jest.fn() } as any;
   const client = { call: jest.fn() } as any;
   const codRisk = {} as any;
-  return new SpeedyService(db, config, cache, client, codRisk);
+  const shipmentEmail = { sendShipped: jest.fn() } as any;
+  return new SpeedyService(db, config, cache, client, codRisk, shipmentEmail);
 }
 
 describe('SpeedyService.estimateShipping', () => {
@@ -353,7 +354,7 @@ describe('SpeedyService farmer-ownership scoping (cross-farmer IDOR)', () => {
 });
 
 describe('SpeedyService.maybeSeedSender (unit)', () => {
-  const svc = new SpeedyService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+  const svc = new SpeedyService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never, { sendShipped: jest.fn() } as never);
   const seed = (speedy: unknown, farmName: string, contact: unknown, profiles: unknown) =>
     (svc as unknown as {
       maybeSeedSender: (s: any, n: string, c: any, p: any) => Record<string, unknown>;
@@ -373,7 +374,7 @@ describe('SpeedyService.maybeSeedSender (unit)', () => {
 });
 
 describe('SpeedyService.buildSenderBlob (unit)', () => {
-  const svc = new SpeedyService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+  const svc = new SpeedyService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never, { sendShipped: jest.fn() } as never);
   const build = (speedy: unknown, senders: unknown, activeId: string) =>
     (svc as unknown as {
       buildSenderBlob: (s: any, ss: any, a: string) => Record<string, unknown>;

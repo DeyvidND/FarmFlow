@@ -204,13 +204,43 @@ export const listSpeedyShipments = async (): Promise<ShipmentRow[]> => {
 
 const carrierBase = (c: Carrier) => (c === 'speedy' ? 'speedy' : 'shipping');
 
+/** The carrier's public tracking page for a waybill number — same link the buyer gets
+ *  in the „пратката тръгна" email, so the farmer can follow a parcel from the table too. */
+export const carrierTrackUrl = (carrier: Carrier, number: string): string => {
+  const n = number.replace(/\s/g, '');
+  return carrier === 'speedy'
+    ? `https://www.speedy.bg/bg/track-shipment?shipmentNumber=${n}`
+    : `https://www.econt.com/services/track-shipment/${n}/`;
+};
+
 /** Finalize a courier DRAFT (an order with no waybill yet) into a real waybill with the
  *  farmer's chosen carrier. Routes to that carrier's order-label endpoint:
  *   - econt  → POST shipping/orders/:orderId/label
  *   - speedy → POST speedy/orders/:orderId/label
  *  Both are farmer-scoped on the dostavki backend (createLabelForOrder(t, orderId, f)). */
-export const finalizeCourierDraft = async (carrier: Carrier, orderId: string): Promise<void> => {
-  await bff(`${carrierBase(carrier)}/orders/${orderId}/label`, { method: 'POST' }, 'Създаването на товарителница се провали');
+/** Per-shipment overrides the farmer can set on a draft before it becomes a waybill.
+ *  All optional — anything omitted falls back to the farm's package defaults. */
+export interface DraftOverrides {
+  /** Real parcel weight in kg (drives the courier price). */
+  weightKg?: number;
+  /** What's inside — printed on the waybill. */
+  contents?: string;
+  /** Number of separate boxes. */
+  parcelCount?: number;
+  /** Insured value in stotinki (EUR cents); omit/0 = no insurance. */
+  declaredValueStotinki?: number;
+}
+
+export const finalizeCourierDraft = async (
+  carrier: Carrier,
+  orderId: string,
+  overrides?: DraftOverrides,
+): Promise<void> => {
+  await bff(`${carrierBase(carrier)}/orders/${orderId}/label`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(overrides ?? {}),
+  }, 'Създаването на товарителница се провали');
 };
 
 export const refreshShipment = async (carrier: Carrier, id: string): Promise<void> => {

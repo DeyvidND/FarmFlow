@@ -751,11 +751,21 @@ export class EcontService implements CarrierAdapter {
   /** Create the Econt waybill (label) for an order and persist a shipment row. */
   /** {@link CarrierAdapter} alias for {@link createLabel} — keeps the on-demand
    *  label op name uniform with Speedy's `createLabelForOrder`. */
-  createLabelForOrder(tenantId: string, orderId: string, farmerId?: string): Promise<typeof shipments.$inferSelect> {
-    return this.createLabel(tenantId, orderId, farmerId);
+  createLabelForOrder(
+    tenantId: string,
+    orderId: string,
+    farmerId?: string,
+    overrides?: import('./dto/finalize-draft.dto').FinalizeDraftDto,
+  ): Promise<typeof shipments.$inferSelect> {
+    return this.createLabel(tenantId, orderId, farmerId, overrides);
   }
 
-  async createLabel(tenantId: string, orderId: string, farmerId?: string): Promise<typeof shipments.$inferSelect> {
+  async createLabel(
+    tenantId: string,
+    orderId: string,
+    farmerId?: string,
+    overrides?: import('./dto/finalize-draft.dto').FinalizeDraftDto,
+  ): Promise<typeof shipments.$inferSelect> {
     // Share one settings read between loadStored and the callTenant→resolveCreds below.
     const store = new Map<string, unknown>();
     const { tenant, econt } = await this.loadStored(tenantId, store, farmerId);
@@ -769,10 +779,29 @@ export class EcontService implements CarrierAdapter {
       throw new ForbiddenException('Поръчката принадлежи на друга ферма');
     }
     const handling = resolveHandling(tenant.settings);
+    // Per-shipment weight/contents override the farm's defaultPackage for this one label;
+    // parcel count + declared value go straight onto the built label.
+    const econtForLabel =
+      overrides?.weightKg || overrides?.contents
+        ? {
+            ...econt,
+            defaultPackage: {
+              ...econt.defaultPackage,
+              ...(overrides.weightKg ? { weightKg: overrides.weightKg } : {}),
+              ...(overrides.contents ? { contents: overrides.contents } : {}),
+            },
+          }
+        : econt;
     const label = buildLabel(
-      econt,
-      { ...order, refrigerated: handling.refrigerated, inspectBeforePay: handling.inspectBeforePay },
+      econtForLabel,
+      {
+        ...order,
+        refrigerated: handling.refrigerated,
+        inspectBeforePay: handling.inspectBeforePay,
+        declaredValueStotinki: overrides?.declaredValueStotinki ?? null,
+      },
       items,
+      { packCount: overrides?.parcelCount },
     );
     const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
       label,

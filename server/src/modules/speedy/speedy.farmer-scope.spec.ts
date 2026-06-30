@@ -47,6 +47,7 @@ describe('SpeedyService.saveCredentials farmer scope', () => {
       cache as never,
       client as never,
       {} as never,
+      { sendShipped: jest.fn() } as never,
     );
     return { svc, captured };
   }

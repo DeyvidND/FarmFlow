@@ -15,6 +15,7 @@ import { EcontSaveSendersDto } from '../econt/dto/econt-senders.dto';
 import { ManualShipmentDto } from '../econt/dto/manual-shipment.dto';
 import { ValidateAddressDto } from '../econt/dto/validate-address.dto';
 import { CourierRequestDto } from '../econt/dto/courier-request.dto';
+import { FinalizeDraftDto } from '../econt/dto/finalize-draft.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
@@ -181,8 +182,9 @@ export class EcontStandaloneController {
     @CurrentTenant() t: string,
     @CurrentFarmer() f: string | undefined,
     @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Body() dto: FinalizeDraftDto,
   ) {
-    return this.econt.createLabelForOrder(t, orderId, f);
+    return this.econt.createLabelForOrder(t, orderId, f, dto);
   }
 
   @Roles('admin', 'farmer')

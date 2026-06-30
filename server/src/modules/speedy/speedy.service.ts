@@ -15,7 +15,8 @@ import {
   buildOrderShipmentInput, parseTrackStatus, parsePayouts, type CanonicalStatus,
   SPEEDY_DEFAULT_SERVICE_ID,
 } from './speedy.helpers';
-import { mergePdfs } from '../econt/econt.mappers';
+import { mergePdfs, shouldNotifyShipped } from '../econt/econt.mappers';
+import { ShipmentEmailService } from '../econt/shipment-email.service';
 import { SpeedyManualShipmentDto } from './dto/speedy-manual-shipment.dto';
 import { SpeedyCredentialsDto } from './dto/speedy-credentials.dto';
 import { SpeedyValidateAddressDto } from './dto/speedy-validate-address.dto';
@@ -100,6 +101,7 @@ export class SpeedyService implements CarrierAdapter {
     private readonly cache: PublicCacheService,
     private readonly client: SpeedyClient,
     private readonly codRisk: CodRiskService,
+    private readonly shipmentEmail: ShipmentEmailService,
   ) {
     this.encKey = config.get<string>('ENCRYPTION_KEY', '');
   }
@@ -468,7 +470,12 @@ export class SpeedyService implements CarrierAdapter {
   }
 
   /** Create the Speedy waybill for an order and UPSERT a shipments row (one per order). */
-  async createLabelForOrder(tenantId: string, orderId: string, farmerId?: string): Promise<typeof shipments.$inferSelect> {
+  async createLabelForOrder(
+    tenantId: string,
+    orderId: string,
+    farmerId?: string,
+    overrides?: import('./dto/finalize-draft.dto').FinalizeDraftDto,
+  ): Promise<typeof shipments.$inferSelect> {
     const { speedy } = await this.loadStored(tenantId, undefined, farmerId);
     if (!speedy.configured) throw new BadRequestException('Speedy не е конфигуриран за тази ферма');
 
@@ -484,7 +491,7 @@ export class SpeedyService implements CarrierAdapter {
     if (!siteId) throw new BadRequestException('Населеното място не е намерено в Speedy');
 
     const creds = await this.resolveCreds(tenantId, farmerId);
-    const input = buildOrderShipmentInput(speedy, order, siteId);
+    const input = buildOrderShipmentInput(speedy, order, siteId, overrides);
     const body = buildShipmentRequest(speedy, input);
     const data = await this.client.call(creds, 'shipment', body);
 
@@ -723,6 +730,21 @@ export class SpeedyService implements CarrierAdapter {
       await this.codRisk.recordReturnIfApplicable(updated);
     } catch (err) {
       this.logger.warn(`[speedy] cod-risk record failed for ${updated.id}: ${err instanceof Error ? err.message : err}`);
+    }
+
+    // „Пратката тръгна" mail to the buyer with the Speedy tracking link — parity with
+    // Econt. Only for order-backed parcels (manual rows have no customer email) and only
+    // once (customerNotifiedAt). Best-effort: a mail failure must not fail the refresh.
+    if (updated.orderId && updated.trackingNumber && shouldNotifyShipped(status, row.customerNotifiedAt)) {
+      try {
+        await this.shipmentEmail.sendShipped(updated.orderId, updated.trackingNumber, 'speedy');
+        await this.db
+          .update(shipments)
+          .set({ customerNotifiedAt: new Date() })
+          .where(eq(shipments.id, updated.id));
+      } catch (err) {
+        this.logger.warn(`[speedy] shipped email failed for ${updated.id}: ${err instanceof Error ? err.message : err}`);
+      }
     }
     return updated;
   }

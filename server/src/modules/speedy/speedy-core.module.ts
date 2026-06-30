@@ -6,6 +6,9 @@ import { SpeedyProcessor } from './speedy.processor';
 import { SPEEDY_QUEUE } from '../../common/queue/queue.constants';
 import { RUN_WORKERS } from '../../config/app-role';
 import { CodRiskModule } from '../cod-risk/cod-risk.module';
+// EcontCoreModule exports ShipmentEmailService (carrier-agnostic „пратката тръгна" mail).
+// Econt-core does NOT import speedy-core, so this import introduces no module cycle.
+import { EcontCoreModule } from '../econt/econt-core.module';
 
 /**
  * Speedy providers WITHOUT controllers — mirrors {@link EcontCoreModule}.
@@ -31,6 +34,7 @@ import { CodRiskModule } from '../cod-risk/cod-risk.module';
       },
     }),
     CodRiskModule,
+    EcontCoreModule,
   ],
   providers: [SpeedyService, SpeedyClient, ...(RUN_WORKERS ? [SpeedyProcessor] : [])],
   exports: [SpeedyService, CodRiskModule],

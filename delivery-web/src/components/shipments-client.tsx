@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { RefreshCw, FileDown, Package, Upload, FilePlus, Truck, CheckCircle2, Info, ChevronDown } from 'lucide-react';
+import { RefreshCw, FileDown, Package, Upload, FilePlus, Truck, CheckCircle2, Info, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import {
   ApiError, listEcontShipments, listSpeedyShipments, refreshShipment, downloadLabel,
-  finalizeCourierDraft, requestCourier,
-  type ShipmentRow, type ShipmentStatus, type Carrier,
+  finalizeCourierDraft, requestCourier, carrierTrackUrl,
+  type ShipmentRow, type ShipmentStatus, type Carrier, type DraftOverrides,
 } from '@/lib/api-client';
 import { SenderStrip } from './sender-strip';
 
@@ -67,6 +67,19 @@ export function ShipmentsClient() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   // Per-draft chosen carrier (keyed by rowKey); defaults to Econt when unset.
   const [draftCarrier, setDraftCarrier] = useState<Record<string, Carrier>>({});
+  // Which draft rows have their „Детайли на пратката" editor open (keyed by rowKey).
+  const [openDetails, setOpenDetails] = useState<Set<string>>(new Set());
+  // Per-draft package overrides, held as raw input strings (parsed at create time).
+  const [details, setDetails] = useState<Record<string, { weightKg?: string; contents?: string; parcelCount?: string; declaredValueEur?: string }>>({});
+
+  const toggleDetails = (rowKey: string) =>
+    setOpenDetails((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey);
+      return next;
+    });
+  const setDetail = (rowKey: string, k: 'weightKg' | 'contents' | 'parcelCount' | 'declaredValueEur', v: string) =>
+    setDetails((m) => ({ ...m, [rowKey]: { ...m[rowKey], [k]: v } }));
   // Rows the farmer has ticked for a batched courier pickup (keyed by rowKey).
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [requesting, setRequesting] = useState(false);
@@ -132,12 +145,28 @@ export function ShipmentsClient() {
     catch (e) { toast.error(errMsg(e)); } finally { setBusyKey(null); }
   }
 
-  // Finalize a courier draft into a real waybill with the farmer's chosen carrier.
+  // Turn the row's raw detail inputs into a clean overrides payload (empty → undefined,
+  // so an untouched draft sends nothing and the backend uses the farm defaults).
+  function overridesFor(rowKey: string): DraftOverrides {
+    const d = details[rowKey] ?? {};
+    const out: DraftOverrides = {};
+    const w = parseFloat(d.weightKg ?? '');
+    if (Number.isFinite(w) && w > 0) out.weightKg = w;
+    if (d.contents?.trim()) out.contents = d.contents.trim();
+    const p = parseInt(d.parcelCount ?? '', 10);
+    if (Number.isFinite(p) && p > 1) out.parcelCount = p;
+    const v = parseFloat(d.declaredValueEur ?? '');
+    if (Number.isFinite(v) && v > 0) out.declaredValueStotinki = Math.round(v * 100);
+    return out;
+  }
+
+  // Finalize a courier draft into a real waybill with the farmer's chosen carrier +
+  // any per-shipment overrides (weight / contents / parcels / insurance).
   async function createWaybill(r: ShipmentRow & { orderId: string }) {
     const carrier = draftCarrier[r.rowKey] ?? 'econt';
     setBusyKey(r.rowKey);
     try {
-      await finalizeCourierDraft(carrier, r.orderId);
+      await finalizeCourierDraft(carrier, r.orderId, overridesFor(r.rowKey));
       toast.success('Товарителницата е създадена');
       await load(); // row flips to a finalized waybill (number + label PDF).
     } catch (e) { toast.error(errMsg(e)); } finally { setBusyKey(null); }
@@ -199,6 +228,23 @@ export function ShipmentsClient() {
     </select>
   );
 
+  // Waybill number that links to the carrier's public tracking page (same link the
+  // buyer gets by email). Drafts have no number yet → plain dash.
+  const TrackingLink = ({ r }: { r: ShipmentRow }) =>
+    r.trackingNumber ? (
+      <a
+        href={carrierTrackUrl(r.carrier, r.trackingNumber)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-semibold text-ff-green-700 hover:underline"
+        title="Проследи пратката при куриера"
+      >
+        {r.trackingNumber}
+      </a>
+    ) : (
+      <>—</>
+    );
+
   // The „Куриер заявен" badge shown once a pickup has been requested for a row.
   const RequestedPill = () => (
     <span className="inline-flex items-center gap-1 rounded-full bg-ff-green-50 px-2.5 py-1 text-[12px] font-bold text-ff-green-700">
@@ -214,6 +260,56 @@ export function ShipmentsClient() {
       onChange={() => toggleRow(r.rowKey)}
       className={`h-4 w-4 shrink-0 cursor-pointer accent-ff-green-700 ${className ?? ''}`}
     />
+  );
+
+  const detailInput = 'h-9 w-full rounded-lg border border-ff-border bg-ff-surface px-2.5 text-[13px] font-semibold text-ff-ink outline-none focus:border-ff-green-500 disabled:opacity-50';
+
+  // Per-shipment package editor for a draft. Each field carries a one-line hint so the
+  // farmer knows exactly what it controls; an empty field = the farm's saved default.
+  const DraftDetails = ({ r }: { r: ShipmentRow }) => {
+    const d = details[r.rowKey] ?? {};
+    const Field = ({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) => (
+      <label className="flex flex-col gap-1">
+        <span className="text-[12.5px] font-bold text-ff-ink">{label}</span>
+        {children}
+        <span className="text-[11px] leading-snug text-ff-muted">{hint}</span>
+      </label>
+    );
+    return (
+      <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+        <div className="mb-3 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] font-bold text-ff-ink-2">
+          <SlidersHorizontal size={14} className="text-ff-green-700" /> Детайли на пратката
+          <span className="font-semibold text-ff-muted">· празно поле = по подразбиране от фермата</span>
+        </div>
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <Field label="Тегло (кг)" hint="Колко тежи пратката. Влияе на цената при куриера — грешно тегло = грешна сметка или отказ.">
+            <input type="number" min="0" step="0.1" inputMode="decimal" placeholder="напр. 2" value={d.weightKg ?? ''} disabled={busyKey === r.rowKey} onChange={(e) => setDetail(r.rowKey, 'weightKg', e.target.value)} className={detailInput} />
+          </Field>
+          <Field label="Брой колети" hint="На колко отделни кашона е разделена пратката. По подразбиране 1.">
+            <input type="number" min="1" step="1" inputMode="numeric" placeholder="1" value={d.parcelCount ?? ''} disabled={busyKey === r.rowKey} onChange={(e) => setDetail(r.rowKey, 'parcelCount', e.target.value)} className={detailInput} />
+          </Field>
+          <Field label="Съдържание" hint="Какво има вътре — напр. мед, буркани. Изписва се на товарителницата.">
+            <input type="text" maxLength={100} placeholder="напр. мед, буркани" value={d.contents ?? ''} disabled={busyKey === r.rowKey} onChange={(e) => setDetail(r.rowKey, 'contents', e.target.value)} className={detailInput} />
+          </Field>
+          <Field label="Обявена стойност (€)" hint="Застрахова пратката за тази сума при щета или загуба. Празно = без застраховка.">
+            <input type="number" min="0" step="0.01" inputMode="decimal" placeholder="без" value={d.declaredValueEur ?? ''} disabled={busyKey === r.rowKey} onChange={(e) => setDetail(r.rowKey, 'declaredValueEur', e.target.value)} className={detailInput} />
+          </Field>
+        </div>
+      </div>
+    );
+  };
+
+  // Compact toggle that opens the per-shipment details editor on a draft row.
+  const DetailsToggle = ({ r, full }: { r: ShipmentRow; full?: boolean }) => (
+    <button
+      onClick={() => toggleDetails(r.rowKey)}
+      disabled={busyKey === r.rowKey}
+      aria-expanded={openDetails.has(r.rowKey)}
+      title="Детайли на пратката (тегло, колети, застраховка)"
+      className={btn + (full ? ' h-11' : '')}
+    >
+      <SlidersHorizontal size={14} /> <span className={full ? '' : 'max-xl:hidden'}>Детайли</span>
+    </button>
   );
 
   return (
@@ -315,14 +411,15 @@ export function ShipmentsClient() {
                   const draft = isCourierDraft(r);
                   const canShip = isShippable(r);
                   return (
-                    <tr key={r.rowKey} className="border-b border-ff-border-2 last:border-0">
+                    <Fragment key={r.rowKey}>
+                    <tr className="border-b border-ff-border-2 last:border-0">
                       <td className="px-3 py-2.5">{canShip ? <Checkbox r={r} /> : null}</td>
                       <td className="px-3 py-2.5 font-semibold text-ff-ink">{r.receiver || '—'}</td>
                       {/* For a draft the carrier isn't decided yet → show a dash, not a carrier name. */}
                       <td className="px-3 py-2.5 text-ff-ink-2">{draft ? '—' : carrierLabel(r.carrier)}</td>
                       <td className="px-3 py-2.5 text-ff-ink-2">{r.method ?? '—'}</td>
                       <td className="px-3 py-2.5"><StatusPill s={r.status} /></td>
-                      <td className="px-3 py-2.5 ff-fig text-ff-ink-2">{r.trackingNumber || '—'}</td>
+                      <td className="px-3 py-2.5 ff-fig text-ff-ink-2"><TrackingLink r={r} /></td>
                       <td className="px-3 py-2.5 ff-fig text-ff-ink-2">{money(r.codAmountStotinki)}</td>
                       <td className="px-3 py-2.5 ff-fig text-ff-ink-2">{money(r.priceStotinki)}</td>
                       <td className="px-3 py-2.5">
@@ -330,6 +427,7 @@ export function ShipmentsClient() {
                           {draft ? (
                             <>
                               <CarrierPicker r={r} />
+                              <DetailsToggle r={r} />
                               <button onClick={() => createWaybill(r)} disabled={busyKey === r.rowKey} className={ctaBtn} title="Създай товарителница">
                                 <FilePlus size={14} /> Създай товарителница
                               </button>
@@ -352,6 +450,14 @@ export function ShipmentsClient() {
                         </div>
                       </td>
                     </tr>
+                    {draft && openDetails.has(r.rowKey) && (
+                      <tr className="border-b border-ff-border-2 last:border-0">
+                        <td colSpan={9} className="px-3 pb-3.5 pt-0">
+                          <DraftDetails r={r} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -377,19 +483,23 @@ export function ShipmentsClient() {
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-y-1.5 text-[13px]">
                     <dt className="text-ff-muted">Товарителница</dt>
-                    <dd className="ff-fig text-right text-ff-ink-2">{r.trackingNumber || '—'}</dd>
+                    <dd className="ff-fig text-right text-ff-ink-2"><TrackingLink r={r} /></dd>
                     <dt className="text-ff-muted">НП</dt>
                     <dd className="ff-fig text-right text-ff-ink-2">{money(r.codAmountStotinki)}</dd>
                     <dt className="text-ff-muted">Цена</dt>
                     <dd className="ff-fig text-right text-ff-ink-2">{money(r.priceStotinki)}</dd>
                   </dl>
                   {draft ? (
-                    <div className="mt-3 flex gap-2">
-                      <CarrierPicker r={r} className="h-11" />
-                      <button onClick={() => createWaybill(r)} disabled={busyKey === r.rowKey} className={ctaBtn + ' h-11 flex-1'}>
+                    <>
+                      <div className="mt-3 flex gap-2">
+                        <CarrierPicker r={r} className="h-11" />
+                        <DetailsToggle r={r} full />
+                      </div>
+                      {openDetails.has(r.rowKey) && <div className="mt-3"><DraftDetails r={r} /></div>}
+                      <button onClick={() => createWaybill(r)} disabled={busyKey === r.rowKey} className={ctaBtn + ' mt-3 h-11 w-full'}>
                         <FilePlus size={15} /> Създай товарителница
                       </button>
-                    </div>
+                    </>
                   ) : r.shipmentId ? (
                     <>
                       {courierRequested(r) && <div className="mt-3"><RequestedPill /></div>}

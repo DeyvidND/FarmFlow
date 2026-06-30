@@ -8,6 +8,7 @@ import { SpeedySaveSendersDto } from '../speedy/dto/speedy-senders.dto';
 import { SpeedyManualShipmentDto } from '../speedy/dto/speedy-manual-shipment.dto';
 import { SpeedyValidateAddressDto } from '../speedy/dto/speedy-validate-address.dto';
 import { SpeedyCourierRequestDto } from '../speedy/dto/speedy-courier-request.dto';
+import { FinalizeDraftDto } from '../speedy/dto/finalize-draft.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
@@ -163,8 +164,9 @@ export class SpeedyStandaloneController {
     @CurrentTenant() t: string,
     @CurrentFarmer() f: string | undefined,
     @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Body() dto: FinalizeDraftDto,
   ) {
-    return this.speedy.createLabelForOrder(t, orderId, f);
+    return this.speedy.createLabelForOrder(t, orderId, f, dto);
   }
 
   @Roles('admin', 'farmer')

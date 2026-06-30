@@ -296,10 +296,13 @@ export function buildOrderShipmentInput(
     totalStotinki?: number | null;
   },
   siteId: number,
+  // Per-shipment overrides the farmer sets at finalize time; each falls back to the
+  // farm's package defaults when absent.
+  overrides?: { weightKg?: number; contents?: string; parcelCount?: number; declaredValueStotinki?: number },
 ): ManualInput {
   const collectCod =
     order.paymentMethod === 'cod' && !order.paidAt && !!order.totalStotinki;
-  const weightKg = cfg.defaultPackage?.weightKg ?? 1;
+  const weightKg = overrides?.weightKg ?? cfg.defaultPackage?.weightKg ?? 1;
 
   return {
     receiverName: order.customerName ?? '—',
@@ -308,7 +311,11 @@ export function buildOrderShipmentInput(
     siteId,
     serviceId: cfg.defaultServiceId ?? SPEEDY_DEFAULT_SERVICE_ID,
     weightGrams: Math.round(weightKg * 1000),
-    contents: cfg.defaultPackage?.contents,
+    contents: overrides?.contents ?? cfg.defaultPackage?.contents,
+    ...(overrides?.parcelCount ? { parcelsCount: overrides.parcelCount } : {}),
+    ...(overrides?.declaredValueStotinki && overrides.declaredValueStotinki > 0
+      ? { declaredValueStotinki: overrides.declaredValueStotinki }
+      : {}),
     ...(collectCod ? { codAmountStotinki: order.totalStotinki! } : {}),
   };
 }
