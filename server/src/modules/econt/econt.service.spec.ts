@@ -1,5 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
-import { EcontService, mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow, parseAddressValidation, slimClientProfiles, buildCourierRequest } from './econt.service';
+import { EcontService } from './econt.service';
+import { mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow, parseAddressValidation, slimClientProfiles, buildCourierRequest } from './econt.mappers';
 import { deriveSenderFromFarm } from './econt.sender';
 
 
