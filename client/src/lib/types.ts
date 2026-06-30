@@ -60,6 +60,9 @@ export interface Product {
   /** NULL = unlimited stock. */
   stockQuantity: number | null;
   isActive: boolean;
+  /** Pickup-only: never shipped by courier (perishable/fragile). Storefront hides
+   *  courier delivery when such a product is in the cart. */
+  courierDisabled: boolean;
   imageUrl: string | null;
   /** Cover framing for the storefront card; null = centered, no zoom. */
   coverCrop: CoverCrop | null;

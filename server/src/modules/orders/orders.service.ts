@@ -976,6 +976,11 @@ export class OrdersService {
     tenantId: string,
     dtoItems: CreateOrderDto['items'],
     slotId: string | null,
+    // Carrier (waybill) delivery — Econt/Speedy office or door, or the per-farmer
+    // courier split. When true, any pickup-only product (`courierDisabled`) in the
+    // cart is rejected: it must never end up on a waybill. Self-delivery + pickup
+    // pass false here, so those products still sell through those channels.
+    carrierDelivery = false,
   ): Promise<{ items: PreparedItem[]; slotFrom: string | null; slotTo: string | null; slotDate: string | null }> {
     const productIds = dtoItems.map((i) => i.productId);
     const prods = await tx
@@ -1017,6 +1022,21 @@ export class OrdersService {
       if (it.variantId) {
         const v = variantById.get(it.variantId);
         if (!v || v.productId !== it.productId) throw new BadRequestException('Невалиден вариант');
+      }
+    }
+
+    // Pickup-only backstop: products flagged `courierDisabled` can't go on a
+    // waybill. The storefront already hides courier when such a product is in the
+    // cart; re-check server-side so a crafted request can't ship one anyway.
+    if (carrierDelivery) {
+      const blocked = dtoItems
+        .map((it) => byId.get(it.productId))
+        .filter((p): p is NonNullable<typeof p> => !!p && p.courierDisabled);
+      if (blocked.length) {
+        const names = [...new Set(blocked.map((p) => p.name))].join(', ');
+        throw new BadRequestException(
+          `Тези продукти не се изпращат с куриер (само вземане от място/местна доставка): ${names}`,
+        );
       }
     }
 
@@ -1228,11 +1248,15 @@ export class OrdersService {
       // Only local farm delivery consumes a slot; courier/Econt orders never count
       // against the farm's delivery capacity.
       const slotId = isLocal ? dto.slotId ?? null : null;
+      // Econt office/door are carrier (waybill) deliveries → enforce the pickup-only
+      // block. Local self-delivery (address) + pickup never touch a waybill.
+      const carrierDelivery = method === 'econt' || method === 'econt_address';
       const { items: prepared, slotFrom, slotTo, slotDate } = await this.reserveCartItems(
         tx,
         tenant.id,
         dto.items,
         slotId,
+        carrierDelivery,
       );
       const total = prepared.reduce((s, i) => s + i.priceStotinki * i.quantity, 0);
       // order_items has no farmer_id column — strip it before insert.
@@ -1320,7 +1344,7 @@ export class OrdersService {
     }
 
     return this.db.transaction(async (tx) => {
-      const { items: prepared } = await this.reserveCartItems(tx, tenant.id, dto.items, null);
+      const { items: prepared } = await this.reserveCartItems(tx, tenant.id, dto.items, null, true);
 
       // Every courier line must resolve to a farmer (the split key).
       if (prepared.some((i) => i.farmerId == null)) {

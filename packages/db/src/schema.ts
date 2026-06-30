@@ -174,6 +174,12 @@ export const products = pgTable(
     // NULL = unlimited stock; 0 = out of stock.
     stockQuantity: integer('stock_quantity').default(0),
     isActive: boolean('is_active').default(true),
+    // Pickup-only flag: perishable/fragile products the farmer never wants on a
+    // courier waybill. true → the storefront hides courier (Econt/Speedy) delivery
+    // for any cart holding this product, and the server rejects a carrier order
+    // for it. Self-delivery + pickup stay allowed (no waybill involved). Toggled by
+    // the farmer (own products) or an admin in the product dialog.
+    courierDisabled: boolean('courier_disabled').notNull().default(false),
     imageUrl: text('image_url'),
     // How the cover image is framed in storefront product cards: focal point
     // (x/y, 0..1) + zoom (1..3). NULL = legacy behavior (centered, no zoom).

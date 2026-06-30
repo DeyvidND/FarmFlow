@@ -9,7 +9,7 @@
  * `/checkout`: with Stripe it redirects to the hosted page; for a cash farm it
  * lands on the confirmation page.
  */
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCart, selectSubtotal, useCartHydrated } from '@/lib/cart';
@@ -45,13 +45,17 @@ export function CheckoutClient({
   // master toggle too; Econt's visible variant depends on the mode (office in
   // auto, address in manual).
   const showSelf = deliveryEnabled && methods.ownSlots;
-  const showEcont =
+  const econtOffered =
     (econtMode === 'manual' && methods.econtAddress) ||
     (econtMode === 'auto' && methods.econtOffice);
   const showPickup = methods.pickup;
   const router = useRouter();
   const slug = resolveSlug();
   const items = useCart((s) => s.items);
+  // Any pickup-only product (perishable/fragile) in the cart hides courier (Еконт)
+  // delivery — those items must never go on a waybill. Self-delivery + pickup stay.
+  const cartHasPickupOnly = items.some((it) => it.courierDisabled);
+  const showEcont = econtOffered && !cartHasPickupOnly;
   const subtotal = useCart(selectSubtotal);
   const clear = useCart((s) => s.clear);
   const hydrated = useCartHydrated();
@@ -84,6 +88,15 @@ export function CheckoutClient({
   const [hasSlots, setHasSlots] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // After cart hydration a pickup-only item can appear while Еконт is selected
+  // (the initial mount ran with an empty cart). Bounce the choice to a waybill-free
+  // method so the customer never lands on a hidden/invalid option.
+  useEffect(() => {
+    if (cartHasPickupOnly && deliveryType === 'econt') {
+      setDeliveryType(showSelf ? 'address' : showPickup ? 'pickup' : 'address');
+    }
+  }, [cartHasPickupOnly, deliveryType, showSelf, showPickup]);
+
   const isEcont = deliveryType === 'econt';
   const isPickup = deliveryType === 'pickup';
   // Manual Econt has no API office picker: the customer gives an address and the
@@ -110,6 +123,10 @@ export function CheckoutClient({
     }
     if (sentDeliveryType === 'econt_address' && !cityInput.trim()) {
       toast('Моля, попълни град за доставка с Еконт');
+      return;
+    }
+    if (cartHasPickupOnly && (sentDeliveryType === 'econt' || sentDeliveryType === 'econt_address')) {
+      toast('Някои продукти не се изпращат с куриер. Избери вземане от място или местна доставка.');
       return;
     }
     setSubmitting(true);
@@ -249,6 +266,23 @@ export function CheckoutClient({
               <div className="card" style={{ padding: 24, boxShadow: 'none' }}>
                 <h3 style={{ fontSize: 20, marginBottom: 16 }}>Начин на доставка</h3>
                 <div className="stack" style={{ gap: 12 }}>
+                  {/* Pickup-only product in the cart → courier is off the table. */}
+                  {cartHasPickupOnly && econtOffered && (
+                    <div
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        background: '#fdf1e3',
+                        color: '#9a5b13',
+                        fontSize: 13.5,
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      В количката има продукт, който не се изпраща с куриер (чуплив или
+                      бързо разваляем). Куриерската доставка е скрита — избери вземане от
+                      място или местна доставка.
+                    </div>
+                  )}
                   {/* Personal (address) delivery — only when the farm self-delivers. */}
                   {showSelf && (
                     <label
@@ -303,7 +337,7 @@ export function CheckoutClient({
                       </span>
                     </label>
                   )}
-                  {!showSelf && !showEcont && !showPickup && (
+                  {!showSelf && !showEcont && !showPickup && !cartHasPickupOnly && (
                     <p className="muted" style={{ fontSize: 14 }}>
                       Фермата не предлага доставка в момента. Свържи се с нас за уговорка.
                     </p>

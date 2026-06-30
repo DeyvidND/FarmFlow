@@ -18,6 +18,9 @@ export interface CartItem {
   priceStotinki: number;
   weight?: string;
   imageUrl?: string | null;
+  /** Pickup-only product (perishable/fragile) — checkout hides courier delivery
+   *  while any such line is in the cart. */
+  courierDisabled?: boolean;
   qty: number;
 }
 

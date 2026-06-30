@@ -72,6 +72,14 @@ export class CreateProductDto {
   @IsBoolean()
   isActive?: boolean;
 
+  @ApiPropertyOptional({
+    description: 'Pickup-only: never ship this product by courier (perishable/fragile)',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  courierDisabled?: boolean;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUrl()

@@ -50,6 +50,7 @@ export function ProductCard({
         priceStotinki: product.priceStotinki,
         weight: product.weight ?? undefined,
         imageUrl: product.imageUrl,
+        courierDisabled: product.courierDisabled,
       },
       qty,
     );
@@ -145,6 +146,27 @@ export function ProductCard({
           </div>
         )}
         <div className="product__price">{money(product.priceStotinki)}</div>
+        {product.courierDisabled && (
+          <div
+            className="product__meta"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              marginTop: 2,
+              padding: '2px 9px',
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 600,
+              background: '#fdf1e3',
+              color: '#9a5b13',
+              alignSelf: 'flex-start',
+            }}
+            title="Този продукт не се изпраща с куриер — само вземане от място или местна доставка"
+          >
+            Само на място · без куриер
+          </div>
+        )}
         <div className="product__foot">
           {withStepper && !soldOut && <QtyStepper value={qty} onChange={setQty} />}
           <button
