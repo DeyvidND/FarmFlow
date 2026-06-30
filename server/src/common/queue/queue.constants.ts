@@ -8,3 +8,4 @@ export const ECONT_QUEUE = 'econt';
 export const SPEEDY_QUEUE = 'speedy';
 export const PRODUCTS_QUEUE = 'products';
 export const OPERATOR_DIGEST_QUEUE = 'operator-digest';
+export const NEWSLETTER_DRAFT_QUEUE = 'newsletter-draft';

@@ -8,6 +8,8 @@ import { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { NewsletterService } from './newsletter.service';
+import { NewsletterDraftService } from './newsletter-draft.service';
+import { AutoSettingsDto } from './dto/auto-settings.dto';
 import { UpsertCampaignDto } from './dto/campaign.dto';
 import {
   UploadNewsletterMediaDto,
@@ -22,7 +24,34 @@ import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto
 @ApiTags('newsletter')
 @Controller()
 export class NewsletterController {
-  constructor(private readonly newsletterService: NewsletterService) {}
+  constructor(
+    private readonly newsletterService: NewsletterService,
+    private readonly draftService: NewsletterDraftService,
+  ) {}
+
+  /** Current auto-newsletter opt-in state for the tenant. */
+  @Get('newsletter/auto-settings')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  getAutoSettings(@CurrentTenant() tenantId: string) {
+    return this.draftService.getAutoNewsletter(tenantId);
+  }
+
+  /** Toggle the weekly auto-draft for the tenant. */
+  @Patch('newsletter/auto-settings')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  setAutoSettings(@CurrentTenant() tenantId: string, @Body() dto: AutoSettingsDto) {
+    return this.draftService.setAutoNewsletter(tenantId, dto.enabled);
+  }
+
+  /** Generate this tenant's auto-draft now (manual test of the weekly cron). */
+  @Post('newsletter/auto-draft-test')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  autoDraftTest(@CurrentTenant() tenantId: string) {
+    return this.draftService.generateForTenant(tenantId);
+  }
 
   /** Paginated subscribers for the current tenant (active + unsubscribed). */
   @Get('subscribers')
