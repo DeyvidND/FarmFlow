@@ -38,6 +38,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",
     "@fermeribg/db": "workspace:*",
+    "@fermeribg/help-content": "workspace:*",
     "@fermeribg/types": "workspace:*",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.4.0",
