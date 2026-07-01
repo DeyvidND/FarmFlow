@@ -6,7 +6,7 @@ import {
   ExternalLink, Image as ImageIcon, CheckCircle2, Info, Mail, Download, Scale, ListChecks,
 } from 'lucide-react';
 import { DELIVERY_CATEGORIES, DELIVERY_FAQ, searchFaq } from '@fermeribg/help-content';
-import { HelpSearchBar, CategoryChips, FaqAccordion, AskAiBox } from '@fermeribg/help-ui';
+import { HelpSearchBar, CategoryChips, FaqAccordion, AskAiBox, HelpTabs } from '@fermeribg/help-ui';
 import { askHelpAi } from '@/lib/api-client';
 
 /* -------------------------------------------------------------------------- */
@@ -133,7 +133,6 @@ function FaqExplorer() {
       <HelpSearchBar value={query} onChange={setQuery} />
       <CategoryChips categories={DELIVERY_CATEGORIES} active={active} onToggle={toggle} />
       <FaqAccordion entries={results} />
-      <AskAiBox onAsk={(q) => askHelpAi(q).then((r) => r.answer)} />
     </div>
   );
 }
@@ -142,14 +141,13 @@ function FaqExplorer() {
 /*  Page                                                                      */
 /* -------------------------------------------------------------------------- */
 
-const TOC = [
+const GUIDE_TOC = [
   { href: '#overview', label: 'Как работи' },
   { href: '#econt', label: 'Econt акаунт' },
   { href: '#speedy', label: 'Speedy акаунт' },
   { href: '#import', label: 'Внос на пратки' },
   { href: '#handover', label: 'Предаване' },
   { href: '#cod', label: 'Проверка на клиент' },
-  { href: '#faq', label: 'Въпроси' },
 ];
 
 export function HelpClient() {
@@ -163,16 +161,19 @@ export function HelpClient() {
         </div>
       </div>
 
-      {/* quick nav */}
-      <nav className="mt-5 flex flex-wrap gap-2">
-        {TOC.map((t) => (
-          <a key={t.href} href={t.href} className="rounded-full border border-ff-border bg-ff-surface px-3 py-1.5 text-[12.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2">{t.label}</a>
-        ))}
-      </nav>
+      <div className="mt-5">
+        <HelpTabs
+          guide={
+            <div className="flex flex-col gap-5">
+              {/* quick nav */}
+              <nav className="flex flex-wrap gap-2">
+                {GUIDE_TOC.map((t) => (
+                  <a key={t.href} href={t.href} className="rounded-full border border-ff-border bg-ff-surface px-3 py-1.5 text-[12.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2">{t.label}</a>
+                ))}
+              </nav>
 
-      <div className="mt-5 flex flex-col gap-5">
-        {/* ---------------------------------------------------------------- */}
-        <Section id="overview" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Как работи доставката"
+              {/* ---------------------------------------------------------------- */}
+              <Section id="overview" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Как работи доставката"
           intro="Панелът има четири екрана. Свързваш куриерски акаунт веднъж, после само качваш файл и пускаш пратки.">
           <div className="grid gap-3 sm:grid-cols-2">
             {[
@@ -318,14 +319,14 @@ export function HelpClient() {
           </div>
           <p className="mt-3 text-[13px] leading-relaxed text-ff-ink-2">В „За докладване" виждаш върнати/отказани пратки с наложен платеж. Натисни „Докладвай", за да добавиш клиента в базата за риск — така помагаш и на другите търговци.</p>
         </Section>
+            </div>
+          }
+          faq={<FaqExplorer />}
+          ai={<AskAiBox onAsk={(q) => askHelpAi(q).then((r) => r.answer)} />}
+        />
 
         {/* ---------------------------------------------------------------- */}
-        <Section id="faq" icon={Info} tone="bg-ff-green-50 text-ff-green-700" title="Често задавани въпроси">
-          <FaqExplorer />
-        </Section>
-
-        {/* ---------------------------------------------------------------- */}
-        <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
+        <section className="mt-5 rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
           <div className="flex items-center gap-2.5"><Mail size={18} className="text-ff-green-700" /><h2 className="font-display text-[16px] font-extrabold">Нужда от още помощ?</h2></div>
           <div className="mt-2 grid gap-2 text-[13px] text-ff-ink-2 sm:grid-cols-2">
             <p>Econt интеграция: <ExtLink href="mailto:support_integrations@econt.com">support_integrations@econt.com</ExtLink></p>
