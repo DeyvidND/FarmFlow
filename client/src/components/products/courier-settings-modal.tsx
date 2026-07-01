@@ -190,23 +190,39 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
                       </span>
                     )}
 
-                    {/* Toggle — ON = с куриер (green), OFF = без куриер (gray) */}
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={enabled}
-                      onClick={() => toggle(p.id)}
-                      title={enabled ? 'С куриер — кликни за блокиране' : 'Само на място — кликни за включване с куриер'}
-                      className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
-                        enabled ? 'bg-green-500' : 'bg-ff-border-2'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
-                          enabled ? 'left-[19px]' : 'left-[3px]'
-                        }`}
-                      />
-                    </button>
+                    {/* Toggle — ON = с куриер (green), OFF = без куриер (gray).
+                        Locked when farmer has no courier connected. */}
+                    {(() => {
+                      const locked = !!p.farmerId && !farmerCourier.get(p.farmerId);
+                      return (
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={enabled}
+                          onClick={() => !locked && toggle(p.id)}
+                          title={
+                            locked
+                              ? 'Фермерът няма активен куриер — свържете Еконт или Спиди от Настройки'
+                              : enabled
+                                ? 'С куриер — кликни за блокиране'
+                                : 'Само на място — кликни за включване с куриер'
+                          }
+                          className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
+                            locked
+                              ? 'bg-ff-border-2 opacity-40 cursor-not-allowed'
+                              : enabled
+                                ? 'bg-green-500'
+                                : 'bg-ff-border-2'
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
+                              enabled ? 'left-[19px]' : 'left-[3px]'
+                            }`}
+                          />
+                        </button>
+                      );
+                    })()}
                   </li>
                 );
               })}

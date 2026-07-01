@@ -146,27 +146,38 @@ export function ProductCard({
           </div>
         )}
         <div className="product__price">{money(product.priceStotinki)}</div>
-        {product.courierDisabled && (
-          <div
-            className="product__meta"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              marginTop: 2,
-              padding: '2px 9px',
-              borderRadius: 999,
-              fontSize: 12,
-              fontWeight: 600,
-              background: '#fdf1e3',
-              color: '#9a5b13',
-              alignSelf: 'flex-start',
-            }}
-            title="Този продукт не се изпраща с куриер — само вземане от място или местна доставка"
-          >
-            Само на място · без куриер
-          </div>
-        )}
+        {(() => {
+          const farmerCourierReady = farmer?.courierReady ?? false;
+          const courierAvailable = farmerCourierReady && !(product.courierDisabled ?? false);
+          const pickupOnly = farmerCourierReady && (product.courierDisabled ?? false);
+          if (courierAvailable) return (
+            <div
+              className="product__meta"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 2,
+                padding: '2px 9px', borderRadius: 999, fontSize: 12, fontWeight: 600,
+                background: '#e8f5e9', color: '#2e7d32', alignSelf: 'flex-start',
+              }}
+              title="Може да се изпрати с куриер (Еконт или Спиди)"
+            >
+              📦 Доставка с куриер
+            </div>
+          );
+          if (pickupOnly) return (
+            <div
+              className="product__meta"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 2,
+                padding: '2px 9px', borderRadius: 999, fontSize: 12, fontWeight: 600,
+                background: '#fdf1e3', color: '#9a5b13', alignSelf: 'flex-start',
+              }}
+              title="Само вземане от място или местна доставка — не се изпраща с куриер"
+            >
+              Само на място
+            </div>
+          );
+          return null;
+        })()}
         <div className="product__foot">
           {withStepper && !soldOut && <QtyStepper value={qty} onChange={setQty} />}
           <button

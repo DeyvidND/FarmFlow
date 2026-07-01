@@ -22,8 +22,26 @@ export function CatalogClient({
   const tabs = useMemo(() => buildCategoryTabs(products), [products]);
   const farmerById = useMemo(() => new Map(farmers.map((f) => [f.id, f])), [farmers]);
   const [active, setActive] = useState('all');
+  const [courierOnly, setCourierOnly] = useState(false);
 
-  const shown = products.filter((p) => productInTab(p, active));
+  // A product is courier-available when its farmer has a courier connected AND
+  // the product itself isn't flagged as pickup-only.
+  const isCourierAvailable = (p: PublicProduct) => {
+    const farmer = p.farmerId ? farmerById.get(p.farmerId) : undefined;
+    return (farmer?.courierReady ?? false) && !(p.courierDisabled ?? false);
+  };
+
+  // Any products with courier → show the filter chip
+  const hasCourierProducts = useMemo(
+    () => products.some(isCourierAvailable),
+    [products, farmerById],
+  );
+
+  const shown = products.filter((p) => {
+    if (!productInTab(p, active)) return false;
+    if (courierOnly && !isCourierAvailable(p)) return false;
+    return true;
+  });
 
   return (
     <>
@@ -42,6 +60,17 @@ export function CatalogClient({
             {t.label}
           </button>
         ))}
+        {hasCourierProducts && (
+          <button
+            type="button"
+            className={`chip${courierOnly ? ' is-active' : ''}`}
+            aria-selected={courierOnly}
+            onClick={() => setCourierOnly((v) => !v)}
+            style={courierOnly ? {} : { borderColor: '#4C8A54', color: '#4C8A54' }}
+          >
+            📦 С куриер
+          </button>
+        )}
       </div>
 
       {shown.length === 0 ? (

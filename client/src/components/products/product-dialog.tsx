@@ -494,16 +494,19 @@ export function ProductDialog({
             )}
           </Collapsible>
 
-          {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only. */}
+          {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only.
+              Locked when the farmer has no carrier connected (no Econt/Speedy). */}
           <button
             type="button"
             role="switch"
             aria-checked={courierEnabled}
-            onClick={() => setCourierEnabled((v) => !v)}
+            onClick={() => farmerHasCourier && setCourierEnabled((v) => !v)}
             className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
-              courierEnabled
-                ? 'border-green-200 bg-green-50'
-                : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
+              !farmerHasCourier
+                ? 'border-ff-border bg-ff-surface-2 opacity-60 cursor-not-allowed'
+                : courierEnabled
+                  ? 'border-green-200 bg-green-50'
+                  : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
             }`}
           >
             <span
