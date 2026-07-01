@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ImagePlus, PackageX, Plus, Trash2, X } from 'lucide-react';
+import { ImagePlus, PackageCheck, PackageX, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/delivery/ui';
 import { MediaManager } from '@/components/media/media-manager';
@@ -48,8 +48,8 @@ export function ProductDialog({
   const [subcatId, setSubcatId] = useState(product?.subcategoryId ?? subcats[0]?.id ?? '');
   const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? null);
   const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(product?.coverCrop ?? null);
-  // Pickup-only: keep this product off every courier waybill (perishable/fragile).
-  const [courierDisabled, setCourierDisabled] = useState(product?.courierDisabled ?? false);
+  // courierEnabled = !courierDisabled — ON (green) = ships by courier (default), OFF = no courier.
+  const [courierEnabled, setCourierEnabled] = useState(!(product?.courierDisabled ?? false));
   // Price + stock live in rows: one product is a list of ≥1 priced row. ONE row =
   // a plain product (its price = the product price, its stock = the availability
   // window — same number „Задай наличност" edits, never desync; label optional).
@@ -219,7 +219,7 @@ export function ProductDialog({
           saleEndsAt: promoEnd,
           salePriceStotinki: productSalePriceStotinki,
           variants: variantPayload,
-          courierDisabled,
+          courierDisabled: !courierEnabled,
           ...(isEdit ? { coverCrop } : { isActive: true }),
           ...(multiFarmer ? { farmerId: farmerId || null } : {}),
           ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
@@ -492,41 +492,43 @@ export function ProductDialog({
             )}
           </Collapsible>
 
-          {/* Pickup-only toggle — restriction, so it tints amber when on (not the
-              panel's green „good" accent). Whole card is the switch (role=switch). */}
+          {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only. */}
           <button
             type="button"
             role="switch"
-            aria-checked={courierDisabled}
-            onClick={() => setCourierDisabled((v) => !v)}
+            aria-checked={courierEnabled}
+            onClick={() => setCourierEnabled((v) => !v)}
             className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
-              courierDisabled
-                ? 'border-amber-300 bg-amber-50'
+              courierEnabled
+                ? 'border-green-200 bg-green-50'
                 : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
             }`}
           >
             <span
               className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition ${
-                courierDisabled ? 'bg-amber-100 text-amber-700' : 'bg-ff-surface text-ff-muted'
+                courierEnabled ? 'bg-green-100 text-green-700' : 'bg-ff-surface text-ff-muted'
               }`}
             >
-              <PackageX size={18} />
+              {courierEnabled ? <PackageCheck size={18} /> : <PackageX size={18} />}
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-[13.5px] font-bold text-ff-ink">Не се изпраща с куриер</span>
+              <span className="text-[13.5px] font-bold text-ff-ink">
+                {courierEnabled ? 'Изпраща се с куриер' : 'Не се изпраща с куриер'}
+              </span>
               <span className="text-[12px] leading-snug text-ff-muted">
-                За чупливи или бързо разваляеми продукти. Скрива куриерската доставка в магазина —
-                клиентът само го взема от място или с местна доставка.
+                {courierEnabled
+                  ? 'Продуктът може да се изпраща с Еконт или Спиди.'
+                  : 'Без куриер — лична доставка, вземане от място или местна доставка до адрес.'}
               </span>
             </span>
             <span
               className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition ${
-                courierDisabled ? 'bg-amber-500' : 'bg-ff-border-2'
+                courierEnabled ? 'bg-green-500' : 'bg-ff-border-2'
               }`}
             >
               <span
                 className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
-                  courierDisabled ? 'left-[19px]' : 'left-[3px]'
+                  courierEnabled ? 'left-[19px]' : 'left-[3px]'
                 }`}
               />
             </span>
