@@ -13,7 +13,11 @@ const TABS: { key: TabKey; label: string }[] = [
 /** Splits a Help page into 3 tabs so the walkthrough, FAQ search, and AI chat
  *  don't blend into one long scroll. Only the active tab's content is rendered
  *  (not CSS-hidden) — cheap, and naturally resets each tab's local state
- *  (FAQ search query, AI question) when the user navigates away and back. */
+ *  (FAQ search query, AI question) when the user navigates away and back.
+ *  Callers: any nav/anchor links that jump to IDs within `guide`'s content
+ *  must be rendered *inside* the `guide` node itself, not above `<HelpTabs>`,
+ *  or they'll stay visible/clickable while another tab is active and jump to
+ *  content that isn't mounted. */
 export function HelpTabs({
   guide,
   faq,

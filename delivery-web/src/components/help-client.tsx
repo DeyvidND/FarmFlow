@@ -172,153 +172,153 @@ export function HelpClient() {
                 ))}
               </nav>
 
-              {/* ---------------------------------------------------------------- */}
-              <Section id="overview" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Как работи доставката"
-          intro="Панелът има четири екрана. Свързваш куриерски акаунт веднъж, после само качваш файл и пускаш пратки.">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[
-              { icon: SettingsIcon, t: 'Настройки', d: 'Свържи Econt и/или Speedy акаунт. Прави се веднъж.' },
-              { icon: FileSpreadsheet, t: 'Внос', d: 'Качваш Excel/CSV, поправяш редовете, избираш най-евтиния куриер и създаваш пратките.' },
-              { icon: Truck, t: 'Пратки', d: 'Поръчки от магазина чакат тук като чернови. Създаваш товарителница, сваляш етикет и предаваш — сам до офис или с куриер до адреса ти.' },
-              { icon: ShieldAlert, t: 'Проверка на клиент', d: 'Проверка на телефон преди наложен платеж + докладване на проблемни клиенти.' },
-            ].map((x) => (
-              <div key={x.t} className="flex items-start gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
-                <x.icon size={18} className="mt-0.5 shrink-0 text-ff-green-700" />
-                <div><div className="text-[13.5px] font-bold text-ff-ink">{x.t}</div><div className="mt-0.5 text-[12.5px] text-ff-muted">{x.d}</div></div>
+                  {/* ---------------------------------------------------------------- */}
+                  <Section id="overview" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Как работи доставката"
+              intro="Панелът има четири екрана. Свързваш куриерски акаунт веднъж, после само качваш файл и пускаш пратки.">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  { icon: SettingsIcon, t: 'Настройки', d: 'Свържи Econt и/или Speedy акаунт. Прави се веднъж.' },
+                  { icon: FileSpreadsheet, t: 'Внос', d: 'Качваш Excel/CSV, поправяш редовете, избираш най-евтиния куриер и създаваш пратките.' },
+                  { icon: Truck, t: 'Пратки', d: 'Поръчки от магазина чакат тук като чернови. Създаваш товарителница, сваляш етикет и предаваш — сам до офис или с куриер до адреса ти.' },
+                  { icon: ShieldAlert, t: 'Проверка на клиент', d: 'Проверка на телефон преди наложен платеж + докладване на проблемни клиенти.' },
+                ].map((x) => (
+                  <div key={x.t} className="flex items-start gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+                    <x.icon size={18} className="mt-0.5 shrink-0 text-ff-green-700" />
+                    <div><div className="text-[13.5px] font-bold text-ff-ink">{x.t}</div><div className="mt-0.5 text-[12.5px] text-ff-muted">{x.d}</div></div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="mt-4"><Callout tone="tip" title="Първа стъпка">Започни от „Настройки" → свържи поне един куриер. Без свързан куриер не може да създаваш пратки.</Callout></div>
-        </Section>
+              <div className="mt-4"><Callout tone="tip" title="Първа стъпка">Започни от „Настройки" → свържи поне един куриер. Без свързан куриер не може да създаваш пратки.</Callout></div>
+            </Section>
 
-        {/* ---------------------------------------------------------------- */}
-        <Section id="econt" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Свържи Econt акаунт"
-          intro="Econt използва същото потребителско име и парола като твоя e-Econt профил. Нужен е профил на бизнес клиент.">
-          <div className="grid items-start gap-5 lg:grid-cols-2">
-            <div className="flex flex-col gap-4">
-              <Step n={1} title="Направи си e-Econt профил">
-                Регистрирай се: <ExtLink href="https://login.econt.com/register/">login.econt.com/register</ExtLink> за реална среда,
-                или <ExtLink href="https://login-demo.econt.com/register/">login-demo.econt.com/register</ExtLink> за тест (Демо).
-              </Step>
-              <Step n={2} title="Поискай достъп до интеграция">
-                Приеми Общите условия и поискай достъп до API/интеграция от Econt: пиши на{' '}
-                <ExtLink href="mailto:support_integrations@econt.com">support_integrations@econt.com</ExtLink>. Бизнес информация:{' '}
-                <ExtLink href="https://www.econt.com/en/business/b2b">econt.com бизнес</ExtLink>.
-              </Step>
-              <Step n={3} title="Въведи данните в „Настройки“">
-                Отвори „Настройки" → карта <b>Econt</b>. Избери <b>Среда</b> (Демо или Реална), въведи <b>Потребител</b> (твоето e-Econt
-                потребителско име) и <b>Парола</b>, после „Запази". Точното изписване има значение (главни/малки букви).
-              </Step>
-            </div>
-            <div className="flex flex-col gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
-              <BrowserMock url="login.econt.com/register" fields={['Имейл', 'Потребителско име', 'Парола']} highlight={1} button="Регистрация" />
-              <HelpShot src="/help/econt-register.png" alt="Econt регистрация" caption="Снимка: страница за регистрация (добави при желание)" />
-            </div>
-          </div>
-          <div className="mt-4"><Callout tone="info" title="Тест без свой акаунт">За Демо среда Econt дава тестови данни: потребител <code className="font-bold">iasp-dev</code>, парола <code className="font-bold">1Asp-dev</code>. Ползвай ги само за проба — не за реални пратки.</Callout></div>
-        </Section>
-
-        {/* ---------------------------------------------------------------- */}
-        <Section id="speedy" icon={Zap} tone="bg-ff-amber-softer text-ff-amber-600" title="Свържи Speedy акаунт"
-          intro="Speedy изисква договор като бизнес клиент и отделен API потребител (различен от обикновения логин в сайта).">
-          <div className="grid items-start gap-5 lg:grid-cols-2">
-            <div className="flex flex-col gap-4">
-              <Step n={1} title="Имай договор със Speedy">
-                Стани бизнес клиент на Speedy. Инфо за интеграция:{' '}
-                <ExtLink href="https://www.speedy.bg/en/system-integration">speedy.bg/system-integration</ExtLink>.
-              </Step>
-              <Step n={2} title="Поискай API достъп">
-                Пиши на <ExtLink href="mailto:api.registration@speedy.bg">api.registration@speedy.bg</ExtLink> за <b>API потребител и парола</b> (за проба поискай тестов акаунт).
-                Документация: <ExtLink href="https://api.speedy.bg/web-api.html">api.speedy.bg</ExtLink>.
-              </Step>
-              <Step n={3} title="Въведи данните в „Настройки“">
-                „Настройки" → карта <b>Speedy</b>: <b>Среда</b>, <b>Потребител</b> (API user) и <b>Парола</b>. Това е всичко —
-                услугата за доставка е настроена по подразбиране.
-              </Step>
-            </div>
-            <div className="flex flex-col gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
-              <BrowserMock url="api.speedy.bg" fields={['API потребител', 'Парола']} highlight={0} button="API достъп" />
-              <HelpShot src="/help/speedy-api-user.png" alt="Speedy API потребител" caption="Снимка: API данни (добави при желание)" />
-            </div>
-          </div>
-        </Section>
-
-        {/* ---------------------------------------------------------------- */}
-        <Section id="import" icon={FileSpreadsheet} tone="bg-ff-green-50 text-ff-green-700" title="Внос на пратки"
-          intro="Качваш само файл — куриерът се избира накрая, по най-добра цена.">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { icon: Download, t: '1 · Свали шаблон', d: 'Готов Excel с правилните колони. Бутон „Свали шаблон" на екран „Внос".' },
-              { icon: FileSpreadsheet, t: '2 · Попълни и качи', d: 'Получател, телефон, град, режим (офис/адрес), наложен платеж. Качи файла.' },
-              { icon: ListChecks, t: '3 · Поправи', d: 'Зелено = готово, жълто = внимание, червено = поправи. Редактираш на място.' },
-              { icon: Scale, t: '4 · Сравни и създай', d: '„Сравни куриери" слага по-евтиния за всеки ред, после „Създай пратки".' },
-            ].map((x) => (
-              <div key={x.t} className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
-                <x.icon size={18} className="text-ff-green-700" />
-                <div className="mt-2 text-[13px] font-bold text-ff-ink">{x.t}</div>
-                <div className="mt-0.5 text-[12px] leading-snug text-ff-muted">{x.d}</div>
+            {/* ---------------------------------------------------------------- */}
+            <Section id="econt" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Свържи Econt акаунт"
+              intro="Econt използва същото потребителско име и парола като твоя e-Econt профил. Нужен е профил на бизнес клиент.">
+              <div className="grid items-start gap-5 lg:grid-cols-2">
+                <div className="flex flex-col gap-4">
+                  <Step n={1} title="Направи си e-Econt профил">
+                    Регистрирай се: <ExtLink href="https://login.econt.com/register/">login.econt.com/register</ExtLink> за реална среда,
+                    или <ExtLink href="https://login-demo.econt.com/register/">login-demo.econt.com/register</ExtLink> за тест (Демо).
+                  </Step>
+                  <Step n={2} title="Поискай достъп до интеграция">
+                    Приеми Общите условия и поискай достъп до API/интеграция от Econt: пиши на{' '}
+                    <ExtLink href="mailto:support_integrations@econt.com">support_integrations@econt.com</ExtLink>. Бизнес информация:{' '}
+                    <ExtLink href="https://www.econt.com/en/business/b2b">econt.com бизнес</ExtLink>.
+                  </Step>
+                  <Step n={3} title="Въведи данните в „Настройки“">
+                    Отвори „Настройки" → карта <b>Econt</b>. Избери <b>Среда</b> (Демо или Реална), въведи <b>Потребител</b> (твоето e-Econt
+                    потребителско име) и <b>Парола</b>, после „Запази". Точното изписване има значение (главни/малки букви).
+                  </Step>
+                </div>
+                <div className="flex flex-col gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
+                  <BrowserMock url="login.econt.com/register" fields={['Имейл', 'Потребителско име', 'Парола']} highlight={1} button="Регистрация" />
+                  <HelpShot src="/help/econt-register.png" alt="Econt регистрация" caption="Снимка: страница за регистрация (добави при желание)" />
+                </div>
               </div>
-            ))}
-          </div>
-          <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
-            <Callout tone="tip" title="Цените идват от куриерите">„Сравни куриери" пита Econt и Speedy за цена на всеки ред и показва двете. По-евтиният се избира автоматично — после може ръчно да смениш куриера в колоната.</Callout>
-            <HelpShot src="/help/import-flow.png" alt="Внос екран" caption="Снимка: екран „Внос“ с таблицата (добави при желание)" />
-          </div>
-        </Section>
+              <div className="mt-4"><Callout tone="info" title="Тест без свой акаунт">За Демо среда Econt дава тестови данни: потребител <code className="font-bold">iasp-dev</code>, парола <code className="font-bold">1Asp-dev</code>. Ползвай ги само за проба — не за реални пратки.</Callout></div>
+            </Section>
 
-        {/* ---------------------------------------------------------------- */}
-        <Section id="handover" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Предаване на пратки"
-          intro="Щом товарителницата е готова, я предаваш по един от два начина — ти решаваш за всяка партида.">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
-              <div className="flex items-center gap-2 text-[13.5px] font-bold text-ff-ink">
-                <Download size={17} className="text-ff-green-700" /> Принтираш и занасяш
+            {/* ---------------------------------------------------------------- */}
+            <Section id="speedy" icon={Zap} tone="bg-ff-amber-softer text-ff-amber-600" title="Свържи Speedy акаунт"
+              intro="Speedy изисква договор като бизнес клиент и отделен API потребител (различен от обикновения логин в сайта).">
+              <div className="grid items-start gap-5 lg:grid-cols-2">
+                <div className="flex flex-col gap-4">
+                  <Step n={1} title="Имай договор със Speedy">
+                    Стани бизнес клиент на Speedy. Инфо за интеграция:{' '}
+                    <ExtLink href="https://www.speedy.bg/en/system-integration">speedy.bg/system-integration</ExtLink>.
+                  </Step>
+                  <Step n={2} title="Поискай API достъп">
+                    Пиши на <ExtLink href="mailto:api.registration@speedy.bg">api.registration@speedy.bg</ExtLink> за <b>API потребител и парола</b> (за проба поискай тестов акаунт).
+                    Документация: <ExtLink href="https://api.speedy.bg/web-api.html">api.speedy.bg</ExtLink>.
+                  </Step>
+                  <Step n={3} title="Въведи данните в „Настройки“">
+                    „Настройки" → карта <b>Speedy</b>: <b>Среда</b>, <b>Потребител</b> (API user) и <b>Парола</b>. Това е всичко —
+                    услугата за доставка е настроена по подразбиране.
+                  </Step>
+                </div>
+                <div className="flex flex-col gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
+                  <BrowserMock url="api.speedy.bg" fields={['API потребител', 'Парола']} highlight={0} button="API достъп" />
+                  <HelpShot src="/help/speedy-api-user.png" alt="Speedy API потребител" caption="Снимка: API данни (добави при желание)" />
+                </div>
               </div>
-              <p className="mt-1 text-[12.5px] leading-snug text-ff-muted">
-                Сваляш етикета (бутон „Свали етикет" на екран „Пратки"), лепиш го на кашона и сам го носиш до офис на куриера — или го даваш на минаващ куриер. Без чакане.
-              </p>
-            </div>
-            <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
-              <div className="flex items-center gap-2 text-[13.5px] font-bold text-ff-ink">
-                <Truck size={17} className="text-ff-green-700" /> Заявяваш куриер да вземе
-              </div>
-              <p className="mt-1 text-[12.5px] leading-snug text-ff-muted">
-                На екран „Пратки" маркираш готовите пратки (чекбоксове) и натискаш „Заяви куриер да вземе". Куриерът минава и ги взема от адреса ти — не ставаш от фермата.
-              </p>
-            </div>
-          </div>
-          <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
-            <Callout tone="info" title="Кое да избера?">
-              Зависи от теб и деня. При 1–2 пратки често е по-бързо да отскочиш до офиса, особено ако бездруго минаваш натам. Съберат ли се повече (горе-долу от 3–4 нагоре) или офисът е далеч — заявката за куриер обикновено си струва.
-            </Callout>
-            <Callout tone="tip" title="Поръчки от магазина идват тук готови">
-              Когато клиент избере „Куриер" в магазина ти, поръчката се появява на екран „Пратки" като <b>чернова</b>. Избираш куриер и натискаш „Създай товарителница" — после я предаваш по един от двата начина горе. Преди това бутонът <b>„Детайли"</b> отваря тегло, брой колети, съдържание и обявена стойност (застраховка) — всяко поле с кратко обяснение; празно = по подразбиране от фермата.
-            </Callout>
-          </div>
-          <div className="mt-4">
-            <Callout tone="tip" title="Клиентът следи пратката сам">
-              Щом пратката тръгне, клиентът автоматично получава имейл с линк за проследяване — и за Еконт, и за Speedy. По-малко обаждания „къде ми е поръчката". Номерът на товарителницата в таблицата също е линк към проследяването.
-            </Callout>
-          </div>
-        </Section>
+            </Section>
 
-        {/* ---------------------------------------------------------------- */}
-        <Section id="cod" icon={ShieldAlert} tone="bg-ff-amber-softer text-ff-amber-600" title="Проверка на клиент (наложен платеж)"
-          intro="Преди да пуснеш пратка с наложен платеж, провери телефона на клиента.">
-          <div className="grid gap-2.5 sm:grid-cols-3">
-            {[
-              { t: 'Чисто', d: 'Няма сигнали — безопасно.', cls: 'border-ff-green-500 bg-ff-green-50 text-ff-green-700' },
-              { t: 'Внимание', d: 'Единичен сигнал — провери.', cls: 'border-ff-amber-600 bg-ff-amber-softer text-ff-amber-600' },
-              { t: 'Висок риск', d: 'Много сигнали — искай предплащане.', cls: 'border-ff-red bg-[#FBE9E7] text-ff-red' },
-            ].map((v) => (
-              <div key={v.t} className={`rounded-xl border p-3 ${v.cls}`}>
-                <div className="text-[13.5px] font-extrabold">{v.t}</div>
-                <div className="mt-0.5 text-[12px] text-ff-ink-2">{v.d}</div>
+            {/* ---------------------------------------------------------------- */}
+            <Section id="import" icon={FileSpreadsheet} tone="bg-ff-green-50 text-ff-green-700" title="Внос на пратки"
+              intro="Качваш само файл — куриерът се избира накрая, по най-добра цена.">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { icon: Download, t: '1 · Свали шаблон', d: 'Готов Excel с правилните колони. Бутон „Свали шаблон" на екран „Внос".' },
+                  { icon: FileSpreadsheet, t: '2 · Попълни и качи', d: 'Получател, телефон, град, режим (офис/адрес), наложен платеж. Качи файла.' },
+                  { icon: ListChecks, t: '3 · Поправи', d: 'Зелено = готово, жълто = внимание, червено = поправи. Редактираш на място.' },
+                  { icon: Scale, t: '4 · Сравни и създай', d: '„Сравни куриери" слага по-евтиния за всеки ред, после „Създай пратки".' },
+                ].map((x) => (
+                  <div key={x.t} className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+                    <x.icon size={18} className="text-ff-green-700" />
+                    <div className="mt-2 text-[13px] font-bold text-ff-ink">{x.t}</div>
+                    <div className="mt-0.5 text-[12px] leading-snug text-ff-muted">{x.d}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <p className="mt-3 text-[13px] leading-relaxed text-ff-ink-2">В „За докладване" виждаш върнати/отказани пратки с наложен платеж. Натисни „Докладвай", за да добавиш клиента в базата за риск — така помагаш и на другите търговци.</p>
-        </Section>
+              <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
+                <Callout tone="tip" title="Цените идват от куриерите">„Сравни куриери" пита Econt и Speedy за цена на всеки ред и показва двете. По-евтиният се избира автоматично — после може ръчно да смениш куриера в колоната.</Callout>
+                <HelpShot src="/help/import-flow.png" alt="Внос екран" caption="Снимка: екран „Внос“ с таблицата (добави при желание)" />
+              </div>
+            </Section>
+
+            {/* ---------------------------------------------------------------- */}
+            <Section id="handover" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Предаване на пратки"
+              intro="Щом товарителницата е готова, я предаваш по един от два начина — ти решаваш за всяка партида.">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+                  <div className="flex items-center gap-2 text-[13.5px] font-bold text-ff-ink">
+                    <Download size={17} className="text-ff-green-700" /> Принтираш и занасяш
+                  </div>
+                  <p className="mt-1 text-[12.5px] leading-snug text-ff-muted">
+                    Сваляш етикета (бутон „Свали етикет" на екран „Пратки"), лепиш го на кашона и сам го носиш до офис на куриера — или го даваш на минаващ куриер. Без чакане.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-ff-border bg-ff-surface-2 p-3.5">
+                  <div className="flex items-center gap-2 text-[13.5px] font-bold text-ff-ink">
+                    <Truck size={17} className="text-ff-green-700" /> Заявяваш куриер да вземе
+                  </div>
+                  <p className="mt-1 text-[12.5px] leading-snug text-ff-muted">
+                    На екран „Пратки" маркираш готовите пратки (чекбоксове) и натискаш „Заяви куриер да вземе". Куриерът минава и ги взема от адреса ти — не ставаш от фермата.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
+                <Callout tone="info" title="Кое да избера?">
+                  Зависи от теб и деня. При 1–2 пратки често е по-бързо да отскочиш до офиса, особено ако бездруго минаваш натам. Съберат ли се повече (горе-долу от 3–4 нагоре) или офисът е далеч — заявката за куриер обикновено си струва.
+                </Callout>
+                <Callout tone="tip" title="Поръчки от магазина идват тук готови">
+                  Когато клиент избере „Куриер" в магазина ти, поръчката се появява на екран „Пратки" като <b>чернова</b>. Избираш куриер и натискаш „Създай товарителница" — после я предаваш по един от двата начина горе. Преди това бутонът <b>„Детайли"</b> отваря тегло, брой колети, съдържание и обявена стойност (застраховка) — всяко поле с кратко обяснение; празно = по подразбиране от фермата.
+                </Callout>
+              </div>
+              <div className="mt-4">
+                <Callout tone="tip" title="Клиентът следи пратката сам">
+                  Щом пратката тръгне, клиентът автоматично получава имейл с линк за проследяване — и за Еконт, и за Speedy. По-малко обаждания „къде ми е поръчката". Номерът на товарителницата в таблицата също е линк към проследяването.
+                </Callout>
+              </div>
+            </Section>
+
+            {/* ---------------------------------------------------------------- */}
+            <Section id="cod" icon={ShieldAlert} tone="bg-ff-amber-softer text-ff-amber-600" title="Проверка на клиент (наложен платеж)"
+              intro="Преди да пуснеш пратка с наложен платеж, провери телефона на клиента.">
+              <div className="grid gap-2.5 sm:grid-cols-3">
+                {[
+                  { t: 'Чисто', d: 'Няма сигнали — безопасно.', cls: 'border-ff-green-500 bg-ff-green-50 text-ff-green-700' },
+                  { t: 'Внимание', d: 'Единичен сигнал — провери.', cls: 'border-ff-amber-600 bg-ff-amber-softer text-ff-amber-600' },
+                  { t: 'Висок риск', d: 'Много сигнали — искай предплащане.', cls: 'border-ff-red bg-[#FBE9E7] text-ff-red' },
+                ].map((v) => (
+                  <div key={v.t} className={`rounded-xl border p-3 ${v.cls}`}>
+                    <div className="text-[13.5px] font-extrabold">{v.t}</div>
+                    <div className="mt-0.5 text-[12px] text-ff-ink-2">{v.d}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-[13px] leading-relaxed text-ff-ink-2">В „За докладване" виждаш върнати/отказани пратки с наложен платеж. Натисни „Докладвай", за да добавиш клиента в базата за риск — така помагаш и на другите търговци.</p>
+            </Section>
             </div>
           }
           faq={<FaqExplorer />}
