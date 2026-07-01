@@ -35,12 +35,21 @@ function landingFor(token: string, next: string | null): string {
   }
 }
 
+/** Build the login-page fallback URL, carrying the API's actual failure reason
+ *  (e.g. "Пакетът „Доставки“ не е активен за този магазин") so the farmer isn't
+ *  dropped on a bare email/password form with no explanation — SSO is their only
+ *  way in, they were never given delivery-web credentials to type there. */
+function loginFailUrl(origin: string, msg?: string): URL {
+  const u = new URL('/login?reason=handoff', origin);
+  if (msg) u.searchParams.set('msg', msg);
+  return u;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const token = url.searchParams.get('token');
   const next = url.searchParams.get('next');
-  const failUrl = new URL('/login?reason=handoff', url.origin);
-  if (!token) return NextResponse.redirect(failUrl);
+  if (!token) return NextResponse.redirect(loginFailUrl(url.origin));
 
   const res = await fetch(`${API_BASE}/auth/handoff`, {
     method: 'POST',
@@ -48,7 +57,9 @@ export async function GET(req: Request) {
     body: JSON.stringify({ token }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data?.accessToken) return NextResponse.redirect(failUrl);
+  if (!res.ok || !data?.accessToken) {
+    return NextResponse.redirect(loginFailUrl(url.origin, typeof data?.message === 'string' ? data.message : undefined));
+  }
 
   const out = NextResponse.redirect(new URL(landingFor(data.accessToken, next), url.origin));
   out.cookies.set(SESSION_COOKIE, data.accessToken, {

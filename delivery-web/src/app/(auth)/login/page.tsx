@@ -1,13 +1,22 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Truck } from 'lucide-react';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Truck, AlertTriangle } from 'lucide-react';
+
+const PANEL_URL = process.env.NEXT_PUBLIC_PANEL_URL ?? 'https://app.fermeribg.com';
 
 // Login only — delivery accounts are provisioned by the super-admin
 // (platform „Доставка"), there is no self-service registration.
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const params = useSearchParams();
+  // Landed here after a failed SSO handoff from the farmer panel (expired link,
+  // or the tenant's „Доставки" package isn't active) — most farmers never got
+  // delivery-web credentials at all, so a bare email/password form with no
+  // explanation is a dead end. Show the API's actual reason and a way back.
+  const handoffFailed = params.get('reason') === 'handoff';
+  const handoffMsg = params.get('msg');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
@@ -52,6 +61,21 @@ export default function LoginPage() {
           </div>
         </div>
 
+        {handoffFailed && (
+          <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-ff-amber-600/30 bg-ff-amber-softer px-3.5 py-3">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-ff-amber-600" />
+            <div className="text-[13.5px] leading-relaxed text-ff-ink-2">
+              <p className="font-bold text-ff-amber-600">Връзката от панела не проработи</p>
+              <p className="mt-0.5">
+                {handoffMsg ?? 'Опитай пак от „Доставки" в панела — линкът важи само за кратко.'}
+              </p>
+              <a href={PANEL_URL} className="mt-2 inline-block font-bold text-ff-green-700 underline underline-offset-2">
+                Върни се в панела →
+              </a>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={submit} className="flex flex-col gap-3">
           <input className={input} type="email" placeholder="Имейл" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
           <input className={input} type="password" placeholder="Парола" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
@@ -62,5 +86,13 @@ export default function LoginPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
