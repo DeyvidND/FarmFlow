@@ -3,7 +3,7 @@
 import { BookOpen, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import { PANEL_CATEGORIES, PANEL_FAQ, searchFaq } from '@fermeribg/help-content';
-import { HelpSearchBar, CategoryChips, FaqAccordion, AskAiBox } from '@fermeribg/help-ui';
+import { HelpSearchBar, CategoryChips, FaqAccordion, AskAiBox, HelpTabs } from '@fermeribg/help-ui';
 import { askHelpAi } from '@/lib/api-client';
 
 /**
@@ -406,67 +406,63 @@ export default function HelpPage() {
               {s.title}
             </a>
           ))}
-          <a
-            href="#faq"
-            className="rounded-full border border-ff-border bg-ff-surface-2 px-3 py-1.5 text-[12.5px] font-bold text-ff-ink-2 transition-colors hover:border-ff-green-500 hover:bg-ff-green-50 hover:text-ff-green-800"
-          >
-            Често задавани въпроси
-          </a>
         </nav>
       </div>
 
-      {/* Sections — each is a click-to-open dropdown so the page stays short and scannable. */}
-      <div className="flex flex-col gap-3">
-        {SECTIONS.map((s, i) => (
-          <details
-            key={s.id}
-            id={s.id}
-            open={i === 0}
-            className="group scroll-mt-4 overflow-hidden rounded-2xl border border-ff-border bg-ff-surface shadow-ff-sm open:shadow-ff-md"
-          >
-            <summary className="flex cursor-pointer list-none items-center gap-3 p-5 [&::-webkit-details-marker]:hidden">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ff-green-700 text-[13px] font-extrabold text-[#EAF1E4]">
-                {i + 1}
-              </span>
-              <h2 className="flex-1 text-[18px] font-extrabold tracking-[-0.01em]">{s.title}</h2>
-              <span className="shrink-0 text-ff-muted transition-transform duration-200 group-open:rotate-180">
-                <ChevronDown size={20} />
-              </span>
-            </summary>
+      <HelpTabs
+        guide={
+          <div className="flex flex-col gap-3">
+            {SECTIONS.map((s, i) => (
+              <details
+                key={s.id}
+                id={s.id}
+                open={i === 0}
+                className="group scroll-mt-4 overflow-hidden rounded-2xl border border-ff-border bg-ff-surface shadow-ff-sm open:shadow-ff-md"
+              >
+                <summary className="flex cursor-pointer list-none items-center gap-3 p-5 [&::-webkit-details-marker]:hidden">
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ff-green-700 text-[13px] font-extrabold text-[#EAF1E4]">
+                    {i + 1}
+                  </span>
+                  <h2 className="flex-1 text-[18px] font-extrabold tracking-[-0.01em]">{s.title}</h2>
+                  <span className="shrink-0 text-ff-muted transition-transform duration-200 group-open:rotate-180">
+                    <ChevronDown size={20} />
+                  </span>
+                </summary>
 
-            <div className="border-t border-ff-border px-5 pb-5 pt-4">
-              <p className="text-[14px] leading-[1.6] text-ff-ink-2">{s.lead}</p>
+                <div className="border-t border-ff-border px-5 pb-5 pt-4">
+                  <p className="text-[14px] leading-[1.6] text-ff-ink-2">{s.lead}</p>
 
-              {s.bullets && (
-                <ul className="mt-3 flex flex-col gap-1.5">
-                  {s.bullets.map((b, bi) => (
-                    <li key={bi} className="flex gap-2.5 text-[13.5px] leading-[1.5] text-ff-ink-2">
-                      <span className="mt-[7px] h-[6px] w-[6px] shrink-0 rounded-full bg-ff-green-500" />
-                      <span>{b}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                  {s.bullets && (
+                    <ul className="mt-3 flex flex-col gap-1.5">
+                      {s.bullets.map((b, bi) => (
+                        <li key={bi} className="flex gap-2.5 text-[13.5px] leading-[1.5] text-ff-ink-2">
+                          <span className="mt-[7px] h-[6px] w-[6px] shrink-0 rounded-full bg-ff-green-500" />
+                          <span>{b}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
 
-              <div className="mt-4 grid gap-4">
-                {s.shots.map((shot) => (
-                  <Figure key={shot.src} {...shot} />
-                ))}
-              </div>
-            </div>
-          </details>
-        ))}
-      </div>
-
-      {/* FAQ search + AI — added below the walkthrough sections */}
-      <FaqSection />
+                  <div className="mt-4 grid gap-4">
+                    {s.shots.map((shot) => (
+                      <Figure key={shot.src} {...shot} />
+                    ))}
+                  </div>
+                </div>
+              </details>
+            ))}
+          </div>
+        }
+        faq={<FaqPanel />}
+        ai={<AskAiBox onAsk={(q) => askHelpAi(q).then((r) => r.answer)} />}
+      />
 
       <p className="mt-7 text-center text-[12.5px] text-ff-muted">ФермериБГ · Помощ</p>
     </div>
   );
 }
 
-function FaqSection() {
+function FaqPanel() {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState<string[]>([]);
   const toggle = (id: string) =>
@@ -474,12 +470,10 @@ function FaqSection() {
   const results = searchFaq(PANEL_FAQ, query, active);
 
   return (
-    <div id="faq" className="mt-7 flex scroll-mt-4 flex-col gap-3">
-      <h2 className="text-[18px] font-extrabold tracking-[-0.01em]">Често задавани въпроси</h2>
+    <div className="flex flex-col gap-3">
       <HelpSearchBar value={query} onChange={setQuery} />
       <CategoryChips categories={PANEL_CATEGORIES} active={active} onToggle={toggle} />
       <FaqAccordion entries={results} />
-      <AskAiBox onAsk={(q) => askHelpAi(q).then((r) => r.answer)} />
     </div>
   );
 }
