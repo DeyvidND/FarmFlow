@@ -13,6 +13,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
 import { deriveSenderFromFarm } from './econt.sender';
+import { isEcontLabelUrl } from './econt-label-url';
 import {
   type EcontStored,
   type InspectMode,
@@ -1024,6 +1025,9 @@ export class EcontService implements CarrierAdapter {
 
   /** GET an Econt-hosted label PDF using already-resolved Basic credentials. */
   private async fetchLabelPdf(c: ResolvedCreds, url: string): Promise<Buffer> {
+    if (!isEcontLabelUrl(url)) {
+      throw new BadRequestException('Невалиден адрес на товарителница');
+    }
     const auth = Buffer.from(`${c.username}:${c.password}`).toString('base64');
     let res: Awaited<ReturnType<typeof fetch>>;
     try {
