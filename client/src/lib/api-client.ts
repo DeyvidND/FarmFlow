@@ -1035,3 +1035,10 @@ export const deleteAvailabilityWindow = (id: string): Promise<{ id: string }> =>
     { method: 'DELETE' },
     'Неуспешно изтриване',
   );
+
+export const askHelpAi = (question: string) =>
+  apiFetch<{ answer: string }>(
+    'help/ai/ask',
+    { method: 'POST', ...json({ surface: 'panel', question }) },
+    'AI помощникът не е достъпен в момента',
+  );

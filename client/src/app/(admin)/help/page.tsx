@@ -1,4 +1,10 @@
+'use client';
+
 import { BookOpen, ChevronDown } from 'lucide-react';
+import { useState } from 'react';
+import { PANEL_CATEGORIES, PANEL_FAQ, searchFaq } from '@fermeribg/help-content';
+import { HelpSearchBar, CategoryChips, FaqAccordion, AskAiBox } from '@fermeribg/help-ui';
+import { askHelpAi } from '@/lib/api-client';
 
 /**
  * In-app documentation ("Документация"). Static help page.
@@ -446,7 +452,28 @@ export default function HelpPage() {
         ))}
       </div>
 
+      {/* FAQ search + AI — added below the walkthrough sections */}
+      <FaqSection />
+
       <p className="mt-7 text-center text-[12.5px] text-ff-muted">ФермериБГ · Помощ</p>
+    </div>
+  );
+}
+
+function FaqSection() {
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState<string[]>([]);
+  const toggle = (id: string) =>
+    setActive((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const results = searchFaq(PANEL_FAQ, query, active);
+
+  return (
+    <div className="mt-7 flex flex-col gap-3">
+      <h2 className="text-[18px] font-extrabold tracking-[-0.01em]">Често задавани въпроси</h2>
+      <HelpSearchBar value={query} onChange={setQuery} />
+      <CategoryChips categories={PANEL_CATEGORIES} active={active} onToggle={toggle} />
+      <FaqAccordion entries={results} />
+      <AskAiBox onAsk={(q) => askHelpAi(q).then((r) => r.answer)} />
     </div>
   );
 }

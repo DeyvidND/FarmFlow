@@ -10,6 +10,8 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@fermeribg/help-content": "workspace:*",
+    "@fermeribg/help-ui": "workspace:*",
     "@radix-ui/react-slot": "^1.1.0",
     "@sentry/nextjs": "^10",
     "@vis.gl/react-google-maps": "^1.8.3",
