@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { Plus, Info, ArrowUpDown, Check } from 'lucide-react';
+import { Plus, Info, ArrowUpDown, Check, PackageX } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -10,6 +10,7 @@ import { PRODUCTS_HELP } from '@/lib/help-content';
 import { ProductCard } from './product-card';
 import { ProductDialog } from './product-dialog';
 import { ProductOfWeekPanel } from './product-of-week-panel';
+import { CourierSettingsModal } from './courier-settings-modal';
 import { ReorderableList } from '@/components/reorderable-list';
 import {
   ApiError,
@@ -70,6 +71,7 @@ export function ProductsClient({
   const [fullEdit, setFullEdit] = useState<Product | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
   const [help, setHelp] = useState(false);
+  const [courierOpen, setCourierOpen] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
   // True once the order changed in reorder mode — drives a single persist on exit.
   const reorderDirty = useRef(false);
@@ -280,6 +282,11 @@ export function ProductsClient({
           <Button variant="ghost" size="sm" onClick={() => setHelp(true)}>
             <Info size={16} /> Обяснения
           </Button>
+          {!reorderMode && (
+            <Button variant="ghost" size="sm" onClick={() => setCourierOpen(true)}>
+              <PackageX size={16} /> Куриер
+            </Button>
+          )}
           {!isFarmer && (
             <Button
               variant={reorderMode ? 'primary' : 'ghost'}
@@ -464,6 +471,16 @@ export function ProductsClient({
       )}
 
       {help && <HelpModal {...PRODUCTS_HELP} onClose={() => setHelp(false)} />}
+
+      <CourierSettingsModal
+        open={courierOpen}
+        onClose={() => setCourierOpen(false)}
+        farmers={farmers}
+        multiFarmer={multiFarmer}
+        onSaved={(patches) =>
+          patches.forEach(({ id, courierDisabled }) => patchLocal(id, { courierDisabled }))
+        }
+      />
     </div>
   );
 }

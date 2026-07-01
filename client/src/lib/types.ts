@@ -45,6 +45,7 @@ export interface ProductOption {
   stockQuantity: number | null;
   farmerId: string | null;
   subcategoryId: string | null;
+  courierDisabled: boolean;
 }
 
 /** Product as returned by the API (GET /products). */

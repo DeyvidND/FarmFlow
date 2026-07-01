@@ -24,6 +24,7 @@ export interface ProductOption {
   stockQuantity: number | null;
   farmerId: string | null;
   subcategoryId: string | null;
+  courierDisabled: boolean;
 }
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -103,6 +104,7 @@ export class ProductsService {
         stockQuantity: products.stockQuantity,
         farmerId: products.farmerId,
         subcategoryId: products.subcategoryId,
+        courierDisabled: products.courierDisabled,
       })
       .from(products)
       .where(and(...conds))
@@ -275,6 +277,32 @@ export class ProductsService {
 
     await this.cache.invalidate(tenantId);
     return { id };
+  }
+
+  /** Batch-update the `courierDisabled` flag for multiple products in one query.
+   *  Only products belonging to the tenant (and farmer scope if non-null) are touched;
+   *  the server silently ignores ids that don't pass the scope check. */
+  async updateCourierBatch(
+    tenantId: string,
+    updates: { id: string; courierDisabled: boolean }[],
+    farmerScope: string | null = null,
+  ): Promise<{ ok: true }> {
+    if (!updates.length) return { ok: true };
+    const whens = updates.map(
+      (u) => sql`when ${products.id} = ${u.id} then ${u.courierDisabled}`,
+    );
+    const conds = [
+      inArray(products.id, updates.map((u) => u.id)),
+      eq(products.tenantId, tenantId),
+      isNull(products.deletedAt),
+    ];
+    if (farmerScope !== null) conds.push(eq(products.farmerId, farmerScope));
+    await this.db
+      .update(products)
+      .set({ courierDisabled: sql`case ${sql.join(whens, sql` `)} else ${products.courierDisabled} end` })
+      .where(and(...conds));
+    await this.cache.invalidate(tenantId);
+    return { ok: true };
   }
 
   async uploadImage(

@@ -112,6 +112,9 @@ export const createProduct = (data: ProductWrite) =>
 export const updateProduct = (id: string, data: ProductWrite) =>
   apiFetch<Product>(`products/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешно записване');
 
+export const updateCourierBatch = (updates: { id: string; courierDisabled: boolean }[]) =>
+  apiFetch<{ ok: true }>('products/courier-batch', { method: 'PATCH', ...json({ updates }) }, 'Неуспешно записване');
+
 export const deleteProduct = (id: string) =>
   apiFetch<{ id: string }>(`products/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
 

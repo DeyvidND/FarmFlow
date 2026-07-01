@@ -10,6 +10,7 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { AssignProductsDto } from './dto/assign-products.dto';
+import { UpdateCourierBatchDto } from './dto/update-courier-batch.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -81,6 +82,18 @@ export class ProductsController {
   @Patch('assign')
   assign(@CurrentTenant() tenantId: string, @Body() dto: AssignProductsDto) {
     return this.productsService.assignProducts(tenantId, dto);
+  }
+
+  // Literal route — must precede `:id`.
+  @Patch('courier-batch')
+  @Roles('admin', 'farmer')
+  updateCourierBatch(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Body() dto: UpdateCourierBatchDto,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.updateCourierBatch(tenantId, dto.updates, scope);
   }
 
   // Literal route — must precede `:id` so "reorder" isn't captured as a product id.
