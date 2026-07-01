@@ -172,8 +172,8 @@ export function HelpClient() {
                 ))}
               </nav>
 
-                  {/* ---------------------------------------------------------------- */}
-                  <Section id="overview" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Как работи доставката"
+            {/* ---------------------------------------------------------------- */}
+            <Section id="overview" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Как работи доставката"
               intro="Панелът има четири екрана. Свързваш куриерски акаунт веднъж, после само качваш файл и пускаш пратки.">
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
