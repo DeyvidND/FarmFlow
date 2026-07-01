@@ -19,6 +19,9 @@ export function CategoryChips({
     }`;
   return (
     <div className="flex flex-wrap gap-2">
+      {/* "Всички" clears by re-firing onToggle for each active id — onToggle MUST use React's
+          functional setState form (prev => ...), not a closure over the outer `active` array,
+          or clearing more than one active category will misbehave. */}
       <button type="button" onClick={() => active.forEach(onToggle)} className={chip(active.length === 0)}>
         Всички
       </button>

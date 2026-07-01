@@ -36,6 +36,7 @@ export function AskAiBox({ onAsk }: { onAsk: (question: string) => Promise<strin
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
           placeholder="Напиши въпроса си…"
+          aria-label="Въпрос към AI помощника"
           className="w-full rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2 text-[13px] text-ff-ink outline-none"
         />
         <button

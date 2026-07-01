@@ -19,6 +19,7 @@ export function HelpSearchBar({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-label="Търси въпрос"
         className="w-full bg-transparent text-[13.5px] text-ff-ink outline-none placeholder:text-ff-muted"
       />
     </div>
