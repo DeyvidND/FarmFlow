@@ -166,6 +166,12 @@ importers:
 
   delivery-web:
     dependencies:
+      '@fermeribg/help-content':
+        specifier: workspace:*
+        version: link:../packages/help-content
+      '@fermeribg/help-ui':
+        specifier: workspace:*
+        version: link:../packages/help-ui
       clsx:
         specifier: ^2.1.1
         version: 2.1.1

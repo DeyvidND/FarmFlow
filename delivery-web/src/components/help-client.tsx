@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   HelpCircle, Truck, Zap, FileSpreadsheet, ShieldAlert, Settings as SettingsIcon,
-  ExternalLink, Image as ImageIcon, CheckCircle2, Info, Mail, Download, Scale, ListChecks, ChevronDown,
+  ExternalLink, Image as ImageIcon, CheckCircle2, Info, Mail, Download, Scale, ListChecks,
 } from 'lucide-react';
+import { DELIVERY_CATEGORIES, DELIVERY_FAQ, searchFaq } from '@fermeribg/help-content';
+import { HelpSearchBar, CategoryChips, FaqAccordion, AskAiBox } from '@fermeribg/help-ui';
+import { askHelpAi } from '@/lib/api-client';
 
 /* -------------------------------------------------------------------------- */
 /*  Small building blocks                                                     */
@@ -118,15 +121,20 @@ function ExtLink({ href, children }: { href: string; children: React.ReactNode }
   );
 }
 
-function Faq({ q, children }: { q: string; children: React.ReactNode }) {
+function FaqExplorer() {
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState<string[]>([]);
+  const toggle = (id: string) =>
+    setActive((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const results = searchFaq(DELIVERY_FAQ, query, active);
+
   return (
-    <details className="group border-b border-ff-border-2 last:border-0">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 text-[14px] font-bold text-ff-ink [&::-webkit-details-marker]:hidden">
-        {q}
-        <ChevronDown size={17} className="shrink-0 text-ff-muted transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="pb-3.5 text-[13.5px] leading-relaxed text-ff-ink-2">{children}</div>
-    </details>
+    <div className="flex flex-col gap-3">
+      <HelpSearchBar value={query} onChange={setQuery} />
+      <CategoryChips categories={DELIVERY_CATEGORIES} active={active} onToggle={toggle} />
+      <FaqAccordion entries={results} />
+      <AskAiBox onAsk={(q) => askHelpAi(q).then((r) => r.answer)} />
+    </div>
   );
 }
 
@@ -313,13 +321,7 @@ export function HelpClient() {
 
         {/* ---------------------------------------------------------------- */}
         <Section id="faq" icon={Info} tone="bg-ff-green-50 text-ff-green-700" title="Често задавани въпроси">
-          <div className="rounded-xl border border-ff-border bg-ff-surface-2 px-4">
-            <Faq q="Защо колоната „Цена“ показва „—“?">Цената се появява чак след „Сравни куриери". Ако остане „—" за някой ред, куриерът не е върнал цена (липсва свързан акаунт, грешен град или режим) — тогава редът остава на Econt.</Faq>
-            <Faq q="В каква валута са сумите?">Всичко е в евро (EUR). Наложеният платеж във файла се чете в евро.</Faq>
-            <Faq q="Какво тегло да сложа?">Колоната „Тегло" е в килограми във файла. Празно тегло → ползва се 1 кг по подразбиране.</Faq>
-            <Faq q="Каква е разликата между „Демо“ и „Реална“ среда?">Демо е за тестове — не създава истински товарителници. Реална създава реални пратки, които куриерът ще вземе.</Faq>
-            <Faq q="Услугата ми „не е активна“. Защо?">Активирането се прави от администратор. Свържи куриерските акаунти; щом услугата е активна, ще можеш да създаваш пратки.</Faq>
-          </div>
+          <FaqExplorer />
         </Section>
 
         {/* ---------------------------------------------------------------- */}

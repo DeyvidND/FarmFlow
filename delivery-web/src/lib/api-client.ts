@@ -76,6 +76,13 @@ export const addressSuggest = async (query: string, sessionToken: string): Promi
   (await bff('shipping/address-suggest', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, sessionToken }),
   }, 'Грешка при предложенията')).json();
+
+export const askHelpAi = async (question: string): Promise<{ answer: string }> =>
+  (await bff('help/ai/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ surface: 'delivery', question }),
+  }, 'AI помощникът не е достъпен в момента')).json();
 export const getBatch = async (id: string): Promise<ImportBatch> =>
   (await bff(`import/batches/${id}`)).json();
 export const patchRow = async (batchId: string, rowId: string, patch: Partial<ImportRow>): Promise<ImportRow> =>
