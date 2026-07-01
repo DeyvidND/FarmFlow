@@ -283,7 +283,12 @@ export function ProductsClient({
             <Info size={16} /> Обяснения
           </Button>
           {!reorderMode && (
-            <Button variant="ghost" size="sm" onClick={() => setCourierOpen(true)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCourierOpen(true)}
+              title="Кои продукти се изпращат с куриер. Продуктите ползват куриер само ако фермерът им е свързал Еконт или Спиди от Настройки → Доставка."
+            >
               <PackageX size={16} /> Куриер
             </Button>
           )}

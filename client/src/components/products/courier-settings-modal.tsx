@@ -25,6 +25,7 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
   const [farmerFilter, setFarmerFilter] = useState<string>('all');
 
   const farmerName = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
+  const farmerCourier = useMemo(() => new Map(farmers.map((f) => [f.id, f.courierEnabled ?? false])), [farmers]);
 
   useEffect(() => {
     if (!open) return;
@@ -176,6 +177,9 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
                       )}
                       {!enabled && (
                         <p className="text-[11px] text-ff-muted font-medium mt-0.5">Без куриер · лична / местна доставка</p>
+                      )}
+                      {p.farmerId && !farmerCourier.get(p.farmerId) && (
+                        <p className="text-[10.5px] text-amber-600 mt-0.5">⚠ Фермерът няма активен куриер</p>
                       )}
                     </div>
 

@@ -50,6 +50,8 @@ export function ProductDialog({
   const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(product?.coverCrop ?? null);
   // courierEnabled = !courierDisabled — ON (green) = ships by courier (default), OFF = no courier.
   const [courierEnabled, setCourierEnabled] = useState(!(product?.courierDisabled ?? false));
+  // Derived: is the assigned farmer connected to a courier carrier?
+  const farmerHasCourier = farmers.find((f) => f.id === farmerId)?.courierEnabled ?? false;
   // Price + stock live in rows: one product is a list of ≥1 priced row. ONE row =
   // a plain product (its price = the product price, its stock = the availability
   // window — same number „Задай наличност" edits, never desync; label optional).
@@ -533,6 +535,14 @@ export function ProductDialog({
               />
             </span>
           </button>
+
+          {!farmerHasCourier && (
+            <p className="text-[11.5px] text-ff-muted pl-1">
+              Фермерът няма активна куриерна доставка — свържете Еконт или Спиди от{' '}
+              <span className="font-semibold text-ff-ink-2">Настройки → Доставка</span>.
+              Настройката ще влезе в сила при активиране.
+            </p>
+          )}
 
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}
 
