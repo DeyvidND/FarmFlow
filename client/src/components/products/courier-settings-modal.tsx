@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, PackageCheck, PackageX, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -19,20 +19,24 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
   const [prods, setProds] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // state stores courierENABLED (= !courierDisabled): true = с куриер, false = само на място
   const [state, setState] = useState<Map<string, boolean>>(new Map());
   const originalRef = useRef<Map<string, boolean>>(new Map());
+  const [farmerFilter, setFarmerFilter] = useState<string>('all');
 
-  const farmerName = new Map(farmers.map((f) => [f.id, f.name]));
+  const farmerName = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
 
   useEffect(() => {
     if (!open) return;
     setLoading(true);
     setState(new Map());
+    setFarmerFilter('all');
     originalRef.current = new Map();
     listProductOptions()
       .then((ps) => {
         setProds(ps);
-        const m = new Map(ps.map((p) => [p.id, p.courierDisabled]));
+        // invert: enabled = NOT disabled
+        const m = new Map(ps.map((p) => [p.id, !p.courierDisabled]));
         originalRef.current = new Map(m);
         setState(m);
       })
@@ -48,9 +52,10 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
     });
 
   async function save() {
+    // compare courierDisabled (inverted back)
     const updates = prods
       .filter((p) => state.get(p.id) !== originalRef.current.get(p.id))
-      .map((p) => ({ id: p.id, courierDisabled: state.get(p.id)! }));
+      .map((p) => ({ id: p.id, courierDisabled: !state.get(p.id) }));
     if (!updates.length) { onClose(); return; }
     setSaving(true);
     try {
@@ -65,10 +70,22 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
     }
   }
 
-  if (!open) return null;
+  const displayed = useMemo(
+    () => (farmerFilter === 'all' ? prods : prods.filter((p) => p.farmerId === farmerFilter)),
+    [prods, farmerFilter],
+  );
 
-  const blockedCount = Array.from(state.values()).filter(Boolean).length;
+  // Farmers that actually have products
+  const activeFarmers = useMemo(() => {
+    const ids = new Set(prods.map((p) => p.farmerId).filter(Boolean));
+    return farmers.filter((f) => ids.has(f.id));
+  }, [prods, farmers]);
+
   const changedCount = prods.filter((p) => state.get(p.id) !== originalRef.current.get(p.id)).length;
+  const blockedCount = prods.filter((p) => state.get(p.id) === false).length;
+  const enabledCount = prods.length - blockedCount;
+
+  if (!open) return null;
 
   return (
     <div
@@ -76,17 +93,19 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-ff-surface shadow-xl"
+        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-ff-surface shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex shrink-0 items-center gap-3 border-b border-ff-border px-5 py-4">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-700">
-            <PackageX size={18} />
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-green-100 text-green-700">
+            <PackageCheck size={18} />
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-ff-ink">Настройки за куриер</h2>
-            <p className="text-xs text-ff-muted">Включи/изключи куриерска доставка за всеки продукт</p>
+            <p className="text-xs text-ff-muted">
+              {enabledCount} с куриер · {blockedCount} само на място
+            </p>
           </div>
           <button
             onClick={onClose}
@@ -96,67 +115,91 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
           </button>
         </div>
 
-        {/* Legend */}
-        <div className="flex shrink-0 items-center gap-4 border-b border-ff-border bg-ff-surface-2 px-5 py-2 text-[11px] text-ff-muted">
-          <span className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-ff-border-2" />
-            С куриер (зелено)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-amber-500" />
-            Само на място
-          </span>
+        {/* Explanation */}
+        <div className="shrink-0 border-b border-ff-border bg-ff-surface-2 px-5 py-3">
+          <p className="text-xs text-ff-muted leading-relaxed">
+            <span className="font-semibold text-ff-ink-2">Включено (зелено)</span> — продуктът може да се изпраща с Еконт или Спиди.{' '}
+            <span className="font-semibold text-ff-ink-2">Изключено (сиво)</span> — само вземане от място или местна доставка до адрес (за чупливи и бързо разваляеми стоки).
+          </p>
         </div>
 
-        {/* Body */}
+        {/* Farmer filter */}
+        {multiFarmer && activeFarmers.length > 1 && (
+          <div className="shrink-0 border-b border-ff-border px-5 py-2.5">
+            <select
+              value={farmerFilter}
+              onChange={(e) => setFarmerFilter(e.target.value)}
+              className="w-full rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] font-medium text-ff-ink focus:outline-none"
+            >
+              <option value="all">Всички фермери</option>
+              {activeFarmers.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Product list */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-ff-muted">
               <Loader2 size={20} className="animate-spin" />
             </div>
-          ) : prods.length === 0 ? (
+          ) : displayed.length === 0 ? (
             <p className="py-10 text-center text-sm text-ff-muted">Няма продукти</p>
           ) : (
             <ul className="divide-y divide-ff-border">
-              {prods.map((p) => {
-                const off = state.get(p.id) ?? false;
+              {displayed.map((p) => {
+                const enabled = state.get(p.id) ?? true;
                 const changed = state.get(p.id) !== originalRef.current.get(p.id);
                 return (
                   <li
                     key={p.id}
                     className={`flex items-center gap-3 px-5 py-3 transition-colors ${
-                      changed ? 'bg-ff-surface-2' : ''
+                      changed ? 'bg-blue-50/60' : ''
                     }`}
                   >
+                    {/* Status icon */}
                     <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${
-                      off ? 'bg-amber-100 text-amber-600' : 'bg-ff-surface-2 text-ff-muted'
+                      enabled
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-amber-100 text-amber-600'
                     }`}>
-                      {off ? <PackageX size={14} /> : <PackageCheck size={14} />}
+                      {enabled ? <PackageCheck size={14} /> : <PackageX size={14} />}
                     </span>
+
+                    {/* Name + farmer */}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-ff-ink">{p.name}</p>
                       {multiFarmer && p.farmerId && (
                         <p className="truncate text-xs text-ff-muted">{farmerName.get(p.farmerId) ?? '—'}</p>
                       )}
+                      {!enabled && (
+                        <p className="text-[11px] text-amber-600 font-medium mt-0.5">Само на място · без куриер</p>
+                      )}
                     </div>
+
+                    {/* Changed badge */}
                     {changed && (
-                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                        променено
+                      <span className="shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                        промяна
                       </span>
                     )}
+
+                    {/* Toggle — ON = с куриер (green), OFF = без куриер (gray) */}
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={off}
+                      aria-checked={enabled}
                       onClick={() => toggle(p.id)}
-                      title={off ? 'Само на място — кликни за куриер' : 'С куриер — кликни за блокиране'}
+                      title={enabled ? 'С куриер — кликни за блокиране' : 'Само на място — кликни за включване с куриер'}
                       className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
-                        off ? 'bg-amber-500' : 'bg-ff-border-2'
+                        enabled ? 'bg-green-500' : 'bg-ff-border-2'
                       }`}
                     >
                       <span
                         className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
-                          off ? 'left-[19px]' : 'left-[3px]'
+                          enabled ? 'left-[19px]' : 'left-[3px]'
                         }`}
                       />
                     </button>
@@ -170,12 +213,9 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-between border-t border-ff-border px-5 py-3">
           <span className="text-xs text-ff-muted">
-            {blockedCount > 0
-              ? `${blockedCount} без куриер`
-              : 'Всички с куриер'}
-            {changedCount > 0 && (
-              <span className="ml-2 font-semibold text-amber-700">· {changedCount} промени</span>
-            )}
+            {changedCount > 0
+              ? <span className="font-semibold text-blue-700">{changedCount} несъхранени промени</span>
+              : 'Без промени'}
           </span>
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
