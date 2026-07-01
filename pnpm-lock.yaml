@@ -259,6 +259,25 @@ importers:
         specifier: ~5.6.0
         version: 5.6.3
 
+  packages/help-ui:
+    dependencies:
+      '@fermeribg/help-content':
+        specifier: workspace:*
+        version: link:../help-content
+      lucide-react:
+        specifier: ^0.453.0
+        version: 0.453.0(react@18.3.1)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.11
+        version: 18.3.29
+      typescript:
+        specifier: ~5.6.0
+        version: 5.6.3
+
   packages/types:
     dependencies:
       '@fermeribg/db':

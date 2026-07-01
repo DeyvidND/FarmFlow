@@ -1,0 +1,26 @@
+{
+  "name": "@fermeribg/help-ui",
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1"
+  },
+  "dependencies": {
+    "@fermeribg/help-content": "workspace:*",
+    "lucide-react": "^0.453.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.0",
+    "@types/react": "^18.3.11"
+  }
+}
