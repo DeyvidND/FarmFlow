@@ -406,6 +406,12 @@ export default function HelpPage() {
               {s.title}
             </a>
           ))}
+          <a
+            href="#faq"
+            className="rounded-full border border-ff-border bg-ff-surface-2 px-3 py-1.5 text-[12.5px] font-bold text-ff-ink-2 transition-colors hover:border-ff-green-500 hover:bg-ff-green-50 hover:text-ff-green-800"
+          >
+            Често задавани въпроси
+          </a>
         </nav>
       </div>
 
@@ -468,7 +474,7 @@ function FaqSection() {
   const results = searchFaq(PANEL_FAQ, query, active);
 
   return (
-    <div className="mt-7 flex flex-col gap-3">
+    <div id="faq" className="mt-7 flex scroll-mt-4 flex-col gap-3">
       <h2 className="text-[18px] font-extrabold tracking-[-0.01em]">Често задавани въпроси</h2>
       <HelpSearchBar value={query} onChange={setQuery} />
       <CategoryChips categories={PANEL_CATEGORIES} active={active} onToggle={toggle} />
