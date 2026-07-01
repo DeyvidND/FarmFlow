@@ -16,6 +16,12 @@
       "autoPort": false
     },
     {
+      "name": "api-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@fermeribg/api", "dev"],
+      "port": 3001
+    },
+    {
       "name": "storefront",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@fermeribg/storefront", "exec", "next", "start", "-p", "3003"],

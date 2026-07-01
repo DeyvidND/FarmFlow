@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { Plus, Info, ArrowUpDown, Check, PackageX } from 'lucide-react';
+import { Plus, Info, ArrowUpDown, Check, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -62,6 +62,8 @@ export function ProductsClient({
   // «Продукт на седмицата» and the storefront catalog order are shop-wide, owner-only
   // concerns — a producer manages only the contents of their own products.
   const isFarmer = role === 'farmer';
+  // Deep-link target for the carrier-connect step referenced by locked courier toggles.
+  const deliverySettingsHref = isFarmer ? '/farmer-delivery' : '/delivery';
   const { items: products, setItems: setProducts, loadMore, hasMore, loading } = usePaginatedList<Product>(
     initial,
     listProducts,
@@ -289,7 +291,7 @@ export function ProductsClient({
               onClick={() => setCourierOpen(true)}
               title="Кои продукти се изпращат с куриер. Продуктите ползват куриер само ако фермерът им е свързал Еконт или Спиди от Настройки → Доставка."
             >
-              <PackageX size={16} /> Куриер
+              <Truck size={16} /> Куриер
             </Button>
           )}
           {!isFarmer && (
@@ -443,6 +445,8 @@ export function ProductsClient({
           subcats={subcats}
           multiFarmer={multiFarmer}
           multiSubcat={multiSubcat}
+          deliverySettingsHref={deliverySettingsHref}
+          onOpenCourierSettings={() => setCourierOpen(true)}
           onClose={() => setCreateOpen(false)}
           onSubmit={onCreate}
         />
@@ -457,6 +461,8 @@ export function ProductsClient({
           subcats={subcats}
           multiFarmer={multiFarmer}
           multiSubcat={multiSubcat}
+          deliverySettingsHref={deliverySettingsHref}
+          onOpenCourierSettings={() => setCourierOpen(true)}
           onClose={() => setFullEdit(null)}
           onSubmit={onFullUpdate}
           onCoverChange={(url) => patchLocal(fullEdit.id, { imageUrl: url })}
@@ -482,6 +488,7 @@ export function ProductsClient({
         onClose={() => setCourierOpen(false)}
         farmers={farmers}
         multiFarmer={multiFarmer}
+        deliverySettingsHref={deliverySettingsHref}
         onSaved={(patches) =>
           patches.forEach(({ id, courierDisabled }) => patchLocal(id, { courierDisabled }))
         }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { ImagePlus, PackageCheck, PackageX, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/delivery/ui';
@@ -25,6 +26,8 @@ export function ProductDialog({
   subcats,
   multiFarmer,
   multiSubcat,
+  deliverySettingsHref = '/delivery',
+  onOpenCourierSettings,
   onClose,
   onSubmit,
   onCoverChange,
@@ -35,6 +38,10 @@ export function ProductDialog({
   subcats: Subcategory[];
   multiFarmer: boolean;
   multiSubcat: boolean;
+  /** Route to the carrier-connect screen — differs for admin (/delivery) vs a farmer sub-account (/farmer-delivery). */
+  deliverySettingsHref?: string;
+  /** Lets the farmer jump straight to the bulk "Куриер" editor instead of toggling one product at a time. */
+  onOpenCourierSettings?: () => void;
   onClose: () => void;
   onSubmit: (data: ProductWrite, files?: File[]) => Promise<void>;
   /** Edit mode only: fired when the gallery cover (photo 0) changes. */
@@ -518,7 +525,7 @@ export function ProductDialog({
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="text-[13.5px] font-bold text-ff-ink">
-                {courierEnabled ? 'Изпраща се с куриер' : 'Не се изпраща с куриер'}
+                {courierEnabled ? 'С куриер' : 'Без куриер'}
               </span>
               <span className="text-[12px] leading-snug text-ff-muted">
                 {courierEnabled
@@ -542,9 +549,24 @@ export function ProductDialog({
           {!farmerHasCourier && (
             <p className="text-[11.5px] text-ff-muted pl-1">
               Фермерът няма активна куриерна доставка — свържете Еконт или Спиди от{' '}
-              <span className="font-semibold text-ff-ink-2">Настройки → Доставка</span>.
-              Настройката ще влезе в сила при активиране.
+              <Link href={deliverySettingsHref} className="font-semibold text-ff-green-700 underline underline-offset-2 hover:text-ff-green-800">
+                Настройки → Доставка
+              </Link>
+              . Настройката ще влезе в сила при активиране.
             </p>
+          )}
+
+          {onOpenCourierSettings && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenCourierSettings();
+              }}
+              className="pl-1 text-left text-[11.5px] font-semibold text-ff-ink-2 underline underline-offset-2 hover:text-ff-ink"
+            >
+              Управлявай куриера за всички продукти наведнъж →
+            </button>
           )}
 
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}

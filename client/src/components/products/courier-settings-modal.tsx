@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Loader2, PackageCheck, PackageX, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -12,10 +13,19 @@ interface Props {
   onClose: () => void;
   farmers?: Farmer[];
   multiFarmer?: boolean;
+  /** Route to the carrier-connect screen, shown when no farmer has a courier connected yet. */
+  deliverySettingsHref?: string;
   onSaved?: (patches: { id: string; courierDisabled: boolean }[]) => void;
 }
 
-export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer = false, onSaved }: Props) {
+export function CourierSettingsModal({
+  open,
+  onClose,
+  farmers = [],
+  multiFarmer = false,
+  deliverySettingsHref = '/delivery',
+  onSaved,
+}: Props) {
   const [prods, setProds] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -82,6 +92,10 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
     return farmers.filter((f) => ids.has(f.id));
   }, [prods, farmers]);
 
+  // Cold start: nobody has a carrier connected at all — every row below would render
+  // locked with no way forward, so lead with a single way-out instead of a wall of grays.
+  const noFarmerHasCourier = farmers.length > 0 && farmers.every((f) => !f.courierEnabled);
+
   const changedCount = prods.filter((p) => state.get(p.id) !== originalRef.current.get(p.id)).length;
   const blockedCount = prods.filter((p) => state.get(p.id) === false).length;
   const enabledCount = prods.length - blockedCount;
@@ -123,6 +137,21 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
             <span className="inline-flex items-center gap-1 font-semibold text-ff-ink-2">● Сиво</span> — без куриер, но се продава нормално при лична доставка, вземане от място и местна доставка до адрес.
           </p>
         </div>
+
+        {noFarmerHasCourier && (
+          <div className="shrink-0 border-b border-ff-border bg-amber-50 px-5 py-3">
+            <p className="text-xs leading-relaxed text-amber-800">
+              Никой фермер няма свързан куриер (Еконт/Спиди) — затова всички превключватели по-долу са заключени.{' '}
+              <Link
+                href={deliverySettingsHref}
+                onClick={onClose}
+                className="font-semibold underline underline-offset-2 hover:text-amber-900"
+              >
+                Свържи куриер от Настройки → Доставка
+              </Link>
+            </p>
+          </div>
+        )}
 
         {/* Farmer filter */}
         {multiFarmer && activeFarmers.length > 1 && (
@@ -178,8 +207,14 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
                       {!enabled && (
                         <p className="text-[11px] text-ff-muted font-medium mt-0.5">Без куриер · лична / местна доставка</p>
                       )}
-                      {p.farmerId && !farmerCourier.get(p.farmerId) && (
-                        <p className="text-[10.5px] text-amber-600 mt-0.5">⚠ Фермерът няма активен куриер</p>
+                      {p.farmerId && !farmerCourier.get(p.farmerId) && !noFarmerHasCourier && (
+                        <Link
+                          href={deliverySettingsHref}
+                          onClick={onClose}
+                          className="mt-0.5 block text-[10.5px] font-medium text-amber-600 underline underline-offset-2 hover:text-amber-700"
+                        >
+                          ⚠ Фермерът няма активен куриер — свържи от Настройки
+                        </Link>
                       )}
                     </div>
 
