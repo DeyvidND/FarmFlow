@@ -154,3 +154,6 @@ vite.config.ts.timestamp-*
 
 # Local Codex CLI scratch / ops notes — not part of the app
 .codex/
+
+# Git worktrees for isolated feature work
+.worktrees/
