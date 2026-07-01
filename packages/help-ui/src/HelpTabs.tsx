@@ -28,11 +28,15 @@ export function HelpTabs({
 
   return (
     <div>
-      <div className="flex gap-1 border-b border-ff-border">
+      <div role="tablist" aria-label="Помощен център" className="flex gap-1 border-b border-ff-border">
         {TABS.map((t) => (
           <button
             key={t.key}
             type="button"
+            role="tab"
+            id={`help-tab-${t.key}`}
+            aria-selected={active === t.key}
+            aria-controls={`help-panel-${t.key}`}
             onClick={() => setActive(t.key)}
             className={`relative px-4 py-2.5 text-[13.5px] font-bold transition-colors ${
               active === t.key ? 'text-ff-green-800' : 'text-ff-muted hover:text-ff-ink-2'
@@ -43,7 +47,9 @@ export function HelpTabs({
           </button>
         ))}
       </div>
-      <div className="pt-5">{panels[active]}</div>
+      <div role="tabpanel" id={`help-panel-${active}`} aria-labelledby={`help-tab-${active}`} className="pt-5">
+        {panels[active]}
+      </div>
     </div>
   );
 }
