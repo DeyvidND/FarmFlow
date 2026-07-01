@@ -104,7 +104,7 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-ff-ink">Настройки за куриер</h2>
             <p className="text-xs text-ff-muted">
-              {enabledCount} с куриер · {blockedCount} само на място
+              {enabledCount} с куриер · {blockedCount} без куриер
             </p>
           </div>
           <button
@@ -118,8 +118,8 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
         {/* Explanation */}
         <div className="shrink-0 border-b border-ff-border bg-ff-surface-2 px-5 py-3">
           <p className="text-xs text-ff-muted leading-relaxed">
-            <span className="font-semibold text-ff-ink-2">Включено (зелено)</span> — продуктът може да се изпраща с Еконт или Спиди.{' '}
-            <span className="font-semibold text-ff-ink-2">Изключено (сиво)</span> — само вземане от място или местна доставка до адрес (за чупливи и бързо разваляеми стоки).
+            <span className="inline-flex items-center gap-1 font-semibold text-green-700">● Зелено</span> — изпраща се с куриер (Еконт / Спиди).{' '}
+            <span className="inline-flex items-center gap-1 font-semibold text-ff-ink-2">● Сиво</span> — без куриер, но се продава нормално при лична доставка, вземане от място и местна доставка до адрес.
           </p>
         </div>
 
@@ -175,7 +175,7 @@ export function CourierSettingsModal({ open, onClose, farmers = [], multiFarmer 
                         <p className="truncate text-xs text-ff-muted">{farmerName.get(p.farmerId) ?? '—'}</p>
                       )}
                       {!enabled && (
-                        <p className="text-[11px] text-amber-600 font-medium mt-0.5">Само на място · без куриер</p>
+                        <p className="text-[11px] text-ff-muted font-medium mt-0.5">Без куриер · лична / местна доставка</p>
                       )}
                     </div>
 
