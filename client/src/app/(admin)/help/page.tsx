@@ -395,23 +395,23 @@ export default function HelpPage() {
             </p>
           </div>
         </div>
-
-        <nav className="mt-5 flex flex-wrap gap-2 border-t border-ff-border pt-4">
-          {SECTIONS.map((s) => (
-            <a
-              key={s.id}
-              href={`#${s.id}`}
-              className="rounded-full border border-ff-border bg-ff-surface-2 px-3 py-1.5 text-[12.5px] font-bold text-ff-ink-2 transition-colors hover:border-ff-green-500 hover:bg-ff-green-50 hover:text-ff-green-800"
-            >
-              {s.title}
-            </a>
-          ))}
-        </nav>
       </div>
 
       <HelpTabs
         guide={
           <div className="flex flex-col gap-3">
+            <nav className="flex flex-wrap gap-2">
+              {SECTIONS.map((s) => (
+                <a
+                  key={s.id}
+                  href={`#${s.id}`}
+                  className="rounded-full border border-ff-border bg-ff-surface-2 px-3 py-1.5 text-[12.5px] font-bold text-ff-ink-2 transition-colors hover:border-ff-green-500 hover:bg-ff-green-50 hover:text-ff-green-800"
+                >
+                  {s.title}
+                </a>
+              ))}
+            </nav>
+
             {SECTIONS.map((s, i) => (
               <details
                 key={s.id}
