@@ -213,7 +213,7 @@ export function ImportClient() {
       const data = await uploadBatch(file, { aiAudit: String(prefs.aiAudit), addressCheck: String(prefs.addressCheck) });
       setBatchId(data.batch.id);
       setRows(data.rows);
-      setAi(!prefs.aiAudit ? 'AI проверката е изключена в Настройки.' : data.batch.aiReport?.aiAvailable ? '' : 'AI проверка недостъпна — само базова проверка.');
+      setAi(!prefs.aiAudit ? 'AI проверката е изключена в Настройки.' : data.batch.aiReport?.aiAvailable ? '' : 'AI проверка временно недостъпна — направихме само базовата проверка на адресите. Опитай пак по-късно, ако искаш AI преглед.');
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   }
 
@@ -311,9 +311,22 @@ export function ImportClient() {
       const res = await commitBatch(batchId);
       const created = res.results.filter((x) => x.status === 'created').length;
       toast.success(`Създадени ${created} ${created === 1 ? 'пратка' : 'пратки'} с ${CARRIER_META[chosen].label}`);
-      if (res.failed) toast.error(`${res.failed} реда не успяха — виж „Проблеми".`);
       const { getBatch } = await import('@/lib/api-client');
-      setRows((await getBatch(batchId)).rows);
+      const freshRows = (await getBatch(batchId)).rows;
+      setRows(freshRows);
+      if (res.failed) {
+        // The API only returns a count, not which rows — but a row that still has
+        // no shipmentId after this refresh is one of them. Scroll straight to it
+        // instead of pointing at a "Проблеми" section that isn't a separate place;
+        // it's just the same per-row message shown inline in this table.
+        toast.error(`${res.failed} ${res.failed === 1 ? 'ред не успя' : 'реда не успяха'} — виж отбелязания по-долу.`);
+        const firstFailed = freshRows.find((r) => !r.shipmentId);
+        if (firstFailed) {
+          requestAnimationFrame(() => {
+            document.getElementById(`row-${firstFailed.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          });
+        }
+      }
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   }
 
@@ -565,7 +578,7 @@ export function ImportClient() {
                   const issues = (r.validation?.issues ?? []).map((i) => i.message).filter(Boolean);
                   return (
                     <Fragment key={r.id}>
-                      <tr className={`${issues.length ? '' : 'border-b border-ff-border-2'} last:border-0 ${rowBg(r.validationStatus)}`}>
+                      <tr id={`row-${r.id}`} className={`${issues.length ? '' : 'border-b border-ff-border-2'} last:border-0 ${rowBg(r.validationStatus)}`}>
                         <td className="px-3 py-2.5 align-top text-ff-muted"><div className="flex h-10 items-center">{r.rowIndex}</div></td>
                         <td className="px-3 py-2.5 align-top"><AutoTextarea className={inpTa} value={r.receiverName ?? ''} onChange={(v) => patch(r, 'receiverName', v)} onBlur={() => save(r)} /></td>
                         <td className="px-3 py-2.5 align-top"><input className={inp} value={r.receiverPhone ?? ''} onChange={(e) => patch(r, 'receiverPhone', e.target.value)} onBlur={() => save(r)} /></td>
@@ -618,7 +631,7 @@ export function ImportClient() {
           {/* mobile cards */}
           <div className="mt-3 hidden flex-col gap-3 max-[900px]:flex">
             {rows.map((r) => (
-              <div key={r.id} className={`rounded-xl border-2 p-3.5 ${rowBg(r.validationStatus)} ${r.validationStatus === 'ok' ? 'border-[#a5d6a7]' : r.validationStatus === 'warn' ? 'border-[#ffe082]' : 'border-[#ef9a9a]'}`}>
+              <div key={r.id} id={`row-${r.id}`} className={`rounded-xl border-2 p-3.5 ${rowBg(r.validationStatus)} ${r.validationStatus === 'ok' ? 'border-[#a5d6a7]' : r.validationStatus === 'warn' ? 'border-[#ffe082]' : 'border-[#ef9a9a]'}`}>
                 <label className="mb-2.5 grid grid-cols-[104px_1fr] items-start gap-2">
                   <span className="mt-2 text-[12.5px] font-bold text-ff-muted">Получател</span>
                   <AutoTextarea className={inpTa} value={r.receiverName ?? ''} onChange={(v) => patch(r, 'receiverName', v)} onBlur={() => save(r)} />
@@ -769,7 +782,9 @@ function ConfirmSendModal({
                 </p>
               )}
               {cmp.failed > 0 && (
-                <p className="mt-2 text-center text-[12px] text-ff-muted">{cmp.failed} реда не успяха да се остойностят.</p>
+                <p className="mt-2 text-center text-[12px] text-ff-muted">
+                  {cmp.failed} {cmp.failed === 1 ? 'ред не влезе' : 'реда не влязоха'} в тази прогноза (грешка при остойностяване) — {cmp.failed === 1 ? 'ще бъде изпратен' : 'ще бъдат изпратени'} все пак с избрания куриер.
+                </p>
               )}
               <p className="mt-3 text-center text-[11.5px] text-ff-muted">Цената е само за доставка, без наложения платеж.</p>
             </>

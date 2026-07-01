@@ -118,20 +118,23 @@ export function CodRiskClient() {
               <span className="inline-flex items-center gap-1 rounded-full bg-ff-badge-bg px-2.5 py-1 text-ff-badge-ink">
                 Наши сигнали: {result.strikes}
               </span>
-              <span className="inline-flex items-center gap-1 rounded-full bg-ff-badge-bg px-2.5 py-1 text-ff-badge-ink">
-                nekorekten: {result.nekorektenCount}
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-ff-badge-bg px-2.5 py-1 text-ff-badge-ink"
+                title="Регистър „Некоректен клиент“ (nekorekten.com) — външна база с неполучени/върнати пратки."
+              >
+                Некоректен: {result.nekorektenCount}
               </span>
               {result.phone && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-ff-badge-bg px-2.5 py-1 text-ff-badge-ink">
-                  {result.phone}
+                  Търсен номер: {result.phone}
                 </span>
               )}
             </div>
             {!result.nekorektenConfigured && (
-              <p className="mt-2 text-[12.5px] text-ff-muted">nekorekten не е свързан — показваме само нашата база.</p>
+              <p className="mt-2 text-[12.5px] text-ff-muted">Регистърът „Некоректен“ (nekorekten.com) не е свързан — показваме само нашата вътрешна база.</p>
             )}
             {result.phone === null && (
-              <p className="mt-2 text-[12.5px] text-ff-muted">Невалиден телефонен номер.</p>
+              <p className="mt-2 text-[12.5px] text-ff-muted">Невалиден телефонен номер — въведи български номер, напр. 0888123456.</p>
             )}
 
             {result.reports.length > 0 ? (
@@ -140,7 +143,7 @@ export function CodRiskClient() {
                   <li key={i} className="rounded-lg border border-ff-border-2 bg-ff-surface-2 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${r.source === 'nekorekten' ? 'bg-ff-amber-softer text-ff-amber-600' : 'bg-ff-badge-bg text-ff-badge-ink'}`}>
-                        {r.source === 'nekorekten' ? 'nekorekten' : 'наша база'}
+                        {r.source === 'nekorekten' ? 'Некоректен' : 'наша база'}
                       </span>
                       <span className="text-[12px] text-ff-muted">{fmtDate(r.date)}</span>
                     </div>
