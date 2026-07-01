@@ -28,6 +28,12 @@
       "port": 3003
     },
     {
+      "name": "storefront-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@fermeribg/storefront", "exec", "next", "dev", "-p", "3003"],
+      "port": 3003
+    },
+    {
       "name": "delivery-web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@fermeribg/delivery-web", "exec", "next", "dev", "-p", "3009"],

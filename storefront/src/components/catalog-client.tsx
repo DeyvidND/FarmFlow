@@ -37,11 +37,11 @@ export function CatalogClient({
     [products, farmerById],
   );
 
-  const shown = products.filter((p) => {
-    if (!productInTab(p, active)) return false;
-    if (courierOnly && !isCourierAvailable(p)) return false;
-    return true;
-  });
+  const inTab = products.filter((p) => productInTab(p, active));
+  const shown = courierOnly ? inTab.filter(isCourierAvailable) : inTab;
+  // The courier filter emptied an otherwise non-empty category — say so and offer
+  // a way back, instead of the generic "category has nothing" message.
+  const emptiedByCourierFilter = courierOnly && shown.length === 0 && inTab.length > 0;
 
   return (
     <>
@@ -74,7 +74,20 @@ export function CatalogClient({
       </div>
 
       {shown.length === 0 ? (
-        <p className="muted">Няма продукти в тази категория.</p>
+        emptiedByCourierFilter ? (
+          <p className="muted">
+            Няма продукти с куриер в тази категория.{' '}
+            <button
+              type="button"
+              onClick={() => setCourierOnly(false)}
+              style={{ textDecoration: 'underline', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+            >
+              Изчисти филтъра
+            </button>
+          </p>
+        ) : (
+          <p className="muted">Няма продукти в тази категория.</p>
+        )
       ) : (
         <div className="grid grid--4">
           {shown.map((p) => (
