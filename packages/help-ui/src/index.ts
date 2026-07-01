@@ -3,3 +3,4 @@ export { HelpSearchBar } from './HelpSearchBar';
 export { CategoryChips } from './CategoryChips';
 export { FaqAccordion } from './FaqAccordion';
 export { AskAiBox } from './AskAiBox';
+export { HelpTabs } from './HelpTabs';
