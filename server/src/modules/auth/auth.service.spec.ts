@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
+import { REDIS_TOKEN } from '../../common/redis/redis.constants';
 
 // Mock argon2 at module level so native bindings are not called.
 jest.mock('argon2', () => ({
@@ -37,10 +38,12 @@ describe('AuthService', () => {
   let db: ReturnType<typeof makeDb>;
   let jwtService: JwtService;
   let emailMock: { sendMail: jest.Mock };
+  let redisMock: { set: jest.Mock };
 
   beforeEach(async () => {
     db = makeDb();
     jest.clearAllMocks();
+    redisMock = { set: jest.fn().mockResolvedValue('OK') };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -59,6 +62,7 @@ describe('AuthService', () => {
           useValue: { get: jest.fn(), getOrThrow: jest.fn().mockReturnValue('test-secret') },
         },
         { provide: EmailService, useValue: { sendMail: jest.fn() } },
+        { provide: REDIS_TOKEN, useValue: redisMock },
       ],
     }).compile();
 
@@ -420,13 +424,13 @@ describe('AuthService', () => {
 
   // ── delivery handoff (SSO to dostavki) ─────────────────────────────────────
   describe('delivery handoff', () => {
-    it('issueDeliveryHandoff signs a typed, short-TTL token with the derived secret', async () => {
+    it('issueDeliveryHandoff signs a typed, short-TTL token with the derived secret and a jti', async () => {
       (jwtService.signAsync as jest.Mock).mockResolvedValueOnce('handoff-token');
       const out = await service.issueDeliveryHandoff(USER_ID, TENANT_ID);
       expect(out).toEqual({ token: 'handoff-token' });
       expect(jwtService.signAsync).toHaveBeenCalledWith(
         { sub: USER_ID, tid: TENANT_ID, type: 'delivery-handoff' },
-        { secret: 'test-secret::handoff', expiresIn: '120s' },
+        expect.objectContaining({ secret: 'test-secret::handoff', expiresIn: '120s', jwtid: expect.any(String) }),
       );
     });
 
@@ -436,12 +440,18 @@ describe('AuthService', () => {
     });
 
     it('handoffLogin rejects a token of the wrong type', async () => {
-      (jwtService.verifyAsync as jest.Mock).mockResolvedValueOnce({ sub: USER_ID, type: 'tenant' });
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValueOnce({ sub: USER_ID, type: 'tenant', jti: 'jti-1' });
       await expect(service.handoffLogin('x')).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
-    it('handoffLogin denies a tenant without the deliveries package', async () => {
+    it('handoffLogin rejects a token missing a jti', async () => {
       (jwtService.verifyAsync as jest.Mock).mockResolvedValueOnce({ sub: USER_ID, type: 'delivery-handoff' });
+      await expect(service.handoffLogin('x')).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(redisMock.set).not.toHaveBeenCalled();
+    });
+
+    it('handoffLogin denies a tenant without the deliveries package', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValueOnce({ sub: USER_ID, type: 'delivery-handoff', jti: 'jti-1' });
       db.limit
         .mockResolvedValueOnce([{ id: USER_ID, tenantId: TENANT_ID, role: 'admin', tokenVersion: 0 }])
         .mockResolvedValueOnce([{ pkg: false }]);
@@ -449,7 +459,7 @@ describe('AuthService', () => {
     });
 
     it('handoffLogin issues a session when valid and the package is on', async () => {
-      (jwtService.verifyAsync as jest.Mock).mockResolvedValueOnce({ sub: USER_ID, type: 'delivery-handoff' });
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValueOnce({ sub: USER_ID, type: 'delivery-handoff', jti: 'jti-1' });
       db.limit
         .mockResolvedValueOnce([
           { id: USER_ID, tenantId: TENANT_ID, role: 'admin', tokenVersion: 0, mustChangePassword: false, farmerId: null },
@@ -457,6 +467,7 @@ describe('AuthService', () => {
         .mockResolvedValueOnce([{ pkg: true }]);
       const out = await service.handoffLogin('x');
       expect(out).toEqual({ accessToken: 'signed-token' });
+      expect(redisMock.set).toHaveBeenCalledWith('handoff:used:jti-1', '1', 'PX', 130_000, 'NX');
     });
 
     it('includes farmerId in the handoff token when the user is a farmer', async () => {
@@ -464,8 +475,43 @@ describe('AuthService', () => {
       await service.issueDeliveryHandoff(USER_ID, TENANT_ID, 'farmer-1');
       expect(jwtService.signAsync).toHaveBeenCalledWith(
         { sub: USER_ID, tid: TENANT_ID, fid: 'farmer-1', type: 'delivery-handoff' },
-        expect.objectContaining({ expiresIn: '120s' }),
+        expect.objectContaining({ expiresIn: '120s', jwtid: expect.any(String) }),
       );
+    });
+
+    describe('handoffLogin single-use', () => {
+      it('rejects a second exchange of the same handoff token', async () => {
+        const jti = 'jti-123';
+        const redisSet = jest
+          .fn<Promise<string | null>, unknown[]>()
+          .mockResolvedValueOnce('OK') // first claim wins
+          .mockResolvedValueOnce(null); // replay: key already exists
+        const redis = { set: redisSet } as any;
+
+        const user = {
+          id: 'u1', tenantId: 't1', role: 'admin',
+          mustChangePassword: false, tokenVersion: 0, farmerId: null,
+        };
+        let call = 0;
+        const tenantRow = { pkg: true };
+        const localDb = {
+          select: () => ({
+            from: () => ({ where: () => ({ limit: () => (call++ === 0 ? [user] : [tenantRow]) }) }),
+          }),
+        } as any;
+
+        const jwt = {
+          verifyAsync: jest.fn().mockResolvedValue({ sub: 'u1', tid: 't1', type: 'delivery-handoff', jti }),
+        } as any;
+
+        const svc = new AuthService(localDb, jwt, { getOrThrow: () => 'secret' } as any, {} as any, redis);
+        (svc as any).sign = jest.fn().mockReturnValue({ accessToken: 'real' });
+
+        await expect(svc.handoffLogin('tok')).resolves.toEqual({ accessToken: 'real' });
+        await expect(svc.handoffLogin('tok')).rejects.toThrow(); // replay blocked
+
+        expect(redisSet).toHaveBeenCalledWith('handoff:used:jti-123', '1', 'PX', 130_000, 'NX');
+      });
     });
   });
 });

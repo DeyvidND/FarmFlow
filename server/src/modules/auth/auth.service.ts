@@ -10,11 +10,13 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
+import type Redis from 'ioredis';
 import { type Database, users, tenants } from '@fermeribg/db';
 import type { JwtPayload } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { REDIS_TOKEN } from '../../common/redis/redis.constants';
 import { EmailService } from '../../common/email/email.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -30,6 +32,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly email: EmailService,
+    @Inject(REDIS_TOKEN) private readonly redis: Redis,
   ) {}
 
   async login(dto: LoginDto): Promise<{ accessToken: string }> {
@@ -307,7 +310,7 @@ export class AuthService {
   async issueDeliveryHandoff(userId: string, tenantId: string, farmerId?: string): Promise<{ token: string }> {
     const token = await this.jwt.signAsync(
       { sub: userId, tid: tenantId, ...(farmerId ? { fid: farmerId } : {}), type: 'delivery-handoff' },
-      { secret: this.handoffSecret(), expiresIn: '120s' },
+      { secret: this.handoffSecret(), expiresIn: '120s', jwtid: randomUUID() },
     );
     return { token };
   }
@@ -319,15 +322,24 @@ export class AuthService {
    * activation). Backs the delivery-web `?handoff=` login.
    */
   async handoffLogin(token: string): Promise<{ accessToken: string }> {
-    let payload: { sub?: string; tid?: string; fid?: string; type?: string };
+    let payload: { sub?: string; tid?: string; fid?: string; type?: string; jti?: string };
     try {
       payload = await this.jwt.verifyAsync(token, { secret: this.handoffSecret() });
     } catch {
       throw new UnauthorizedException('Връзката е невалидна или изтекла');
     }
-    if (payload?.type !== 'delivery-handoff' || !payload.sub) {
+    if (payload?.type !== 'delivery-handoff' || !payload.sub || !payload.jti) {
       throw new UnauthorizedException('Връзката е невалидна или изтекла');
     }
+
+    // Single-use: the first exchange claims the token id; a replay finds the key
+    // already set (NX → null) and is rejected. TTL outlives the 120s token so the
+    // claim can't expire while the token is still technically valid.
+    const claimed = await this.redis.set(`handoff:used:${payload.jti}`, '1', 'PX', 130_000, 'NX');
+    if (claimed !== 'OK') {
+      throw new UnauthorizedException('Връзката вече е използвана');
+    }
+
     const [user] = await this.db.select().from(users).where(eq(users.id, payload.sub)).limit(1);
     if (!user || !user.tenantId) throw new UnauthorizedException();
     const [tenant] = await this.db
