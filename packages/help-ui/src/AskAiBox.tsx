@@ -34,7 +34,7 @@ export function AskAiBox({ onAsk }: { onAsk: (question: string) => Promise<strin
       </div>
 
       {submittedQuestion && (
-        <div className="mt-3.5 flex flex-col gap-3">
+        <div className="mt-3.5 flex flex-col gap-3" aria-live="polite" aria-atomic="true" aria-busy={loading}>
           <div className="flex justify-end">
             <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-ff-green-700 px-3.5 py-2.5 text-[13px] text-white">
               {submittedQuestion}
