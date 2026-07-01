@@ -79,3 +79,12 @@ Volumetric DDoS protection is an **edge** concern. Recommended:
 
 The app-layer limits above are the **second** line (abuse, brute force, spam,
 app-cost protection) and stay correct behind the edge.
+
+## Accepted dependency risks (reviewed 2026-07-02)
+
+- **lodash `_.template` code injection (GHSA-r5fr-rjxr-66jc)** — transitive via
+  `@nestjs/config` / `@nestjs/swagger`. No installable fix (advisory names
+  `>=4.18.0`, which is unpublished; latest is `4.17.21`). `_.template` is never
+  invoked with user input. Re-check when NestJS drops the lodash dependency.
+- **esbuild dev-server request smuggling (GHSA-g7r4-m6w7-qqqr)** — dev/build
+  tooling only (`tsx`), never in a production runtime. No action.
