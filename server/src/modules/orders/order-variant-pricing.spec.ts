@@ -17,7 +17,7 @@ describe('resolveLineUnit', () => {
     const variant = { id: 'v1', label: 'Кристализиран 500г', priceStotinki: 650, stockQuantity: 5 } as any;
     expect(resolveLineUnit(product, variant, NOW)).toEqual({
       unitStotinki: 650,
-      label: 'Кристализиран 500г',
+      label: 'Мед Кристализиран 500г',
       variantId: 'v1',
       variantLabel: 'Кристализиран 500г',
     });
