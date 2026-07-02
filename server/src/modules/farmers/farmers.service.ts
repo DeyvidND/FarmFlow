@@ -462,11 +462,12 @@ export class FarmersService {
       .where(eq(tenants.id, tenant.id))
       .limit(1);
     const settings = tRow?.settings ?? null;
-    // Strip personal farmer contact (email + phone) — the storefront renders the
-    // tenant's public contact, never an individual farmer's. (email leak fixed in
-    // 248c330; phone was the same class of over-exposure on a world-readable API.)
-    const result: PublicFarmer[] = rows.map(
-      ({ tenantId: _tenantId, email: _email, phone: _phone, ...rest }) => {
+    // email + phone ARE included here on purpose — the farmer subpage shows each
+    // farmer's own contact now (product decision 2026-07-02); the site-wide
+    // official contact (footer/header/contact page) stays the tenant's, unaffected.
+    // (Previously stripped after leak 248c330 — that fix walked back an
+    // *unintentional* exposure; this is a deliberate, reviewed re-expose.)
+    const result: PublicFarmer[] = rows.map(({ tenantId: _tenantId, ...rest }) => {
       const urls = mediaByFarmer.get(rest.id) ?? [];
       const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
       const courierReady = farmerCourierReady(
