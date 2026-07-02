@@ -8,6 +8,12 @@
  * days") has no per-day concept, so it uses one window. Each slot holds exactly
  * one delivery — there is no capacity.
  */
+/** Once we're within this many hours of a day's FIRST slot, that day stops
+ *  being pickable at all (storefront picker) and booking a same-day slot is
+ *  refused (order creation) — the farm needs lead time to plan the whole
+ *  day's route/prep, not just per-slot notice. */
+export const SAME_DAY_LEAD_HOURS = 2;
+
 export interface SlotWindow {
   timeFrom: string; // HH:MM
   timeTo: string; // HH:MM

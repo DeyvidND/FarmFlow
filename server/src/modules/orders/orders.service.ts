@@ -23,7 +23,8 @@ import type { Product, ProductVariant } from '@fermeribg/types';
 import { effectivePriceStotinki } from '../products/promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
-import { bgToday, bgDayBounds, bgDate } from '../../common/time/bg-time';
+import { bgToday, bgDayBounds, bgDate, bgNowMinutes, minutesOf } from '../../common/time/bg-time';
+import { SAME_DAY_LEAD_HOURS } from '../slots/slot-rule';
 import { buildPage, clampLimit } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -1056,6 +1057,13 @@ export class OrdersService {
       slotFrom = slot.timeFrom;
       slotTo = slot.timeTo;
       slotDate = slot.date;
+
+      // Backstop for a stale checkout page open past the picker's same-day
+      // cutoff (SlotsService.findPublicBySlug hides the day; this rejects the
+      // booking too, in case an old tab/replay still tries it).
+      if (slotDate === bgToday() && bgNowMinutes() >= minutesOf(slotFrom) - SAME_DAY_LEAD_HOURS * 60) {
+        throw new BadRequestException('Слотът вече не е достъпен за днес');
+      }
 
       const [{ count }] = await tx
         .select({ count: sql<number>`count(*)::int` })

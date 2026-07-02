@@ -156,3 +156,41 @@ describe('SlotsService.remove', () => {
     expect(skip).toHaveBeenCalledWith('t1', '2026-06-30');
   });
 });
+
+/** db stub for findPublicBySlug: the whole select chain resolves to `rows`. */
+function publicSlotsDb(rows: { id: string; date: string; startTime: string; endTime: string }[]) {
+  const sel = {
+    from: () => sel,
+    leftJoin: () => sel,
+    where: () => sel,
+    groupBy: () => sel,
+    having: () => sel,
+    orderBy: async () => rows,
+  };
+  return { select: () => sel } as never;
+}
+
+describe('SlotsService.findPublicBySlug — same-day lead-time cutoff', () => {
+  // Today = 2026-07-02 (Thursday), first slot 14:00. Bulgaria is UTC+3 in July.
+  const rows = [
+    { id: 's-today', date: '2026-07-02', startTime: '14:00', endTime: '14:30' },
+    { id: 's-future', date: '2026-07-09', startTime: '14:00', endTime: '14:30' },
+  ];
+  const publicCache = { resolveTenant: async () => ({ id: 't1', deliveryEnabled: true }) };
+
+  afterEach(() => jest.useRealTimers());
+
+  it('drops today once within 2h of its first slot (13:00 local, cutoff is 12:00)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-02T10:00:00Z')); // 13:00 Sofia (UTC+3)
+    const svc = new SlotsService(publicSlotsDb(rows), publicCache as never);
+    const result = await svc.findPublicBySlug('chaika');
+    expect(result.map((r) => r.id)).toEqual(['s-future']);
+  });
+
+  it('keeps today before the cutoff (09:00 local, 5h before the 14:00 slot)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-02T06:00:00Z')); // 09:00 Sofia (UTC+3)
+    const svc = new SlotsService(publicSlotsDb(rows), publicCache as never);
+    const result = await svc.findPublicBySlug('chaika');
+    expect(result.map((r) => r.id)).toEqual(['s-today', 's-future']);
+  });
+});

@@ -58,6 +58,28 @@ function bgMidnightUtc(day: string): Date {
   return new Date(guess - bgOffsetMs(new Date(guess)));
 }
 
+/** Current time-of-day in Bulgaria local time, as minutes since midnight
+ *  (0-1439). Same-day-only comparisons (e.g. "is it within N hours of a slot
+ *  today?") never cross Bulgaria's DST boundary (03:00/04:00 vs. commercial
+ *  hours), so plain minute arithmetic is safe — no instant/offset math needed. */
+export function bgNowMinutes(): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BG_TZ,
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(new Date());
+  const f: Record<string, string> = {};
+  for (const p of parts) f[p.type] = p.value;
+  return Number(f.hour) * 60 + Number(f.minute);
+}
+
+/** Parse "HH:MM" (or "HH:MM:SS") into minutes since midnight. */
+export function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(':');
+  return Number(h) * 60 + Number(m);
+}
+
 /** The BG calendar date `n` days after `day` (date-only arithmetic, tz-safe). */
 export function bgAddDays(day: string, n: number): string {
   const [y, m, d] = day.split('-').map(Number);

@@ -8,9 +8,10 @@ import { and, eq, ne, gte, lte, sql, getTableColumns } from 'drizzle-orm';
 import { type Database, deliverySlots, orders, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
+import { bgNowMinutes, minutesOf } from '../../common/time/bg-time';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { UpdateSlotDto } from './dto/update-slot.dto';
-import { SlotRule, slotRuleSlots, normalizeRule, migrateRule } from './slot-rule';
+import { SlotRule, slotRuleSlots, normalizeRule, migrateRule, SAME_DAY_LEAD_HOURS } from './slot-rule';
 
 /** A delivery slot plus its live `booked` count (non-cancelled orders). */
 type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
@@ -232,7 +233,7 @@ export class SlotsService {
       if (to) filters.push(lte(deliverySlots.date, to));
     }
 
-    return this.db
+    const rows = await this.db
       .select({
         id: deliverySlots.id,
         date: deliverySlots.date,
@@ -251,6 +252,18 @@ export class SlotsService {
       // A slot holds one order — return only the free ones (no live order).
       .having(sql`count(${orders.id}) = 0`)
       .orderBy(deliverySlots.date, deliverySlots.timeFrom);
+
+    // Drop today entirely once we're within the lead-time window of its first
+    // slot — a whole-day cutoff, not a per-slot one (see SAME_DAY_LEAD_HOURS).
+    const today = this.bgToday();
+    const todayRows = rows.filter((r) => r.date === today);
+    if (todayRows.length) {
+      const firstSlotMinutes = Math.min(...todayRows.map((r) => minutesOf(r.startTime)));
+      if (bgNowMinutes() >= firstSlotMinutes - SAME_DAY_LEAD_HOURS * 60) {
+        return rows.filter((r) => r.date !== today);
+      }
+    }
+    return rows;
   }
 
   // ---- Recurring slot rule (settings.slotRule) ----
