@@ -4,6 +4,8 @@ import type { CategoryDef } from './types';
 export const PANEL_CATEGORIES: CategoryDef[] = [
   { id: 'products', label: 'Продукти' },
   { id: 'orders', label: 'Поръчки' },
+  { id: 'production', label: 'Производство' },
+  { id: 'route', label: 'Маршрут' },
   { id: 'farmers', label: 'Фермери' },
   { id: 'categories', label: 'Категории' },
   { id: 'availability', label: 'Наличност' },
@@ -15,6 +17,7 @@ export const PANEL_CATEGORIES: CategoryDef[] = [
   { id: 'reviews', label: 'Отзиви' },
   { id: 'site-editor', label: 'Сайт и редактор' },
   { id: 'marketing', label: 'Маркетинг' },
+  { id: 'newsletter', label: 'Имейл клиенти' },
   { id: 'settings', label: 'Настройки' },
 ];
 
