@@ -428,7 +428,7 @@ export function ImportClient() {
                 <div className="flex items-center gap-1.5 text-[13.5px] font-bold text-ff-ink">
                   <s.icon size={15} className="text-ff-green-600" /> {s.title}
                 </div>
-                <div className="mt-0.5 text-[12px] leading-snug text-ff-muted">{s.desc}</div>
+                <div className="mt-0.5 text-[13.5px] leading-snug text-ff-muted">{s.desc}</div>
                 {i === 0 && (
                   <button
                     type="button"
@@ -450,7 +450,7 @@ export function ImportClient() {
           <label className="flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-ff-border bg-ff-surface-2 px-4 py-8 text-center transition-colors hover:border-ff-green-500 hover:bg-ff-green-50">
             <UploadCloud size={28} className="text-ff-muted-2" />
             <div className="text-[14px] font-bold text-ff-ink-2">{file ? file.name : 'Избери Excel или CSV файл'}</div>
-            <div className="text-[12px] text-ff-muted">{file ? 'Натисни „Качи и провери", за да продължиш' : 'Поддържани формати: .xlsx, .csv'}</div>
+            <div className="text-[13.5px] text-ff-muted">{file ? 'Натисни „Качи и провери", за да продължиш' : 'Поддържани формати: .xlsx, .csv'}</div>
             <input className="hidden" type="file" accept=".xlsx,.csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </label>
           <div className="mt-3 flex flex-wrap items-center gap-2.5">
@@ -463,7 +463,7 @@ export function ImportClient() {
           </div>
         </div>
       )}
-      {ai && rows.length === 0 && <p className="mt-2 text-[12.5px] text-ff-amber-600">{ai}</p>}
+      {ai && rows.length === 0 && <p className="mt-2 text-[13.5px] text-ff-amber-600">{ai}</p>}
 
       {rows.length > 0 && (
         <>
@@ -478,7 +478,7 @@ export function ImportClient() {
             {labelIds('econt').length > 0 && <button onClick={() => void labels('econt')} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2"><FileDown size={15} /> Етикети (Еконт)</button>}
             {labelIds('speedy').length > 0 && <button onClick={() => void labels('speedy')} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 text-[13px] font-bold text-ff-ink-2 hover:bg-ff-surface-2"><FileDown size={15} /> Етикети (Спиди)</button>}
           </div>
-          <p className="mt-2 text-[12px] text-ff-muted">„Потвърди поръчки" сравнява Еконт и Спиди и праща цялата партида с по-евтиния куриер — без да попълваш нищо ръчно.</p>
+          <p className="mt-2 text-[13.5px] text-ff-muted">„Потвърди поръчки" сравнява Еконт и Спиди и праща цялата партида с по-евтиния куриер — без да попълваш нищо ръчно.</p>
 
           {/* Nekorekten bulk risk check bar */}
           <div className="mt-2 flex flex-wrap items-center gap-2.5">
@@ -582,7 +582,7 @@ export function ImportClient() {
                         <td className="px-3 py-2.5 align-top text-ff-muted"><div className="flex h-10 items-center">{r.rowIndex}</div></td>
                         <td className="px-3 py-2.5 align-top"><AutoTextarea className={inpTa} value={r.receiverName ?? ''} onChange={(v) => patch(r, 'receiverName', v)} onBlur={() => save(r)} /></td>
                         <td className="px-3 py-2.5 align-top"><input className={inp} value={r.receiverPhone ?? ''} onChange={(e) => patch(r, 'receiverPhone', e.target.value)} onBlur={() => save(r)} /></td>
-                        <td className="px-3 py-2.5 align-top"><select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => { patch(r, 'deliveryMode', e.target.value); }} onBlur={() => save(r)}><option value="office">офис</option><option value="address">адрес</option></select></td>
+                        <td className="px-3 py-2.5 align-top"><select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => { patch(r, 'deliveryMode', e.target.value); }} onBlur={() => save(r)}><option value="office">Офис</option><option value="address">Адрес</option></select></td>
                         <td className="px-3 py-2.5 align-top"><input className={inp} value={r.city ?? ''} onChange={(e) => patch(r, 'city', e.target.value)} onBlur={() => save(r)} /></td>
                         <td className="px-3 py-2.5 align-top">
                           {r.deliveryMode === 'office'
@@ -594,7 +594,7 @@ export function ImportClient() {
                         <td className="px-3 py-2.5 align-top"><KgInput className={inpNum} grams={r.weightGrams} onCommit={(g) => { patch(r, 'weightGrams', g); save({ ...r, weightGrams: g }); }} /></td>
                         <td className="px-3 py-2.5 align-top"><EurInput className={inpNum} cents={r.codAmountStotinki} onCommit={(c) => { patch(r, 'codAmountStotinki', c); save({ ...r, codAmountStotinki: c }); }} /></td>
                         <td className="px-3 py-2.5 align-top"><div className="flex h-10 items-center"><RiskBadge r={r} /></div></td>
-                        <td className="px-3 py-2.5 align-top"><div className="flex h-10 items-center"><button onClick={() => del(r)} className="grid h-9 w-9 place-items-center rounded-lg border border-[#e0a0a0] text-ff-red hover:bg-[#FBE9E7]" aria-label="Изтрий реда"><X size={15} /></button></div></td>
+                        <td className="px-3 py-2.5 align-top"><div className="flex h-11 items-center"><button onClick={() => del(r)} className="grid h-11 w-11 place-items-center rounded-lg border border-[#e0a0a0] text-ff-red hover:bg-[#FBE9E7]" aria-label="Изтрий реда"><X size={15} /></button></div></td>
                       </tr>
                       {(() => {
                         const all = r.validation?.issues ?? [];
@@ -652,7 +652,7 @@ export function ImportClient() {
                 </label>
                 <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
                   <span className="text-[12.5px] font-bold text-ff-muted">Доставка</span>
-                  <select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => patch(r, 'deliveryMode', e.target.value)} onBlur={() => save(r)}><option value="office">офис</option><option value="address">адрес</option></select>
+                  <select className={inp} value={r.deliveryMode ?? 'office'} onChange={(e) => patch(r, 'deliveryMode', e.target.value)} onBlur={() => save(r)}><option value="office">Офис</option><option value="address">Адрес</option></select>
                 </label>
                 <label className="mb-2.5 grid grid-cols-[104px_1fr] items-center gap-2">
                   <span className="text-[12.5px] font-bold text-ff-muted">Тегло (кг)</span>
@@ -678,7 +678,7 @@ export function ImportClient() {
                   </div>
                 )}
                 <RiskBadge r={r} />
-                <button onClick={() => del(r)} className="mt-1.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#e0a0a0] py-2 text-[12.5px] font-bold text-ff-red hover:bg-[#FBE9E7]"><X size={14} /> Изтрий</button>
+                <button onClick={() => del(r)} className="mt-1.5 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-[#e0a0a0] py-2 text-[13.5px] font-bold text-ff-red hover:bg-[#FBE9E7]"><X size={14} /> Изтрий</button>
               </div>
             ))}
           </div>
@@ -754,7 +754,7 @@ function ConfirmSendModal({
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-ff-green-50 text-ff-green-700"><Scale size={21} /></span>
           <div className="min-w-0">
             <h2 className="font-display text-[19px] font-extrabold tracking-[-0.015em] text-ff-ink">Потвърди поръчки</h2>
-            <p className="mt-0.5 text-[12.5px] text-ff-muted">{cmp.count} {cmp.count === 1 ? 'поръчка' : 'поръчки'} · цялата партида тръгва с един куриер.</p>
+            <p className="mt-0.5 text-[13.5px] text-ff-muted">{cmp.count} {cmp.count === 1 ? 'поръчка' : 'поръчки'} · цялата партида тръгва с един куриер.</p>
           </div>
           <button onClick={onClose} aria-label="Затвори" className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ff-muted hover:bg-ff-surface-2"><X size={18} /></button>
         </div>
@@ -777,12 +777,12 @@ function ConfirmSendModal({
                 </p>
               )}
               {!eViable && !sViable && (
-                <p className="mt-3 text-center text-[12.5px] font-bold text-ff-amber-600">
+                <p className="mt-3 text-center text-[13.5px] font-bold text-ff-amber-600">
                   Нито един куриер не покрива всички адреси — провери градовете/офисите.
                 </p>
               )}
               {cmp.failed > 0 && (
-                <p className="mt-2 text-center text-[12px] text-ff-muted">
+                <p className="mt-2 text-center text-[13.5px] text-ff-muted">
                   {cmp.failed} {cmp.failed === 1 ? 'ред не влезе' : 'реда не влязоха'} в тази прогноза (грешка при остойностяване) — {cmp.failed === 1 ? 'ще бъде изпратен' : 'ще бъдат изпратени'} все пак с избрания куриер.
                 </p>
               )}
@@ -864,7 +864,7 @@ function FileGuideModal({ onClose }: { onClose: () => void }) {
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-ff-green-50 text-ff-green-700"><FileSpreadsheet size={21} /></span>
           <div className="min-w-0">
             <h2 className="font-display text-[19px] font-extrabold tracking-[-0.015em] text-ff-ink">Как да структурирам файла</h2>
-            <p className="mt-0.5 text-[12.5px] text-ff-muted">Една колона за всяко поле. Или остави ChatGPT да го направи вместо теб.</p>
+            <p className="mt-0.5 text-[13.5px] text-ff-muted">Една колона за всяко поле. Или остави ChatGPT да го направи вместо теб.</p>
           </div>
           <button onClick={onClose} aria-label="Затвори" className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ff-muted hover:bg-ff-surface-2"><X size={18} /></button>
         </div>
@@ -891,7 +891,7 @@ function FileGuideModal({ onClose }: { onClose: () => void }) {
             <div className="flex items-center gap-2 text-[13.5px] font-extrabold text-ff-ink">
               <Sparkles size={16} className="text-ff-green-700" /> Най-лесно: остави ChatGPT да направи файла
             </div>
-            <p className="mt-1 text-[12.5px] leading-relaxed text-ff-ink-2">
+            <p className="mt-1 text-[13.5px] leading-relaxed text-ff-ink-2">
               1. Копирай промпта долу. 2. Отвори ChatGPT и го залепи. 3. Добави данните за пратките. 4. Свали готовия файл и го качи тук.
             </p>
             <div className="mt-3 max-h-[180px] overflow-y-auto rounded-lg border border-ff-border bg-ff-surface p-3 font-mono text-[11.5px] leading-relaxed text-ff-ink-2 whitespace-pre-wrap">{CHATGPT_PROMPT}</div>
@@ -907,7 +907,7 @@ function FileGuideModal({ onClose }: { onClose: () => void }) {
 
           <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
             <Download size={16} className="mt-0.5 shrink-0 text-ff-green-700" />
-            <p className="text-[12.5px] leading-relaxed text-ff-ink-2">Предпочиташ празен шаблон? Затвори това и натисни <b>„Свали шаблон"</b> — готов Excel със същите колони и два примерни реда.</p>
+            <p className="text-[13.5px] leading-relaxed text-ff-ink-2">Предпочиташ празен шаблон? Затвори това и натисни <b>„Свали шаблон"</b> — готов Excel със същите колони и два примерни реда.</p>
           </div>
         </div>
       </div>

@@ -6,9 +6,10 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { CarrierOnboarding } from './carrier-onboarding';
 import { ActivationBanner } from './activation-banner';
+import { A11yToggle } from './a11y-toggle';
 
 const NAV = [
-  { href: '/import', label: 'Внос', icon: Upload },
+  { href: '/import', label: 'Качи пратки', icon: Upload },
   { href: '/shipments', label: 'Пратки', icon: Package },
   { href: '/cod-risk', label: 'Проверка на клиент', icon: ShieldAlert },
   { href: '/settings', label: 'Настройки', icon: Settings },
@@ -36,7 +37,7 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
           </div>
           <div className="leading-[1.1] max-md:hidden">
             <div className="font-display text-[17px] font-extrabold tracking-[-0.01em]">ФермериБГ · Доставка</div>
-            <div className="mt-0.5 text-[11.5px] font-semibold text-ff-muted">Управление на доставки</div>
+            <div className="mt-0.5 text-[13px] font-semibold text-ff-muted">Управление на доставки</div>
           </div>
         </div>
 
@@ -67,6 +68,7 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
 
         {/* Account cluster — avatar + a compact logout, set apart from the nav by a divider. */}
         <div className="flex shrink-0 items-center gap-2 border-l border-ff-border pl-3">
+          <A11yToggle />
           {email && (
             <span
               title={`Влязъл като ${email}`}

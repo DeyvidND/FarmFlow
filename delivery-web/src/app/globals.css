@@ -99,3 +99,19 @@
     border-color: var(--ff-green-500);
   }
 }
+
+/* ---- „Едър текст" accessible mode ----
+   One toggle (see A11yToggle) raises every sub-13px secondary text in the panel.
+   Targets the literal Tailwind arbitrary-value classes in use — matched by
+   substring since Tailwind emits them verbatim in the class attribute — so no
+   per-component change was needed to wire this up. !important beats the
+   utility's own declaration, which is the point of the override. */
+[data-a11y-large="1"] [class*="text-[9px]"],
+[data-a11y-large="1"] [class*="text-[10px]"],
+[data-a11y-large="1"] [class*="text-[10.5px]"],
+[data-a11y-large="1"] [class*="text-[11px]"],
+[data-a11y-large="1"] [class*="text-[11.5px]"],
+[data-a11y-large="1"] [class*="text-[12px]"],
+[data-a11y-large="1"] [class*="text-[12.5px]"] {
+  font-size: 15px !important;
+}

@@ -75,7 +75,7 @@ export function OnboardingModal({ readiness }: { readiness: StoreReadiness }) {
           <button
             onClick={dismiss}
             aria-label="Затвори"
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ff-muted hover:bg-ff-surface-2"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-ff-muted hover:bg-ff-surface-2"
           >
             <X size={18} />
           </button>
@@ -86,17 +86,25 @@ export function OnboardingModal({ readiness }: { readiness: StoreReadiness }) {
             Само няколко неща, преди клиентите да могат да поръчват.
           </p>
 
-          {/* Star message: where everything is configured. */}
+          {/* Star message: where everything is configured — a real button to the
+              place, not a path to remember (that hub is /settings's default tab). */}
           <div className="rounded-xl border border-ff-green-100 bg-ff-green-50 p-4">
             <div className="flex items-start gap-2.5">
               <Settings size={18} className="mt-0.5 shrink-0 text-ff-green-700" />
-              <div>
+              <div className="min-w-0 flex-1">
                 <div className="text-[14px] font-extrabold text-ff-ink">
-                  Всичко се настройва от „Настройки → Конфигурации“
+                  Всичко се настройва на едно място
                 </div>
-                <div className="mt-0.5 text-[13px] leading-relaxed text-ff-ink-2">
-                  Плащане, доставка, функции на магазина и реклама — всичко е на едно място там.
+                <div className="mt-0.5 text-[13.5px] leading-relaxed text-ff-ink-2">
+                  Плащане, доставка, функции на магазина и реклама.
                 </div>
+                <Link
+                  href="/settings"
+                  onClick={dismiss}
+                  className="mt-2.5 inline-flex h-9 items-center gap-1.5 rounded-lg bg-ff-green-700 px-3 text-[13px] font-bold text-white hover:bg-ff-green-800"
+                >
+                  Отвори настройките <ArrowRight size={14} />
+                </Link>
               </div>
             </div>
           </div>

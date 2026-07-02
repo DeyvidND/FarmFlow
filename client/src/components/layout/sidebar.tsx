@@ -267,12 +267,17 @@ export function Sidebar({
         )}
       >
         <item.Icon size={21} strokeWidth={on ? 2 : 1.8} />
-        <span className="flex-1">{item.label}</span>
+        <span className="flex-1">
+          {item.label}
+          {/* Visible on tap/glance, not just on hover — a locked icon alone
+              reads as "broken" to a non-digital user. */}
+          {locked && <span className="ml-1.5 text-[11px] font-semibold text-ff-muted-2">(нужен абонамент)</span>}
+        </span>
         {locked && <Lock size={14} className="shrink-0 text-ff-muted-2" />}
         {item.href === '/orders' && pendingCount > 0 && (
           <span
             className={cn(
-              'grid h-[21px] min-w-[21px] place-items-center rounded-full px-1.5 text-xs font-extrabold',
+              'grid h-[21px] min-w-[21px] place-items-center rounded-full px-1.5 text-[12px]s font-extrabold',
               on ? 'bg-ff-green-100 text-ff-green-700' : 'bg-ff-amber-soft text-ff-amber-600',
             )}
           >
@@ -322,7 +327,7 @@ export function Sidebar({
                     <button
                       type="button"
                       onClick={() => toggleGroup(group.title)}
-                      className="flex items-center justify-between rounded-[8px] px-[13px] pb-0.5 pt-1 text-[10.5px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2 transition-colors hover:text-ff-muted"
+                      className="flex items-center justify-between rounded-[8px] px-[13px] pb-0.5 pt-1 text-[12px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2 transition-colors hover:text-ff-muted"
                       aria-expanded={open}
                     >
                       <span>{group.title}</span>
@@ -332,7 +337,7 @@ export function Sidebar({
                       />
                     </button>
                   ) : (
-                    <div className="px-[13px] pb-0.5 pt-1 text-[10.5px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2">
+                    <div className="px-[13px] pb-0.5 pt-1 text-[12px] font-extrabold uppercase tracking-[0.07em] text-ff-muted-2">
                       {group.title}
                     </div>
                   )}
@@ -344,47 +349,48 @@ export function Sidebar({
         )}
       </nav>
 
-      {/* Slim quick-reach row — the full labelled entries live in the topbar
-          avatar menu. Kept to one short row so it doesn't cap the scroll area. */}
-      <div className="mt-2 flex shrink-0 items-center justify-around gap-1 border-t border-ff-border pt-2.5">
+      {/* Quick-reach row — a duplicate of the topbar avatar menu, but always
+          visible with text labels (not hidden behind an avatar/chevron), so a
+          non-digital farmer can find Настройки without discovering that menu. */}
+      <div className="mt-2 flex shrink-0 items-center gap-1 border-t border-ff-border pt-2.5">
         <Link
           href="/settings"
           onClick={closeDrawer}
           data-on={settingsActive}
-          title="Настройки"
           aria-label="Настройки"
           className={cn(
-            'grid h-10 w-10 place-items-center rounded-[10px] transition-colors',
+            'flex h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-[10px] text-[11px] font-bold transition-colors',
             settingsActive
               ? 'bg-ff-green-50 text-ff-green-800'
               : 'text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
           )}
         >
-          <Settings size={20} strokeWidth={settingsActive ? 2 : 1.8} />
+          <Settings size={19} strokeWidth={settingsActive ? 2 : 1.8} />
+          Настройки
         </Link>
         <Link
           href="/help"
           onClick={closeDrawer}
           data-on={helpActive}
-          title="Помощ"
           aria-label="Помощ"
           className={cn(
-            'grid h-10 w-10 place-items-center rounded-[10px] transition-colors',
+            'flex h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-[10px] text-[11px] font-bold transition-colors',
             helpActive
               ? 'bg-ff-green-50 text-ff-green-800'
               : 'text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
           )}
         >
-          <BookOpen size={20} strokeWidth={helpActive ? 2 : 1.8} />
+          <BookOpen size={19} strokeWidth={helpActive ? 2 : 1.8} />
+          Помощ
         </Link>
         <button
           type="button"
           onClick={onLogout}
-          title="Изход"
           aria-label="Изход"
-          className="grid h-10 w-10 place-items-center rounded-[10px] text-ff-muted transition-colors hover:bg-ff-green-50 hover:text-ff-ink"
+          className="flex h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-[10px] text-[11px] font-bold text-ff-muted transition-colors hover:bg-ff-green-50 hover:text-ff-ink"
         >
-          <LogOut size={20} />
+          <LogOut size={19} />
+          Изход
         </button>
       </div>
     </aside>

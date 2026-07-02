@@ -29,7 +29,7 @@ export function StatCard({ Icon, label, value, sub, tone, index = 0 }: StatCardP
       </div>
       <div className="ff-fig mt-3.5 text-[32px] font-extrabold tracking-[-0.02em] text-ff-ink">{value}</div>
       <div className="mt-0.5 text-[13.5px] font-bold text-ff-ink-2">{label}</div>
-      <div className="mt-[3px] text-[12.5px] text-ff-muted">{sub}</div>
+      <div className="mt-[3px] text-[13.5px] text-ff-muted">{sub}</div>
     </div>
   );
 }
