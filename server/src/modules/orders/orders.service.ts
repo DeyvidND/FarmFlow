@@ -311,7 +311,12 @@ export function resolveLineUnit(
         ? product.salePriceStotinki
         : effectivePriceStotinki(base, product.salePercent, product.saleEndsAt, now);
   return variant
-    ? { unitStotinki, label: variant.label, variantId: variant.id, variantLabel: variant.label }
+    ? {
+        unitStotinki,
+        label: [product.name, variant.label].filter(Boolean).join(' '),
+        variantId: variant.id,
+        variantLabel: variant.label,
+      }
     : {
         unitStotinki,
         label: [product.name, product.weight].filter(Boolean).join(' '),
