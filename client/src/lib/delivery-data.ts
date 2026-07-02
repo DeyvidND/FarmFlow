@@ -11,6 +11,7 @@ import type {
   EcontOffice,
   Shipment,
   ShipmentStatus,
+  SlotRule,
 } from './types';
 
 /** Default per-tenant delivery config (no master `enabled` — that's deliveryEnabled). */
@@ -254,6 +255,7 @@ export const SLOTS_HELP = {
     { title: 'Добави часове', body: 'Натисни „+ Час“ под някой ден и задай интервал (напр. 10:00–11:00). Всеки час поема една поръчка.' },
     { title: 'Клиентът си запазва час', body: 'При поръчка клиентът вижда само свободните ти часове и избира един. Запълнените изчезват сами — без двойни записвания.' },
     { title: 'Следи запълването', body: 'Цветът на лентата показва натовареността: зелено = свободно, оранжево = почти пълно, сиво = пълно. Така не се претоварваш.' },
+    { title: 'Затвори един ден (напр. отпуск)', body: 'Под датата натисни „Промени деня“ и изключи „Доставям този ден“. Часовете за тази дата изчезват; повтарящият се график продължава нормално след нея. „Върни стандартния график“ го отваря пак.' },
     { title: 'Доставяй по маршрут', body: 'В „Маршрут“ потвърдените поръчки за деня излизат подредени за разнасяне — с навигация и телефони.' },
   ],
   tips: [
@@ -264,3 +266,24 @@ export const SLOTS_HELP = {
     'В правилото избираш само дните, в които доставяш. Изключи „Еднакви часове за всички дни“, за да дадеш на всеки ден собствени часове (напр. Пн 10–12, Ср 16–18, Сб — не).',
   ],
 };
+
+/**
+ * Derived own-slots status — the single source of truth for "нямаш часове" vs
+ * "нямаш свободни часове тази седмица". A recurring rule can be fully
+ * configured and active while this week happens to be full or closed; that is
+ * not the same thing as never having set a schedule, and must not show the
+ * same warning.
+ */
+export type SlotStatus = {
+  state: 'none' | 'configuredNoneFree' | 'configuredWithFree';
+  freeThisWeek: number;
+};
+
+export function computeSlotStatus(rule: SlotRule | null, freeThisWeek: number): SlotStatus {
+  const configured =
+    !!rule &&
+    rule.active &&
+    (rule.repeat === 'weekdays' ? rule.days.length > 0 : rule.intervalDays > 0);
+  if (!configured) return { state: 'none', freeThisWeek };
+  return { state: freeThisWeek > 0 ? 'configuredWithFree' : 'configuredNoneFree', freeThisWeek };
+}

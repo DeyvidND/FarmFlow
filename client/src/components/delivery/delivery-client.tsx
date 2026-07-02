@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ApiError, saveDelivery, requestDeliveryHandoff } from '@/lib/api-client';
 import { DBadge } from './ui';
-import { hydrateDelivery } from '@/lib/delivery-data';
-import type { DeliveryConfig } from '@/lib/types';
+import { hydrateDelivery, type SlotStatus } from '@/lib/delivery-data';
+import type { DeliveryConfig, SlotRule } from '@/lib/types';
 import { MethodsSection, GlobalRulesSection } from './methods-section';
 import { CarrierPolicySection } from './carrier-policy-section';
 import { HandlingSection } from './handling-section';
@@ -28,13 +28,20 @@ const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възни�
 export function DeliveryClient({
   initialEnabled,
   initialDelivery,
-  slotFreeCount,
+  initialRule,
+  slotStatus,
+  onSlotRuleSaved,
 }: {
   initialEnabled: boolean;
   initialDelivery: DeliveryConfig | null;
-  slotFreeCount: number;
+  initialRule: SlotRule | null;
+  slotStatus: SlotStatus;
+  /** Refetch the rule/status after the embedded schedule card saves. Falls back
+   *  to a server refresh (standalone `/delivery` route re-fetches its props). */
+  onSlotRuleSaved?: () => void;
 }) {
   const router = useRouter();
+  const handleSlotRuleSaved = onSlotRuleSaved ?? (() => router.refresh());
   const base = React.useMemo(() => hydrateDelivery(initialDelivery), [initialDelivery]);
 
   // deliveryEnabled is owned by the panel — keep it as loaded and send it back
@@ -54,6 +61,7 @@ export function DeliveryClient({
   const dirty = JSON.stringify(cfg) !== JSON.stringify(savedCfg);
 
   const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
+  const courierOn = econtMode !== 'off';
   // The carrier-policy picker is only meaningful with BOTH carriers live (mirrors
   // the server `comparisonActive`) — otherwise the single live carrier always wins.
   const comparisonActive = econtMode === 'auto' && !!cfg.speedy?.configured;
@@ -109,9 +117,15 @@ export function DeliveryClient({
       </div>
 
       <div className="flex flex-col gap-4">
-        <MethodsSection cfg={cfg} mut={mut} slotFreeCount={slotFreeCount} />
+        <MethodsSection
+          cfg={cfg}
+          mut={mut}
+          slotStatus={slotStatus}
+          rule={initialRule}
+          onSlotRuleSaved={handleSlotRuleSaved}
+        />
         <GlobalRulesSection cfg={cfg} mut={mut} />
-        <HandlingSection cfg={cfg} mut={mut} />
+        {courierOn && <HandlingSection cfg={cfg} mut={mut} />}
         {comparisonActive && <CarrierPolicySection cfg={cfg} mut={mut} />}
       </div>
 

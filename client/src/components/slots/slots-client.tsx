@@ -244,7 +244,7 @@ export function SlotsClient({
                 <button
                   onClick={() => setDayDialog(d)}
                   disabled={busyDay === d}
-                  className="flex items-center justify-center gap-1.5 text-[11.5px] font-bold text-ff-ink-2 underline-offset-2 hover:text-ff-green-700 hover:underline disabled:opacity-50"
+                  className="flex items-center justify-center gap-1.5 rounded-[10px] border border-ff-border bg-ff-surface-2 px-2 py-1.5 text-[11.5px] font-bold text-ff-ink-2 transition-colors hover:border-ff-green-500 hover:bg-ff-green-50 hover:text-ff-green-700 disabled:opacity-50"
                 >
                   <CalendarCog size={13} /> {busyDay === d ? 'Запазване…' : 'Промени деня'}
                 </button>

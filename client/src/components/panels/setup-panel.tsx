@@ -6,7 +6,7 @@ import { Wallet, CreditCard, MapPin, CalendarDays, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ApiError, saveDelivery } from '@/lib/api-client';
-import { hydrateDelivery } from '@/lib/delivery-data';
+import { hydrateDelivery, type SlotStatus } from '@/lib/delivery-data';
 import type { DeliveryConfig, EcontConfig } from '@/lib/types';
 import { DBadge } from '@/components/delivery/ui';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,7 @@ const CARD_COPY =
   'Клиентът плаща веднага с карта, през защитена страница — като ПОС терминал, но онлайн. За да го предлагаш, си правиш сметка (акаунт) в Stripe — сигурна услуга за картови плащания, от която парите идват по твоята банкова сметка. Свързва се еднократно от „Плащания“.';
 const PICKUP_COPY = 'Клиентът идва и си взема поръчката лично (ферма/пазар/гише). Без доставка, без такса.';
 const SELF_COPY =
-  'Ти разнасяш сам, по график. Клиентът избира свободен час; ти обикаляш по маршрут. Не минава през куриер.';
+  'Ти разнасяш сам, по график. Клиентът избира свободен час; ти обикаляш по маршрут. Не минава през куриер. Можеш и да затвориш отделен ден (напр. отпуск) от календара с часовете.';
 const COURIER_COPY =
   'Поръчката стига с куриер (Еконт/Speedy); клиентът дава адрес. Свързване на куриер, подател и пратки — в приложението „Доставка“.';
 
@@ -33,13 +33,13 @@ export function SetupPanel({
   initialEnabled,
   initialDelivery,
   stripe,
-  slotFreeCount,
+  slotStatus,
 }: {
   initialEnabled: boolean;
   initialDelivery: DeliveryConfig | null;
   stripe: StripeStatus;
-  /** Free delivery-slot count this week. `undefined` = unknown (don't warn). */
-  slotFreeCount?: number;
+  /** Own-delivery schedule status. `undefined` = unknown (don't warn). */
+  slotStatus?: SlotStatus;
 }) {
   const router = useRouter();
   const base = React.useMemo(() => hydrateDelivery(initialDelivery), [initialDelivery]);
@@ -191,8 +191,10 @@ export function SetupPanel({
             mut((d) => (d.methods.ownSlots.enabled = v));
           }}
           badge={
-            selfOn && slotFreeCount === 0 ? (
-              <DBadge tone="amber">Няма часове</DBadge>
+            selfOn && slotStatus?.state === 'none' ? (
+              <DBadge tone="amber">Няма зададени часове</DBadge>
+            ) : selfOn && slotStatus?.state === 'configuredNoneFree' ? (
+              <DBadge tone="amber">Няма свободни тази седмица</DBadge>
             ) : undefined
           }
           configLink={{ href: '/settings?config=slots', label: 'Управлявай часовете' }}

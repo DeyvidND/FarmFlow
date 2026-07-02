@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Repeat, Check, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -162,6 +162,17 @@ function initialState(initial: SlotRule | null): State {
 
 export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null; onSaved: () => void }) {
   const [s, setS] = useState<State>(() => initialState(initial));
+  // This card mounts in two places (Delivery page + Slots page). Each has its
+  // own fetch, so a save in one only refreshes that host's `initial` prop —
+  // re-seed here too, or the other mount keeps showing what it loaded at mount
+  // time even after `initial` moves on (stale read on next open/reload).
+  const seededRef = useRef(initial);
+  useEffect(() => {
+    if (initial !== seededRef.current) {
+      seededRef.current = initial;
+      setS(initialState(initial));
+    }
+  }, [initial]);
   const [saving, setSaving] = useState(false);
   const set = (p: Partial<State>) => setS((prev) => ({ ...prev, ...p }));
 

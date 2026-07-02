@@ -1,20 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import {
-  Building2,
-  Home,
-  CalendarDays,
-  MapPin,
-  ExternalLink,
-  type LucideIcon,
-} from 'lucide-react';
+import { Building2, Home, CalendarDays, MapPin, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { METHOD_META } from '@/lib/delivery-data';
-import type { DeliveryConfig, DeliveryMethod, DeliveryMethodKey, PricingType } from '@/lib/types';
+import { METHOD_META, type SlotStatus } from '@/lib/delivery-data';
+import { RecurrenceCard } from '@/components/slots/recurrence-card';
+import type {
+  DeliveryConfig,
+  DeliveryMethod,
+  DeliveryMethodKey,
+  PricingType,
+  SlotRule,
+} from '@/lib/types';
 import { DSection, DLabel, Segmented, LvInput, InfoNote, fieldCls } from './ui';
 
 type Mut = (fn: (d: DeliveryConfig) => void) => void;
@@ -39,11 +37,15 @@ const PRICE_OPTS: { value: PricingType; label: string }[] = [
 export function MethodsSection({
   cfg,
   mut,
-  slotFreeCount,
+  slotStatus,
+  rule,
+  onSlotRuleSaved,
 }: {
   cfg: DeliveryConfig;
   mut: Mut;
-  slotFreeCount: number;
+  slotStatus: SlotStatus;
+  rule: SlotRule | null;
+  onSlotRuleSaved: () => void;
 }) {
   const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
   const order = cfg.methods.order.filter((k) => {
@@ -79,7 +81,9 @@ export function MethodsSection({
               mkey={key}
               m={cfg.methods[key]}
               mut={mut}
-              slotFreeCount={slotFreeCount}
+              slotStatus={slotStatus}
+              rule={rule}
+              onSlotRuleSaved={onSlotRuleSaved}
             />
           ))}
         </div>
@@ -101,14 +105,17 @@ function MethodCard({
   mkey,
   m,
   mut,
-  slotFreeCount,
+  slotStatus,
+  rule,
+  onSlotRuleSaved,
 }: {
   mkey: DeliveryMethodKey;
   m: DeliveryMethod;
   mut: Mut;
-  slotFreeCount: number;
+  slotStatus: SlotStatus;
+  rule: SlotRule | null;
+  onSlotRuleSaved: () => void;
 }) {
-  const router = useRouter();
   const meta = METHOD_META[mkey];
   const Icon = METHOD_ICON[mkey];
   const patch = (fn: (x: DeliveryMethod) => void) => mut((d) => fn(d.methods[mkey]));
@@ -153,29 +160,57 @@ function MethodCard({
               <div className="sm:col-span-2">
                 <InfoNote tone="green">
                   Личната доставка <b>не минава през Еконт</b>. Клиентът избира свободен час от твоите
-                  часове, а ти доставяш сам. Часовете се задават в „Часове за доставка“.
+                  часове, а ти доставяш сам.
                 </InfoNote>
-                <div className="flex items-center gap-3 rounded-[10px] border border-ff-border bg-ff-surface-2 px-3.5 py-3">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
-                    <CalendarDays size={20} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className={`text-[14.5px] font-extrabold ${slotFreeCount === 0 ? 'text-ff-amber' : 'text-ff-ink'}`}>
-                      {slotFreeCount === 0 ? (
-                        'Още нямаш свободни часове тази седмица'
-                      ) : (
-                        <><span className="ff-fig">{slotFreeCount}</span> свободни часа тази седмица</>
+
+                <div className="mt-3 flex flex-col gap-3">
+                  <div
+                    className={cn(
+                      'rounded-[10px] border px-3.5 py-3',
+                      slotStatus.state === 'configuredWithFree'
+                        ? 'border-ff-border bg-ff-surface-2'
+                        : 'border-ff-amber-soft bg-ff-amber-softer',
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'text-[14.5px] font-extrabold',
+                        slotStatus.state === 'configuredWithFree' ? 'text-ff-ink' : 'text-ff-amber',
+                      )}
+                    >
+                      {slotStatus.state === 'none' && 'Още нямаш зададени часове за доставка'}
+                      {slotStatus.state === 'configuredNoneFree' &&
+                        'Часовете ти са зададени, но тази седмица няма свободни'}
+                      {slotStatus.state === 'configuredWithFree' && (
+                        <>
+                          <span className="ff-fig">{slotStatus.freeThisWeek}</span> свободни часа тази седмица
+                        </>
                       )}
                     </div>
                     <div className="mt-px text-[12.5px] text-ff-muted">
-                      {slotFreeCount === 0
-                        ? 'Клиентите не могат да изберат час — задай часове, иначе личната доставка не работи.'
-                        : 'Клиентите избират от тези часове при поръчка.'}
+                      {slotStatus.state === 'none' &&
+                        'Задай повтарящите се часове по-долу — иначе клиентите не могат да изберат час за лична доставка.'}
+                      {slotStatus.state === 'configuredNoneFree' &&
+                        'Всички часове за тази седмица са заети или затворени. Клиентите ще виждат следващите свободни часове напред.'}
+                      {slotStatus.state === 'configuredWithFree' && 'Клиентите избират от тези часове при поръчка.'}
                     </div>
                   </div>
-                  <Button variant="soft" size="sm" onClick={() => router.push('/settings?config=slots')}>
-                    <ExternalLink size={15} /> Управлявай часовете
-                  </Button>
+
+                  <RecurrenceCard initial={rule} onSaved={onSlotRuleSaved} />
+
+                  <Link
+                    href="/settings?config=slots"
+                    className="flex items-center gap-3 rounded-[10px] border border-ff-border bg-ff-surface-2 px-3.5 py-3 text-[13px] leading-snug text-ff-ink-2 transition-colors hover:border-ff-green-100 hover:bg-ff-green-50"
+                  >
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
+                      <CalendarDays size={17} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <b className="text-ff-ink">Отвори календара с часове</b> — седмичен изглед, добавяне на
+                      единичен час и затваряне на отделен ден (напр. отпуск).
+                    </span>
+                    <span className="shrink-0 text-[13px] font-bold text-ff-green-700">→</span>
+                  </Link>
                 </div>
               </div>
             )}

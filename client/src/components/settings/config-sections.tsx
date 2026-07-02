@@ -24,6 +24,7 @@ import { SetupPanel, type StripeStatus } from '@/components/panels/setup-panel';
 import { DeliveryClient } from '@/components/delivery/delivery-client';
 import { SlotsClient } from '@/components/slots/slots-client';
 import { FeaturesPanel, type FeatureFlags } from '@/components/panels/features-panel';
+import { computeSlotStatus, type SlotStatus } from '@/lib/delivery-data';
 import type { Slot, SlotRule, DeliveryConfig } from '@/lib/types';
 
 function Loading() {
@@ -34,11 +35,12 @@ const loadErr = () => toast.error('Неуспешно зареждане');
 
 // ---- Методи и цени (/setup) ----
 export function SetupSection() {
+  const { days } = React.useMemo(() => currentWeek(), []);
   const [s, setS] = React.useState<{
     enabled: boolean;
     delivery: DeliveryConfig | null;
     stripe: StripeStatus;
-    slotFreeCount: number;
+    slotStatus: SlotStatus;
   } | null>(null);
 
   React.useEffect(() => {
@@ -46,25 +48,26 @@ export function SetupSection() {
     Promise.all([
       getTenant(),
       getStripeSummary().catch(() => null),
-      listSlots(DEMO_WEEK_FROM, DEMO_WEEK_TO).catch(() => [] as Slot[]),
+      listSlots(days[0], days[6]).catch(() => [] as Slot[]),
+      getSlotRule().catch(() => null),
     ])
-      .then(([t, stripe, slots]) => {
+      .then(([t, stripe, slots, rule]) => {
         if (!on) return;
-        const slotFreeCount = slots.reduce((sum, sl) => sum + ((sl.booked ?? 0) >= 1 ? 0 : 1), 0);
+        const freeThisWeek = slots.reduce((sum, sl) => sum + ((sl.booked ?? 0) >= 1 ? 0 : 1), 0);
         setS({
           enabled: !!t.deliveryEnabled,
           delivery: t.delivery ?? null,
           stripe: stripe
             ? { enabled: stripe.enabled, connected: stripe.connected, chargesEnabled: stripe.chargesEnabled }
             : null,
-          slotFreeCount,
+          slotStatus: computeSlotStatus(rule, freeThisWeek),
         });
       })
       .catch(() => on && loadErr());
     return () => {
       on = false;
     };
-  }, []);
+  }, [days]);
 
   if (!s) return <Loading />;
   return (
@@ -72,42 +75,54 @@ export function SetupSection() {
       initialEnabled={s.enabled}
       initialDelivery={s.delivery}
       stripe={s.stripe}
-      slotFreeCount={s.slotFreeCount}
+      slotStatus={s.slotStatus}
     />
   );
 }
 
 // ---- Цени и правила за доставка (/delivery) ----
-// Seeded demo week (25–31 May 2026) — matches the standalone Delivery page.
-const DEMO_WEEK_FROM = '2026-05-25';
-const DEMO_WEEK_TO = '2026-05-31';
 export function DeliverySection() {
+  const { days } = React.useMemo(() => currentWeek(), []);
   const [s, setS] = React.useState<{
     enabled: boolean;
     delivery: DeliveryConfig | null;
-    slotFreeCount: number;
+    rule: SlotRule | null;
+    slotStatus: SlotStatus;
   } | null>(null);
 
-  React.useEffect(() => {
+  const load = React.useCallback(() => {
     let on = true;
-    Promise.all([getTenant(), listSlots(DEMO_WEEK_FROM, DEMO_WEEK_TO).catch(() => [] as Slot[])])
-      .then(([t, slots]) => {
+    Promise.all([
+      getTenant(),
+      listSlots(days[0], days[6]).catch(() => [] as Slot[]),
+      getSlotRule().catch(() => null),
+    ])
+      .then(([t, slots, rule]) => {
         if (!on) return;
-        const slotFreeCount = slots.reduce((sum, sl) => sum + ((sl.booked ?? 0) >= 1 ? 0 : 1), 0);
-        setS({ enabled: !!t.deliveryEnabled, delivery: t.delivery ?? null, slotFreeCount });
+        const freeThisWeek = slots.reduce((sum, sl) => sum + ((sl.booked ?? 0) >= 1 ? 0 : 1), 0);
+        setS({
+          enabled: !!t.deliveryEnabled,
+          delivery: t.delivery ?? null,
+          rule,
+          slotStatus: computeSlotStatus(rule, freeThisWeek),
+        });
       })
       .catch(() => on && loadErr());
     return () => {
       on = false;
     };
-  }, []);
+  }, [days]);
+
+  React.useEffect(() => load(), [load]);
 
   if (!s) return <Loading />;
   return (
     <DeliveryClient
       initialEnabled={s.enabled}
       initialDelivery={s.delivery}
-      slotFreeCount={s.slotFreeCount}
+      initialRule={s.rule}
+      slotStatus={s.slotStatus}
+      onSlotRuleSaved={load}
     />
   );
 }
