@@ -219,6 +219,55 @@ export function buildPublicPickup(cfg: DeliveryConfig | null | undefined): Publi
   };
 }
 
+const OWN_SLOTS_WD = ['неделя', 'понеделник', 'вторник', 'сряда', 'четвъртък', 'петък', 'събота'];
+
+/** Read-only own-slots (local self-delivery) schedule for the storefront — a
+ *  human-readable Bulgarian summary of the farm's recurring `SlotRule`, so
+ *  checkout never shows a stale hardcoded day/time. `null` schedule means
+ *  "don't show a day/time line" (rule inactive, or weekdays mode with no days
+ *  picked yet). */
+export interface PublicOwnSlots {
+  active: boolean;
+  schedule: string | null;
+}
+
+/** Minimal shape of the tenant's `settings.slotRule` this needs — kept local
+ *  (rather than importing the slots module's `SlotRule`) to avoid a cross-module
+ *  type dependency for three fields. */
+interface OwnSlotsRule {
+  active: boolean;
+  repeat: 'weekdays' | 'interval';
+  days: { dow: number; timeFrom: string; timeTo: string }[];
+  intervalDays: number;
+  intervalWindow: { timeFrom: string; timeTo: string };
+}
+
+export function buildPublicOwnSlots(rule: OwnSlotsRule | null | undefined): PublicOwnSlots {
+  if (!rule?.active) return { active: false, schedule: null };
+  if (rule.repeat === 'interval') {
+    const { timeFrom, timeTo } = rule.intervalWindow;
+    return { active: true, schedule: `на всеки ${rule.intervalDays} дни · ${timeFrom}–${timeTo}` };
+  }
+  if (!rule.days?.length) return { active: true, schedule: null };
+  // Group weekdays sharing an identical window into one phrase; days with a
+  // different window get their own phrase, joined with "; ".
+  const groups = new Map<string, number[]>();
+  for (const d of rule.days) {
+    const key = `${d.timeFrom}-${d.timeTo}`;
+    const dows = groups.get(key);
+    if (dows) dows.push(d.dow);
+    else groups.set(key, [d.dow]);
+  }
+  const phrases = [...groups.entries()].map(([key, dows]) => {
+    const [timeFrom, timeTo] = key.split('-');
+    const names = [...dows].sort((a, b) => a - b).map((d) => OWN_SLOTS_WD[d]);
+    const list =
+      names.length > 1 ? `${names.slice(0, -1).join(', ')} и ${names[names.length - 1]}` : names[0];
+    return `всеки ${list} · ${timeFrom}–${timeTo}`;
+  });
+  return { active: true, schedule: phrases.join('; ') };
+}
+
 /** Whether Speedy live pricing/fulfillment is configured for this farm. */
 export function speedyEnabled(cfg: DeliveryConfig | null | undefined): boolean {
   return !!cfg?.speedy?.configured;
