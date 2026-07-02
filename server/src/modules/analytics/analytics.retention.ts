@@ -17,7 +17,12 @@ export class AnalyticsRetention {
 
   async prune(): Promise<void> {
     const cutoff = sql`now() - interval '${sql.raw(String(RETENTION_DAYS))} days'`;
-    await this.db.delete(siteEvents).where(lt(siteEvents.createdAt, cutoff as any));
-    this.log.log(`Pruned site_events older than ${RETENTION_DAYS} days`);
+    const deleted = await this.db
+      .delete(siteEvents)
+      .where(lt(siteEvents.createdAt, cutoff))
+      .returning({ id: siteEvents.id });
+    if (deleted.length) {
+      this.log.log(`Pruned ${deleted.length} site_events older than ${RETENTION_DAYS} days`);
+    }
   }
 }
