@@ -435,6 +435,8 @@ export const orderItems = pgTable(
 export const siteEvents = pgTable(
   'site_events',
   {
+    // bigserial, not uuid: high write volume, no need for global
+    // uniqueness/obfuscation like the tenant-facing tables below.
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     tenantId: uuid('tenant_id').references(() => tenants.id),
     // Cookieless daily hash of IP+UA+salt+tenant. The raw IP is NEVER stored —
@@ -445,6 +447,9 @@ export const siteEvents = pgTable(
     path: text('path'),
     // Referrer HOST only (no full URL / query) — privacy.
     referrerHost: text('referrer_host'),
+    // No FK on productId/orderId (unlike orderItems): analytics rows must
+    // survive product/order deletion and shouldn't gate deletes or add
+    // insert-time join overhead on this high-write table.
     productId: uuid('product_id'),
     orderId: uuid('order_id'),
     valueStotinki: integer('value_stotinki'),
@@ -980,6 +985,7 @@ export const schema = {
   deliverySlots,
   orders,
   orderItems,
+  siteEvents,
   stripeEvents,
   shipments,
   importBatches,
