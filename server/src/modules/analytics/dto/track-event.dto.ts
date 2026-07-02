@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 const TYPES = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'purchase'] as const;
 
@@ -17,13 +17,11 @@ export class TrackEventDto {
   referrer?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(64)
+  @IsUUID()
   productId?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(64)
+  @IsUUID()
   orderId?: string;
 
   @IsOptional()
