@@ -28,7 +28,16 @@ const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възни�
 /** Human order ref — the per-tenant number, falling back to a short id for legacy rows. */
 const orderNo = (o: Order) => (o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(0, 8)}`);
 
-export function OrdersClient({ initial }: { initial: Paged<Order> }) {
+export function OrdersClient({
+  initial,
+  initialOk = true,
+}: {
+  initial: Paged<Order>;
+  /** False when the server-rendered `initial` came from a failed SSR fetch
+   *  (missing/expired token, non-2xx, network blip) rather than a genuine
+   *  empty result — the client must refetch instead of trusting it. */
+  initialOk?: boolean;
+}) {
   // Server-side search / filter / pagination — the screen no longer drains every
   // page on mount. The server-rendered `initial` is page 1 (all statuses, no query).
   const [orders, setOrders] = useState<Order[]>(initial.items);
@@ -71,15 +80,17 @@ export function OrdersClient({ initial }: { initial: Paged<Order> }) {
     }
   }, [page, dq, filter]);
 
-  // Skip the very first run: the server already rendered page 1 / all / no query.
+  // Skip the very first run: the server already rendered page 1 / all / no query —
+  // unless that SSR render itself failed (initialOk === false), in which case the
+  // «0 orders» we're holding is not real and must be replaced by a live fetch.
   const hydrated = useRef(false);
   useEffect(() => {
     if (!hydrated.current) {
       hydrated.current = true;
-      if (page === 1 && !dq && filter === 'all') return;
+      if (initialOk && page === 1 && !dq && filter === 'all') return;
     }
     void load();
-  }, [load, page, dq, filter]);
+  }, [load, page, dq, filter, initialOk]);
 
   const pageCount = Math.max(1, Math.ceil(total / ORDERS_PAGE_SIZE));
   const paged = orders;
