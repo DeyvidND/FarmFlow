@@ -62,7 +62,7 @@ export function ForcePasswordModal() {
   }
 
   function enter() {
-    router.push('/import');
+    router.push('/shipments');
     router.refresh();
   }
 

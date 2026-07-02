@@ -73,7 +73,10 @@ export function AdminShell({
 
       <Toaster
         position="bottom-right"
+        // Sonner's 4s default doesn't leave much time to read + tap „Отмени" on an
+        // undo toast. 6.5s gives an elder user room to notice, read, and react.
         toastOptions={{
+          duration: 6500,
           style: {
             fontFamily: 'var(--font-commissioner)',
             borderRadius: '12px',

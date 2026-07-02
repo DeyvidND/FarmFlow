@@ -147,7 +147,7 @@ export function CourierSettingsModal({
                 onClick={onClose}
                 className="font-semibold underline underline-offset-2 hover:text-amber-900"
               >
-                Свържи куриер от Настройки → Доставка
+Свържи куриер от приложението „Доставки“
               </Link>
             </p>
           </div>
@@ -213,7 +213,7 @@ export function CourierSettingsModal({
                           onClick={onClose}
                           className="mt-0.5 block text-[10.5px] font-medium text-amber-600 underline underline-offset-2 hover:text-amber-700"
                         >
-                          ⚠ Фермерът няма активен куриер — свържи от Настройки
+                          ⚠ Фермерът няма активен куриер — свържи от „Доставки“
                         </Link>
                       )}
                     </div>

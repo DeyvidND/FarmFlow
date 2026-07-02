@@ -5,10 +5,9 @@ import { toast } from 'sonner';
 import { Truck, Zap, Plug, CheckCircle2, XCircle, AlertTriangle, Check, Sparkles, MapPin } from 'lucide-react';
 import {
   ApiError, getAccountStatus, getEcontConfig, getSpeedyConfig, saveEcontCredentials, saveSpeedyCredentials,
-  disconnectEcont, disconnectSpeedy,
-  type EcontConfig, type SpeedyConfig,
+  disconnectEcont, disconnectSpeedy, getImportPrefs, saveImportPrefs,
+  type EcontConfig, type SpeedyConfig, type ImportPrefs,
 } from '@/lib/api-client';
-import { getImportPrefs, setImportPref, type ImportPrefs } from '@/lib/import-prefs';
 import { cn } from '@/lib/utils';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -92,12 +91,18 @@ function ToggleRow({
 function ChecksSection() {
   const [prefs, setPrefs] = useState<ImportPrefs>({ aiAudit: true, addressCheck: true });
 
-  useEffect(() => { setPrefs(getImportPrefs()); }, []);
+  useEffect(() => { getImportPrefs().then(setPrefs).catch(() => {}); }, []);
 
-  function update(key: keyof ImportPrefs, value: boolean) {
-    setImportPref(key, value);
-    setPrefs((p) => ({ ...p, [key]: value }));
-    toast.success(value ? 'Проверката е включена' : 'Проверката е изключена');
+  async function update(key: keyof ImportPrefs, value: boolean) {
+    const prev = prefs;
+    setPrefs((p) => ({ ...p, [key]: value })); // optimistic
+    try {
+      await saveImportPrefs({ [key]: value });
+      toast.success(value ? 'Проверката е включена' : 'Проверката е изключена');
+    } catch (e) {
+      setPrefs(prev);
+      toast.error(e instanceof ApiError ? e.message : 'Възникна грешка');
+    }
   }
 
   return (
@@ -355,6 +360,14 @@ export function SettingsClient() {
                   </div>
                 </div>
               )}
+
+              {/* Scope note — this account can also be a single producer's own
+                  carrier login (per courier-per-farmer), or the shop's shared
+                  default. Without this a farmer can't tell if connecting here
+                  covers the whole shop or just their own products. */}
+              <p className="mb-4 text-[12.5px] leading-snug text-ff-muted">
+                Тук свързваш куриер за този акаунт — общия на магазина, или твоя собствен, ако имаш отделен вход за доставки. Ако конкретен производител е свързал свой акаунт от панела си, неговите поръчки минават през него, не през този.
+              </p>
 
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
                 {/* ---- Econt ---- */}

@@ -36,7 +36,7 @@ function LoginForm() {
         const b = await res.json().catch(() => ({}));
         throw new Error(b.message || 'Грешка');
       }
-      router.push('/import');
+      router.push('/shipments');
       router.refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Грешка');

@@ -113,5 +113,8 @@
 [data-a11y-large="1"] [class*="text-[11.5px]"],
 [data-a11y-large="1"] [class*="text-[12px]"],
 [data-a11y-large="1"] [class*="text-[12.5px]"] {
-  font-size: 15px !important;
+  /* 17px, not 15px: most "normal" body text in this app is itself explicitly
+     sized 13-15px via utility classes, so a 15px target barely read as a
+     change. 17px is unmistakably above ambient text. */
+  font-size: 17px !important;
 }

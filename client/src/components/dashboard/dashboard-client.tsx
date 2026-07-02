@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, Info, Truck } from 'lucide-react';
+import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, Info, Truck, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, hhmm, type OrderStatus } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -248,8 +248,8 @@ export function DashboardClient({
                   <CheckCheck size={22} />
                 </span>
                 <span className="flex min-w-0 flex-col gap-0.5 leading-[1.3]">
-                  <span className="text-[14.5px] font-extrabold">Прегледай наложен платеж</span>
-                  <span className="text-[12.5px] opacity-80">{codPending.length} с наложен платеж</span>
+                  <span className="text-[14.5px] font-extrabold">Провери и потвърди поръчките</span>
+                  <span className="text-[12.5px] opacity-80">{codPending.length} чакат потвърждение (наложен платеж)</span>
                 </span>
               </button>
 
@@ -267,6 +267,23 @@ export function DashboardClient({
                   </span>
                 </button>
               )}
+
+              {/* Standing shortcut to the config hub — not just the first-run
+                  onboarding modal. A farmer who forgot where to turn on card
+                  payment / courier weeks later shouldn't have to dig 3 taps
+                  through Настройки → Конфигурации to find it again. */}
+              <Link
+                href="/settings"
+                className="flex w-full items-center gap-[13px] rounded-[13px] border border-ff-border bg-ff-surface-2 p-[13px] text-left transition hover:brightness-95"
+              >
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
+                  <Settings size={22} />
+                </span>
+                <span className="flex min-w-0 flex-col gap-0.5 leading-[1.3]">
+                  <span className="text-[14.5px] font-extrabold text-ff-ink">Настрой магазина</span>
+                  <span className="text-[12.5px] text-ff-muted">Плащане, доставка, функции и реклама</span>
+                </span>
+              </Link>
             </div>
           </div>
 

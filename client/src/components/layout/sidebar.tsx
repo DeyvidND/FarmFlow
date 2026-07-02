@@ -263,7 +263,7 @@ export function Sidebar({
           on
             ? 'border-ff-green-600 bg-ff-green-50 font-bold text-ff-green-800'
             : 'border-transparent font-semibold text-ff-ink-2 hover:bg-ff-green-50 hover:text-ff-ink',
-          locked && 'opacity-55',
+          locked && 'opacity-70',
         )}
       >
         <item.Icon size={21} strokeWidth={on ? 2 : 1.8} />

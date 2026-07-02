@@ -1,13 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Phone, Mail, MapPin, Package, CalendarClock, Check, Truck, CreditCard } from 'lucide-react';
+import { X, Phone, Mail, MapPin, Package, CalendarClock, Check, Truck, CreditCard, ExternalLink } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
 import { moneyFromStotinki, hhmm, timeFromIso, relDayLabel, type OrderStatus } from '@/lib/utils';
+import { ApiError, requestDeliveryHandoff } from '@/lib/api-client';
 import type { Order } from '@/lib/types';
+
+const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
 export function OrderPanel({
   order,
@@ -147,6 +151,11 @@ export function OrderDetailBody({ order }: { order: Order }) {
         <InfoRow icon={<CreditCard size={18} />} label="Плащане" value={paymentValue} />
       </div>
 
+      {/* Bridge to the separate Доставки app — товарителницата за тази поръчка
+          не се създава тук, а там. Без тази линия фермерът не знае накъде да
+          продължи с куриерска поръчка. */}
+      {isEcont && <EcontHandoffLink />}
+
       {order.notes && (
         <div className="mb-[22px] rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-3">
           <div className="mb-0.5 text-xs font-bold text-ff-amber-600">БЕЛЕЖКА ОТ КЛИЕНТА</div>
@@ -173,6 +182,42 @@ export function OrderDetailBody({ order }: { order: Order }) {
         </span>
       </div>
     </div>
+  );
+}
+
+/** One-click SSO into the separate Доставки app, landing on Пратки where this
+ *  order's courier draft is waiting. Same login, no second sign-in. */
+function EcontHandoffLink() {
+  const [busy, setBusy] = useState(false);
+
+  async function open() {
+    setBusy(true);
+    try {
+      const { token } = await requestDeliveryHandoff();
+      const base = process.env.NEXT_PUBLIC_DELIVERY_URL ?? 'https://dostavki.fermeribg.com';
+      window.open(
+        `${base}/api/session/handoff?token=${encodeURIComponent(token)}&next=${encodeURIComponent('/shipments')}`,
+        '_blank',
+        'noopener',
+      );
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={open}
+      disabled={busy}
+      className="mb-[22px] flex w-full items-center gap-2.5 rounded-xl border border-ff-green-100 bg-ff-green-50 px-3.5 py-3 text-left text-[13px] font-semibold text-ff-green-800 transition hover:bg-ff-green-100/60 disabled:opacity-60"
+    >
+      <Truck size={17} className="shrink-0 text-ff-green-700" />
+      <span className="flex-1">Товарителницата за тази поръчка се създава в приложението „Доставки“.</span>
+      <ExternalLink size={15} className="shrink-0 text-ff-green-700" />
+    </button>
   );
 }
 

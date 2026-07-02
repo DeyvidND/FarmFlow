@@ -458,6 +458,16 @@ export interface SpeedyCredentialsInput {
 export const getAccountStatus = async (): Promise<{ active: boolean }> =>
   (await bff('shipping/account')).json();
 
+/** Bulk-import check toggles (AI audit / address check) — tenant-scoped server
+ *  setting, not per-device localStorage, so the choice is the same on any device. */
+export interface ImportPrefs { aiAudit: boolean; addressCheck: boolean }
+export const getImportPrefs = async (): Promise<ImportPrefs> =>
+  (await bff('shipping/import-prefs')).json();
+export const saveImportPrefs = async (body: Partial<ImportPrefs>): Promise<ImportPrefs> =>
+  (await bff('shipping/import-prefs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }, 'Запазването се провали')).json();
+
 export const getEcontConfig = async (): Promise<EcontConfig> =>
   (await bff('shipping/config')).json();
 export const getSpeedyConfig = async (): Promise<SpeedyConfig> =>

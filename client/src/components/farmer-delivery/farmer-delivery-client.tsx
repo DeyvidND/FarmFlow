@@ -207,6 +207,15 @@ export function FarmerDeliveryClient() {
         </p>
       </div>
 
+      {/* Honest disclosure: the courier pipeline is fully built, but chaika
+          checkout still locks it to local-only delivery — so connecting a
+          carrier here doesn't yet produce customer orders. Without this line
+          a farmer has no way to know why „Доставки" stays empty. */}
+      <div className="flex items-start gap-2.5 rounded-[14px] border border-[#e7c9a0] bg-ff-amber-softer px-4 py-3 text-[12.5px] text-ff-amber-600">
+        <AlertCircle size={16} className="mt-px shrink-0" />
+        <span>Куриерска доставка е готова, но още не е активна за клиенти в магазина.</span>
+      </div>
+
       {/* How-it-works + one-click handoff to the dostavki app */}
       <div className="rounded-[14px] border border-ff-green-100 bg-ff-green-50 p-5">
         <div className="flex flex-wrap items-start gap-3">
@@ -320,6 +329,13 @@ export function FarmerDeliveryClient() {
 
       {/* Carrier connect cards */}
       <div ref={carriersRef} className="flex scroll-mt-4 flex-col gap-4">
+        {/* Scope note — this connects a carrier for THIS producer's own products
+            only, distinct from any shop-wide carrier the owner connected inside
+            the „Доставки" app itself. Without this line a farmer can't tell why
+            there are two places that both look like "connect Econt". */}
+        <p className="text-[12.5px] leading-snug text-ff-muted">
+          Това свързва куриер само за твоите продукти. Ако магазинът вече ползва общ куриерски акаунт, поръчките за твоите продукти ще минат през твоя, не през общия.
+        </p>
         {/* Econt */}
         <div className="rounded-[14px] border border-ff-border bg-ff-surface p-5">
           <div className="mb-3 flex items-center justify-between">

@@ -16,6 +16,7 @@ import { ManualShipmentDto } from '../econt/dto/manual-shipment.dto';
 import { ValidateAddressDto } from '../econt/dto/validate-address.dto';
 import { CourierRequestDto } from '../econt/dto/courier-request.dto';
 import { FinalizeDraftDto } from '../econt/dto/finalize-draft.dto';
+import { ImportPrefsDto } from '../econt/dto/import-prefs.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentFarmer } from '../../common/decorators/current-farmer.decorator';
@@ -129,6 +130,20 @@ export class EcontStandaloneController {
   ) {
     // getOfficesForCity(tenantId, cityId, cache?, farmerId?)
     return this.econt.getOfficesForCity(t, cityId ? Number(cityId) : 0, undefined, f);
+  }
+
+  // Operator-level bulk-import check toggles (AI audit / address check) — tenant-scoped,
+  // moved server-side from delivery-web localStorage so the choice isn't per-device.
+  @Roles('admin', 'farmer')
+  @Get('import-prefs')
+  getImportPrefs(@CurrentTenant() t: string) {
+    return this.econt.getImportPrefs(t);
+  }
+
+  @Roles('admin', 'farmer')
+  @Post('import-prefs')
+  saveImportPrefs(@CurrentTenant() t: string, @Body() dto: ImportPrefsDto) {
+    return this.econt.saveImportPrefs(t, dto);
   }
 
   @Roles('admin', 'farmer')

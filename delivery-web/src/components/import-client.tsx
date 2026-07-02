@@ -6,9 +6,9 @@ import { toast } from 'sonner';
 import { UploadCloud, FileDown, Download, FileSpreadsheet, ListChecks, Scale, HelpCircle, Copy, Check, ExternalLink, X, Sparkles, ShieldCheck, ShieldAlert, ShieldX, Loader2, Clock, CloudOff, Info, Truck, Zap, ArrowRight, Package } from 'lucide-react';
 import {
   ApiError, uploadBatch, patchRow, deleteRow, commitBatch, downloadLabels, templateUrl, compareShipment, riskCheckBulk, addressSuggest,
-  type ImportRow, type QuoteResult, type RiskBulkEntry, type RiskBulkMeta, type AddressPrediction,
+  getImportPrefs, type ImportRow, type QuoteResult, type RiskBulkEntry, type RiskBulkMeta, type AddressPrediction,
+  type ImportPrefs as ImportPrefsT,
 } from '@/lib/api-client';
-import { getImportPrefs } from '@/lib/import-prefs';
 import { SenderStrip } from './sender-strip';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -176,6 +176,11 @@ export function ImportClient() {
   // Live countdown (seconds) for per-minute rate limit.
   const [countdown, setCountdown] = useState(0);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Server-side account setting (not per-device localStorage) — loaded once on
+  // mount, read at upload time. Defaults ON so a slow/failed fetch never silently
+  // disables a check the operator expects to run.
+  const [prefs, setPrefs] = useState<ImportPrefsT>({ aiAudit: true, addressCheck: true });
+  useEffect(() => { getImportPrefs().then(setPrefs).catch(() => {}); }, []);
 
   // Start/restart countdown timer when a per-minute rate limit is hit.
   useEffect(() => {
@@ -209,7 +214,6 @@ export function ImportClient() {
     try {
       // Carrier/currency/weight are no longer chosen up front — upload just the file.
       // The operator's check toggles (Settings) ride along as multipart flags.
-      const prefs = getImportPrefs();
       const data = await uploadBatch(file, { aiAudit: String(prefs.aiAudit), addressCheck: String(prefs.addressCheck) });
       setBatchId(data.batch.id);
       setRows(data.rows);

@@ -550,7 +550,7 @@ export function ProductDialog({
             <p className="text-[11.5px] text-ff-muted pl-1">
               Фермерът няма активна куриерна доставка — свържете Еконт или Спиди от{' '}
               <Link href={deliverySettingsHref} className="font-semibold text-ff-green-700 underline underline-offset-2 hover:text-ff-green-800">
-                Настройки → Доставка
+                приложението „Доставки“
               </Link>
               . Настройката ще влезе в сила при активиране.
             </p>

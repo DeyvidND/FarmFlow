@@ -350,6 +350,35 @@ export class EcontService implements CarrierAdapter {
     };
   }
 
+  /** Operator-level import-check toggles (AI audit + address check) for the bulk
+   *  import screen. Tenant-scoped, not per-farmer — it's an operator preference,
+   *  not something that differs per producer. Both default ON. */
+  async getImportPrefs(tenantId: string): Promise<{ aiAudit: boolean; addressCheck: boolean }> {
+    const [tenant] = await this.db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const stored = readAtPath(tenant?.settings, ['delivery', 'importPrefs']) as
+      | { aiAudit?: boolean; addressCheck?: boolean }
+      | undefined;
+    return { aiAudit: stored?.aiAudit ?? true, addressCheck: stored?.addressCheck ?? true };
+  }
+
+  async saveImportPrefs(
+    tenantId: string,
+    input: { aiAudit?: boolean; addressCheck?: boolean },
+  ): Promise<{ aiAudit: boolean; addressCheck: boolean }> {
+    const [tenant] = await this.db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    if (!tenant) throw new NotFoundException('Акаунтът не е намерен');
+    const current = (readAtPath(tenant.settings, ['delivery', 'importPrefs']) as
+      | { aiAudit?: boolean; addressCheck?: boolean }
+      | undefined) ?? {};
+    const next = {
+      aiAudit: input.aiAudit ?? current.aiAudit ?? true,
+      addressCheck: input.addressCheck ?? current.addressCheck ?? true,
+    };
+    const nextSettings = writeAtPath(tenant.settings as Record<string, unknown> | null | undefined, ['delivery', 'importPrefs'], next);
+    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    return next;
+  }
+
   private async resolveCreds(tenantId: string, cache?: Map<string, unknown>, farmerId?: string): Promise<ResolvedCreds> {
     if (!this.encKey) throw new BadRequestException('ENCRYPTION_KEY не е конфигуриран');
     const { econt } = await this.loadStored(tenantId, cache, farmerId);

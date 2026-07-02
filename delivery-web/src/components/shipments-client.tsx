@@ -22,12 +22,14 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   refused: 'Отказана',
 };
 
-// Earthy palette only — there is no dedicated blue token, so created/shipped reuse
-// the gray-badge + amber tones; delivered = green; returned/refused = red.
+// created/shipped used to share the same amber tone and were hard to tell apart
+// at a glance — 'shipped' (in transit, nothing to do) now gets a one-off blue,
+// distinct from 'created' (still amber — waiting on a handover action).
+// delivered = green; returned/refused = red.
 const statusPill = (s: ShipmentStatus): string => {
   switch (s) {
     case 'delivered': return 'bg-ff-green-50 text-ff-green-700';
-    case 'shipped': return 'bg-ff-amber-softer text-ff-amber-600';
+    case 'shipped': return 'bg-[#E3EAFB] text-[#3355BB]';
     case 'created': return 'bg-ff-amber-soft text-ff-amber-600';
     case 'returned':
     case 'refused': return 'bg-[#FBE9E7] text-ff-red';
@@ -43,7 +45,7 @@ const StatusPill = ({ s }: { s: ShipmentStatus }) => (
 );
 
 const carrierLabel = (c: Carrier) => (c === 'speedy' ? 'Speedy' : 'Econt');
-const money = (st: number | null | undefined) => (st == null ? '—' : `${st} ст.`);
+const money = (st: number | null | undefined) => (st == null ? '—' : `${(st / 100).toFixed(2)} €`);
 
 // A courier DRAFT: an order-backed row with no waybill yet (the farmer must pick a
 // carrier and create the товарителница). Finalized rows have a trackingNumber; order-less
@@ -120,6 +122,19 @@ export function ShipmentsClient() {
   const shippable = useMemo(() => rows.filter(isShippable), [rows]);
   const selectedRows = useMemo(() => shippable.filter((r) => selected.has(r.rowKey)), [shippable, selected]);
   const allSelected = shippable.length > 0 && selectedRows.length === shippable.length;
+
+  // Group by what the farmer needs to DO with the row: drafts need a waybill
+  // first; everything else already has one. A mixed table with 3 different
+  // action-sets in one list reads as noise — sort drafts to the top and label
+  // the two sections so it's obvious why row A has different buttons than row B.
+  // `filter` preserves within-group order, so this is a stable partition.
+  const sortedRows = useMemo(() => {
+    const drafts = rows.filter(isCourierDraft);
+    const rest = rows.filter((r) => !isCourierDraft(r));
+    return [...drafts, ...rest];
+  }, [rows]);
+  const draftCount = useMemo(() => rows.filter(isCourierDraft).length, [rows]);
+  const showSectionHeaders = draftCount > 0 && draftCount < rows.length;
 
   const toggleRow = (rowKey: string) =>
     setSelected((prev) => {
@@ -203,17 +218,17 @@ export function ShipmentsClient() {
     } finally { setRequesting(false); }
   }
 
-  const btn = 'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 text-[12.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-50';
+  const btn = 'inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-2.5 text-[12.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-50';
   // The "Създай товарителница" CTA — green, matching the page's primary action style.
-  const ctaBtn = 'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ff-green-700 px-2.5 text-[12.5px] font-bold text-white shadow-ff-sm hover:brightness-95 disabled:opacity-50';
-  const carrierSelect = 'h-9 rounded-lg border border-ff-border bg-ff-surface px-2 text-[12.5px] font-bold text-ff-ink-2';
+  const ctaBtn = 'inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-ff-green-700 px-2.5 text-[12.5px] font-bold text-white shadow-ff-sm hover:brightness-95 disabled:opacity-50';
+  const carrierSelect = 'h-10 rounded-lg border border-ff-border bg-ff-surface px-2 text-[12.5px] font-bold text-ff-ink-2';
 
   const total = rows.length;
   const by = (s: ShipmentStatus) => rows.filter((r) => r.status === s).length;
   const summary = [
     { label: 'Общо', n: total, cls: 'bg-ff-badge-bg text-ff-badge-ink' },
     { label: 'Доставени', n: by('delivered'), cls: 'bg-ff-green-50 text-ff-green-700' },
-    { label: 'Изпратени', n: by('shipped'), cls: 'bg-ff-amber-softer text-ff-amber-600' },
+    { label: 'Изпратени', n: by('shipped'), cls: 'bg-[#E3EAFB] text-[#3355BB]' },
     { label: 'Създадени', n: by('created') + by('pending'), cls: 'bg-ff-amber-soft text-ff-amber-600' },
     { label: 'Проблемни', n: by('returned') + by('refused'), cls: 'bg-[#FBE9E7] text-ff-red' },
   ];
@@ -335,6 +350,21 @@ export function ShipmentsClient() {
     </button>
   );
 
+  // Section divider between drafts ("need a waybill") and finalized rows
+  // ("already have one") — only shown when the table actually mixes both,
+  // otherwise it's a redundant single label above an unbroken list.
+  const SectionHeader = ({ kind }: { kind: 'draft' | 'final' }) => {
+    const n = kind === 'draft' ? draftCount : rows.length - draftCount;
+    const label = kind === 'draft' ? `Чакат товарителница (${n})` : `Готови пратки (${n})`;
+    const Icon = kind === 'draft' ? FilePlus : CheckCircle2;
+    return (
+      <div className="mt-4 mb-1.5 flex items-center gap-2 px-1 first:mt-0">
+        <Icon size={14} className="text-ff-green-700" />
+        <span className="text-[12px] font-extrabold uppercase tracking-[0.03em] text-ff-muted">{label}</span>
+      </div>
+    );
+  };
+
   return (
     <div className="animate-ff-fade-up pb-24">
       <SenderStrip />
@@ -430,11 +460,17 @@ export function ShipmentsClient() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {sortedRows.map((r, i) => {
                   const draft = isCourierDraft(r);
                   const canShip = isShippable(r);
                   return (
                     <Fragment key={r.rowKey}>
+                    {showSectionHeaders && i === 0 && (
+                      <tr><td colSpan={9} className="border-b border-ff-border-2 px-3 pt-3 pb-1"><SectionHeader kind="draft" /></td></tr>
+                    )}
+                    {showSectionHeaders && i === draftCount && (
+                      <tr><td colSpan={9} className="border-b border-ff-border-2 px-3 pt-3 pb-1"><SectionHeader kind="final" /></td></tr>
+                    )}
                     <tr className="border-b border-ff-border-2 last:border-0">
                       <td className="px-3 py-2.5">{canShip ? <Checkbox r={r} /> : null}</td>
                       <td className="px-3 py-2.5 font-semibold text-ff-ink">{r.receiver || '—'}</td>
@@ -489,11 +525,14 @@ export function ShipmentsClient() {
 
           {/* mobile cards */}
           <div className="mt-4 hidden flex-col gap-3 max-[900px]:flex">
-            {rows.map((r) => {
+            {sortedRows.map((r, i) => {
               const draft = isCourierDraft(r);
               const canShip = isShippable(r);
               return (
-                <div key={r.rowKey} className="rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm">
+                <Fragment key={r.rowKey}>
+                {showSectionHeaders && i === 0 && <SectionHeader kind="draft" />}
+                {showSectionHeaders && i === draftCount && <SectionHeader kind="final" />}
+                <div className="rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 items-start gap-2.5">
                       {canShip && <Checkbox r={r} className="mt-1" />}
@@ -537,6 +576,7 @@ export function ShipmentsClient() {
                     </>
                   ) : null}
                 </div>
+                </Fragment>
               );
             })}
           </div>

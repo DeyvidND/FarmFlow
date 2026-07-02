@@ -56,7 +56,7 @@ export function middleware(req: NextRequest) {
   }
   if (authed && isAuthPage) {
     const url = req.nextUrl.clone();
-    url.pathname = '/import';
+    url.pathname = '/shipments';
     return NextResponse.redirect(url);
   }
   return NextResponse.next();

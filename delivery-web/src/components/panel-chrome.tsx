@@ -9,11 +9,11 @@ import { ActivationBanner } from './activation-banner';
 import { A11yToggle } from './a11y-toggle';
 
 const NAV = [
-  { href: '/import', label: 'Качи пратки', icon: Upload },
-  { href: '/shipments', label: 'Пратки', icon: Package },
-  { href: '/cod-risk', label: 'Проверка на клиент', icon: ShieldAlert },
-  { href: '/settings', label: 'Настройки', icon: Settings },
-  { href: '/help', label: 'Помощ', icon: HelpCircle },
+  { href: '/shipments', label: 'Пратки', mobileLabel: 'Пратки', icon: Package },
+  { href: '/import', label: 'Качи пратки', mobileLabel: 'Качи', icon: Upload },
+  { href: '/cod-risk', label: 'Проверка на клиент', mobileLabel: 'Проверка', icon: ShieldAlert },
+  { href: '/settings', label: 'Настройки', mobileLabel: 'Настройки', icon: Settings },
+  { href: '/help', label: 'Помощ', mobileLabel: 'Помощ', icon: HelpCircle },
 ] as const;
 
 export function PanelChrome({ children, email }: { children: React.ReactNode; email?: string }) {
@@ -43,10 +43,11 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
 
         {/* Primary nav — flat text links; only the active page gets a filled pill, so the
             bar reads like a header rather than a row of buttons. */}
-        {/* On mobile the labels collapse to icons; let each link grow to an even, finger-
-            sized target (44px tall) so the icon row isn't cramped. Labels return at lg. */}
+        {/* On mobile the row switches to icon-over-label (not icon-only — a bare glyph
+            reads as unlabeled to a non-digital user); each link grows to an even, finger-
+            sized target. Full labels return at lg. */}
         <nav className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto px-2 max-lg:gap-0.5 max-lg:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {NAV.map(({ href, label, icon: Icon }) => {
+          {NAV.map(({ href, label, mobileLabel, icon: Icon }) => {
             const active = isActive(href);
             return (
               <Link
@@ -54,13 +55,15 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
                 href={href}
                 aria-current={active ? 'page' : undefined}
                 title={label}
-                className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-[13.5px] font-bold transition-colors max-lg:h-11 max-lg:grow max-lg:basis-0 max-lg:px-1 ${
+                className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-[13.5px] font-bold transition-colors max-lg:h-12 max-lg:grow max-lg:basis-0 max-lg:flex-col max-lg:gap-0.5 max-lg:px-1 ${
                   active
                     ? 'bg-ff-green-700 text-white'
                     : 'text-ff-ink-2 hover:bg-ff-surface-2'
                 }`}
               >
-                <Icon size={18} className="max-lg:size-5" /> <span className="max-lg:hidden">{label}</span>
+                <Icon size={18} className="max-lg:size-[19px]" />
+                <span className="max-lg:hidden">{label}</span>
+                <span className="hidden max-lg:block max-lg:text-[9.5px] max-lg:font-bold max-lg:leading-none">{mobileLabel}</span>
               </Link>
             );
           })}
@@ -94,7 +97,10 @@ export function PanelChrome({ children, email }: { children: React.ReactNode; em
 
       <Toaster
         position="bottom-right"
+        // Sonner's 4s default doesn't leave much time to read + react. 6.5s gives
+        // an elder user room to notice and read before it disappears.
         toastOptions={{
+          duration: 6500,
           style: {
             fontFamily: 'var(--font-commissioner)', borderRadius: '12px',
             border: '1px solid var(--ff-border)', background: 'var(--ff-surface)',

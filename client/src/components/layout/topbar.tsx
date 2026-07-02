@@ -137,7 +137,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/marketing-tracking': 'Маркетинг и проследяване',
   '/newsletters': 'Имейл клиенти',
   '/setup': 'Методи и цени',
-  '/delivery': 'Доставка',
+  '/delivery': 'Цени и правила за доставка',
   '/slots': 'Часове за доставка',
   '/features': 'Функции на магазина',
   '/settings': 'Настройки',

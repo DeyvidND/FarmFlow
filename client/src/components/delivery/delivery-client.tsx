@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Check, SlidersHorizontal, Truck, ExternalLink } from 'lucide-react';
+import { Check, SlidersHorizontal, Truck, ExternalLink, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -77,7 +77,7 @@ export function DeliveryClient({
   return (
     <div className={cn('animate-ff-fade-up flex flex-col gap-4', dirty && 'pb-20')}>
       <div className="mb-1">
-        <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">Доставка</h1>
+        <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">Цени и правила за доставка</h1>
         <p className="mt-0.5 text-[14px] text-ff-ink-2">
           Настрой детайлите на методите за доставка, които предлагаш.
         </p>
@@ -99,6 +99,14 @@ export function DeliveryClient({
       </Link>
 
       <DeliveryHandoffCard cfg={cfg} />
+
+      {/* Honest disclosure: the courier pipeline is built end-to-end, but chaika
+          checkout still locks to local-only delivery, so a connected carrier
+          doesn't yet reach a real customer order. */}
+      <div className="flex items-start gap-2.5 rounded-[14px] border border-[#e7c9a0] bg-ff-amber-softer px-4 py-3 text-[12.5px] text-ff-amber-600">
+        <AlertTriangle size={16} className="mt-px shrink-0" />
+        <span>Куриерска доставка е готова, но още не е активна за клиенти в магазина.</span>
+      </div>
 
       <div className="flex flex-col gap-4">
         <MethodsSection cfg={cfg} mut={mut} slotFreeCount={slotFreeCount} />

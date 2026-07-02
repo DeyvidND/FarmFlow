@@ -15,7 +15,7 @@ const activationMsg = (e: unknown) =>
     ? 'Активирай услугата, за да ползваш проверка за риск'
     : errMsg(e);
 
-const money = (st: number | null | undefined) => (st == null ? '—' : `${st} ст.`);
+const money = (st: number | null | undefined) => (st == null ? '—' : `${(st / 100).toFixed(2)} €`);
 const fmtDate = (iso: string | null) => {
   if (!iso) return '—';
   const d = new Date(iso);

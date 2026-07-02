@@ -77,7 +77,7 @@ export function SetupSection() {
   );
 }
 
-// ---- Доставка (/delivery) ----
+// ---- Цени и правила за доставка (/delivery) ----
 // Seeded demo week (25–31 May 2026) — matches the standalone Delivery page.
 const DEMO_WEEK_FROM = '2026-05-25';
 const DEMO_WEEK_TO = '2026-05-31';
