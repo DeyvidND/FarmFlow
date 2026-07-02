@@ -7,7 +7,6 @@ import { Menu, Bell, ChevronDown, Settings, BookOpen, LogOut } from 'lucide-reac
 import { cn, bgDateLabel } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
 import { getDashboard, listProductOptions, listAvailabilityWindows, listReviews } from '@/lib/api-client';
-import { A11yToggle } from './a11y-toggle';
 
 /** One notification derived from live data (pending orders, full slots, low stock). */
 interface Notif {
@@ -238,7 +237,6 @@ export function Topbar({ tenantName }: TopbarProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-[18px]">
-        <A11yToggle />
         <div className="ff-tenant text-right leading-[1.2] max-sm:hidden">
           <div className="text-[14.5px] font-bold">{display}</div>
           <div className="text-[12.5px] font-semibold capitalize text-ff-muted">{bgDateLabel()}</div>
