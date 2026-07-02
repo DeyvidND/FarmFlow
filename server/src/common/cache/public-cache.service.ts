@@ -6,6 +6,7 @@ import { REDIS_TOKEN } from '../redis/redis.constants';
 import {
   buildPublicDelivery,
   buildPublicMethods,
+  buildPublicPickup,
   econtMode,
   codEnabled,
   cardEnabled,
@@ -14,6 +15,7 @@ import {
   courierMarkupStotinki,
   type PublicDelivery,
   type PublicMethods,
+  type PublicPickup,
   type DeliveryConfig,
   type EcontMode,
   type CarrierPolicy,
@@ -91,6 +93,9 @@ export interface TenantMeta {
   // Which delivery methods are switched on — the storefront shows only these, so
   // a disabled method (e.g. Econt 'до адрес' left off) never reaches a customer.
   methods: PublicMethods;
+  // Pickup/market info (label, address, hours, optional fixed weekday+time) — so
+  // the storefront can render a real schedule instead of static placeholder text.
+  pickup: PublicPickup;
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
   // catalog slot id. Empty/missing → the storefront renders its `.ph` mock.
   media: Record<string, { url: string }>;
@@ -290,6 +295,7 @@ export class PublicCacheService {
       methods: pkgOn
         ? buildPublicMethods(delivery)
         : { ...buildPublicMethods(delivery), econtOffice: false, econtAddress: false },
+      pickup: buildPublicPickup(delivery),
       media,
       contact: buildPublicContact(settingsObj?.contact),
       faviconUrl,
