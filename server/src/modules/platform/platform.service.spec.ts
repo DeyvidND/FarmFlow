@@ -745,6 +745,9 @@ describe('PlatformService', () => {
         createdAt: new Date(`2026-06-${String(20 - i).padStart(2, '0')}`),
         trackingNumber: null,
         econtShipmentNumber: `E${i}`,
+        // Micro-precision cursor column the query projects (see cursorTs); the
+        // service reads it to build nextCursor and strips it from the items.
+        __keysetTs: `2026-06-${String(20 - i).padStart(2, '0')}T00:00:00.000000`,
       });
 
       // ── Page 1 (limit 2): tenant lookup → delivery-capable; query returns lim+1=3 rows ──

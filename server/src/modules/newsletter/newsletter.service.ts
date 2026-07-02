@@ -5,7 +5,7 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import {
   type Database,
@@ -33,7 +33,14 @@ import { priceForRecipients } from '../billing/billing.pricing';
 import { renderEmail, type RenderOpts } from './email-render';
 import { sanitizeNewsletterHtml } from './newsletter.util';
 import { UpsertCampaignDto } from './dto/campaign.dto';
-import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
+import {
+  clampLimit,
+  keysetAfter,
+  buildKeysetPage,
+  cursorTs,
+  KEYSET_TS,
+  type Paginated,
+} from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { bgToday, bgDayBounds } from '../../common/time/bg-time';
 
@@ -118,13 +125,14 @@ export class NewsletterService {
         id: newsletterSubscribers.id,
         email: newsletterSubscribers.email,
         createdAt: newsletterSubscribers.createdAt,
+        [KEYSET_TS]: cursorTs(newsletterSubscribers.createdAt),
       })
       .from(newsletterSubscribers)
       .where(and(...conds))
       .orderBy(asc(newsletterSubscribers.createdAt), asc(newsletterSubscribers.id))
       .limit(lim + 1);
 
-    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    const page = buildKeysetPage(rows, lim);
 
     let activeCount = 0;
     let unsubscribedCount = 0;
@@ -156,13 +164,19 @@ export class NewsletterService {
     if (cur) conds.push(keysetAfter(newsletterCampaigns.updatedAt, newsletterCampaigns.id, cur, 'desc'));
 
     const rows = await this.db
-      .select()
+      .select({
+        ...getTableColumns(newsletterCampaigns),
+        // Keyset boundary is updatedAt here (see orderBy). Coalesce NULL to epoch so
+        // the cursor matches the old `updatedAt ?? new Date(0)` fallback; micro
+        // precision keeps pagination advancing when many campaigns share a ms.
+        [KEYSET_TS]: sql<string>`to_char(coalesce(${newsletterCampaigns.updatedAt}, timestamp 'epoch'), 'YYYY-MM-DD"T"HH24:MI:SS.US')`,
+      })
       .from(newsletterCampaigns)
       .where(and(...conds))
       .orderBy(desc(newsletterCampaigns.updatedAt), desc(newsletterCampaigns.id))
       .limit(lim + 1);
 
-    const page = buildPage(rows, lim, (r) => ({ createdAt: r.updatedAt ?? new Date(0), id: r.id }));
+    const page = buildKeysetPage(rows, lim);
     return { items: page.items.map(toCampaign), nextCursor: page.nextCursor };
   }
 

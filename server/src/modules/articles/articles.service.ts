@@ -4,10 +4,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { and, eq, inArray, asc, desc } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, asc, desc } from 'drizzle-orm';
 import { type Database, articles, articleMedia } from '@fermeribg/db';
-import { clampLimit, keysetAfter, type Paginated } from '../../common/pagination/keyset';
-import { encodeCursor, decodeCursor } from '../../common/pagination/cursor';
+import {
+  clampLimit,
+  keysetAfter,
+  buildKeysetPage,
+  cursorTs,
+  KEYSET_TS,
+  type Paginated,
+} from '../../common/pagination/keyset';
+import { decodeCursor } from '../../common/pagination/cursor';
 import type {
   Article,
   ArticleMedia,
@@ -47,21 +54,15 @@ export class ArticlesService {
     if (cur) conds.push(keysetAfter(articles.createdAt, articles.id, cur, 'desc'));
 
     const rows = await this.db
-      .select()
+      .select({ ...getTableColumns(articles), [KEYSET_TS]: cursorTs(articles.createdAt) })
       .from(articles)
       .where(and(...conds))
       .orderBy(desc(articles.createdAt), desc(articles.id))
       .limit(lim + 1);
 
-    const hasMore = rows.length > lim;
-    const pageRows = hasMore ? rows.slice(0, lim) : rows;
+    const { items: pageRows, nextCursor } = buildKeysetPage(rows, lim);
     const items = await this.attachMedia(pageRows);
-    const last = pageRows[pageRows.length - 1];
-    return {
-      items,
-      nextCursor:
-        hasMore && last ? encodeCursor({ createdAt: last.createdAt!, id: last.id }) : null,
-    };
+    return { items, nextCursor };
   }
 
   async findOne(id: string, tenantId: string): Promise<ArticleWithMedia> {

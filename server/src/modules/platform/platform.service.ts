@@ -45,7 +45,14 @@ import {
 import type { JwtPayload } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
-import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
+import {
+  clampLimit,
+  keysetAfter,
+  buildKeysetPage,
+  cursorTs,
+  KEYSET_TS,
+  type Paginated,
+} from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
@@ -407,6 +414,7 @@ export class PlatformService {
         lastOrderAt: sql<Date | null>`max(${orders.createdAt})`,
         isDemo: tenants.isDemo,
         demoExpiresAt: tenants.demoExpiresAt,
+        [KEYSET_TS]: cursorTs(tenants.createdAt),
       })
       .from(tenants)
       .leftJoin(orders, eq(orders.tenantId, tenants.id));
@@ -416,9 +424,9 @@ export class PlatformService {
     const rows = (await scoped
       .groupBy(tenants.id)
       .orderBy(asc(tenants.createdAt), asc(tenants.id))
-      .limit(lim + 1)) as PlatformTenantRow[];
+      .limit(lim + 1)) as Array<PlatformTenantRow & { [KEYSET_TS]: string }>;
 
-    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    const page = buildKeysetPage(rows, lim);
     await this.publicCache.set(cacheKey, page, 60);
     return page;
   }
@@ -687,6 +695,7 @@ export class PlatformService {
         userId: users.id,
         loginEmail: users.email,
         mustChange: users.mustChangePassword,
+        [KEYSET_TS]: cursorTs(farmers.createdAt),
       })
       .from(farmers)
       .innerJoin(tenants, eq(farmers.tenantId, tenants.id))
@@ -695,7 +704,7 @@ export class PlatformService {
     const scoped = cur ? base.where(keysetAfter(farmers.createdAt, farmers.id, cur, 'desc')) : base;
     const rows = await scoped.orderBy(desc(farmers.createdAt), desc(farmers.id)).limit(lim + 1);
 
-    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    const page = buildKeysetPage(rows, lim);
     const ids = page.items.map((r) => r.id);
 
     const [prodCounts, orderCounts, shipCounts] = ids.length
@@ -943,6 +952,7 @@ export class PlatformService {
         adminEmail: platformAdmins.email,
         tenantId: auditLogs.tenantId,
         tenantName: tenants.name,
+        [KEYSET_TS]: cursorTs(auditLogs.createdAt),
       })
       .from(auditLogs)
       .leftJoin(users, eq(auditLogs.userId, users.id))
@@ -952,7 +962,7 @@ export class PlatformService {
     const scoped = conds.length ? baseQ.where(and(...conds)) : baseQ;
     const rows = await scoped.orderBy(desc(auditLogs.createdAt), desc(auditLogs.id)).limit(lim + 1);
 
-    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    const page = buildKeysetPage(rows, lim);
     const items: AuditLogRow[] = page.items.map((r) => ({
       id: r.id,
       action: r.action,
@@ -1050,13 +1060,14 @@ export class PlatformService {
         settings: tenants.settings,
         isDemo: tenants.isDemo,
         createdAt: tenants.createdAt,
+        [KEYSET_TS]: cursorTs(tenants.createdAt),
       })
       .from(tenants)
       .where(where)
       .orderBy(asc(tenants.createdAt), asc(tenants.id))
       .limit(lim + 1);
 
-    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    const page = buildKeysetPage(rows, lim);
 
     const ids = page.items.map((r) => r.id);
     const ship = ids.length
@@ -1199,13 +1210,14 @@ export class PlatformService {
         createdAt: shipments.createdAt,
         trackingNumber: shipments.trackingNumber,
         econtShipmentNumber: shipments.econtShipmentNumber,
+        [KEYSET_TS]: cursorTs(shipments.createdAt),
       })
       .from(shipments)
       .where(where)
       .orderBy(desc(shipments.createdAt), desc(shipments.id))
-      .limit(lim + 1)) as DeliveryShipmentRow[];
+      .limit(lim + 1)) as Array<DeliveryShipmentRow & { [KEYSET_TS]: string }>;
 
-    return buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    return buildKeysetPage(rows, lim);
   }
 
   /** Super-admin-driven account creation. Capabilities pick the settings shape:

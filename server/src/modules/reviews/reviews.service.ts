@@ -4,10 +4,17 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { type Database, products, reviews } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
-import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
+import {
+  clampLimit,
+  keysetAfter,
+  buildKeysetPage,
+  cursorTs,
+  KEYSET_TS,
+  type Paginated,
+} from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -184,13 +191,13 @@ export class ReviewsService {
     if (cur) conds.push(keysetAfter(reviews.createdAt, reviews.id, cur, 'desc'));
 
     const rows = await this.db
-      .select()
+      .select({ ...getTableColumns(reviews), [KEYSET_TS]: cursorTs(reviews.createdAt) })
       .from(reviews)
       .where(and(...conds))
       .orderBy(desc(reviews.createdAt), desc(reviews.id))
       .limit(lim + 1);
 
-    return buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    return buildKeysetPage(rows, lim);
   }
 
   async setStatus(id: string, tenantId: string, dto: UpdateReviewStatusDto) {

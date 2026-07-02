@@ -2,14 +2,21 @@ import { Injectable, Inject, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
-import { and, asc, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { type Database, products, productMedia, productVariants, farmers, subcategories } from '@fermeribg/db';
 import type { Product, ProductMedia, ProductVariant, PublicProduct, PublicProductVariant } from '@fermeribg/types';
 import { isPromoActive, salePriceStotinki } from './promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
 import { encodeImageJob } from '../../common/queue/image-job';
-import { clampLimit, keysetAfter, buildPage, type Paginated } from '../../common/pagination/keyset';
+import {
+  clampLimit,
+  keysetAfter,
+  buildKeysetPage,
+  cursorTs,
+  KEYSET_TS,
+  type Paginated,
+} from '../../common/pagination/keyset';
 import { positionCase } from '../../common/db/reorder.util';
 import { decodeCursor } from '../../common/pagination/cursor';
 
@@ -69,13 +76,13 @@ export class ProductsService {
     if (cur) conds.push(keysetAfter(products.createdAt, products.id, cur, 'asc'));
 
     const rows = await this.db
-      .select()
+      .select({ ...getTableColumns(products), [KEYSET_TS]: cursorTs(products.createdAt) })
       .from(products)
       .where(and(...conds))
       .orderBy(asc(products.createdAt), asc(products.id))
       .limit(lim + 1);
 
-    const page = buildPage(rows, lim, (r) => ({ createdAt: r.createdAt!, id: r.id }));
+    const page = buildKeysetPage(rows, lim);
     if (!cur) {
       const totalConds = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
       if (farmerScope !== null) totalConds.push(eq(products.farmerId, farmerScope));

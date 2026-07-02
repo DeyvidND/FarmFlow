@@ -56,10 +56,11 @@ const svcWith = (db: unknown, cache: unknown, publicCache: unknown = {}) =>
 describe('ProductsService.findAll', () => {
   it('returns the first page with a total and a nextCursor when full', async () => {
     // limit=2 → service fetches 3; the 3rd row signals "more" and is dropped.
+    // __keysetTs is the micro-precision cursor column the query now projects.
     const rows = [
-      { id: 'a', createdAt: new Date('2026-01-01') },
-      { id: 'b', createdAt: new Date('2026-01-02') },
-      { id: 'c', createdAt: new Date('2026-01-03') },
+      { id: 'a', createdAt: new Date('2026-01-01'), __keysetTs: '2026-01-01T00:00:00.000000' },
+      { id: 'b', createdAt: new Date('2026-01-02'), __keysetTs: '2026-01-02T00:00:00.000000' },
+      { id: 'c', createdAt: new Date('2026-01-03'), __keysetTs: '2026-01-03T00:00:00.000000' },
     ];
     const { db } = makeDb([rows, [{ total: 9 }]]);
     const svc = svcWith(db, catalogCache());
@@ -73,8 +74,10 @@ describe('ProductsService.findAll', () => {
   });
 
   it('omits the total on a subsequent page (cursor present → no count query)', async () => {
-    const cursor = encodeCursor({ createdAt: new Date('2026-01-01'), id: 'a' });
-    const { db } = makeDb([[{ id: 'b', createdAt: new Date('2026-01-02') }]]);
+    const cursor = encodeCursor({ createdAt: '2026-01-01T00:00:00.000000', id: 'a' });
+    const { db } = makeDb([
+      [{ id: 'b', createdAt: new Date('2026-01-02'), __keysetTs: '2026-01-02T00:00:00.000000' }],
+    ]);
     const svc = svcWith(db, catalogCache());
 
     const page = await svc.findAll('t1', { limit: 2, cursor });

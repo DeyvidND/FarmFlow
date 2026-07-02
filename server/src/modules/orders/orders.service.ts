@@ -25,7 +25,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday, bgDayBounds, bgDate, bgNowMinutes, minutesOf } from '../../common/time/bg-time';
 import { SAME_DAY_LEAD_HOURS } from '../slots/slot-rule';
-import { buildPage, clampLimit } from '../../common/pagination/keyset';
+import { buildKeysetPage, clampLimit, cursorTs, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -484,11 +484,12 @@ export class OrdersService {
     if (cur) {
       // Keyset «older than cursor». `orders.created_at` is `timestamp` (no tz), so
       // binding a JS Date would let Postgres tz-shift the param vs the naive column
-      // (breaking the boundary when the DB session tz isn't UTC). Cast the cursor's
-      // ISO string to a naive `timestamp` + `uuid` so the row-value compare matches
-      // the column types exactly.
+      // (breaking the boundary when the DB session tz isn't UTC). The cursor's
+      // timestamp is already a micro-precision, tz-naive string (see cursorTs);
+      // cast it to a naive `timestamp` + the id to `uuid` so the row-value compare
+      // matches the column types exactly.
       conds.push(
-        sql`(${orders.createdAt}, ${orders.id}) < (${cur.createdAt.toISOString()}::timestamp, ${cur.id}::uuid)`,
+        sql`(${orders.createdAt}, ${orders.id}) < (${cur.createdAt}::timestamp, ${cur.id}::uuid)`,
       );
     }
 
@@ -510,6 +511,8 @@ export class OrdersService {
         paidAt: orders.paidAt,
         slotFrom: deliverySlots.timeFrom,
         slotTo: deliverySlots.timeTo,
+        // Micro-precision boundary for the cursor; stripped by buildKeysetPage.
+        [KEYSET_TS]: cursorTs(orders.createdAt),
       })
       .from(orders)
       .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
@@ -517,10 +520,10 @@ export class OrdersService {
       .orderBy(desc(orders.createdAt), desc(orders.id))
       .limit(lim + 1);
 
-    const { items, nextCursor } = buildPage(rows as PaymentRow[], lim, (r) => ({
-      createdAt: r.createdAt as Date,
-      id: r.id,
-    }));
+    const { items, nextCursor } = buildKeysetPage(
+      rows as Array<PaymentRow & { [KEYSET_TS]: string }>,
+      lim,
+    );
     const listPart = { orders: items.map(toPaymentOrder), nextCursor };
     if (listCacheable) await this.cache.set(listKey, listPart, PAYMENTS_CACHE_TTL);
     return { totals, ...listPart };
@@ -562,8 +565,9 @@ export class OrdersService {
     if (cur) {
       // Same naive-timestamp + uuid cast as the owner method — keyset «older than
       // cursor» on (created_at, id), tz-agnostic regardless of the PG session tz.
+      // cur.createdAt is the micro-precision string from cursorTs (see owner method).
       conds.push(
-        sql`(${orders.createdAt}, ${orders.id}) < (${cur.createdAt.toISOString()}::timestamp, ${cur.id}::uuid)`,
+        sql`(${orders.createdAt}, ${orders.id}) < (${cur.createdAt}::timestamp, ${cur.id}::uuid)`,
       );
     }
 
@@ -587,6 +591,10 @@ export class OrdersService {
         paidAt: orders.paidAt,
         slotFrom: deliverySlots.timeFrom,
         slotTo: deliverySlots.timeTo,
+        // Micro-precision boundary for the cursor; stripped by buildKeysetPage.
+        // to_char(orders.createdAt) is functionally dependent on the grouped
+        // orders.createdAt below, so it needs no separate GROUP BY entry.
+        [KEYSET_TS]: cursorTs(orders.createdAt),
       })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
@@ -614,10 +622,10 @@ export class OrdersService {
       .orderBy(desc(orders.createdAt), desc(orders.id))
       .limit(lim + 1);
 
-    const { items, nextCursor } = buildPage(rows as PaymentRow[], lim, (r) => ({
-      createdAt: r.createdAt as Date,
-      id: r.id,
-    }));
+    const { items, nextCursor } = buildKeysetPage(
+      rows as Array<PaymentRow & { [KEYSET_TS]: string }>,
+      lim,
+    );
 
     // Totals: same line-item join, grouped by channel. count(distinct orders.id) so
     // a single order with two of the producer's items counts once; the card paid
