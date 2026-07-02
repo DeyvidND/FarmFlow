@@ -12,6 +12,7 @@ import { PaymentBadge } from './payment-badge';
 import { OrderPanel } from './order-panel';
 import { ApiError, listOrders, updateOrderStatus } from '@/lib/api-client';
 import { Pagination } from '@/components/ui/pagination';
+import { ORDERS_PAGE_SIZE } from '@/lib/orders';
 import type { Order, Paged } from '@/lib/types';
 
 const FILTERS: [string, string][] = [
@@ -21,12 +22,56 @@ const FILTERS: [string, string][] = [
   ['delivered', 'Доставени'],
   ['cancelled', 'Отказани'],
 ];
-/** Orders per numbered page. Exported so the server page seeds the same first page. */
-export const ORDERS_PAGE_SIZE = 12;
 const SEARCH_DEBOUNCE_MS = 300;
+const SKELETON_ROWS = 6;
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 /** Human order ref — the per-tenant number, falling back to a short id for legacy rows. */
 const orderNo = (o: Order) => (o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(0, 8)}`);
+
+const bar = (w: string, h = 'h-3') => <div className={cn('animate-pulse rounded bg-ff-surface-2', w, h)} />;
+
+function SkeletonRows() {
+  return (
+    <>
+      {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+        <tr key={i} className="border-b border-ff-border-2 last:border-0">
+          <td className="px-5 py-3.5 align-top">
+            <div className="flex flex-col gap-1.5">{bar('w-10')}{bar('w-8', 'h-2.5')}</div>
+          </td>
+          <td className="px-5 py-3.5 align-top">{bar('w-28')}</td>
+          <td className="px-5 py-3.5 align-top">{bar('w-40')}</td>
+          <td className="px-5 py-3.5 align-top">{bar('w-20')}</td>
+          <td className="px-5 py-3.5 align-top">
+            <div className="flex flex-col items-start gap-1.5">{bar('w-20')}{bar('w-16')}</div>
+          </td>
+          <td className="px-5 py-3.5 text-right align-top">
+            <div className="flex justify-end">{bar('w-14')}</div>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function SkeletonCards() {
+  return (
+    <>
+      {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+        <div key={i} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
+          <div className="flex items-start justify-between gap-2.5">
+            <div className="flex flex-col gap-1.5">{bar('w-32')}{bar('w-24', 'h-2.5')}</div>
+            <div className="flex flex-col items-end gap-1.5">{bar('w-20')}{bar('w-16')}</div>
+          </div>
+          {bar('w-full')}
+          <div className="flex items-center justify-between border-t border-ff-border-2 pt-2.5">
+            {bar('w-20')}
+            {bar('w-14')}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
 
 export function OrdersClient({
   initial,
@@ -212,7 +257,7 @@ export function OrdersClient({
             </tr>
           </thead>
           <tbody>
-            {paged.map((o) => (
+            {loading ? <SkeletonRows /> : paged.map((o) => (
               <tr
                 key={o.id}
                 onClick={() => setActiveId(o.id)}
@@ -243,7 +288,7 @@ export function OrdersClient({
 
         {/* cards (mobile) */}
         <div className="hidden flex-col max-[680px]:flex">
-          {paged.map((o) => (
+          {loading ? <SkeletonCards /> : paged.map((o) => (
             <button
               key={o.id}
               onClick={() => setActiveId(o.id)}
@@ -270,17 +315,12 @@ export function OrdersClient({
           ))}
         </div>
 
-        {orders.length === 0 && (
-          <p className="px-5 py-12 text-center text-sm text-ff-muted">
-            {loading ? 'Зареждане…' : 'Няма поръчки за този филтър.'}
-          </p>
+        {!loading && orders.length === 0 && (
+          <p className="px-5 py-12 text-center text-sm text-ff-muted">Няма поръчки за този филтър.</p>
         )}
       </div>
 
       <Pagination page={page} pageCount={pageCount} onPage={setPage} total={total} />
-      {loading && (
-        <p className="mt-2 text-center text-[12px] text-ff-muted">Зареждане на още поръчки…</p>
-      )}
 
       {active && (
         <OrderPanel order={active} busy={busy} onClose={() => setActiveId(null)} onAction={(s) => onAction(active, s)} />

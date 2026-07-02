@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
-import { OrdersClient, ORDERS_PAGE_SIZE } from '@/components/orders/orders-client';
+import { OrdersClient } from '@/components/orders/orders-client';
+import { ORDERS_PAGE_SIZE } from '@/lib/orders';
 import type { Order, Paged } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
