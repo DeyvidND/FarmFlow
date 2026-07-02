@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Info, ArrowUpDown, Check, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -64,7 +64,7 @@ export function ProductsClient({
   const isFarmer = role === 'farmer';
   // Deep-link target for the carrier-connect step referenced by locked courier toggles.
   const deliverySettingsHref = isFarmer ? '/farmer-delivery' : '/delivery';
-  const { items: products, setItems: setProducts, loadMore, hasMore, loading } = usePaginatedList<Product>(
+  const { items: products, setItems: setProducts, loadMore, loadAll, hasMore, loading } = usePaginatedList<Product>(
     initial,
     listProducts,
   );
@@ -130,6 +130,14 @@ export function ProductsClient({
       }),
     [ordered, q, farmerFilter, subcatFilter],
   );
+  // A filter only sees loaded products, so it can't be trusted while pages are still
+  // paginated behind «Зареди още». When any filter is on, drain the rest of the
+  // catalog once so the filter covers everything — the button stays only for the
+  // unfiltered browse view (where loading all at once isn't wanted).
+  const isFiltering = q.trim() !== '' || farmerFilter !== 'all' || subcatFilter !== 'all';
+  useEffect(() => {
+    if (isFiltering && hasMore && !loading) void loadAll();
+  }, [isFiltering, hasMore, loading, loadAll]);
   // The star shows only while the highlight is on and manually controlled.
   const showStar = potwEnabled && potwMode === 'manual';
 
@@ -424,7 +432,10 @@ export function ProductsClient({
         </div>
       )}
 
-      {!reorderMode && hasMore && (
+      {/* Unfiltered browse: manual «load more». While filtering we auto-drain the
+          rest instead (see the effect above), so show a quiet loading line — never
+          the button, so the farmer never has to click through the whole catalog. */}
+      {!reorderMode && !isFiltering && hasMore && (
         <div className="mt-5 flex justify-center">
           <button
             onClick={loadMore}
@@ -434,6 +445,9 @@ export function ProductsClient({
             {loading ? 'Зареждане…' : 'Зареди още'}
           </button>
         </div>
+      )}
+      {!reorderMode && isFiltering && hasMore && loading && (
+        <p className="mt-5 text-center text-[13px] text-ff-muted">Зареждане на всички продукти…</p>
       )}
 
       {/* Mount only while open so the dialog's state initializers read fresh props.

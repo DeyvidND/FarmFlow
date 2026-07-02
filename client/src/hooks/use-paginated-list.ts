@@ -28,5 +28,35 @@ export function usePaginatedList<T>(
     }
   }, [cursor, loading, fetchMore]);
 
-  return { items, setItems, loadMore, hasMore: cursor !== null, loading } as const;
+  /**
+   * Drain every remaining page in one go. Used when a client-side filter is active:
+   * filtering only sees loaded items, so a filter can't be trusted until the whole
+   * list is in memory. Loops on a LOCAL cursor (not the state one) so it isn't
+   * tripped by React's async state updates; the `loading` guard blocks re-entry.
+   *
+   * Hard stop if a page returns the SAME cursor it was fetched with — the keyset
+   * cursor is millisecond-precision (`toISOString`) while created_at can hold
+   * microseconds, so a block of same-millisecond rows straddling a page boundary
+   * makes the cursor stall (see keyset precision note). Without this guard that
+   * stall is an infinite fetch loop that hangs the tab.
+   */
+  const loadAll = useCallback(async () => {
+    if (!cursor || loading) return;
+    setLoading(true);
+    try {
+      let next: string | null = cursor;
+      while (next) {
+        const used: string = next;
+        const page = await fetchMore(used);
+        setItems((prev) => [...prev, ...page.items]);
+        next = page.nextCursor;
+        setCursor(next);
+        if (next === used) break; // cursor didn't advance → stop rather than loop forever
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [cursor, loading, fetchMore]);
+
+  return { items, setItems, loadMore, loadAll, hasMore: cursor !== null, loading } as const;
 }
