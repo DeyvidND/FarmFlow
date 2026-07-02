@@ -26,6 +26,7 @@ import {
   ChevronDown,
   MessageSquare,
   Truck,
+  LineChart,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -77,6 +78,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true, desc: 'Маршрут за разнасяне на поръчките.' },
       { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите — наложен платеж и карти.' },
       { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Оборот, поръчки, топ продукти и тренд през времето.' },
+      { href: '/site-analytics', label: 'Анализ на сайта', Icon: LineChart, desc: 'Посетители, фуния към поръчка, източници и устройства.' },
     ],
   },
   {
@@ -118,6 +120,7 @@ const isConfigRoute = (pathname: string) =>
 /** Reduced nav for a producer sub-account (role='farmer'). Grows in later phases. */
 export const FARMER_NAV: NavItem[] = [
   { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Твоят личен оборот, поръчки и тренд.' },
+  { href: '/site-analytics', label: 'Анализ на сайта', Icon: LineChart, desc: 'Посетители на сайта, фуния към поръчка и източници.' },
   { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоите продукти — добавяй, променяй цени, снимки и наличност.' },
   { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Плащанията за твоите продукти.' },
   { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, desc: 'Колко имаш налично от всеки продукт — намалява при поръчка.' },
