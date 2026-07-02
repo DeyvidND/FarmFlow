@@ -841,36 +841,23 @@ export const listSpeedyOffices = (siteId: number) =>
 /** Speedy contract-client suggestions to prefill the sender profile. */
 export const listSpeedyProfiles = () => apiFetch<SpeedySenderSuggestion[]>('speedy/profiles');
 
-// ---- Farmer-scoped carrier helpers (main-API farmer-aware endpoints) ----
-// These hit the FARMER-AWARE endpoints on the main panel API (econt/* and speedy/*).
-// The farmer panel JWT carries farmerId so calls here write/read the
-// farmer sub-namespace of settings.delivery.farmers.<farmerId> — the same store
-// the dostavki SSO session also reads. Admin calls to getEcontConfig/getSpeedyConfig
-// above hit the same routes but are dispatched to the tenant level server-side.
+// ---- Farmer-scoped carrier status helpers (main-API farmer-aware endpoints) ----
+// These hit the FARMER-AWARE read-only endpoints on the main panel API (econt/config
+// and speedy/config) to show a connected/not-connected badge in the farmer panel.
+// The farmer panel JWT carries farmerId so calls here read the farmer sub-namespace
+// of settings.delivery.farmers.<farmerId> — the same store the dostavki SSO session
+// also reads. Admin calls to getEcontConfig/getSpeedyConfig above hit the same routes
+// but are dispatched to the tenant level server-side. Credential writes (connecting a
+// carrier, editing the sender profile) now happen ONLY in dostavki — there is no
+// farmer-panel save endpoint for these anymore.
 
 /** Farmer Econt config via the main-API farmer-aware econt/config endpoint. */
 export const getFarmerEcontConfig = () =>
   apiFetch<{ configured?: boolean; username?: string; sender?: { phone?: string | null } | null }>('econt/config');
 
-/** Save/replace the farmer's Econt credentials (econt/credentials). */
-export const saveFarmerEcontCredentials = (data: { username: string; password: string }) =>
-  apiFetch<{ configured: true }>(
-    'econt/credentials',
-    { method: 'POST', ...json(data) },
-    'Неуспешна връзка с Еконт',
-  );
-
 /** Farmer Speedy config via the main-API farmer-aware speedy/config endpoint. */
 export const getFarmerSpeedyConfig = () =>
   apiFetch<{ configured?: boolean; userName?: string; sender?: { phone?: string | null } | null }>('speedy/config');
-
-/** Save/replace the farmer's Speedy credentials (speedy/credentials). */
-export const saveFarmerSpeedyCredentials = (data: { userName: string; password: string }) =>
-  apiFetch<{ configured: true }>(
-    'speedy/credentials',
-    { method: 'POST', ...json(data) },
-    'Неуспешна връзка със Speedy',
-  );
 
 // ---- Newsletters ----
 export interface Subscriber {
