@@ -5,6 +5,7 @@ import {
   localFeeStotinki,
   econtFallbackFee,
   buildPublicDelivery,
+  buildPublicPickup,
   courierMarkupStotinki,
   codEnabled,
   DELIVERY_DEFAULTS,
@@ -122,6 +123,47 @@ describe('delivery-pricing', () => {
       const pub = buildPublicDelivery(cfg);
       expect(pub.addressFeeStotinki).toBe(0);
       expect(pub.freeThresholdStotinki).toBe(3000);
+    });
+  });
+
+  describe('buildPublicPickup', () => {
+    it('defaults to a generic label with no schedule when unset', () => {
+      expect(buildPublicPickup(undefined)).toEqual({
+        label: 'Вземане от място',
+        address: null,
+        hours: null,
+        weekday: null,
+        timeFrom: null,
+        timeTo: null,
+      });
+    });
+    it('surfaces the farmer-typed label/address/hours', () => {
+      const cfg: DeliveryConfig = {
+        methods: {
+          pickup: { label: 'Ела на пазара', address: 'Добрич, пл. Свобода', hours: 'Всеки четвъртък' },
+        },
+      };
+      expect(buildPublicPickup(cfg)).toEqual({
+        label: 'Ела на пазара',
+        address: 'Добрич, пл. Свобода',
+        hours: 'Всеки четвъртък',
+        weekday: null,
+        timeFrom: null,
+        timeTo: null,
+      });
+    });
+    it('surfaces the fixed weekday+time schedule when set', () => {
+      const cfg: DeliveryConfig = {
+        methods: { pickup: { pickupWeekday: 4, pickupFrom: '10:00', pickupTo: '15:00' } },
+      };
+      expect(buildPublicPickup(cfg)).toEqual({
+        label: 'Вземане от място',
+        address: null,
+        hours: null,
+        weekday: 4,
+        timeFrom: '10:00',
+        timeTo: '15:00',
+      });
     });
   });
 });

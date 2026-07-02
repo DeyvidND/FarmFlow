@@ -19,6 +19,15 @@ export interface MethodConfig {
   enabled?: boolean;
   label?: string;
   pricing?: MethodPricing;
+  /** pickup only — free-text location + hours (unchanged, still the fallback). */
+  address?: string;
+  hours?: string;
+  /** pickup only — optional fixed recurring schedule (0=Sun..6=Sat). When set,
+   *  together with pickupFrom/pickupTo, this takes priority over `hours` for
+   *  the customer-facing schedule text. */
+  pickupWeekday?: number;
+  pickupFrom?: string; // HH:MM
+  pickupTo?: string; // HH:MM
 }
 
 export interface DeliveryConfig {
@@ -181,6 +190,32 @@ export function buildPublicMethods(cfg: DeliveryConfig | null | undefined): Publ
     pickup: m?.pickup?.enabled ?? true,
     econtOffice: m?.econtOffice?.enabled ?? false,
     econtAddress: m?.econtAddress?.enabled ?? false,
+  };
+}
+
+/** Read-only pickup/market info for the storefront — address, hours and an
+ *  optional fixed weekday+time schedule. `label` always has a value (falls
+ *  back to the generic "Вземане от място" so the storefront never shows a
+ *  blank title). */
+export interface PublicPickup {
+  label: string;
+  address: string | null;
+  hours: string | null;
+  /** 0=Sun..6=Sat, or null when the farm hasn't set a fixed schedule. */
+  weekday: number | null;
+  timeFrom: string | null;
+  timeTo: string | null;
+}
+
+export function buildPublicPickup(cfg: DeliveryConfig | null | undefined): PublicPickup {
+  const m = cfg?.methods?.pickup;
+  return {
+    label: m?.label?.trim() || 'Вземане от място',
+    address: m?.address?.trim() || null,
+    hours: m?.hours?.trim() || null,
+    weekday: typeof m?.pickupWeekday === 'number' ? m.pickupWeekday : null,
+    timeFrom: m?.pickupFrom ?? null,
+    timeTo: m?.pickupTo ?? null,
   };
 }
 
