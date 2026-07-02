@@ -1,5 +1,6 @@
 import type {
   AdminReview,
+  AnalyticsSummary,
   Article,
   AvailabilityWindow,
   DashboardSummary,
@@ -569,6 +570,15 @@ export const getStats = (
       : `range=${opts.range}`;
   const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
   return apiFetch<StatsSummary>(`stats?${base}${fid}`);
+};
+
+// ---- Site analytics ----
+export const getAnalytics = (opts: { range: StatsRange } | { from: string; to: string }) => {
+  const base =
+    'from' in opts
+      ? `from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`
+      : `range=${opts.range}`;
+  return apiFetch<AnalyticsSummary>(`analytics?${base}`);
 };
 
 // ---- Stripe (payments / Connect) ----

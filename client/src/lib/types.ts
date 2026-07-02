@@ -605,6 +605,48 @@ export interface RouteResult {
   optimized: boolean;
 }
 
+// ── Site analytics (GET /analytics?range=) — visitors/funnel/traffic, the
+//    behavioral companion to the order-driven `StatsSummary` above. ──
+export type FunnelKey =
+  | 'page_view'
+  | 'product_view'
+  | 'add_to_cart'
+  | 'checkout_start'
+  | 'purchase';
+
+export interface FunnelStep {
+  key: FunnelKey;
+  label: string;
+  visitors: number;
+}
+
+export interface AnalyticsPoint {
+  t: string;
+  visitors: number;
+  pageViews: number;
+}
+
+export interface AnalyticsSummary {
+  range: StatsRangeTag;
+  bucket: StatsBucket;
+  /** Resolved window (BG dates, both inclusive). */
+  from: string;
+  to: string;
+  visitors: number;
+  pageViews: number;
+  prevVisitors: number;
+  purchases: number;
+  conversionPct: number;
+  prevConversionPct: number;
+  funnel: FunnelStep[];
+  sources: { host: string; visitors: number }[];
+  topPages: { path: string; views: number }[];
+  devices: { mobile: number; desktop: number };
+  points: AnalyticsPoint[];
+  /** Too few visitors for the breakdowns to mean anything yet. */
+  sparse: boolean;
+}
+
 /** One aggregated product row in the daily prep list. */
 export interface ProductionItem {
   productName: string;
