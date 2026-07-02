@@ -21,7 +21,11 @@ export class AnalyticsRetentionProcessor extends WorkerHost implements OnModuleI
     await registerRepeatable(this.queue, 'prune', '0 3 * * *');
   }
 
-  async process(_job: Job): Promise<void> {
+  async process(job: Job): Promise<void> {
+    if (job.name !== 'prune') {
+      this.logger.warn(`[analytics] unknown job name=${job.name}`);
+      return;
+    }
     try {
       await this.retention.prune();
     } catch (err) {
