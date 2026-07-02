@@ -1,6 +1,6 @@
 import {
   IsString, IsInt, IsOptional, IsBoolean, IsUrl, IsUUID, Min, Max, MaxLength, ValidateIf, ValidateNested,
-  IsArray, IsDateString, ArrayMaxSize,
+  IsArray, IsDateString, ArrayMaxSize, IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -10,6 +10,10 @@ import { VariantDto } from './variant.dto';
 export class CreateProductDto {
   @ApiProperty()
   @IsString()
+  // A blank name silently drops out of the order-line label (product name +
+  // weight/variant, `.filter(Boolean).join(' ')` in resolveLineUnit) — orders end
+  // up snapshotted as just "1кг" with no way to tell which product it was.
+  @IsNotEmpty()
   @MaxLength(200)
   name: string;
 

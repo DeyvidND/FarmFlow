@@ -18,6 +18,13 @@ describe('CreateProductDto', () => {
   it('rejects a negative price', async () => {
     expect((await validate(make({ priceStotinki: -1 }))).length).toBeGreaterThan(0);
   });
+
+  // A blank name silently drops out of the order-line label (resolveLineUnit
+  // joins name + weight/variant, filtering falsy parts) — orders end up
+  // snapshotted as just the weight/variant text with no product identity.
+  it('rejects a blank name', async () => {
+    expect((await validate(make({ name: '' }))).length).toBeGreaterThan(0);
+  });
 });
 
 describe('CreateProductDto — string length caps', () => {
