@@ -4,10 +4,9 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Users, Eye, MousePointerClick, Target, Smartphone, Monitor,
-  TrendingUp, TrendingDown, Minus, Info, Globe, FileText, type LucideIcon,
+  TrendingUp, TrendingDown, Minus, Globe, FileText, type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import { ApiError, getAnalytics } from '@/lib/api-client';
 import type { AnalyticsSummary, StatsRange } from '@/lib/types';
 
@@ -138,7 +137,7 @@ export function AnalyticsClient({ initial, role = 'admin' }: { initial: Analytic
           </div>
           <div className="inline-flex flex-wrap rounded-xl border border-ff-border bg-ff-surface p-0.5 shadow-ff-sm">
             {RANGES.map((o) => (
-              <button key={o.key} onClick={() => setRange(o.key)}
+              <button key={o.key} onClick={() => setRange(o.key)} aria-pressed={range === o.key}
                 className={cn('rounded-lg px-3 py-1.5 text-[13px] font-bold transition-colors',
                   range === o.key ? 'bg-ff-green-700 text-[#EAF1E4]' : 'text-ff-ink-2 hover:bg-ff-surface-2')}>
                 {o.label}
