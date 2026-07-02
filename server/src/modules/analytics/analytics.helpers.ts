@@ -3,7 +3,10 @@ import { createHash } from 'crypto';
 /** Cookieless visitor identity. sha256(ip + ua + daySalt + tenant + secret).
  *  The raw IP is only passed in transiently to compute this — callers never
  *  persist it. `day` (BG 'YYYY-MM-DD') rotates the value daily so the same
- *  person is a different hash tomorrow (no cross-day tracking). */
+ *  person is a different hash tomorrow (no cross-day tracking).
+ *  Fields are `|`-joined; a crafted UA containing `|` could in theory collide
+ *  two distinct visitors onto one hash — accepted tradeoff (undercounts a
+ *  unique by a negligible amount, never a privacy leak in the other direction). */
 export function visitorHash(
   ip: string,
   ua: string,
@@ -16,7 +19,9 @@ export function visitorHash(
 
 const MOBILE_RE = /Mobi|Android|iPhone|iPad|iPod|Windows Phone|BlackBerry/i;
 
-/** Coarse device class from the User-Agent. Empty/unknown → 'desktop'. */
+/** Coarse device class from the User-Agent. Best-effort: modern iPadOS Safari
+ *  reports a desktop-style UA, so some tablets count as desktop. Empty/unknown
+ *  → 'desktop'. */
 export function deviceFromUA(ua: string): 'mobile' | 'desktop' {
   return MOBILE_RE.test(ua) ? 'mobile' : 'desktop';
 }
