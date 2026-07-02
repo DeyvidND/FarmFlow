@@ -146,13 +146,15 @@ function MethodCard({
                 />
               </DLabel>
             </div>
-            <DLabel label="Работно време">
-              <input
-                value={m.hours ?? ''}
-                onChange={(e) => patch((x) => (x.hours = e.target.value))}
-                className={fieldCls}
-              />
-            </DLabel>
+            {m.pickupWeekday == null && (
+              <DLabel label="Работно време">
+                <input
+                  value={m.hours ?? ''}
+                  onChange={(e) => patch((x) => (x.hours = e.target.value))}
+                  className={fieldCls}
+                />
+              </DLabel>
+            )}
             <div className="sm:col-span-2 flex flex-col gap-2 rounded-[10px] border border-ff-border bg-ff-surface-2 px-3.5 py-3">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-[13px] font-bold text-ff-ink-2">
