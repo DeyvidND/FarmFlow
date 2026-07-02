@@ -15,6 +15,9 @@ const field =
 const lbl = 'flex flex-col gap-1 text-[12.5px] font-bold text-ff-ink-2';
 
 // Mon-first, Sunday last — the order farmers read a week in.
+// Also used by the pickup method's fixed-schedule picker in methods-section.tsx
+// (a single fixed pickup day, not a recurring slot rule) — don't assume this is
+// slot-rule-private when touching it.
 export const WD = [
   { i: 1, l: 'Пн' },
   { i: 2, l: 'Вт' },
@@ -66,7 +69,10 @@ const sameWin = (a: SlotWindow, b: SlotWindow) =>
 const withValue = (opts: string[], v: string) =>
   opts.includes(v) ? opts : [...opts, v].sort();
 
-/** Start/end (24h selects, end always after start). Each slot holds one order — no capacity. */
+/** Start/end (24h selects, end always after start). Each slot holds one order — no
+ *  capacity (slot-rule framing; also reused by the pickup method's fixed-schedule
+ *  picker in methods-section.tsx, where there's no slot/capacity concept at all —
+ *  only the time-select UI applies there). */
 export function WindowFields({
   win,
   onChange,
