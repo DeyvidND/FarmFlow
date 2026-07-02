@@ -526,6 +526,13 @@
       "when": 1783328402000,
       "tag": "0074_product_courier_disabled",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1783328403000,
+      "tag": "0075_site_events",
+      "breakpoints": true
     }
   ]
 }

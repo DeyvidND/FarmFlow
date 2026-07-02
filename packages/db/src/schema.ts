@@ -12,6 +12,7 @@ import {
   numeric,
   index,
   uniqueIndex,
+  bigserial,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -428,6 +429,35 @@ export const orderItems = pgTable(
     // Farmer stats / payments / recommendations: GROUP BY / JOIN on product_id.
     // Composite (productId, orderId) also serves distinct-order counts per product.
     productIdx: index('order_items_product_idx').on(t.productId, t.orderId),
+  }),
+);
+
+export const siteEvents = pgTable(
+  'site_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    // Cookieless daily hash of IP+UA+salt+tenant. The raw IP is NEVER stored —
+    // only this hash — and the salt rotates daily so it can't track across days.
+    visitorHash: text('visitor_hash').notNull(),
+    // One of: page_view | product_view | add_to_cart | checkout_start | purchase.
+    eventType: text('event_type').notNull(),
+    path: text('path'),
+    // Referrer HOST only (no full URL / query) — privacy.
+    referrerHost: text('referrer_host'),
+    productId: uuid('product_id'),
+    orderId: uuid('order_id'),
+    valueStotinki: integer('value_stotinki'),
+    device: text('device').notNull().default('desktop'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantCreatedIdx: index('site_events_tenant_created_idx').on(t.tenantId, t.createdAt),
+    tenantTypeCreatedIdx: index('site_events_tenant_type_created_idx').on(
+      t.tenantId,
+      t.eventType,
+      t.createdAt,
+    ),
   }),
 );
 
