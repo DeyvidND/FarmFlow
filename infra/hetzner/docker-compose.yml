@@ -105,7 +105,6 @@ services:
     environment:
       NODE_ENV: production
       API_URL: http://api:3000
-      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
 
   admin:
     image: ghcr.io/deyvidnd/farmflow-admin:${IMAGE_TAG:-latest}
