@@ -27,6 +27,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { RoutingModule } from './modules/routing/routing.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { StatsModule } from './modules/stats/stats.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { BillingModule } from './modules/billing/billing.module';
@@ -115,6 +116,7 @@ import { ImageQueueModule } from './modules/image-queue/image-queue.module';
     OrdersModule,
     DashboardModule,
     StatsModule,
+    AnalyticsModule,
     PlatformModule,
     StripeModule,
     BillingModule,
