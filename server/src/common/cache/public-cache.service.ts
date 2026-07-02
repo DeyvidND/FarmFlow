@@ -7,6 +7,7 @@ import {
   buildPublicDelivery,
   buildPublicMethods,
   buildPublicPickup,
+  buildPublicOwnSlots,
   econtMode,
   codEnabled,
   cardEnabled,
@@ -16,10 +17,12 @@ import {
   type PublicDelivery,
   type PublicMethods,
   type PublicPickup,
+  type PublicOwnSlots,
   type DeliveryConfig,
   type EcontMode,
   type CarrierPolicy,
 } from '../../modules/orders/delivery-pricing';
+import { migrateRule, type SlotRule } from '../../modules/slots/slot-rule';
 import { buildPublicContact, type PublicContact } from '../../modules/tenants/site-contact';
 import { resolveLanding, type PublicLanding } from '../../modules/tenants/landing';
 import {
@@ -96,6 +99,9 @@ export interface TenantMeta {
   // Pickup/market info (label, address, hours, optional fixed weekday+time) — so
   // the storefront can render a real schedule instead of static placeholder text.
   pickup: PublicPickup;
+  // Own self-delivery schedule (settings.slotRule → human-readable Bulgarian
+  // summary), so checkout shows the farm's real day/time instead of a hardcoded one.
+  ownSlots: PublicOwnSlots;
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
   // catalog slot id. Empty/missing → the storefront renders its `.ph` mock.
   media: Record<string, { url: string }>;
@@ -260,9 +266,13 @@ export class PublicCacheService {
           copy?: unknown;
           faq?: unknown;
           siteTheme?: unknown;
+          slotRule?: unknown;
         }
       | null;
     const delivery = settingsObj?.delivery;
+    const slotRule = settingsObj?.slotRule
+      ? migrateRule(settingsObj.slotRule as Partial<SlotRule>)
+      : null;
     // The super-admin „пакет Доставки" gate. When off, the storefront offers no
     // carrier (Econt/Speedy) delivery at all — only pickup + self-delivery slots,
     // which are not part of the courier add-on. Internal: dropped from the payload.
@@ -296,6 +306,7 @@ export class PublicCacheService {
         ? buildPublicMethods(delivery)
         : { ...buildPublicMethods(delivery), econtOffice: false, econtAddress: false },
       pickup: buildPublicPickup(delivery),
+      ownSlots: buildPublicOwnSlots(slotRule),
       media,
       contact: buildPublicContact(settingsObj?.contact),
       faviconUrl,

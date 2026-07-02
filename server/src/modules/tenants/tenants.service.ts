@@ -17,7 +17,7 @@ import { StorageService } from '../storage/storage.service';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { optimizeImage, squareFavicon } from '../storage/image.util';
 import { sniffMime } from '../storage/magic-mime';
-import { type PublicDelivery, type PublicMethods, type PublicPickup, type EcontMode } from '../orders/delivery-pricing';
+import { type PublicDelivery, type PublicMethods, type PublicPickup, type PublicOwnSlots, type EcontMode } from '../orders/delivery-pricing';
 import { StripeService } from '../stripe/stripe.service';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { SiteContactDto } from './dto/site-contact.dto';
@@ -75,6 +75,7 @@ export interface PublicStorefront {
   delivery: PublicDelivery;
   methods: PublicMethods;
   pickup: PublicPickup;
+  ownSlots: PublicOwnSlots;
   // Tenant-uploaded photos for the storefront's static decorative slots, keyed by
   // catalog slot id. Empty/missing slot → the storefront renders its `.ph` mock.
   media: PublicMediaMap;
