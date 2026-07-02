@@ -204,6 +204,11 @@ export interface DeliveryMethod {
   /** pickup only */
   address?: string;
   hours?: string;
+  /** pickup only — optional fixed recurring schedule (0=Sun..6=Sat). When set,
+   *  the storefront shows a computed schedule line instead of `hours`. */
+  pickupWeekday?: number;
+  pickupFrom?: string; // HH:MM
+  pickupTo?: string; // HH:MM
 }
 
 export interface DeliveryMethods {

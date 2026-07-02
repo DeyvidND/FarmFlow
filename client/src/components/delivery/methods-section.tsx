@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Building2, Home, CalendarDays, MapPin, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { METHOD_META, type SlotStatus } from '@/lib/delivery-data';
-import { RecurrenceCard } from '@/components/slots/recurrence-card';
+import { RecurrenceCard, WD, WindowFields } from '@/components/slots/recurrence-card';
 import type {
   DeliveryConfig,
   DeliveryMethod,
@@ -153,6 +153,59 @@ function MethodCard({
                 className={fieldCls}
               />
             </DLabel>
+            <div className="sm:col-span-2 flex flex-col gap-2 rounded-[10px] border border-ff-border bg-ff-surface-2 px-3.5 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[13px] font-bold text-ff-ink-2">
+                  Фиксиран ден и час (по желание — напр. пазар)
+                </span>
+                {m.pickupWeekday != null && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      patch((x) => {
+                        x.pickupWeekday = undefined;
+                        x.pickupFrom = undefined;
+                        x.pickupTo = undefined;
+                      })
+                    }
+                    className="text-[12px] font-bold text-ff-ink-2 underline-offset-2 hover:text-ff-green-700 hover:underline"
+                  >
+                    Изчисти
+                  </button>
+                )}
+              </div>
+              <p className="text-[12px] text-ff-muted">
+                Зададеш ли ден и час, клиентите виждат точен график вместо текста в „Работно време“.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {WD.map((d) => (
+                  <button
+                    key={d.i}
+                    type="button"
+                    onClick={() => patch((x) => (x.pickupWeekday = d.i))}
+                    className={cn(
+                      'h-9 w-9 rounded-lg border text-[12.5px] font-bold transition-colors',
+                      m.pickupWeekday === d.i
+                        ? 'border-ff-green-500 bg-ff-green-50 text-ff-green-700'
+                        : 'border-ff-border text-ff-ink-2 hover:border-ff-green-300',
+                    )}
+                  >
+                    {d.l}
+                  </button>
+                ))}
+              </div>
+              {m.pickupWeekday != null && (
+                <WindowFields
+                  win={{ timeFrom: m.pickupFrom ?? '10:00', timeTo: m.pickupTo ?? '15:00' }}
+                  onChange={(w) =>
+                    patch((x) => {
+                      x.pickupFrom = w.timeFrom;
+                      x.pickupTo = w.timeTo;
+                    })
+                  }
+                />
+              )}
+            </div>
           </>
         ) : (
           <>

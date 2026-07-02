@@ -15,7 +15,7 @@ const field =
 const lbl = 'flex flex-col gap-1 text-[12.5px] font-bold text-ff-ink-2';
 
 // Mon-first, Sunday last — the order farmers read a week in.
-const WD = [
+export const WD = [
   { i: 1, l: 'Пн' },
   { i: 2, l: 'Вт' },
   { i: 3, l: 'Ср' },
@@ -67,7 +67,7 @@ const withValue = (opts: string[], v: string) =>
   opts.includes(v) ? opts : [...opts, v].sort();
 
 /** Start/end (24h selects, end always after start). Each slot holds one order — no capacity. */
-function WindowFields({
+export function WindowFields({
   win,
   onChange,
 }: {
