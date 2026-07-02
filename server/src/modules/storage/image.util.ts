@@ -20,6 +20,34 @@ const EFFORT = 6;
  *  already restrict to this set. */
 const RASTER = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
+/** Longest edge for a processed favicon. Google's favicon indexing wants a
+ *  roughly-square image (docs: "a multiple of 48px, square") — this is well
+ *  above that floor while staying a small file. */
+const FAVICON_EDGE = 512;
+
+/**
+ * Force an uploaded favicon to a proper square icon. Admins sometimes upload
+ * their raw logo/banner (arbitrary aspect ratio, thousands of pixels) — that
+ * renders fine shrunk into a browser tab, but Google's Search favicon crawler
+ * rejects non-square images and falls back to a generic globe. `fit: 'cover'`
+ * center-crops to square before resizing, so this always emits a clean
+ * FAVICON_EDGE×FAVICON_EDGE icon. ICO passes through untouched — sharp's ICO
+ * decode is unreliable, and .ico files already carry their own square frames.
+ * Any sharp failure returns the original bytes (never fail the upload).
+ */
+export async function squareFavicon(buffer: Buffer, mime: string): Promise<Buffer> {
+  if (mime !== 'image/png') return buffer;
+  try {
+    return await sharp(buffer, { failOn: 'none' })
+      .rotate()
+      .resize({ width: FAVICON_EDGE, height: FAVICON_EDGE, fit: 'cover' })
+      .png()
+      .toBuffer();
+  } catch {
+    return buffer;
+  }
+}
+
 export interface ProcessedImage {
   buffer: Buffer;
   contentType: string;

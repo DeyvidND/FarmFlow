@@ -15,7 +15,7 @@ import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { StorageService } from '../storage/storage.service';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
-import { optimizeImage } from '../storage/image.util';
+import { optimizeImage, squareFavicon } from '../storage/image.util';
 import { sniffMime } from '../storage/magic-mime';
 import { type PublicDelivery, type PublicMethods, type EcontMode } from '../orders/delivery-pricing';
 import { StripeService } from '../stripe/stripe.service';
@@ -501,10 +501,14 @@ export class TenantsService {
     if (detected !== 'image/png' && detected !== 'image/x-icon') {
       throw new BadRequestException('Иконата трябва да е PNG или ICO файл.');
     }
+    // Center-crop/resize to a proper square icon — an arbitrary-aspect-ratio
+    // logo/banner upload renders fine in a browser tab but Google's favicon
+    // crawler rejects it and shows a generic globe instead.
+    const processed = await squareFavicon(file.buffer, detected);
     const ext = detected === 'image/png' ? 'png' : 'ico';
     const key = `tenants/${slug}/site/favicon/${randomUUID()}.${ext}`;
     // Upload with the *detected* (canonical) content type, not the client header.
-    const { url } = await this.storage.upload(file.buffer, key, detected);
+    const { url } = await this.storage.upload(processed, key, detected);
 
     const prevKey = readBrand(settings).favicon?.key;
     await this.db
