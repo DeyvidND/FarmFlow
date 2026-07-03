@@ -4,12 +4,13 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Users, Eye, MousePointerClick, Target, Smartphone, Monitor,
-  Globe, FileText,
+  Globe, FileText, TrendingUp, CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getAnalytics } from '@/lib/api-client';
 import type { AnalyticsSummary, StatsRange } from '@/lib/types';
-import { RANGES, errMsg, pctDelta, StatTile, ShareBar } from '@/lib/stat-ui';
+import { RANGES, errMsg, pctDelta, StatTile, ShareBar, Seg } from '@/lib/stat-ui';
+import { AnalyticsTrendChart } from './analytics-trend-chart';
 
 /** The funnel: each step a full-width bar scaled to the FIRST step, with the
  *  step's visitor count + the drop-off vs the previous step. */
@@ -46,6 +47,7 @@ export function AnalyticsClient({ initial, role = 'admin' }: { initial: Analytic
   const [data, setData] = useState<AnalyticsSummary | null>(initial);
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [metric, setMetric] = useState<'visitors' | 'pageViews'>('visitors');
 
   useEffect(() => {
     if (!hydrated) {
@@ -101,6 +103,30 @@ export function AnalyticsClient({ initial, role = 'admin' }: { initial: Analytic
             <StatTile Icon={Target} label="Конверсия" value={`${data.conversionPct}%`}
               delta={pctDelta(data.conversionPct, data.prevConversionPct)} index={3} />
           </div>
+
+          <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <TrendingUp size={17} className="text-ff-green-700" />
+                <h2 className="text-[16.5px] font-extrabold">Тренд</h2>
+              </div>
+              <Seg
+                value={metric}
+                onChange={setMetric}
+                options={[
+                  { key: 'visitors', label: 'Посетители' },
+                  { key: 'pageViews', label: 'Прегледи' },
+                ]}
+              />
+            </div>
+            {data.points.length > 0 ? (
+              <AnalyticsTrendChart points={data.points} bucket={data.bucket} metric={metric} />
+            ) : (
+              <div className="grid h-[240px] place-items-center text-sm text-ff-muted">
+                Няма данни за периода.
+              </div>
+            )}
+          </section>
 
           <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
             <div className="mb-1 flex items-center gap-2">
