@@ -18,9 +18,12 @@ import {
   isBot,
   referrerHost,
   buildFunnel,
+  conversionPct,
+  buildWeekdayPattern,
   ANALYTICS_SPARSE_MIN,
   type FunnelKey,
   type FunnelStep,
+  type WeekdayStat,
 } from './analytics.helpers';
 
 // ── Storefront analytics: cookieless event ingest + the aggregated summary the
@@ -73,10 +76,11 @@ export interface AnalyticsSummary {
   conversionPct: number;
   prevConversionPct: number;
   funnel: FunnelStep[];
-  sources: { host: string; visitors: number }[];
+  sources: { host: string; visitors: number; purchases: number; conversionPct: number }[];
   topPages: { path: string; views: number }[];
   devices: { mobile: number; desktop: number };
-  points: { t: string; visitors: number; pageViews: number }[];
+  points: { t: string; visitors: number; pageViews: number; purchases: number }[];
+  weekdayPattern: WeekdayStat[];
   /** Too few visitors for the funnel/sources to mean anything — UI shows a gentle note. */
   sparse: boolean;
 }
@@ -173,6 +177,18 @@ export class AnalyticsService {
     );
 
     const pv = sql`${siteEvents.eventType} = 'page_view'`;
+    const localTs = sql`(${siteEvents.createdAt} at time zone 'UTC' at time zone ${BG_TZ})`;
+
+    // Visitor-hashes that purchased anywhere in the window — the correctness
+    // anchor for source/weekday conversion. A purchase event's OWN referrer/day
+    // is the checkout page's, not the original channel/day that brought the
+    // visitor in, so "did this visitor_hash purchase at all" (not "does this
+    // purchase row's own referrer match") is the only correct attribution.
+    const purchaserRows = await this.db
+      .selectDistinct({ h: siteEvents.visitorHash })
+      .from(siteEvents)
+      .where(and(inWin, sql`${siteEvents.eventType} = 'purchase'`));
+    const purchasedHashes = purchaserRows.map((r) => r.h);
 
     // ── Funnel + headline: distinct visitors per event type, current + previous
     //    window in one scan (mirrors stats.service.ts's aggP current+previous fusion). ──
@@ -193,6 +209,7 @@ export class AnalyticsService {
       .select({
         host: sql<string>`coalesce(${siteEvents.referrerHost}, 'директно')`,
         visitors: sql<number>`count(distinct ${siteEvents.visitorHash})::int`,
+        purchasers: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${siteEvents.visitorHash} = ANY(${purchasedHashes}))::int`,
       })
       .from(siteEvents)
       .where(and(inWin, pv))
@@ -220,25 +237,36 @@ export class AnalyticsService {
       .where(and(inWin, pv))
       .groupBy(siteEvents.device);
 
-    const localTs = sql`(${siteEvents.createdAt} at time zone 'UTC' at time zone ${BG_TZ})`;
+    const weekdayP = this.db
+      .select({
+        pgDow: sql<number>`extract(dow from ${localTs})::int`,
+        visitors: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv})::int`,
+        purchasers: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv} and ${siteEvents.visitorHash} = ANY(${purchasedHashes}))::int`,
+      })
+      .from(siteEvents)
+      .where(inWin)
+      .groupBy(sql`1`);
+
     const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${cfg.trunc}'`)}, ${localTs}), ${sql.raw(`'${cfg.fmt}'`)})`;
     const seriesP = this.db
       .select({
         t: bucketExpr,
         visitors: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv})::int`,
         pageViews: sql<number>`count(*) filter (where ${pv})::int`,
+        purchases: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${siteEvents.eventType} = 'purchase')::int`,
       })
       .from(siteEvents)
       .where(inWin)
       .groupBy(sql`1`)
       .orderBy(sql`1`);
 
-    const [funnelRows, sources, topPages, deviceRows, seriesRows] = await Promise.all([
+    const [funnelRows, sources, topPages, deviceRows, seriesRows, weekdayRows] = await Promise.all([
       funnelP,
       sourcesP,
       topPagesP,
       devicesP,
       seriesP,
+      weekdayP,
     ]);
 
     const counts: Partial<Record<FunnelKey, number>> = {};
@@ -255,8 +283,6 @@ export class AnalyticsService {
     const prevVisitors = prevCounts.page_view ?? 0;
     const purchasesCur = counts.purchase ?? 0;
     const purchasesPrev = prevCounts.purchase ?? 0;
-    const conversionPct = visitors > 0 ? Math.round((purchasesCur / visitors) * 1000) / 10 : 0;
-    const prevConversionPct = prevVisitors > 0 ? Math.round((purchasesPrev / prevVisitors) * 1000) / 10 : 0;
 
     const devices = {
       mobile: deviceRows.find((d) => d.device === 'mobile')?.visitors ?? 0,
@@ -266,8 +292,17 @@ export class AnalyticsService {
     const found = new Map(seriesRows.map((r) => [r.t, r]));
     const points = axisKeys.map((t) => {
       const r = found.get(t);
-      return { t, visitors: r?.visitors ?? 0, pageViews: r?.pageViews ?? 0 };
+      return { t, visitors: r?.visitors ?? 0, pageViews: r?.pageViews ?? 0, purchases: r?.purchases ?? 0 };
     });
+
+    const sourcesWithConversion = sources.map((s) => ({
+      host: s.host,
+      visitors: s.visitors,
+      purchases: s.purchasers,
+      conversionPct: conversionPct(s.purchasers, s.visitors),
+    }));
+
+    const weekdayPattern = buildWeekdayPattern(weekdayRows);
 
     return {
       range,
@@ -278,13 +313,14 @@ export class AnalyticsService {
       pageViews: pageViewRows,
       prevVisitors,
       purchases: purchasesCur,
-      conversionPct,
-      prevConversionPct,
+      conversionPct: conversionPct(purchasesCur, visitors),
+      prevConversionPct: conversionPct(purchasesPrev, prevVisitors),
       funnel,
-      sources,
+      sources: sourcesWithConversion,
       topPages,
       devices,
       points,
+      weekdayPattern,
       sparse: visitors < ANALYTICS_SPARSE_MIN,
     };
   }
