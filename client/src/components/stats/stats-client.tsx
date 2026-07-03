@@ -23,7 +23,7 @@ import { STATS_HELP } from '@/lib/help-content';
 import { TrendChart } from './trend-chart';
 import { getStats } from '@/lib/api-client';
 import type { StatsSummary, StatsRange } from '@/lib/types';
-import { RANGES, errMsg, pctDelta, StatTile, ShareBar } from '@/lib/stat-ui';
+import { RANGES, errMsg, pctDelta, StatTile, ShareBar, Seg } from '@/lib/stat-ui';
 
 // dow index → BG day name (0=Sunday). Rendered Monday-first.
 const DOW_SHORT = ['Нед', 'Пон', 'Вто', 'Сря', 'Чет', 'Пет', 'Съб'];
@@ -51,34 +51,6 @@ function todayStr() {
 
 const dateInputCls =
   'rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] font-semibold text-ff-ink-2 shadow-ff-sm focus:outline-none focus:ring-2 focus:ring-ff-green-500/40';
-
-/** Segmented pill selector (range / metric). */
-function Seg<T extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { key: T; label: string }[];
-}) {
-  return (
-    <div className="inline-flex flex-wrap rounded-xl border border-ff-border bg-ff-surface p-0.5 shadow-ff-sm">
-      {options.map((o) => (
-        <button
-          key={o.key}
-          onClick={() => onChange(o.key)}
-          className={cn(
-            'rounded-lg px-3 py-1.5 text-[13px] font-bold transition-colors',
-            value === o.key ? 'bg-ff-green-700 text-[#EAF1E4]' : 'text-ff-ink-2 hover:bg-ff-surface-2',
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 /** Muted chip marking a section whose numbers are thin (few orders in window). */
 function SparseTag() {

@@ -106,3 +106,31 @@ export function ShareBar({
     </div>
   );
 }
+
+/** Segmented pill selector (range / metric toggles). */
+export function Seg<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { key: T; label: string }[];
+}) {
+  return (
+    <div className="inline-flex flex-wrap rounded-xl border border-ff-border bg-ff-surface p-0.5 shadow-ff-sm">
+      {options.map((o) => (
+        <button
+          key={o.key}
+          onClick={() => onChange(o.key)}
+          className={cn(
+            'rounded-lg px-3 py-1.5 text-[13px] font-bold transition-colors',
+            value === o.key ? 'bg-ff-green-700 text-[#EAF1E4]' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
