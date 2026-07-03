@@ -1,38 +1,25 @@
 'use client';
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { moneyFromStotinki } from '@/lib/utils';
-import type { StatsBucket, StatsPoint } from '@/lib/types';
+import { labelFor } from '@/components/stats/trend-chart';
+import type { AnalyticsPoint, StatsBucket } from '@/lib/types';
 
-const H = 240; // chart height (px)
-const PAD = { t: 14, r: 10, b: 24, l: 10 };
+const H = 240;
+const PAD = { t: 14, r: 10, b: 40, l: 10 }; // extra bottom padding for the purchase bars
+const BAR_H = 22; // fixed strip height for the purchase bars, below the line chart
 
-const BG_MONTHS_SHORT = ['яну', 'фев', 'мар', 'апр', 'май', 'юни', 'юли', 'авг', 'сеп', 'окт', 'ное', 'дек'];
-
-/** Bucket key → short axis/tooltip label. */
-export function labelFor(t: string, bucket: StatsBucket): string {
-  if (bucket === 'month') {
-    const [y, m] = t.split('-');
-    return `${BG_MONTHS_SHORT[Number(m) - 1]} ${y.slice(2)}`;
-  }
-  // day / week keys are 'YYYY-MM-DD'
-  const [, m, d] = t.split('-');
-  return `${d}.${m}`;
-}
-
-/**
- * Lightweight inline SVG line chart (no chart library). Toggles between orders
- * and revenue without a refetch — both metrics travel on every point. Ported
- * from the super-admin trend chart, money-formatted for the farmer panel.
- */
-export function TrendChart({
+/** Dual-scale trend: the toggled metric (visitors/pageViews) as a green
+ *  area+line on its own scale, purchases as small dark bars along the
+ *  baseline on an INDEPENDENT scale — so a handful of purchases doesn't
+ *  visually vanish next to a much larger visitor count on a shared axis. */
+export function AnalyticsTrendChart({
   points,
   bucket,
   metric,
 }: {
-  points: StatsPoint[];
+  points: AnalyticsPoint[];
   bucket: StatsBucket;
-  metric: 'orders' | 'revenue';
+  metric: 'visitors' | 'pageViews';
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(760);
@@ -49,21 +36,20 @@ export function TrendChart({
     return () => ro.disconnect();
   }, []);
 
-  const vals = useMemo(
-    () => points.map((p) => (metric === 'orders' ? p.orders : p.revenueStotinki)),
-    [points, metric],
-  );
-
-  const fmt = (v: number) => (metric === 'orders' ? String(v) : moneyFromStotinki(v));
+  const vals = useMemo(() => points.map((p) => p[metric]), [points, metric]);
+  const purchaseVals = useMemo(() => points.map((p) => p.purchases), [points]);
 
   const innerW = Math.max(1, w - PAD.l - PAD.r);
-  const innerH = H - PAD.t - PAD.b;
+  const lineH = H - PAD.t - PAD.b;
   const n = points.length;
-  const maxV = Math.max(1, ...vals); // never divide by zero; flat-zero series → baseline
+  const maxV = Math.max(1, ...vals);
+  const maxP = Math.max(1, ...purchaseVals);
   const stepX = n > 1 ? innerW / (n - 1) : 0;
   const x = (i: number) => PAD.l + (n > 1 ? i * stepX : innerW / 2);
-  const y = (v: number) => PAD.t + (1 - v / maxV) * innerH;
-  const baseY = PAD.t + innerH;
+  const y = (v: number) => PAD.t + (1 - v / maxV) * lineH;
+  const baseY = PAD.t + lineH;
+  const barY = baseY + 10;
+  const barWidth = n > 1 ? Math.max(2, Math.min(18, stepX * 0.5)) : 18;
 
   const linePath = useMemo(() => {
     if (n === 0) return '';
@@ -79,56 +65,47 @@ export function TrendChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vals, w, n, maxV]);
 
-  // X labels: ~6 evenly spaced ticks.
   const tickEvery = Math.max(1, Math.ceil(n / 6));
-  const total = useMemo(() => vals.reduce((a, b) => a + b, 0), [vals]);
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
-    const px = ((e.clientX - rect.left) / rect.width) * w; // back to viewBox units
+    const px = ((e.clientX - rect.left) / rect.width) * w;
     const i = n > 1 ? Math.round((px - PAD.l) / stepX) : 0;
     setHover(Math.max(0, Math.min(n - 1, i)));
   }
 
   const hv = hover != null ? vals[hover] : null;
+  const hp = hover != null ? purchaseVals[hover] : null;
+  const svgH = H + BAR_H + 14;
 
   return (
     <div ref={wrapRef} className="relative w-full select-none">
       <svg
-        viewBox={`0 0 ${w} ${H}`}
+        viewBox={`0 0 ${w} ${svgH}`}
         width="100%"
-        height={H}
+        height={svgH}
         className="block touch-none"
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
       >
         <defs>
-          <linearGradient id="ff-stats-fill" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="ff-analytics-fill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="var(--ff-green-500)" stopOpacity="0.28" />
             <stop offset="100%" stopColor="var(--ff-green-500)" stopOpacity="0.02" />
           </linearGradient>
         </defs>
 
-        {/* horizontal gridlines + max label */}
         {[0, 0.5, 1].map((f) => {
-          const gy = PAD.t + f * innerH;
+          const gy = PAD.t + f * lineH;
           return (
-            <line
-              key={f}
-              x1={PAD.l}
-              x2={w - PAD.r}
-              y1={gy}
-              y2={gy}
-              stroke="var(--ff-border-2)"
-              strokeWidth={1}
-            />
+            <line key={f} x1={PAD.l} x2={w - PAD.r} y1={gy} y2={gy} stroke="var(--ff-border-2)" strokeWidth={1} />
           );
         })}
         <text x={PAD.l + 2} y={PAD.t - 3} fontSize="11" fontWeight={700} fill="var(--ff-muted-2)">
-          {fmt(maxV)}
+          {maxV}
         </text>
 
-        {areaPath && <path d={areaPath} fill="url(#ff-stats-fill)" />}
+        {areaPath && <path d={areaPath} fill="url(#ff-analytics-fill)" />}
         {linePath && (
           <path
             d={linePath}
@@ -140,13 +117,30 @@ export function TrendChart({
           />
         )}
 
+        {/* purchase bars, independent scale */}
+        {points.map((p, i) => {
+          const h = maxP > 0 ? Math.max(p.purchases > 0 ? 2 : 0, (p.purchases / maxP) * BAR_H) : 0;
+          return (
+            <rect
+              key={p.t}
+              x={x(i) - barWidth / 2}
+              y={barY + (BAR_H - h)}
+              width={barWidth}
+              height={h}
+              rx={1.5}
+              fill="var(--ff-ink-2)"
+              opacity={0.75}
+            />
+          );
+        })}
+
         {/* x-axis labels */}
         {points.map((p, i) =>
           i % tickEvery === 0 || i === n - 1 ? (
             <text
               key={p.t}
               x={x(i)}
-              y={H - 7}
+              y={barY + BAR_H + 13}
               fontSize="10.5"
               fontWeight={600}
               textAnchor="middle"
@@ -164,7 +158,7 @@ export function TrendChart({
               x1={x(hover)}
               x2={x(hover)}
               y1={PAD.t}
-              y2={baseY}
+              y2={barY + BAR_H}
               stroke="var(--ff-green-600)"
               strokeWidth={1}
               strokeDasharray="3 3"
@@ -182,13 +176,12 @@ export function TrendChart({
           style={{ left: `${(x(hover) / w) * 100}%`, top: 6 }}
         >
           <div className="text-[11px] font-semibold text-ff-muted">{labelFor(points[hover].t, bucket)}</div>
-          <div className="ff-fig text-[14px] font-extrabold text-ff-ink">{fmt(hv)}</div>
+          <div className="ff-fig text-[14px] font-extrabold text-ff-ink">
+            {hv} {metric === 'visitors' ? 'посетители' : 'прегледи'}
+          </div>
+          <div className="ff-fig text-[12px] font-bold text-ff-ink-2">{hp} покупки</div>
         </div>
       )}
-
-      <div className="mt-1 text-[12px] text-ff-muted">
-        Общо за периода: <span className="ff-fig font-bold text-ff-ink-2">{fmt(total)}</span>
-      </div>
     </div>
   );
 }
