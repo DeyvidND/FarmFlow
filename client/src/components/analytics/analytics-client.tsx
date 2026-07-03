@@ -18,7 +18,10 @@ function Funnel({ steps }: { steps: AnalyticsSummary['funnel'] }) {
   const top = steps[0]?.visitors ?? 0;
 
   // Weakest step: lowest keep-rate vs. the step right before it. Step 0 has no
-  // prior step to compare against, so it's never eligible.
+  // prior step to compare against, so it's never eligible. A step with a 100%
+  // (or higher) keep-rate has no actual drop-off, so it's never eligible either —
+  // flagging it as "biggest drop-off here" would be misleading. If every step
+  // keeps 100%, weakestIdx stays -1 and no badge renders, which is correct.
   let weakestIdx = -1;
   let weakestKeepPct = Infinity;
   steps.forEach((s, i) => {
@@ -26,7 +29,7 @@ function Funnel({ steps }: { steps: AnalyticsSummary['funnel'] }) {
     const prevVisitors = steps[i - 1].visitors;
     if (prevVisitors <= 0) return; // nothing to compare against
     const keepPct = (s.visitors / prevVisitors) * 100;
-    if (keepPct < weakestKeepPct) {
+    if (keepPct < 100 && keepPct < weakestKeepPct) {
       weakestKeepPct = keepPct;
       weakestIdx = i;
     }
