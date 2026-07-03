@@ -77,10 +77,17 @@ function Funnel({ steps }: { steps: AnalyticsSummary['funnel'] }) {
 function WeekdayBars({ pattern }: { pattern: AnalyticsSummary['weekdayPattern'] }) {
   const max = Math.max(1, ...pattern.map((d) => d.visitors));
   const hasData = pattern.some((d) => d.visitors > 0);
+  // Require a minimum sample before a day can be crowned "best" — otherwise a
+  // single visitor who happens to convert can "win" with 100% over a day that
+  // actually drove real volume (e.g. 200 visitors at 20% conversion).
+  const MIN_VISITORS_FOR_BEST = 5;
   const best = hasData
-    ? pattern.reduce((a, b) => (b.visitors > 0 && b.conversionPct > a.conversionPct ? b : a), pattern[0])
+    ? pattern.reduce(
+        (a, b) => (b.visitors >= MIN_VISITORS_FOR_BEST && b.conversionPct > a.conversionPct ? b : a),
+        pattern[0],
+      )
     : null;
-  const hasBestConversion = !!best && best.conversionPct > 0;
+  const hasBestConversion = !!best && best.conversionPct > 0 && best.visitors >= MIN_VISITORS_FOR_BEST;
 
   if (!hasData) {
     return <p className="text-[13px] text-ff-muted">Още няма данни за периода.</p>;
