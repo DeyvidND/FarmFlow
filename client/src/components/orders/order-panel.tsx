@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
-import { moneyFromStotinki, hhmm, timeFromIso, relDayLabel, type OrderStatus } from '@/lib/utils';
+import { moneyFromStotinki, hhmm, timeFromIso, relDayLabel, statusMeta, type OrderStatus } from '@/lib/utils';
 import { ApiError, requestDeliveryHandoff } from '@/lib/api-client';
 import type { Order } from '@/lib/types';
 
@@ -65,6 +65,28 @@ export function OrderPanel({
               <X size={18} /> Откажи
             </Button>
           )}
+
+          <div className="flex items-center gap-2.5 border-t border-ff-border-2 pt-3.5">
+            <label htmlFor="order-status-override" className="shrink-0 text-xs font-bold text-ff-muted">
+              Промени статус
+            </label>
+            <select
+              id="order-status-override"
+              value={order.status}
+              disabled={busy}
+              onChange={(e) => {
+                const next = e.target.value as OrderStatus;
+                if (next !== order.status) onAction(next);
+              }}
+              className="flex-1 rounded-sm border border-ff-border bg-ff-surface-2 px-2.5 py-2 text-[13px] font-semibold text-ff-ink outline-none transition-colors focus:border-ff-green-500 disabled:opacity-60"
+            >
+              {(Object.keys(statusMeta) as OrderStatus[]).map((s) => (
+                <option key={s} value={s}>
+                  {statusMeta[s].label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </aside>
 
