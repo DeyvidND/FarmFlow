@@ -16,23 +16,53 @@ import { AnalyticsTrendChart } from './analytics-trend-chart';
  *  step's visitor count + the drop-off vs the previous step. */
 function Funnel({ steps }: { steps: AnalyticsSummary['funnel'] }) {
   const top = steps[0]?.visitors ?? 0;
+
+  // Weakest step: lowest keep-rate vs. the step right before it. Step 0 has no
+  // prior step to compare against, so it's never eligible.
+  let weakestIdx = -1;
+  let weakestKeepPct = Infinity;
+  steps.forEach((s, i) => {
+    if (i === 0) return;
+    const prevVisitors = steps[i - 1].visitors;
+    if (prevVisitors <= 0) return; // nothing to compare against
+    const keepPct = (s.visitors / prevVisitors) * 100;
+    if (keepPct < weakestKeepPct) {
+      weakestKeepPct = keepPct;
+      weakestIdx = i;
+    }
+  });
+
   return (
     <div className="flex flex-col gap-3">
       {steps.map((s, i) => {
         const pctOfTop = top > 0 ? Math.max(2, Math.round((s.visitors / top) * 100)) : 0;
         const prev = i > 0 ? steps[i - 1].visitors : null;
         const keepPct = prev && prev > 0 ? Math.round((s.visitors / prev) * 100) : null;
+        const isWeakest = i === weakestIdx;
         return (
           <div key={s.key}>
-            <div className="mb-1 flex items-baseline justify-between gap-2">
-              <span className="text-[13.5px] font-bold text-ff-ink-2">{i + 1}. {s.label}</span>
+            <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-[13.5px] font-bold text-ff-ink-2">
+                {i + 1}. {s.label}
+                {isWeakest && (
+                  <span className="rounded-full bg-ff-amber-softer px-1.5 py-0.5 text-[10.5px] font-bold text-ff-amber-600">
+                    най-голям отток тук
+                  </span>
+                )}
+              </span>
               <span className="ff-fig text-[13px] text-ff-muted">
                 {s.visitors}
                 {keepPct !== null && <span className="ml-2 text-ff-muted-2">({keepPct}% от предната стъпка)</span>}
               </span>
             </div>
             <div className="h-[14px] overflow-hidden rounded-full bg-ff-border-2">
-              <div className="h-full rounded-full bg-ff-green-600 transition-[width]" style={{ width: `${pctOfTop}%` }} />
+              <div
+                className={cn(
+                  'h-full rounded-full transition-[width]',
+                  isWeakest ? 'bg-ff-amber' : 'bg-ff-green-600',
+                )}
+                style={{ width: `${pctOfTop}%` }}
+              />
             </div>
           </div>
         );
