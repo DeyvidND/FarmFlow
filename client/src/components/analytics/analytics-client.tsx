@@ -225,7 +225,15 @@ export function AnalyticsClient({ initial, role = 'admin' }: { initial: Analytic
               <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">Кои сайтове и търсачки водят хора при теб.</p>
               {data.sources.length === 0 ? <p className="text-[13px] text-ff-muted">Няма данни.</p> : (
                 <div className="flex flex-col gap-3.5">
-                  {data.sources.map((s) => <ShareBar key={s.host} label={s.host} value={s.visitors} max={srcMax} />)}
+                  {data.sources.map((s) => (
+                    <ShareBar
+                      key={s.host}
+                      label={s.host}
+                      meta={`${s.visitors} · ${s.conversionPct}%`}
+                      value={s.visitors}
+                      max={srcMax}
+                    />
+                  ))}
                 </div>
               )}
             </section>
