@@ -1,4 +1,14 @@
-import { visitorHash, deviceFromUA, isBot, referrerHost, buildFunnel, conversionPct, buildWeekdayPattern } from './analytics.helpers';
+import {
+  visitorHash,
+  deviceFromUA,
+  isBot,
+  referrerHost,
+  buildFunnel,
+  conversionPct,
+  buildWeekdayPattern,
+  labelPage,
+  buildTopPages,
+} from './analytics.helpers';
 
 describe('analytics.helpers', () => {
   describe('visitorHash', () => {
@@ -80,6 +90,87 @@ describe('analytics.helpers', () => {
     });
     it('returns 100 when everyone converted', () => {
       expect(conversionPct(5, 5)).toBe(100);
+    });
+  });
+
+  describe('labelPage', () => {
+    it('maps known static routes to their Bulgarian label', () => {
+      expect(labelPage('/')).toEqual({ path: '/', label: 'Начало' });
+      expect(labelPage('/farmers')).toEqual({ path: '/farmers', label: 'Фермери' });
+      expect(labelPage('/farmers/')).toEqual({ path: '/farmers', label: 'Фермери' });
+    });
+    it('collapses dynamic routes to one bucket', () => {
+      expect(labelPage('/product/domati-cherry')).toEqual({ path: '/product', label: 'Продукт' });
+      expect(labelPage('/farmer/17232f9a')).toEqual({ path: '/farmer', label: 'Профил на фермер' });
+    });
+    it('strips query string and hash before matching', () => {
+      expect(labelPage('/shop?category=zelenchuci#top')).toEqual({ path: '/shop', label: 'Магазин' });
+    });
+    it('returns null for anything that is not a real storefront page', () => {
+      expect(labelPage('/diag')).toBeNull();
+      expect(labelPage('/js-fetch-diag')).toBeNull();
+      expect(labelPage('/wp-admin')).toBeNull();
+      expect(labelPage('/404')).toBeNull();
+    });
+  });
+
+  describe('buildTopPages', () => {
+    it('sums dynamic-route rows into one bucket and drops unknown paths (legacy fallback, no pageLabel)', () => {
+      const rows = [
+        { path: '/product/domati', pageLabel: null, views: 10 },
+        { path: '/product/krastavici', pageLabel: null, views: 5 },
+        { path: '/', pageLabel: null, views: 20 },
+        { path: '/diag', pageLabel: null, views: 999 },
+      ];
+      const top = buildTopPages(rows);
+      expect(top).toEqual([
+        { path: 'Начало', label: 'Начало', views: 20 },
+        { path: 'Продукт', label: 'Продукт', views: 15 },
+      ]);
+    });
+    it('sorts by views descending and respects the limit', () => {
+      const rows = [
+        { path: '/about', pageLabel: null, views: 1 },
+        { path: '/shop', pageLabel: null, views: 5 },
+        { path: '/farmers', pageLabel: null, views: 3 },
+      ];
+      expect(buildTopPages(rows, 2)).toEqual([
+        { path: 'Магазин', label: 'Магазин', views: 5 },
+        { path: 'Фермери', label: 'Фермери', views: 3 },
+      ]);
+    });
+    it('returns an empty array when nothing matches a real route', () => {
+      expect(buildTopPages([{ path: '/diag', pageLabel: null, views: 5 }])).toEqual([]);
+    });
+    it('prefers the storefront-supplied pageLabel over the path-shape guess', () => {
+      const rows = [
+        { path: '/bundles', pageLabel: 'Пакети', views: 7 },
+        { path: '/bundles/summer', pageLabel: 'Пакети', views: 3 },
+      ];
+      // '/bundles' isn't a chaika route at all (labelPage would drop it) — the
+      // explicit label is what makes an unknown-to-the-backend storefront route work.
+      expect(buildTopPages(rows)).toEqual([{ path: 'Пакети', label: 'Пакети', views: 10 }]);
+    });
+    it('falls back to labelPage for rows missing pageLabel, even when mixed with labeled rows', () => {
+      const rows = [
+        { path: '/farmers', pageLabel: null, views: 4 },
+        { path: '/farmer/xyz', pageLabel: 'Профил на фермер', views: 2 },
+      ];
+      const top = buildTopPages(rows);
+      expect(top).toEqual([
+        { path: 'Фермери', label: 'Фермери', views: 4 },
+        { path: 'Профил на фермер', label: 'Профил на фермер', views: 2 },
+      ]);
+    });
+    it('merges a legacy no-pageLabel row with a new explicit-pageLabel row for the same real page', () => {
+      // Regression: caught live when a site starts sending pageLabel while
+      // older rows without it are still inside the analytics window — both
+      // must resolve to the SAME "Начало" bucket, not fragment into two rows.
+      const rows = [
+        { path: '/', pageLabel: null, views: 5 }, // pre-rollout row, no pageLabel yet
+        { path: '/', pageLabel: 'Начало', views: 2 }, // post-rollout row
+      ];
+      expect(buildTopPages(rows)).toEqual([{ path: 'Начало', label: 'Начало', views: 7 }]);
     });
   });
 

@@ -533,6 +533,13 @@
       "when": 1783328403000,
       "tag": "0075_site_events",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1783328404000,
+      "tag": "0076_site_events_page_label",
+      "breakpoints": true
     }
   ]
 }

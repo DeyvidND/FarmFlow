@@ -648,7 +648,7 @@ export interface AnalyticsSummary {
   prevConversionPct: number;
   funnel: FunnelStep[];
   sources: { host: string; visitors: number; purchases: number; conversionPct: number }[];
-  topPages: { path: string; views: number }[];
+  topPages: { path: string; label: string; views: number }[];
   devices: { mobile: number; desktop: number };
   points: AnalyticsPoint[];
   weekdayPattern: WeekdayStat[];

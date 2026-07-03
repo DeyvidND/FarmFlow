@@ -99,6 +99,91 @@ export interface WeekdayRow {
   purchasers: number;
 }
 
+export interface PageLabel {
+  /** Canonical route key — dynamic segments collapsed (e.g. every `/product/:slug`
+   *  becomes `/product`), since farmers think in "the product page", not URLs. */
+  path: string;
+  label: string;
+}
+
+/** The chaika storefront's real routes (see `fermerski-pazar-chaika/src/pages`),
+ *  matched in order, with the Bulgarian label a farmer actually understands.
+ *  Keep in sync with that repo's page list when routes are added/removed. */
+const PAGE_ROUTES: { re: RegExp; path: string; label: string }[] = [
+  { re: /^\/$/, path: '/', label: 'Начало' },
+  { re: /^\/shop\/?$/, path: '/shop', label: 'Магазин' },
+  { re: /^\/about\/?$/, path: '/about', label: 'За нас' },
+  { re: /^\/articles\/?$/, path: '/articles', label: 'Статии' },
+  { re: /^\/articles\/[^/]+\/?$/, path: '/articles', label: 'Статии' },
+  { re: /^\/cart\/?$/, path: '/cart', label: 'Количка' },
+  { re: /^\/checkout\/?$/, path: '/checkout', label: 'Плащане' },
+  { re: /^\/confirmation\/?$/, path: '/confirmation', label: 'Потвърждение на поръчка' },
+  { re: /^\/contact\/?$/, path: '/contact', label: 'Контакти' },
+  { re: /^\/cookies\/?$/, path: '/cookies', label: 'Бисквитки' },
+  { re: /^\/faq\/?$/, path: '/faq', label: 'Въпроси и отговори' },
+  { re: /^\/farmer\/[^/]+\/?$/, path: '/farmer', label: 'Профил на фермер' },
+  { re: /^\/farmers\/?$/, path: '/farmers', label: 'Фермери' },
+  { re: /^\/orders\/?$/, path: '/orders', label: 'Поръчки' },
+  { re: /^\/privacy\/?$/, path: '/privacy', label: 'Поверителност' },
+  { re: /^\/product\/[^/]+\/?$/, path: '/product', label: 'Продукт' },
+  { re: /^\/reviews\/?$/, path: '/reviews', label: 'Отзиви' },
+  { re: /^\/terms\/?$/, path: '/terms', label: 'Условия' },
+];
+
+/** Maps a raw tracked path to a known storefront route + Bulgarian label, or
+ *  null when it isn't a real page a shopper can land on (bot probes, one-off
+ *  diagnostics, typos, the 404 page, query-string/hash noise). Query string
+ *  and hash are stripped before matching — the route list above is path-only. */
+export function labelPage(rawPath: string): PageLabel | null {
+  const path = rawPath.split('?')[0].split('#')[0];
+  const match = PAGE_ROUTES.find((r) => r.re.test(path));
+  return match ? { path: match.path, label: match.label } : null;
+}
+
+export interface TopPageRow {
+  path: string;
+  /** Storefront-supplied label from the event itself (site_events.page_label),
+   *  or null for events from a client build that predates this field. */
+  pageLabel: string | null;
+  views: number;
+}
+
+export interface TopPageStat {
+  path: string;
+  label: string;
+  views: number;
+}
+
+/** Collapses raw per-event view counts into up to `limit` pages with Bulgarian
+ *  labels, dynamic routes (every `/product/:slug`, every `/farmer/:id`) summed
+ *  into one bucket. Each storefront self-describes its pages via the
+ *  `pageLabel` it sends with the event (see chaika's `Layout.astro`), so this
+ *  works for any storefront's own route shape without the backend hardcoding a
+ *  route list per site. Falls back to the `labelPage()` path-shape guess only
+ *  for events from an older client build that doesn't send `pageLabel` yet;
+ *  anything neither self-describes nor matches a known chaika route (bot
+ *  probes, diagnostics, the 404 page, query noise) is dropped rather than
+ *  shown as a confusing raw URL.
+ *
+ *  Buckets by the resolved LABEL, not the path — a legacy row for `/` (no
+ *  `pageLabel`, resolved via `labelPage` to "Начало") must land in the same
+ *  bucket as a new row that explicitly sends `pageLabel: "Начало"`, or the
+ *  same real page fragments into two "duplicate" entries the moment a site's
+ *  client build starts sending labels while older rows are still in the
+ *  window. */
+export function buildTopPages(rows: TopPageRow[], limit = 6): TopPageStat[] {
+  const totals = new Map<string, TopPageStat>();
+  for (const row of rows) {
+    const explicit = row.pageLabel?.trim();
+    const label = explicit || labelPage(row.path)?.label;
+    if (!label) continue;
+    const existing = totals.get(label);
+    if (existing) existing.views += row.views;
+    else totals.set(label, { path: label, label, views: row.views });
+  }
+  return [...totals.values()].sort((a, b) => b.views - a.views).slice(0, limit);
+}
+
 /** BG short weekday labels, Monday-first (matches the `DOW_SHORT` convention
  *  already used in stats-client.tsx). */
 const DOW_LABELS = ['Пон', 'Вто', 'Сря', 'Чет', 'Пет', 'Съб', 'Нед'];

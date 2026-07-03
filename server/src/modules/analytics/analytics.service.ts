@@ -20,10 +20,12 @@ import {
   buildFunnel,
   conversionPct,
   buildWeekdayPattern,
+  buildTopPages,
   ANALYTICS_SPARSE_MIN,
   type FunnelKey,
   type FunnelStep,
   type WeekdayStat,
+  type TopPageStat,
 } from './analytics.helpers';
 
 // ── Storefront analytics: cookieless event ingest + the aggregated summary the
@@ -53,6 +55,7 @@ const ANALYTICS_TTL = 90;
 export interface TrackBody {
   type: FunnelKey;
   path?: string;
+  pageLabel?: string;
   referrer?: string;
   productId?: string;
   orderId?: string;
@@ -77,7 +80,7 @@ export interface AnalyticsSummary {
   prevConversionPct: number;
   funnel: FunnelStep[];
   sources: { host: string; visitors: number; purchases: number; conversionPct: number }[];
-  topPages: { path: string; views: number }[];
+  topPages: TopPageStat[];
   devices: { mobile: number; desktop: number };
   points: { t: string; visitors: number; pageViews: number; purchases: number }[];
   weekdayPattern: WeekdayStat[];
@@ -126,6 +129,7 @@ export class AnalyticsService {
         visitorHash: hash,
         eventType: body.type,
         path: body.path?.slice(0, 512) ?? null,
+        pageLabel: body.pageLabel?.trim().slice(0, 60) || null,
         referrerHost: host,
         productId: body.productId ?? null,
         orderId: body.orderId ?? null,
@@ -219,16 +223,21 @@ export class AnalyticsService {
       .orderBy(desc(sql`2`))
       .limit(6);
 
-    const topPagesP = this.db
+    // Raw exact-path counts, generously capped — the real top-6-known-routes
+    // aggregation (collapsing dynamic segments, dropping non-route paths)
+    // happens in JS via buildTopPages() below, so this just needs to comfortably
+    // cover a small storefront's path cardinality in one window.
+    const topPagesRawP = this.db
       .select({
         path: sql<string>`coalesce(${siteEvents.path}, '/')`,
+        pageLabel: siteEvents.pageLabel,
         views: sql<number>`count(*)::int`,
       })
       .from(siteEvents)
       .where(and(inWin, pv))
-      .groupBy(sql`1`)
-      .orderBy(desc(sql`2`))
-      .limit(6);
+      .groupBy(sql`1`, sql`2`)
+      .orderBy(desc(sql`3`))
+      .limit(500);
 
     const devicesP = this.db
       .select({
@@ -262,14 +271,15 @@ export class AnalyticsService {
       .groupBy(sql`1`)
       .orderBy(sql`1`);
 
-    const [funnelRows, sources, topPages, deviceRows, seriesRows, weekdayRows] = await Promise.all([
+    const [funnelRows, sources, topPagesRaw, deviceRows, seriesRows, weekdayRows] = await Promise.all([
       funnelP,
       sourcesP,
-      topPagesP,
+      topPagesRawP,
       devicesP,
       seriesP,
       weekdayP,
     ]);
+    const topPages = buildTopPages(topPagesRaw);
 
     const counts: Partial<Record<FunnelKey, number>> = {};
     const prevCounts: Partial<Record<FunnelKey, number>> = {};

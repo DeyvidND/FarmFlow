@@ -245,7 +245,7 @@ export function AnalyticsClient({ initial, role = 'admin' }: { initial: Analytic
               <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">Кои страници се гледат най-много.</p>
               {data.topPages.length === 0 ? <p className="text-[13px] text-ff-muted">Няма данни.</p> : (
                 <div className="flex flex-col gap-3.5">
-                  {data.topPages.map((p) => <ShareBar key={p.path} label={p.path} value={p.views} max={pageMax} />)}
+                  {data.topPages.map((p) => <ShareBar key={p.path} label={p.label} value={p.views} max={pageMax} />)}
                 </div>
               )}
             </section>

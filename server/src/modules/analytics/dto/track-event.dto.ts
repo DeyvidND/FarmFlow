@@ -11,6 +11,15 @@ export class TrackEventDto {
   @MaxLength(512)
   path?: string;
 
+  // Storefront-supplied human label for this page (e.g. "Продукт", "Фермери"),
+  // set by the page itself — see Layout.astro's `pageLabel` prop in the
+  // chaika/template storefronts. Lets "Топ страници" group/label pages without
+  // the backend hardcoding a per-storefront route list.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  pageLabel?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(2048)

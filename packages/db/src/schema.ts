@@ -445,6 +445,14 @@ export const siteEvents = pgTable(
     // One of: page_view | product_view | add_to_cart | checkout_start | purchase.
     eventType: text('event_type').notNull(),
     path: text('path'),
+    // Storefront-supplied human label for this page (e.g. "Продукт", "Фермери"),
+    // set by the page itself via <Layout pageLabel="...">. Lets "Топ страници"
+    // group/label pages without the backend hardcoding a per-storefront route
+    // list — every storefront (chaika, template-factory sites, future ones)
+    // self-describes its own pages. Null for older clients that haven't been
+    // rebuilt with this yet; analytics.helpers.ts falls back to a path-shape
+    // guess (`labelPage()`) in that case.
+    pageLabel: text('page_label'),
     // Referrer HOST only (no full URL / query) — privacy.
     referrerHost: text('referrer_host'),
     // No FK on productId/orderId (unlike orderItems): analytics rows must
