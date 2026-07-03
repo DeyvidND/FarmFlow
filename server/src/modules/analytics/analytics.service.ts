@@ -190,6 +190,21 @@ export class AnalyticsService {
       .where(and(inWin, sql`${siteEvents.eventType} = 'purchase'`));
     const purchasedHashes = purchaserRows.map((r) => r.h);
 
+    // Drizzle's `sql` tagged template does NOT serialize a plain JS array as a
+    // Postgres array parameter the way node-postgres does for a direct
+    // `client.query(text, [arr])` call — interpolating `${purchasedHashes}`
+    // straight into `= ANY(...)` sends a value Postgres can't parse ("malformed
+    // array literal"). Build an explicit `IN (...)` value list instead, each
+    // hash its own bound param; `false` when there are no purchasers at all
+    // (an empty `IN ()` is invalid SQL).
+    const isPurchaser =
+      purchasedHashes.length > 0
+        ? sql`${siteEvents.visitorHash} in (${sql.join(
+            purchasedHashes.map((h) => sql`${h}`),
+            sql`, `,
+          )})`
+        : sql`false`;
+
     // ── Funnel + headline: distinct visitors per event type, current + previous
     //    window in one scan (mirrors stats.service.ts's aggP current+previous fusion). ──
     const funnelP = this.db
@@ -209,7 +224,7 @@ export class AnalyticsService {
       .select({
         host: sql<string>`coalesce(${siteEvents.referrerHost}, 'директно')`,
         visitors: sql<number>`count(distinct ${siteEvents.visitorHash})::int`,
-        purchasers: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${siteEvents.visitorHash} = ANY(${purchasedHashes}))::int`,
+        purchasers: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${isPurchaser})::int`,
       })
       .from(siteEvents)
       .where(and(inWin, pv))
@@ -241,7 +256,7 @@ export class AnalyticsService {
       .select({
         pgDow: sql<number>`extract(dow from ${localTs})::int`,
         visitors: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv})::int`,
-        purchasers: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv} and ${siteEvents.visitorHash} = ANY(${purchasedHashes}))::int`,
+        purchasers: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv} and ${isPurchaser})::int`,
       })
       .from(siteEvents)
       .where(inWin)
