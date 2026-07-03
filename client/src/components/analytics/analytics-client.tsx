@@ -74,13 +74,16 @@ function Funnel({ steps }: { steps: AnalyticsSummary['funnel'] }) {
   );
 }
 
+/** Minimum visitors a weekday needs before it's eligible to be crowned "best" —
+ *  lower than the server's ANALYTICS_SPARSE_MIN (30, the whole-window threshold)
+ *  since a single weekday is naturally a fraction of total traffic. Without
+ *  this, a single visitor who converts can "win" with 100% over a day that
+ *  actually drove real volume (e.g. 200 visitors at 20% conversion). */
+const MIN_VISITORS_FOR_BEST = 5;
+
 function WeekdayBars({ pattern }: { pattern: AnalyticsSummary['weekdayPattern'] }) {
   const max = Math.max(1, ...pattern.map((d) => d.visitors));
   const hasData = pattern.some((d) => d.visitors > 0);
-  // Require a minimum sample before a day can be crowned "best" — otherwise a
-  // single visitor who happens to convert can "win" with 100% over a day that
-  // actually drove real volume (e.g. 200 visitors at 20% conversion).
-  const MIN_VISITORS_FOR_BEST = 5;
   const best = hasData
     ? pattern.reduce(
         (a, b) => (b.visitors >= MIN_VISITORS_FOR_BEST && b.conversionPct > a.conversionPct ? b : a),
