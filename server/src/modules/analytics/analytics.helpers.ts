@@ -77,3 +77,46 @@ export function buildFunnel(counts: Partial<Record<FunnelKey, number>>): FunnelS
 
 /** Below this many visitors in the window the funnel/sources are noise. */
 export const ANALYTICS_SPARSE_MIN = 30;
+
+/** Purchase conversion rate, rounded to one decimal. 0 when there are no
+ *  visitors to convert (avoids NaN/Infinity from a divide-by-zero). */
+export function conversionPct(purchasers: number, visitors: number): number {
+  return visitors > 0 ? Math.round((purchasers / visitors) * 1000) / 10 : 0;
+}
+
+export interface WeekdayStat {
+  label: string;
+  visitors: number;
+  purchasers: number;
+  conversionPct: number;
+}
+
+/** One grouped row from the weekday aggregation query, before reindexing.
+ *  `pgDow` is Postgres's `extract(dow ...)` value: 0=Sunday..6=Saturday. */
+export interface WeekdayRow {
+  pgDow: number;
+  visitors: number;
+  purchasers: number;
+}
+
+/** BG short weekday labels, Monday-first (matches the `DOW_SHORT` convention
+ *  already used in stats-client.tsx). */
+const DOW_LABELS = ['Пон', 'Вто', 'Сря', 'Чет', 'Пет', 'Съб', 'Нед'];
+
+/** Postgres's extract(dow) is 0=Sunday..6=Saturday. This is the Monday-first
+ *  reindex order: output position i pulls from raw dow value PG_DOW_ORDER[i]. */
+const PG_DOW_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+/** Reindexes raw Postgres dow-grouped rows into a fixed 7-entry Monday-first
+ *  array, filling any day with no matching row as zero. Array position is the
+ *  day (same fixed-order convention as `buildFunnel`) — no numeric day field
+ *  is exposed to callers. */
+export function buildWeekdayPattern(rows: WeekdayRow[]): WeekdayStat[] {
+  const byDow = new Map(rows.map((r) => [r.pgDow, r]));
+  return PG_DOW_ORDER.map((pgDow, i) => {
+    const r = byDow.get(pgDow);
+    const visitors = r?.visitors ?? 0;
+    const purchasers = r?.purchasers ?? 0;
+    return { label: DOW_LABELS[i], visitors, purchasers, conversionPct: conversionPct(purchasers, visitors) };
+  });
+}

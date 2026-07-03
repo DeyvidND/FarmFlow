@@ -1,4 +1,4 @@
-import { visitorHash, deviceFromUA, isBot, referrerHost, buildFunnel } from './analytics.helpers';
+import { visitorHash, deviceFromUA, isBot, referrerHost, buildFunnel, conversionPct, buildWeekdayPattern } from './analytics.helpers';
 
 describe('analytics.helpers', () => {
   describe('visitorHash', () => {
@@ -68,6 +68,38 @@ describe('analytics.helpers', () => {
     it('defaults missing steps to 0', () => {
       const steps = buildFunnel({ page_view: 10 });
       expect(steps[3].visitors).toBe(0);
+    });
+  });
+
+  describe('conversionPct', () => {
+    it('computes a rounded percentage', () => {
+      expect(conversionPct(1, 3)).toBe(33.3);
+    });
+    it('returns 0 for zero visitors (no divide-by-zero)', () => {
+      expect(conversionPct(0, 0)).toBe(0);
+    });
+    it('returns 100 when everyone converted', () => {
+      expect(conversionPct(5, 5)).toBe(100);
+    });
+  });
+
+  describe('buildWeekdayPattern', () => {
+    it('reindexes to a Monday-first 7-entry array and fills missing days with zero', () => {
+      const rows = [
+        { pgDow: 5, visitors: 20, purchasers: 4 }, // Friday
+        { pgDow: 0, visitors: 10, purchasers: 1 }, // Sunday
+      ];
+      const pattern = buildWeekdayPattern(rows);
+      expect(pattern).toHaveLength(7);
+      expect(pattern.map((p) => p.label)).toEqual(['Пон', 'Вто', 'Сря', 'Чет', 'Пет', 'Съб', 'Нед']);
+      expect(pattern[4]).toEqual({ label: 'Пет', visitors: 20, purchasers: 4, conversionPct: 20 });
+      expect(pattern[6]).toEqual({ label: 'Нед', visitors: 10, purchasers: 1, conversionPct: 10 });
+      expect(pattern[0]).toEqual({ label: 'Пон', visitors: 0, purchasers: 0, conversionPct: 0 });
+    });
+    it('handles an empty input (no rows at all)', () => {
+      const pattern = buildWeekdayPattern([]);
+      expect(pattern).toHaveLength(7);
+      expect(pattern.every((p) => p.visitors === 0 && p.conversionPct === 0)).toBe(true);
     });
   });
 });
