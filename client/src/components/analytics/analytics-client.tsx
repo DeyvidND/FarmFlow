@@ -122,7 +122,7 @@ export function AnalyticsClient({ initial, role = 'admin' }: { initial: Analytic
             {data.points.length > 0 ? (
               <AnalyticsTrendChart points={data.points} bucket={data.bucket} metric={metric} />
             ) : (
-              <div className="grid h-[240px] place-items-center text-sm text-ff-muted">
+              <div className="grid h-[276px] place-items-center text-sm text-ff-muted">
                 Няма данни за периода.
               </div>
             )}
