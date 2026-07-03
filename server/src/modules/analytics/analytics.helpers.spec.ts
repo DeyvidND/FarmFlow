@@ -56,8 +56,16 @@ describe('analytics.helpers', () => {
   });
 
   describe('referrerHost', () => {
-    it('extracts the host', () => {
-      expect(referrerHost('https://www.google.com/search?q=x')).toBe('www.google.com');
+    it('extracts the host and strips leading www.', () => {
+      expect(referrerHost('https://www.google.com/search?q=x')).toBe('google.com');
+      expect(referrerHost('https://bing.com/search')).toBe('bing.com');
+    });
+    it('collapses known link-shim/mobile subdomains to their canonical host', () => {
+      expect(referrerHost('https://m.facebook.com/x')).toBe('facebook.com');
+      expect(referrerHost('https://l.facebook.com/x')).toBe('facebook.com');
+      expect(referrerHost('https://lm.facebook.com/x')).toBe('facebook.com');
+      expect(referrerHost('https://www.facebook.com/x')).toBe('facebook.com');
+      expect(referrerHost('https://m.instagram.com/x')).toBe('instagram.com');
     });
     it('returns null for empty / garbage / same-site handled by caller', () => {
       expect(referrerHost('')).toBeNull();
@@ -66,8 +74,8 @@ describe('analytics.helpers', () => {
   });
 
   describe('buildFunnel', () => {
-    it('orders the 5 steps and fills counts from the map', () => {
-      const steps = buildFunnel({ page_view: 100, product_view: 60, add_to_cart: 25, checkout_start: 12, purchase: 7 });
+    it('orders the 5 steps and fills counts from the deepest-stage-reached array', () => {
+      const steps = buildFunnel([100, 60, 25, 12, 7]);
       expect(steps.map((s) => s.key)).toEqual([
         'page_view', 'product_view', 'add_to_cart', 'checkout_start', 'purchase',
       ]);
@@ -76,9 +84,16 @@ describe('analytics.helpers', () => {
       expect(steps[0].label).toBe('Влезли в сайта');
     });
     it('defaults missing steps to 0', () => {
-      const steps = buildFunnel({ page_view: 10 });
+      const steps = buildFunnel([10]);
       expect(steps[3].visitors).toBe(0);
     });
+    // Note: buildFunnel is a pure formatter — it faithfully reflects whatever
+    // stageCounts it's given. The monotonic-non-increasing guarantee ("never
+    // shows a step exceeding the one before it", the actual fix for the old
+    // "150% от предната стъпка" bug) comes from HOW analytics.service.ts
+    // computes stageCounts (cumulative counts from a single per-visitor
+    // deepest-stage max, not independent per-event-type counts) — verified
+    // live in the E2E pass, not here.
   });
 
   describe('conversionPct', () => {

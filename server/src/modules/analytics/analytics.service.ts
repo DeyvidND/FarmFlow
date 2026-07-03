@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, gte, lt, sql, desc, inArray } from 'drizzle-orm';
+import { and, eq, gte, lt, sql, desc } from 'drizzle-orm';
 import { type Database, siteEvents } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -21,6 +21,7 @@ import {
   conversionPct,
   buildWeekdayPattern,
   buildTopPages,
+  FUNNEL_ORDER,
   ANALYTICS_SPARSE_MIN,
   type FunnelKey,
   type FunnelStep,
@@ -183,42 +184,87 @@ export class AnalyticsService {
     const pv = sql`${siteEvents.eventType} = 'page_view'`;
     const localTs = sql`(${siteEvents.createdAt} at time zone 'UTC' at time zone ${BG_TZ})`;
 
-    // Visitor-hashes that purchased anywhere in the window — the correctness
-    // anchor for source/weekday conversion. A purchase event's OWN referrer/day
-    // is the checkout page's, not the original channel/day that brought the
-    // visitor in, so "did this visitor_hash purchase at all" (not "does this
-    // purchase row's own referrer match") is the only correct attribution.
-    const purchaserRows = await this.db
-      .selectDistinct({ h: siteEvents.visitorHash })
+    // Buyers subquery instead of an app-collected hash list + inArray(): the
+    // old approach ran a query BEFORE Promise.all, shipped every purchaser
+    // hash back to Node, then re-sent them as an IN-list — a sequential
+    // round-trip plus an N-hash payload crossing the wire twice. A join keeps
+    // it entirely server-side and lets this run inside the same Promise.all
+    // as everything else.
+    const buyers = this.db
+      .selectDistinct({ visitorHash: siteEvents.visitorHash })
       .from(siteEvents)
-      .where(and(inWin, sql`${siteEvents.eventType} = 'purchase'`));
-    const purchasedHashes = purchaserRows.map((r) => r.h);
+      .where(and(inWin, sql`${siteEvents.eventType} = 'purchase'`))
+      .as('buyers');
 
-    const isPurchaser = inArray(siteEvents.visitorHash, purchasedHashes);
+    // ── Funnel: "deepest stage reached" per visitor, not independent per-event-
+    //    type counts. add_to_cart fires from the shop listing too (not only the
+    //    product page), so a visitor can add-to-cart without ever firing
+    //    product_view — independent counts let a later step show MORE visitors
+    //    than an earlier one ("150% от предната стъпка", a real bug hit live).
+    //    Deepest-stage counts are monotonically non-increasing by construction:
+    //    step i's count is "visitors whose deepest event ranked >= i", so step
+    //    i+1 can never exceed step i. ──
+    // The THEN branches are bound params with no type context, so Postgres
+    // resolves the whole CASE as `text` — an explicit ::int cast is required
+    // or the later `cur_deepest >= 0` comparisons fail with "operator does not
+    // exist: text >= integer" (caught live against real Postgres).
+    const stageWhens = FUNNEL_ORDER.map((s, i) => sql`when ${siteEvents.eventType} = ${s.key} then ${i}`);
+    const stageRank = sql`(case ${sql.join(stageWhens, sql` `)} end)::int`;
 
-    // ── Funnel + headline: distinct visitors per event type, current + previous
-    //    window in one scan (mirrors stats.service.ts's aggP current+previous fusion). ──
-    const funnelP = this.db
+    const perVisitor = this.db
       .select({
-        type: siteEvents.eventType,
-        visitors: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${siteEvents.createdAt} >= ${since})::int`,
-        prevVisitors: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${siteEvents.createdAt} < ${since})::int`,
-        rows: sql<number>`count(*) filter (where ${siteEvents.createdAt} >= ${since})::int`,
+        visitorHash: siteEvents.visitorHash,
+        curDeepest: sql<number>`max(${stageRank}) filter (where ${siteEvents.createdAt} >= ${since})`.as('cur_deepest'),
+        prevDeepest: sql<number>`max(${stageRank}) filter (where ${siteEvents.createdAt} < ${since})`.as('prev_deepest'),
+        curPageViewRows: sql<number>`count(*) filter (where ${pv} and ${siteEvents.createdAt} >= ${since})`.as(
+          'cur_pv_rows',
+        ),
       })
       .from(siteEvents)
       .where(
         and(eq(siteEvents.tenantId, tenantId), gte(siteEvents.createdAt, prevSince), lt(siteEvents.createdAt, toExcl)),
       )
-      .groupBy(siteEvents.eventType);
+      .groupBy(siteEvents.visitorHash)
+      .as('per_visitor');
 
-    const sourcesP = this.db
+    const stageCountExprs = FUNNEL_ORDER.map(
+      (_, i) => sql<number>`count(*) filter (where ${perVisitor.curDeepest} >= ${i})::int`,
+    );
+    const funnelP = this.db
       .select({
-        host: sql<string>`coalesce(${siteEvents.referrerHost}, 'директно')`,
-        visitors: sql<number>`count(distinct ${siteEvents.visitorHash})::int`,
-        purchasers: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${isPurchaser})::int`,
+        stages: sql<number[]>`array[${sql.join(stageCountExprs, sql`, `)}]::int[]`,
+        prevVisitors: sql<number>`count(*) filter (where ${perVisitor.prevDeepest} >= 0)::int`,
+        prevPurchasers: sql<number>`count(*) filter (where ${perVisitor.prevDeepest} >= ${FUNNEL_ORDER.length - 1})::int`,
+        pageViewRows: sql<number>`coalesce(sum(${perVisitor.curPageViewRows}), 0)::int`,
+      })
+      .from(perVisitor);
+
+    // First-touch, one source per visitor: the earliest page_view's referrer
+    // host, external preferred over null/direct. Sources previously counted
+    // distinct visitors PER HOST independently, so one visitor with two
+    // referrers in the window was counted under both — the sources list could
+    // sum to more than the headline visitor count. This makes sources
+    // partition visitors instead.
+    const firstTouch = this.db
+      .select({
+        visitorHash: siteEvents.visitorHash,
+        host: sql<string | null>`(array_agg(${siteEvents.referrerHost} order by (${siteEvents.referrerHost} is null) asc, ${siteEvents.createdAt} asc))[1]`.as(
+          'host',
+        ),
       })
       .from(siteEvents)
       .where(and(inWin, pv))
+      .groupBy(siteEvents.visitorHash)
+      .as('first_touch');
+
+    const sourcesP = this.db
+      .select({
+        host: sql<string>`coalesce(${firstTouch.host}, 'директно')`,
+        visitors: sql<number>`count(*)::int`,
+        purchasers: sql<number>`count(${buyers.visitorHash})::int`,
+      })
+      .from(firstTouch)
+      .leftJoin(buyers, eq(firstTouch.visitorHash, buyers.visitorHash))
       .groupBy(sql`1`)
       .orderBy(desc(sql`2`))
       .limit(6);
@@ -252,9 +298,10 @@ export class AnalyticsService {
       .select({
         pgDow: sql<number>`extract(dow from ${localTs})::int`,
         visitors: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv})::int`,
-        purchasers: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv} and ${isPurchaser})::int`,
+        purchasers: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv} and ${buyers.visitorHash} is not null)::int`,
       })
       .from(siteEvents)
+      .leftJoin(buyers, eq(siteEvents.visitorHash, buyers.visitorHash))
       .where(inWin)
       .groupBy(sql`1`);
 
@@ -281,20 +328,20 @@ export class AnalyticsService {
     ]);
     const topPages = buildTopPages(topPagesRaw);
 
-    const counts: Partial<Record<FunnelKey, number>> = {};
-    const prevCounts: Partial<Record<FunnelKey, number>> = {};
-    let pageViewRows = 0;
-    for (const r of funnelRows) {
-      counts[r.type as FunnelKey] = r.visitors;
-      prevCounts[r.type as FunnelKey] = r.prevVisitors;
-      if (r.type === 'page_view') pageViewRows = r.rows;
-    }
-    const funnel = buildFunnel(counts);
+    // funnelP is a whole-table aggregate over `per_visitor` (no GROUP BY) — one row.
+    const funnelRow = funnelRows[0] ?? {
+      stages: FUNNEL_ORDER.map(() => 0),
+      prevVisitors: 0,
+      prevPurchasers: 0,
+      pageViewRows: 0,
+    };
+    const funnel = buildFunnel(funnelRow.stages);
 
-    const visitors = counts.page_view ?? 0;
-    const prevVisitors = prevCounts.page_view ?? 0;
-    const purchasesCur = counts.purchase ?? 0;
-    const purchasesPrev = prevCounts.purchase ?? 0;
+    const visitors = funnelRow.stages[0] ?? 0;
+    const prevVisitors = funnelRow.prevVisitors;
+    const purchasesCur = funnelRow.stages[FUNNEL_ORDER.length - 1] ?? 0;
+    const purchasesPrev = funnelRow.prevPurchasers;
+    const pageViewRows = funnelRow.pageViewRows;
 
     const devices = {
       mobile: deviceRows.find((d) => d.device === 'mobile')?.visitors ?? 0,

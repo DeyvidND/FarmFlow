@@ -37,15 +37,35 @@ export function isBot(ua: string): boolean {
   return BOT_RE.test(ua);
 }
 
-/** Host of a referrer URL, or null if empty/unparseable. Same-site filtering is
- *  the caller's job (it knows the storefront host). */
+// Known link-shim / mobile subdomains that are the SAME channel as their
+// canonical host — without this, one traffic source fragments into several
+// near-identical "Откъде идват" rows (m.facebook.com, l.facebook.com,
+// lm.facebook.com all seen live for what is just "Facebook").
+const HOST_ALIASES: [RegExp, string][] = [
+  [/(^|\.)facebook\.com$/, 'facebook.com'],
+  [/(^|\.)instagram\.com$/, 'instagram.com'],
+];
+
+/** Host of a referrer URL, or null if empty/unparseable — normalized so the
+ *  same real-world channel always maps to one row: leading `www.` stripped,
+ *  and known link-shim/mobile subdomains collapsed to their canonical host
+ *  (see HOST_ALIASES). Same-site filtering is the caller's job (it knows the
+ *  storefront host) — chaika's own beacon also drops same-host referrers
+ *  client-side before they're ever sent. */
 export function referrerHost(referrer: string | null | undefined): string | null {
   if (!referrer) return null;
+  let host: string;
   try {
-    return new URL(referrer).host || null;
+    host = new URL(referrer).host;
   } catch {
     return null;
   }
+  if (!host) return null;
+  host = host.replace(/^www\./, '');
+  for (const [re, canonical] of HOST_ALIASES) {
+    if (re.test(host)) return canonical;
+  }
+  return host;
 }
 
 export type FunnelKey =
@@ -61,9 +81,10 @@ export interface FunnelStep {
   visitors: number;
 }
 
-/** The 5 funnel steps in order, with BG labels. Counts come from a
- *  {eventType → distinctVisitors} map; missing steps default to 0. */
-const FUNNEL_ORDER: { key: FunnelKey; label: string }[] = [
+/** The 5 funnel steps in order of increasing depth, with BG labels. Exported
+ *  so the query layer can build a matching stage-rank CASE expression without
+ *  duplicating this order. */
+export const FUNNEL_ORDER: { key: FunnelKey; label: string }[] = [
   { key: 'page_view', label: 'Влезли в сайта' },
   { key: 'product_view', label: 'Разгледали продукт' },
   { key: 'add_to_cart', label: 'Добавили в кошница' },
@@ -71,8 +92,16 @@ const FUNNEL_ORDER: { key: FunnelKey; label: string }[] = [
   { key: 'purchase', label: 'Купили' },
 ];
 
-export function buildFunnel(counts: Partial<Record<FunnelKey, number>>): FunnelStep[] {
-  return FUNNEL_ORDER.map(({ key, label }) => ({ key, label, visitors: counts[key] ?? 0 }));
+/** Builds the 5 funnel steps from "deepest stage reached" counts — i.e.
+ *  `stageCounts[i]` = number of visitors whose deepest event was AT LEAST
+ *  step i (so a visitor who only added to cart, without ever firing
+ *  product_view — real traffic, e.g. an add-to-cart button on the shop
+ *  listing page — still counts toward "Разгледали продукт"). This makes the
+ *  funnel monotonically non-increasing BY CONSTRUCTION: unlike counting each
+ *  event type independently (the old approach), a later step can never show
+ *  MORE visitors than an earlier one. */
+export function buildFunnel(stageCounts: number[]): FunnelStep[] {
+  return FUNNEL_ORDER.map(({ key, label }, i) => ({ key, label, visitors: stageCounts[i] ?? 0 }));
 }
 
 /** Below this many visitors in the window the funnel/sources are noise. */
