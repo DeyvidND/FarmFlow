@@ -624,6 +624,14 @@ export interface AnalyticsPoint {
   t: string;
   visitors: number;
   pageViews: number;
+  purchases: number;
+}
+
+export interface WeekdayStat {
+  label: string;
+  visitors: number;
+  purchasers: number;
+  conversionPct: number;
 }
 
 export interface AnalyticsSummary {
@@ -639,10 +647,11 @@ export interface AnalyticsSummary {
   conversionPct: number;
   prevConversionPct: number;
   funnel: FunnelStep[];
-  sources: { host: string; visitors: number }[];
+  sources: { host: string; visitors: number; purchases: number; conversionPct: number }[];
   topPages: { path: string; views: number }[];
   devices: { mobile: number; desktop: number };
   points: AnalyticsPoint[];
+  weekdayPattern: WeekdayStat[];
   /** Too few visitors for the breakdowns to mean anything yet. */
   sparse: boolean;
 }
