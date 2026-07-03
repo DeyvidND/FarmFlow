@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, gte, lt, sql, desc } from 'drizzle-orm';
+import { and, eq, gte, lt, sql, desc, inArray } from 'drizzle-orm';
 import { type Database, siteEvents } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -190,20 +190,7 @@ export class AnalyticsService {
       .where(and(inWin, sql`${siteEvents.eventType} = 'purchase'`));
     const purchasedHashes = purchaserRows.map((r) => r.h);
 
-    // Drizzle's `sql` tagged template does NOT serialize a plain JS array as a
-    // Postgres array parameter the way node-postgres does for a direct
-    // `client.query(text, [arr])` call — interpolating `${purchasedHashes}`
-    // straight into `= ANY(...)` sends a value Postgres can't parse ("malformed
-    // array literal"). Build an explicit `IN (...)` value list instead, each
-    // hash its own bound param; `false` when there are no purchasers at all
-    // (an empty `IN ()` is invalid SQL).
-    const isPurchaser =
-      purchasedHashes.length > 0
-        ? sql`${siteEvents.visitorHash} in (${sql.join(
-            purchasedHashes.map((h) => sql`${h}`),
-            sql`, `,
-          )})`
-        : sql`false`;
+    const isPurchaser = inArray(siteEvents.visitorHash, purchasedHashes);
 
     // ── Funnel + headline: distinct visitors per event type, current + previous
     //    window in one scan (mirrors stats.service.ts's aggP current+previous fusion). ──
