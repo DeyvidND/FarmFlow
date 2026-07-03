@@ -74,6 +74,46 @@ function Funnel({ steps }: { steps: AnalyticsSummary['funnel'] }) {
   );
 }
 
+function WeekdayBars({ pattern }: { pattern: AnalyticsSummary['weekdayPattern'] }) {
+  const max = Math.max(1, ...pattern.map((d) => d.visitors));
+  const hasData = pattern.some((d) => d.visitors > 0);
+  const best = hasData
+    ? pattern.reduce((a, b) => (b.visitors > 0 && b.conversionPct > a.conversionPct ? b : a), pattern[0])
+    : null;
+  const hasBestConversion = !!best && best.conversionPct > 0;
+
+  if (!hasData) {
+    return <p className="text-[13px] text-ff-muted">Още няма данни за периода.</p>;
+  }
+
+  return (
+    <div>
+      {hasBestConversion && (
+        <p className="mb-3 text-[13px] font-semibold text-ff-ink-2">
+          Най-силен ден: <span className="text-ff-green-700">{best!.label}</span> — {best!.conversionPct}% конверсия
+        </p>
+      )}
+      <div className="flex items-end gap-2" style={{ height: 120 }}>
+        {pattern.map((d) => {
+          const h = Math.max(4, Math.round((d.visitors / max) * 100));
+          const isBest = hasBestConversion && d === best;
+          return (
+            <div key={d.label} className="flex flex-1 flex-col items-center gap-1.5">
+              <div className="flex h-[92px] w-full items-end">
+                <div
+                  className={cn('w-full rounded-t-md transition-[height]', isBest ? 'bg-ff-green-600' : 'bg-ff-border-2')}
+                  style={{ height: `${h}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-bold text-ff-muted">{d.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function AnalyticsClient({ initial, role = 'admin' }: { initial: AnalyticsSummary | null; role?: string }) {
   const initPreset: StatsRange = initial && initial.range !== 'custom' ? (initial.range as StatsRange) : '30d';
   const [range, setRange] = useState<StatsRange>(initPreset);
@@ -200,6 +240,17 @@ export function AnalyticsClient({ initial, role = 'admin' }: { initial: Analytic
               <ShareBar Icon={Smartphone} label="Телефон" value={data.devices.mobile} max={Math.max(1, devTotal)} />
               <ShareBar Icon={Monitor} label="Компютър" value={data.devices.desktop} max={Math.max(1, devTotal)} />
             </div>
+          </section>
+
+          <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
+            <div className="mb-1 flex items-center gap-2">
+              <CalendarDays size={17} className="text-ff-green-700" />
+              <h2 className="text-[16.5px] font-extrabold">Дни от седмицата</h2>
+            </div>
+            <p className="mb-4 text-[13px] leading-[1.45] text-ff-muted">
+              Кой ден носи най-много посещения и поръчки.
+            </p>
+            <WeekdayBars pattern={data.weekdayPattern} />
           </section>
         </div>
       )}
