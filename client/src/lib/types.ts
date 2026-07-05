@@ -697,6 +697,9 @@ export interface Order {
   paidAt: string | null;
   totalStotinki: number;
   deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address';
+  codOutcome: 'received' | 'refused' | null;
+  codOutcomeReason: string | null;
+  codOutcomeAt: string | null;
   deliveryAddress: string | null;
   /** Block/entrance/floor/flat detail (бл./вх.), kept separate from the street. */
   deliveryNote: string | null;

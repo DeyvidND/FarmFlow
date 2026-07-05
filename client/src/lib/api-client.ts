@@ -544,6 +544,13 @@ export const listOrders = (opts?: { page?: number; limit?: number; q?: string; s
 export const updateOrderStatus = (id: string, status: string) =>
   apiFetch<Order>(`orders/${id}/status`, { method: 'PATCH', ...json({ status }) }, 'Неуспешна промяна на статуса');
 
+export const setCodOutcome = (id: string, outcome: 'received' | 'refused', reason?: string) =>
+  apiFetch<Order>(
+    `orders/${id}/cod-outcome`,
+    { method: 'PATCH', ...json({ outcome, ...(reason ? { reason } : {}) }) },
+    'Неуспешна промяна на статуса на плащане',
+  );
+
 export const confirmPendingOrders = (date?: string) =>
   apiFetch<{ confirmed: number }>(
     `orders/confirm-pending${date ? `?date=${date}` : ''}`,
@@ -624,6 +631,9 @@ export interface PaymentOrder {
   paymentStatus: PaymentStatus;
   /** True once the money is in hand — COD delivered, or card paid. */
   collected: boolean;
+  /** COD money outcome: 'received' | 'refused' | null (=Очаквано). */
+  codOutcome: 'received' | 'refused' | null;
+  codOutcomeReason: string | null;
   /** BG calendar day of delivery, "YYYY-MM-DD". */
   day: string;
   createdAt: string | null;
