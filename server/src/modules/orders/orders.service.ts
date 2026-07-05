@@ -30,9 +30,11 @@ import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from './carrier-fulfillment.service';
+import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay } from './order-scheduling';
@@ -130,6 +132,10 @@ export interface PaymentOrder {
   paidAt: string | null;
   slotFrom: string | null;
   slotTo: string | null;
+  /** COD money outcome (null = not yet resolved). */
+  codOutcome: 'received' | 'refused' | null;
+  /** Free-text reason captured on a manual «refused» mark. */
+  codOutcomeReason: string | null;
 }
 
 /** Tenant-wide payment totals (every counted order), independent of search/page. */
@@ -183,6 +189,8 @@ export interface PaymentRow {
   paidAt: Date | string | null;
   slotFrom: string | null;
   slotTo: string | null;
+  codOutcome: 'received' | 'refused' | null;
+  codOutcomeReason: string | null;
 }
 
 const toIso = (v: Date | string | null): string | null =>
@@ -211,12 +219,14 @@ export function toPaymentOrder(r: PaymentRow): PaymentOrder {
     deliveryType: r.deliveryType,
     paymentMethod: r.paymentMethod,
     paymentStatus,
-    collected: r.paymentMethod === 'cod' ? r.status === 'delivered' : paid,
+    collected: r.paymentMethod === 'cod' ? r.codOutcome === 'received' : paid,
     day: r.day,
     createdAt: toIso(r.createdAt),
     paidAt: toIso(r.paidAt),
     slotFrom: r.slotFrom,
     slotTo: r.slotTo,
+    codOutcome: r.codOutcome,
+    codOutcomeReason: r.codOutcomeReason,
   };
 }
 
@@ -334,6 +344,7 @@ export class OrdersService {
     private readonly econt: EcontService,
     private readonly cache: PublicCacheService,
     private readonly carrierFulfillment: CarrierFulfillmentService,
+    private readonly codRisk: CodRiskService,
   ) {}
 
   /**
@@ -511,6 +522,8 @@ export class OrdersService {
         paidAt: orders.paidAt,
         slotFrom: deliverySlots.timeFrom,
         slotTo: deliverySlots.timeTo,
+        codOutcome: orders.codOutcome,
+        codOutcomeReason: orders.codOutcomeReason,
         // Micro-precision boundary for the cursor; stripped by buildKeysetPage.
         [KEYSET_TS]: cursorTs(orders.createdAt),
       })
@@ -591,6 +604,8 @@ export class OrdersService {
         paidAt: orders.paidAt,
         slotFrom: deliverySlots.timeFrom,
         slotTo: deliverySlots.timeTo,
+        codOutcome: orders.codOutcome,
+        codOutcomeReason: orders.codOutcomeReason,
         // Micro-precision boundary for the cursor; stripped by buildKeysetPage.
         // to_char(orders.createdAt) is functionally dependent on the grouped
         // orders.createdAt below, so it needs no separate GROUP BY entry.
@@ -615,6 +630,8 @@ export class OrdersService {
         orders.paymentMethod,
         orders.createdAt,
         orders.paidAt,
+        orders.codOutcome,
+        orders.codOutcomeReason,
         deliverySlots.date,
         deliverySlots.timeFrom,
         deliverySlots.timeTo,
@@ -855,6 +872,70 @@ export class OrdersService {
       );
     }
     return this.updateStatus(id, tenantId, dto);
+  }
+
+  /** Set a COD order's money outcome (received / refused). Manual path used by
+   *  pickup + own-delivery orders and by a courier-order override. Strike on
+   *  the NULL→refused transition only (idempotent re-marks add no strike). */
+  async setCodOutcome(
+    id: string,
+    tenantId: string,
+    dto: UpdateCodOutcomeDto,
+  ): Promise<OrderRow> {
+    const [prev] = await this.db
+      .select({ paymentMethod: orders.paymentMethod, codOutcome: orders.codOutcome })
+      .from(orders)
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+      .limit(1);
+    if (!prev) throw new NotFoundException('Поръчката не е намерена');
+    if (prev.paymentMethod !== 'cod') {
+      throw new BadRequestException('Само поръчки с наложен платеж имат статус на плащане.');
+    }
+    const [row] = await this.db
+      .update(orders)
+      .set({
+        codOutcome: dto.outcome,
+        codOutcomeAt: new Date(),
+        codOutcomeReason: dto.outcome === 'refused' ? (dto.reason ?? null) : null,
+        codOutcomeSource: 'manual',
+      })
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+      .returning();
+    if (!row) throw new NotFoundException('Поръчката не е намерена');
+    // Strike ONLY on the NULL→refused transition — never on a refused→refused
+    // re-mark, and never on a received→refused change (that money was already
+    // marked collected once; it does not add a second fraud signal). Best-effort:
+    // a cod-risk failure must not fail the outcome write.
+    if (dto.outcome === 'refused' && prev.codOutcome === null) {
+      try {
+        await this.codRisk.recordManualRefusal(row);
+      } catch {
+        /* best-effort: leave the outcome recorded even if the strike fails */
+      }
+    }
+    await this.bustPayments(tenantId);
+    return row;
+  }
+
+  /** Producer-scoped variant: a sub-account may set the outcome only on an order
+   *  that is entirely their own (same IDOR gate as updateStatusForFarmer). */
+  async setCodOutcomeForFarmer(
+    id: string,
+    tenantId: string,
+    farmerId: string,
+    dto: UpdateCodOutcomeDto,
+  ): Promise<OrderRow> {
+    const lineItems = await this.db
+      .select({ farmerId: products.farmerId })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
+    if (lineItems.length === 0) throw new ForbiddenException('Нямате достъп до тази поръчка.');
+    if (lineItems.some((li) => li.farmerId !== farmerId)) {
+      throw new ForbiddenException('Споделена поръчка — само собственикът може да отбележи плащането.');
+    }
+    return this.setCodOutcome(id, tenantId, dto);
   }
 
   /**

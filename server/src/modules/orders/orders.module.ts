@@ -9,6 +9,7 @@ import { EcontModule } from '../econt/econt.module';
 import { SpeedyCoreModule } from '../speedy/speedy-core.module';
 import { OrderEmailModule } from '../order-email/order-email.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
+import { CodRiskModule } from '../cod-risk/cod-risk.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
     CarrierFulfillmentModule,
     OrderEmailModule,
     AnalyticsModule,
+    CodRiskModule,
   ],
   controllers: [OrdersController, PublicOrdersController, PublicCheckoutController],
   providers: [OrdersService, CheckoutService],

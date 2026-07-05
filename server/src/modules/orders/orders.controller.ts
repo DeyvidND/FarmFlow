@@ -9,6 +9,7 @@ import { OrdersService } from './orders.service';
 import { CheckoutService } from './checkout.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
 import { PaymentsQueryDto } from './dto/payments-query.dto';
 import { OrdersQueryDto } from './dto/orders-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -96,6 +97,21 @@ export class OrdersController {
     return scope
       ? this.ordersService.updateStatusForFarmer(id, user.tenantId, scope, dto)
       : this.ordersService.updateStatus(id, user.tenantId, dto);
+  }
+
+  // Set the наложен-платеж money outcome (received / refused). Owner edits any
+  // order; a producer is forced to its own farmerId (same IDOR scope as status).
+  @Patch(':id/cod-outcome')
+  @Roles('admin', 'farmer')
+  setCodOutcome(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Body() dto: UpdateCodOutcomeDto,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return scope
+      ? this.ordersService.setCodOutcomeForFarmer(id, user.tenantId, scope, dto)
+      : this.ordersService.setCodOutcome(id, user.tenantId, dto);
   }
 }
 

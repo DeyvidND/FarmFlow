@@ -123,6 +123,7 @@ function makeSvc(db: unknown) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 }
 

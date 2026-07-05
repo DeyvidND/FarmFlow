@@ -20,6 +20,8 @@ const row = (over: Partial<PaymentRow>): PaymentRow => ({
   paidAt: null,
   slotFrom: null,
   slotTo: null,
+  codOutcome: null,
+  codOutcomeReason: null,
   ...over,
 });
 
@@ -35,11 +37,17 @@ describe('toPaymentOrder', () => {
     ).toBe('paid');
   });
 
-  it('flags collected: COD when delivered, card when paid', () => {
-    expect(toPaymentOrder(row({ paymentMethod: 'cod', status: 'out_for_delivery' })).collected).toBe(
-      false,
-    );
-    expect(toPaymentOrder(row({ paymentMethod: 'cod', status: 'delivered' })).collected).toBe(true);
+  it('flags collected: COD keyed off codOutcome, card when paid', () => {
+    expect(
+      toPaymentOrder(row({ paymentMethod: 'cod', status: 'out_for_delivery', codOutcome: null })).collected,
+    ).toBe(false);
+    // status alone no longer implies collected — codOutcome must say «received».
+    expect(
+      toPaymentOrder(row({ paymentMethod: 'cod', status: 'delivered', codOutcome: null })).collected,
+    ).toBe(false);
+    expect(
+      toPaymentOrder(row({ paymentMethod: 'cod', status: 'delivered', codOutcome: 'received' })).collected,
+    ).toBe(true);
     expect(toPaymentOrder(row({ paymentMethod: 'online', paidAt: null })).collected).toBe(false);
     expect(
       toPaymentOrder(row({ paymentMethod: 'online', paidAt: '2026-06-12T09:00:00.000Z' })).collected,
@@ -65,6 +73,17 @@ describe('toPaymentOrder', () => {
     const o = toPaymentOrder(row({ customerPhone: '+359888111222', customerEmail: 'g@x.bg' }));
     expect(o.customerPhone).toBe('+359888111222');
     expect(o.customerEmail).toBe('g@x.bg');
+  });
+
+  it('passes codOutcome + reason through', () => {
+    const o = toPaymentOrder(row({ paymentMethod: 'cod', codOutcome: 'refused', codOutcomeReason: 'не вдигна' }));
+    expect(o.codOutcome).toBe('refused');
+    expect(o.codOutcomeReason).toBe('не вдигна');
+  });
+
+  it('derives collected from codOutcome for COD (not status)', () => {
+    expect(toPaymentOrder(row({ paymentMethod: 'cod', status: 'delivered', codOutcome: null })).collected).toBe(false);
+    expect(toPaymentOrder(row({ paymentMethod: 'cod', status: 'confirmed', codOutcome: 'received' })).collected).toBe(true);
   });
 });
 

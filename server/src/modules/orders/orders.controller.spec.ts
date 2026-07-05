@@ -81,3 +81,38 @@ describe('OrdersController updateStatus routing', () => {
     expect(svc.updateStatusForFarmer).not.toHaveBeenCalled();
   });
 });
+
+// PATCH :id/cod-outcome mirrors the same owner-vs-producer scope split as
+// PATCH :id/status.
+describe('OrdersController setCodOutcome routing', () => {
+  const svc = {
+    setCodOutcome: jest.fn().mockResolvedValue('owner'),
+    setCodOutcomeForFarmer: jest.fn().mockResolvedValue('scoped'),
+  };
+  const ctrl = new OrdersController(svc as any);
+  const tenant = (over: Record<string, unknown>) =>
+    ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
+  const dto = { outcome: 'refused', reason: 'не вдигна' } as any;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('an owner edits any order tenant-wide (no producer scope)', async () => {
+    await ctrl.setCodOutcome('o1', tenant({ role: 'admin' }), dto);
+    expect(svc.setCodOutcome).toHaveBeenCalledWith('o1', 't', dto);
+    expect(svc.setCodOutcomeForFarmer).not.toHaveBeenCalled();
+  });
+
+  it('a producer is routed to the IDOR-scoped method with their own farmerId', async () => {
+    await ctrl.setCodOutcome('o1', tenant({ role: 'farmer', farmerId: 'farmer-1' }), dto);
+    expect(svc.setCodOutcomeForFarmer).toHaveBeenCalledWith('o1', 't', 'farmer-1', dto);
+    expect(svc.setCodOutcome).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed farmer token (role=farmer, no farmerId) with 403', () => {
+    expect(() => ctrl.setCodOutcome('o1', tenant({ role: 'farmer' }), dto)).toThrow(
+      ForbiddenException,
+    );
+    expect(svc.setCodOutcome).not.toHaveBeenCalled();
+    expect(svc.setCodOutcomeForFarmer).not.toHaveBeenCalled();
+  });
+});
