@@ -33,6 +33,7 @@ async function getRoute(
     totalDistanceM: null,
     totalDurationS: null,
     optimized: false,
+    polyline: null,
   };
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return { route: empty, failed: false };

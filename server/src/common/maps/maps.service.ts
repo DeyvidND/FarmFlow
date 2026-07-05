@@ -351,11 +351,16 @@ export class MapsService {
    * destination, the rest are intermediates (≤25). Returns null if disabled,
    * fewer than 2 points, or on any error.
    */
-  async routeFixed(points: LatLng[]): Promise<{ distanceM: number; durationS: number } | null> {
+  async routeFixed(
+    points: LatLng[],
+  ): Promise<{ distanceM: number; durationS: number; polyline: string | null } | null> {
     if (!this.enabled || points.length < 2) return null;
 
-    const key = this.routeKey('routefixed', points);
-    const cached = await this.cachedGet<{ distanceM: number; durationS: number }>(key);
+    // `routefixed2`: v2 key namespace. v1 entries cached only distance/duration
+    // (no polyline), so a fresh prefix forces a single recompute that also stores
+    // the road geometry instead of serving a week of geometry-less hits.
+    const key = this.routeKey('routefixed2', points);
+    const cached = await this.cachedGet<{ distanceM: number; durationS: number; polyline: string | null }>(key);
     if (cached) return cached;
 
     const wp = (p: LatLng) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
@@ -371,7 +376,8 @@ export class MapsService {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': this.apiKey,
-          'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration',
+          'X-Goog-FieldMask':
+            'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
         },
         body: JSON.stringify(body),
       });
@@ -379,7 +385,11 @@ export class MapsService {
       if (!r) return null;
       const distanceM = typeof r.distanceMeters === 'number' ? r.distanceMeters : 0;
       const durationS = parseInt(String(r.duration ?? '0'), 10) || 0;
-      const out = { distanceM, durationS };
+      // Road geometry of this leg (Google's default ENCODED_POLYLINE). The client
+      // decodes it so the drawn line follows streets instead of cutting straight
+      // between pins.
+      const polyline = typeof r.polyline?.encodedPolyline === 'string' ? r.polyline.encodedPolyline : null;
+      const out = { distanceM, durationS, polyline };
       await this.cachedSet(key, out);
       return out;
     } catch (err) {

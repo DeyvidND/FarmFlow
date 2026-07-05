@@ -23,6 +23,9 @@ interface RouteMapProps {
   stops: RouteStop[];
   origin: Origin;
   end: RouteEnd;
+  /** Encoded road-geometry legs (from the backend Routes API) for the current
+   *  order. Decoded + drawn so the line follows streets; absent → straight line. */
+  polyline?: string[] | null;
   activeId: string | null;
   onPick: (id: string) => void;
   /** Map-pin placement mode: a map click drops a pin for the placing stop. */
@@ -43,6 +46,7 @@ export function RouteMap({
   stops,
   origin,
   end,
+  polyline,
   activeId,
   onPick,
   placing = false,
@@ -90,7 +94,7 @@ export function RouteMap({
         style={{ width: '100%', height: '100%' }}
       >
         <FitBounds origin={origin} stops={located} end={customEnd} />
-        <RouteLine origin={origin} stops={located} end={end} />
+        <RouteLine origin={origin} stops={located} end={end} polyline={polyline} />
 
         {hasOrigin && (
           <AdvancedMarker
@@ -189,12 +193,52 @@ function FitBounds({
   return null;
 }
 
-/** Draw the route line: farm → stops → end (home = back to farm, last = stop, custom = end point). */
-function RouteLine({ origin, stops, end }: { origin: Origin; stops: RouteStop[]; end: RouteEnd }) {
+/**
+ * Draw the route line: farm → stops → end (home = back to farm, last = stop,
+ * custom = end point). Prefers the real road geometry from the backend (encoded
+ * polyline legs decoded via the `geometry` library) so the line follows streets;
+ * falls back to straight segments between pins when no geometry is available
+ * (maps stub, un-routed order, or a Routes API miss).
+ */
+function RouteLine({
+  origin,
+  stops,
+  end,
+  polyline,
+}: {
+  origin: Origin;
+  stops: RouteStop[];
+  end: RouteEnd;
+  polyline?: string[] | null;
+}) {
   const map = useMap();
   const maps = useMapsLibrary('maps');
+  const geometry = useMapsLibrary('geometry');
   useEffect(() => {
     if (!map || !maps) return;
+
+    // Preferred: the street-following path computed server-side. One encoded leg
+    // per ≤25-stop Routes chunk; decode + concatenate into a single line.
+    if (polyline && polyline.length && geometry) {
+      const roadPath: { lat: number; lng: number }[] = [];
+      for (const leg of polyline) {
+        for (const pt of geometry.encoding.decodePath(leg)) {
+          roadPath.push({ lat: pt.lat(), lng: pt.lng() });
+        }
+      }
+      if (roadPath.length >= 2) {
+        const line = new maps.Polyline({
+          path: roadPath,
+          strokeColor: '#2d6a4f',
+          strokeOpacity: 0.9,
+          strokeWeight: 4,
+        });
+        line.setMap(map);
+        return () => line.setMap(null);
+      }
+    }
+
+    // Fallback: straight segments through the ordered pins.
     const path: { lat: number; lng: number }[] = [];
     const start = origin.lat != null && origin.lng != null ? { lat: origin.lat, lng: origin.lng } : null;
     if (start) path.push(start);
@@ -213,7 +257,7 @@ function RouteLine({ origin, stops, end }: { origin: Origin; stops: RouteStop[];
     });
     line.setMap(map);
     return () => line.setMap(null);
-  }, [map, maps, origin, stops, end]);
+  }, [map, maps, geometry, origin, stops, end, polyline]);
   return null;
 }
 

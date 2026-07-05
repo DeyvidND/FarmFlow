@@ -603,6 +603,10 @@ export interface RouteResult {
   totalDistanceM: number | null;
   totalDurationS: number | null;
   optimized: boolean;
+  /** Encoded road-geometry legs for the final visit order; the map decodes +
+   *  draws them so the route line follows streets. null → straight-segment
+   *  fallback between pins. */
+  polyline: string[] | null;
 }
 
 // ── Site analytics (GET /analytics?range=) — visitors/funnel/traffic, the

@@ -59,6 +59,13 @@ export interface RouteResult {
   totalDurationS: number | null;
   /** true once stops were reordered from DB arrival order (greedy or Google). */
   optimized: boolean;
+  /**
+   * Encoded road-geometry legs (one per ≤25-stop Routes chunk) for the final
+   * visit order origin→stops→end. The client decodes + draws these so the route
+   * line follows streets. null when maps are disabled or no geometry was returned
+   * (client then falls back to straight segments between pins).
+   */
+  polyline: string[] | null;
 }
 
 const toNum = (v: string | null): number | null => (v == null ? null : Number(v));
@@ -388,6 +395,7 @@ export class RoutingService {
     // under-report when there are more than MAX_OPTIMIZE_STOPS stops.
     let totalDistanceM: number | null = null;
     let totalDurationS: number | null = null;
+    let routePolyline: string[] | null = null;
     if (originPt && orderedLocated.length) {
       const pts: Pt[] = [originPt];
       for (const s of orderedLocated) {
@@ -401,6 +409,7 @@ export class RoutingService {
       if (total) {
         totalDistanceM = total.distanceM;
         totalDurationS = total.durationS;
+        routePolyline = total.polylines.length ? total.polylines : null;
       }
     }
 
@@ -413,6 +422,7 @@ export class RoutingService {
       totalDistanceM,
       totalDurationS,
       optimized,
+      polyline: routePolyline,
     };
   }
 
@@ -424,11 +434,14 @@ export class RoutingService {
    * next leg's origin. Returns null if any leg can't be computed (maps disabled
    * or an API error), so the UI shows "no estimate" rather than a partial total.
    */
-  private async pathTotal(pts: Pt[]): Promise<{ distanceM: number; durationS: number } | null> {
+  private async pathTotal(
+    pts: Pt[],
+  ): Promise<{ distanceM: number; durationS: number; polylines: string[] } | null> {
     if (pts.length < 2) return null;
     const nodesPerLeg = MAX_OPTIMIZE_STOPS + 2; // origin + ≤25 intermediates + dest
     let distanceM = 0;
     let durationS = 0;
+    const polylines: string[] = [];
     let i = 0;
     while (i < pts.length - 1) {
       const seg = pts.slice(i, i + nodesPerLeg);
@@ -436,9 +449,12 @@ export class RoutingService {
       if (!plan) return null;
       distanceM += plan.distanceM;
       durationS += plan.durationS;
+      // Road geometry for this leg; concatenated client-side to draw the full
+      // street-following line. Consecutive legs share a node (seam) — harmless.
+      if (plan.polyline) polylines.push(plan.polyline);
       i += seg.length - 1;
     }
-    return { distanceM, durationS };
+    return { distanceM, durationS, polylines };
   }
 
   /**

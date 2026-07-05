@@ -129,7 +129,7 @@ export function RouteClient({
   placesKey?: string;
 }) {
   const router = useRouter();
-  const { stops, origin, end, orderMode } = route;
+  const { stops, origin, end, orderMode, polyline } = route;
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
   const [showHelp, setShowHelp] = useState(false);
   const [showLoc, setShowLoc] = useState(false);
@@ -516,6 +516,7 @@ export function RouteClient({
             stops={stops}
             origin={origin}
             end={end}
+            polyline={polyline}
             activeId={activeId}
             onPick={setActiveId}
             placing={placingId != null}
