@@ -696,7 +696,7 @@ export interface Order {
   /** ISO timestamp the online (Stripe) payment was captured, else null. */
   paidAt: string | null;
   totalStotinki: number;
-  deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address';
+  deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address' | 'courier';
   codOutcome: 'received' | 'refused' | null;
   codOutcomeReason: string | null;
   codOutcomeAt: string | null;

@@ -8,7 +8,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
 import { moneyFromStotinki, hhmm, timeFromIso, relDayLabel, statusMeta, type OrderStatus } from '@/lib/utils';
-import { ApiError, requestDeliveryHandoff } from '@/lib/api-client';
+import { ApiError, requestDeliveryHandoff, setCodOutcome } from '@/lib/api-client';
 import type { Order } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -173,6 +173,8 @@ export function OrderDetailBody({ order }: { order: Order }) {
         <InfoRow icon={<CreditCard size={18} />} label="Плащане" value={paymentValue} />
       </div>
 
+      {order.paymentStatus === 'cash' && <CodOutcomeSection order={order} />}
+
       {/* Bridge to the separate Доставки app — товарителницата за тази поръчка
           не се създава тук, а там. Без тази линия фермерът не знае накъде да
           продължи с куриерска поръчка. */}
@@ -203,6 +205,121 @@ export function OrderDetailBody({ order }: { order: Order }) {
           {moneyFromStotinki(order.totalStotinki)}
         </span>
       </div>
+    </div>
+  );
+}
+
+/** Outcome badge for наложен платеж (COD) orders — same palette as the
+ *  Плащания screen's codSettlementBadge (payments-client.tsx): red for
+ *  refused, amber for received/collected, muted for still-expected. */
+function codOutcomeBadge(outcome: 'received' | 'refused' | null): { label: string; cls: string } {
+  if (outcome === 'refused') return { label: 'Отказана', cls: 'bg-red-100 text-red-800' };
+  if (outcome === 'received') return { label: 'Получено', cls: 'bg-amber-100 text-amber-800' };
+  return { label: 'Очаквано', cls: 'bg-ff-surface-2 text-ff-muted' };
+}
+
+/** «Плащане (наложен платеж)» — lets the farmer/driver record whether the cash
+ *  was actually collected on delivery. Courier orders (Econt/Speedy) get this
+ *  signal from carrier reconciliation, but that can be wrong, so a manual
+ *  override is always available behind «Коригирай». Self-contained mutation
+ *  (mirrors EcontHandoffLink below): local busy flag, try/catch, toast, and
+ *  local state updated from the response — the `order` prop itself is
+ *  immutable from the parent. */
+function CodOutcomeSection({ order }: { order: Order }) {
+  const isCourier =
+    order.deliveryType === 'econt' || order.deliveryType === 'econt_address' || order.deliveryType === 'courier';
+
+  const [codOutcome, setCodOutcomeState] = useState(order.codOutcome);
+  const [codOutcomeReason, setCodOutcomeReasonState] = useState(order.codOutcomeReason);
+  const [busy, setBusy] = useState(false);
+  const [showActions, setShowActions] = useState(!isCourier);
+  const [showReasonInput, setShowReasonInput] = useState(false);
+  const [reason, setReason] = useState('');
+
+  const badge = codOutcomeBadge(codOutcome);
+
+  async function apply(outcome: 'received' | 'refused', outcomeReason?: string) {
+    setBusy(true);
+    try {
+      const updated = await setCodOutcome(order.id, outcome, outcomeReason);
+      setCodOutcomeState(updated.codOutcome);
+      setCodOutcomeReasonState(updated.codOutcomeReason);
+      setShowReasonInput(false);
+      setReason('');
+      toast.success(outcome === 'received' ? 'Отбелязано като получено' : 'Отбелязано като отказана');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-[22px] rounded-xl border border-ff-border-2 px-3.5 py-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-xs font-bold text-ff-muted">ПЛАЩАНЕ (НАЛОЖЕН ПЛАТЕЖ)</div>
+        <span className={`rounded-full px-2 py-0.5 text-[12px] font-bold ${badge.cls}`}>{badge.label}</span>
+      </div>
+
+      {codOutcomeReason && (
+        <div className="mb-2 text-[12.5px] text-ff-muted">Причина: {codOutcomeReason}</div>
+      )}
+
+      {isCourier && !showActions && (
+        <button
+          type="button"
+          onClick={() => setShowActions(true)}
+          className="text-[12.5px] font-bold text-ff-green-700 hover:underline"
+        >
+          Коригирай
+        </button>
+      )}
+
+      {showActions && (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="soft"
+              disabled={busy}
+              onClick={() => apply('received')}
+              className="rounded-sm px-3 py-1.5 text-[12.5px]"
+            >
+              Получих парите
+            </Button>
+            {!showReasonInput ? (
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={() => setShowReasonInput(true)}
+                className="rounded-sm px-3 py-1.5 text-[12.5px]"
+              >
+                Отказана
+              </Button>
+            ) : null}
+          </div>
+
+          {showReasonInput && (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Причина (по избор)"
+                disabled={busy}
+                className="flex-1 rounded-sm border border-ff-border bg-ff-surface-2 px-2.5 py-1.5 text-[12.5px] font-medium text-ff-ink outline-none transition-colors focus:border-ff-green-500 disabled:opacity-60"
+              />
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={() => apply('refused', reason.trim() || undefined)}
+                className="rounded-sm px-3 py-1.5 text-[12.5px]"
+              >
+                Потвърди
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
