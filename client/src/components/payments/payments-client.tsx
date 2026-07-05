@@ -14,6 +14,7 @@ import {
   Mail,
   Loader2,
   Check,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -29,7 +30,7 @@ import {
 import {
   startStripeOnboarding,
   getPayments,
-  updateOrderStatus,
+  setCodOutcome,
   getCodReconciliation,
   type StripeSummary,
   type PaymentsPage,
@@ -101,10 +102,16 @@ function moneyStatus(o: PaymentOrder): { label: string; cls: string } {
   };
 }
 
-/** COD lifecycle from the Econt reconciliation row: Очаквано → Събрано → Преведено. */
-function codSettlementBadge(recon: CodReconRow | undefined): { label: string; cls: string } {
+/** COD lifecycle: Отказана (red) → Очаквано → Събрано → Преведено. Econt/Speedy
+ *  drive collected/settled via the reconciliation row; refused + non-courier
+ *  received come from the order's codOutcome. */
+function codSettlementBadge(
+  recon: CodReconRow | undefined,
+  o: PaymentOrder,
+): { label: string; cls: string } {
+  if (o.codOutcome === 'refused') return { label: 'Отказана', cls: 'bg-red-100 text-red-800' };
   if (recon?.settledAt) return { label: 'Преведено', cls: 'bg-ff-green-100 text-ff-green-800' };
-  if (recon?.collectedAt) return { label: 'Събрано', cls: 'bg-amber-100 text-amber-800' };
+  if (recon?.collectedAt || o.codOutcome === 'received') return { label: 'Събрано', cls: 'bg-amber-100 text-amber-800' };
   return { label: 'Очаквано', cls: 'bg-ff-surface-2 text-ff-muted' };
 }
 
@@ -245,19 +252,33 @@ export function PaymentsClient({
     return () => { alive = false; };
   }, [tab]);
 
-  // Mark a наложен-платеж order's cash as received — flips its badge «Очаквано»
-  // → «Получено». COD "collected" is modelled as the order reaching `delivered`
-  // (see toPaymentOrder), so this marks the order доставена. Optimistic: patch
-  // the row locally; on error just re-toast.
+  // Mark a наложен-платеж order's cash outcome — flips its badge «Очаквано»
+  // → «Събрано» or «Отказана» via the cod-outcome endpoint (Task 5). Optimistic:
+  // patch the row locally; on error just re-toast.
   const [collectingId, setCollectingId] = useState<string | null>(null);
   const onCollect = useCallback(async (id: string) => {
     setCollectingId(id);
     try {
-      await updateOrderStatus(id, 'delivered');
+      await setCodOutcome(id, 'received');
       setAllOrders((prev) =>
-        prev.map((o) => (o.id === id ? { ...o, status: 'delivered', collected: true } : o)),
+        prev.map((o) => (o.id === id ? { ...o, codOutcome: 'received', collected: true } : o)),
       );
       toast.success('Отбелязано като получено.');
+    } catch {
+      toast.error('Грешка при отбелязването.');
+    } finally {
+      setCollectingId(null);
+    }
+  }, []);
+
+  const onRefuse = useCallback(async (id: string) => {
+    setCollectingId(id);
+    try {
+      await setCodOutcome(id, 'refused');
+      setAllOrders((prev) =>
+        prev.map((o) => (o.id === id ? { ...o, codOutcome: 'refused', collected: false } : o)),
+      );
+      toast.success('Отбелязано като отказана.');
     } catch {
       toast.error('Грешка при отбелязването.');
     } finally {
@@ -387,6 +408,7 @@ export function PaymentsClient({
             searching={searching}
             empty={tab === 'cod' ? 'Още няма плащания с наложен платеж.' : 'Още няма плащания.'}
             onCollect={tab === 'cod' ? onCollect : undefined}
+            onRefuse={tab === 'cod' ? onRefuse : undefined}
             collectingId={collectingId}
             codRecon={tab === 'cod' ? codRecon : undefined}
           />
@@ -407,13 +429,15 @@ function plural(n: number): string {
 /* ─────────────────────────────  payments table (flat, paginated)  ───────────────────────────── */
 
 /** One flat payments table (desktop) + card list (mobile). The cod tab passes
- *  `onCollect` so unpaid наложен-платеж rows get a «Получих парите» button. */
+ *  `onCollect`/`onRefuse` so unpaid наложен-платеж rows get «Получих парите» /
+ *  «Отказана» buttons. */
 function PayTable({
   rows,
   loading,
   searching,
   empty,
   onCollect,
+  onRefuse,
   collectingId,
   codRecon,
 }: {
@@ -422,6 +446,7 @@ function PayTable({
   searching: boolean;
   empty: string;
   onCollect?: (id: string) => void;
+  onRefuse?: (id: string) => void;
   collectingId?: string | null;
   codRecon?: Record<string, CodReconRow>;
 }) {
@@ -447,7 +472,8 @@ function PayTable({
         <tbody>
           {rows.map((o) => {
             const s = moneyStatus(o);
-            const canCollect = !!onCollect && o.paymentMethod === 'cod' && !o.collected;
+            const canCollect = !!onCollect && o.paymentMethod === 'cod' && o.codOutcome == null;
+            const canRefuse = !!onRefuse && o.paymentMethod === 'cod' && o.codOutcome == null;
             return (
               <tr key={o.id} className="border-b border-ff-border-2 last:border-0 hover:bg-ff-surface-2">
                 <td className="px-5 py-3.5 align-top">
@@ -473,8 +499,11 @@ function PayTable({
                     ) : (
                       <StatusPill {...s} />
                     )}
+                    {canRefuse && (
+                      <RefuseButton id={o.id} collectingId={collectingId} onRefuse={onRefuse!} />
+                    )}
                     {codRecon && (() => {
-                      const b = codSettlementBadge(codRecon[o.id]);
+                      const b = codSettlementBadge(codRecon[o.id], o);
                       return <span className={cn('rounded-full px-2 py-0.5 text-[12px] font-bold', b.cls)}>{b.label}</span>;
                     })()}
                   </div>
@@ -492,7 +521,8 @@ function PayTable({
       <div className="hidden flex-col max-[680px]:flex">
         {rows.map((o) => {
           const s = moneyStatus(o);
-          const canCollect = !!onCollect && o.paymentMethod === 'cod' && !o.collected;
+          const canCollect = !!onCollect && o.paymentMethod === 'cod' && o.codOutcome == null;
+          const canRefuse = !!onRefuse && o.paymentMethod === 'cod' && o.codOutcome == null;
           return (
             <div key={o.id} className="flex flex-col gap-2 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
               <div className="flex items-start justify-between gap-2.5">
@@ -515,8 +545,11 @@ function PayTable({
                 ) : (
                   <StatusPill {...s} />
                 )}
+                {canRefuse && (
+                  <RefuseButton id={o.id} collectingId={collectingId} onRefuse={onRefuse!} />
+                )}
                 {codRecon && (() => {
-                  const b = codSettlementBadge(codRecon[o.id]);
+                  const b = codSettlementBadge(codRecon[o.id], o);
                   return <span className={cn('rounded-full px-2 py-0.5 text-[12px] font-bold', b.cls)}>{b.label}</span>;
                 })()}
               </div>
@@ -555,6 +588,33 @@ function CollectButton({
         <Check size={12} />
       )}
       Получих парите
+    </button>
+  );
+}
+
+/** «Отказана» — marks a наложен-платеж order refused (customer declined at the door). */
+function RefuseButton({
+  id,
+  collectingId,
+  onRefuse,
+}: {
+  id: string;
+  collectingId?: string | null;
+  onRefuse: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onRefuse(id)}
+      disabled={collectingId === id}
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-100 bg-red-50 px-2.5 py-1 text-[11px] font-extrabold text-red-700 hover:bg-red-100 disabled:opacity-60"
+    >
+      {collectingId === id ? (
+        <Loader2 size={12} className="animate-spin" />
+      ) : (
+        <X size={12} />
+      )}
+      Отказана
     </button>
   );
 }
