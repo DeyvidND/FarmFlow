@@ -26,6 +26,7 @@ export const orderStatusEnum = pgEnum('order_status', [
   'delivered',
   'cancelled',
 ]);
+export const codOutcomeEnum = pgEnum('cod_outcome', ['received', 'refused']);
 export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', 'past_due', 'inactive']);
 // Delivery methods:
 //  - `address`       → the farm's own (local) delivery to a street address: slots,
@@ -382,6 +383,15 @@ export const orders = pgTable(
     stripeCheckoutSessionId: text('stripe_checkout_session_id'),
     stripePaymentIntentId: text('stripe_payment_intent_id'),
     paidAt: timestamp('paid_at', { withTimezone: true }),
+    // Наложен платеж (COD) money outcome — orthogonal to `status` (fulfillment).
+    // NULL = Очаквано (pending). Set from a real courier signal (source='courier')
+    // or a manual click (source='manual'); a manual value is authoritative and is
+    // never overwritten by a later courier refresh. Only meaningful for
+    // payment_method='cod'. See migration 0078.
+    codOutcome: codOutcomeEnum('cod_outcome'),
+    codOutcomeAt: timestamp('cod_outcome_at', { withTimezone: true }),
+    codOutcomeReason: text('cod_outcome_reason'),
+    codOutcomeSource: text('cod_outcome_source'),
     // How the customer chose to pay: 'online' (Stripe card) or 'cod' (наложен
     // платеж — collected at delivery/Econt office). Normalized at checkout to
     // reflect reality: any order with no Stripe session is recorded as 'cod'.
@@ -1013,6 +1023,7 @@ export const schema = {
   userRoleEnum,
   reviewStatusEnum,
   orderStatusEnum,
+  codOutcomeEnum,
   subscriptionStatusEnum,
   articleStatusEnum,
   articleMediaTypeEnum,
