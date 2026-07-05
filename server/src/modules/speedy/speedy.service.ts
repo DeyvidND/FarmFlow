@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, desc, inArray, isNotNull, notInArray } from 'drizzle-orm';
+import { and, eq, desc, inArray, isNotNull, notInArray, sql } from 'drizzle-orm';
 import { type Database, tenants, shipments, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -22,6 +22,7 @@ import { SpeedyCredentialsDto } from './dto/speedy-credentials.dto';
 import { SpeedyValidateAddressDto } from './dto/speedy-validate-address.dto';
 import { SpeedyCourierRequestDto } from './dto/speedy-courier-request.dto';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
+import { isReturnedStatus } from '../cod-risk/cod-risk.helpers';
 import type { CarrierAdapter } from '../orders/carrier-adapter';
 
 const SPEEDY_BASE = 'https://api.speedy.bg/v1';
@@ -743,7 +744,18 @@ export class SpeedyService implements CarrierAdapter {
 
     const [updated] = await this.db
       .update(shipments)
-      .set({ status, trackingJson: parcel ?? row.trackingJson, updatedAt: new Date() })
+      .set({
+        status,
+        trackingJson: parcel ?? row.trackingJson,
+        // Speedy has no dedicated COD-collection callback (unlike Econt's reconciliation
+        // feed) — the canonical status turning 'delivered' on a COD parcel is the only
+        // signal we get, so stamp it here the first time that happens.
+        codCollectedAt:
+          status === 'delivered' && row.codAmountStotinki != null && row.codCollectedAt == null
+            ? new Date()
+            : row.codCollectedAt,
+        updatedAt: new Date(),
+      })
       .where(eq(shipments.id, row.id))
       .returning();
 
@@ -753,6 +765,14 @@ export class SpeedyService implements CarrierAdapter {
       await this.codRisk.recordReturnIfApplicable(updated);
     } catch (err) {
       this.logger.warn(`[speedy] cod-risk record failed for ${updated.id}: ${err instanceof Error ? err.message : err}`);
+    }
+
+    // Auto-sync the order's COD money outcome from this courier signal. Best-effort —
+    // same rationale as the cod-risk strike above.
+    try {
+      await this.syncOrderCodOutcome(updated);
+    } catch (err) {
+      this.logger.warn(`[speedy] cod-outcome sync failed for ${updated.id}: ${err instanceof Error ? err.message : err}`);
     }
 
     // „Пратката тръгна" mail to the buyer with the Speedy tracking link — parity with
@@ -770,6 +790,22 @@ export class SpeedyService implements CarrierAdapter {
       }
     }
     return updated;
+  }
+
+  /** Sync the order's COD money outcome from a courier signal. No-clobber: only
+   *  writes when the order has no outcome yet (a manual override wins). Speedy's
+   *  canonical status turning 'delivered' stamps codCollectedAt above, so the same
+   *  received/refused branching as Econt works unchanged here. Best-effort (caller wraps). */
+  private async syncOrderCodOutcome(shipment: typeof shipments.$inferSelect): Promise<void> {
+    if (!shipment.orderId || shipment.codAmountStotinki == null) return;
+    let outcome: 'received' | 'refused' | null = null;
+    if (isReturnedStatus(shipment.status)) outcome = 'refused';
+    else if (shipment.codCollectedAt != null) outcome = 'received';
+    if (!outcome) return;
+    await this.db
+      .update(orders)
+      .set({ codOutcome: outcome, codOutcomeAt: new Date(), codOutcomeSource: 'courier' })
+      .where(and(eq(orders.id, shipment.orderId), sql`${orders.codOutcome} is null`));
   }
 
   // Speedy stores the canonical UI status (parseTrackStatus), so terminal states can

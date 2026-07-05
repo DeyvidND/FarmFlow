@@ -773,3 +773,70 @@ describe('EcontService.buildSenderBlob (unit)', () => {
     expect(out.sender).toEqual({ name: 'Y', mode: 'office', officeCode: '2' });
   });
 });
+
+/** Best-effort text rendering of a drizzle SQL AST (the object `and()`/`sql\`\`` build).
+ *  Not a real SQL renderer — just enough to assert a guard clause's column/literal text
+ *  is present, without hitting the circular PgColumn->PgTable refs that break JSON.stringify. */
+function renderSqlAst(x: unknown, depth = 0): string {
+  if (depth > 10 || x == null) return String(x);
+  if (typeof x === 'string') return x;
+  if (Array.isArray(x)) return x.map((c) => renderSqlAst(c, depth + 1)).join(' ');
+  const obj = x as Record<string, unknown>;
+  if (Array.isArray(obj.queryChunks)) return renderSqlAst(obj.queryChunks, depth + 1);
+  if (typeof obj.name === 'string') return `col:${obj.name}`; // PgColumn
+  if ('value' in obj) return renderSqlAst(obj.value, depth + 1);
+  return '';
+}
+
+describe('syncOrderCodOutcome (econt)', () => {
+  /** db whose update(orders).set(...).where(...) resolves immediately. Callers read
+   *  `set.mock.calls[0][0]` (the payload passed to .set()) after awaiting the call. */
+  function makeSvcWithDbSpy() {
+    const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+    const where = jest.fn().mockResolvedValue(undefined);
+    const set = jest.fn((_payload: Record<string, unknown>) => ({ where }));
+    const update = jest.fn(() => ({ set }));
+    (svc as any).db = { update };
+    return { svc, update, set, where };
+  }
+
+  it('sets received when COD collected', async () => {
+    const { svc, set } = makeSvcWithDbSpy();
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date(), status: 'доставена' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(set.mock.calls[0][0]).toMatchObject({ codOutcome: 'received', codOutcomeSource: 'courier' });
+  });
+
+  it('sets refused on a returned status', async () => {
+    const { svc, set } = makeSvcWithDbSpy();
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: null, status: 'върната пратка' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(set.mock.calls[0][0]).toMatchObject({ codOutcome: 'refused', codOutcomeSource: 'courier' });
+  });
+
+  it('does nothing for a non-COD shipment', async () => {
+    const { svc, set, update } = makeSvcWithDbSpy();
+    await (svc as any).syncOrderCodOutcome({ orderId: 'o1', tenantId: 't1', codAmountStotinki: null } as any);
+    expect(set).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('includes a WHERE cod_outcome IS NULL guard on the update (no-clobber)', async () => {
+    const { svc, where } = makeSvcWithDbSpy();
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date(), status: 'доставена' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(where).toHaveBeenCalledTimes(1);
+    // The guard is a drizzle SQL AST (`and(eq(...), sql\`...\`)`), not JSON-serializable
+    // (circular PgColumn refs) or meaningfully stringifiable via toString(). Walk its
+    // queryChunks/column-name/value shape so a future refactor can't silently drop the guard.
+    const cond = where.mock.calls[0][0];
+    expect(renderSqlAst(cond).toLowerCase()).toContain('cod_outcome');
+    expect(renderSqlAst(cond).toLowerCase()).toContain('is null');
+  });
+
+  it('does nothing when orderId is missing (standalone shipment)', async () => {
+    const { svc, update } = makeSvcWithDbSpy();
+    await (svc as any).syncOrderCodOutcome({ orderId: null, tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date() } as any);
+    expect(update).not.toHaveBeenCalled();
+  });
+});

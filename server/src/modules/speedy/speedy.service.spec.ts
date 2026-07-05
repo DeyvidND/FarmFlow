@@ -373,6 +373,159 @@ describe('SpeedyService.maybeSeedSender (unit)', () => {
   });
 });
 
+/** Best-effort text rendering of a drizzle SQL AST (the object `and()`/`sql\`\`` build).
+ *  Not a real SQL renderer — just enough to assert a guard clause's column/literal text
+ *  is present, without hitting the circular PgColumn->PgTable refs that break JSON.stringify. */
+function renderSqlAst(x: unknown, depth = 0): string {
+  if (depth > 10 || x == null) return String(x);
+  if (typeof x === 'string') return x;
+  if (Array.isArray(x)) return x.map((c) => renderSqlAst(c, depth + 1)).join(' ');
+  const obj = x as Record<string, unknown>;
+  if (Array.isArray(obj.queryChunks)) return renderSqlAst(obj.queryChunks, depth + 1);
+  if (typeof obj.name === 'string') return `col:${obj.name}`; // PgColumn
+  if ('value' in obj) return renderSqlAst(obj.value, depth + 1);
+  return '';
+}
+
+describe('syncOrderCodOutcome (speedy)', () => {
+  /** db whose update(orders).set(...).where(...) resolves immediately. Callers read
+   *  `set.mock.calls[0][0]` (the payload passed to .set()) after awaiting the call. */
+  function makeSvcWithDbSpy() {
+    const svc = makeService();
+    const where = jest.fn().mockResolvedValue(undefined);
+    const set = jest.fn((_payload: Record<string, unknown>) => ({ where }));
+    const update = jest.fn(() => ({ set }));
+    (svc as any).db = { update };
+    return { svc, update, set, where };
+  }
+
+  it('sets received when COD collected', async () => {
+    const { svc, set } = makeSvcWithDbSpy();
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date(), status: 'delivered' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(set.mock.calls[0][0]).toMatchObject({ codOutcome: 'received', codOutcomeSource: 'courier' });
+  });
+
+  it('sets refused on a returned status', async () => {
+    const { svc, set } = makeSvcWithDbSpy();
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: null, status: 'returned' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(set.mock.calls[0][0]).toMatchObject({ codOutcome: 'refused', codOutcomeSource: 'courier' });
+  });
+
+  it('does nothing for a non-COD shipment', async () => {
+    const { svc, set, update } = makeSvcWithDbSpy();
+    await (svc as any).syncOrderCodOutcome({ orderId: 'o1', tenantId: 't1', codAmountStotinki: null } as any);
+    expect(set).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('includes a WHERE cod_outcome IS NULL guard on the update (no-clobber)', async () => {
+    const { svc, where } = makeSvcWithDbSpy();
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date(), status: 'delivered' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(where).toHaveBeenCalledTimes(1);
+    const cond = where.mock.calls[0][0];
+    expect(renderSqlAst(cond).toLowerCase()).toContain('cod_outcome');
+    expect(renderSqlAst(cond).toLowerCase()).toContain('is null');
+  });
+
+  it('does nothing when orderId is missing (standalone shipment)', async () => {
+    const { svc, update } = makeSvcWithDbSpy();
+    await (svc as any).syncOrderCodOutcome({ orderId: null, tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date() } as any);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('SpeedyService.refreshStatusForRow — codCollectedAt stamping on delivered', () => {
+  let svc: SpeedyService;
+
+  beforeEach(() => {
+    svc = makeService();
+  });
+
+  /** db whose update(shipments).set(...).where(...).returning() resolves to a row
+   *  built from the .set() payload (so refreshStatusForRow's post-update reads see it),
+   *  and captures every .set() payload passed to db.update(...) for assertions. */
+  function dbCapturingSets(baseRow: Record<string, unknown>) {
+    const setPayloads: Record<string, unknown>[] = [];
+    const update = jest.fn((_table: unknown) =>
+      ({
+        set: jest.fn((payload: Record<string, unknown>) => {
+          setPayloads.push(payload);
+          return {
+            where: jest.fn(() => ({
+              returning: jest.fn().mockResolvedValue([{ ...baseRow, ...payload }]),
+            })),
+          };
+        }),
+      }),
+    );
+    return { db: { update } as any, setPayloads };
+  }
+
+  it('stamps codCollectedAt when the parsed status is delivered on a COD parcel with none yet', async () => {
+    const row = {
+      id: 'ship-1',
+      tenantId: 't1',
+      trackingNumber: 'BC1',
+      codAmountStotinki: 1000,
+      codCollectedAt: null,
+      status: 'shipped',
+      orderId: null,
+      customerNotifiedAt: null,
+      trackingJson: null,
+    } as any;
+    (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
+    // Last operation description drives parseTrackStatus → 'delivered'.
+    (svc as any).client = { call: jest.fn().mockResolvedValue({ parcels: [{ operations: [{ description: 'Доставена пратка' }] }] }) };
+    const { db, setPayloads } = dbCapturingSets(row);
+    (svc as any).db = db;
+    (svc as any).codRisk = { recordReturnIfApplicable: jest.fn().mockResolvedValue(undefined) };
+    (svc as any).syncOrderCodOutcome = jest.fn().mockResolvedValue(undefined);
+
+    await (svc as any).refreshStatusForRow(row);
+
+    expect(setPayloads[0]).toMatchObject({ status: 'delivered' });
+    expect(setPayloads[0].codCollectedAt).toBeInstanceOf(Date);
+  });
+
+  it('does NOT overwrite an existing codCollectedAt', async () => {
+    const existing = new Date('2026-01-01T00:00:00.000Z');
+    const row = {
+      id: 'ship-1', tenantId: 't1', trackingNumber: 'BC1', codAmountStotinki: 1000,
+      codCollectedAt: existing, status: 'shipped', orderId: null, customerNotifiedAt: null, trackingJson: null,
+    } as any;
+    (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
+    (svc as any).client = { call: jest.fn().mockResolvedValue({ parcels: [{ operations: [{ description: 'Доставена пратка' }] }] }) };
+    const { db, setPayloads } = dbCapturingSets(row);
+    (svc as any).db = db;
+    (svc as any).codRisk = { recordReturnIfApplicable: jest.fn().mockResolvedValue(undefined) };
+    (svc as any).syncOrderCodOutcome = jest.fn().mockResolvedValue(undefined);
+
+    await (svc as any).refreshStatusForRow(row);
+
+    expect(setPayloads[0].codCollectedAt).toBe(existing);
+  });
+
+  it('does NOT stamp codCollectedAt for a non-COD parcel', async () => {
+    const row = {
+      id: 'ship-1', tenantId: 't1', trackingNumber: 'BC1', codAmountStotinki: null,
+      codCollectedAt: null, status: 'shipped', orderId: null, customerNotifiedAt: null, trackingJson: null,
+    } as any;
+    (svc as any).resolveCreds = jest.fn().mockResolvedValue({ base: 'x', userName: 'u', password: 'p' });
+    (svc as any).client = { call: jest.fn().mockResolvedValue({ parcels: [{ operations: [{ description: 'Доставена пратка' }] }] }) };
+    const { db, setPayloads } = dbCapturingSets(row);
+    (svc as any).db = db;
+    (svc as any).codRisk = { recordReturnIfApplicable: jest.fn().mockResolvedValue(undefined) };
+    (svc as any).syncOrderCodOutcome = jest.fn().mockResolvedValue(undefined);
+
+    await (svc as any).refreshStatusForRow(row);
+
+    expect(setPayloads[0].codCollectedAt).toBeNull();
+  });
+});
+
 describe('SpeedyService.buildSenderBlob (unit)', () => {
   const svc = new SpeedyService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never, { sendShipped: jest.fn() } as never);
   const build = (speedy: unknown, senders: unknown, activeId: string) =>

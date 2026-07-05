@@ -7,7 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, desc, inArray, ne, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, desc, inArray, ne, isNotNull, isNull, sql } from 'drizzle-orm';
 import { type Database, tenants, orders, orderItems, shipments } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
@@ -40,6 +40,7 @@ import {
 import { readSenderBook, applySenderBook, type PickupPoint } from './sender-book';
 import { ShipmentEmailService } from './shipment-email.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
+import { isReturnedStatus } from '../cod-risk/cod-risk.helpers';
 import type { CarrierAdapter } from '../orders/carrier-adapter';
 
 const DEMO_BASE = 'https://demo.econt.com/ee/services';
@@ -1281,7 +1282,30 @@ export class EcontService implements CarrierAdapter {
         `[econt] cod-risk record failed for ${updated.id}: ${err instanceof Error ? err.message : err}`,
       );
     }
+    // Auto-sync the order's COD money outcome from this courier signal. Best-effort —
+    // same rationale as the cod-risk strike above.
+    try {
+      await this.syncOrderCodOutcome(updated);
+    } catch (err) {
+      this.logger.warn(`[econt] cod-outcome sync failed for ${updated.id}: ${err instanceof Error ? err.message : err}`);
+    }
     return updated;
+  }
+
+  /** Sync the order's COD money outcome from a courier signal. No-clobber: only
+   *  writes when the order has no outcome yet (a manual override wins). Econt: a
+   *  populated codCollectedAt means the cash was collected → received; a
+   *  returned/refused status → refused. Best-effort (caller wraps). */
+  private async syncOrderCodOutcome(shipment: typeof shipments.$inferSelect): Promise<void> {
+    if (!shipment.orderId || shipment.codAmountStotinki == null) return;
+    let outcome: 'received' | 'refused' | null = null;
+    if (isReturnedStatus(shipment.status)) outcome = 'refused';
+    else if (shipment.codCollectedAt != null) outcome = 'received';
+    if (!outcome) return;
+    await this.db
+      .update(orders)
+      .set({ codOutcome: outcome, codOutcomeAt: new Date(), codOutcomeSource: 'courier' })
+      .where(and(eq(orders.id, shipment.orderId), sql`${orders.codOutcome} is null`));
   }
 
   /**
