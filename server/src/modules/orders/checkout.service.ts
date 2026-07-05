@@ -1,5 +1,6 @@
 import { Injectable, Inject, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { type Database, orders, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -8,6 +9,9 @@ import { StripeService, type CheckoutLine } from '../stripe/stripe.service';
 import { EcontService } from '../econt/econt.service';
 import { SpeedyService } from '../speedy/speedy.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
+import { AnalyticsService } from '../analytics/analytics.service';
+import { visitorHash } from '../analytics/analytics.helpers';
+import { bgToday } from '../../common/time/bg-time';
 import { CreateOrderDto } from './dto/create-order.dto';
 import {
   localFeeStotinki,
@@ -62,6 +66,7 @@ export class CheckoutService {
     private readonly speedy: SpeedyService,
     private readonly orderConfirmation: OrderConfirmationService,
     private readonly config: ConfigService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   /**
@@ -74,9 +79,10 @@ export class CheckoutService {
     dto: CreateOrderDto,
     preloadedCfg?: DeliveryConfig | null,
     preloadedTenant?: Parameters<OrdersService['create']>[2],
+    visitorHash?: string | null,
   ): Promise<{ order: PlacedOrder; subtotal: number; shipping: number; grandTotal: number }> {
     // Order intake — snapshot, row-lock the slot, 409 on overflow, status pending.
-    const order = await this.ordersService.create(slug, dto, preloadedTenant);
+    const order = await this.ordersService.create(slug, dto, preloadedTenant, visitorHash);
     const subtotal = order.items.reduce((sum, i) => sum + i.priceStotinki * i.quantity, 0);
     const shipping = await this.shippingStotinki(order, subtotal, preloadedCfg);
     const grandTotal = subtotal + shipping;
@@ -103,13 +109,38 @@ export class CheckoutService {
     return order;
   }
 
-  async create(slug: string, dto: CreateOrderDto): Promise<CheckoutResult> {
+  async create(slug: string, dto: CreateOrderDto, ip: string, ua: string): Promise<CheckoutResult> {
+    // Cookieless daily visitor hash of THIS checkout request — stamped onto the
+    // order(s) below so the server-emitted 'purchase' analytics event carries the
+    // same hash as that shopper's earlier page_view rows (see analytics.helpers).
+    const analyticsSecret = this.config.get<string>('ANALYTICS_SALT', 'ff-analytics');
+    const day = bgToday();
+
     // Courier delivery splits the cart into one single-farmer COD order per farmer.
     // It never opens a Stripe session and folds no delivery fee — short-circuit here.
     if (dto.deliveryType === 'courier') {
-      const placed = await this.ordersService.createCourierOrders(slug, dto);
+      // Resolve the tenant id up front (createCourierOrders re-resolves internally,
+      // but the hash needs it too before intake runs).
+      const [t] = await this.db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.slug, slug))
+        .limit(1);
+      const hash = t ? visitorHash(ip, ua, day, t.id, analyticsSecret) : null;
+      const placed = await this.ordersService.createCourierOrders(slug, dto, hash);
       // COD → final now; send the "received" mail per leg (best-effort, detached).
       for (const o of placed) void this.orderConfirmation.sendReceived(o.id);
+      // ONE purchase event for the whole courier checkout (not per leg) — the
+      // funnel counts distinct visitors, and this is one shopper's one purchase.
+      if (placed.length) {
+        const ph = hash ?? createHash('sha256').update(`purchase|${placed[0].id}`).digest('hex');
+        void this.analytics.recordPurchase({
+          tenantId: placed[0].tenantId!,
+          orderId: placed[0].id,
+          visitorHash: ph,
+          valueStotinki: placed.reduce((s, o) => s + o.totalStotinki, 0),
+        });
+      }
       return {
         orderId: placed[0]?.id,
         checkoutUrl: null,
@@ -142,6 +173,7 @@ export class CheckoutService {
       .from(tenants)
       .where(eq(tenants.slug, slug))
       .limit(1);
+    const hash = tenant ? visitorHash(ip, ua, day, tenant.id, analyticsSecret) : null;
     // Card requires a linked account that can actually charge (onboarding complete →
     // charges_enabled), mirroring the storefront gate. An 'online' choice on a
     // not-yet-live account falls back to COD below instead of opening a Checkout
@@ -167,7 +199,7 @@ export class CheckoutService {
     }
 
     // 1. Order intake + shipping folded into the total (tenant + cfg reused, no re-read).
-    const { order, shipping, grandTotal } = await this.createAndFold(slug, dto, cfg, tenant);
+    const { order, shipping, grandTotal } = await this.createAndFold(slug, dto, cfg, tenant, hash);
 
     const wantsCod = dto.paymentMethod === 'cod';
 
@@ -184,6 +216,15 @@ export class CheckoutService {
       // Cash path → final now; send the "received" mail (Stripe orders instead get
       // their mail after payment succeeds).
       void this.orderConfirmation.sendReceived(order.id);
+      // COD has no payment gate — record the purchase now (Stripe orders instead
+      // get it from markOrderPaid on the online branch, once actually paid).
+      const ph = hash ?? createHash('sha256').update(`purchase|${order.id}`).digest('hex');
+      void this.analytics.recordPurchase({
+        tenantId: order.tenantId!,
+        orderId: order.id,
+        visitorHash: ph,
+        valueStotinki: order.totalStotinki,
+      });
       return { orderId: order.id, checkoutUrl: null };
     }
 

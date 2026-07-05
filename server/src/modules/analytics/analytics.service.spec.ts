@@ -51,3 +51,48 @@ describe('AnalyticsService.track', () => {
     expect(insert).not.toHaveBeenCalled();
   });
 });
+
+describe('AnalyticsService.recordPurchase', () => {
+  /** `select().from().where().limit()` returns `guardResult` (the existing-row
+   *  guard); `insert().values()` is the spy under test. */
+  function makeService(guardResult: unknown[], insertSpy: jest.Mock) {
+    const db = {
+      select: () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve(guardResult) }) }) }),
+      insert: () => ({ values: insertSpy }),
+    } as any;
+    const cache = { resolveTenant: jest.fn() } as any;
+    const config = { get: (k: string, d?: string) => d } as any;
+    return new AnalyticsService(db, cache, config);
+  }
+
+  it('inserts a purchase row when no prior purchase event exists for the order', async () => {
+    const insert = jest.fn().mockResolvedValue(undefined);
+    const svc = makeService([], insert);
+    await svc.recordPurchase({ tenantId: 't1', orderId: 'o1', visitorHash: 'h1', valueStotinki: 2500 });
+    expect(insert).toHaveBeenCalledTimes(1);
+    const row = insert.mock.calls[0][0];
+    expect(row).toEqual({
+      tenantId: 't1',
+      visitorHash: 'h1',
+      eventType: 'purchase',
+      orderId: 'o1',
+      valueStotinki: 2500,
+    });
+    expect(row).not.toHaveProperty('device');
+  });
+
+  it('skips the insert when a purchase row already exists for this order', async () => {
+    const insert = jest.fn();
+    const svc = makeService([{ id: 1 }], insert);
+    await svc.recordPurchase({ tenantId: 't1', orderId: 'o1', visitorHash: 'h1', valueStotinki: 2500 });
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('swallows an insert failure instead of throwing', async () => {
+    const insert = jest.fn().mockRejectedValue(new Error('db down'));
+    const svc = makeService([], insert);
+    await expect(
+      svc.recordPurchase({ tenantId: 't1', orderId: 'o1', visitorHash: 'h1', valueStotinki: 2500 }),
+    ).resolves.toBeUndefined();
+  });
+});

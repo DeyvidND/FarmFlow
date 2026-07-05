@@ -1171,6 +1171,11 @@ export class OrdersService {
       | 'id' | 'farmLat' | 'farmLng' | 'subscriptionStatus' | 'settings' | 'deliveryEnabled'
       | 'deliveriesPackageEnabled'
     >,
+    // Cookieless visitor hash computed by CheckoutService from the request's
+    // IP+UA — persisted so the server-emitted 'purchase' analytics event can
+    // reuse it (see analytics.helpers.visitorHash). Null for callers that don't
+    // track (e.g. the bare placeOrder() path — out of scope for this change).
+    visitorHash?: string | null,
   ): Promise<OrderWithItems> {
     // Three delivery methods: local farm delivery (slots + route + coords),
     // Econt → office, Econt → home address. Only local delivery consumes a slot
@@ -1320,6 +1325,7 @@ export class OrdersService {
           // when the farm has no usable Stripe account.
           paymentMethod: dto.paymentMethod ?? 'online',
           notes: dto.notes ?? null,
+          visitorHash: visitorHash ?? null,
         })
         .returning();
 
@@ -1344,6 +1350,10 @@ export class OrdersService {
   async createCourierOrders(
     slug: string,
     dto: CreateOrderDto,
+    // Cookieless visitor hash (see create()'s param doc) — same value stamped
+    // onto every split leg, so all of a courier checkout's orders resolve to
+    // one visitor for the purchase-event emit in CheckoutService.
+    visitorHash?: string | null,
   ): Promise<(OrderWithItems & { farmerName: string | null })[]> {
     const [tenant] = await this.db
       .select({
@@ -1433,6 +1443,7 @@ export class OrdersService {
             econtOffice: null,
             paymentMethod: 'cod',
             notes: dto.notes ?? null,
+            visitorHash: visitorHash ?? null,
           })
           .returning();
         const inserted = await tx

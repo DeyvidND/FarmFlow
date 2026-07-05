@@ -17,7 +17,8 @@
     "build": "tsc -p tsconfig.json",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
-    "seed": "tsx src/seed.ts"
+    "seed": "tsx src/seed.ts",
+    "backfill:purchases": "tsx src/backfill-purchases.ts"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",

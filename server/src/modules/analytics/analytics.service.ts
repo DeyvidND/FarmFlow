@@ -142,6 +142,41 @@ export class AnalyticsService {
     }
   }
 
+  /** Record a server-side confirmed-sale purchase event. Idempotent per orderId:
+   *  skips insert if a purchase row already exists for this order (guards against
+   *  double-emit — Stripe's twin webhooks, courier split, or a backfill re-run).
+   *  Best-effort: any failure is logged, never thrown (must not break checkout /
+   *  the webhook). device omitted → defaults to 'desktop' (unused on purchase rows:
+   *  all device/weekday/series aggregations filter on page_view). */
+  async recordPurchase(input: {
+    tenantId: string;
+    orderId: string;
+    visitorHash: string;
+    valueStotinki: number | null;
+  }): Promise<void> {
+    try {
+      const existing = await this.db
+        .select({ id: siteEvents.id })
+        .from(siteEvents)
+        .where(and(
+          eq(siteEvents.tenantId, input.tenantId),
+          eq(siteEvents.orderId, input.orderId),
+          eq(siteEvents.eventType, 'purchase'),
+        ))
+        .limit(1);
+      if (existing.length) return;
+      await this.db.insert(siteEvents).values({
+        tenantId: input.tenantId,
+        visitorHash: input.visitorHash,
+        eventType: 'purchase',
+        orderId: input.orderId,
+        valueStotinki: input.valueStotinki,
+      });
+    } catch (err) {
+      this.log.warn(`recordPurchase failed for order ${input.orderId}: ${err}`);
+    }
+  }
+
   /** Aggregate the analytics summary for a tenant + window. Cached 90 s. */
   async summary(
     tenantId: string,
@@ -318,13 +353,30 @@ export class AnalyticsService {
       .groupBy(sql`1`)
       .orderBy(sql`1`);
 
-    const [funnelRows, sources, topPagesRaw, deviceRows, seriesRows, weekdayRows] = await Promise.all([
+    // Headline "Посетители" = distinct page_view visitors (current + the equal
+    // prior window for the delta) — the SAME definition the trend/sources/devices/
+    // weekday queries use, so every card reconciles with the chart. The funnel's
+    // stage-0 count stays on the deepest-stage model (funnelP) which keeps it
+    // monotonic; the two agree for real traffic and diverge only by untracked
+    // purchase-only visitors (e.g. backfilled historical orders with no page_view).
+    const visitorsP = this.db
+      .select({
+        cur: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv} and ${siteEvents.createdAt} >= ${since})::int`,
+        prev: sql<number>`count(distinct ${siteEvents.visitorHash}) filter (where ${pv} and ${siteEvents.createdAt} < ${since})::int`,
+      })
+      .from(siteEvents)
+      .where(
+        and(eq(siteEvents.tenantId, tenantId), gte(siteEvents.createdAt, prevSince), lt(siteEvents.createdAt, toExcl)),
+      );
+
+    const [funnelRows, sources, topPagesRaw, deviceRows, seriesRows, weekdayRows, visitorRows] = await Promise.all([
       funnelP,
       sourcesP,
       topPagesRawP,
       devicesP,
       seriesP,
       weekdayP,
+      visitorsP,
     ]);
     const topPages = buildTopPages(topPagesRaw);
 
@@ -337,8 +389,11 @@ export class AnalyticsService {
     };
     const funnel = buildFunnel(funnelRow.stages);
 
-    const visitors = funnelRow.stages[0] ?? 0;
-    const prevVisitors = funnelRow.prevVisitors;
+    // Headline visitors = page_view-distinct (visitorsP), NOT the funnel's
+    // deepest-stage stage-0 — so "Посетители" reconciles with the trend/sources.
+    const visitorRow = visitorRows[0] ?? { cur: 0, prev: 0 };
+    const visitors = visitorRow.cur;
+    const prevVisitors = visitorRow.prev;
     const purchasesCur = funnelRow.stages[FUNNEL_ORDER.length - 1] ?? 0;
     const purchasesPrev = funnelRow.prevPurchasers;
     const pageViewRows = funnelRow.pageViewRows;

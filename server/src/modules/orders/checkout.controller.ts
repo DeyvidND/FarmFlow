@@ -1,4 +1,4 @@
-import { Controller, Post, Param, Body } from '@nestjs/common';
+import { Controller, Post, Param, Body, Ip, Headers } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CheckoutService } from './checkout.service';
@@ -18,7 +18,12 @@ export class PublicCheckoutController {
   // Costly path (DB writes + live Econt rate + Stripe session). 15/min/IP.
   @Throttle({ default: { limit: 15, ttl: 60_000 } })
   @Post()
-  create(@Param('slug') slug: string, @Body() dto: CreateOrderDto) {
-    return this.checkout.create(slug, dto);
+  create(
+    @Param('slug') slug: string,
+    @Body() dto: CreateOrderDto,
+    @Ip() ip: string,
+    @Headers('user-agent') ua: string,
+  ) {
+    return this.checkout.create(slug, dto, ip ?? '', ua ?? '');
   }
 }

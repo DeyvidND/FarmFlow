@@ -8,9 +8,17 @@ import { StripeModule } from '../stripe/stripe.module';
 import { EcontModule } from '../econt/econt.module';
 import { SpeedyCoreModule } from '../speedy/speedy-core.module';
 import { OrderEmailModule } from '../order-email/order-email.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 @Module({
-  imports: [StripeModule, EcontModule, SpeedyCoreModule, CarrierFulfillmentModule, OrderEmailModule],
+  imports: [
+    StripeModule,
+    EcontModule,
+    SpeedyCoreModule,
+    CarrierFulfillmentModule,
+    OrderEmailModule,
+    AnalyticsModule,
+  ],
   controllers: [OrdersController, PublicOrdersController, PublicCheckoutController],
   providers: [OrdersService, CheckoutService],
 })

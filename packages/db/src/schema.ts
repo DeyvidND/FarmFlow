@@ -386,6 +386,11 @@ export const orders = pgTable(
     // платеж — collected at delivery/Econt office). Normalized at checkout to
     // reflect reality: any order with no Stripe session is recorded as 'cod'.
     paymentMethod: paymentMethodEnum('payment_method').notNull().default('online'),
+    // Cookieless daily visitor hash of the checkout request (IP+UA+day+tenant+salt),
+    // captured so the server-emitted 'purchase' site_event carries the SAME hash as
+    // that shopper's page_view rows (funnel counts distinct visitor_hash). Nullable:
+    // legacy rows + any order created before this column existed.
+    visitorHash: text('visitor_hash'),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({

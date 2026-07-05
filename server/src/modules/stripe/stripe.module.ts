@@ -5,9 +5,10 @@ import { BillingModule } from '../billing/billing.module';
 import { EcontModule } from '../econt/econt.module';
 import { OrderEmailModule } from '../order-email/order-email.module';
 import { CarrierFulfillmentModule } from '../orders/carrier-fulfillment.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 @Module({
-  imports: [BillingModule, EcontModule, OrderEmailModule, CarrierFulfillmentModule],
+  imports: [BillingModule, EcontModule, OrderEmailModule, CarrierFulfillmentModule, AnalyticsModule],
   controllers: [StripeController, StripeConnectController],
   providers: [StripeService],
   exports: [StripeService],

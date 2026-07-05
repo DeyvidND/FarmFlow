@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'node:crypto';
 import { and, eq, ne } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { type Database, orders, tenants, stripeEvents } from '@fermeribg/db';
@@ -18,6 +19,7 @@ import { BillingService } from '../billing/billing.service';
 import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from '../orders/carrier-fulfillment.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 
 // stripe@22 ships `export = StripeConstructor`, so the rich `Stripe.*` type
 // namespace isn't reachable through the default import under `moduleResolution:
@@ -105,6 +107,7 @@ export class StripeService {
     private readonly orderEmail: OrderConfirmationService,
     private readonly publicCache: PublicCacheService,
     private readonly carrierFulfillment: CarrierFulfillmentService,
+    private readonly analytics: AnalyticsService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
@@ -701,7 +704,7 @@ export class StripeService {
       return;
     }
     const [order] = await this.db
-      .select({ id: orders.id, total: orders.totalStotinki })
+      .select({ id: orders.id, total: orders.totalStotinki, visitorHash: orders.visitorHash })
       .from(orders)
       .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
       .limit(1);
@@ -745,6 +748,17 @@ export class StripeService {
     // Neither must block or fail the webhook (both swallow their own errors).
     void this.carrierFulfillment.autoCreateForOrder(orderId);
     void this.orderEmail.sendForOrder(orderId);
+    // Server-side confirmed sale — this is the ONLY place the online (Stripe)
+    // path emits 'purchase' (checkout.service.ts skips it for that branch).
+    // Falls back to a synthetic per-order hash for pre-existing orders placed
+    // before orders.visitorHash existed (never null → site_events requires it).
+    const purchaseHash = order.visitorHash ?? createHash('sha256').update(`purchase|${orderId}`).digest('hex');
+    void this.analytics.recordPurchase({
+      tenantId,
+      orderId,
+      visitorHash: purchaseHash,
+      valueStotinki: order.total,
+    });
   }
 
   /** A refunded charge cancels the order (frees the slot) and clears the paid mark. */

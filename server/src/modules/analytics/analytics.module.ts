@@ -25,5 +25,6 @@ import { RUN_WORKERS } from '../../config/app-role';
     AnalyticsRetention,
     ...(RUN_WORKERS ? [AnalyticsRetentionProcessor] : []),
   ],
+  exports: [AnalyticsService],
 })
 export class AnalyticsModule {}
