@@ -276,6 +276,11 @@ export function OrdersClient({
                   <div className="flex flex-col items-start gap-1.5">
                     <StatusBadge status={o.status} size="sm" />
                     <PaymentBadge status={o.paymentStatus} size="sm" />
+                    {o.codOutcome === 'refused' && (
+                      <span className="rounded-full px-2 py-0.5 text-[12px] font-bold bg-red-100 text-red-800">
+                        Отказана
+                      </span>
+                    )}
                   </div>
                 </td>
                 <td className="ff-fig px-5 py-3.5 text-right align-top text-[14.5px] font-extrabold">
@@ -304,6 +309,11 @@ export function OrdersClient({
                 <div className="flex flex-col items-end gap-1.5">
                   <StatusBadge status={o.status} size="sm" />
                   <PaymentBadge status={o.paymentStatus} size="sm" />
+                  {o.codOutcome === 'refused' && (
+                    <span className="rounded-full px-2 py-0.5 text-[12px] font-bold bg-red-100 text-red-800">
+                      Отказана
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="text-[13.5px] leading-[1.4] text-ff-ink-2">{itemsSummary(o)}</div>
