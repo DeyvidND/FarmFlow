@@ -242,7 +242,7 @@ describe('MapsService.routeFixed', () => {
     const calls = mockFetch({ routes: [{ distanceMeters: 5000, duration: '900s' }] });
     const pts = [origin, ...stops, { lat: 42.3, lng: 23.3 }];
     const out = await make('k').routeFixed(pts);
-    expect(out).toEqual({ distanceM: 5000, durationS: 900 });
+    expect(out).toEqual({ distanceM: 5000, durationS: 900, polyline: null });
     const body = calls[0].body;
     expect(body.origin.location.latLng).toEqual({ latitude: 42.0, longitude: 23.0 });
     expect(body.destination.location.latLng).toEqual({ latitude: 42.3, longitude: 23.3 });
