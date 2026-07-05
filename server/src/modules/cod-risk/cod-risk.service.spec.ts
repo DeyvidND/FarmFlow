@@ -502,3 +502,77 @@ describe('CodRiskService.checkBulk', () => {
     expect(db.insert).not.toHaveBeenCalled();
   });
 });
+
+// ---- Tests: recordManualRefusal() -------------------------------------------
+
+describe('CodRiskService.recordManualRefusal', () => {
+  let svc: CodRiskService;
+
+  /** DB mock covering the two INSERT chains used by recordManualRefusal:
+   *  codRisk upsert (insert().values().onConflictDoUpdate()) and
+   *  codRiskEvents insert (insert().values()). Captures the values passed to
+   *  each so tests can assert on them. */
+  function makeRecordDb() {
+    let insertedCodRiskValues: Record<string, any> | undefined;
+    let insertedEvent: Record<string, any> | undefined;
+
+    const codRiskValues = jest.fn((v: Record<string, any>) => {
+      insertedCodRiskValues = v;
+      return { onConflictDoUpdate: jest.fn().mockResolvedValue([]) };
+    });
+    const eventValues = jest.fn((v: Record<string, any>) => {
+      insertedEvent = v;
+      return Promise.resolve([]);
+    });
+
+    // First insert() call is the codRisk upsert, second is the codRiskEvents insert.
+    const insert = jest.fn()
+      .mockImplementationOnce(() => ({ values: codRiskValues }))
+      .mockImplementationOnce(() => ({ values: eventValues }));
+
+    const db = { insert };
+    return {
+      db,
+      get insertedCodRiskValues() {
+        return insertedCodRiskValues;
+      },
+      get insertedEvent() {
+        return insertedEvent;
+      },
+    };
+  }
+
+  async function build(db: any) {
+    const nkClient = { configured: true, checkPhone: jest.fn() };
+    const mod = await Test.createTestingModule({
+      providers: [
+        CodRiskService,
+        { provide: DB_TOKEN, useValue: db },
+        { provide: NekorektenClient, useValue: nkClient },
+        { provide: NekorektenRateLimiter, useValue: makeRateLimiterMock() },
+      ],
+    }).compile();
+    svc = mod.get(CodRiskService);
+  }
+
+  it('records a strike keyed on the order customer phone', async () => {
+    const record = makeRecordDb();
+    await build(record.db);
+    const order = { id: 'o1', tenantId: 't1', customerPhone: '0888 123 456' } as any;
+    await svc.recordManualRefusal(order);
+
+    // normalizePhone('0888 123 456') === '+359888123456'
+    expect(record.insertedCodRiskValues).toMatchObject({ phone: '+359888123456', strikes: 1, lastEventType: 'returned' });
+    expect(record.insertedEvent).toMatchObject({ phone: '+359888123456', tenantId: 't1', type: 'returned', shipmentId: null });
+  });
+
+  it('no-ops when the phone cannot be normalized', async () => {
+    const record = makeRecordDb();
+    await build(record.db);
+    const order = { id: 'o2', tenantId: 't1', customerPhone: '' } as any;
+    await svc.recordManualRefusal(order);
+
+    expect(record.insertedCodRiskValues).toBeUndefined();
+    expect(record.db.insert).not.toHaveBeenCalled();
+  });
+});

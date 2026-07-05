@@ -335,6 +335,31 @@ export class CodRiskService {
     await this.db.insert(codRiskEvents).values({ phone, tenantId: shipment.tenantId, shipmentId: shipment.id, type: 'returned' });
   }
 
+  /** Manual COD refusal (pickup / own-delivery orders, or a courier override to
+   *  refused). Records a single strike keyed on the order's customer phone — the
+   *  order-less parallel of {@link recordReturnIfApplicable}. The caller guarantees
+   *  single invocation per order (only on the NULL→refused transition), so this does
+   *  not need its own compare-and-set claim. Best-effort: the caller wraps it. */
+  async recordManualRefusal(order: typeof orders.$inferSelect): Promise<void> {
+    const phone = normalizePhone(order.customerPhone ?? '');
+    if (!phone) return;
+    await this.db
+      .insert(codRisk)
+      .values({ phone, strikes: 1, lastEventType: 'returned', lastEventAt: new Date() })
+      .onConflictDoUpdate({
+        target: codRisk.phone,
+        set: {
+          strikes: sql`${codRisk.strikes} + 1`,
+          lastEventType: 'returned',
+          lastEventAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    await this.db
+      .insert(codRiskEvents)
+      .values({ phone, tenantId: order.tenantId, shipmentId: null, type: 'returned' });
+  }
+
   /** Returned-COD shipments for this tenant awaiting a report decision. */
   async listCandidates(tenantId: string): Promise<Array<{ shipmentId: string; receiverName: string | null; phone: string | null; codAmountStotinki: number | null }>> {
     const rows = await this.db
