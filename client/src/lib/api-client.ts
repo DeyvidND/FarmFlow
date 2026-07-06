@@ -682,6 +682,59 @@ export const getPayments = (opts?: {
   return apiFetch<PaymentsPage>(`orders/payments${query ? `?${query}` : ''}`);
 };
 
+// ---- Моите поръчки (farmer fulfillment view) — every status, per-item detail ----
+export interface FarmerOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  priceStotinki: number;
+}
+
+export interface FarmerOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  status: string;
+  deliveryType: string;
+  paymentMethod: PaymentChannel;
+  day: string;
+  createdAt: string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+  codOutcome: 'received' | 'refused' | null;
+  codOutcomeReason: string | null;
+  /** True when the order also has another producer's items — actions are
+   *  hidden; only the shop owner can mark a shared order delivered. */
+  shared: boolean;
+  subtotalStotinki: number;
+  items: FarmerOrderItem[];
+}
+
+export interface FarmerOrdersPage {
+  orders: FarmerOrder[];
+  nextCursor: string | null;
+}
+
+export const getMyOrders = (opts?: {
+  status?: string;
+  q?: string;
+  cursor?: string;
+  limit?: number;
+  /** Owner-only preview of one producer's view. */
+  farmerId?: string;
+}) => {
+  const p = new URLSearchParams();
+  if (opts?.status) p.set('status', opts.status);
+  if (opts?.q) p.set('q', opts.q);
+  if (opts?.cursor) p.set('cursor', opts.cursor);
+  if (opts?.limit) p.set('limit', String(opts.limit));
+  if (opts?.farmerId) p.set('farmerId', opts.farmerId);
+  const query = p.toString();
+  return apiFetch<FarmerOrdersPage>(`orders/mine${query ? `?${query}` : ''}`);
+};
+
 /**
  * Create (if needed) the farm's Standard connected account and get a hosted
  * Stripe onboarding URL — the caller redirects the browser to it.
