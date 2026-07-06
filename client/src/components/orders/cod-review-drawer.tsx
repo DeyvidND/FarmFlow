@@ -58,7 +58,7 @@ export function CodReviewDrawer({
         </div>
 
         {/* body */}
-        <OrderDetailBody order={current} />
+        <OrderDetailBody key={current.id} order={current} />
 
         {/* footer */}
         <div className="flex flex-col gap-2.5 border-t border-ff-border-2 px-6 py-5">

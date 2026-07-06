@@ -42,7 +42,7 @@ export function OrderPanel({
           </button>
         </div>
 
-        <OrderDetailBody order={order} />
+        <OrderDetailBody key={order.id} order={order} />
 
         <div className="flex flex-col gap-2.5 border-t border-ff-border-2 px-6 py-5">
           {order.status === 'pending' && (
@@ -214,7 +214,7 @@ export function OrderDetailBody({ order }: { order: Order }) {
  *  refused, amber for received/collected, muted for still-expected. */
 function codOutcomeBadge(outcome: 'received' | 'refused' | null): { label: string; cls: string } {
   if (outcome === 'refused') return { label: 'Отказана', cls: 'bg-red-100 text-red-800' };
-  if (outcome === 'received') return { label: 'Получено', cls: 'bg-amber-100 text-amber-800' };
+  if (outcome === 'received') return { label: 'Събрано', cls: 'bg-amber-100 text-amber-800' };
   return { label: 'Очаквано', cls: 'bg-ff-surface-2 text-ff-muted' };
 }
 
