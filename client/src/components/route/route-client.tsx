@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CalendarDays,
@@ -22,6 +22,8 @@ import type { RouteResult, RouteStop, RouteEndMode, RouteOrderMode } from '@/lib
 import { StopList } from './stop-list';
 import { RouteMap } from './route-map';
 import { LocationRouteCard } from './location-route-card';
+import { WazeStepper } from './waze-stepper';
+import { buildWazeTargets, wazeUrl } from './waze';
 
 const cn = (...c: (string | false)[]) => c.filter(Boolean).join(' ');
 
@@ -139,6 +141,38 @@ export function RouteClient({
   // each is a real user gesture (a burst of window.open() gets popup-blocked).
   const [extraLegs, setExtraLegs] = useState<string[]>([]);
 
+  // Waze step-by-step navigator: which target is next, and whether the panel is
+  // open. `wazeIdx` reaches `wazeTargets.length` when every stop is done.
+  const [showWaze, setShowWaze] = useState(false);
+  const [wazeIdx, setWazeIdx] = useState(0);
+  const wazeTargets = useMemo(
+    () => buildWazeTargets(stops, end, origin),
+    [stops, end, origin],
+  );
+
+  // Restore Waze progress for THIS date (survives reload / phone lock). Clamp to
+  // the current target count. Keyed on the date only so re-ordering mid-run
+  // doesn't reset the pointer.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`ff:waze:${route.date}`);
+      const n = raw == null ? 0 : parseInt(raw, 10);
+      setWazeIdx(Number.isFinite(n) ? Math.min(Math.max(n, 0), wazeTargets.length) : 0);
+    } catch {
+      setWazeIdx(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.date]);
+
+  // Persist progress on every change.
+  useEffect(() => {
+    try {
+      localStorage.setItem(`ff:waze:${route.date}`, String(wazeIdx));
+    } catch {
+      /* localStorage unavailable (private mode) — progress just won't persist */
+    }
+  }, [wazeIdx, route.date]);
+
   const dist = fmtDist(route.totalDistanceM);
   const dur = fmtDur(route.totalDurationS);
   const summary = `${stops.length} ${stops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`;
@@ -179,6 +213,20 @@ export function RouteClient({
       toast.success(navigate ? 'Навигацията се отваря в Google Maps' : 'Маршрутът се отваря в Google Maps');
     }
   };
+
+  // Open Waze for a single target and auto-advance the default to the next one.
+  const wazeNavigate = (i: number) => {
+    const url = wazeUrl(wazeTargets[i]);
+    if (!url) {
+      toast.error('Тази спирка не е на картата — провери адреса');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+    setWazeIdx(Math.min(i + 1, wazeTargets.length));
+  };
+  const wazePrev = () => setWazeIdx((v) => Math.max(0, v - 1));
+  const wazeNext = () => setWazeIdx((v) => Math.min(wazeTargets.length, v + 1));
+  const wazeReset = () => setWazeIdx(0);
 
   const onOpenMaps = (s: RouteStop) => {
     window.open(stopUrl(origin, s), '_blank', 'noopener');
@@ -401,6 +449,19 @@ export function RouteClient({
         </div>
       )}
 
+      {/* Waze step-by-step navigator — one stop at a time (Waze has no waypoints) */}
+      {showWaze && wazeTargets.length > 0 && (
+        <WazeStepper
+          targets={wazeTargets}
+          idx={wazeIdx}
+          onNavigate={wazeNavigate}
+          onPrev={wazePrev}
+          onNext={wazeNext}
+          onReset={wazeReset}
+          onClose={() => setShowWaze(false)}
+        />
+      )}
+
       {/* expandable explainer — for farmers who aren't used to the tech */}
       {showHelp && (
         <div className="mb-4 rounded-xl border border-ff-border bg-ff-surface-2 p-4 text-[13px] leading-relaxed text-ff-ink-2 shadow-ff-sm">
@@ -435,6 +496,10 @@ export function RouteClient({
             </li>
             <li>
               <b>Старт</b> — пуска навигация „завой по завой“ в Google Maps на телефона.
+            </li>
+            <li>
+              <b>Waze</b> — навигация спирка по спирка. Waze води до една спирка наведнъж; цъкни
+              „Навигирай“, закарай, после мини на следващата. Помни докъде си стигнал за деня.
             </li>
             <li>
               При всяка спирка виждаш <b>телефон и имейл</b> — натисни ги за обаждане/писмо, или
@@ -479,6 +544,19 @@ export function RouteClient({
                 className="inline-flex items-center gap-1.5 rounded-[9px] bg-ff-green-100 px-[11px] py-[7px] text-[13px] font-bold text-ff-green-800 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Truck size={15} /> Старт
+              </button>
+              <button
+                onClick={() => setShowWaze((v) => !v)}
+                disabled={!stops.length}
+                title="Навигирай маршрута спирка по спирка с Waze"
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-[9px] border px-[11px] py-[7px] text-[13px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50',
+                  showWaze
+                    ? 'border-ff-green-500 bg-ff-green-100 text-ff-green-800'
+                    : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+                )}
+              >
+                <Navigation size={15} /> Waze
               </button>
             </div>
           </div>
