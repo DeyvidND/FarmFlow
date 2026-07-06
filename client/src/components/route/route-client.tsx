@@ -14,6 +14,7 @@ import {
   HelpCircle,
   Settings,
   AlertTriangle,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { setStopLocation, updateOrderStatus } from '@/lib/api-client';
@@ -462,10 +463,27 @@ export function RouteClient({
         />
       )}
 
-      {/* expandable explainer — for farmers who aren't used to the tech */}
+      {/* explainer modal — for farmers who aren't used to the tech */}
       {showHelp && (
-        <div className="mb-4 rounded-xl border border-ff-border bg-ff-surface-2 p-4 text-[13px] leading-relaxed text-ff-ink-2 shadow-ff-sm">
-          <h3 className="mb-1.5 text-[13.5px] font-extrabold text-ff-ink">Какво е този екран</h3>
+        <div
+          className="animate-ff-fade fixed inset-0 z-[90] grid place-items-center bg-black/40 p-4"
+          onClick={() => setShowHelp(false)}
+        >
+          <div
+            className="animate-ff-pop relative max-h-[85vh] w-[560px] max-w-full overflow-y-auto rounded-2xl border border-ff-border bg-ff-surface p-6 text-[13px] leading-relaxed text-ff-ink-2 shadow-ff-lg"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Помощ за маршрута"
+          >
+            <button
+              type="button"
+              onClick={() => setShowHelp(false)}
+              aria-label="Затвори"
+              className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-lg text-ff-muted hover:bg-ff-surface-2 hover:text-ff-ink"
+            >
+              <X size={18} />
+            </button>
+          <h3 className="mb-1.5 pr-8 text-[13.5px] font-extrabold text-ff-ink">Какво е този екран</h3>
           <p className="mb-2.5">
             Маршрутът подрежда <b>потвърдените</b> поръчки за доставка до адрес за избрания ден, за да
             ги обиколиш бързо. Започва от базата ти (адресът от бутона <b>Локация</b> горе). Смени деня
@@ -522,6 +540,7 @@ export function RouteClient({
               краят на маршрута.
             </li>
           </ul>
+          </div>
         </div>
       )}
 
