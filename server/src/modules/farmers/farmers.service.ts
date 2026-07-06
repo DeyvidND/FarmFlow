@@ -37,12 +37,17 @@ export class FarmersService {
     @InjectQueue(IMAGE_QUEUE) private readonly imageQueue: Queue,
   ) {}
 
-  /** All farmers for the tenant, ordered by display position then age. */
-  findAll(tenantId: string): Promise<Farmer[]> {
+  /** Farmers for the tenant, ordered by display position then age. `scope` (a
+   *  producer's own id) narrows the list to that single farmer; null = all. */
+  findAll(tenantId: string, scope: string | null = null): Promise<Farmer[]> {
     return this.db
       .select()
       .from(farmers)
-      .where(eq(farmers.tenantId, tenantId))
+      .where(
+        scope
+          ? and(eq(farmers.tenantId, tenantId), eq(farmers.id, scope))
+          : eq(farmers.tenantId, tenantId),
+      )
       .orderBy(asc(farmers.position), asc(farmers.createdAt));
   }
 

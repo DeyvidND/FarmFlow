@@ -12,6 +12,10 @@ import { UpdateFarmerDto } from './dto/update-farmer.dto';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
+import type { TenantRequestUser } from '@fermeribg/types';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import { ReorderDto } from '../../common/dto/reorder.dto';
 import {
@@ -25,9 +29,15 @@ import {
 export class FarmersController {
   constructor(private readonly farmersService: FarmersService) {}
 
+  // Producers see only themselves (scoped by token, query overrides ignored); the
+  // owner sees the whole tenant. Opened to `farmer` so a sub-account's own
+  // `courierEnabled` reaches the products screens — otherwise the courier toggle
+  // there stays locked with a misleading "no carrier" note even after connecting.
   @Get()
-  findAll(@CurrentTenant() tenantId: string) {
-    return this.farmersService.findAll(tenantId);
+  @Roles('admin', 'farmer')
+  findAll(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.farmersService.findAll(tenantId, scope);
   }
 
   // Literal route — must precede `:id` so "access" isn't captured as a farmer id.
