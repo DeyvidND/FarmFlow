@@ -6,6 +6,7 @@ import { Upload, Trash2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { LocationPicker } from '@/components/maps/location-picker';
+import { AddressAutocomplete } from '@/components/route/address-autocomplete';
 import {
   getSiteContact,
   updateSiteContact,
@@ -18,6 +19,10 @@ import {
 } from '@/lib/api-client';
 
 const FAVICON_ACCEPT = 'image/png,image/x-icon,.ico,.png';
+
+// The address field uses Places autocomplete via the same public Maps key the
+// LocationPicker loads. Picking a suggestion drops the map pin automatically.
+const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
 // Social networks the dropdown offers; the key drives the storefront icon, the
 // name is the label shown both in the picker and (for known nets) on the site.
@@ -90,6 +95,7 @@ export default function ContactsPage() {
   const [saving, setSaving] = useState(false);
   const [iconBusy, setIconBusy] = useState(false);
   const iconRef = useRef<HTMLInputElement>(null);
+  const mapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // The site name lives on the tenant row, contact/brand in settings — load both.
@@ -256,9 +262,26 @@ export default function ContactsPage() {
               </p>
             </div>
             <div>
-              <label className={label}>Адрес / място на пазара</label>
-              <input className={input} value={form.address} onChange={(e) => set('address', e.target.value)}
-                placeholder="кв. Чайка, бул. „Ал. Стамболийски“, Варна" />
+              <AddressAutocomplete
+                label="Адрес / място на пазара"
+                placeholder="кв. Чайка, бул. „Ал. Стамболийски“, Варна"
+                value={form.address}
+                onChange={(v) => set('address', v)}
+                // Picking a suggestion sets the exact point too; ignore the null
+                // picks that typing emits so a pin dropped on the map isn't wiped
+                // when the farmer edits the address text.
+                onPick={(a) => {
+                  if (!a) return;
+                  setForm((f) => ({ ...f, mapLat: a.lat.toFixed(6), mapLng: a.lng.toFixed(6) }));
+                  // Bring the map into view so the farmer sees the placed point.
+                  mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }}
+                apiKey={MAPS_KEY}
+              />
+              <p className="mt-1 text-[12px] text-ff-muted">
+                Започни да пишеш и избери от подсказките — точката на картата се поставя
+                автоматично. Може и само да напишеш адреса.
+              </p>
             </div>
             <div>
               <label className={label}>Работно време</label>
@@ -381,13 +404,15 @@ export default function ContactsPage() {
         </section>
 
         {/* Локация */}
-        <section className={card}>
+        <section ref={mapRef} className={card}>
           <h2 className="mb-3 text-[15px] font-extrabold">Локация на картата</h2>
           <p className="mb-3 text-[13px] text-ff-muted">
-            Кликни на картата, за да поставиш точката на твоето място. По избор.
+            Точката идва от адреса по-горе, а може и да кликнеш на картата, за да я
+            наместиш точно. По избор.
           </p>
           <LocationPicker lat={lat} lng={lng}
-            onPick={(la, ln) => setForm((f) => ({ ...f, mapLat: la.toFixed(6), mapLng: ln.toFixed(6) }))} />
+            onPick={(la, ln) => setForm((f) => ({ ...f, mapLat: la.toFixed(6), mapLng: ln.toFixed(6) }))}
+            onAddress={(addr) => set('address', addr)} />
           {lat != null && lng != null ? (
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-ff-green-600/30 bg-ff-green-600/5 px-3 py-2 text-[13px]">
               <span className="font-bold text-ff-ink">📍 Точката е зададена</span>
