@@ -456,6 +456,7 @@ export function RouteClient({
           targets={wazeTargets}
           idx={wazeIdx}
           onNavigate={wazeNavigate}
+          onJump={setWazeIdx}
           onPrev={wazePrev}
           onNext={wazeNext}
           onReset={wazeReset}
