@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { TermHint } from '@/components/ui/term-hint';
 import {
   cn,
   moneyFromStotinki,
@@ -323,7 +324,12 @@ export function PaymentsClient({
           accent
         />
         <StatTile
-          label="Наложен платеж"
+          label={
+            <TermHint
+              term="Наложен платеж"
+              hint="Клиентът плаща в брой при получаване — на куриера или на гишето. Ти получаваш парите чак тогава."
+            />
+          }
           value={moneyFromStotinki(totals.codTotalStotinki)}
           sub={`${totals.codCount} ${plural(totals.codCount)}`}
         />
@@ -340,7 +346,10 @@ export function PaymentsClient({
           Всичко
         </TabButton>
         <TabButton active={tab === 'cod'} onClick={() => setTab('cod')} count={totals.codCount}>
-          Наложен платеж
+          <TermHint
+            term="Наложен платеж"
+            hint="Клиентът плаща в брой при получаване — на куриера или на гишето. Ти получаваш парите чак тогава."
+          />
         </TabButton>
         {role !== 'farmer' && (
           <TabButton active={tab === 'card'} onClick={() => setTab('card')}>
@@ -695,7 +704,7 @@ function StatTile({
   sub,
   accent,
 }: {
-  label: string;
+  label: ReactNode;
   value: string;
   sub: string;
   accent?: boolean;

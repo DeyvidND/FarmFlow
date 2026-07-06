@@ -6,6 +6,7 @@ import { Topbar } from '@/components/layout/topbar';
 import { ForcePasswordModal } from '@/components/auth/force-password-modal';
 import { AdblockNotice } from '@/components/layout/adblock-notice';
 import { FarmerRouteGuard } from '@/components/layout/farmer-route-guard';
+import { FarmerOnboardingModal } from '@/components/layout/farmer-onboarding-modal';
 import { RoleProvider } from '@/components/layout/role-context';
 import { useUiStore } from '@/stores/ui-store';
 
@@ -63,13 +64,14 @@ export function AdminShell({
         </main>
       </div>
 
-      {mustChangePassword && <ForcePasswordModal />}
+      {mustChangePassword && <ForcePasswordModal role={role} />}
 
       {/* Nudge to disable ad-blockers that suppress our error monitoring. Sits
           below the password modal; only shows once a blocker is actually detected. */}
       {!mustChangePassword && <AdblockNotice />}
 
       {role === 'farmer' && <FarmerRouteGuard />}
+      {role === 'farmer' && !mustChangePassword && <FarmerOnboardingModal />}
 
       <Toaster
         position="bottom-right"

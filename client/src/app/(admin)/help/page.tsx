@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { PANEL_CATEGORIES, PANEL_FAQ, searchFaq } from '@fermeribg/help-content';
 import { HelpSearchBar, CategoryChips, FaqAccordion, AskAiBox, HelpTabs } from '@fermeribg/help-ui';
 import { askHelpAi } from '@/lib/api-client';
+import { useRole } from '@/components/layout/role-context';
 
 /**
  * In-app documentation ("Документация"). Static help page.
@@ -371,6 +372,26 @@ const SECTIONS: Section[] = [
   },
 ];
 
+// Sub-account (role='farmer') screens are gated by FarmerRouteGuard to
+// /stats, /payments, /availability, /products, /farmer-delivery, /settings,
+// /help — so owner-only sections (Маршрут, Контакти, Методи и цени, Stripe
+// Connect, Функции на магазина…) would just send a farmer to a locked door.
+// Show a trimmed list plus a section that names the owner/farmer split.
+const FARMER_SECTION_IDS = ['parola', 'produkti', 'nalichnost', 'plashtania', 'nastroyki', 'rechnik'];
+
+const FARMER_INTRO_SECTION: Section = {
+  id: 'tvoyat-dostap',
+  title: 'Твоят достъп (фермер)',
+  lead: 'Влизаш като фермер (производител) в акаунт на ферма — не като собственик. Панелът ти показва само твоята част.',
+  bullets: [
+    'Виждаш и управляваш: своите продукти и наличности, поръчките, в които участваш, плащанията си и доставките с куриер.',
+    'Собственикът на акаунта управлява останалото: сайта и текстовете, контактите, методите и цените за доставка, куриерските акаунти (Еконт/Speedy) и Stripe.',
+    'Менюто вляво показва само екраните, до които имаш достъп — няма нужда да търсиш нищо друго.',
+    'Трябва ти промяна извън тези екрани (напр. работно време, цени на доставка)? Поискай я от собственика на акаунта.',
+  ],
+  shots: [],
+};
+
 function Figure({ src, caption }: Shot) {
   return (
     <figure className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface-2 shadow-ff-sm">
@@ -386,12 +407,19 @@ function Figure({ src, caption }: Shot) {
 }
 
 export default function HelpPage() {
+  const role = useRole();
+  const isFarmer = role === 'farmer';
+  const visibleSections = isFarmer
+    ? [FARMER_INTRO_SECTION, ...SECTIONS.filter((s) => FARMER_SECTION_IDS.includes(s.id))]
+    : SECTIONS;
+
   return (
     <div className="max-w-[860px] pb-4">
       <h1 className="mb-1 text-[22px] font-extrabold tracking-[-0.01em]">Помощ</h1>
       <p className="mb-6 text-[13.5px] text-ff-muted">
-        Кратко ръководство за всеки екран на панела. Ако си нов — започни от „Първи стъпки“. Снимките
-        са от живия панел.
+        {isFarmer
+          ? 'Кратко ръководство за екраните, до които имаш достъп като фермер. Започни от „Твоят достъп“.'
+          : 'Кратко ръководство за всеки екран на панела. Ако си нов — започни от „Първи стъпки“. Снимките са от живия панел.'}
       </p>
 
       {/* Intro + quick nav */}
@@ -401,11 +429,24 @@ export default function HelpPage() {
             <BookOpen size={20} />
           </span>
           <div>
-            <h2 className="text-[16px] font-extrabold">Добре дошъл в управлението на фермата</h2>
+            <h2 className="text-[16px] font-extrabold">
+              {isFarmer ? 'Добре дошъл — работиш като фермер в тази ферма' : 'Добре дошъл в управлението на фермата'}
+            </h2>
             <p className="mt-1 text-[13.5px] leading-[1.55] text-ff-ink-2">
-              Всичко, което създадеш тук — продукти, фермери, категории, статии — се показва автоматично
-              в онлайн магазина на фермата. Използвай менюто вляво, за да преминаваш между екраните. На
-              всеки екран има и бутон <b>„Обяснения“</b> горе вдясно — отваря кратка помощ точно за него.
+              {isFarmer ? (
+                <>
+                  Виждаш и управляваш само своята част от магазина — собственикът на акаунта се грижи за
+                  сайта, контактите и доставката. На всеки екран има и бутон <b>„Обяснения“</b> горе
+                  вдясно — отваря кратка помощ точно за него.
+                </>
+              ) : (
+                <>
+                  Всичко, което създадеш тук — продукти, фермери, категории, статии — се показва
+                  автоматично в онлайн магазина на фермата. Използвай менюто вляво, за да преминаваш между
+                  екраните. На всеки екран има и бутон <b>„Обяснения“</b> горе вдясно — отваря кратка помощ
+                  точно за него.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -415,7 +456,7 @@ export default function HelpPage() {
         guide={
           <div className="flex flex-col gap-3">
             <nav className="flex flex-wrap gap-2">
-              {SECTIONS.map((s) => (
+              {visibleSections.map((s) => (
                 <a
                   key={s.id}
                   href={`#${s.id}`}
@@ -426,7 +467,7 @@ export default function HelpPage() {
               ))}
             </nav>
 
-            {SECTIONS.map((s, i) => (
+            {visibleSections.map((s, i) => (
               <details
                 key={s.id}
                 id={s.id}

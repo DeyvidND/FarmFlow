@@ -4,6 +4,7 @@ import * as React from 'react';
 import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { TermHint } from '@/components/ui/term-hint';
 import {
   ApiError,
   requestDeliveryHandoff,
@@ -13,24 +14,48 @@ import {
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
+const CHERNOVA_HINT =
+  'Поръчка от магазина, чакаща да стане истинска товарителница — избираш куриер и натискаш „Създай товарителница“.';
+const TOVARITELNITSA_HINT =
+  'Стикерът/документът, който куриерът лепи на пратката — с адрес, телефон и баркод за проследяване.';
+const NALOZHEN_PLATEZH_HINT =
+  'Клиентът плаща в брой при получаване — на куриера или на гишето. Ти получаваш парите чак тогава.';
+
 /** Plain-language walkthrough of the courier flow, shown to the farmer on the
  *  „Доставки“ page so the two apps (panel + dostavki) read as one. */
-const FLOW_STEPS: ReadonlyArray<{ title: string; desc: string }> = [
+const FLOW_STEPS: ReadonlyArray<{ title: string; desc: React.ReactNode }> = [
   {
     title: 'Свържи куриер',
     desc: 'Свързването на Еконт или Speedy става в приложението „Доставки“. Прави се само веднъж.',
   },
   {
     title: 'Клиентът избира „Куриер“',
-    desc: 'При поръчка от магазина ти системата сама подготвя чернова на пратка — с адреса и наложения платеж.',
+    desc: (
+      <>
+        При поръчка от магазина ти системата сама подготвя{' '}
+        <TermHint term="чернова" hint={CHERNOVA_HINT} /> на пратка — с адреса и{' '}
+        <TermHint term="наложения платеж" hint={NALOZHEN_PLATEZH_HINT} />.
+      </>
+    ),
   },
   {
     title: 'Отвори „Доставки“',
-    desc: 'Поръчките те чакат като готови чернови. Избираш куриер — Еконт или Speedy — и създаваш товарителницата с един клик.',
+    desc: (
+      <>
+        Поръчките те чакат като готови чернови. Избираш куриер — Еконт или Speedy — и създаваш{' '}
+        <TermHint term="товарителницата" hint={TOVARITELNITSA_HINT} /> с един клик.
+      </>
+    ),
   },
   {
     title: 'Предай по твой избор',
-    desc: 'Или принтираш товарителницата и сам я носиш до офис, или маркираш пратките и заявяваш куриер да мине и да ги вземе. Наложеният платеж се връща при теб.',
+    desc: (
+      <>
+        Или принтираш <TermHint term="товарителницата" hint={TOVARITELNITSA_HINT} /> и сам я носиш до
+        офис, или маркираш пратките и заявяваш куриер да мине и да ги вземе.{' '}
+        <TermHint term="Наложеният платеж" hint={NALOZHEN_PLATEZH_HINT} /> се връща при теб.
+      </>
+    ),
   },
 ];
 

@@ -62,7 +62,7 @@ function PwField({
   );
 }
 
-export function ForcePasswordModal() {
+export function ForcePasswordModal({ role = 'admin' }: { role?: string }) {
   const router = useRouter();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -110,8 +110,9 @@ export function ForcePasswordModal() {
 
   function enterPanel() {
     // Re-run the server layout so the fresh token (mustChangePassword=false)
-    // unmounts this modal, then land on the dashboard.
-    router.push('/dashboard');
+    // unmounts this modal. Farmer sub-accounts have no /dashboard access
+    // (FarmerRouteGuard bounces them to /stats) — land there directly.
+    router.push(role === 'farmer' ? '/stats' : '/dashboard');
     router.refresh();
   }
 
