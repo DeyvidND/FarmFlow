@@ -156,8 +156,13 @@ export function AnalyticsClient({ initial, role = 'admin' }: { initial: Analytic
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-2.5">
           <div className="text-[15px] font-extrabold text-ff-ink">
-            {role === 'farmer' ? 'Анализ на моя сайт' : 'Анализ на сайта'}
+            {role === 'farmer' ? 'Анализ на сайта на магазина' : 'Анализ на сайта'}
           </div>
+          {role === 'farmer' && (
+            <p className="max-w-[520px] text-[12.5px] leading-snug text-ff-muted">
+              Трафикът е за целия магазин (общ за всички производители) — не само за твоите продукти. Продажбите ти виж в „Статистика“.
+            </p>
+          )}
           <div className="inline-flex flex-wrap rounded-xl border border-ff-border bg-ff-surface p-0.5 shadow-ff-sm">
             {RANGES.map((o) => (
               <button key={o.key} onClick={() => setRange(o.key)} aria-pressed={range === o.key}

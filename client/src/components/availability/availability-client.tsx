@@ -129,20 +129,17 @@ export function AvailabilityClient({
 
       {visibleProducts.length === 0 && (
         <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 text-sm text-ff-muted-2">
-          {isProducer ? (
-            'Все още нямаш добавени активни продукти. Добави продукти и се върни тук.'
-          ) : (
-            <>
-              Все още нямаш добавени продукти. Добави продукти от{' '}
-              <a
-                href="/products"
-                className="font-semibold text-ff-green-700 hover:underline"
-              >
-                Продукти
-              </a>{' '}
-              и се върни тук.
-            </>
-          )}
+          <>
+            Все още нямаш добавени активни продукти. Добави продукти от{' '}
+            <a
+              href="/products"
+              className="font-semibold text-ff-green-700 hover:underline"
+            >
+              Продукти
+            </a>{' '}
+            и се върни тук.
+          </>
+          {/* Same guidance + link for producers and owner — both manage products at /products. */}
         </div>
       )}
 

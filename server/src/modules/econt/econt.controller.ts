@@ -90,9 +90,16 @@ export class EcontController {
     return this.econt.listShipments(tenantId);
   }
 
+  // Opened to producers so the Плащания „Наложен платеж" tab shows real
+  // collected/settled badges. Scoped to the acting farmer's own shipments
+  // (service filters on shipments.farmerId); admin (no farmer) sees the tenant.
+  @Roles('admin', 'farmer')
   @Get('cod-reconciliation')
-  codReconciliation(@CurrentTenant() tenantId: string) {
-    return this.econt.codReconciliation(tenantId);
+  codReconciliation(
+    @CurrentTenant() tenantId: string,
+    @CurrentFarmer() f: string | undefined,
+  ) {
+    return this.econt.codReconciliation(tenantId, f);
   }
 
   /** Create the Econt waybill (label) for an order. */
