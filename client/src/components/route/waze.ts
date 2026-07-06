@@ -40,9 +40,9 @@ export function wazeUrl(p: WazePoint): string | null {
 /**
  * Ordered Waze targets for the day: every delivery stop in visit order, plus a
  * final „обратно към базата" leg when the route returns home (end.mode !==
- * 'last') and a base location is resolvable. For end.mode 'home' the saved end
- * address is empty, so the farm `origin` is used; an explicit end (e.g.
- * 'custom') is used as-is.
+ * 'last') and a base location is resolvable. The server fills `end` with the
+ * farm's own coords for 'home' mode, so it already resolves to the base; the
+ * `origin` param is only a fallback for a caller that passes an empty `end`.
  */
 export function buildWazeTargets(
   stops: RouteStop[],
