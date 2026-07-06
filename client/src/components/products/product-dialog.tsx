@@ -26,6 +26,7 @@ export function ProductDialog({
   subcats,
   multiFarmer,
   multiSubcat,
+  isFarmer = false,
   deliverySettingsHref = '/delivery',
   onOpenCourierSettings,
   onClose,
@@ -38,6 +39,8 @@ export function ProductDialog({
   subcats: Subcategory[];
   multiFarmer: boolean;
   multiSubcat: boolean;
+  /** True for a farmer sub-account — switches the courier-lock note to 2nd person. */
+  isFarmer?: boolean;
   /** Route to the carrier-connect screen — differs for admin (/delivery) vs a farmer sub-account (/farmer-delivery). */
   deliverySettingsHref?: string;
   /** Lets the farmer jump straight to the bulk "Куриер" editor instead of toggling one product at a time. */
@@ -548,7 +551,7 @@ export function ProductDialog({
 
           {!farmerHasCourier && (
             <p className="text-[11.5px] text-ff-muted pl-1">
-              Фермерът няма активна куриерна доставка — свържете Еконт или Спиди от{' '}
+              {isFarmer ? 'Още нямаш активна куриерна доставка — свържи Еконт или Спиди от' : 'Фермерът няма активна куриерна доставка — свържете Еконт или Спиди от'}{' '}
               <Link href={deliverySettingsHref} className="font-semibold text-ff-green-700 underline underline-offset-2 hover:text-ff-green-800">
                 приложението „Доставки“
               </Link>

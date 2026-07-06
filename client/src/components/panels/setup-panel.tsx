@@ -27,7 +27,7 @@ const PICKUP_COPY = 'Клиентът идва и си взема поръчка
 const SELF_COPY =
   'Ти разнасяш сам, по график. Клиентът избира свободен час; ти обикаляш по маршрут. Не минава през куриер. Можеш и да затвориш отделен ден (напр. отпуск) от календара с часовете.';
 const COURIER_COPY =
-  'Поръчката стига с куриер (Еконт/Speedy); клиентът дава адрес. Свързване на куриер, подател и пратки — в приложението „Доставка“.';
+  'Поръчката стига с куриер (Еконт/Speedy); клиентът дава адрес. Куриерът се свързва еднократно в отделното приложение „Доставки“ — оттам минават и подателят, и пратките.';
 
 export function SetupPanel({
   initialEnabled,
@@ -205,7 +205,15 @@ export function SetupPanel({
           desc={COURIER_COPY}
           on={courierOn}
           onToggle={toggleCourier}
-          configLink={{ href: '/settings?config=delivery', label: 'Цени и правила за доставка' }}
+          badge={
+            <DBadge tone="gray" dot={false}>
+              ↗ Настройва се в „Доставки“
+            </DBadge>
+          }
+          configLink={[
+            { href: '/farmer-delivery', label: 'Свържи куриер в „Доставки“' },
+            { href: '/settings?config=delivery', label: 'Цени и правила за доставка' },
+          ]}
         />
       </CardGroup>
 

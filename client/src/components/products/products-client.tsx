@@ -273,6 +273,17 @@ export function ProductsClient({
   return (
     <div className="animate-ff-fade-up">
 
+      <div className="mb-1">
+        <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-ff-ink">
+          {isFarmer ? 'Твоите продукти' : 'Продукти'}
+        </h1>
+        {isFarmer && (
+          <p className="mt-0.5 text-[14px] text-ff-ink-2">
+            Виждаш и управляваш само своите продукти — другите производители в магазина не ги виждаш тук.
+          </p>
+        )}
+      </div>
+
       {!reorderMode && !isFarmer && (
         <div className="mb-5">
           <ProductOfWeekPanel
@@ -459,6 +470,7 @@ export function ProductsClient({
           subcats={subcats}
           multiFarmer={multiFarmer}
           multiSubcat={multiSubcat}
+          isFarmer={isFarmer}
           deliverySettingsHref={deliverySettingsHref}
           onOpenCourierSettings={() => setCourierOpen(true)}
           onClose={() => setCreateOpen(false)}
@@ -475,6 +487,7 @@ export function ProductsClient({
           subcats={subcats}
           multiFarmer={multiFarmer}
           multiSubcat={multiSubcat}
+          isFarmer={isFarmer}
           deliverySettingsHref={deliverySettingsHref}
           onOpenCourierSettings={() => setCourierOpen(true)}
           onClose={() => setFullEdit(null)}
@@ -502,6 +515,7 @@ export function ProductsClient({
         onClose={() => setCourierOpen(false)}
         farmers={farmers}
         multiFarmer={multiFarmer}
+        isFarmer={isFarmer}
         deliverySettingsHref={deliverySettingsHref}
         onSaved={(patches) =>
           patches.forEach(({ id, courierDisabled }) => patchLocal(id, { courierDisabled }))

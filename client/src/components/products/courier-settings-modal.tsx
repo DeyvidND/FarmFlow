@@ -13,6 +13,8 @@ interface Props {
   onClose: () => void;
   farmers?: Farmer[];
   multiFarmer?: boolean;
+  /** True for a farmer sub-account — switches the locked-row note to 2nd person. */
+  isFarmer?: boolean;
   /** Route to the carrier-connect screen, shown when no farmer has a courier connected yet. */
   deliverySettingsHref?: string;
   onSaved?: (patches: { id: string; courierDisabled: boolean }[]) => void;
@@ -23,6 +25,7 @@ export function CourierSettingsModal({
   onClose,
   farmers = [],
   multiFarmer = false,
+  isFarmer = false,
   deliverySettingsHref = '/delivery',
   onSaved,
 }: Props) {
@@ -141,7 +144,9 @@ export function CourierSettingsModal({
         {noFarmerHasCourier && (
           <div className="shrink-0 border-b border-ff-border bg-amber-50 px-5 py-3">
             <p className="text-xs leading-relaxed text-amber-800">
-              Никой фермер няма свързан куриер (Еконт/Спиди) — затова всички превключватели по-долу са заключени.{' '}
+              {isFarmer
+                ? 'Още нямаш свързан куриер (Еконт/Спиди) — затова всички превключватели по-долу са заключени.'
+                : 'Никой фермер няма свързан куриер (Еконт/Спиди) — затова всички превключватели по-долу са заключени.'}{' '}
               <Link
                 href={deliverySettingsHref}
                 onClick={onClose}
@@ -213,7 +218,7 @@ export function CourierSettingsModal({
                           onClick={onClose}
                           className="mt-0.5 block text-[10.5px] font-medium text-amber-600 underline underline-offset-2 hover:text-amber-700"
                         >
-                          ⚠ Фермерът няма активен куриер — свържи от „Доставки“
+                          ⚠ {isFarmer ? 'Нямаш активен куриер' : 'Фермерът няма активен куриер'} — свържи от „Доставки“
                         </Link>
                       )}
                     </div>
@@ -237,7 +242,9 @@ export function CourierSettingsModal({
                           onClick={() => !locked && toggle(p.id)}
                           title={
                             locked
-                              ? 'Фермерът няма активен куриер — свържете Еконт или Спиди от Настройки'
+                              ? isFarmer
+                                ? 'Нямаш активен куриер — свържи Еконт или Спиди от „Доставки“'
+                                : 'Фермерът няма активен куриер — свържете Еконт или Спиди от Настройки'
                               : enabled
                                 ? 'С куриер — кликни за блокиране'
                                 : 'Само на място — кликни за включване с куриер'

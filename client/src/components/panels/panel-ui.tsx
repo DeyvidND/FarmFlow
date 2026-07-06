@@ -64,8 +64,15 @@ export function ToggleCard({
   onToggle?: (v: boolean) => void;
   badge?: React.ReactNode;
   headerAction?: React.ReactNode;
-  configLink?: { href: string; label: string };
+  /** One «Настрой →» deep-link, or several when the card configures in more than
+   *  one place (e.g. courier: connect in „Доставки" + pricing rules here). */
+  configLink?: { href: string; label: string } | ReadonlyArray<{ href: string; label: string }>;
 }) {
+  const configLinks = configLink
+    ? Array.isArray(configLink)
+      ? configLink
+      : [configLink]
+    : [];
   return (
     <div
       className={cn(
@@ -92,14 +99,17 @@ export function ToggleCard({
         {headerAction}
         {onToggle && <ToggleSwitch checked={on} onChange={onToggle} />}
       </div>
-      {on && configLink && (
-        <div className="border-t border-ff-green-100 bg-ff-surface px-[15px] py-2.5">
-          <Link
-            href={configLink.href}
-            className="inline-flex items-center gap-1.5 text-[13px] font-bold text-ff-green-700 hover:underline"
-          >
-            <ExternalLink size={14} /> {configLink.label}
-          </Link>
+      {on && configLinks.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-ff-green-100 bg-ff-surface px-[15px] py-2.5">
+          {configLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="inline-flex items-center gap-1.5 text-[13px] font-bold text-ff-green-700 hover:underline"
+            >
+              <ExternalLink size={14} /> {link.label}
+            </Link>
+          ))}
         </div>
       )}
     </div>

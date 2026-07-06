@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen, Upload } from 'lucide-react';
+import { ExternalLink, Truck, Info, CheckCircle2, AlertCircle, ShieldCheck, BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -220,16 +220,6 @@ export function FarmerDeliveryClient() {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-          {anyConnected && (
-            <button
-              type="button"
-              onClick={() => handoffTo('/import')}
-              disabled={handoffBusy}
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-green-700 hover:underline disabled:opacity-60"
-            >
-              <Upload size={14} /> Внеси пратки от Excel
-            </button>
-          )}
           <button
             type="button"
             onClick={() => handoffTo('/help')}
