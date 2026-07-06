@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   HelpCircle, Truck, Zap, FileSpreadsheet, ShieldAlert, Settings as SettingsIcon,
   ExternalLink, Image as ImageIcon, CheckCircle2, Info, Mail, Download, Scale, ListChecks,
@@ -43,29 +43,36 @@ function HelpShot({ src, alt, caption }: { src: string; alt: string; caption?: s
   );
 }
 
-/** A clean illustrative "browser window" mockup (not a real screenshot) showing a URL
- *  and a sketch of the page, so each step still has a visual cue. */
-function BrowserMock({ url, fields, highlight, button }: { url: string; fields: string[]; highlight?: number; button: string }) {
-  const C = { surface: 'var(--ff-surface)', surface2: 'var(--ff-surface-2)', border: 'var(--ff-border)', green: 'var(--ff-green-700)', green5: 'var(--ff-green-500)', ink: 'var(--ff-ink-2)', muted: 'var(--ff-muted)' };
-  const rowY = (i: number) => 70 + i * 30;
+/** Faithful mini-mockup of the real Настройки carrier card (icon, Потребител + Парола
+ *  fields, „Запази" button) — mirrors settings-client.tsx so it never drifts from the
+ *  real UI, unlike a screenshot which goes stale the moment the design changes. */
+function SettingsCardMock({ carrier }: { carrier: 'econt' | 'speedy' }) {
+  const isEcont = carrier === 'econt';
+  const accent = isEcont ? 'var(--ff-green-700)' : 'var(--ff-amber-600)';
+  const iconBg = isEcont ? 'var(--ff-green-50)' : 'var(--ff-amber-softer)';
+  const label = isEcont ? 'Econt' : 'Speedy';
+  const fields = isEcont ? ['Потребител', 'Парола'] : ['Потребител (API)', 'Парола'];
+  const C = { surface: 'var(--ff-surface)', surface2: 'var(--ff-surface-2)', border: 'var(--ff-border)', ink: 'var(--ff-ink)', ink2: 'var(--ff-ink-2)', muted: 'var(--ff-muted)' };
+  const rowY = (i: number) => 92 + i * 34;
   return (
-    <svg viewBox="0 0 320 200" className="w-full" role="img" aria-label={`Илюстрация: ${url}`}>
-      <rect x="2" y="2" width="316" height="196" rx="12" fill={C.surface} stroke={C.border} strokeWidth="1.5" />
-      {/* top bar */}
-      <rect x="2" y="2" width="316" height="34" rx="12" fill={C.surface2} stroke={C.border} strokeWidth="1.5" />
-      <rect x="2" y="24" width="316" height="12" fill={C.surface2} />
-      <circle cx="18" cy="19" r="3.5" fill="#e08a7a" /><circle cx="30" cy="19" r="3.5" fill="#e8c07a" /><circle cx="42" cy="19" r="3.5" fill={C.green5} />
-      <rect x="56" y="11" width="252" height="16" rx="8" fill={C.surface} stroke={C.border} />
-      <text x="66" y="22.5" fontSize="9.5" fill={C.muted} style={{ fontFamily: 'var(--font-commissioner)' }}>{url}</text>
-      {/* form sketch */}
+    <svg viewBox="0 0 320 210" className="w-full" role="img" aria-label={`Илюстрация: карта ${label} в Настройки`}>
+      <rect x="2" y="2" width="316" height="206" rx="14" fill={C.surface} stroke={C.border} strokeWidth="1.5" />
+      <rect x="2" y="2" width="316" height="4" rx="2" fill={accent} />
+      {/* icon + title + status badge */}
+      <rect x="20" y="20" width="34" height="34" rx="9" fill={iconBg} />
+      <text x="59" y="42" fontSize="14.5" fontWeight="800" fill={C.ink} style={{ fontFamily: 'var(--font-fraunces, serif)' }}>{label}</text>
+      <rect x="234" y="24" width="66" height="24" rx="12" fill="var(--ff-badge-bg, #efe9dc)" />
+      <text x="267" y="40" fontSize="9" fontWeight="700" textAnchor="middle" fill={C.muted} style={{ fontFamily: 'var(--font-commissioner)' }}>Не свързан</text>
+      {/* form fields */}
       {fields.map((f, i) => (
-        <g key={i}>
-          <text x="20" y={rowY(i) - 6} fontSize="8.5" fill={C.muted} style={{ fontFamily: 'var(--font-commissioner)' }}>{f}</text>
-          <rect x="20" y={rowY(i)} width="280" height="16" rx="6" fill={C.surface2} stroke={highlight === i ? C.green5 : C.border} strokeWidth={highlight === i ? 2 : 1} />
+        <g key={f}>
+          <text x="20" y={rowY(i) - 8} fontSize="9" fontWeight="700" fill={C.muted} style={{ fontFamily: 'var(--font-commissioner)' }}>{f}</text>
+          <rect x="20" y={rowY(i)} width="280" height="24" rx="8" fill={C.surface2} stroke={C.border} strokeWidth={i === 0 ? 2 : 1} />
         </g>
       ))}
-      <rect x="20" y={rowY(fields.length) + 4} width="120" height="20" rx="8" fill={C.green} />
-      <text x="80" y={rowY(fields.length) + 17.5} fontSize="9.5" fill="#fff" textAnchor="middle" style={{ fontFamily: 'var(--font-commissioner)', fontWeight: 700 }}>{button}</text>
+      {/* save button */}
+      <rect x="20" y={rowY(fields.length) + 6} width="280" height="28" rx="9" fill={accent} />
+      <text x="160" y={rowY(fields.length) + 24.5} fontSize="10.5" fontWeight="800" textAnchor="middle" fill="#fff" style={{ fontFamily: 'var(--font-commissioner)' }}>Запази</text>
     </svg>
   );
 }
@@ -109,6 +116,21 @@ function Callout({ tone = 'info', title, children }: { tone?: 'info' | 'tip' | '
         <div className="text-[13px] font-bold text-ff-ink">{title}</div>
         <div className="mt-0.5 text-[12.5px] leading-relaxed text-ff-ink-2">{children}</div>
       </div>
+    </div>
+  );
+}
+
+/** The "Трябва / Откъде / Взима / Прави" cheat-strip — the whole enable flow in
+ *  four short rows, for operators who want the gist without reading the steps below. */
+function CheatStrip({ rows }: { rows: { k: string; v: React.ReactNode }[] }) {
+  return (
+    <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 rounded-xl border border-ff-border bg-ff-surface-2 p-4 sm:grid-cols-[max-content_1fr]">
+      {rows.map((r) => (
+        <Fragment key={r.k}>
+          <div className="text-[12.5px] font-extrabold uppercase tracking-[0.02em] text-ff-muted sm:pr-2">{r.k}</div>
+          <div className="text-[13.5px] leading-snug text-ff-ink-2">{r.v}</div>
+        </Fragment>
+      ))}
     </div>
   );
 }
@@ -194,51 +216,57 @@ export function HelpClient() {
 
             {/* ---------------------------------------------------------------- */}
             <Section id="econt" icon={Truck} tone="bg-ff-green-50 text-ff-green-700" title="Свържи Econt акаунт"
-              intro="Econt използва същото потребителско име и парола като твоя e-Econt профил. Нужен е профил на бизнес клиент.">
-              <div className="grid items-start gap-5 lg:grid-cols-2">
+              intro="Същите данни, с които влизаш в e-Econt, работят и тук — няма отделен API акаунт за молене.">
+              <CheatStrip rows={[
+                { k: 'Трябва', v: <>Профил в <ExtLink href="https://login.econt.com/register/">login.econt.com</ExtLink> (за реални пратки — фирмен/бизнес профил).</> },
+                { k: 'Откъде', v: 'Влизаш в econt.com или отиваш в офис на Econt и казваш „искам да издавам товарителници от моя сайт“.' },
+                { k: 'Взима', v: 'Своя потребител и парола за e-Econt — нищо повече.' },
+                { k: 'Прави', v: <>Въвежда ги в <b>Настройки → Econt</b> веднъж → готово.</> },
+              ]} />
+              <div className="mt-5 grid items-start gap-5 lg:grid-cols-2">
                 <div className="flex flex-col gap-4">
                   <Step n={1} title="Направи си e-Econt профил">
-                    Регистрирай се: <ExtLink href="https://login.econt.com/register/">login.econt.com/register</ExtLink> за реална среда,
-                    или <ExtLink href="https://login-demo.econt.com/register/">login-demo.econt.com/register</ExtLink> за тест (Демо).
+                    Регистрирай се на <ExtLink href="https://login.econt.com/register/">login.econt.com/register</ExtLink>.
                   </Step>
-                  <Step n={2} title="Поискай достъп до интеграция">
-                    Приеми Общите условия и поискай достъп до API/интеграция от Econt: пиши на{' '}
-                    <ExtLink href="mailto:support_integrations@econt.com">support_integrations@econt.com</ExtLink>. Бизнес информация:{' '}
-                    <ExtLink href="https://www.econt.com/en/business/b2b">econt.com бизнес</ExtLink>.
+                  <Step n={2} title="Вземи потребител + парола">
+                    Това е стандартният ти вход в e-Econt — нищо отделно не се иска по имейл.
                   </Step>
-                  <Step n={3} title="Въведи данните в „Настройки“">
-                    Отвори „Настройки" → карта <b>Econt</b>. Избери <b>Среда</b> (Демо или Реална), въведи <b>Потребител</b> (твоето e-Econt
-                    потребителско име) и <b>Парола</b>, после „Запази". Точното изписване има значение (главни/малки букви).
+                  <Step n={3} title="Въведи ги в „Настройки“">
+                    „Настройки" → карта <b>Econt</b> → <b>Потребител</b> и <b>Парола</b> → „Запази". Главни/малки букви имат значение.
                   </Step>
                 </div>
                 <div className="flex flex-col gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
-                  <BrowserMock url="login.econt.com/register" fields={['Имейл', 'Потребителско име', 'Парола']} highlight={1} button="Регистрация" />
+                  <SettingsCardMock carrier="econt" />
                   <HelpShot src="/help/econt-register.png" alt="Econt регистрация" caption="Снимка: страница за регистрация (добави при желание)" />
                 </div>
               </div>
-              <div className="mt-4"><Callout tone="info" title="Тест без свой акаунт">За Демо среда Econt дава тестови данни: потребител <code className="font-bold">iasp-dev</code>, парола <code className="font-bold">1Asp-dev</code>. Ползвай ги само за проба — не за реални пратки.</Callout></div>
+              <div className="mt-4"><Callout tone="info" title="Тест без свой акаунт">За проба (Демо среда) Econt дава тестови данни: потребител <code className="font-bold">iasp-dev</code>, парола <code className="font-bold">1Asp-dev</code>. Само за проба — не за реални пратки. Средата (Демо/Реална) се задава от администратор.</Callout></div>
             </Section>
 
             {/* ---------------------------------------------------------------- */}
             <Section id="speedy" icon={Zap} tone="bg-ff-amber-softer text-ff-amber-600" title="Свържи Speedy акаунт"
-              intro="Speedy изисква договор като бизнес клиент и отделен API потребител (различен от обикновения логин в сайта).">
-              <div className="grid items-start gap-5 lg:grid-cols-2">
+              intro="Speedy не работи с обикновения сайт логин — API достъпът се иска отделно по имейл.">
+              <CheatStrip rows={[
+                { k: 'Трябва', v: 'API достъп от Speedy — не става автоматично.' },
+                { k: 'Откъде', v: <>Имейл до <ExtLink href="mailto:api.registration@speedy.bg">api.registration@speedy.bg</ExtLink> (или през твоя търговец от Speedy).</> },
+                { k: 'Дава', v: 'Име, фирма, телефон.' },
+                { k: 'Взима', v: 'API потребител и парола, изпратени от Speedy.' },
+                { k: 'Прави', v: <>Въвежда ги в <b>Настройки → Speedy</b> веднъж → готово.</> },
+              ]} />
+              <div className="mt-5 grid items-start gap-5 lg:grid-cols-2">
                 <div className="flex flex-col gap-4">
-                  <Step n={1} title="Имай договор със Speedy">
-                    Стани бизнес клиент на Speedy. Инфо за интеграция:{' '}
-                    <ExtLink href="https://www.speedy.bg/en/system-integration">speedy.bg/system-integration</ExtLink>.
+                  <Step n={1} title="Поискай API достъп">
+                    Пиши на <ExtLink href="mailto:api.registration@speedy.bg">api.registration@speedy.bg</ExtLink> — Име, Фирма, Телефон. За проба поискай тестов акаунт.
                   </Step>
-                  <Step n={2} title="Поискай API достъп">
-                    Пиши на <ExtLink href="mailto:api.registration@speedy.bg">api.registration@speedy.bg</ExtLink> за <b>API потребител и парола</b> (за проба поискай тестов акаунт).
-                    Документация: <ExtLink href="https://api.speedy.bg/web-api.html">api.speedy.bg</ExtLink>.
+                  <Step n={2} title="Получи потребител + парола">
+                    Speedy изпраща API потребител и парола — различни от обикновен логин в сайта им.
                   </Step>
-                  <Step n={3} title="Въведи данните в „Настройки“">
-                    „Настройки" → карта <b>Speedy</b>: <b>Среда</b>, <b>Потребител</b> (API user) и <b>Парола</b>. Това е всичко —
-                    услугата за доставка е настроена по подразбиране.
+                  <Step n={3} title="Въведи ги в „Настройки“">
+                    „Настройки" → карта <b>Speedy</b> → <b>Потребител</b> и <b>Парола</b> → „Запази". Това е всичко.
                   </Step>
                 </div>
                 <div className="flex flex-col gap-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
-                  <BrowserMock url="api.speedy.bg" fields={['API потребител', 'Парола']} highlight={0} button="API достъп" />
+                  <SettingsCardMock carrier="speedy" />
                   <HelpShot src="/help/speedy-api-user.png" alt="Speedy API потребител" caption="Снимка: API данни (добави при желание)" />
                 </div>
               </div>
