@@ -16,11 +16,14 @@ import { AccessControl } from './access-control';
 export function FarmersClient({
   initialFarmers,
   products,
+  subcategories = [],
   initialMultiFarmer,
   initialAccess = {},
 }: {
   initialFarmers: Farmer[];
   products: ProductOption[];
+  /** Categories, for grouping products by category in the assign picker. */
+  subcategories?: { id: string; name: string }[];
   initialMultiFarmer: boolean;
   initialAccess?: Record<string, FarmerAccess>;
 }) {
@@ -270,6 +273,7 @@ export function FarmersClient({
         <FarmerPanel
           farmer={edit}
           products={productList}
+          subcategories={subcategories}
           access={edit.id ? access[edit.id] : undefined}
           focusInvite={inviteIntent}
           onClose={() => {

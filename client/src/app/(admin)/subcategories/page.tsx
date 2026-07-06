@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { SubcategoriesClient } from '@/components/subcategories/subcategories-client';
-import type { Subcategory, ProductOption } from '@/lib/types';
+import type { Subcategory, ProductOption, Farmer } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,10 +17,18 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export default async function SubcategoriesPage() {
-  const [subcats, products, tenant] = await Promise.all([
+  const [subcats, products, farmers, tenant] = await Promise.all([
     fetchJson<Subcategory[]>('subcategories', []),
     fetchJson<ProductOption[]>('products/options', []),
+    fetchJson<Farmer[]>('farmers', []),
     fetchJson<{ multiSubcat: boolean }>('tenants/me', { multiSubcat: false }),
   ]);
-  return <SubcategoriesClient initialSubcats={subcats} products={products} initialMultiSubcat={tenant.multiSubcat} />;
+  return (
+    <SubcategoriesClient
+      initialSubcats={subcats}
+      products={products}
+      farmers={farmers.map((f) => ({ id: f.id, name: f.name }))}
+      initialMultiSubcat={tenant.multiSubcat}
+    />
+  );
 }

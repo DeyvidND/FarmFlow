@@ -21,12 +21,16 @@ const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 export function SubcategoryPanel({
   subcat,
   products = [],
+  farmers = [],
   onClose,
   onSaved,
   onProductsChanged,
 }: {
   subcat: Partial<Subcategory>;
   products?: ProductOption[];
+  /** Farmers, so the product picker can group products by farmer and float the
+   *  one you're picking from to the top. */
+  farmers?: { id: string; name: string }[];
   onClose: () => void;
   onSaved: (s: Subcategory) => void;
   /** Fired after bulk product (un)links so the list can refresh its chips. */
@@ -151,6 +155,9 @@ export function SubcategoryPanel({
               onToggle={toggleProduct}
               ownerId={subcat.id}
               field="subcategoryId"
+              groups={farmers.map((f) => ({ id: f.id, label: f.name }))}
+              groupField="farmerId"
+              groupNoun="фермер"
             />
           )}
         </div>

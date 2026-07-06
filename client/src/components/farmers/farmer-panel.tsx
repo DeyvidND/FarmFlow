@@ -25,6 +25,7 @@ const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 export function FarmerPanel({
   farmer,
   products = [],
+  subcategories = [],
   access,
   focusInvite = false,
   onClose,
@@ -34,6 +35,9 @@ export function FarmerPanel({
 }: {
   farmer: Partial<Farmer>;
   products?: ProductOption[];
+  /** Categories, so the product picker can group products by category and float
+   *  the one you're picking from to the top. */
+  subcategories?: { id: string; name: string }[];
   /** Current panel-login state for this farmer (undefined = no login yet). */
   access?: FarmerAccess;
   /** Opened via the card „Покани" → scroll to + focus the invite section so the
@@ -335,6 +339,9 @@ export function FarmerPanel({
               onToggle={toggleProduct}
               ownerId={farmer.id}
               field="farmerId"
+              groups={subcategories.map((s) => ({ id: s.id, label: s.name }))}
+              groupField="subcategoryId"
+              groupNoun="категория"
             />
           )}
         </div>

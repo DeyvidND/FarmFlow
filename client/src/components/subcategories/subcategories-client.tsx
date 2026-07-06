@@ -14,10 +14,13 @@ import { SubcategoryPanel } from './subcategory-panel';
 export function SubcategoriesClient({
   initialSubcats,
   products,
+  farmers = [],
   initialMultiSubcat,
 }: {
   initialSubcats: Subcategory[];
   products: ProductOption[];
+  /** Farmers, for grouping products by farmer in the assign picker. */
+  farmers?: { id: string; name: string }[];
   initialMultiSubcat: boolean;
 }) {
   const [subcats, setSubcats] = useState(initialSubcats);
@@ -221,6 +224,7 @@ export function SubcategoriesClient({
         <SubcategoryPanel
           subcat={edit}
           products={productList}
+          farmers={farmers}
           onClose={() => setEdit(null)}
           onSaved={onSaved}
           onProductsChanged={onProductsChanged}
