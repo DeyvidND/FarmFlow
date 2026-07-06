@@ -13,7 +13,6 @@ import {
   Route as RouteIcon,
   HelpCircle,
   Settings,
-  Mail,
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -286,17 +285,6 @@ export function RouteClient({
   // can be computed. Point the farmer straight at the location card.
   const noOrigin = !origin.address && origin.lat == null && origin.lng == null;
 
-  // Buyer emails for the day's stops — for a one-shot batch notice (BCC keeps
-  // addresses private from each other).
-  const emails = stops.map((s) => s.email).filter((e): e is string => !!e);
-  const emailAll = () => {
-    if (!emails.length) {
-      toast.error('Няма имейл адреси за този ден');
-      return;
-    }
-    window.open(`mailto:?bcc=${encodeURIComponent(emails.join(','))}`, '_self');
-  };
-
   // Force the base address before the route is usable — the whole feature starts
   // from it. Until it's set, show ONLY the setup card (with Places autocomplete)
   // instead of an empty map that reads as "no deliveries".
@@ -404,14 +392,6 @@ export function RouteClient({
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
           </label>
-          <button
-            onClick={emailAll}
-            disabled={!emails.length}
-            title="Изпрати общ имейл до всички клиенти за деня (скрито копие)"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Mail size={16} /> Имейли{emails.length ? ` (${emails.length})` : ''}
-          </button>
           <button
             onClick={() => setShowLoc((v) => !v)}
             title="Адрес на базата и край на маршрута"
