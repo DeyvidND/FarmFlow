@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { Upload, Trash2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { LocationPicker } from '@/components/maps/location-picker';
 import { AddressAutocomplete } from '@/components/route/address-autocomplete';
 import {
   getSiteContact,
@@ -95,7 +94,6 @@ export default function ContactsPage() {
   const [saving, setSaving] = useState(false);
   const [iconBusy, setIconBusy] = useState(false);
   const iconRef = useRef<HTMLInputElement>(null);
-  const mapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // The site name lives on the tenant row, contact/brand in settings — load both.
@@ -228,11 +226,6 @@ export default function ContactsPage() {
     return <p className="max-w-[900px] text-[14px] text-ff-muted">Зареждане…</p>;
   }
 
-  const latNum = Number(form.mapLat);
-  const lngNum = Number(form.mapLng);
-  const lat = form.mapLat && Number.isFinite(latNum) ? latNum : null;
-  const lng = form.mapLng && Number.isFinite(lngNum) ? lngNum : null;
-
   const card = 'rounded-2xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm';
   const label = 'mb-1 block text-[13px] font-bold text-ff-ink';
   const input =
@@ -243,7 +236,7 @@ export default function ContactsPage() {
       <div className="mb-6">
         <h1 className="mb-1 text-[22px] font-extrabold tracking-[-0.01em]">Контакти</h1>
         <p className="text-[13.5px] text-ff-muted">
-          Контактна информация, социални мрежи и локация — показват се в долната част и на
+          Контактна информация и социални мрежи — показват се в долната част и на
           страница „Контакти“ в магазина.
         </p>
       </div>
@@ -267,20 +260,22 @@ export default function ContactsPage() {
                 placeholder="кв. Чайка, бул. „Ал. Стамболийски“, Варна"
                 value={form.address}
                 onChange={(v) => set('address', v)}
-                // Picking a suggestion sets the exact point too; ignore the null
-                // picks that typing emits so a pin dropped on the map isn't wiped
-                // when the farmer edits the address text.
-                onPick={(a) => {
-                  if (!a) return;
-                  setForm((f) => ({ ...f, mapLat: a.lat.toFixed(6), mapLng: a.lng.toFixed(6) }));
-                  // Bring the map into view so the farmer sees the placed point.
-                  mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }}
+                // A picked suggestion carries exact coords → store them so the
+                // storefront map lands on the precise spot. Typing (null) clears
+                // them, so the address text stays the single source of truth and
+                // the storefront geocodes it instead of using a stale point.
+                onPick={(a) =>
+                  setForm((f) => ({
+                    ...f,
+                    mapLat: a ? a.lat.toFixed(6) : '',
+                    mapLng: a ? a.lng.toFixed(6) : '',
+                  }))
+                }
                 apiKey={MAPS_KEY}
               />
               <p className="mt-1 text-[12px] text-ff-muted">
-                Започни да пишеш и избери от подсказките — точката на картата се поставя
-                автоматично. Може и само да напишеш адреса.
+                Започни да пишеш и избери от подсказките за точен адрес. Може и само да
+                напишеш адреса.
               </p>
             </div>
             <div>
@@ -400,36 +395,6 @@ export default function ContactsPage() {
             Каквото поиска фермата — втори телефон, WhatsApp, допълнителни часове… Показва се
             автоматично във футъра и на страница „Контакти“. Празните не се показват; телефон,
             имейл и линк стават кликаеми автоматично.
-          </p>
-        </section>
-
-        {/* Локация */}
-        <section ref={mapRef} className={card}>
-          <h2 className="mb-3 text-[15px] font-extrabold">Локация на картата</h2>
-          <p className="mb-3 text-[13px] text-ff-muted">
-            Точката идва от адреса по-горе, а може и да кликнеш на картата, за да я
-            наместиш точно. По избор.
-          </p>
-          <LocationPicker lat={lat} lng={lng}
-            onPick={(la, ln) => setForm((f) => ({ ...f, mapLat: la.toFixed(6), mapLng: ln.toFixed(6) }))}
-            onAddress={(addr) => set('address', addr)} />
-          {lat != null && lng != null ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-ff-green-600/30 bg-ff-green-600/5 px-3 py-2 text-[13px]">
-              <span className="font-bold text-ff-ink">📍 Точката е зададена</span>
-              <span className="text-ff-muted">{lat.toFixed(5)}, {lng.toFixed(5)}</span>
-              <button
-                type="button"
-                onClick={() => setForm((f) => ({ ...f, mapLat: '', mapLng: '' }))}
-                className="ml-auto font-semibold text-ff-red hover:underline"
-              >
-                Изчисти точката
-              </button>
-            </div>
-          ) : (
-            <p className="mt-3 text-[12px] text-ff-muted">Все още няма зададена точка на картата.</p>
-          )}
-          <p className="mt-2 text-[12px] text-ff-muted">
-            Натисни „Запази“, за да се запамети точката.
           </p>
         </section>
 
