@@ -1,7 +1,7 @@
 import {
   Controller, Get, Post, Patch,
   Param, Body, Query, UseGuards,
-  ParseUUIDPipe,
+  ParseUUIDPipe, BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -12,6 +12,7 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
 import { PaymentsQueryDto } from './dto/payments-query.dto';
 import { OrdersQueryDto } from './dto/orders-query.dto';
+import { MyOrdersQueryDto } from './dto/my-orders-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -75,6 +76,24 @@ export class OrdersController {
     return scope
       ? this.ordersService.paymentsForFarmer(user.tenantId, scope, query)
       : this.ordersService.payments(user.tenantId, query);
+  }
+
+  // Literal route — must precede `:id` so it isn't captured as an order id.
+  // Every status (incl. pending/cancelled) containing this farmer's own
+  // products — the «Моите поръчки» fulfillment screen. A producer is always
+  // forced to its own farmerId; an owner MUST pass ?farmerId (there is no
+  // tenant-wide "mine" — that's what plain /orders already is).
+  @Get('mine')
+  @Roles('admin', 'farmer')
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'cursor', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
+  mine(@CurrentUser() user: TenantRequestUser, @Query() query: MyOrdersQueryDto) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, query.farmerId);
+    if (!scope) throw new BadRequestException('farmerId required for admin');
+    return this.ordersService.ordersForFarmer(user.tenantId, scope, query);
   }
 
   @Get(':id')

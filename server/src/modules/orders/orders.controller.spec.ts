@@ -116,3 +116,43 @@ describe('OrdersController setCodOutcome routing', () => {
     expect(svc.setCodOutcomeForFarmer).not.toHaveBeenCalled();
   });
 });
+
+import { BadRequestException } from '@nestjs/common';
+
+// GET /orders/mine mirrors /payments's owner-vs-producer split, but an owner
+// has no tenant-wide "mine" (that's just /orders) — so admin without
+// ?farmerId is a 400, not a silent fallback.
+describe('OrdersController mine routing', () => {
+  const svc = {
+    ordersForFarmer: jest.fn().mockResolvedValue('scoped'),
+  };
+  const ctrl = new OrdersController(svc as any);
+  const tenant = (over: Record<string, unknown>) =>
+    ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('a producer is forced to their own farmerId, ignoring ?farmerId', async () => {
+    await ctrl.mine(tenant({ role: 'farmer', farmerId: 'farmer-1' }), {
+      farmerId: 'farmer-9',
+    } as any);
+    expect(svc.ordersForFarmer).toHaveBeenCalledWith('t', 'farmer-1', {
+      farmerId: 'farmer-9',
+    });
+  });
+
+  it('an owner with ?farmerId gets that producer\'s view', async () => {
+    await ctrl.mine(tenant({ role: 'admin' }), { farmerId: 'farmer-3' } as any);
+    expect(svc.ordersForFarmer).toHaveBeenCalledWith('t', 'farmer-3', expect.any(Object));
+  });
+
+  it('an owner without ?farmerId gets a 400 (no tenant-wide "mine")', () => {
+    expect(() => ctrl.mine(tenant({ role: 'admin' }), {} as any)).toThrow(BadRequestException);
+    expect(svc.ordersForFarmer).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed farmer token (role=farmer, no farmerId) with 403', () => {
+    expect(() => ctrl.mine(tenant({ role: 'farmer' }), {} as any)).toThrow();
+    expect(svc.ordersForFarmer).not.toHaveBeenCalled();
+  });
+});
