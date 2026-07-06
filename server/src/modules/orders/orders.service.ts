@@ -230,6 +230,91 @@ export function toPaymentOrder(r: PaymentRow): PaymentOrder {
   };
 }
 
+/** One of the farmer's own product lines on an order. */
+export interface FarmerOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  priceStotinki: number;
+}
+
+/** Raw shape assembled for one order on the «Моите поръчки» screen, before
+ *  mapping to the API shape. `items` holds only THIS farmer's own lines —
+ *  a co-producer's lines never appear here, only the `shared` flag notes
+ *  that the order also has them. */
+export interface FarmerOrderRow {
+  day: string;
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  status: string;
+  deliveryType: string;
+  paymentMethod: PaymentChannel;
+  createdAt: Date | string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+  codOutcome: 'received' | 'refused' | null;
+  codOutcomeReason: string | null;
+  /** True when the order also contains another producer's items — mutation
+   *  actions are disabled client-side (and would 403 server-side via the
+   *  same ownership gate as updateStatusForFarmer). */
+  shared: boolean;
+  items: FarmerOrderItem[];
+}
+
+/** One order on the «Моите поръчки» screen — every status, unlike Плащания. */
+export interface FarmerOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  status: string;
+  deliveryType: string;
+  paymentMethod: PaymentChannel;
+  day: string;
+  createdAt: string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+  codOutcome: 'received' | 'refused' | null;
+  codOutcomeReason: string | null;
+  shared: boolean;
+  /** This farmer's own subtotal on the order (their items only). */
+  subtotalStotinki: number;
+  items: FarmerOrderItem[];
+}
+
+export interface FarmerOrdersPage {
+  orders: FarmerOrder[];
+  nextCursor: string | null;
+}
+
+/** Map one assembled row to the API shape. Pure (no DB) so it's unit-testable,
+ *  mirroring {@link toPaymentOrder}. */
+export function toFarmerOrder(r: FarmerOrderRow): FarmerOrder {
+  return {
+    id: r.id,
+    orderNumber: r.orderNumber,
+    customerName: r.customerName,
+    customerPhone: r.customerPhone,
+    customerEmail: r.customerEmail,
+    status: r.status,
+    deliveryType: r.deliveryType,
+    paymentMethod: r.paymentMethod,
+    day: r.day,
+    createdAt: toIso(r.createdAt),
+    slotFrom: r.slotFrom,
+    slotTo: r.slotTo,
+    codOutcome: r.codOutcome,
+    codOutcomeReason: r.codOutcomeReason,
+    shared: r.shared,
+    subtotalStotinki: r.items.reduce((sum, it) => sum + it.quantity * it.priceStotinki, 0),
+    items: r.items,
+  };
+}
+
 /**
  * Fold the per-channel SQL aggregate into screen totals. Pure (no DB). COD counts
  * every due order; card counts only paid orders (money actually received).
