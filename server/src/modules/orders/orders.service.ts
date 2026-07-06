@@ -757,6 +757,134 @@ export class OrdersService {
     return { totals, orders: items.map(toPaymentOrder), nextCursor };
   }
 
+  /**
+   * Every order containing at least one of this farmer's own products, across
+   * ALL statuses (pending/cancelled included) — the «Моите поръчки» screen's
+   * data source. Unlike {@link paymentsForFarmer} this is a fulfillment view,
+   * not a money view: it carries per-item detail (not just a subtotal) and a
+   * `shared` flag for orders that also have another producer's items, so the
+   * client can explain why the mark-delivered/cod-outcome actions are hidden
+   * instead of the caller hitting a silent 403 from updateStatusForFarmer.
+   */
+  async ordersForFarmer(
+    tenantId: string,
+    farmerId: string,
+    opts: {
+      status?: 'pending' | 'confirmed' | 'preparing' | 'out_for_delivery' | 'delivered' | 'cancelled';
+      q?: string;
+      cursor?: string;
+      limit?: number;
+    } = {},
+  ): Promise<FarmerOrdersPage> {
+    const q = (opts.q ?? '').trim();
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+
+    const conds = [eq(orders.tenantId, tenantId), eq(products.farmerId, farmerId)];
+    if (opts.status) conds.push(eq(orders.status, opts.status));
+    if (q) conds.push(this.paymentSearchCond(q));
+    if (cur) {
+      conds.push(
+        sql`(${orders.createdAt}, ${orders.id}) < (${cur.createdAt}::timestamp, ${cur.id}::uuid)`,
+      );
+    }
+
+    // True when the order also has a line item belonging to a DIFFERENT farmer.
+    const shared = sql<boolean>`exists (
+      select 1 from ${orderItems} oi2
+      inner join ${products} p2 on p2.id = oi2.product_id
+      where oi2.order_id = ${orders.id} and p2.farmer_id is distinct from ${farmerId}
+    )`;
+
+    const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
+    const rows = await this.db
+      .select({
+        day,
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        customerEmail: orders.customerEmail,
+        status: orders.status,
+        deliveryType: orders.deliveryType,
+        paymentMethod: orders.paymentMethod,
+        createdAt: orders.createdAt,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+        codOutcome: orders.codOutcome,
+        codOutcomeReason: orders.codOutcomeReason,
+        shared,
+        [KEYSET_TS]: cursorTs(orders.createdAt),
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(and(...conds)!)
+      .groupBy(
+        orders.id,
+        orders.orderNumber,
+        orders.customerName,
+        orders.customerPhone,
+        orders.customerEmail,
+        orders.status,
+        orders.deliveryType,
+        orders.paymentMethod,
+        orders.createdAt,
+        orders.codOutcome,
+        orders.codOutcomeReason,
+        deliverySlots.date,
+        deliverySlots.timeFrom,
+        deliverySlots.timeTo,
+      )
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(lim + 1);
+
+    const { items: pageRows, nextCursor } = buildKeysetPage(
+      rows as Array<Omit<FarmerOrderRow, 'items'> & { [KEYSET_TS]: string }>,
+      lim,
+    );
+    if (pageRows.length === 0) return { orders: [], nextCursor };
+
+    const orderIds = pageRows.map((r) => r.id);
+    const itemRows = await this.db
+      .select({
+        orderId: orderItems.orderId,
+        productId: orderItems.productId,
+        productName: products.name,
+        quantity: orderItems.quantity,
+        priceStotinki: orderItems.priceStotinki,
+      })
+      .from(orderItems)
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(inArray(orderItems.orderId, orderIds), eq(products.farmerId, farmerId)));
+
+    const itemsByOrder = new Map<string, FarmerOrderItem[]>();
+    for (const it of itemRows as Array<{
+      orderId: string;
+      productId: string;
+      productName: string;
+      quantity: number;
+      priceStotinki: number;
+    }>) {
+      const list = itemsByOrder.get(it.orderId) ?? [];
+      list.push({
+        productId: it.productId,
+        productName: it.productName,
+        quantity: it.quantity,
+        priceStotinki: it.priceStotinki,
+      });
+      itemsByOrder.set(it.orderId, list);
+    }
+
+    const fullRows: FarmerOrderRow[] = pageRows.map((r) => ({
+      ...r,
+      items: itemsByOrder.get(r.id) ?? [],
+    }));
+
+    return { orders: fullRows.map(toFarmerOrder), nextCursor };
+  }
+
   /** Tenant-wide payment totals, Redis-cached (busted on order writes). */
   private async paymentTotalsCached(tenantId: string): Promise<PaymentTotals> {
     const key = `payments:totals:${tenantId}`;
