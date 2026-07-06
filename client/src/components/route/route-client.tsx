@@ -6,7 +6,7 @@ import {
   CalendarDays,
   ChevronDown,
   Navigation,
-  Truck,
+  CheckCircle2,
   Home,
   Flag,
   Clock,
@@ -17,13 +17,14 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { setStopLocation } from '@/lib/api-client';
+import { setStopLocation, updateOrderStatus } from '@/lib/api-client';
 import type { RouteResult, RouteStop, RouteEndMode, RouteOrderMode } from '@/lib/types';
 import { StopList } from './stop-list';
 import { RouteMap } from './route-map';
 import { LocationRouteCard } from './location-route-card';
 import { WazeStepper } from './waze-stepper';
 import { buildWazeTargets, wazeUrl } from './waze';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const cn = (...c: (string | false)[]) => c.filter(Boolean).join(' ');
 
@@ -68,12 +69,11 @@ type Point = { address: string | null; lat: number | null; lng: number | null };
 const pt = (p: Point) => (p.lat != null && p.lng != null ? `${p.lat},${p.lng}` : p.address ?? '');
 
 /** Build one Google Maps directions URL for a sequence of nodes (origin → … → destination). */
-function legUrl(nodes: Point[], navigate: boolean): string {
+function legUrl(nodes: Point[]): string {
   const params = new URLSearchParams({ api: '1', travelmode: 'driving' });
   const o = pt(nodes[0]);
   if (o) params.set('origin', o);
   params.set('destination', pt(nodes[nodes.length - 1]));
-  if (navigate) params.set('dir_action', 'navigate');
   let url = `https://www.google.com/maps/dir/?${params.toString()}`;
   const mids = nodes.slice(1, -1).map(pt).filter(Boolean);
   if (mids.length) url += `&waypoints=${mids.map(encodeURIComponent).join('|')}`;
@@ -81,7 +81,7 @@ function legUrl(nodes: Point[], navigate: boolean): string {
 }
 
 /** Farm → stops as one or more chained Google Maps legs (≤9 waypoints each). */
-function dirUrls(origin: Point, stops: RouteStop[], end: Point | null, navigate = false): string[] {
+function dirUrls(origin: Point, stops: RouteStop[], end: Point | null): string[] {
   if (!stops.length) return [];
   const perLeg = nodesPerLeg(); // 11 on desktop, 5 on mobile
   const points: Point[] = [origin, ...stops];
@@ -90,7 +90,7 @@ function dirUrls(origin: Point, stops: RouteStop[], end: Point | null, navigate 
   let i = 0;
   while (i < points.length - 1) {
     const seg = points.slice(i, i + perLeg);
-    urls.push(legUrl(seg, navigate));
+    urls.push(legUrl(seg));
     i += seg.length - 1; // each leg's destination is the next leg's origin
   }
   return urls;
@@ -196,8 +196,8 @@ export function RouteClient({
   const orderHint = ORDER_OPTIONS.find((o) => o.mode === orderMode)?.hint ?? '';
   const endHint = END_OPTIONS.find((o) => o.mode === end.mode)?.hint ?? '';
 
-  const openRoute = (navigate: boolean) => {
-    const urls = dirUrls(origin, stops, endPoint, navigate);
+  const openRoute = () => {
+    const urls = dirUrls(origin, stops, endPoint);
     if (!urls.length) {
       toast.error('Няма спирки за маршрут');
       return;
@@ -210,7 +210,7 @@ export function RouteClient({
       toast.info(`Дълъг маршрут — ${urls.length} отсечки. Отвори всяка с бутоните долу.`);
     } else {
       setExtraLegs([]);
-      toast.success(navigate ? 'Навигацията се отваря в Google Maps' : 'Маршрутът се отваря в Google Maps');
+      toast.success('Маршрутът се отваря в Google Maps');
     }
   };
 
@@ -227,6 +227,26 @@ export function RouteClient({
   const wazePrev = () => setWazeIdx((v) => Math.max(0, v - 1));
   const wazeNext = () => setWazeIdx((v) => Math.min(wazeTargets.length, v + 1));
   const wazeReset = () => setWazeIdx(0);
+
+  // Bulk "finish the day" action: marks every stop's order as delivered.
+  // Does not touch payment/COD fields — those are a separate, existing flow.
+  const [confirmFinish, setConfirmFinish] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const finishDay = async () => {
+    setFinishing(true);
+    const results = await Promise.allSettled(
+      stops.map((s) => updateOrderStatus(s.id, 'delivered')),
+    );
+    setFinishing(false);
+    setConfirmFinish(false);
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed === 0) {
+      toast.success(`Всички ${stops.length} спирки маркирани като доставени`);
+    } else {
+      toast.error(`${stops.length - failed}/${stops.length} маркирани, ${failed} неуспешни — опитай пак`);
+    }
+    router.refresh();
+  };
 
   const onOpenMaps = (s: RouteStop) => {
     window.open(stopUrl(origin, s), '_blank', 'noopener');
@@ -495,7 +515,9 @@ export function RouteClient({
               <b>Google Maps</b> — отваря целия маршрут в Google Maps, за да го видиш на картата.
             </li>
             <li>
-              <b>Старт</b> — пуска навигация „завой по завой“ в Google Maps на телефона.
+              <b>Завърших доставките</b> — маркира всички спирки за деня като доставени
+              (след потвърждение). Не пипа информацията дали парите са получени — това е
+              отделно.
             </li>
             <li>
               <b>Waze</b> — навигация спирка по спирка. Waze води до една спирка наведнъж; цъкни
@@ -530,20 +552,12 @@ export function RouteClient({
             <h2 className="text-[16px] font-extrabold">Маршрут за доставка</h2>
             <div className="flex gap-2">
               <button
-                onClick={() => openRoute(false)}
+                onClick={() => openRoute()}
                 disabled={!stops.length}
                 title="Отваря целия маршрут в Google Maps за преглед"
                 className="inline-flex items-center gap-1.5 rounded-[9px] border border-ff-border bg-ff-surface px-[11px] py-[7px] text-[13px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Navigation size={15} /> Google Maps
-              </button>
-              <button
-                onClick={() => openRoute(true)}
-                disabled={!stops.length}
-                title="Пуска навигация „завой по завой“ в Google Maps"
-                className="inline-flex items-center gap-1.5 rounded-[9px] bg-ff-green-100 px-[11px] py-[7px] text-[13px] font-bold text-ff-green-800 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Truck size={15} /> Старт
               </button>
               <button
                 onClick={() => setShowWaze((v) => !v)}
@@ -557,6 +571,14 @@ export function RouteClient({
                 )}
               >
                 <Navigation size={15} /> Waze
+              </button>
+              <button
+                onClick={() => setConfirmFinish(true)}
+                disabled={!stops.length}
+                title="Маркира всички спирки за днес като доставени"
+                className="inline-flex items-center gap-1.5 rounded-[9px] bg-ff-green-100 px-[11px] py-[7px] text-[13px] font-bold text-ff-green-800 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <CheckCircle2 size={15} /> Завърших доставките
               </button>
             </div>
           </div>
@@ -603,6 +625,17 @@ export function RouteClient({
           />
         </div>
       </div>
+
+      {confirmFinish && (
+        <ConfirmDialog
+          title="Завърши доставките за днес?"
+          message={`Всички ${stops.length} спирки ще бъдат маркирани като доставени.`}
+          confirmLabel="Завърших"
+          busy={finishing}
+          onCancel={() => setConfirmFinish(false)}
+          onConfirm={finishDay}
+        />
+      )}
     </div>
   );
 }
