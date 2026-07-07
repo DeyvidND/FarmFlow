@@ -1563,6 +1563,23 @@ export class OrdersService {
       }
     }
 
+    // Econt-to-door needs a structured settlement name for the carrier (the door
+    // label — a missing city makes Econt reject mid-call with ExInvalidCity). When
+    // the buyer typed the address by hand (no Google Places pick) the storefront
+    // can't supply deliveryCity, so derive it by geocoding the typed address,
+    // biased to the farm's region. Local delivery doesn't need this — the farm
+    // delivers by its own route/coords. (Courier splits via createCourierOrders,
+    // which derives the city the same way.)
+    let deliveryCity = dto.deliveryCity?.trim() || null;
+    if (method === 'econt_address' && !deliveryCity && dto.deliveryAddress) {
+      const fLat = tenant.farmLat == null ? null : Number(tenant.farmLat);
+      const fLng = tenant.farmLng == null ? null : Number(tenant.farmLng);
+      const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
+      deliveryCity = await this.maps.geocodeCity(dto.deliveryAddress, bias, {
+        postalCode: dto.deliveryPostal,
+      });
+    }
+
     return this.db.transaction(async (tx) => {
       // Only local farm delivery consumes a slot; courier/Econt orders never count
       // against the farm's delivery capacity.
@@ -1604,7 +1621,7 @@ export class OrdersService {
           deliveryType: method,
           // Address stored for local + Econt-to-address; only Econt-office omits it.
           deliveryAddress: isEcontOffice ? null : dto.deliveryAddress ?? null,
-          deliveryCity: isEcontOffice ? null : dto.deliveryCity ?? null,
+          deliveryCity: isEcontOffice ? null : deliveryCity,
           // Block/entrance detail — local delivery only (Econt keeps it inline in
           // deliveryAddress; office delivery has no street).
           deliveryNote: isLocal ? dto.deliveryNote ?? null : null,
@@ -1653,6 +1670,8 @@ export class OrdersService {
         id: tenants.id,
         subscriptionStatus: tenants.subscriptionStatus,
         settings: tenants.settings,
+        farmLat: tenants.farmLat,
+        farmLng: tenants.farmLng,
       })
       .from(tenants)
       .where(eq(tenants.slug, slug))
@@ -1665,6 +1684,21 @@ export class OrdersService {
     const cfg = (tenant.settings as { delivery?: DeliveryConfig } | null)?.delivery ?? null;
     if (!codEnabled(cfg)) {
       throw new BadRequestException('Плащането с наложен платеж не е налично.');
+    }
+
+    // Each carrier needs a structured settlement name (Speedy searchSites / the
+    // farmer's waybill). When the buyer typed the address by hand (no Google pick)
+    // the storefront can't supply deliveryCity — derive it by geocoding the typed
+    // address, biased to the farm's region, so every split leg carries a routable
+    // city. Done once before the transaction (network call kept out of the tx).
+    let deliveryCity = dto.deliveryCity?.trim() || null;
+    if (!deliveryCity && dto.deliveryAddress) {
+      const fLat = tenant.farmLat == null ? null : Number(tenant.farmLat);
+      const fLng = tenant.farmLng == null ? null : Number(tenant.farmLng);
+      const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
+      deliveryCity = await this.maps.geocodeCity(dto.deliveryAddress, bias, {
+        postalCode: dto.deliveryPostal,
+      });
     }
 
     return this.db.transaction(async (tx) => {
@@ -1729,7 +1763,7 @@ export class OrdersService {
             deliveryType: 'courier',
             carrier: null, // farmer picks the carrier at ship time
             deliveryAddress: dto.deliveryAddress ?? null,
-            deliveryCity: dto.deliveryCity ?? null,
+            deliveryCity,
             deliveryNote: null,
             deliveryLat: null,
             deliveryLng: null,

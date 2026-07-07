@@ -161,35 +161,49 @@ export class MapsService {
     const cached = await this.cachedGet<LatLng>(key);
     if (cached) return cached;
 
-    const bounds = bias ? this.biasBounds(bias) : undefined;
-    const components = this.componentsParam(opts);
+    const pick = await this.resolvePick(query, bias, opts);
+    const loc = pick?.geometry?.location;
+    if (typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') return null;
+    const ll: LatLng = { lat: loc.lat, lng: loc.lng };
+    await this.cachedSet(key, ll, GEOCODE_CACHE_TTL);
+    return ll;
+  }
 
-    try {
-      // Try with the structured component filters first.
-      let pick = await this.geocodePick(query, components, bounds, bias);
-      // A `locality`/`postal_code` filter is a HARD constraint: an imperfect
-      // city string (typo, abbreviation, diacritics mismatch) can over-filter to
-      // ZERO_RESULTS where the bias box alone would have matched. Retry with just
-      // country:BG so #structured-components never regresses the pre-existing
-      // free-text behaviour.
-      if (!pick && components !== 'country:BG') {
-        pick = await this.geocodePick(query, 'country:BG', bounds, bias);
-      }
-      if (!pick) return null;
-      // Backstop: a match far outside the delivery region is almost certainly
-      // the wrong place — drop it (shows un-mapped for the farmer to fix).
-      if (bias != null && distKm(bias, pick) > MAX_BIAS_DISTANCE_KM) {
-        this.logger.warn(
-          `Geocode "${query}" resolved ${Math.round(distKm(bias, pick))}km from region — ignoring.`,
-        );
-        return null;
-      }
-      await this.cachedSet(key, pick, GEOCODE_CACHE_TTL);
-      return pick;
-    } catch (err) {
-      this.logger.warn(`Geocode error for "${query}": ${(err as Error).message}`);
-      return null;
-    }
+  /**
+   * Resolve just the settlement (city/town) name for a typed address — used by the
+   * courier / Econt-to-door checkout path, where the buyer may type the address by
+   * hand (no Google Places pick) yet the carrier still needs a structured city to
+   * route the waybill. Same disambiguation (region bias + component filters) as
+   * geocode(); returns null when maps are off, nothing matches, or the resolved
+   * place carries no locality component.
+   */
+  async geocodeCity(
+    address: string,
+    bias?: LatLng,
+    opts?: { locality?: string; postalCode?: string },
+  ): Promise<string | null> {
+    const query = address?.trim();
+    if (!this.enabled || !query) return null;
+
+    const key = `${this.geoKey(query, bias, opts)}:city`;
+    const cached = await this.cachedGet<string>(key);
+    if (cached) return cached;
+
+    const pick = await this.resolvePick(query, bias, opts);
+    const city = pick ? this.cityOf(pick) : null;
+    if (city) await this.cachedSet(key, city, GEOCODE_CACHE_TTL);
+    return city;
+  }
+
+  /** Settlement name from a geocode result's components (locality, else the
+   *  county/obshtina level as a fallback). Null when neither is present. */
+  private cityOf(pick: { address_components?: unknown }): string | null {
+    const comps = Array.isArray(pick?.address_components)
+      ? (pick.address_components as { types?: string[]; long_name?: string }[])
+      : [];
+    const byType = (type: string) =>
+      comps.find((c) => Array.isArray(c?.types) && c.types.includes(type))?.long_name ?? null;
+    return byType('locality') || byType('administrative_area_level_2') || null;
   }
 
   /** Stable cache key for a geocode — folds in the normalized address, the farm
@@ -225,14 +239,55 @@ export class MapsService {
     return parts.join('|');
   }
 
-  /** One Geocoding request → the best LatLng (or null on no/too-coarse match).
-   *  Throws on a network/HTTP fault so the caller can decide (no retry on those).*/
-  private async geocodePick(
+  /** Resolve the best Google geocoding result for a query: try the structured
+   *  component filters first, then fall back to country:BG so an imperfect
+   *  city/postal never regresses free-text matching. Drops coarse centroids,
+   *  picks the candidate nearest the farm region, and rejects a match grossly far
+   *  from it. Returns the raw result (geometry + address_components) or null. */
+  private async resolvePick(
+    query: string,
+    bias?: LatLng,
+    opts?: { locality?: string; postalCode?: string },
+  ): Promise<any | null> {
+    const bounds = bias ? this.biasBounds(bias) : undefined;
+    const components = this.componentsParam(opts);
+    try {
+      // Try with the structured component filters first.
+      let pick = await this.pickFrom(query, components, bounds, bias);
+      // A `locality`/`postal_code` filter is a HARD constraint: an imperfect city
+      // string (typo, abbreviation, diacritics mismatch) can over-filter to
+      // ZERO_RESULTS — or fall back to the town centre (coarse) — where the bias
+      // box alone would have matched. Retry with just country:BG so structured
+      // components never regress the pre-existing free-text behaviour.
+      if (!pick && components !== 'country:BG') {
+        pick = await this.pickFrom(query, 'country:BG', bounds, bias);
+      }
+      if (!pick) return null;
+      // Backstop: a match far outside the delivery region is almost certainly the
+      // wrong place — drop it (shows un-mapped for the farmer to fix).
+      const loc = pick.geometry.location;
+      if (bias != null && distKm(bias, loc) > MAX_BIAS_DISTANCE_KM) {
+        this.logger.warn(
+          `Geocode "${query}" resolved ${Math.round(distKm(bias, loc))}km from region — ignoring.`,
+        );
+        return null;
+      }
+      return pick;
+    } catch (err) {
+      this.logger.warn(`Geocode error for "${query}": ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /** One Geocoding request → the best street-precise result (geometry +
+   *  address_components), or null on no/too-coarse match. Throws on a network/HTTP
+   *  fault so the caller can decide (no retry on those). */
+  private async pickFrom(
     query: string,
     components: string,
     bounds: string | undefined,
     bias?: LatLng,
-  ): Promise<LatLng | null> {
+  ): Promise<any | null> {
     let url =
       `${GEOCODE_URL}?address=${encodeURIComponent(query)}` +
       `&components=${encodeURIComponent(components)}&language=bg&key=${this.apiKey}`;
@@ -271,7 +326,7 @@ export class MapsService {
         : candidates[0];
     const loc = pick?.geometry?.location;
     if (typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') return null;
-    return { lat: loc.lat, lng: loc.lng };
+    return pick;
   }
 
   /**

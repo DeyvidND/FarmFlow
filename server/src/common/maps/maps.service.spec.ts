@@ -167,6 +167,80 @@ describe('MapsService.geocode', () => {
   });
 });
 
+describe('MapsService.geocodeCity', () => {
+  const geoCity = (
+    city: string | null,
+    types: string[] = ['street_address'],
+    componentType = 'locality',
+  ) => ({
+    status: 'OK',
+    results: [
+      {
+        types,
+        geometry: { location: { lat: 43.2, lng: 27.9 } },
+        address_components: city
+          ? [{ long_name: city, short_name: city, types: [componentType, 'political'] }]
+          : [],
+      },
+    ],
+  });
+
+  it('returns the locality name from a street-precise match', async () => {
+    mockFetch(geoCity('Варна'));
+    expect(await make('k').geocodeCity('ул. Дунав 5, Варна')).toBe('Варна');
+  });
+
+  it('falls back to administrative_area_level_2 when there is no locality', async () => {
+    mockFetch(geoCity('Община Аврен', ['route'], 'administrative_area_level_2'));
+    expect(await make('k').geocodeCity('ул. Първа 3, някое село')).toBe('Община Аврен');
+  });
+
+  it('returns null when the match carries no settlement component', async () => {
+    mockFetch(geoCity(null));
+    expect(await make('k').geocodeCity('ул. Дунав 5')).toBeNull();
+  });
+
+  it('returns null for a too-coarse (city-centroid) match — no findable door', async () => {
+    // gibberish street + locality filter → Google town centre (coarse) → dropped,
+    // country-only retry here also coarse → null, so no city is derived.
+    mockFetchSeq([geoCity('Варна', ['locality', 'political'])]);
+    expect(await make('k').geocodeCity('пълни глупости 123', undefined, { locality: 'Варна' })).toBeNull();
+  });
+
+  it('returns null when maps are disabled (no key) and never calls fetch', async () => {
+    const fetchSpy = mockFetch(geoCity('Варна'));
+    expect(await make('').geocodeCity('ул. Дунав 5, Варна')).toBeNull();
+    expect(fetchSpy).toHaveLength(0);
+  });
+
+  it('caches the resolved city — a repeat resolve does not re-fetch', async () => {
+    const store = new Map<string, unknown>();
+    const cache = {
+      get: jest.fn(async (k: string) => store.get(k) ?? null),
+      set: jest.fn(async (k: string, v: unknown) => void store.set(k, v)),
+    } as never;
+    const svc = new MapsService({ get: () => 'k' } as never, cache);
+    const calls = mockFetch(geoCity('Добрич'));
+    expect(await svc.geocodeCity('ул. Дунав 5, Добрич')).toBe('Добрич');
+    expect(await svc.geocodeCity('ул. Дунав 5, Добрич')).toBe('Добрич');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('does not collide with the geocode() coord cache for the same address', async () => {
+    const store = new Map<string, unknown>();
+    const cache = {
+      get: jest.fn(async (k: string) => store.get(k) ?? null),
+      set: jest.fn(async (k: string, v: unknown) => void store.set(k, v)),
+    } as never;
+    const svc = new MapsService({ get: () => 'k' } as never, cache);
+    mockFetch(geoCity('Варна'));
+    const coords = await svc.geocode('ул. Дунав 5, Варна');
+    const city = await svc.geocodeCity('ул. Дунав 5, Варна');
+    expect(coords).toEqual({ lat: 43.2, lng: 27.9 });
+    expect(city).toBe('Варна');
+  });
+});
+
 describe('MapsService.fetchJson retry/backoff', () => {
   // Speed up the back-off delay for all tests in this describe by replacing
   // Promise-based sleep with an immediate resolver. This avoids touching global

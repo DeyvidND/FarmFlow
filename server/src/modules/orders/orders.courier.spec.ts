@@ -115,10 +115,13 @@ function buildDb(tx: any, settings: unknown, subscriptionStatus = 'active') {
   };
 }
 
-function makeSvc(db: unknown) {
+function makeSvc(
+  db: unknown,
+  maps: unknown = { geocode: jest.fn(), geocodeCity: jest.fn() },
+) {
   return new OrdersService(
     db as never,
-    { geocode: jest.fn() } as never,
+    maps as never,
     {} as never,
     {} as never,
     {} as never,
@@ -208,6 +211,66 @@ describe('OrdersService.createCourierOrders()', () => {
     expect(sB.orderId).toBe('order-2');
     expect(sB.farmerId).toBe(FARMER_B);
     expect(sB.codAmountStotinki).toBe(3 * 100 + 1 * 200); // 500 = order B total
+  });
+
+  it('derives the settlement by geocoding when the buyer typed the address (no picked city)', async () => {
+    const ordersValues: any[] = [];
+    const itemsValues: any[] = [];
+    const shipmentsValues: any[] = [];
+    const tx = makeTx(
+      [{ id: FARMER_A, name: 'Ферма А', courierEnabled: true }],
+      1,
+      ordersValues,
+      itemsValues,
+      shipmentsValues,
+    );
+    const db = buildDb(tx, settingsReady(FARMER_A));
+    const geocodeCity = jest.fn().mockResolvedValue('Варна');
+    const svc = makeSvc(db, { geocode: jest.fn(), geocodeCity });
+
+    jest.spyOn(svc as any, 'reserveCartItems').mockResolvedValue({
+      items: [line(FARMER_A, 'a1', 1, 500)],
+      slotFrom: null,
+      slotTo: null,
+      slotDate: null,
+    });
+
+    const typed = { ...DTO, deliveryAddress: 'ул. Дунав 5, Варна', deliveryCity: undefined };
+    await svc.createCourierOrders('test-farm', typed as never);
+
+    expect(geocodeCity).toHaveBeenCalledWith('ул. Дунав 5, Варна', undefined, {
+      postalCode: undefined,
+    });
+    // The derived city lands on the split order (so the farmer's waybill can route).
+    expect(ordersValues[0].deliveryCity).toBe('Варна');
+  });
+
+  it('uses the picked city and does NOT geocode when deliveryCity is provided', async () => {
+    const ordersValues: any[] = [];
+    const itemsValues: any[] = [];
+    const shipmentsValues: any[] = [];
+    const tx = makeTx(
+      [{ id: FARMER_A, name: 'Ферма А', courierEnabled: true }],
+      1,
+      ordersValues,
+      itemsValues,
+      shipmentsValues,
+    );
+    const db = buildDb(tx, settingsReady(FARMER_A));
+    const geocodeCity = jest.fn();
+    const svc = makeSvc(db, { geocode: jest.fn(), geocodeCity });
+
+    jest.spyOn(svc as any, 'reserveCartItems').mockResolvedValue({
+      items: [line(FARMER_A, 'a1', 1, 500)],
+      slotFrom: null,
+      slotTo: null,
+      slotDate: null,
+    });
+
+    await svc.createCourierOrders('test-farm', DTO as never); // DTO.deliveryCity = 'София'
+
+    expect(geocodeCity).not.toHaveBeenCalled();
+    expect(ordersValues[0].deliveryCity).toBe('София');
   });
 
   it('throws BadRequestException when a product has no farmer (and inserts nothing)', async () => {
