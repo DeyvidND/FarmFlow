@@ -243,4 +243,18 @@ describe('Adversarial 6 — RoutingService.getRoute multi-courier split', () => 
     const routeWithGhost = result.routes.find((r) => r.stops.some((s) => s.id === 'ghost'))!;
     expect(routeWithGhost.stops[routeWithGhost.stops.length - 1].id).toBe('ghost');
   });
+
+  it('a zero-order day still returns exactly one (empty) route, not zero routes', async () => {
+    // No confirmed address-orders that day → both located and unlocated are
+    // empty, so the item-summary select is skipped (ids.length === 0).
+    const db = makeDb([[TENANT], []]);
+    const svc = new RoutingService(db, makeMaps());
+
+    const result = await svc.getRoute('t1', '2026-07-07', undefined, 2);
+
+    expect(result.couriers).toBe(1);
+    expect(result.routes).toHaveLength(1);
+    expect(result.routes[0].stops).toEqual([]);
+    expect(result.routes[0].optimized).toBe(false);
+  });
 });

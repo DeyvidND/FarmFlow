@@ -278,7 +278,7 @@ export class RoutingService {
     } else {
       groups = [];
     }
-    if (!groups.length && unlocated.length) groups = [[]];
+    if (!groups.length) groups = [[]];
 
     const routes: CourierRoute[] = [];
     for (const group of groups) {
