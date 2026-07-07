@@ -13,16 +13,13 @@ describe('farmerDeliveryNamespace', () => {
 });
 
 describe('farmerCourierReady', () => {
-  it('false when courier not enabled, regardless of carriers', () => {
-    expect(farmerCourierReady(false, { econt: { configured: true } })).toBe(false);
+  it('false when no carrier configured', () => {
+    expect(farmerCourierReady(undefined)).toBe(false);
+    expect(farmerCourierReady({})).toBe(false);
+    expect(farmerCourierReady({ econt: { configured: false } })).toBe(false);
   });
-  it('false when enabled but no connected carrier', () => {
-    expect(farmerCourierReady(true, undefined)).toBe(false);
-    expect(farmerCourierReady(true, { econt: { configured: false } })).toBe(false);
-    expect(farmerCourierReady(true, {})).toBe(false);
-  });
-  it('true when enabled and econt OR speedy connected', () => {
-    expect(farmerCourierReady(true, { econt: { configured: true } })).toBe(true);
-    expect(farmerCourierReady(true, { speedy: { configured: true } })).toBe(true);
+  it('true when econt OR speedy connected', () => {
+    expect(farmerCourierReady({ econt: { configured: true } })).toBe(true);
+    expect(farmerCourierReady({ speedy: { configured: true } })).toBe(true);
   });
 });

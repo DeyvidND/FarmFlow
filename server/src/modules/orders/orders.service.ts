@@ -1819,18 +1819,17 @@ export class OrdersService {
       }
       const farmerIds = [...groups.keys()];
 
-      // Backstop: every farmer in the cart must be courier-ready (enabled + carrier
+      // Backstop: every farmer in the cart must be courier-ready (carrier
       // connected). The storefront already gates on this; re-check server-side so a
       // crafted request can't create an unshippable courier order.
       const farmerRows = await tx
-        .select({ id: farmers.id, name: farmers.name, courierEnabled: farmers.courierEnabled })
+        .select({ id: farmers.id, name: farmers.name })
         .from(farmers)
         .where(and(eq(farmers.tenantId, tenant.id), inArray(farmers.id, farmerIds)));
       const farmerById = new Map(farmerRows.map((f) => [f.id, f]));
       for (const fid of farmerIds) {
         const f = farmerById.get(fid);
-        const ready =
-          !!f && farmerCourierReady(f.courierEnabled, farmerDeliveryNamespace(tenant.settings, fid));
+        const ready = !!f && farmerCourierReady(farmerDeliveryNamespace(tenant.settings, fid));
         if (!ready) {
           throw new BadRequestException('Един от фермерите не предлага куриерска доставка.');
         }
