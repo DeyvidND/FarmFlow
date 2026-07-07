@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { listSlots } from '@/lib/api-client';
-import { hhmm, relDayLabel } from '@/lib/utils';
+import { hhmm, relDayLabel, todayIso } from '@/lib/utils';
 import type { Order, Slot, UpdateOrderInput } from '@/lib/types';
 
 /** Local editable draft of an order. Delivery method is fixed; its values
@@ -69,15 +69,16 @@ export function OrderEditForm({
   const [slots, setSlots] = useState<Slot[]>([]);
   useEffect(() => {
     if (!usesSlot) return;
-    const today = new Date();
+    const today = todayIso();
     const to = new Date();
-    to.setDate(today.getDate() + 14);
+    to.setDate(to.getDate() + 14);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    listSlots(iso(today), iso(to))
+    listSlots(today, iso(to))
       .then((all) =>
-        // Free slots only (booked === 0), never today, plus keep the order's own
-        // current slot so it stays selectable even if now full by itself.
-        setSlots(all.filter((s) => s.date !== iso(today) && (s.booked === 0 || s.id === order.slotId))),
+        // Free slots only (booked < capacity), never today (local Sofia time,
+        // not UTC), plus keep the order's own current slot so it stays
+        // selectable even if now full by itself.
+        setSlots(all.filter((s) => s.date !== today && (s.booked < s.capacity || s.id === order.slotId))),
       )
       .catch(() => setSlots([]));
   }, [usesSlot, order.slotId]);
