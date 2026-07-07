@@ -30,9 +30,8 @@ export class FarmersController {
   constructor(private readonly farmersService: FarmersService) {}
 
   // Producers see only themselves (scoped by token, query overrides ignored); the
-  // owner sees the whole tenant. Opened to `farmer` so a sub-account's own
-  // `courierEnabled` reaches the products screens — otherwise the courier toggle
-  // there stays locked with a misleading "no carrier" note even after connecting.
+  // owner sees the whole tenant. Opened to `farmer` so a sub-account's own carrier
+  // connection status reaches the products screens.
   @Get()
   @Roles('admin', 'farmer')
   findAll(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
