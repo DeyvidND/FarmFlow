@@ -1348,7 +1348,7 @@ export class OrdersService {
       }
     }
 
-    // Slot (local delivery only): lock the row + enforce one-order-per-slot. When
+    // Slot (local delivery only): lock the row + enforce the slot's capacity. When
     // slotId is null (courier / non-local) this whole block is skipped.
     let slotFrom: string | null = null;
     let slotTo: string | null = null;

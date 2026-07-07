@@ -179,6 +179,81 @@ function buildDb(valuesCapture: unknown[], tenantDeliveryCfg = DELIVERY_CFG) {
   };
 }
 
+/**
+ * DB mock for a slot-booking checkout (deliveryType 'address', slotId set).
+ * The tx.select() call sequence differs from buildDb's (no-slot) sequence —
+ * see reserveCartItems: products, productsWithVariants, slot (locked), booked
+ * count, availability windows, nextNumber.
+ */
+function buildDbForSlotBooking(
+  valuesCapture: unknown[],
+  slotRow: { id: string; date: string; timeFrom: string; timeTo: string; capacity: number },
+  bookedCount: number,
+) {
+  const txMock: any = {
+    select: makeTxSelect([
+      [PRODUCT], // 1: products
+      [], // 2: productsWithVariants
+      [slotRow], // 3: slot select (.for('update').limit(1))
+      [{ count: bookedCount }], // 4: booked-count select
+      [], // 5: availability windows
+      [{ nextNumber: 1 }], // 6: nextNumber
+    ]),
+    execute: jest.fn(() => Promise.resolve([])),
+    insert: jest.fn()
+      .mockImplementationOnce(() => {
+        const c: any = {};
+        c.values = jest.fn((v: unknown) => {
+          valuesCapture.push(v);
+          return c;
+        });
+        c.returning = jest.fn(() =>
+          Promise.resolve([{ ...FAKE_ORDER, slotId: slotRow.id, deliveryType: 'address', carrier: null }]),
+        );
+        return c;
+      })
+      .mockImplementationOnce(() => {
+        const c: any = {};
+        c.values = jest.fn((v: unknown) => {
+          valuesCapture.push(v);
+          return c;
+        });
+        c.returning = jest.fn(() =>
+          Promise.resolve([
+            {
+              id: 'item-1',
+              orderId: 'order-1',
+              productId: 'prod-1',
+              productName: 'Домати',
+              quantity: 1,
+              priceStotinki: 500,
+              variantId: null,
+              variantLabel: null,
+            },
+          ]),
+        );
+        return c;
+      }),
+    update: jest.fn(() => {
+      const c: any = {};
+      c.set = jest.fn(() => c);
+      c.where = jest.fn(() => Promise.resolve([]));
+      return c;
+    }),
+  };
+
+  return {
+    select: jest.fn(() => {
+      const c: any = {};
+      c.from = jest.fn(() => c);
+      c.where = jest.fn(() => c);
+      c.limit = jest.fn(() => Promise.resolve([TENANT]));
+      return c;
+    }),
+    transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn(txMock)),
+  };
+}
+
 const BASE_DTO = {
   deliveryType: 'econt_address' as const,
   paymentMethod: 'cod' as const,
@@ -293,5 +368,72 @@ describe('OrdersService.create() carrier persist', () => {
         tenantNoSpeedy as never,
       ),
     ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('OrdersService.create() slot capacity', () => {
+  const SLOT_DTO = {
+    deliveryType: 'address' as const,
+    paymentMethod: 'cod' as const,
+    customerName: 'Иван',
+    customerPhone: '0888000000',
+    items: [{ productId: 'prod-1', quantity: 1 }],
+    deliveryAddress: 'ул. Тест 1',
+    deliveryCity: 'София',
+    deliveryLat: 42.0,
+    deliveryLng: 27.0,
+    slotId: 'slot-1',
+  };
+  const SLOT_ROW = { id: 'slot-1', date: '2099-01-01', timeFrom: '10:00:00', timeTo: '11:00:00' };
+
+  it('allows a second order on a capacity-2 slot', async () => {
+    const captured: unknown[] = [];
+    const db = buildDbForSlotBooking(captured, { ...SLOT_ROW, capacity: 2 }, 1);
+    const svc = new OrdersService(
+      db as never,
+      { geocode: jest.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await svc.create('test-farm', SLOT_DTO as never, TENANT as never);
+
+    const orderValues = captured[0] as Record<string, unknown>;
+    expect(orderValues.slotId).toBe('slot-1');
+  });
+
+  it('rejects a third order on a capacity-2 slot', async () => {
+    const captured: unknown[] = [];
+    const db = buildDbForSlotBooking(captured, { ...SLOT_ROW, capacity: 2 }, 2);
+    const svc = new OrdersService(
+      db as never,
+      { geocode: jest.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(svc.create('test-farm', SLOT_DTO as never, TENANT as never)).rejects.toThrow('Слотът е запълнен');
+  });
+
+  it('rejects a second order on a capacity-1 slot (regression: unchanged default behaviour)', async () => {
+    const captured: unknown[] = [];
+    const db = buildDbForSlotBooking(captured, { ...SLOT_ROW, capacity: 1 }, 1);
+    const svc = new OrdersService(
+      db as never,
+      { geocode: jest.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(svc.create('test-farm', SLOT_DTO as never, TENANT as never)).rejects.toThrow('Слотът е запълнен');
   });
 });
