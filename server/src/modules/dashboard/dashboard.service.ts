@@ -6,8 +6,8 @@ import { bgToday, bgDayBounds, bgAddDays } from '../../common/time/bg-time';
 
 export interface DashboardSlot {
   id: string;
-  timeFrom: string;
-  timeTo: string;
+  timeFrom: string | null;
+  timeTo: string | null;
   /** Live count of non-cancelled orders. Free while booked < capacity. */
   booked: number;
   capacity: number;
@@ -109,8 +109,8 @@ export class DashboardService {
           eq(deliverySlots.isActive, true),
         )!,
       )
-      .groupBy(deliverySlots.id, deliverySlots.timeFrom, deliverySlots.timeTo, deliverySlots.capacity)
-      .orderBy(deliverySlots.timeFrom);
+      .groupBy(deliverySlots.id, deliverySlots.date, deliverySlots.timeFrom, deliverySlots.timeTo, deliverySlots.capacity)
+      .orderBy(deliverySlots.date, deliverySlots.timeFrom);
 
     const [[agg], [prod], [{ yesterday }], [tenant], slotRows] = await Promise.all([
       aggP,

@@ -2023,8 +2023,10 @@ export class OrdersService {
       // knows their own address, and the recap is reachable by anyone holding the
       // order UUID (it can leak via history/Referer). Don't echo PII we don't need.
       econtOffice: row.econtOffice,
-      slot: row.slotFrom
-        ? { date: row.slotDate!, startTime: hhmm(row.slotFrom), endTime: hhmm(row.slotTo) }
+      // Day-rows (post migration 0081) carry a date but no time window — show the
+      // date with blank times rather than dropping the slot line entirely.
+      slot: row.slotDate
+        ? { date: row.slotDate, startTime: hhmm(row.slotFrom), endTime: hhmm(row.slotTo) }
         : null,
       items: items.map((i) => ({
         name: i.name ?? '',
