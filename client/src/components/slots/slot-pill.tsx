@@ -1,6 +1,6 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { X, Users } from 'lucide-react';
 import { hhmm } from '@/lib/utils';
 import { slotColor } from '@/lib/slots';
 import type { Slot } from '@/lib/types';
@@ -19,7 +19,12 @@ export function SlotPill({
   const cap = slot.capacity ?? 1;
   const c = slotColor(slot.booked, cap);
   const full = slot.booked >= cap;
+  const remaining = Math.max(0, cap - slot.booked);
   const hasNote = !!(slot.customerNote || slot.driverNote);
+  // Multi-capacity slots show a live count (людете/поръчки на този час); single-
+  // capacity keeps the plain Свободен/Зает so nothing changes for farms that never
+  // touch capacity. The hover title spells the fraction out in words.
+  const capTitle = full ? 'Запълнен' : `Още ${remaining} ${remaining === 1 ? 'свободно място' : 'свободни места'}`;
 
   return (
     <div className="group relative rounded-[10px] px-[9px] py-2" style={{ background: c.bg }}>
@@ -47,9 +52,20 @@ export function SlotPill({
           )}
         </div>
         <div className="mt-1 flex items-center justify-end">
-          <span className="text-[11.5px] font-extrabold" style={{ color: c.ink }}>
-            {cap > 1 ? `${slot.booked}/${cap}` : full ? 'Зает' : 'Свободен'}
-          </span>
+          {cap > 1 ? (
+            <span
+              title={capTitle}
+              className="flex items-center gap-0.5 text-[11.5px] font-extrabold"
+              style={{ color: c.ink }}
+            >
+              <Users size={11} strokeWidth={2.75} />
+              {slot.booked}/{cap}
+            </span>
+          ) : (
+            <span className="text-[11.5px] font-extrabold" style={{ color: c.ink }}>
+              {full ? 'Зает' : 'Свободен'}
+            </span>
+          )}
         </div>
       </button>
     </div>

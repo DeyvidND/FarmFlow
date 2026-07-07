@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, Info, Truck, Settings } from 'lucide-react';
+import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, Info, Truck, Settings, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, hhmm, type OrderStatus } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -297,21 +297,32 @@ export function DashboardClient({
               <p className="text-[13px] text-ff-muted">Няма часове за деня.</p>
             ) : (
               summary.slots.map((s) => {
-                const taken = s.booked >= (s.capacity ?? 1);
+                const cap = s.capacity ?? 1;
+                const taken = s.booked >= cap;
                 return (
                   <div key={s.id} className="mb-2.5 flex items-center justify-between text-[13px] last:mb-0">
                     <span className="font-semibold text-ff-ink-2">
                       {hhmm(s.timeFrom)} – {hhmm(s.timeTo)}
                     </span>
                     <span
+                      title={cap > 1 ? (taken ? 'Запълнен' : `Още ${cap - s.booked} свободни`) : undefined}
                       className={cn(
-                        'rounded-full px-2 py-0.5 text-[11.5px] font-bold',
+                        'flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11.5px] font-bold',
                         taken
                           ? 'bg-ff-gray-badge-bg text-ff-muted-2'
                           : 'bg-ff-green-50 text-ff-green-700',
                       )}
                     >
-                      {taken ? 'Зает' : 'Свободен'}
+                      {cap > 1 ? (
+                        <>
+                          <Users size={11} strokeWidth={2.75} />
+                          {s.booked}/{cap}
+                        </>
+                      ) : taken ? (
+                        'Зает'
+                      ) : (
+                        'Свободен'
+                      )}
                     </span>
                   </div>
                 );
