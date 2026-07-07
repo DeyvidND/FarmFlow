@@ -442,6 +442,7 @@ export interface Slot {
   timeTo: string; // HH:MM:SS
   isActive: boolean;
   booked: number;
+  capacity: number;
   customerNote: string | null;
   driverNote: string | null;
   generated: boolean;
@@ -468,6 +469,7 @@ export interface SlotRule {
   anchorDate: string; // YYYY-MM-DD
   /** Minutes one delivery takes; >0 splits each window into slots of this length. 0/absent = one slot. */
   slotMinutes?: number;
+  defaultCapacity?: number;
   customerNote?: string;
   driverNote?: string;
   horizonDays: number;
@@ -492,6 +494,7 @@ export interface DashboardSlot {
   timeFrom: string;
   timeTo: string;
   booked: number;
+  capacity: number;
 }
 
 /** Today's dashboard summary (GET /dashboard?date=). */

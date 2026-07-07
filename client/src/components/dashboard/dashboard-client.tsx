@@ -297,7 +297,7 @@ export function DashboardClient({
               <p className="text-[13px] text-ff-muted">Няма часове за деня.</p>
             ) : (
               summary.slots.map((s) => {
-                const taken = s.booked >= 1;
+                const taken = s.booked >= (s.capacity ?? 1);
                 return (
                   <div key={s.id} className="mb-2.5 flex items-center justify-between text-[13px] last:mb-0">
                     <span className="font-semibold text-ff-ink-2">

@@ -53,7 +53,7 @@ export function SetupSection() {
     ])
       .then(([t, stripe, slots, rule]) => {
         if (!on) return;
-        const freeThisWeek = slots.reduce((sum, sl) => sum + ((sl.booked ?? 0) >= 1 ? 0 : 1), 0);
+        const freeThisWeek = slots.reduce((sum, sl) => sum + ((sl.booked ?? 0) >= (sl.capacity ?? 1) ? 0 : 1), 0);
         setS({
           enabled: !!t.deliveryEnabled,
           delivery: t.delivery ?? null,
@@ -99,7 +99,7 @@ export function DeliverySection() {
     ])
       .then(([t, slots, rule]) => {
         if (!on) return;
-        const freeThisWeek = slots.reduce((sum, sl) => sum + ((sl.booked ?? 0) >= 1 ? 0 : 1), 0);
+        const freeThisWeek = slots.reduce((sum, sl) => sum + ((sl.booked ?? 0) >= (sl.capacity ?? 1) ? 0 : 1), 0);
         setS({
           enabled: !!t.deliveryEnabled,
           delivery: t.delivery ?? null,

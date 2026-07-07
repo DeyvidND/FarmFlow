@@ -65,7 +65,7 @@ async function load(): Promise<{
   const slots = await readJson<Slot[]>(sRes, []);
   const rule = await readJson<SlotRule | null>(rRes, null);
   // Each slot holds one order → free = no live booking.
-  const freeThisWeek = slots.reduce((sum, s) => sum + ((s.booked ?? 0) >= 1 ? 0 : 1), 0);
+  const freeThisWeek = slots.reduce((sum, s) => sum + ((s.booked ?? 0) >= (s.capacity ?? 1) ? 0 : 1), 0);
 
   return {
     enabled: !!tenant.deliveryEnabled,

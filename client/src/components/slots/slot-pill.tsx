@@ -16,8 +16,9 @@ export function SlotPill({
   onEdit: () => void;
   busy?: boolean;
 }) {
-  const c = slotColor(slot.booked);
-  const taken = slot.booked >= 1;
+  const cap = slot.capacity ?? 1;
+  const c = slotColor(slot.booked, cap);
+  const full = slot.booked >= cap;
   const hasNote = !!(slot.customerNote || slot.driverNote);
 
   return (
@@ -47,7 +48,7 @@ export function SlotPill({
         </div>
         <div className="mt-1 flex items-center justify-end">
           <span className="text-[11.5px] font-extrabold" style={{ color: c.ink }}>
-            {taken ? 'Зает' : 'Свободен'}
+            {cap > 1 ? `${slot.booked}/${cap}` : full ? 'Зает' : 'Свободен'}
           </span>
         </div>
       </button>

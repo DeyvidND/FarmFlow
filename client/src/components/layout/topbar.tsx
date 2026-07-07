@@ -65,7 +65,7 @@ async function buildNotifs(): Promise<Notif[]> {
       });
     }
     for (const s of dash.slots) {
-      if (s.booked >= 1) {
+      if (s.booked >= (s.capacity ?? 1)) {
         list.push({
           id: `slot-${s.id}`,
           title: `Часът ${hhmm(s.timeFrom)} – ${hhmm(s.timeTo)} е запълнен`,
