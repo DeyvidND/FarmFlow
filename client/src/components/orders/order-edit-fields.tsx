@@ -125,7 +125,24 @@ export function OrderEditForm({
     if (order.deliveryType === 'econt') patch.econtOffice = draft.econtOffice.trim();
     if (usesSlot) patch.slotId = draft.slotId;
     if (!itemsLocked) {
-      patch.items = items.map((it) => ({ productId: it.productId, quantity: it.quantity, ...(it.variantId ? { variantId: it.variantId } : {}) }));
+      // Only send `items` when the cart actually changed — the backend treats
+      // any presence of `items` as "replace the whole cart" (re-prices at
+      // today's catalog price, re-validates every line is still active), so a
+      // pure contact/address/slot/notes edit must never include this key.
+      const itemKey = (productId: string, variantId: string | undefined, quantity: number) =>
+        `${productId}:${variantId ?? ''}:${quantity}`;
+      const originalItems = order.items
+        .filter((it): it is typeof it & { productId: string } => it.productId != null)
+        .map((it) => itemKey(it.productId, it.variantId ?? undefined, it.quantity))
+        .sort()
+        .join('|');
+      const currentItems = items
+        .map((it) => itemKey(it.productId, it.variantId, it.quantity))
+        .sort()
+        .join('|');
+      if (currentItems !== originalItems) {
+        patch.items = items.map((it) => ({ productId: it.productId, quantity: it.quantity, ...(it.variantId ? { variantId: it.variantId } : {}) }));
+      }
     }
     onSave(patch);
   }
