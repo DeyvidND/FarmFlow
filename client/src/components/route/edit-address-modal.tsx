@@ -53,10 +53,13 @@ export function EditAddressModal({
   const key = mapsKey || MAPS_KEY;
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const geocodeGenRef = useRef(0);
   useEffect(() => {
-    // Clear any pending reverse-geocode lookup if the modal closes mid-debounce.
+    // Clear any pending reverse-geocode lookup if the modal closes mid-debounce,
+    // and bump the generation so an in-flight fetch's result is dropped too.
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      geocodeGenRef.current += 1;
     };
   }, []);
 
@@ -70,10 +73,11 @@ export function EditAddressModal({
   function onMapPointChange(lat: number, lng: number) {
     setPin({ lat, lng });
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    const gen = ++geocodeGenRef.current;
     debounceRef.current = setTimeout(() => {
       reverseGeocode(lat, lng)
         .then(({ address }) => {
-          if (address) setAddr(address);
+          if (address && geocodeGenRef.current === gen) setAddr(address);
         })
         .catch(() => {
           // Best-effort convenience only — the pin already reflects the
