@@ -12,10 +12,6 @@ interface Props {
   onClose: () => void;
   farmers?: Farmer[];
   multiFarmer?: boolean;
-  /** True for a farmer sub-account — switches the locked-row note to 2nd person. */
-  isFarmer?: boolean;
-  /** Route to the carrier-connect screen, shown when no farmer has a courier connected yet. */
-  deliverySettingsHref?: string;
   onSaved?: (patches: { id: string; courierDisabled: boolean }[]) => void;
 }
 
@@ -24,8 +20,6 @@ export function CourierSettingsModal({
   onClose,
   farmers = [],
   multiFarmer = false,
-  isFarmer = false,
-  deliverySettingsHref = '/delivery',
   onSaved,
 }: Props) {
   const [prods, setProds] = useState<ProductOption[]>([]);

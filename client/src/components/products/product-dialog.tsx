@@ -25,8 +25,6 @@ export function ProductDialog({
   subcats,
   multiFarmer,
   multiSubcat,
-  isFarmer = false,
-  deliverySettingsHref = '/delivery',
   onOpenCourierSettings,
   onClose,
   onSubmit,
@@ -38,10 +36,6 @@ export function ProductDialog({
   subcats: Subcategory[];
   multiFarmer: boolean;
   multiSubcat: boolean;
-  /** True for a farmer sub-account — switches the courier-lock note to 2nd person. */
-  isFarmer?: boolean;
-  /** Route to the carrier-connect screen — differs for admin (/delivery) vs a farmer sub-account (/farmer-delivery). */
-  deliverySettingsHref?: string;
   /** Lets the farmer jump straight to the bulk "Куриер" editor instead of toggling one product at a time. */
   onOpenCourierSettings?: () => void;
   onClose: () => void;
