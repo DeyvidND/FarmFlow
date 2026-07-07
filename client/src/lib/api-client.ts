@@ -319,6 +319,19 @@ export const setStopLocation = (
     'Неуспешно записване на адреса',
   );
 
+/**
+ * Reverse geocode a map point to an address — used by the route stop editor
+ * when the farmer drops/drags a pin on the embedded map. Returns `address:
+ * null` when nothing resolves (never throws for a no-match; only a network/
+ * auth failure throws via apiFetch's normal ApiError path).
+ */
+export const reverseGeocode = (lat: number, lng: number) =>
+  apiFetch<{ address: string | null }>(
+    `orders/route/reverse-geocode?lat=${lat}&lng=${lng}`,
+    undefined,
+    'Неуспешно търсене на адрес',
+  );
+
 // ---- Site editor ----
 export const createEditSession = () =>
   apiFetch<{ token: string; siteUrl: string; expiresIn: number }>(
