@@ -333,7 +333,15 @@ export function OrdersClient({
       <Pagination page={page} pageCount={pageCount} onPage={setPage} total={total} />
 
       {active && (
-        <OrderPanel order={active} busy={busy} onClose={() => setActiveId(null)} onAction={(s) => onAction(active, s)} />
+        <OrderPanel
+          order={active}
+          busy={busy}
+          onClose={() => setActiveId(null)}
+          onAction={(s) => onAction(active, s)}
+          onSaved={(updated) => {
+            setOrders((p) => p.map((x) => (x.id === updated.id ? updated : x)));
+          }}
+        />
       )}
 
       {help && <HelpModal {...ORDERS_HELP} onClose={() => setHelp(false)} />}
