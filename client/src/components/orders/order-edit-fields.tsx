@@ -176,13 +176,13 @@ export function OrderEditForm({
           )}
           {usesSlot && (
             <label className="block">
-              <span className="text-xs font-semibold text-ff-muted">Ден и час</span>
+              <span className="text-xs font-semibold text-ff-muted">Ден за доставка</span>
               <select
                 value={draft.slotId ?? ''}
                 onChange={(e) => setDraft((d) => ({ ...d, slotId: e.target.value || null }))}
                 className="mt-1 w-full rounded-sm border border-ff-border bg-ff-surface-2 px-2.5 py-2 text-sm font-semibold text-ff-ink outline-none focus:border-ff-green-500"
               >
-                <option value="">Без час</option>
+                <option value="">Без ден</option>
                 {slots.map((s) => (
                   <option key={s.id} value={s.id}>
                     {ddmm(s.date)} · остават {Math.max(0, s.capacity - s.booked)}

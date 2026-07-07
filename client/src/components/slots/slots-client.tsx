@@ -77,9 +77,17 @@ export function SlotsClient({
   async function applyDay(d: string, working: boolean, capacity: number) {
     setBusyDay(d);
     try {
+      const existing = byDay(d)[0] ?? null;
       const res = await closeSlotDay(d);
       if (working) {
-        await createSlot({ date: d, capacity });
+        // A day with a live order isn't actually removed by closeSlotDay (it's
+        // kept so the order stays valid) — reopening it must edit that row's
+        // capacity, not try to create a second row for the same date.
+        if (res.kept > 0 && existing) {
+          await updateSlot(existing.id, { capacity });
+        } else {
+          await createSlot({ date: d, capacity });
+        }
       }
       await refreshWeek();
       setClosedDates((prev) => new Set(prev).add(d));

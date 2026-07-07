@@ -62,11 +62,7 @@ export function DashboardClient({
     {
       Icon: Clock,
       label: 'Свободни места днес',
-      value: ns
-        ? ns.timeFrom && ns.timeTo
-          ? `${hhmm(ns.timeFrom)} – ${hhmm(ns.timeTo)}`
-          : `${Math.max(0, ns.capacity - ns.booked)}`
-        : '—',
+      value: ns ? `${Math.max(0, ns.capacity - ns.booked)}` : '—',
       sub: ns ? 'свободни' : 'няма свободни',
       tone: 'green' as const,
     },
