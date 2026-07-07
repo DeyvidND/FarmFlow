@@ -1,4 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 import { SlotsService, PUBLIC_SLOT_COLUMNS } from './slots.service';
 
 describe('PUBLIC_SLOT_COLUMNS', () => {
@@ -9,11 +11,24 @@ describe('PUBLIC_SLOT_COLUMNS', () => {
 });
 
 /** Minimal chainable db stub matching the calls materializeRule makes. Day-rows
- *  carry no time window — the diff key is date-only now. */
-function fakeDb(existing: { date: string }[], inserted: Record<string, unknown>[]) {
+ *  carry no time window — the diff key is date-only now. The stub HONORS a
+ *  `generated` filter in the WHERE (rendered to SQL text to detect it): the
+ *  manual-row suppression test below is only meaningful if a query that still
+ *  filtered `generated = true` would actually hide manual rows from the diff. */
+function fakeDb(
+  existing: { date: string; generated?: boolean }[],
+  inserted: Record<string, unknown>[],
+) {
+  const dialect = new PgDialect();
   const sel = {
     from: () => sel,
-    where: async () => existing.map((r) => ({ date: r.date })),
+    where: async (cond: unknown) => {
+      const sql = dialect.sqlToQuery(cond as SQL).sql;
+      const rows = sql.includes('"generated"')
+        ? existing.filter((r) => r.generated !== false)
+        : existing;
+      return rows.map((r) => ({ date: r.date }));
+    },
   };
   const ins = {
     values: async (rows: Record<string, unknown>[]) => {
@@ -77,6 +92,30 @@ describe('SlotsService.materializeRule', () => {
       active: true,
       repeat: 'weekdays',
       days: [{ dow: 1, capacity: 40 }], // Monday — 2026-06-08 already exists
+      intervalDays: 1,
+      intervalCapacity: 1,
+      anchorDate: '2026-06-08',
+      horizonDays: 0,
+      skipDates: [],
+    });
+    const n = await svc.materializeRule('t1', '2026-06-08');
+    expect(n).toBe(0);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('a manual (generated=false) day-row on a wanted date suppresses generation for that date', async () => {
+    // The diff must see ANY existing row, not only generated ones — otherwise the
+    // generator would add a second row on a date the farmer opened by hand,
+    // breaking the one-day-row-per-(tenant,date) invariant create() enforces.
+    const inserted: Record<string, unknown>[] = [];
+    const svc = new SlotsService(
+      fakeDb([{ date: '2026-06-08', generated: false }], inserted),
+      {} as never,
+    );
+    jest.spyOn(svc, 'getRule').mockResolvedValue({
+      active: true,
+      repeat: 'weekdays',
+      days: [{ dow: 1, capacity: 40 }], // Monday — 2026-06-08 has a manual row
       intervalDays: 1,
       intervalCapacity: 1,
       anchorDate: '2026-06-08',

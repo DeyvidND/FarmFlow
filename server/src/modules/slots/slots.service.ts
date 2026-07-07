@@ -363,7 +363,8 @@ export class SlotsService {
 
   /**
    * Insert any missing generated slots for the rule within its horizon. Idempotent
-   * (diffs against existing generated rows in the window). Returns count inserted.
+   * (diffs against ALL existing rows in the window — a manual day-row suppresses
+   * the rule's row for that date). Returns count inserted.
    * MUST NOT run on the public read path.
    */
   async materializeRule(tenantId: string, today = this.bgToday(), force = false): Promise<number> {
@@ -386,15 +387,17 @@ export class SlotsService {
       .where(
         and(
           eq(deliverySlots.tenantId, tenantId),
-          eq(deliverySlots.generated, true),
           gte(deliverySlots.date, wanted[0].date),
           lte(deliverySlots.date, wanted[wanted.length - 1].date),
         ),
       );
     // One GenSlot per date now (no more per-window sub-slots), so the diff keys
-    // on date alone. A rule edit that changes a day's capacity is handled by the
-    // force-rebuild path (saveRule deletes future unbooked generated rows first),
-    // not by this diff.
+    // on date alone — and against ANY row on the date, not just generated ones:
+    // a manual (generated=false) day-row suppresses the rule's row for that date,
+    // preserving the one-day-row-per-(tenant,date) invariant that create()'s
+    // duplicate guard establishes. A rule edit that changes a day's capacity is
+    // handled by the force-rebuild path (saveRule deletes future unbooked
+    // generated rows first), not by this diff.
     const have = new Set(existing.map((r) => r.date));
     const missing = wanted.filter((w) => !have.has(w.date));
     if (missing.length) {
