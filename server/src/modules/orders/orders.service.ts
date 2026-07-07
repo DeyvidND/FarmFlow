@@ -1273,7 +1273,7 @@ export class OrdersService {
   /**
    * Validate the cart, reserve stock (availability windows + variant stock), price
    * each line, and — when a slot is given (local delivery) — lock it and enforce
-   * the one-order-per-slot capacity. Runs inside an open transaction; mutates the
+   * the slot's capacity. Runs inside an open transaction; mutates the
    * locked rows (the reservation). Shared by single-order intake ({@link create})
    * and the courier split ({@link createCourierOrders}). Returns the priced lines
    * (with each line's owning farmer) plus the resolved slot times. Throws
