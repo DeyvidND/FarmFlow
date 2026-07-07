@@ -77,7 +77,7 @@ export function EditAddressModal({
       onSaved();
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Адресът не е намерен');
+      toast.error(e instanceof Error ? e.message : 'Адресът не е намерен — пробвай таб „Карта“');
     } finally {
       setSaving(false);
     }
@@ -198,7 +198,15 @@ export function EditAddressModal({
                         </AdvancedMarker>
                       )}
                       {mapPin && (
-                        <AdvancedMarker position={mapPin} title={stop.customer ?? 'Клиент'}>
+                        <AdvancedMarker
+                          position={mapPin}
+                          title={stop.customer ?? 'Клиент'}
+                          draggable
+                          onDragEnd={(e) => {
+                            const ll = e.latLng;
+                            if (ll) setMapPin({ lat: ll.lat(), lng: ll.lng() });
+                          }}
+                        >
                           <MapPin size={30} className="-translate-y-1 fill-ff-green-700 text-white" />
                         </AdvancedMarker>
                       )}
