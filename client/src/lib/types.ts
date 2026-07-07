@@ -433,8 +433,8 @@ export interface Article {
   media: ArticleMedia[];
 }
 
-/** Delivery slot with its live `booked` count (GET /slots). A slot holds one
- *  order → `booked` is 0 (free) or ≥1 (taken). */
+/** Delivery slot with its live `booked` count (GET /slots). Free while
+ *  `booked` is below `capacity`. */
 export interface Slot {
   id: string;
   date: string; // YYYY-MM-DD
@@ -448,7 +448,7 @@ export interface Slot {
   generated: boolean;
 }
 
-/** One delivery window (hours only — a slot holds exactly one order). */
+/** One delivery window (hours only — capacity is tracked separately). */
 export interface SlotWindow {
   timeFrom: string; // HH:MM
   timeTo: string; // HH:MM

@@ -8,8 +8,9 @@ export interface DashboardSlot {
   id: string;
   timeFrom: string;
   timeTo: string;
-  /** Live count of non-cancelled orders. A slot holds one order → 0 = free, ≥1 = taken. */
+  /** Live count of non-cancelled orders. Free while booked < capacity. */
   booked: number;
+  capacity: number;
 }
 
 export interface DashboardSummary {
@@ -96,6 +97,7 @@ export class DashboardService {
         id: deliverySlots.id,
         timeFrom: deliverySlots.timeFrom,
         timeTo: deliverySlots.timeTo,
+        capacity: deliverySlots.capacity,
         booked: sql<number>`count(${orders.id}) filter (where ${orders.status} <> 'cancelled')::int`,
       })
       .from(deliverySlots)
@@ -107,7 +109,7 @@ export class DashboardService {
           eq(deliverySlots.isActive, true),
         )!,
       )
-      .groupBy(deliverySlots.id, deliverySlots.timeFrom, deliverySlots.timeTo)
+      .groupBy(deliverySlots.id, deliverySlots.timeFrom, deliverySlots.timeTo, deliverySlots.capacity)
       .orderBy(deliverySlots.timeFrom);
 
     const [[agg], [prod], [{ yesterday }], [tenant], slotRows] = await Promise.all([
@@ -123,6 +125,7 @@ export class DashboardService {
       timeFrom: s.timeFrom,
       timeTo: s.timeTo,
       booked: s.booked,
+      capacity: s.capacity,
     }));
 
     return {
@@ -132,7 +135,7 @@ export class DashboardService {
       revenueStotinki: prod.revenueStotinki,
       deliveryRevenueStotinki: Math.max(0, agg.totalStotinki - prod.revenueStotinki),
       pendingCount: agg.pendingCount,
-      nextSlot: slots.find((s) => s.booked === 0) ?? null,
+      nextSlot: slots.find((s) => s.booked < s.capacity) ?? null,
       slots,
       subscriptionActive: tenant?.status !== 'inactive',
     };

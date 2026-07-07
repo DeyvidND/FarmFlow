@@ -51,8 +51,8 @@ describe('DashboardService.summary', () => {
       yesterday: [{ yesterday: 3 }],
       tenant: [{ status: 'active' }],
       slots: [
-        { id: 's1', timeFrom: '09:00', timeTo: '10:00', booked: 1 },
-        { id: 's2', timeFrom: '10:00', timeTo: '11:00', booked: 0 },
+        { id: 's1', timeFrom: '09:00', timeTo: '10:00', booked: 1, capacity: 1 },
+        { id: 's2', timeFrom: '10:00', timeTo: '11:00', booked: 0, capacity: 1 },
       ],
     });
 
@@ -76,7 +76,7 @@ describe('DashboardService.summary', () => {
       prod: [{ revenueStotinki: 800 }],
       yesterday: [{ yesterday: 4 }],
       tenant: [{ status: 'inactive' }],
-      slots: [{ id: 's1', timeFrom: '09:00', timeTo: '10:00', booked: 2 }],
+      slots: [{ id: 's1', timeFrom: '09:00', timeTo: '10:00', booked: 2, capacity: 1 }],
     });
 
     const out = await svc(db).summary('t1', '2026-06-30');
@@ -101,5 +101,20 @@ describe('DashboardService.summary', () => {
     expect(out.subscriptionActive).toBe(true);
     expect(out.nextSlot).toBeNull();
     expect(out.slots).toEqual([]);
+  });
+
+  it('a capacity-2 slot with 1 booked is not full and is still the next free slot', async () => {
+    const db = makeDb({
+      agg: [{ orderCount: 1, totalStotinki: 500, pendingCount: 0 }],
+      prod: [{ revenueStotinki: 500 }],
+      yesterday: [{ yesterday: 0 }],
+      tenant: [{ status: 'active' }],
+      slots: [{ id: 's1', timeFrom: '09:00', timeTo: '10:00', booked: 1, capacity: 2 }],
+    });
+
+    const out = await svc(db).summary('t1', '2026-06-30');
+
+    expect(out.nextSlot).toMatchObject({ id: 's1', booked: 1, capacity: 2 });
+    expect(out.slots[0].capacity).toBe(2);
   });
 });

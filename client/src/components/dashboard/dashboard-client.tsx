@@ -287,7 +287,7 @@ export function DashboardClient({
             </div>
           </div>
 
-          {/* slots — each holds one order, so it's simply free or taken */}
+          {/* slots — free while booked is below capacity */}
           <div className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
             <div className="mb-3.5 flex items-center justify-between">
               <h2 className="text-[16.5px] font-extrabold">Часове днес</h2>
