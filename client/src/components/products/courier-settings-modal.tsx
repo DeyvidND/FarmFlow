@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import { Loader2, PackageCheck, PackageX, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -38,7 +37,6 @@ export function CourierSettingsModal({
   const [farmerFilter, setFarmerFilter] = useState<string>('all');
 
   const farmerName = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
-  const farmerCourier = useMemo(() => new Map(farmers.map((f) => [f.id, f.courierEnabled ?? false])), [farmers]);
 
   useEffect(() => {
     if (!open) return;
@@ -95,10 +93,6 @@ export function CourierSettingsModal({
     return farmers.filter((f) => ids.has(f.id));
   }, [prods, farmers]);
 
-  // Cold start: nobody has a carrier connected at all — every row below would render
-  // locked with no way forward, so lead with a single way-out instead of a wall of grays.
-  const noFarmerHasCourier = farmers.length > 0 && farmers.every((f) => !f.courierEnabled);
-
   const changedCount = prods.filter((p) => state.get(p.id) !== originalRef.current.get(p.id)).length;
   const blockedCount = prods.filter((p) => state.get(p.id) === false).length;
   const enabledCount = prods.length - blockedCount;
@@ -140,23 +134,6 @@ export function CourierSettingsModal({
             <span className="inline-flex items-center gap-1 font-semibold text-ff-ink-2">● Сиво</span> — без куриер, но се продава нормално при лична доставка, вземане от място и местна доставка до адрес.
           </p>
         </div>
-
-        {noFarmerHasCourier && (
-          <div className="shrink-0 border-b border-ff-border bg-amber-50 px-5 py-3">
-            <p className="text-xs leading-relaxed text-amber-800">
-              {isFarmer
-                ? 'Още нямаш свързан куриер (Еконт/Спиди) — затова всички превключватели по-долу са заключени.'
-                : 'Никой фермер няма свързан куриер (Еконт/Спиди) — затова всички превключватели по-долу са заключени.'}{' '}
-              <Link
-                href={deliverySettingsHref}
-                onClick={onClose}
-                className="font-semibold underline underline-offset-2 hover:text-amber-900"
-              >
-Свържи куриер от приложението „Доставки“
-              </Link>
-            </p>
-          </div>
-        )}
 
         {/* Farmer filter */}
         {multiFarmer && activeFarmers.length > 1 && (
@@ -212,15 +189,6 @@ export function CourierSettingsModal({
                       {!enabled && (
                         <p className="text-[11px] text-ff-muted font-medium mt-0.5">Без куриер · лична / местна доставка</p>
                       )}
-                      {p.farmerId && !farmerCourier.get(p.farmerId) && !noFarmerHasCourier && (
-                        <Link
-                          href={deliverySettingsHref}
-                          onClick={onClose}
-                          className="mt-0.5 block text-[10.5px] font-medium text-amber-600 underline underline-offset-2 hover:text-amber-700"
-                        >
-                          ⚠ {isFarmer ? 'Нямаш активен куриер' : 'Фермерът няма активен куриер'} — свържи от „Доставки“
-                        </Link>
-                      )}
                     </div>
 
                     {/* Changed badge */}
@@ -230,41 +198,23 @@ export function CourierSettingsModal({
                       </span>
                     )}
 
-                    {/* Toggle — ON = с куриер (green), OFF = без куриер (gray).
-                        Locked when farmer has no courier connected. */}
-                    {(() => {
-                      const locked = !!p.farmerId && !farmerCourier.get(p.farmerId);
-                      return (
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={enabled}
-                          onClick={() => !locked && toggle(p.id)}
-                          title={
-                            locked
-                              ? isFarmer
-                                ? 'Нямаш активен куриер — свържи Еконт или Спиди от „Доставки“'
-                                : 'Фермерът няма активен куриер — свържете Еконт или Спиди от Настройки'
-                              : enabled
-                                ? 'С куриер — кликни за блокиране'
-                                : 'Само на място — кликни за включване с куриер'
-                          }
-                          className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
-                            locked
-                              ? 'bg-ff-border-2 opacity-40 cursor-not-allowed'
-                              : enabled
-                                ? 'bg-green-500'
-                                : 'bg-ff-border-2'
-                          }`}
-                        >
-                          <span
-                            className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
-                              enabled ? 'left-[19px]' : 'left-[3px]'
-                            }`}
-                          />
-                        </button>
-                      );
-                    })()}
+                    {/* Toggle — ON = с куриер (green), OFF = без куриер (gray). */}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={enabled}
+                      onClick={() => toggle(p.id)}
+                      title={enabled ? 'С куриер — кликни за блокиране' : 'Само на място — кликни за включване с куриер'}
+                      className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
+                        enabled ? 'bg-green-500' : 'bg-ff-border-2'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
+                          enabled ? 'left-[19px]' : 'left-[3px]'
+                        }`}
+                      />
+                    </button>
                   </li>
                 );
               })}

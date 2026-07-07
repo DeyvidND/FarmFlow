@@ -21,7 +21,7 @@ export default async function ProductsPage() {
   // batch with the data fetches. The farmers endpoint is included unconditionally
   // so producers and admins both resolve in one round-trip; the server scopes the
   // list by role — the owner gets the whole tenant, a producer gets just their own
-  // row (so their own `courierEnabled` is known to the courier toggles below).
+  // row.
   const [me, products, farmers, subcats, tenant, windows] = await Promise.all([
     fetchJson<{ role?: string }>('auth/me', {}),
     // The server scopes this list to the producer's own products for role='farmer'.
