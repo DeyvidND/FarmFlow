@@ -37,6 +37,12 @@ export interface SlotRule {
    * is one slot (the original behaviour).
    */
   slotMinutes?: number;
+  /**
+   * Default number of orders each generated slot accepts (= people working it).
+   * 1 = historical one-order behaviour. Clamped to [1,20]. Individual slots can
+   * override via their own `capacity` column.
+   */
+  defaultCapacity?: number;
   customerNote?: string;
   driverNote?: string;
   horizonDays: number; // how far ahead to keep filled
@@ -63,6 +69,18 @@ const isoMax = (a: string, b: string) => (a >= b ? a : b);
 const hhmmToMin = (t: string) => parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
 const minToHhmm = (m: number) =>
   `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+/** Clamp an incoming capacity to an integer in [1,20]; undefined/0/negative → 1. */
+export function clampCapacity(n: number | undefined): number {
+  const v = Math.floor(n ?? 1);
+  if (!Number.isFinite(v) || v < 1) return 1;
+  return Math.min(20, v);
+}
+
+/** A slot is full when its live booked count reaches its (clamped) capacity. */
+export function slotIsFull(booked: number, capacity: number): boolean {
+  return booked >= clampCapacity(capacity);
+}
 
 /**
  * Split a window into back-to-back sub-slots of `slotMinutes`. Only full chunks
@@ -235,6 +253,7 @@ export function normalizeRule(input: Partial<SlotRule> & LegacyRule, prev?: Slot
   // range so a typo can't generate thousands of slivers.
   const rawSlotMin = Math.floor(migrated.slotMinutes ?? 0);
   const slotMinutes = rawSlotMin > 0 ? Math.min(480, Math.max(15, rawSlotMin)) : 0;
+  const defaultCapacity = clampCapacity(migrated.defaultCapacity);
 
   return {
     active: migrated.active !== false,
@@ -244,6 +263,7 @@ export function normalizeRule(input: Partial<SlotRule> & LegacyRule, prev?: Slot
     intervalWindow,
     anchorDate,
     slotMinutes,
+    defaultCapacity,
     customerNote: migrated.customerNote?.slice(0, 280) || undefined,
     driverNote: migrated.driverNote?.slice(0, 500) || undefined,
     horizonDays: Math.min(60, Math.max(1, Math.floor(migrated.horizonDays ?? 28))),

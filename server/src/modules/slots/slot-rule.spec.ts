@@ -1,4 +1,11 @@
-import { slotRuleSlots, normalizeRule, migrateRule, type SlotRule } from './slot-rule';
+import {
+  slotRuleSlots,
+  normalizeRule,
+  migrateRule,
+  clampCapacity,
+  slotIsFull,
+  type SlotRule,
+} from './slot-rule';
 
 const win = { timeFrom: '10:00', timeTo: '12:00' };
 
@@ -15,6 +22,16 @@ const base: SlotRule = {
   anchorDate: '2026-06-01',
   horizonDays: 14,
   skipDates: [],
+};
+
+const baseInput = {
+  active: true,
+  repeat: 'weekdays' as const,
+  days: [{ dow: 1, timeFrom: '10:00', timeTo: '12:00' }],
+  intervalDays: 3,
+  intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
+  anchorDate: '2026-06-01',
+  horizonDays: 14,
 };
 
 describe('slotRuleSlots', () => {
@@ -246,5 +263,33 @@ describe('slotMinutes (slot length splitting)', () => {
     expect(normalizeRule({ ...input, slotMinutes: 9999 }).slotMinutes).toBe(480);
     expect(normalizeRule({ ...input, slotMinutes: 0 }).slotMinutes).toBe(0);
     expect(normalizeRule(input).slotMinutes).toBe(0);
+  });
+});
+
+describe('capacity', () => {
+  it('clampCapacity clamps to [1,20] and floors', () => {
+    expect(clampCapacity(undefined)).toBe(1);
+    expect(clampCapacity(0)).toBe(1);
+    expect(clampCapacity(-5)).toBe(1);
+    expect(clampCapacity(2.9)).toBe(2);
+    expect(clampCapacity(99)).toBe(20);
+  });
+
+  it('slotIsFull compares booked against clamped capacity', () => {
+    expect(slotIsFull(0, 1)).toBe(false);
+    expect(slotIsFull(1, 1)).toBe(true);
+    expect(slotIsFull(1, 2)).toBe(false);
+    expect(slotIsFull(2, 2)).toBe(true);
+    // capacity 0 clamps to 1 → one booked fills it
+    expect(slotIsFull(1, 0)).toBe(true);
+  });
+
+  it('normalizeRule clamps defaultCapacity', () => {
+    const out = normalizeRule({ ...baseInput, defaultCapacity: 99 });
+    expect(out.defaultCapacity).toBe(20);
+    const out2 = normalizeRule({ ...baseInput, defaultCapacity: 0 });
+    expect(out2.defaultCapacity).toBe(1);
+    const out3 = normalizeRule({ ...baseInput }); // absent → 1
+    expect(out3.defaultCapacity).toBe(1);
   });
 });
