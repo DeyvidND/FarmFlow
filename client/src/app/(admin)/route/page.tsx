@@ -2,12 +2,11 @@ import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { RouteClient } from '@/components/route/route-client';
 import { bgDateLabel } from '@/lib/utils';
-import type { RouteResult } from '@/lib/types';
+import type { MultiRouteResult } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 type EndMode = 'home' | 'last' | 'custom';
-type OrderMode = 'slots' | 'distance';
 
 /** Today's date in Bulgaria local time (matches the API's day grouping). */
 function bgToday(): string {
@@ -22,22 +21,18 @@ function bgToday(): string {
 async function getRoute(
   date: string,
   end?: EndMode,
-  order?: OrderMode,
-): Promise<{ route: RouteResult; failed: boolean }> {
-  const empty: RouteResult = {
+  couriers?: number,
+): Promise<{ route: MultiRouteResult; failed: boolean }> {
+  const empty: MultiRouteResult = {
     date,
     origin: { address: null, lat: null, lng: null },
-    stops: [],
     end: { mode: 'home', address: null, lat: null, lng: null },
-    orderMode: 'slots',
-    totalDistanceM: null,
-    totalDurationS: null,
-    optimized: false,
-    polyline: null,
+    couriers: 1,
+    routes: [],
   };
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return { route: empty, failed: false };
-  const qs = `date=${date}${end ? `&end=${end}` : ''}${order ? `&order=${order}` : ''}`;
+  const qs = `date=${date}${end ? `&end=${end}` : ''}${couriers ? `&couriers=${couriers}` : ''}`;
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/orders/route?${qs}`, {
@@ -60,15 +55,15 @@ async function getRoute(
 export default async function RoutePage({
   searchParams,
 }: {
-  searchParams: { date?: string; end?: string; order?: string };
+  searchParams: { date?: string; end?: string; couriers?: string };
 }) {
   const date = searchParams.date ?? bgToday();
   const end =
     searchParams.end === 'home' || searchParams.end === 'last' || searchParams.end === 'custom'
       ? (searchParams.end as EndMode)
       : undefined;
-  const order = searchParams.order === 'distance' ? 'distance' : undefined;
-  const { route, failed } = await getRoute(date, end, order);
+  const couriers = searchParams.couriers ? Math.min(10, Math.max(1, parseInt(searchParams.couriers, 10) || 1)) : undefined;
+  const { route, failed } = await getRoute(date, end, couriers);
   const dateLabel = bgDateLabel(new Date(`${date}T00:00:00`)).replace(' г.', '');
   // ONE Google Maps key for the whole route screen — the map (Maps JavaScript API)
   // and the address autocomplete (Places API New). Read at REQUEST time (the page is

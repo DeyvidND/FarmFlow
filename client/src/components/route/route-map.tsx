@@ -10,14 +10,14 @@ import {
   useMapsLibrary,
 } from '@vis.gl/react-google-maps';
 import { cn } from '@/lib/utils';
-import type { RouteStop, RouteResult, RouteEnd } from '@/lib/types';
+import type { RouteStop, MultiRouteResult, RouteEnd } from '@/lib/types';
 
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 // Reserved demo map id — renders AdvancedMarkers without cloud map styling.
 const MAP_ID = 'DEMO_MAP_ID';
 const BG_CENTROID = { lat: 42.7339, lng: 25.4858 };
 
-type Origin = RouteResult['origin'];
+type Origin = MultiRouteResult['origin'];
 
 interface RouteMapProps {
   stops: RouteStop[];

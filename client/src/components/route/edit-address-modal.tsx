@@ -9,14 +9,14 @@ import { AddressAutocomplete } from './address-autocomplete';
 import { setStopLocation } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { initialEditTab, addressPayload, type EditTab } from './edit-address';
-import type { RouteStop, RouteResult } from '@/lib/types';
+import type { RouteStop, MultiRouteResult } from '@/lib/types';
 
 // Reserved demo map id — renders AdvancedMarkers without cloud styling (same as route-map).
 const MAP_ID = 'DEMO_MAP_ID';
 const BG_CENTROID = { lat: 42.7339, lng: 25.4858 };
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
-type Origin = RouteResult['origin'];
+type Origin = MultiRouteResult['origin'];
 type LatLng = { lat: number; lng: number };
 
 const TABS: { id: EditTab; label: string }[] = [

@@ -138,7 +138,7 @@ export function OrderPanel({
           message={
             <>
               Поръчката на <b>{order.customerName ?? 'клиента'}</b> ще бъде отказана.
-              {order.slotFrom && order.slotTo ? ' Запазеният час за доставка се освобождава.' : ''}{' '}
+              {order.slotId ? ' Запазеният ден за доставка се освобождава.' : ''}{' '}
               Веднага след това можеш да я върнеш със „Отмени“ в съобщението.
             </>
           }
@@ -157,11 +157,13 @@ export function OrderPanel({
 }
 
 export function OrderDetailBody({ order }: { order: Order }) {
+  // Local-delivery day-rows carry no time window (see migration 0081) — legacy
+  // rows still do, so keep both readable.
   const slotWindow = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '';
-  const slotLabel = slotWindow
-    ? order.slotDate
+  const slotLabel = order.slotDate
+    ? slotWindow
       ? `${relDayLabel(order.slotDate)} · ${slotWindow}`
-      : slotWindow
+      : relDayLabel(order.slotDate)
     : '—';
   const paymentValue =
     order.paymentStatus === 'paid'

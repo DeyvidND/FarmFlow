@@ -59,7 +59,17 @@ export function DashboardClient({
     { Icon: Package, label: 'Поръчки днес', value: summary.orderCount, sub: `${delta >= 0 ? '+' : ''}${delta} спрямо вчера`, tone: 'green' as const },
     { Icon: Coins, label: 'Оборот днес', value: moneyFromStotinki(summary.revenueStotinki), sub: 'без отказани и доставка', tone: 'amber' as const },
     { Icon: Hourglass, label: 'Чакат потвърждение', value: summary.pendingCount, sub: summary.pendingCount ? 'изискват действие' : 'всичко чисто', tone: 'amber' as const },
-    { Icon: Clock, label: 'Следващ свободен час', value: ns ? `${hhmm(ns.timeFrom)} – ${hhmm(ns.timeTo)}` : '—', sub: ns ? 'свободен' : 'няма свободни', tone: 'green' as const },
+    {
+      Icon: Clock,
+      label: 'Свободни места днес',
+      value: ns
+        ? ns.timeFrom && ns.timeTo
+          ? `${hhmm(ns.timeFrom)} – ${hhmm(ns.timeTo)}`
+          : `${Math.max(0, ns.capacity - ns.booked)}`
+        : '—',
+      sub: ns ? 'свободни' : 'няма свободни',
+      tone: 'green' as const,
+    },
   ];
 
   const weekday = WEEKDAYS[new Date(`${summary.date}T00:00:00`).getDay()];
@@ -302,7 +312,7 @@ export function DashboardClient({
                 return (
                   <div key={s.id} className="mb-2.5 flex items-center justify-between text-[13px] last:mb-0">
                     <span className="font-semibold text-ff-ink-2">
-                      {hhmm(s.timeFrom)} – {hhmm(s.timeTo)}
+                      {s.timeFrom && s.timeTo ? `${hhmm(s.timeFrom)} – ${hhmm(s.timeTo)}` : 'Цял ден'}
                     </span>
                     <span
                       title={cap > 1 ? (taken ? 'Запълнен' : `Още ${cap - s.booked} свободни`) : undefined}

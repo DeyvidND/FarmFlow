@@ -187,12 +187,14 @@ export function OrdersClient({
         </span>
       );
     }
-    // Local (address) delivery — show the chosen delivery day + time window. Flag in
-    // amber when it's missing, since a local delivery must have a slot to be routed.
-    const slot =
-      o.slotDate && o.slotFrom && o.slotTo
+    // Local (address) delivery — show the chosen delivery day (+ time window on
+    // legacy pre-day-row slots). Flag in amber when it's missing, since a local
+    // delivery must have a slot to be routed.
+    const slot = o.slotDate
+      ? o.slotFrom && o.slotTo
         ? `${relDayLabel(o.slotDate)} · ${hhmm(o.slotFrom)}–${hhmm(o.slotTo)}`
-        : null;
+        : relDayLabel(o.slotDate)
+      : null;
     return (
       <span className="inline-flex flex-col gap-0.5">
         <span className="inline-flex items-center gap-1.5 font-semibold text-ff-green-700">

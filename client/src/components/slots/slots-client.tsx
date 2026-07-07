@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Plus, Info, Truck, X, CalendarCog } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn, bgWeekdayShort, ddmm, hhmm } from '@/lib/utils';
+import { cn, bgWeekdayShort, ddmm } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { HelpModal, InfoNote } from '@/components/delivery/ui';
@@ -14,7 +14,6 @@ import { SlotPill } from './slot-pill';
 import { AddSlotDialog, type SlotInput } from './add-slot-dialog';
 import { RecurrenceCard } from './recurrence-card';
 import { ApiError, createSlot, updateSlot, deleteSlot, listSlots, closeSlotDay, openSlotDay } from '@/lib/api-client';
-import { splitWindowChunks } from '@/lib/slot-chunks';
 import type { Slot, SlotRule } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -52,18 +51,17 @@ export function SlotsClient({
   const delivery = deliveryEnabled;
   const weekLabel = days.length === 7 ? `Седмица ${ddmm(days[0])} – ${ddmm(days[6])}` : '';
 
-  const byDay = (d: string) =>
-    slots.filter((s) => s.date === d).sort((a, b) => a.timeFrom.localeCompare(b.timeFrom));
+  const byDay = (d: string) => slots.filter((s) => s.date === d);
 
   async function onSubmit(data: SlotInput, editingId: string | null) {
     if (editingId) {
       const updated = await updateSlot(editingId, data);
       setSlots((prev) => prev.map((s) => (s.id === editingId ? updated : s)));
-      toast.success('Часът е обновен');
+      toast.success('Денят е обновен');
     } else {
       const created = await createSlot(data);
       setSlots((prev) => [...prev, created]);
-      toast.success('Часът е добавен');
+      toast.success('Денят е отворен');
     }
   }
 
@@ -73,33 +71,22 @@ export function SlotsClient({
   }
 
   /**
-   * Apply the per-day schedule: clear the date's unbooked slots + skip it in the
-   * rule, then (when the farmer IS working that day, just differently) create the
-   * custom window's slots — split by the rule's delivery duration, 1 order per
-   * sub-slot when a duration is set.
+   * Apply the per-day override: clear the date's row (and skip it in the rule),
+   * then (when the farmer IS working that day) reopen it with the given capacity.
    */
-  async function applyDay(d: string, working: boolean, win: { timeFrom: string; timeTo: string }) {
+  async function applyDay(d: string, working: boolean, capacity: number) {
     setBusyDay(d);
     try {
       const res = await closeSlotDay(d);
-      let createdN = 0;
       if (working) {
-        const slotMinutes = initialRule?.slotMinutes ?? 0;
-        for (const c of splitWindowChunks(win, slotMinutes)) {
-          await createSlot({
-            date: d,
-            timeFrom: c.timeFrom,
-            timeTo: c.timeTo,
-          });
-          createdN++;
-        }
+        await createSlot({ date: d, capacity });
       }
       await refreshWeek();
       setClosedDates((prev) => new Set(prev).add(d));
-      const kept = res.kept > 0 ? ` · ${res.kept} часа с поръчки останаха` : '';
+      const kept = res.kept > 0 ? ` · ${res.kept} с поръчки останаха` : '';
       toast.success(
         working
-          ? `Графикът за ${ddmm(d)} е променен (${createdN} часа)${kept}`
+          ? `Графикът за ${ddmm(d)} е променен${kept}`
           : `${ddmm(d)} е затворен — няма доставка${kept}`,
       );
     } catch (e) {
@@ -109,7 +96,7 @@ export function SlotsClient({
     }
   }
 
-  /** Drop the override: un-skip the date and let the rule refill its standard slots. */
+  /** Drop the override: un-skip the date and let the rule refill its standard day. */
   async function resetDay(d: string) {
     setBusyDay(d);
     try {
@@ -120,7 +107,7 @@ export function SlotsClient({
         next.delete(d);
         return next;
       });
-      toast.success(res.created > 0 ? `Стандартният график е върнат (${res.created} часа)` : 'Стандартният график е върнат');
+      toast.success(res.created > 0 ? 'Стандартният график е върнат' : 'Стандартният график е върнат');
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -133,7 +120,7 @@ export function SlotsClient({
     setSlots((prev) => prev.filter((x) => x.id !== s.id)); // optimistic
     try {
       await deleteSlot(s.id);
-      toast.success('Часът е изтрит');
+      toast.success('Денят е изтрит');
     } catch (e) {
       setSlots((prev) => [...prev, s]); // rollback
       toast.error(errMsg(e));
@@ -173,8 +160,8 @@ export function SlotsClient({
       </div>
 
       <InfoNote tone="green">
-        Това са часовете за <b>личната ти доставка</b> — ти доставяш сам, без куриер. Клиентът избира
-        свободен час при поръчка. За доставка с куриер виж „Цени и правила за доставка → Еконт“.
+        Това са дните за <b>личната ти доставка</b> — ти доставяш сам, без куриер. Клиентът избира
+        свободен ден при поръчка. За доставка с куриер виж „Цени и правила за доставка → Еконт“.
       </InfoNote>
 
       <div className="mt-4">
@@ -183,7 +170,7 @@ export function SlotsClient({
 
       {!delivery && (
         <div className="mb-4 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3 text-[13.5px] font-semibold text-ff-amber-600">
-          Доставката е изключена — часовете не се показват в онлайн магазина. Включи
+          Доставката е изключена — дните не се показват в онлайн магазина. Включи
           „Лична доставка + часове“ от{' '}
           <Link href="/settings?config=setup" className="underline">
             „Методи и цени“
@@ -201,6 +188,7 @@ export function SlotsClient({
         {days.map((d) => {
           const isToday = d === today;
           const isClosed = closedDates.has(d);
+          const daySlots = byDay(d);
           return (
             <div
               key={d}
@@ -221,10 +209,10 @@ export function SlotsClient({
               <div className="flex min-h-[90px] flex-col gap-[7px] p-[9px]">
                 {isClosed && (
                   <div className="rounded-[10px] bg-ff-amber-softer px-2 py-1.5 text-center text-[11px] font-extrabold text-ff-amber-600">
-                    {byDay(d).length ? 'Променен график' : 'Няма доставка'}
+                    {daySlots.length ? 'Променен график' : 'Няма доставка'}
                   </div>
                 )}
-                {byDay(d).map((s) => (
+                {daySlots.map((s) => (
                   <SlotPill
                     key={s.id}
                     slot={s}
@@ -233,14 +221,16 @@ export function SlotsClient({
                     onEdit={() => setEditSlot(s)}
                   />
                 ))}
-                <button
-                  onClick={() => setAddDate(d)}
-                  className="mt-0.5 flex items-center justify-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed border-ff-border px-2 py-2 text-xs font-bold text-ff-muted transition-colors hover:border-ff-green-500 hover:bg-ff-green-50 hover:text-ff-green-700"
-                >
-                  <Plus size={15} /> Час
-                </button>
+                {daySlots.length === 0 && (
+                  <button
+                    onClick={() => setAddDate(d)}
+                    className="mt-0.5 flex items-center justify-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed border-ff-border px-2 py-2 text-xs font-bold text-ff-muted transition-colors hover:border-ff-green-500 hover:bg-ff-green-50 hover:text-ff-green-700"
+                  >
+                    <Plus size={15} /> Отвори ден
+                  </button>
+                )}
                 {/* Per-day override dialog: "няма да доставям на 15.06" or
-                    "този ден работя в други часове". */}
+                    "този ден поемам различен брой поръчки". */}
                 <button
                   onClick={() => setDayDialog(d)}
                   disabled={busyDay === d}
@@ -269,11 +259,10 @@ export function SlotsClient({
           date={dayDialog}
           closed={closedDates.has(dayDialog)}
           daySlots={byDay(dayDialog)}
-          slotMinutes={initialRule?.slotMinutes ?? 0}
           onClose={() => setDayDialog(null)}
-          onApply={(working, win) => {
+          onApply={(working, capacity) => {
             setDayDialog(null);
-            void applyDay(dayDialog, working, win);
+            void applyDay(dayDialog, working, capacity);
           }}
           onReset={() => {
             setDayDialog(null);
@@ -310,16 +299,15 @@ const dlgField =
 const dlgLabel = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
 /**
- * Per-date schedule override: "доставям ли на 15.06, и ако да — от колко до
- * колко". Applying clears the date's unbooked slots and (when working) creates
- * the custom window's slots, split by the rule's delivery duration. "Върни
- * стандартния график" drops the override and lets the rule refill the date.
+ * Per-date override: "доставям ли на 15.06, и ако да — колко поръчки поемам".
+ * Applying clears the date's row and (when working) reopens it with the given
+ * capacity. "Върни стандартния график" drops the override and lets the rule
+ * refill the date.
  */
 function DayScheduleDialog({
   date,
   closed,
   daySlots,
-  slotMinutes,
   onClose,
   onApply,
   onReset,
@@ -327,32 +315,20 @@ function DayScheduleDialog({
   date: string;
   closed: boolean;
   daySlots: Slot[];
-  slotMinutes: number;
   onClose: () => void;
-  onApply: (working: boolean, win: { timeFrom: string; timeTo: string }) => void;
+  onApply: (working: boolean, capacity: number) => void;
   onReset: () => void;
 }) {
-  // Seed from the day's current slots so "different hours" starts from reality.
+  // Seed from the day's current row so "different capacity" starts from reality.
   const first = daySlots[0];
-  const last = daySlots[daySlots.length - 1];
   const [working, setWorking] = useState(closed ? daySlots.length > 0 : true);
-  const [from, setFrom] = useState(first ? hhmm(first.timeFrom) : '10:00');
-  const [to, setTo] = useState(last ? hhmm(last.timeTo) : '12:00');
+  const [capacity, setCapacity] = useState(first?.capacity ?? 1);
   const [err, setErr] = useState('');
-
-  const chunks =
-    working && /^\d{2}:\d{2}$/.test(from) && /^\d{2}:\d{2}$/.test(to) && to > from
-      ? splitWindowChunks({ timeFrom: from, timeTo: to }, slotMinutes)
-      : [];
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr('');
-    if (working) {
-      if (!/^\d{2}:\d{2}$/.test(from) || !/^\d{2}:\d{2}$/.test(to)) return setErr('Часът трябва да е ЧЧ:ММ');
-      if (to <= from) return setErr('Краят трябва да е след началото');
-    }
-    onApply(working, { timeFrom: from, timeTo: to });
+    onApply(working, capacity);
   }
 
   return (
@@ -387,30 +363,22 @@ function DayScheduleDialog({
           </label>
 
           {working && (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <label className={dlgLabel}>
-                  Начало
-                  <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} className={dlgField} />
-                </label>
-                <label className={dlgLabel}>
-                  Край
-                  <input type="time" value={to} onChange={(e) => setTo(e.target.value)} className={dlgField} />
-                </label>
-              </div>
-              {chunks.length > 0 && (
-                <p className="text-[12.5px] leading-relaxed text-ff-muted">
-                  {slotMinutes > 0
-                    ? `${chunks.length} ${chunks.length === 1 ? 'час' : 'часа'} по ${slotMinutes} мин: ${chunks.slice(0, 6).map((c) => `${c.timeFrom}–${c.timeTo}`).join(' · ')}${chunks.length > 6 ? ' …' : ''} — по 1 поръчка на час.`
-                    : `Един час: ${from}–${to} — 1 поръчка.`}
-                </p>
-              )}
-            </>
+            <label className={dlgLabel}>
+              Поръчки за деня
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={capacity}
+                onChange={(e) => setCapacity(Math.min(500, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                className={dlgField}
+              />
+            </label>
           )}
 
           <p className="text-[12px] leading-snug text-ff-muted">
-            Свободните часове за датата се подменят; часове с поръчки остават. Повтарящото се правило спира
-            да създава часове за тази дата, докато не върнеш стандартния график.
+            Денят се презаписва с новия капацитет (ако вече има поръчки, редът остава). Повтарящото се
+            правило спира да отваря тази дата, докато не върнеш стандартния график.
           </p>
 
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}

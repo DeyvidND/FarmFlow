@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api-client';
-import { bgWeekdayShort, ddmm, hhmm } from '@/lib/utils';
+import { bgWeekdayShort, ddmm } from '@/lib/utils';
 import type { Slot } from '@/lib/types';
 
 const field =
@@ -13,8 +13,6 @@ const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
 export type SlotInput = {
   date: string;
-  timeFrom: string;
-  timeTo: string;
   capacity: number;
   customerNote?: string;
   driverNote?: string;
@@ -32,8 +30,6 @@ export function AddSlotDialog({
   onSubmit: (d: SlotInput, editingId: string | null) => Promise<void>;
 }) {
   const editing = !!slot;
-  const [from, setFrom] = useState(slot ? hhmm(slot.timeFrom) : '09:00');
-  const [to, setTo] = useState(slot ? hhmm(slot.timeTo) : '10:00');
   const [capacity, setCapacity] = useState(slot?.capacity ?? 1);
   const [cNote, setCNote] = useState(slot?.customerNote ?? '');
   const [dNote, setDNote] = useState(slot?.driverNote ?? '');
@@ -46,15 +42,11 @@ export function AddSlotDialog({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr('');
-    if (!/^\d{2}:\d{2}$/.test(from) || !/^\d{2}:\d{2}$/.test(to)) return setErr('Часът трябва да е ЧЧ:ММ');
-    if (to <= from) return setErr('Краят трябва да е след началото');
     setLoading(true);
     try {
       await onSubmit(
         {
           date: theDate as string,
-          timeFrom: from,
-          timeTo: to,
           capacity,
           customerNote: cNote.trim() || undefined,
           driverNote: dNote.trim() || undefined,
@@ -76,7 +68,7 @@ export function AddSlotDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-[18px] font-extrabold">{editing ? 'Редактирай час' : 'Нов час'}</h2>
+          <h2 className="text-[18px] font-extrabold">{editing ? 'Редактирай деня' : 'Отвори ден'}</h2>
           <button
             onClick={onClose}
             aria-label="Затвори"
@@ -90,24 +82,14 @@ export function AddSlotDialog({
         </p>
 
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <label className={labelCls}>
-              Начало
-              <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} className={field} />
-            </label>
-            <label className={labelCls}>
-              Край
-              <input type="time" value={to} onChange={(e) => setTo(e.target.value)} className={field} />
-            </label>
-          </div>
           <label className={labelCls}>
-            Поръчки на слот <span className="font-normal text-ff-muted">(колко доставки поемаш едновременно · напр. 2 човека = 2)</span>
+            Поръчки за деня <span className="font-normal text-ff-muted">(колко доставки поемаш този ден)</span>
             <input
               type="number"
               min={1}
-              max={20}
+              max={500}
               value={capacity}
-              onChange={(e) => setCapacity(Math.min(20, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+              onChange={(e) => setCapacity(Math.min(500, Math.max(1, parseInt(e.target.value, 10) || 1)))}
               className={field}
             />
           </label>

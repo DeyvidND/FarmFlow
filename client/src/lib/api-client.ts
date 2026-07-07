@@ -19,7 +19,7 @@ import type {
   ProductVariant,
   ProductionSummary,
   ReviewStatus,
-  RouteResult,
+  MultiRouteResult,
   Shipment,
   Slot,
   SlotRule,
@@ -496,17 +496,19 @@ export const listSlots = (from: string, to: string) =>
 
 export const createSlot = (data: {
   date: string;
-  timeFrom: string;
-  timeTo: string;
+  /** Bulk-create end date — used together with `weekdays` to open a range. */
+  dateTo?: string;
+  /** Weekdays to open within [date, dateTo] (0=Sun..6=Sat). */
+  weekdays?: number[];
   capacity?: number;
   customerNote?: string;
   driverNote?: string;
-}) => apiFetch<Slot>('slots', { method: 'POST', ...json(data) }, 'Неуспешно създаване на час за доставка');
+}) => apiFetch<Slot>('slots', { method: 'POST', ...json(data) }, 'Неуспешно отваряне на ден за доставка');
 
 export const updateSlot = (
   id: string,
-  data: { timeFrom?: string; timeTo?: string; capacity?: number; customerNote?: string; driverNote?: string },
-) => apiFetch<Slot>(`slots/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешна промяна на час за доставка');
+  data: { capacity?: number; customerNote?: string; driverNote?: string },
+) => apiFetch<Slot>(`slots/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешна промяна на деня за доставка');
 
 export const deleteSlot = (id: string) =>
   apiFetch<{ id: string }>(`slots/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
@@ -566,8 +568,14 @@ export const confirmPendingOrders = (date?: string) =>
 export const getProduction = (date?: string) =>
   apiFetch<ProductionSummary>(`orders/production${date ? `?date=${date}` : ''}`);
 
-export const getRoute = (date?: string) =>
-  apiFetch<RouteResult>(`orders/route${date ? `?date=${date}` : ''}`);
+export const getRoute = (opts?: { date?: string; end?: string; couriers?: number }) => {
+  const p = new URLSearchParams();
+  if (opts?.date) p.set('date', opts.date);
+  if (opts?.end) p.set('end', opts.end);
+  if (opts?.couriers) p.set('couriers', String(opts.couriers));
+  const q = p.toString();
+  return apiFetch<MultiRouteResult>(`orders/route${q ? `?${q}` : ''}`);
+};
 
 export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);

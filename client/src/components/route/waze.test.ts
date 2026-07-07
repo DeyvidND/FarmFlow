@@ -4,7 +4,7 @@ import type { RouteStop, RouteEnd } from '@/lib/types';
 
 const stop = (over: Partial<RouteStop>): RouteStop => ({
   id: 'x', customer: null, phone: null, email: null, address: null,
-  note: null, lat: null, lng: null, summary: '', slotFrom: null, slotTo: null,
+  note: null, lat: null, lng: null, summary: '',
   ...over,
 });
 

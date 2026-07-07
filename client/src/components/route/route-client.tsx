@@ -9,8 +9,6 @@ import {
   CheckCircle2,
   Home,
   Flag,
-  Clock,
-  Route as RouteIcon,
   HelpCircle,
   Settings,
   AlertTriangle,
@@ -18,7 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateOrderStatus } from '@/lib/api-client';
-import type { RouteResult, RouteStop, RouteEndMode, RouteOrderMode } from '@/lib/types';
+import type { MultiRouteResult, RouteStop, RouteEndMode } from '@/lib/types';
 import { StopList } from './stop-list';
 import { EditAddressModal } from './edit-address-modal';
 import { RouteMap } from './route-map';
@@ -28,21 +26,6 @@ import { buildWazeTargets, wazeUrl } from './waze';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const cn = (...c: (string | false)[]) => c.filter(Boolean).join(' ');
-
-const ORDER_OPTIONS: { mode: RouteOrderMode; label: string; Icon: typeof Home; hint: string }[] = [
-  {
-    mode: 'slots',
-    label: 'По час',
-    Icon: Clock,
-    hint: 'Подрежда доставките по запазения час — първо 11:00, после 12:00, после 13:00.',
-  },
-  {
-    mode: 'distance',
-    label: 'Най-кратък път',
-    Icon: RouteIcon,
-    hint: 'Подрежда доставките така, че да изминеш най-малко километри (без оглед на часовете).',
-  },
-];
 
 const END_OPTIONS: { mode: RouteEndMode; label: string; Icon: typeof Home; hint: string }[] = [
   { mode: 'home', label: 'Към дома', Icon: Home, hint: 'След последната доставка се връщаш до базата.' },
@@ -121,7 +104,7 @@ export function RouteClient({
   mapsKey,
   placesKey,
 }: {
-  route: RouteResult;
+  route: MultiRouteResult;
   dateLabel: string;
   /** The route fetch failed (server error / API down) — show an error banner
    *  instead of letting the empty list read as "no deliveries today". */
@@ -132,7 +115,12 @@ export function RouteClient({
   placesKey?: string;
 }) {
   const router = useRouter();
-  const { stops, origin, end, orderMode, polyline } = route;
+  const { origin, end, routes } = route;
+  // Single-courier view for now — the courier selector + per-courier tabs
+  // (multi-courier UI) land in a follow-up; this always shows the first leg,
+  // which is the only leg when `couriers=1` (today's default).
+  const active = routes[0] ?? { stops: [], totalDistanceM: null, totalDurationS: null, optimized: false, polyline: null };
+  const { stops, polyline } = active;
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
   const [showHelp, setShowHelp] = useState(false);
   const [showLoc, setShowLoc] = useState(false);
@@ -174,8 +162,8 @@ export function RouteClient({
     }
   }, [wazeIdx, route.date]);
 
-  const dist = fmtDist(route.totalDistanceM);
-  const dur = fmtDur(route.totalDurationS);
+  const dist = fmtDist(active.totalDistanceM);
+  const dur = fmtDur(active.totalDurationS);
   const summary = `${stops.length} ${stops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`;
 
   // Where the route ends, for the Google Maps deep link (null = end at last stop).
@@ -185,16 +173,11 @@ export function RouteClient({
       : null;
 
   // Navigate keeping the other options; override only what changed.
-  const go = (over: { end?: RouteEndMode; order?: RouteOrderMode }) =>
-    router.push(
-      `/route?date=${route.date}&end=${over.end ?? end.mode}&order=${over.order ?? orderMode}`,
-    );
+  const go = (over: { end?: RouteEndMode }) =>
+    router.push(`/route?date=${route.date}&end=${over.end ?? end.mode}`);
   const setEnd = (mode: RouteEndMode) => go({ end: mode });
-  const setOrder = (mode: RouteOrderMode) => go({ order: mode });
-  const setDate = (date: string) =>
-    router.push(`/route?date=${date}&end=${end.mode}&order=${orderMode}`);
+  const setDate = (date: string) => router.push(`/route?date=${date}&end=${end.mode}`);
 
-  const orderHint = ORDER_OPTIONS.find((o) => o.mode === orderMode)?.hint ?? '';
   const endHint = END_OPTIONS.find((o) => o.mode === end.mode)?.hint ?? '';
 
   const openRoute = () => {
@@ -314,28 +297,10 @@ export function RouteClient({
         </div>
       )}
 
-      {/* summary + ordering + end-mode + date + help */}
+      {/* summary + end-mode + date + help */}
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[14px] text-ff-muted">{summary}</p>
         <div className="flex flex-wrap items-center gap-2">
-          {/* how stops are ordered: by time slot vs shortest distance */}
-          <div className="flex items-center gap-1 rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
-            {ORDER_OPTIONS.map(({ mode, label, Icon }) => (
-              <button
-                key={mode}
-                onClick={() => setOrder(mode)}
-                title={label}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12.5px] font-bold transition',
-                  orderMode === mode
-                    ? 'bg-ff-green-100 text-ff-green-800'
-                    : 'text-ff-ink-2 hover:bg-ff-surface-2',
-                )}
-              >
-                <Icon size={14} /> {label}
-              </button>
-            ))}
-          </div>
           {/* where the van goes after the last delivery */}
           <div className="flex items-center gap-1 rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
             {END_OPTIONS.map(({ mode, label, Icon }) => (
@@ -414,10 +379,8 @@ export function RouteClient({
         />
       )}
 
-      {/* plain-language hint for the active choices */}
-      <p className="mb-3 text-[12.5px] text-ff-muted">
-        {orderHint} {endHint}
-      </p>
+      {/* plain-language hint for the active choice */}
+      <p className="mb-3 text-[12.5px] text-ff-muted">{endHint}</p>
 
       {/* long route: open each remaining leg one-by-one (avoids popup blocking) */}
       {extraLegs.length > 0 && (
@@ -484,12 +447,8 @@ export function RouteClient({
               подразбиране. Запазва се и важи за всички следващи дни.
             </li>
             <li>
-              <b>По час</b> — реди доставките по час: първо 11:00, после 12:00, после 13:00.
-              Удобно, когато си обещал часове на клиентите.
-            </li>
-            <li>
-              <b>Най-кратък път</b> — реди ги така, че да изминеш най-малко километри (без оглед на часа).
-              Удобно, когато искаш да спестиш гориво и време.
+              Маршрутът реди доставките автоматично, за да изминеш най-малко километри — без нужда да
+              задаваш нещо.
             </li>
             <li>
               <b>Към дома / Край при клиента / По избор</b> — къде свършваш след последната доставка: при

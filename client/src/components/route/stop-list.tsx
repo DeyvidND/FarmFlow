@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, Copy, Mail, MapPin, MapPinned, Navigation, Phone } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn, hhmm } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import type { RouteStop } from '@/lib/types';
 
 interface StopListProps {
@@ -92,7 +92,6 @@ export function StopList({
     <div className="flex-1 overflow-y-auto">
       {stops.map((s, i) => {
         const on = activeId === s.id;
-        const slot = s.slotFrom && s.slotTo ? `${hhmm(s.slotFrom)} – ${hhmm(s.slotTo)}` : null;
         const located = isLocated(s);
         return (
           <div
@@ -221,15 +220,7 @@ export function StopList({
                 )}
               </div>
 
-              <div className="mt-1.5 text-[12.5px] text-ff-muted">
-                {s.summary}
-                {slot && (
-                  <>
-                    {' · '}
-                    <span className="font-semibold">{slot}</span>
-                  </>
-                )}
-              </div>
+              <div className="mt-1.5 text-[12.5px] text-ff-muted">{s.summary}</div>
             </div>
           </div>
         );

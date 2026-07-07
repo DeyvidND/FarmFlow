@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { ApiError, saveSlotRule } from '@/lib/api-client';
-import { splitWindowChunks, toMin } from '@/lib/slot-chunks';
 import type { SlotRule, SlotRuleInput, SlotDay, SlotWindow } from '@/lib/types';
 
 const field =
@@ -29,7 +28,8 @@ export const WD = [
 ];
 const DOW_LABEL: Record<number, string> = Object.fromEntries(WD.map((d) => [d.i, d.l]));
 
-// 24h options, 30-min steps, 05:00–22:00 — no AM/PM, no free typing.
+// 24h options, 30-min steps, 05:00–22:00 — no AM/PM, no free typing. Only used
+// by WindowFields below (the slot rule itself is day-based now, no hours).
 const TIMES = (() => {
   const out: string[] = [];
   for (let m = 5 * 60; m <= 22 * 60; m += 30) {
@@ -47,32 +47,14 @@ function todayIso() {
   }).format(new Date());
 }
 
-const DEFAULT_WIN: SlotWindow = { timeFrom: '10:00', timeTo: '12:00' };
-
-// How long one delivery takes. 0 = the whole window is a single slot.
-const SLOT_LEN = [
-  { v: 0, l: 'Без разделяне — целият прозорец е един час' },
-  { v: 30, l: '30 минути' },
-  { v: 45, l: '45 минути' },
-  { v: 60, l: '1 час' },
-  { v: 90, l: '1 час и 30 мин' },
-  { v: 120, l: '2 часа' },
-  { v: 180, l: '3 часа' },
-];
-
-/** Two same windows? Used to decide whether "same hours for all" starts on. */
-const sameWin = (a: SlotWindow, b: SlotWindow) =>
-  a.timeFrom === b.timeFrom && a.timeTo === b.timeTo;
-
 /** Sorted unique options that always include `v` — so an off-grid legacy time
  *  (e.g. 09:45 from the old free time input) still shows instead of a blank select. */
 const withValue = (opts: string[], v: string) =>
   opts.includes(v) ? opts : [...opts, v].sort();
 
-/** Start/end (24h selects, end always after start). Each slot holds one order — no
- *  capacity (slot-rule framing; also reused by the pickup method's fixed-schedule
- *  picker in methods-section.tsx, where there's no slot/capacity concept at all —
- *  only the time-select UI applies there). */
+/** Start/end (24h selects, end always after start). NOT used by the slot rule
+ *  anymore (day-based, no hours) — kept only because the pickup method's fixed-
+ *  schedule picker in methods-section.tsx reuses it for its own hours field. */
 export function WindowFields({
   win,
   onChange,
@@ -117,51 +99,47 @@ interface State {
   active: boolean;
   repeat: 'weekdays' | 'interval';
   days: SlotDay[];
-  sameHours: boolean;
-  shared: SlotWindow; // the window applied to all days when sameHours is on
+  sameCapacity: boolean;
+  sharedCapacity: number; // the capacity applied to all days when sameCapacity is on
   intervalDays: number;
-  intervalWindow: SlotWindow;
+  intervalCapacity: number;
   anchorDate: string;
-  slotMinutes: number;
-  defaultCapacity: number;
   customerNote: string;
   driverNote: string;
   horizonDays: number;
   skipDates: string[];
 }
 
+const clampCap = (n: number) => Math.min(500, Math.max(1, n || 1));
+
 function initialState(initial: SlotRule | null): State {
   if (!initial) {
     return {
       active: false,
       repeat: 'weekdays',
-      days: [1, 3, 5].map((dow) => ({ dow, ...DEFAULT_WIN })),
-      sameHours: true,
-      shared: { ...DEFAULT_WIN },
+      days: [1, 3, 5].map((dow) => ({ dow, capacity: 1 })),
+      sameCapacity: true,
+      sharedCapacity: 1,
       intervalDays: 3,
-      intervalWindow: { ...DEFAULT_WIN },
+      intervalCapacity: 1,
       anchorDate: todayIso(),
-      slotMinutes: 0,
-      defaultCapacity: 1,
       customerNote: '',
       driverNote: '',
       horizonDays: 28,
       skipDates: [],
     };
   }
-  const days = initial.days?.length ? initial.days : [{ dow: 1, ...DEFAULT_WIN }];
-  const shared: SlotWindow = { timeFrom: days[0].timeFrom, timeTo: days[0].timeTo };
+  const days = initial.days?.length ? initial.days : [{ dow: 1, capacity: 1 }];
+  const sharedCapacity = days[0].capacity;
   return {
     active: initial.active,
     repeat: initial.repeat,
     days,
-    sameHours: days.every((d) => sameWin(d, shared)),
-    shared,
+    sameCapacity: days.every((d) => d.capacity === sharedCapacity),
+    sharedCapacity,
     intervalDays: initial.intervalDays,
-    intervalWindow: initial.intervalWindow ?? { ...DEFAULT_WIN },
+    intervalCapacity: initial.intervalCapacity ?? 1,
     anchorDate: initial.anchorDate,
-    slotMinutes: initial.slotMinutes ?? 0,
-    defaultCapacity: initial.defaultCapacity ?? 1,
     customerNote: initial.customerNote ?? '',
     driverNote: initial.driverNote ?? '',
     horizonDays: initial.horizonDays,
@@ -185,10 +163,10 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
   const [saving, setSaving] = useState(false);
   const set = (p: Partial<State>) => setS((prev) => ({ ...prev, ...p }));
 
-  // The everyday form is just days + hours. Slot length, start date and notes are
+  // The everyday form is just days + capacity. Start date and notes are
   // optional — fold them away, but auto-open if an existing rule already uses them.
   const [showAdvanced, setShowAdvanced] = useState(
-    () => !!initial && ((initial.slotMinutes ?? 0) !== 0 || !!initial.customerNote || !!initial.driverNote),
+    () => !!initial && (!!initial.customerNote || !!initial.driverNote),
   );
 
   const pickedDows = useMemo(() => new Set(s.days.map((d) => d.dow)), [s.days]);
@@ -197,22 +175,22 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
     if (pickedDows.has(dow)) {
       set({ days: s.days.filter((d) => d.dow !== dow) });
     } else {
-      // New day inherits the shared window so the common case stays one decision.
-      set({ days: [...s.days, { dow, ...s.shared }] });
+      // New day inherits the shared capacity so the common case stays one decision.
+      set({ days: [...s.days, { dow, capacity: s.sharedCapacity }] });
     }
   };
 
-  const setSameHours = (on: boolean) => {
+  const setSameCapacity = (on: boolean) => {
     if (on) {
-      set({ sameHours: true });
+      set({ sameCapacity: true });
     } else {
-      // Seed each day from the shared window, then let them diverge.
-      set({ sameHours: false, days: s.days.map((d) => ({ dow: d.dow, ...s.shared })) });
+      // Seed each day from the shared capacity, then let them diverge.
+      set({ sameCapacity: false, days: s.days.map((d) => ({ dow: d.dow, capacity: s.sharedCapacity })) });
     }
   };
 
-  const setDayWindow = (dow: number, win: SlotWindow) =>
-    set({ days: s.days.map((d) => (d.dow === dow ? { dow, ...win } : d)) });
+  const setDayCapacity = (dow: number, capacity: number) =>
+    set({ days: s.days.map((d) => (d.dow === dow ? { dow, capacity } : d)) });
 
   // Days in week order (Mon-first), for the per-day rows.
   const orderedDays = WD.map((w) => s.days.find((d) => d.dow === w.i)).filter(Boolean) as SlotDay[];
@@ -220,31 +198,22 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
   async function save() {
     setSaving(true);
     try {
-      // Strip any field other than the window's hours. Legacy rules stored a
-      // per-window `maxOrders` (capacity, since removed); it survives in state
-      // (loaded raw from the saved rule, spread through edits) and the server's
-      // strict DTO rejects it ("intervalWindow.property maxOrders should not
-      // exist"). Send only timeFrom/timeTo. The first clean save lets the server
-      // rewrite the stored rule without the stale field, so this self-heals.
-      const cleanWin = (w: SlotWindow): SlotWindow => ({ timeFrom: w.timeFrom, timeTo: w.timeTo });
-      const days = (s.sameHours ? [...pickedDows].map((dow) => ({ dow, ...s.shared })) : s.days).map(
-        (d) => ({ dow: d.dow, ...cleanWin(d) }),
+      const days = (s.sameCapacity ? [...pickedDows].map((dow) => ({ dow, capacity: s.sharedCapacity })) : s.days).map(
+        (d) => ({ dow: d.dow, capacity: clampCap(d.capacity) }),
       );
       const rule: SlotRuleInput = {
         active: s.active,
         repeat: s.repeat,
         days,
         intervalDays: s.intervalDays,
-        intervalWindow: cleanWin(s.intervalWindow),
+        intervalCapacity: clampCap(s.intervalCapacity),
         anchorDate: s.anchorDate,
-        slotMinutes: s.slotMinutes,
-        defaultCapacity: s.defaultCapacity,
         customerNote: s.customerNote || undefined,
         driverNote: s.driverNote || undefined,
         horizonDays: s.horizonDays,
       };
       await saveSlotRule(rule);
-      toast.success(s.active ? 'Правилото е запазено — часовете се попълват' : 'Правилото е изключено');
+      toast.success(s.active ? 'Правилото е запазено — дните се отварят напред' : 'Правилото е изключено');
       onSaved();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
@@ -261,9 +230,10 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
             <Repeat size={18} />
           </span>
           <div>
-            <div className="text-[15px] font-extrabold text-ff-ink">Повтарящи се часове</div>
+            <div className="text-[15px] font-extrabold text-ff-ink">Повтарящи се дни за доставка</div>
             <div className="text-[12.5px] text-ff-muted">
-              Задай веднъж — часовете се появяват напред автоматично.
+              Задай веднъж — дните се отварят напред автоматично. Клиентът избира ден, а не час; ти решаваш
+              колко поръчки поемаш на ден.
             </div>
           </div>
         </div>
@@ -272,9 +242,9 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
 
       {/* Configurability is the whole point — say it plainly. */}
       <p className="mb-3 rounded-lg border border-ff-green-100 bg-ff-green-50/60 px-3 py-2 text-[12.5px] leading-relaxed text-ff-ink-2">
-        Нагласи го според <b>реалната си наличност</b>: избери само дните, в които доставяш, и дай на всеки ден
-        собствени часове. Всеки час е за 1 поръчка. Не можеш в някой ден? Просто не го избирай. Клиентите в
-        магазина виждат точно тези часове — само свободните.
+        Нагласи го според <b>реалната си наличност</b>: избери само дните, в които доставяш, и реши колко
+        поръчки поемаш всеки от тях. Не можеш в някой ден? Просто не го избирай. Клиентите в магазина
+        виждат само отворените дни — само тях могат да изберат.
       </p>
 
       <div className={cn('flex flex-col gap-3', !s.active && 'pointer-events-none opacity-50')}>
@@ -321,23 +291,42 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
 
             <label className="flex items-center justify-between gap-3 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2">
               <span className="flex flex-col">
-                <span className="text-[13px] font-bold text-ff-ink">Еднакви часове за всички дни</span>
+                <span className="text-[13px] font-bold text-ff-ink">Еднакъв капацитет за всички дни</span>
                 <span className="text-[12px] text-ff-muted">
-                  Изключи, за да зададеш различни часове за всеки ден.
+                  Изключи, за да зададеш различен капацитет за всеки ден.
                 </span>
               </span>
-              <ToggleSwitch checked={s.sameHours} onChange={setSameHours} />
+              <ToggleSwitch checked={s.sameCapacity} onChange={setSameCapacity} />
             </label>
 
-            {s.sameHours ? (
-              <WindowFields win={s.shared} onChange={(w) => set({ shared: w })} />
+            {s.sameCapacity ? (
+              <label className={cn(lbl, 'max-w-[14rem]')}>
+                Колко поръчки на ден
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={s.sharedCapacity}
+                  onChange={(e) => set({ sharedCapacity: clampCap(parseInt(e.target.value, 10)) })}
+                  className={field}
+                />
+              </label>
             ) : orderedDays.length ? (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2">
                 {orderedDays.map((d) => (
-                  <div key={d.dow} className="rounded-lg border border-ff-border-2 bg-ff-surface-2/40 p-3">
-                    <div className="mb-2 text-[13px] font-extrabold text-ff-green-800">{DOW_LABEL[d.dow]}</div>
-                    <WindowFields win={d} onChange={(w) => setDayWindow(d.dow, w)} />
-                  </div>
+                  <label key={d.dow} className="flex items-center justify-between gap-3">
+                    <span className="text-[13px] font-extrabold text-ff-green-800">
+                      {DOW_LABEL[d.dow]} — колко доставки?
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={d.capacity}
+                      onChange={(e) => setDayCapacity(d.dow, clampCap(parseInt(e.target.value, 10)))}
+                      className={cn(field, 'w-24')}
+                    />
+                  </label>
                 ))}
               </div>
             ) : (
@@ -355,7 +344,17 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
                 className={field}
               />
             </label>
-            <WindowFields win={s.intervalWindow} onChange={(w) => set({ intervalWindow: w })} />
+            <label className={cn(lbl, 'max-w-[14rem]')}>
+              Колко поръчки на ден
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={s.intervalCapacity}
+                onChange={(e) => set({ intervalCapacity: clampCap(parseInt(e.target.value, 10)) })}
+                className={field}
+              />
+            </label>
           </>
         )}
 
@@ -370,83 +369,36 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
 
         {showAdvanced && (
           <>
-        {(() => {
-          // Live preview of what the chosen slot length produces, so the farmer
-          // sees the result before saving. Per-day hours → generic hint instead.
-          const perDay = s.repeat === 'weekdays' && !s.sameHours;
-          const win = s.repeat === 'interval' ? s.intervalWindow : s.shared;
-          const fits = toMin(win.timeTo) - toMin(win.timeFrom) >= s.slotMinutes;
-          const parts = splitWindowChunks(win, s.slotMinutes).map((c) => `${c.timeFrom}–${c.timeTo}`);
-          const preview = perDay
-            ? 'Прозорецът на всеки ден се разделя според собствените му часове — по 1 поръчка на час.'
-            : s.slotMinutes === 0
-              ? `Един час на ден: ${win.timeFrom}–${win.timeTo} — 1 поръчка.`
-              : !fits
-                ? `Прозорецът е по-къс от времетраенето — остава един час ${parts[0]} (1 поръчка).`
-                : `${parts.length} ${parts.length === 1 ? 'час' : 'часа'} на ден: ${parts.slice(0, 6).join(' · ')}${parts.length > 6 ? ' …' : ''} — по 1 поръчка на час.`;
-          return (
-            <div className="flex flex-col gap-1.5">
-              <label className={lbl}>
-                Колко трае една доставка <span className="font-normal text-ff-muted">(по избор)</span>
-                <select
-                  value={String(s.slotMinutes)}
-                  onChange={(e) => set({ slotMinutes: parseInt(e.target.value, 10) || 0 })}
-                  className={field}
-                >
-                  {SLOT_LEN.map((o) => (
-                    <option key={o.v} value={o.v}>
-                      {o.l}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="text-[12.5px] leading-relaxed text-ff-muted">{preview}</p>
-            </div>
-          );
-        })()}
+            <label className={cn(lbl, 'max-w-[14rem]')}>
+              Започва от <span className="font-normal text-ff-muted">(по избор · по подразбиране днес)</span>
+              <input
+                type="date"
+                value={s.anchorDate}
+                onChange={(e) => set({ anchorDate: e.target.value })}
+                className={field}
+              />
+            </label>
 
-        <label className={cn(lbl, 'max-w-[14rem]')}>
-          Поръчки на слот <span className="font-normal text-ff-muted">(колко доставки поемаш едновременно · напр. 2 човека = 2)</span>
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={s.defaultCapacity}
-            onChange={(e) => set({ defaultCapacity: Math.min(20, Math.max(1, parseInt(e.target.value, 10) || 1)) })}
-            className={field}
-          />
-        </label>
-
-        <label className={cn(lbl, 'max-w-[14rem]')}>
-          Започва от <span className="font-normal text-ff-muted">(по избор · по подразбиране днес)</span>
-          <input
-            type="date"
-            value={s.anchorDate}
-            onChange={(e) => set({ anchorDate: e.target.value })}
-            className={field}
-          />
-        </label>
-
-        <label className={lbl}>
-          Бележка за клиента <span className="font-normal text-ff-muted">(по избор · в магазина)</span>
-          <input
-            value={s.customerNote}
-            onChange={(e) => set({ customerNote: e.target.value })}
-            maxLength={280}
-            placeholder="напр. Ще се обадя преди доставка"
-            className={field}
-          />
-        </label>
-        <label className={lbl}>
-          Бележка за доставчика <span className="font-normal text-ff-muted">(по избор · само за теб)</span>
-          <input
-            value={s.driverNote}
-            onChange={(e) => set({ driverNote: e.target.value })}
-            maxLength={500}
-            placeholder="напр. маршрут + телефон"
-            className={field}
-          />
-        </label>
+            <label className={lbl}>
+              Бележка за клиента <span className="font-normal text-ff-muted">(по избор · в магазина)</span>
+              <input
+                value={s.customerNote}
+                onChange={(e) => set({ customerNote: e.target.value })}
+                maxLength={280}
+                placeholder="напр. Ще се обадя преди доставка"
+                className={field}
+              />
+            </label>
+            <label className={lbl}>
+              Бележка за доставчика <span className="font-normal text-ff-muted">(по избор · само за теб)</span>
+              <input
+                value={s.driverNote}
+                onChange={(e) => set({ driverNote: e.target.value })}
+                maxLength={500}
+                placeholder="напр. маршрут + телефон"
+                className={field}
+              />
+            </label>
           </>
         )}
       </div>

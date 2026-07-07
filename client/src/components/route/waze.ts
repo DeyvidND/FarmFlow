@@ -17,8 +17,6 @@ export interface WazeTarget {
   address: string | null;
   lat: number | null;
   lng: number | null;
-  slotFrom: string | null;
-  slotTo: string | null;
 }
 
 /**
@@ -56,8 +54,6 @@ export function buildWazeTargets(
     address: s.address,
     lat: s.lat,
     lng: s.lng,
-    slotFrom: s.slotFrom,
-    slotTo: s.slotTo,
   }));
 
   if (end.mode !== 'last') {
@@ -73,8 +69,6 @@ export function buildWazeTargets(
         address: base.address,
         lat: base.lat,
         lng: base.lng,
-        slotFrom: null,
-        slotTo: null,
       });
     }
   }

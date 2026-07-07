@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Minus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { listSlots, listProducts, listProductVariants } from '@/lib/api-client';
-import { hhmm, relDayLabel, todayIso, moneyFromStotinki } from '@/lib/utils';
+import { ddmm, todayIso, moneyFromStotinki } from '@/lib/utils';
 import type { Order, Slot, UpdateOrderInput, Product, ProductVariant } from '@/lib/types';
 
 /** Local editable draft of an order. Delivery method is fixed; its values
@@ -185,7 +185,7 @@ export function OrderEditForm({
                 <option value="">Без час</option>
                 {slots.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {relDayLabel(s.date)} · {hhmm(s.timeFrom)} – {hhmm(s.timeTo)}
+                    {ddmm(s.date)} · остават {Math.max(0, s.capacity - s.booked)}
                   </option>
                 ))}
               </select>

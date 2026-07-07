@@ -6,14 +6,10 @@ import {
   ChevronLeft,
   ChevronRight,
   MapPin,
-  Clock,
   RotateCcw,
   AlertTriangle,
 } from 'lucide-react';
 import { wazeUrl, type WazeTarget } from './waze';
-
-const fmtSlot = (from: string | null, to: string | null) =>
-  from && to ? `${from}–${to}` : (from ?? to ?? null);
 
 export function WazeStepper({
   targets,
@@ -40,7 +36,6 @@ export function WazeStepper({
   const done = idx >= total;
   const cur = done ? null : targets[idx];
   const url = cur ? wazeUrl(cur) : null;
-  const slot = cur ? fmtSlot(cur.slotFrom, cur.slotTo) : null;
 
   return (
     <div
@@ -107,12 +102,6 @@ export function WazeStepper({
                 <MapPin size={13} className="shrink-0 text-ff-muted" /> {cur!.address}
               </p>
             )}
-            {slot && (
-              <p className="mt-0.5 flex items-center gap-1.5 text-[13px] text-ff-ink-2">
-                <Clock size={13} className="shrink-0 text-ff-muted" /> {slot}
-              </p>
-            )}
-
             <div className="mt-3">
               {url ? (
                 <button

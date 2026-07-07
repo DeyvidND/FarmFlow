@@ -172,7 +172,6 @@ export interface TenantProfile {
 }
 
 export type RouteEndMode = 'home' | 'last' | 'custom';
-export type RouteOrderMode = 'slots' | 'distance';
 
 export interface RoutingConfig {
   endMode?: RouteEndMode;
@@ -429,13 +428,14 @@ export interface Article {
   media: ArticleMedia[];
 }
 
-/** Delivery slot with its live `booked` count (GET /slots). Free while
- *  `booked` is below `capacity`. */
+/** Delivery slot with its live `booked` count (GET /slots). A day-row: `timeFrom`/
+ *  `timeTo` are null (post migration 0081 — slots are days, not time windows).
+ *  Free while `booked` is below `capacity`. */
 export interface Slot {
   id: string;
   date: string; // YYYY-MM-DD
-  timeFrom: string; // HH:MM:SS
-  timeTo: string; // HH:MM:SS
+  timeFrom: string | null; // HH:MM:SS — legacy pre-0081 rows only, else null
+  timeTo: string | null; // HH:MM:SS — legacy pre-0081 rows only, else null
   isActive: boolean;
   booked: number;
   capacity: number;
@@ -444,28 +444,31 @@ export interface Slot {
   generated: boolean;
 }
 
-/** One delivery window (hours only — capacity is tracked separately). */
+/** One delivery window (hours only). Legacy shape — kept only because
+ *  `WindowFields` (recurrence-card.tsx) is reused by the pickup method's fixed
+ *  schedule picker in methods-section.tsx, which still deals in hours. The slot
+ *  rule itself no longer uses this. */
 export interface SlotWindow {
   timeFrom: string; // HH:MM
   timeTo: string; // HH:MM
 }
 
-/** A window bound to a weekday (0=Sun..6=Sat). */
-export interface SlotDay extends SlotWindow {
+/** A weekday (0=Sun..6=Sat) with how many orders it can take. */
+export interface SlotDay {
   dow: number;
+  capacity: number;
 }
 
-/** The single recurring self-delivery rule (settings.slotRule). */
+/** The single recurring self-delivery rule (settings.slotRule). Day-based:
+ *  the customer picks a day, not an hour — capacity caps how many orders that
+ *  day takes. */
 export interface SlotRule {
   active: boolean;
   repeat: 'weekdays' | 'interval';
-  days: SlotDay[]; // weekdays mode — one window per picked weekday
+  days: SlotDay[]; // weekdays mode — one capacity per picked weekday
   intervalDays: number;
-  intervalWindow: SlotWindow; // interval mode — single window
+  intervalCapacity: number; // interval mode — single capacity
   anchorDate: string; // YYYY-MM-DD
-  /** Minutes one delivery takes; >0 splits each window into slots of this length. 0/absent = one slot. */
-  slotMinutes?: number;
-  defaultCapacity?: number;
   customerNote?: string;
   driverNote?: string;
   horizonDays: number;
@@ -485,11 +488,12 @@ export interface OrderItem {
   priceStotinki: number;
 }
 
-/** A slot with its live booked count, as returned in the dashboard summary. */
+/** A slot with its live booked count, as returned in the dashboard summary.
+ *  Day-row: `timeFrom`/`timeTo` are null (see `Slot`). */
 export interface DashboardSlot {
   id: string;
-  timeFrom: string;
-  timeTo: string;
+  timeFrom: string | null;
+  timeTo: string | null;
   booked: number;
   capacity: number;
 }
@@ -580,8 +584,6 @@ export interface RouteStop {
   lat: number | null;
   lng: number | null;
   summary: string;
-  slotFrom: string | null;
-  slotTo: string | null;
 }
 
 /** Delivery route for a date (GET /orders/route?date=). */
@@ -592,14 +594,9 @@ export interface RouteEnd {
   lng: number | null;
 }
 
-export interface RouteResult {
-  date: string; // YYYY-MM-DD
-  origin: { address: string | null; lat: number | null; lng: number | null };
+/** One courier's leg of the day's route. */
+export interface CourierRoute {
   stops: RouteStop[];
-  /** Where the van goes after the last delivery. */
-  end: RouteEnd;
-  /** How stops were ordered (by time slot, or by shortest distance). */
-  orderMode: RouteOrderMode;
   totalDistanceM: number | null;
   totalDurationS: number | null;
   optimized: boolean;
@@ -607,6 +604,17 @@ export interface RouteResult {
    *  draws them so the route line follows streets. null → straight-segment
    *  fallback between pins. */
   polyline: string[] | null;
+}
+
+/** The day's route, split across 1+ couriers (GET /orders/route?date=&couriers=). */
+export interface MultiRouteResult {
+  date: string; // YYYY-MM-DD
+  origin: { address: string | null; lat: number | null; lng: number | null };
+  /** Where the van(s) go after the last delivery — shared across all couriers. */
+  end: RouteEnd;
+  /** Effective courier count — equals `routes.length`. */
+  couriers: number;
+  routes: CourierRoute[];
 }
 
 // ── Site analytics (GET /analytics?range=) — visitors/funnel/traffic, the
@@ -648,6 +656,7 @@ export interface AnalyticsSummary {
   pageViews: number;
   prevVisitors: number;
   purchases: number;
+  orderCount: number;
   conversionPct: number;
   prevConversionPct: number;
   funnel: FunnelStep[];
