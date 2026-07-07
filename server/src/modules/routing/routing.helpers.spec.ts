@@ -2,17 +2,11 @@ import {
   greedyByDistance,
   endPoint,
   ptOf,
-  mergeBySlot,
   type RouteStop,
   type RouteEnd,
 } from './routing.service';
 
-const stop = (
-  id: string,
-  lat: number | null,
-  lng: number | null,
-  slotFrom: string | null = null,
-): RouteStop => ({
+const stop = (id: string, lat: number | null, lng: number | null): RouteStop => ({
   id,
   customer: null,
   phone: null,
@@ -22,8 +16,6 @@ const stop = (
   lat,
   lng,
   summary: '',
-  slotFrom,
-  slotTo: null,
 });
 
 describe('ptOf', () => {
@@ -90,25 +82,5 @@ describe('greedyByDistance', () => {
     const input = [a, b, c];
     greedyByDistance(origin, input);
     expect(input.map((s) => s.id)).toEqual(['a', 'b', 'c']);
-  });
-});
-
-describe('mergeBySlot', () => {
-  it('weaves an un-geocoded stop into its slot position, not the end', () => {
-    const located = [stop('L1', 0, 1, '11:00'), stop('L2', 0, 2, '13:00')];
-    const unlocated = [stop('U', null, null, '12:00')];
-    expect(mergeBySlot(located, unlocated).map((s) => s.id)).toEqual(['L1', 'U', 'L2']);
-  });
-
-  it('located stop wins a same-slot tie (it has a fixed position)', () => {
-    const located = [stop('L', 0, 1, '11:00')];
-    const unlocated = [stop('U', null, null, '11:00')];
-    expect(mergeBySlot(located, unlocated).map((s) => s.id)).toEqual(['L', 'U']);
-  });
-
-  it('a slotless un-geocoded stop still sorts last', () => {
-    const located = [stop('L', 0, 1, '11:00')];
-    const unlocated = [stop('U', null, null, null)];
-    expect(mergeBySlot(located, unlocated).map((s) => s.id)).toEqual(['L', 'U']);
   });
 });

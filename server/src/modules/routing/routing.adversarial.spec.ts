@@ -3,20 +3,15 @@
  * edge cases. Each scenario targets a different failure mode.
  */
 import {
+  RoutingService,
   greedyByDistance,
-  mergeBySlot,
   endPoint,
   ptOf,
   type RouteStop,
   type RouteEnd,
 } from './routing.service';
 
-const stop = (
-  id: string,
-  lat: number | null,
-  lng: number | null,
-  slotFrom: string | null = null,
-): RouteStop => ({
+const stop = (id: string, lat: number | null, lng: number | null): RouteStop => ({
   id,
   customer: null,
   phone: null,
@@ -26,8 +21,6 @@ const stop = (
   lat,
   lng,
   summary: '',
-  slotFrom,
-  slotTo: null,
 });
 
 // ─── Attempt 1: 4 stops all at IDENTICAL coordinates ────────────────────────
@@ -83,30 +76,6 @@ describe('Adversarial 2 — null start with ungeocoded stop as input[0]', () => 
     // From (0,1): mid (dist 1) before far (dist 2); noCoords skipped in distance calc
     expect(out[0].id).toBe('near');
     expect(out[out.length - 1].id).toBe('ghost');
-  });
-});
-
-// ─── Attempt 3: mergeBySlot with unsorted located input ─────────────────────
-// mergeBySlot assumes both input lists are slot-sorted. In practice orderedLocated
-// is always sorted (slot groups processed in order), but let's verify the function
-// itself when the precondition is violated.
-describe('Adversarial 3 — mergeBySlot with out-of-order located list', () => {
-  // Violate the precondition: located NOT sorted ascending.
-  const L13 = stop('L13', 0, 1, '13:00'); // late slot first
-  const L11 = stop('L11', 0, 2, '11:00'); // early slot second
-  const L15 = stop('L15', 0, 3, '15:00');
-  const U12 = stop('U12', null, null, '12:00');
-
-  it('sorts inputs internally — unsorted located no longer produces wrong order (fixed)', () => {
-    // Before fix: [U12, L13, L11, L15] — L11 after L13, wrong.
-    // After fix: mergeBySlot sorts both inputs first.
-    const out = mergeBySlot([L13, L11, L15], [U12]);
-    expect(out.map((s) => s.id)).toEqual(['L11', 'U12', 'L13', 'L15']);
-  });
-
-  it('mergeBySlot works correctly when both inputs are sorted', () => {
-    const out = mergeBySlot([L11, L13, L15], [U12]);
-    expect(out.map((s) => s.id)).toEqual(['L11', 'U12', 'L13', 'L15']);
   });
 });
 
@@ -170,5 +139,108 @@ describe('Adversarial 5 — custom endMode with no saved coords (4-stop route)',
     // Greedy from origin (42,23.0): nearest is d@.1 → c@.2 → b@.3 → a@.4
     const out = greedyByDistance(origin, s);
     expect(out.map((x) => x.id)).toEqual(['d', 'c', 'b', 'a']);
+  });
+});
+
+// ─── Attempt 6: RoutingService.getRoute multi-courier split (service-level) ──
+// Mocked db (mirrors routing.set-location.spec.ts's chain-stub style, extended
+// with leftJoin/orderBy for the orders query) + a maps stub that always "fails"
+// (route/routeFixed → null), forcing the pure greedy/sweep fallbacks so the
+// split itself is what's under test, not the Google integration.
+describe('Adversarial 6 — RoutingService.getRoute multi-courier split', () => {
+  function makeDb(selectResults: any[][]) {
+    const results = [...selectResults];
+    const db = {
+      select: () => {
+        const result = results.length ? results.shift()! : [];
+        const chain: any = {
+          from: () => chain,
+          leftJoin: () => chain,
+          where: () => chain,
+          orderBy: () => Promise.resolve(result),
+          limit: () => Promise.resolve(result),
+          then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
+        };
+        return chain;
+      },
+    } as any;
+    return db;
+  }
+
+  function makeMaps() {
+    return {
+      route: jest.fn().mockResolvedValue(null),
+      routeFixed: jest.fn().mockResolvedValue(null),
+      geocode: jest.fn(),
+    } as any;
+  }
+
+  const TENANT = {
+    farmAddress: 'Ферма Иванови',
+    farmLat: '42.0',
+    farmLng: '23.0',
+    settings: { routing: {} },
+  };
+
+  // 4 confirmed address-orders, geocoded around the depot at 4 compass points
+  // so the sweep splitter has something non-degenerate to partition.
+  const geoOrder = (id: string, lat: number, lng: number) => ({
+    id,
+    customer: null,
+    phone: null,
+    email: null,
+    address: `адрес ${id}`,
+    note: null,
+    lat: String(lat),
+    lng: String(lng),
+  });
+  const s1 = geoOrder('s1', 42.01, 23.0);
+  const s2 = geoOrder('s2', 42.0, 23.01);
+  const s3 = geoOrder('s3', 41.99, 23.0);
+  const s4 = geoOrder('s4', 42.0, 22.99);
+
+  it('couriers=2 splits 4 geocoded stops into 2 routes covering every id exactly once', async () => {
+    const db = makeDb([[TENANT], [s1, s2, s3, s4], []]);
+    const svc = new RoutingService(db, makeMaps());
+
+    const result = await svc.getRoute('t1', '2026-07-07', undefined, 2);
+
+    expect(result.couriers).toBe(2);
+    expect(result.routes).toHaveLength(2);
+    const ids = result.routes.flatMap((r) => r.stops.map((s) => s.id)).sort();
+    expect(ids).toEqual(['s1', 's2', 's3', 's4']);
+  });
+
+  it('couriers=1 keeps the old single-route behaviour', async () => {
+    const db = makeDb([[TENANT], [s1, s2, s3, s4], []]);
+    const svc = new RoutingService(db, makeMaps());
+
+    const result = await svc.getRoute('t1', '2026-07-07', undefined, 1);
+
+    expect(result.couriers).toBe(1);
+    expect(result.routes).toHaveLength(1);
+    expect(result.routes[0].stops.map((s) => s.id).sort()).toEqual(['s1', 's2', 's3', 's4']);
+  });
+
+  it('an un-geocoded stop lands at the END of the smallest route, not dropped', async () => {
+    const ghost = {
+      id: 'ghost',
+      customer: null,
+      phone: null,
+      email: null,
+      address: 'непознат адрес',
+      note: null,
+      lat: null,
+      lng: null,
+    };
+    const db = makeDb([[TENANT], [s1, s2, s3, ghost], []]);
+    const svc = new RoutingService(db, makeMaps());
+
+    const result = await svc.getRoute('t1', '2026-07-07', undefined, 2);
+
+    const allIds = result.routes.flatMap((r) => r.stops.map((s) => s.id)).sort();
+    expect(allIds).toEqual(['ghost', 's1', 's2', 's3']);
+    const routeWithGhost = result.routes.find((r) => r.stops.some((s) => s.id === 'ghost'))!;
+    expect(routeWithGhost.stops[routeWithGhost.stops.length - 1].id).toBe('ghost');
   });
 });

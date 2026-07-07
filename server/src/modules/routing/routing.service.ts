@@ -12,6 +12,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday } from '../../common/time/bg-time';
 import { scheduledForDay } from '../orders/order-scheduling';
+import { sweepSplit, haversineKm, type Pt } from './route-split';
 
 export interface RouteOrigin {
   address: string | null;
@@ -30,14 +31,9 @@ export interface RouteStop {
   lat: number | null;
   lng: number | null;
   summary: string;
-  slotFrom: string | null;
-  slotTo: string | null;
 }
 
 export type RouteEndMode = 'home' | 'last' | 'custom';
-
-/** slots = deliver by time window (11→12→13); distance = shortest route. */
-export type RouteOrderMode = 'slots' | 'distance';
 
 export interface RouteEnd {
   /** home = round trip to the depot, last = one-way, custom = a saved end point. */
@@ -47,51 +43,35 @@ export interface RouteEnd {
   lng: number | null;
 }
 
-export interface RouteResult {
-  date: string;
-  origin: RouteOrigin;
+export interface CourierRoute {
   stops: RouteStop[];
-  /** Where the van goes after the last delivery. */
-  end: RouteEnd;
-  /** How stops were ordered (by time slot, or by shortest distance). */
-  orderMode: RouteOrderMode;
   totalDistanceM: number | null;
   totalDurationS: number | null;
   /** true once stops were reordered from DB arrival order (greedy or Google). */
   optimized: boolean;
   /**
-   * Encoded road-geometry legs (one per ≤25-stop Routes chunk) for the final
-   * visit order origin→stops→end. The client decodes + draws these so the route
-   * line follows streets. null when maps are disabled or no geometry was returned
+   * Encoded road-geometry legs (one per ≤25-stop Routes chunk) for the visit
+   * order origin→stops→end. The client decodes + draws these so the route line
+   * follows streets. null when maps are disabled or no geometry was returned
    * (client then falls back to straight segments between pins).
    */
   polyline: string[] | null;
+}
+
+export interface MultiRouteResult {
+  date: string;
+  origin: RouteOrigin;
+  /** Where every van goes after its last delivery — shared across couriers. */
+  end: RouteEnd;
+  /** Effective courier count (== routes.length). */
+  couriers: number;
+  routes: CourierRoute[];
 }
 
 const toNum = (v: string | null): number | null => (v == null ? null : Number(v));
 
 /** Routes API hard limit on intermediate waypoints per computeRoutes request. */
 const MAX_OPTIMIZE_STOPS = 25;
-
-type Pt = { lat: number; lng: number };
-
-/** Slot start time (HH:MM[:SS]) → minutes since midnight; null slots sort last. */
-function slotMinutes(t: string | null): number {
-  if (!t) return Number.POSITIVE_INFINITY;
-  const [h, m] = t.split(':');
-  return Number(h) * 60 + Number(m);
-}
-
-/** Straight-line distance (km) — cheap ordering heuristic, no API cost. */
-function haversineKm(a: Pt, b: Pt): number {
-  const R = 6371;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const s =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(s));
-}
 
 /** Coords of a stop, or null when it isn't geocoded. */
 export const ptOf = (s: RouteStop): Pt | null =>
@@ -150,31 +130,6 @@ export function greedyByDistance(start: Pt | null, stops: RouteStop[]): RouteSto
   return out;
 }
 
-/**
- * Merge two slot-ascending lists, the (geocoded) `located` stops winning ties
- * since they have a fixed map position. Keeps an un-geocoded stop near its
- * delivery slot instead of dumping it at the very end of the route. Null slots
- * (Infinity) sort last in both lists, so they still land at the tail.
- * Sorts both inputs internally so callers don't need to pre-sort.
- */
-export function mergeBySlot(located: RouteStop[], unlocated: RouteStop[]): RouteStop[] {
-  const loc = [...located].sort((a, b) => slotMinutes(a.slotFrom) - slotMinutes(b.slotFrom));
-  const unloc = [...unlocated].sort((a, b) => slotMinutes(a.slotFrom) - slotMinutes(b.slotFrom));
-  const out: RouteStop[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < loc.length && j < unloc.length) {
-    if (slotMinutes(unloc[j].slotFrom) < slotMinutes(loc[i].slotFrom)) {
-      out.push(unloc[j++]);
-    } else {
-      out.push(loc[i++]);
-    }
-  }
-  while (i < loc.length) out.push(loc[i++]);
-  while (j < unloc.length) out.push(unloc[j++]);
-  return out;
-}
-
 @Injectable()
 export class RoutingService {
   private readonly logger = new Logger(RoutingService.name);
@@ -185,18 +140,19 @@ export class RoutingService {
   ) {}
 
   /**
-   * Delivery route for a date: confirmed address-orders as stops, starting from
-   * the farm origin. When Google Maps is configured and both the farm and stops
-   * are geocoded, stops are reordered into an optimized loop with total
-   * distance/duration; otherwise they stay in arrival order with null totals.
-   * No persistence.
+   * Delivery routes for a date, split across `couriers` drivers: confirmed
+   * address-orders as stops, starting from the farm origin. Stops are
+   * partitioned geographically (sweep-split around the depot, workload
+   * balanced) and each courier's group is independently ordered — Google's
+   * visit optimizer when Maps is configured and the group is geocoded,
+   * otherwise a nearest-neighbour greedy fallback. No persistence.
    */
   async getRoute(
     tenantId: string,
     date?: string,
     endMode?: RouteEndMode,
-    orderMode: RouteOrderMode = 'slots',
-  ): Promise<RouteResult> {
+    couriers?: number,
+  ): Promise<MultiRouteResult> {
     const day = date ?? bgToday();
 
     const [tenant] = await this.db
@@ -221,8 +177,6 @@ export class RoutingService {
         note: orders.deliveryNote,
         lat: orders.deliveryLat,
         lng: orders.deliveryLng,
-        slotFrom: deliverySlots.timeFrom,
-        slotTo: deliverySlots.timeTo,
       })
       .from(orders)
       .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
@@ -271,8 +225,6 @@ export class RoutingService {
       lat: toNum(r.lat),
       lng: toNum(r.lng),
       summary: (itemsByOrder.get(r.id) ?? []).join(', '),
-      slotFrom: r.slotFrom,
-      slotTo: r.slotTo,
     }));
 
     const origin: RouteOrigin = {
@@ -301,7 +253,7 @@ export class RoutingService {
     }
 
     // Stops that can be routed (geocoded) vs not. Un-geocoded ones are appended
-    // in arrival order so nothing is dropped.
+    // to a route after splitting — they can't be placed geographically.
     const located = stops.filter((s) => s.lat != null && s.lng != null);
     const unlocated = stops.filter((s) => s.lat == null || s.lng == null);
     const hasOrigin = origin.lat != null && origin.lng != null;
@@ -309,13 +261,68 @@ export class RoutingService {
       ? { lat: origin.lat as number, lng: origin.lng as number }
       : null;
 
-    let orderedLocated: RouteStop[];
-    if (orderMode === 'distance' && originPt && located.length) {
-      // Shortest route: let Google optimize the visit order (ignores slot times),
-      // targeting the REAL end point so a one-way / custom-end route isn't
-      // optimized as a round trip.
-      const cap = located.slice(0, MAX_OPTIMIZE_STOPS);
-      const rest = located.slice(MAX_OPTIMIZE_STOPS);
+    // Effective courier count: explicit ?couriers= wins, else the tenant's
+    // saved default (settings.routing.courierCount), else 1. Clamped to [1,10].
+    const cfgCount = Number((routingCfg.courierCount as number | string | undefined) ?? 1);
+    const n = Math.min(10, Math.max(1, Math.floor(couriers ?? (Number.isFinite(cfgCount) ? cfgCount : 1))));
+
+    // Partition among couriers (sweep needs a depot; without one, round-robin
+    // over a greedy chain so groups still make geographic sense).
+    let groups: RouteStop[][];
+    if (originPt && located.length) {
+      groups = sweepSplit(originPt, located, n);
+    } else if (located.length) {
+      const chain = greedyByDistance(null, located);
+      groups = Array.from({ length: Math.min(n, chain.length) }, () => []);
+      chain.forEach((s, i) => groups[i % groups.length].push(s));
+    } else {
+      groups = [];
+    }
+    if (!groups.length && unlocated.length) groups = [[]];
+
+    const routes: CourierRoute[] = [];
+    for (const group of groups) {
+      routes.push(await this.optimizeGroup(originPt, group, mode, end));
+    }
+
+    // Un-geocoded stops: tail of the least-loaded route (they can't be placed).
+    if (unlocated.length) {
+      let idx = 0;
+      let best = Infinity;
+      routes.forEach((r, i) => {
+        const w = r.totalDurationS ?? r.stops.length * 600;
+        if (w < best) {
+          best = w;
+          idx = i;
+        }
+      });
+      routes[idx] = { ...routes[idx], stops: [...routes[idx].stops, ...unlocated] };
+    }
+
+    return { date: day, origin, end, couriers: routes.length, routes };
+  }
+
+  /**
+   * Optimize ONE courier's stop group: Google visit order (≤25) + greedy tail,
+   * then measured road totals + polyline via pathTotal. Extracted verbatim from
+   * the old single-route distance mode.
+   */
+  private async optimizeGroup(
+    originPt: Pt | null,
+    group: RouteStop[],
+    mode: RouteEndMode,
+    end: RouteEnd,
+  ): Promise<CourierRoute> {
+    if (!group.length) {
+      return { stops: [], totalDistanceM: null, totalDurationS: null, optimized: false, polyline: null };
+    }
+
+    let orderedGroup: RouteStop[];
+    if (originPt) {
+      // Let Google optimize the visit order, targeting the REAL end point so a
+      // one-way / custom-end route isn't optimized as a round trip.
+      const cap = group.slice(0, MAX_OPTIMIZE_STOPS);
+      const rest = group.slice(MAX_OPTIMIZE_STOPS);
       const dest = endPoint(mode, originPt, end);
       const plan = await this.maps.route(
         originPt,
@@ -328,77 +335,32 @@ export class RoutingService {
         // last optimized stop instead of leaving them in DB order.
         if (rest.length) {
           this.logger.warn(
-            `Route has ${located.length} located stops; only the first ${MAX_OPTIMIZE_STOPS} ` +
+            `Route has ${group.length} located stops; only the first ${MAX_OPTIMIZE_STOPS} ` +
               `are Google-optimized, the rest are ordered by nearest-neighbour heuristic.`,
           );
         }
         const tail = greedyByDistance(ptOf(head[head.length - 1]) ?? originPt, rest);
-        orderedLocated = [...head, ...tail];
+        orderedGroup = [...head, ...tail];
       } else {
         // Google disabled or the call failed: fall back to a greedy
-        // nearest-neighbour order over ALL located stops. Keeps "shortest path"
-        // meaningful (not DB order) so `optimized` stays honest.
-        orderedLocated = greedyByDistance(originPt, located);
+        // nearest-neighbour order over ALL stops in the group. Keeps "shortest
+        // path" meaningful (not DB order) so `optimized` stays honest.
+        orderedGroup = greedyByDistance(originPt, group);
       }
-    } else if (orderMode === 'distance' && located.length) {
-      // distance mode but no farm origin set — greedy-order from the first stop.
-      orderedLocated = greedyByDistance(null, located);
     } else {
-      // Slots first (earlier delivery windows before later), greedy
-      // nearest-neighbour within each slot group, continuing from the cursor.
-      const bySlot = [...located].sort(
-        (a, b) => slotMinutes(a.slotFrom) - slotMinutes(b.slotFrom),
-      );
-      orderedLocated = [];
-      let cursor: Pt | null = hasOrigin
-        ? { lat: origin.lat as number, lng: origin.lng as number }
-        : null;
-      let i = 0;
-      while (i < bySlot.length) {
-        const sm = slotMinutes(bySlot[i].slotFrom);
-        const group: RouteStop[] = [];
-        while (i < bySlot.length && slotMinutes(bySlot[i].slotFrom) === sm) group.push(bySlot[i++]);
-        while (group.length) {
-          let best = 0;
-          if (cursor) {
-            let bestD = Infinity;
-            group.forEach((g, k) => {
-              const d = haversineKm(cursor as Pt, { lat: g.lat as number, lng: g.lng as number });
-              if (d < bestD) {
-                bestD = d;
-                best = k;
-              }
-            });
-          }
-          const pick = group.splice(best, 1)[0];
-          orderedLocated.push(pick);
-          cursor = { lat: pick.lat as number, lng: pick.lng as number };
-        }
-      }
+      // No farm origin set — greedy-order from the first stop.
+      orderedGroup = greedyByDistance(null, group);
     }
 
-    // Slots mode: weave un-geocoded stops back to their slot position so an
-    // early-window delivery with no pin isn't pushed to the end of the route.
-    // Distance mode ignores slot times, so just append them (they can't be
-    // distance-ordered without coords).
-    const orderedStops =
-      orderMode === 'slots'
-        ? mergeBySlot(
-            orderedLocated,
-            [...unlocated].sort((a, b) => slotMinutes(a.slotFrom) - slotMinutes(b.slotFrom)),
-          )
-        : [...orderedLocated, ...unlocated];
-    const optimized = orderedLocated.length > 0;
-
     // Real road distance/duration of the chosen order + end leg (no reordering).
-    // Measured over EVERY located stop (chunked below), so totals don't
-    // under-report when there are more than MAX_OPTIMIZE_STOPS stops.
+    // Measured over EVERY stop (chunked below), so totals don't under-report
+    // when the group has more than MAX_OPTIMIZE_STOPS stops.
     let totalDistanceM: number | null = null;
     let totalDurationS: number | null = null;
     let routePolyline: string[] | null = null;
-    if (originPt && orderedLocated.length) {
+    if (originPt) {
       const pts: Pt[] = [originPt];
-      for (const s of orderedLocated) {
+      for (const s of orderedGroup) {
         const p = ptOf(s);
         if (p) pts.push(p);
       }
@@ -414,14 +376,10 @@ export class RoutingService {
     }
 
     return {
-      date: day,
-      origin,
-      stops: orderedStops,
-      end,
-      orderMode,
+      stops: orderedGroup,
       totalDistanceM,
       totalDurationS,
-      optimized,
+      optimized: orderedGroup.length > 0,
       polyline: routePolyline,
     };
   }
