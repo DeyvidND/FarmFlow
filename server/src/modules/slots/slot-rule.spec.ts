@@ -1,281 +1,32 @@
 import {
-  slotRuleSlots,
-  normalizeRule,
   migrateRule,
+  normalizeRule,
+  slotRuleSlots,
   clampCapacity,
   slotIsFull,
+  isoAddDays,
   type SlotRule,
 } from './slot-rule';
 
-const win = { timeFrom: '10:00', timeTo: '12:00' };
-
-const base: SlotRule = {
-  active: true,
-  repeat: 'weekdays',
-  days: [
-    { dow: 1, ...win },
-    { dow: 3, ...win },
-    { dow: 5, ...win },
-  ],
-  intervalDays: 3,
-  intervalWindow: win,
-  anchorDate: '2026-06-01',
-  horizonDays: 14,
-  skipDates: [],
-};
-
-const baseInput = {
-  active: true,
-  repeat: 'weekdays' as const,
-  days: [{ dow: 1, timeFrom: '10:00', timeTo: '12:00' }],
-  intervalDays: 3,
-  intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
-  anchorDate: '2026-06-01',
-  horizonDays: 14,
-};
-
-describe('slotRuleSlots', () => {
-  it('weekday mode picks only matching weekdays in the horizon', () => {
-    const s = slotRuleSlots(base, '2026-06-08'); // 2026-06-08 is a Monday
-    expect(s[0].date).toBe('2026-06-08');
-    for (const g of s) {
-      const dow = new Date(`${g.date}T00:00:00Z`).getUTCDay();
-      expect([1, 3, 5]).toContain(dow);
-    }
-    expect(s[s.length - 1].date <= '2026-06-22').toBe(true);
-  });
-
-  it('uses each weekday its own window', () => {
-    const r: SlotRule = {
-      ...base,
-      days: [
-        { dow: 1, timeFrom: '10:00', timeTo: '12:00' },
-        { dow: 3, timeFrom: '16:00', timeTo: '18:00' },
-      ],
-    };
-    const s = slotRuleSlots(r, '2026-06-08');
-    const mon = s.find((g) => g.date === '2026-06-08')!; // Monday
-    const wed = s.find((g) => g.date === '2026-06-10')!; // Wednesday
-    expect(mon).toMatchObject({ timeFrom: '10:00', timeTo: '12:00' });
-    expect(wed).toMatchObject({ timeFrom: '16:00', timeTo: '18:00' });
-    // Friday is not configured → no slot.
-    expect(s.some((g) => g.date === '2026-06-12')).toBe(false);
-  });
-
-  it('interval mode steps every N days from the anchor using intervalWindow', () => {
-    const r: SlotRule = {
-      ...base,
-      repeat: 'interval',
-      intervalDays: 3,
-      anchorDate: '2026-06-02',
-      intervalWindow: { timeFrom: '09:00', timeTo: '11:00' },
-    };
-    const s = slotRuleSlots(r, '2026-06-08');
-    expect(s.map((g) => g.date)).toEqual([
-      '2026-06-08',
-      '2026-06-11',
-      '2026-06-14',
-      '2026-06-17',
-      '2026-06-20',
-    ]);
-    expect(s[0]).toMatchObject({ timeFrom: '09:00', timeTo: '11:00' });
-  });
-
-  it('excludes skipDates', () => {
-    const s = slotRuleSlots({ ...base, skipDates: ['2026-06-08'] }, '2026-06-08');
-    expect(s.some((g) => g.date === '2026-06-08')).toBe(false);
-  });
-
-  it('returns [] when inactive', () => {
-    expect(slotRuleSlots({ ...base, active: false }, '2026-06-08')).toEqual([]);
+describe('isoAddDays', () => {
+  it('adds days without TZ drift', () => {
+    expect(isoAddDays('2026-06-08', 1)).toBe('2026-06-09');
+    expect(isoAddDays('2026-06-08', 7)).toBe('2026-06-15');
+    expect(isoAddDays('2026-01-31', 1)).toBe('2026-02-01');
   });
 });
 
-describe('migrateRule', () => {
-  it('upgrades a legacy single-window rule to per-weekday days (dropping capacity)', () => {
-    const legacy = {
-      active: true,
-      repeat: 'weekdays' as const,
-      weekdays: [1, 5],
-      intervalDays: 3,
-      anchorDate: '2026-06-01',
-      timeFrom: '08:00',
-      timeTo: '10:00',
-      maxOrders: 4, // legacy capacity — must be dropped, not carried into the window
-      horizonDays: 14,
-      skipDates: [],
-    };
-    const m = migrateRule(legacy)!;
-    expect(m.days).toEqual([
-      { dow: 1, timeFrom: '08:00', timeTo: '10:00' },
-      { dow: 5, timeFrom: '08:00', timeTo: '10:00' },
-    ]);
-    expect(m.intervalWindow).toEqual({ timeFrom: '08:00', timeTo: '10:00' });
-  });
-
-  it('passes a current rule through unchanged', () => {
-    expect(migrateRule(base)).toBe(base);
-  });
-
-  it('returns null for null', () => {
-    expect(migrateRule(null)).toBeNull();
-  });
-});
-
-describe('normalizeRule', () => {
-  it('preserves prior skipDates', () => {
-    const prev = { ...base, skipDates: ['2026-06-10'] };
-    expect(normalizeRule(base, prev).skipDates).toEqual(['2026-06-10']);
-  });
-
-  it('sorts + dedupes days by weekday (last write wins)', () => {
-    const r = normalizeRule({
-      ...base,
-      days: [
-        { dow: 5, ...win },
-        { dow: 1, ...win },
-        { dow: 1, timeFrom: '14:00', timeTo: '16:00' },
-      ],
-    });
-    expect(r.days.map((d) => d.dow)).toEqual([1, 5]);
-    // Last write wins for the duplicated weekday (its times survive).
-    expect(r.days[0]).toMatchObject({ timeFrom: '14:00', timeTo: '16:00' });
-  });
-
-  it('rejects a day with timeTo <= timeFrom', () => {
-    expect(() => normalizeRule({ ...base, days: [{ dow: 1, timeFrom: '12:00', timeTo: '10:00' }] })).toThrow();
-  });
-
-  it('rejects empty days in weekday mode', () => {
-    expect(() => normalizeRule({ ...base, days: [] })).toThrow();
-  });
-
-  it('rejects an invalid interval window', () => {
-    expect(() =>
-      normalizeRule({ ...base, repeat: 'interval', intervalWindow: { timeFrom: '10:00', timeTo: '09:00' } }),
-    ).toThrow();
-  });
-
-  it('tolerates an invalid interval window in weekdays mode (inactive — falls back)', () => {
-    const r = normalizeRule({
-      ...base,
-      repeat: 'weekdays',
-      intervalWindow: { timeFrom: '10:00', timeTo: '09:00' },
-    });
-    // Falls back to DEFAULT_WINDOW's times.
-    expect(r.intervalWindow).toEqual({ timeFrom: '10:00', timeTo: '12:00' });
-    expect(r.days.length).toBeGreaterThan(0);
-  });
-
-  it('tolerates invalid days in interval mode (inert — drops them, no throw)', () => {
-    const r = normalizeRule({
-      ...base,
-      repeat: 'interval',
-      days: [{ dow: 1, timeFrom: '12:00', timeTo: '10:00' }],
-      intervalWindow: { timeFrom: '09:00', timeTo: '11:00' },
-    });
-    expect(r.days).toEqual([]);
-    expect(r.intervalWindow).toMatchObject({ timeFrom: '09:00', timeTo: '11:00' });
-  });
-
-  it('accepts + migrates a legacy rule', () => {
-    const legacy = {
-      active: true,
-      repeat: 'weekdays' as const,
-      weekdays: [2, 4],
-      intervalDays: 2,
-      anchorDate: '2026-06-01',
-      timeFrom: '10:00',
-      timeTo: '12:00',
-      maxOrders: 5,
-      horizonDays: 14,
-      skipDates: [],
-    };
-    const r = normalizeRule(legacy);
-    expect(r.days.map((d) => d.dow)).toEqual([2, 4]);
-  });
-});
-
-describe('slotMinutes (slot length splitting)', () => {
-  it('splits each day window into back-to-back slots of the given length', () => {
-    const r: SlotRule = {
-      ...base,
-      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00' }],
-      slotMinutes: 60,
-    };
-    const s = slotRuleSlots(r, '2026-06-08'); // Monday
-    const mon = s.filter((g) => g.date === '2026-06-08');
-    expect(mon.map((g) => `${g.timeFrom}-${g.timeTo}`)).toEqual([
-      '10:00-11:00',
-      '11:00-12:00',
-      '12:00-13:00',
-      '13:00-14:00',
-    ]);
-  });
-
-  it('drops a trailing partial chunk', () => {
-    const r: SlotRule = {
-      ...base,
-      days: [{ dow: 1, timeFrom: '10:00', timeTo: '11:30' }],
-      slotMinutes: 60,
-    };
-    const mon = slotRuleSlots(r, '2026-06-08').filter((g) => g.date === '2026-06-08');
-    expect(mon.map((g) => `${g.timeFrom}-${g.timeTo}`)).toEqual(['10:00-11:00']);
-  });
-
-  it('window shorter than the slot length falls back to the whole window', () => {
-    const r: SlotRule = {
-      ...base,
-      days: [{ dow: 1, timeFrom: '10:00', timeTo: '10:45' }],
-      slotMinutes: 60,
-    };
-    const mon = slotRuleSlots(r, '2026-06-08').filter((g) => g.date === '2026-06-08');
-    expect(mon.map((g) => `${g.timeFrom}-${g.timeTo}`)).toEqual(['10:00-10:45']);
-  });
-
-  it('0/absent keeps the original one-slot-per-day behaviour', () => {
-    const s0 = slotRuleSlots({ ...base, slotMinutes: 0 }, '2026-06-08');
-    const sAbsent = slotRuleSlots(base, '2026-06-08');
-    expect(s0).toEqual(sAbsent);
-    expect(s0.filter((g) => g.date === '2026-06-08')).toHaveLength(1);
-  });
-
-  it('splits the interval-mode window too', () => {
-    const r: SlotRule = {
-      ...base,
-      repeat: 'interval',
-      intervalDays: 3,
-      anchorDate: '2026-06-08',
-      intervalWindow: { timeFrom: '09:00', timeTo: '12:00' },
-      slotMinutes: 90,
-    };
-    const first = slotRuleSlots(r, '2026-06-08').filter((g) => g.date === '2026-06-08');
-    expect(first.map((g) => `${g.timeFrom}-${g.timeTo}`)).toEqual(['09:00-10:30', '10:30-12:00']);
-  });
-
-  it('normalizeRule clamps slotMinutes (0 off, 15..480 when set)', () => {
-    const input = {
-      ...base,
-      days: [{ dow: 1, timeFrom: '10:00', timeTo: '14:00' }],
-    };
-    expect(normalizeRule({ ...input, slotMinutes: 60 }).slotMinutes).toBe(60);
-    expect(normalizeRule({ ...input, slotMinutes: 5 }).slotMinutes).toBe(15);
-    expect(normalizeRule({ ...input, slotMinutes: 9999 }).slotMinutes).toBe(480);
-    expect(normalizeRule({ ...input, slotMinutes: 0 }).slotMinutes).toBe(0);
-    expect(normalizeRule(input).slotMinutes).toBe(0);
-  });
-});
-
-describe('capacity', () => {
-  it('clampCapacity clamps to [1,20] and floors', () => {
+describe('clampCapacity', () => {
+  it('clamps to [1,500]', () => {
     expect(clampCapacity(undefined)).toBe(1);
     expect(clampCapacity(0)).toBe(1);
-    expect(clampCapacity(-5)).toBe(1);
-    expect(clampCapacity(2.9)).toBe(2);
-    expect(clampCapacity(99)).toBe(20);
+    expect(clampCapacity(40)).toBe(40);
+    expect(clampCapacity(9999)).toBe(500);
   });
+});
 
-  it('slotIsFull compares booked against clamped capacity', () => {
+describe('slotIsFull', () => {
+  it('compares booked against clamped capacity', () => {
     expect(slotIsFull(0, 1)).toBe(false);
     expect(slotIsFull(1, 1)).toBe(true);
     expect(slotIsFull(1, 2)).toBe(false);
@@ -283,13 +34,100 @@ describe('capacity', () => {
     // capacity 0 clamps to 1 → one booked fills it
     expect(slotIsFull(1, 0)).toBe(true);
   });
+});
 
-  it('normalizeRule clamps defaultCapacity', () => {
-    const out = normalizeRule({ ...baseInput, defaultCapacity: 99 });
-    expect(out.defaultCapacity).toBe(20);
-    const out2 = normalizeRule({ ...baseInput, defaultCapacity: 0 });
-    expect(out2.defaultCapacity).toBe(1);
-    const out3 = normalizeRule({ ...baseInput }); // absent → 1
-    expect(out3.defaultCapacity).toBe(1);
+describe('migrateRule', () => {
+  it('passes a current day-capacity rule through unchanged', () => {
+    const rule: SlotRule = {
+      active: true, repeat: 'weekdays',
+      days: [{ dow: 4, capacity: 40 }],
+      intervalDays: 1, intervalCapacity: 10,
+      anchorDate: '2026-07-01', horizonDays: 28, skipDates: [],
+    };
+    expect(migrateRule(rule)).toEqual(rule);
+  });
+
+  it('upgrades a windowed rule: day capacity = subslots × defaultCapacity', () => {
+    // 10:00–18:00 at 60-min slots = 8 subslots; defaultCapacity 5 → 40.
+    const old = {
+      active: true, repeat: 'weekdays',
+      days: [{ dow: 4, timeFrom: '10:00', timeTo: '18:00' }],
+      intervalDays: 1, intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
+      anchorDate: '2026-07-01', slotMinutes: 60, defaultCapacity: 5,
+      horizonDays: 28, skipDates: [],
+    };
+    const m = migrateRule(old)!;
+    expect(m.days).toEqual([{ dow: 4, capacity: 40 }]);
+    // interval window 10–12 at 60 min = 2 subslots × 5 = 10.
+    expect(m.intervalCapacity).toBe(10);
+  });
+
+  it('upgrades a windowed rule without slotMinutes: capacity = defaultCapacity', () => {
+    const old = {
+      active: true, repeat: 'weekdays',
+      days: [{ dow: 1, timeFrom: '10:00', timeTo: '12:00' }],
+      intervalDays: 3, intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
+      anchorDate: '2026-07-01', defaultCapacity: 3, horizonDays: 28, skipDates: [],
+    };
+    expect(migrateRule(old)!.days).toEqual([{ dow: 1, capacity: 3 }]);
+  });
+
+  it('upgrades the legacy global-window shape (weekdays array)', () => {
+    const legacy = { active: true, repeat: 'weekdays', weekdays: [1, 4], timeFrom: '10:00', timeTo: '12:00', anchorDate: '2026-07-01', horizonDays: 28, skipDates: [] };
+    expect(migrateRule(legacy)!.days).toEqual([
+      { dow: 1, capacity: 1 },
+      { dow: 4, capacity: 1 },
+    ]);
+  });
+
+  it('returns null for null/undefined', () => {
+    expect(migrateRule(null)).toBeNull();
+    expect(migrateRule(undefined)).toBeNull();
+  });
+});
+
+describe('slotRuleSlots', () => {
+  const base: SlotRule = {
+    active: true, repeat: 'weekdays',
+    days: [{ dow: 4, capacity: 40 }], // Thursday
+    intervalDays: 1, intervalCapacity: 10,
+    anchorDate: '2026-07-01', horizonDays: 14, skipDates: [],
+  };
+  it('emits ONE GenSlot per matching date with the day capacity', () => {
+    // 2026-07-07 is a Tuesday; Thursdays in [07-07, 07-21]: 07-09, 07-16.
+    expect(slotRuleSlots(base, '2026-07-07')).toEqual([
+      { date: '2026-07-09', capacity: 40 },
+      { date: '2026-07-16', capacity: 40 },
+    ]);
+  });
+  it('respects skipDates', () => {
+    expect(slotRuleSlots({ ...base, skipDates: ['2026-07-09'] }, '2026-07-07'))
+      .toEqual([{ date: '2026-07-16', capacity: 40 }]);
+  });
+  it('interval mode uses intervalCapacity', () => {
+    const r: SlotRule = { ...base, repeat: 'interval', intervalDays: 7, anchorDate: '2026-07-09' };
+    expect(slotRuleSlots(r, '2026-07-07')).toEqual([
+      { date: '2026-07-09', capacity: 10 },
+      { date: '2026-07-16', capacity: 10 },
+    ]);
+  });
+  it('inactive rule → []', () => {
+    expect(slotRuleSlots({ ...base, active: false }, '2026-07-07')).toEqual([]);
+  });
+});
+
+describe('normalizeRule', () => {
+  it('requires ≥1 day in weekdays mode', () => {
+    expect(() => normalizeRule({ active: true, repeat: 'weekdays', days: [], anchorDate: '2026-07-01' }))
+      .toThrow('Избери поне един ден от седмицата');
+  });
+  it('clamps day capacities and preserves prev skipDates', () => {
+    const prev = { skipDates: ['2026-07-09'] } as unknown as SlotRule;
+    const r = normalizeRule(
+      { active: true, repeat: 'weekdays', days: [{ dow: 4, capacity: 9999 }], anchorDate: '2026-07-01' },
+      prev,
+    );
+    expect(r.days).toEqual([{ dow: 4, capacity: 500 }]);
+    expect(r.skipDates).toEqual(['2026-07-09']);
   });
 });

@@ -1,60 +1,38 @@
 /**
  * The single recurring self-delivery rule, stored at settings.slotRule. Pure
- * date math + validation — no db. The generator (slots.service) turns the slots
- * this produces into concrete `generated` slot rows.
- *
- * weekdays mode carries a per-weekday window (its own hours), so a farmer can
- * deliver Mon 10–12 but Wed 16–18, and skip the rest. interval mode ("every N
- * days") has no per-day concept, so it uses one window. Each slot holds exactly
- * one delivery — there is no capacity.
+ * date math + validation — no db. The generator (slots.service) turns the
+ * GenSlots this produces into concrete `generated` day-rows: ONE slot row per
+ * delivery date, whose `capacity` is the day's order ceiling. Time windows are
+ * gone — the farmer plans the day as a whole and the route optimizer picks the
+ * driving order.
  */
-/** A day's slots stop being pickable (storefront picker) and bookable (order
- *  creation) as soon as that day starts — the last day a slot is open is the
- *  day before it (Thursday's slot closes at the start of Thursday, so
- *  Wednesday is the last chance to book it). The farm needs a full day's lead
- *  time to plan the day's route/prep, not just a few hours' notice. */
+/** A day stops being pickable (storefront) and bookable (order creation) as
+ *  soon as it starts — the last chance to book Thursday is Wednesday. The farm
+ *  needs a full day's lead time to plan the route/prep. */
 
-export interface SlotWindow {
-  timeFrom: string; // HH:MM
-  timeTo: string; // HH:MM
-}
-
-export interface SlotDay extends SlotWindow {
+export interface SlotDay {
   dow: number; // 0=Sun..6=Sat
+  capacity: number; // max orders that day
 }
 
 export interface SlotRule {
   active: boolean;
   repeat: 'weekdays' | 'interval';
-  days: SlotDay[]; // weekdays mode — one window per picked weekday
+  days: SlotDay[]; // weekdays mode — per-day capacity
   intervalDays: number; // >=1, for repeat:'interval'
-  intervalWindow: SlotWindow; // interval mode — single window
+  intervalCapacity: number; // interval mode — one capacity
   anchorDate: string; // YYYY-MM-DD; interval counts from here; also a lower bound
-  /**
-   * How long one delivery takes, in minutes. When set (>0) each day's window is
-   * split into back-to-back slots of this length ("10:00–18:00, 60" → 10–11,
-   * 11–12, …), each with the window's own capacity. 0/absent = the whole window
-   * is one slot (the original behaviour).
-   */
-  slotMinutes?: number;
-  /**
-   * Default number of orders each generated slot accepts (= people working it).
-   * 1 = historical one-order behaviour. Clamped to [1,20]. Individual slots can
-   * override via their own `capacity` column.
-   */
-  defaultCapacity?: number;
   customerNote?: string;
   driverNote?: string;
   horizonDays: number; // how far ahead to keep filled
-  skipDates: string[]; // dates the farmer deleted — never regenerate
+  skipDates: string[]; // dates the farmer closed — never regenerate
   lastMaterializedDate?: string;
 }
 
-/** One concrete slot the rule wants to exist on a date. */
+/** One concrete delivery day the rule wants to exist. */
 export interface GenSlot {
   date: string; // YYYY-MM-DD
-  timeFrom: string; // HH:MM
-  timeTo: string; // HH:MM
+  capacity: number;
 }
 
 /** Add `n` days to an ISO date (UTC-stable, no TZ drift). */
@@ -67,79 +45,103 @@ export function isoAddDays(iso: string, n: number): string {
 const isoMax = (a: string, b: string) => (a >= b ? a : b);
 
 const hhmmToMin = (t: string) => parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
-const minToHhmm = (m: number) =>
-  `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
-/** Clamp an incoming capacity to an integer in [1,20]; undefined/0/negative → 1. */
+/** Clamp an incoming capacity to an integer in [1,500]; undefined/0/negative → 1. */
 export function clampCapacity(n: number | undefined): number {
   const v = Math.floor(n ?? 1);
   if (!Number.isFinite(v) || v < 1) return 1;
-  return Math.min(20, v);
+  return Math.min(500, v);
 }
 
-/** A slot is full when its live booked count reaches its (clamped) capacity. */
+/** A day is full when its live booked count reaches its (clamped) capacity. */
 export function slotIsFull(booked: number, capacity: number): boolean {
   return booked >= clampCapacity(capacity);
 }
 
-/**
- * Split a window into back-to-back sub-slots of `slotMinutes`. Only full chunks
- * are produced (a 10:00–11:30 window at 60 min yields just 10–11); a window too
- * short for even one chunk falls back to the whole window, so a misconfigured
- * day still sells. slotMinutes <= 0 → the whole window, unchanged.
- */
-export function splitWindow(
-  win: SlotWindow,
-  slotMinutes: number,
-): { timeFrom: string; timeTo: string }[] {
-  if (!slotMinutes || slotMinutes <= 0) return [{ timeFrom: win.timeFrom, timeTo: win.timeTo }];
-  const from = hhmmToMin(win.timeFrom);
-  const to = hhmmToMin(win.timeTo);
-  if (to - from < slotMinutes) return [{ timeFrom: win.timeFrom, timeTo: win.timeTo }];
-  const out: { timeFrom: string; timeTo: string }[] = [];
-  for (let m = from; m + slotMinutes <= to; m += slotMinutes) {
-    out.push({ timeFrom: minToHhmm(m), timeTo: minToHhmm(m + slotMinutes) });
-  }
-  return out;
+/** Windowed-era day shape (pre day-capacity): hours per weekday. */
+interface WindowedDay {
+  dow: number;
+  timeFrom?: string;
+  timeTo?: string;
 }
-
-/**
- * The legacy rule shape (single global window across all weekdays). Stored rules
- * created before per-weekday windows still have this shape in settings.slotRule.
- */
-interface LegacyRule {
+/** Every historical rule shape this code has ever stored. */
+interface AnyStoredRule extends Partial<Omit<SlotRule, 'days'>> {
+  days?: (SlotDay | WindowedDay)[];
+  // windowed era:
+  intervalWindow?: { timeFrom?: string; timeTo?: string };
+  slotMinutes?: number;
+  defaultCapacity?: number;
+  // legacy (global window) era:
   weekdays?: number[];
   timeFrom?: string;
   timeTo?: string;
-  /** Capacity was removed — a slot now holds exactly one order. Ignored on migrate. */
   maxOrders?: number;
 }
 
-/**
- * Upgrade a stored rule to the current shape. A legacy rule (no `days`) is
- * converted: its global window becomes every weekday's window, and the interval
- * window. Idempotent — a current rule passes through unchanged. Returns the input
- * unchanged when it is null/undefined.
- */
-export function migrateRule(raw: (Partial<SlotRule> & LegacyRule) | null | undefined): SlotRule | null {
-  if (!raw) return null;
-  if (Array.isArray(raw.days) && raw.intervalWindow) return raw as SlotRule;
-  const win: SlotWindow = {
-    timeFrom: raw.timeFrom ?? '10:00',
-    timeTo: raw.timeTo ?? '12:00',
-  };
-  const days: SlotDay[] = Array.isArray(raw.days)
-    ? raw.days
-    : (raw.weekdays ?? []).map((dow) => ({ dow, ...win }));
-  return { ...raw, days, intervalWindow: raw.intervalWindow ?? win } as SlotRule;
+/** How many whole `slotMinutes` chunks fit a window; 1 when unset/too short. */
+function windowSubslots(win: { timeFrom?: string; timeTo?: string }, slotMinutes: number): number {
+  if (!slotMinutes || slotMinutes <= 0) return 1;
+  if (!win.timeFrom || !win.timeTo) return 1;
+  const span = hhmmToMin(win.timeTo) - hhmmToMin(win.timeFrom);
+  return span >= slotMinutes ? Math.floor(span / slotMinutes) : 1;
 }
 
 /**
- * The concrete slots the rule should produce within
- * [max(today, anchor) … today+horizon], minus skipDates. One slot per date per
- * sub-window (slotMinutes splits a day's window into several). Bounded to 1200
- * results — horizon caps at 60 days, so even 15-min slots over a 12h window
- * stay under it for a normal week. Returns [] for an inactive rule.
+ * Upgrade any stored rule to the day-capacity shape. Windowed rules convert
+ * honestly: a day that produced K sub-slots of capacity C becomes capacity K×C.
+ * Idempotent — a current rule passes through unchanged. Null in → null out.
+ */
+export function migrateRule(raw: unknown): SlotRule | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as AnyStoredRule;
+
+  const isCurrent =
+    Array.isArray(r.days) &&
+    r.days.every((d) => typeof (d as SlotDay).capacity === 'number') &&
+    typeof r.intervalCapacity === 'number' &&
+    r.intervalWindow === undefined &&
+    r.slotMinutes === undefined;
+  if (isCurrent) return r as SlotRule;
+
+  const slotMinutes = Math.max(0, Math.floor(r.slotMinutes ?? 0));
+  const perSlotCap = clampCapacity(r.defaultCapacity);
+
+  // Windowed days (or legacy weekdays[] + global window) → per-day capacity.
+  const sourceDays: WindowedDay[] = Array.isArray(r.days)
+    ? (r.days as WindowedDay[])
+    : (r.weekdays ?? []).map((dow) => ({ dow, timeFrom: r.timeFrom, timeTo: r.timeTo }));
+  const days: SlotDay[] = sourceDays.map((d) => ({
+    dow: d.dow,
+    capacity:
+      typeof (d as SlotDay).capacity === 'number'
+        ? clampCapacity((d as SlotDay).capacity)
+        : clampCapacity(windowSubslots(d, slotMinutes) * perSlotCap),
+  }));
+
+  const intervalCapacity =
+    typeof r.intervalCapacity === 'number'
+      ? clampCapacity(r.intervalCapacity)
+      : clampCapacity(windowSubslots(r.intervalWindow ?? {}, slotMinutes) * perSlotCap);
+
+  return {
+    active: r.active !== false,
+    repeat: r.repeat === 'interval' ? 'interval' : 'weekdays',
+    days,
+    intervalDays: Math.max(1, Math.floor(r.intervalDays ?? 1)),
+    intervalCapacity,
+    anchorDate: r.anchorDate ?? '',
+    customerNote: r.customerNote,
+    driverNote: r.driverNote,
+    horizonDays: r.horizonDays ?? 28,
+    skipDates: r.skipDates ?? [],
+    lastMaterializedDate: r.lastMaterializedDate,
+  };
+}
+
+/**
+ * The delivery days the rule should produce within
+ * [max(today, anchor) … today+horizon], minus skipDates. One GenSlot per date.
+ * Returns [] for an inactive rule.
  */
 export function slotRuleSlots(rule: SlotRule, today: string): GenSlot[] {
   if (!rule.active) return [];
@@ -147,123 +149,63 @@ export function slotRuleSlots(rule: SlotRule, today: string): GenSlot[] {
   const end = isoAddDays(today, Math.max(0, rule.horizonDays));
   if (start > end) return [];
   const skip = new Set(rule.skipDates ?? []);
-  const slotMinutes = Math.max(0, Math.floor(rule.slotMinutes ?? 0));
   const out: GenSlot[] = [];
-  const pushDay = (date: string, win: SlotWindow) => {
-    for (const part of splitWindow(win, slotMinutes)) {
-      out.push({ date, timeFrom: part.timeFrom, timeTo: part.timeTo });
-    }
-  };
 
   if (rule.repeat === 'weekdays') {
-    const byDow = new Map<number, SlotWindow>();
-    for (const d of rule.days ?? []) byDow.set(d.dow, d);
+    const byDow = new Map<number, number>();
+    for (const d of rule.days ?? []) byDow.set(d.dow, clampCapacity(d.capacity));
     if (byDow.size === 0) return [];
     for (let iso = start; iso <= end; iso = isoAddDays(iso, 1)) {
       const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
-      const win = byDow.get(dow);
-      if (win && !skip.has(iso)) pushDay(iso, win);
-      if (out.length >= 1200) break;
+      const cap = byDow.get(dow);
+      if (cap !== undefined && !skip.has(iso)) out.push({ date: iso, capacity: cap });
     }
   } else {
-    const win = rule.intervalWindow;
+    const cap = clampCapacity(rule.intervalCapacity);
     const n = Math.max(1, Math.floor(rule.intervalDays || 1));
     let iso = rule.anchorDate;
     let guard = 0;
     while (iso < start && guard++ < 4000) iso = isoAddDays(iso, n);
     for (; iso <= end; iso = isoAddDays(iso, n)) {
-      if (!skip.has(iso)) pushDay(iso, win);
-      if (out.length >= 1200) break;
+      if (!skip.has(iso)) out.push({ date: iso, capacity: cap });
     }
   }
   return out;
 }
 
-const HHMM = /^\d{2}:\d{2}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Validate one window (hours only — slots hold one order, no capacity). Throws
- *  Error('<bg message>') on invalid input. */
-function normalizeWindow(input: Partial<SlotWindow> | undefined, where: string): SlotWindow {
-  const timeFrom = input?.timeFrom ?? '';
-  const timeTo = input?.timeTo ?? '';
-  if (!HHMM.test(timeFrom) || !HHMM.test(timeTo)) throw new Error(`Часът трябва да е ЧЧ:ММ${where}`);
-  if (timeTo <= timeFrom) throw new Error(`Краят трябва да е след началото${where}`);
-  return { timeFrom, timeTo };
-}
-
-const DEFAULT_WINDOW: SlotWindow = { timeFrom: '10:00', timeTo: '12:00' };
-
-/** Like normalizeWindow but returns `fallback` instead of throwing — used for the
- *  mode that isn't active, whose window is stored but isn't the user's choice. */
-function safeWindow(input: Partial<SlotWindow> | undefined, fallback: SlotWindow): SlotWindow {
-  try {
-    return normalizeWindow(input, '');
-  } catch {
-    return fallback;
-  }
-}
-
-const BG_WD = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
 /**
  * Validate + clamp an incoming rule, preserving server-owned fields (skipDates)
- * from the previous stored rule. Accepts the legacy shape too (auto-migrated).
+ * from the previous stored rule. Accepts older shapes too (auto-migrated).
  * Throws Error('<bg message>') on invalid input; the service maps it to
  * BadRequestException.
  */
-export function normalizeRule(input: Partial<SlotRule> & LegacyRule, prev?: SlotRule | null): SlotRule {
-  const migrated = migrateRule(input) as SlotRule;
+export function normalizeRule(input: unknown, prev?: SlotRule | null): SlotRule {
+  const migrated = migrateRule(input);
+  if (!migrated) throw new Error('Невалидно правило');
   const repeat = migrated.repeat === 'interval' ? 'interval' : 'weekdays';
-  const intervalDays = Math.max(1, Math.floor(migrated.intervalDays ?? 1));
   const anchorDate = migrated.anchorDate ?? '';
   if (!ISO.test(anchorDate)) throw new Error('Невалидна начална дата');
 
-  const wantWeekdays = repeat === 'weekdays';
-
-  // Per-weekday windows: dedupe by dow (last wins). In weekdays mode each window
-  // is the user's active config and must be valid; in interval mode the days are
-  // inert, so drop any invalid one instead of failing the whole save.
+  // Dedupe by dow (last wins), clamp capacities, week-sort.
   const byDow = new Map<number, SlotDay>();
   for (const d of migrated.days ?? []) {
     if (!Number.isInteger(d?.dow) || d.dow < 0 || d.dow > 6) continue;
-    if (wantWeekdays) {
-      byDow.set(d.dow, { dow: d.dow, ...normalizeWindow(d, ` (${BG_WD[d.dow]})`) });
-    } else {
-      try {
-        byDow.set(d.dow, { dow: d.dow, ...normalizeWindow(d, '') });
-      } catch {
-        /* inert in interval mode — skip the invalid day rather than reject */
-      }
-    }
+    byDow.set(d.dow, { dow: d.dow, capacity: clampCapacity(d.capacity) });
   }
   const days = [...byDow.values()].sort((a, b) => a.dow - b.dow);
-
-  // Interval window: strict when interval is the active mode, tolerant otherwise
-  // (a stale/blank window for the inactive mode must not block a weekdays save).
-  const intervalWindow = wantWeekdays
-    ? safeWindow(migrated.intervalWindow, DEFAULT_WINDOW)
-    : normalizeWindow(migrated.intervalWindow, '');
-
-  if (wantWeekdays && days.length === 0) {
+  if (repeat === 'weekdays' && days.length === 0) {
     throw new Error('Избери поне един ден от седмицата');
   }
-
-  // Slot length: 0 = off (whole window is one slot); otherwise clamp to a sane
-  // range so a typo can't generate thousands of slivers.
-  const rawSlotMin = Math.floor(migrated.slotMinutes ?? 0);
-  const slotMinutes = rawSlotMin > 0 ? Math.min(480, Math.max(15, rawSlotMin)) : 0;
-  const defaultCapacity = clampCapacity(migrated.defaultCapacity);
 
   return {
     active: migrated.active !== false,
     repeat,
     days,
-    intervalDays,
-    intervalWindow,
+    intervalDays: Math.max(1, Math.floor(migrated.intervalDays ?? 1)),
+    intervalCapacity: clampCapacity(migrated.intervalCapacity),
     anchorDate,
-    slotMinutes,
-    defaultCapacity,
     customerNote: migrated.customerNote?.slice(0, 280) || undefined,
     driverNote: migrated.driverNote?.slice(0, 500) || undefined,
     horizonDays: Math.min(60, Math.max(1, Math.floor(migrated.horizonDays ?? 28))),
