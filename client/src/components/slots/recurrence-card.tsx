@@ -123,6 +123,7 @@ interface State {
   intervalWindow: SlotWindow;
   anchorDate: string;
   slotMinutes: number;
+  defaultCapacity: number;
   customerNote: string;
   driverNote: string;
   horizonDays: number;
@@ -141,6 +142,7 @@ function initialState(initial: SlotRule | null): State {
       intervalWindow: { ...DEFAULT_WIN },
       anchorDate: todayIso(),
       slotMinutes: 0,
+      defaultCapacity: 1,
       customerNote: '',
       driverNote: '',
       horizonDays: 28,
@@ -159,6 +161,7 @@ function initialState(initial: SlotRule | null): State {
     intervalWindow: initial.intervalWindow ?? { ...DEFAULT_WIN },
     anchorDate: initial.anchorDate,
     slotMinutes: initial.slotMinutes ?? 0,
+    defaultCapacity: initial.defaultCapacity ?? 1,
     customerNote: initial.customerNote ?? '',
     driverNote: initial.driverNote ?? '',
     horizonDays: initial.horizonDays,
@@ -235,6 +238,7 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
         intervalWindow: cleanWin(s.intervalWindow),
         anchorDate: s.anchorDate,
         slotMinutes: s.slotMinutes,
+        defaultCapacity: s.defaultCapacity,
         customerNote: s.customerNote || undefined,
         driverNote: s.driverNote || undefined,
         horizonDays: s.horizonDays,
@@ -400,6 +404,18 @@ export function RecurrenceCard({ initial, onSaved }: { initial: SlotRule | null;
             </div>
           );
         })()}
+
+        <label className={cn(lbl, 'max-w-[14rem]')}>
+          Поръчки на слот <span className="font-normal text-ff-muted">(колко доставки поемаш едновременно · напр. 2 човека = 2)</span>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={s.defaultCapacity}
+            onChange={(e) => set({ defaultCapacity: Math.min(20, Math.max(1, parseInt(e.target.value, 10) || 1)) })}
+            className={field}
+          />
+        </label>
 
         <label className={cn(lbl, 'max-w-[14rem]')}>
           Започва от <span className="font-normal text-ff-muted">(по избор · по подразбиране днес)</span>
