@@ -1,17 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import type { Order, UpdateOrderInput } from '@/lib/types';
+import { listSlots } from '@/lib/api-client';
+import { hhmm, relDayLabel } from '@/lib/utils';
+import type { Order, Slot, UpdateOrderInput } from '@/lib/types';
 
-/** Local editable draft of an order. Delivery method is fixed; only its values
- *  (address/note/office) + contact + notes are here. Items/slot added in later
- *  tasks. */
+/** Local editable draft of an order. Delivery method is fixed; its values
+ *  (address/note/office) + slot (when applicable) + contact + notes are here. */
 interface Draft {
   customerName: string;
   customerPhone: string;
   customerEmail: string;
   notes: string;
+  deliveryAddress: string;
+  deliveryNote: string;
+  econtOffice: string;
+  slotId: string | null;
 }
 
 function Field({
@@ -54,18 +59,46 @@ export function OrderEditForm({
     customerPhone: order.customerPhone ?? '',
     customerEmail: order.customerEmail ?? '',
     notes: order.notes ?? '',
+    deliveryAddress: order.deliveryAddress ?? '',
+    deliveryNote: order.deliveryNote ?? '',
+    econtOffice: order.econtOffice ?? '',
+    slotId: order.slotId ?? null,
   });
+
+  const usesSlot = order.deliveryType === 'address';
+  const [slots, setSlots] = useState<Slot[]>([]);
+  useEffect(() => {
+    if (!usesSlot) return;
+    const today = new Date();
+    const to = new Date();
+    to.setDate(today.getDate() + 14);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    listSlots(iso(today), iso(to))
+      .then((all) =>
+        // Free slots only (booked === 0), never today, plus keep the order's own
+        // current slot so it stays selectable even if now full by itself.
+        setSlots(all.filter((s) => s.date !== iso(today) && (s.booked === 0 || s.id === order.slotId))),
+      )
+      .catch(() => setSlots([]));
+  }, [usesSlot, order.slotId]);
 
   const phoneValid = draft.customerPhone.trim().length > 0;
 
   function submit() {
     if (!phoneValid) return;
-    onSave({
+    const patch: UpdateOrderInput = {
       customerName: draft.customerName.trim(),
       customerPhone: draft.customerPhone.trim(),
       customerEmail: draft.customerEmail.trim() || null,
       notes: draft.notes.trim() || null,
-    });
+    };
+    if (order.deliveryType === 'address' || order.deliveryType === 'econt_address' || order.deliveryType === 'courier') {
+      patch.deliveryAddress = draft.deliveryAddress.trim();
+      patch.deliveryNote = draft.deliveryNote.trim() || null;
+    }
+    if (order.deliveryType === 'econt') patch.econtOffice = draft.econtOffice.trim();
+    if (usesSlot) patch.slotId = draft.slotId;
+    onSave(patch);
   }
 
   return (
@@ -77,6 +110,41 @@ export function OrderEditForm({
           <Field label="Телефон" value={draft.customerPhone} onChange={(v) => setDraft((d) => ({ ...d, customerPhone: v }))} />
           {!phoneValid && <span className="text-xs font-semibold text-red-600">Телефонът е задължителен</span>}
           <Field label="Имейл" type="email" value={draft.customerEmail} onChange={(v) => setDraft((d) => ({ ...d, customerEmail: v }))} />
+        </div>
+
+        <div className="mb-2.5 text-[13px] font-bold text-ff-muted">ДОСТАВКА</div>
+        <div className="mb-5 flex flex-col gap-3">
+          {(order.deliveryType === 'address' ||
+            order.deliveryType === 'econt_address' ||
+            order.deliveryType === 'courier') && (
+            <>
+              <Field label="Адрес" value={draft.deliveryAddress} onChange={(v) => setDraft((d) => ({ ...d, deliveryAddress: v }))} />
+              <Field label="Бл./вх./ет./ап." value={draft.deliveryNote} onChange={(v) => setDraft((d) => ({ ...d, deliveryNote: v }))} />
+            </>
+          )}
+          {order.deliveryType === 'econt' && (
+            <Field label="Еконт офис" value={draft.econtOffice} onChange={(v) => setDraft((d) => ({ ...d, econtOffice: v }))} />
+          )}
+          {order.deliveryType === 'pickup' && (
+            <div className="text-sm font-semibold text-ff-ink-2">Вземане от място</div>
+          )}
+          {usesSlot && (
+            <label className="block">
+              <span className="text-xs font-semibold text-ff-muted">Ден и час</span>
+              <select
+                value={draft.slotId ?? ''}
+                onChange={(e) => setDraft((d) => ({ ...d, slotId: e.target.value || null }))}
+                className="mt-1 w-full rounded-sm border border-ff-border bg-ff-surface-2 px-2.5 py-2 text-sm font-semibold text-ff-ink outline-none focus:border-ff-green-500"
+              >
+                <option value="">Без час</option>
+                {slots.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {relDayLabel(s.date)} · {hhmm(s.timeFrom)} – {hhmm(s.timeTo)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         <div className="mb-2.5 text-[13px] font-bold text-ff-muted">БЕЛЕЖКА</div>
