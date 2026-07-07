@@ -54,13 +54,18 @@ export interface PublicAvailabilityWindow {
 }
 
 /** Available delivery slot as returned by `GET /public/:slug/slots`. Only free
- *  slots come back (each holds one order). Times may arrive as `HH:MM:SS` (pg
- *  `time`); trim to `HH:MM` for display. */
+ *  slots come back (each holds one order). A slot is now a whole delivery day
+ *  with a capacity, not an hour range: `startTime`/`endTime` are `null` for
+ *  day-rows (the common case), and only non-null for legacy pre-day-slot rows
+ *  that still carry an `HH:MM` window. `remaining` is the free spots left on a
+ *  multi-capacity day (`null` for capacity-1 days — no "N places left" noise). */
 export interface PublicSlot {
   id: string;
   date: string; // YYYY-MM-DD
-  startTime: string;
-  endTime: string;
+  startTime: string | null;
+  endTime: string | null;
+  customerNote: string | null;
+  remaining: number | null;
 }
 
 export type DeliveryType = 'address' | 'econt' | 'econt_address' | 'pickup';
@@ -258,10 +263,21 @@ export function getAvailability(slug: string): Promise<PublicAvailabilityWindow[
   } as RequestInit);
 }
 
-/** Available delivery slots for a date (`[]` when delivery is disabled). */
-export function getSlots(slug: string, date?: string): Promise<PublicSlot[]> {
-  const qs = date ? `?date=${encodeURIComponent(date)}` : '';
-  return request<PublicSlot[]>(`/public/${slug}/slots${qs}`, {
+/**
+ * Available delivery slots (`[]` when delivery is disabled). Pass a single
+ * `date`, or a `[from, to]` range — the range form is a single request for a
+ * whole picker window instead of one fetch per day.
+ */
+export function getSlots(
+  slug: string,
+  opts: { date?: string; from?: string; to?: string } = {},
+): Promise<PublicSlot[]> {
+  const params = new URLSearchParams();
+  if (opts.date) params.set('date', opts.date);
+  if (opts.from) params.set('from', opts.from);
+  if (opts.to) params.set('to', opts.to);
+  const qs = params.toString();
+  return request<PublicSlot[]>(`/public/${slug}/slots${qs ? `?${qs}` : ''}`, {
     cache: 'no-store',
   });
 }

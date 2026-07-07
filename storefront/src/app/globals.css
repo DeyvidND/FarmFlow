@@ -727,6 +727,7 @@ body.show-modules .module-toggle .sw::after { transform: translateX(14px); }
 .date-pill .m { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 .date-pill.is-active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .date-pill.is-active .m { color: rgba(255,255,255,.8); }
+.date-pill:disabled { opacity: .4; cursor: not-allowed; }
 
 /* radio cards */
 .radio-card { display: flex; gap: 14px; align-items: flex-start; padding: 18px; border: 1.5px solid var(--line-strong); border-radius: var(--radius-sm); cursor: pointer; transition: all .15s; }

@@ -443,9 +443,9 @@ export function CheckoutClient({
               {/* delivery slot — only for personal delivery, when the farm offers slots */}
               {showSelf && !isEcont && !isPickup && hasSlots !== false && (
                 <div className="card" style={{ padding: 24, boxShadow: 'none' }}>
-                  <h3 style={{ fontSize: 20, marginBottom: 6 }}>Часови слот за доставка</h3>
+                  <h3 style={{ fontSize: 20, marginBottom: 6 }}>Избери ден за доставка</h3>
                   <p className="muted" style={{ fontSize: 14, marginBottom: 16 }}>
-                    Избери удобен ден и час. Заетите слотове не се показват.
+                    Избери удобен ден. Заетите дни не се показват.
                   </p>
                   <SlotPicker
                     value={slotId}

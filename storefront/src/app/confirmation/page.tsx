@@ -19,10 +19,37 @@ import { useCart } from '@/lib/cart';
 import { Check, Leaf, Truck } from '@/components/icons';
 
 const MONTHS = ['яну', 'фев', 'мар', 'апр', 'май', 'юни', 'юли', 'авг', 'сеп', 'окт', 'ное', 'дек'];
+const WEEKDAYS_FULL = [
+  'понеделник',
+  'вторник',
+  'сряда',
+  'четвъртък',
+  'петък',
+  'събота',
+  'неделя',
+];
 
 function formatSlotDate(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
   return `${d} ${MONTHS[(m ?? 1) - 1]}`;
+}
+
+/** Day name for a `YYYY-MM-DD` slot date, parsed as UTC so it lines up with
+ *  how the picker built its pills. */
+function formatSlotWeekday(iso: string): string {
+  const dt = new Date(`${iso}T00:00:00Z`);
+  return WEEKDAYS_FULL[(dt.getUTCDay() + 6) % 7];
+}
+
+/** Slot label for the confirmation recap. Day-rows (post migration 0081) carry
+ *  no time window (`startTime`/`endTime` come back empty) — show the day name
+ *  + date. Legacy orders that still have real `HH:MM` times keep the old
+ *  `date, start–end` format so they don't look broken. */
+function formatSlotLabel(slot: { date: string; startTime: string; endTime: string }): string {
+  if (slot.startTime && slot.endTime) {
+    return `${formatSlotDate(slot.date)}, ${slot.startTime}–${slot.endTime}`;
+  }
+  return `${formatSlotWeekday(slot.date)}, ${formatSlotDate(slot.date)}`;
 }
 
 type Phase = 'loading' | 'ok' | 'notfound';
@@ -122,8 +149,7 @@ export default function ConfirmationPage() {
                   </div>
                   {order.slot && (
                     <div className="note-fresh" style={{ marginTop: 12 }}>
-                      <Truck /> {formatSlotDate(order.slot.date)}, {order.slot.startTime}–
-                      {order.slot.endTime}
+                      <Truck /> {formatSlotLabel(order.slot)}
                     </div>
                   )}
                 </div>
