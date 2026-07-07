@@ -986,31 +986,33 @@ export class OrdersService {
     let newLat: string | null | undefined;
     let newLng: string | null | undefined;
     let newCity: string | null | undefined;
-    if (addressChanged && dto.deliveryAddress && (geocodes || needsCity)) {
-      const [tenant] = await this.db
-        .select({ farmLat: tenants.farmLat, farmLng: tenants.farmLng })
-        .from(tenants)
-        .where(eq(tenants.id, tenantId))
-        .limit(1);
-      const fLat = tenant?.farmLat == null ? null : Number(tenant.farmLat);
-      const fLng = tenant?.farmLng == null ? null : Number(tenant.farmLng);
-      const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
-      if (geocodes) {
-        const geo = await this.maps.geocode(dto.deliveryAddress, bias);
-        if (geo) {
-          newLat = String(geo.lat);
-          newLng = String(geo.lng);
+    if (addressChanged && (geocodes || needsCity)) {
+      if (dto.deliveryAddress) {
+        const [tenant] = await this.db
+          .select({ farmLat: tenants.farmLat, farmLng: tenants.farmLng })
+          .from(tenants)
+          .where(eq(tenants.id, tenantId))
+          .limit(1);
+        const fLat = tenant?.farmLat == null ? null : Number(tenant.farmLat);
+        const fLng = tenant?.farmLng == null ? null : Number(tenant.farmLng);
+        const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
+        if (geocodes) {
+          // Geocode lookup attempted — a miss (or Maps disabled) must clear the
+          // OLD pin, never silently leave it standing under the NEW address text.
+          const geo = await this.maps.geocode(dto.deliveryAddress, bias);
+          newLat = geo ? String(geo.lat) : null;
+          newLng = geo ? String(geo.lng) : null;
+        } else {
+          newCity = (await this.maps.geocodeCity(dto.deliveryAddress, bias)) ?? null;
         }
       } else {
-        newCity = (await this.maps.geocodeCity(dto.deliveryAddress, bias)) ?? undefined;
+        // Address cleared — the OLD coordinates/city must not survive an emptied address.
+        if (geocodes) {
+          newLat = null;
+          newLng = null;
+        }
+        if (needsCity) newCity = null;
       }
-    } else if (addressChanged && !dto.deliveryAddress) {
-      // Address cleared — the OLD coordinates/city must not survive an emptied address.
-      if (geocodes) {
-        newLat = null;
-        newLng = null;
-      }
-      if (needsCity) newCity = null;
     }
 
     await this.db.transaction(async (tx) => {
@@ -1365,15 +1367,6 @@ export class OrdersService {
   }
 
   /**
-   * Validate the cart, reserve stock (availability windows + variant stock), price
-   * each line, and — when a slot is given (local delivery) — lock it and enforce
-   * the slot's capacity. Runs inside an open transaction; mutates the
-   * locked rows (the reservation). Shared by single-order intake ({@link create})
-   * and the courier split ({@link createCourierOrders}). Returns the priced lines
-   * (with each line's owning farmer) plus the resolved slot times. Throws
-   * Bad/Conflict exactly as the inline intake logic did.
-   */
-  /**
    * Lock a delivery slot row and enforce its capacity + same-day cutoff.
    * Shared by intake (reserveCartItems) and the order-edit slot reassign —
    * `excludeOrderId` lets an edit's own order not count against its own slot.
@@ -1410,6 +1403,15 @@ export class OrdersService {
     return { timeFrom: slot.timeFrom, timeTo: slot.timeTo, date: slot.date, capacity: slot.capacity };
   }
 
+  /**
+   * Validate the cart, reserve stock (availability windows + variant stock), price
+   * each line, and — when a slot is given (local delivery) — lock it and enforce
+   * the slot's capacity. Runs inside an open transaction; mutates the
+   * locked rows (the reservation). Shared by single-order intake ({@link create})
+   * and the courier split ({@link createCourierOrders}). Returns the priced lines
+   * (with each line's owning farmer) plus the resolved slot times. Throws
+   * Bad/Conflict exactly as the inline intake logic did.
+   */
   private async reserveCartItems(
     tx: Tx,
     tenantId: string,
