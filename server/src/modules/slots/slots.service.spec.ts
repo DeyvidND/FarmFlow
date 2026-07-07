@@ -170,7 +170,7 @@ function publicSlotsDb(rows: { id: string; date: string; startTime: string; endT
   return { select: () => sel } as never;
 }
 
-describe('SlotsService.findPublicBySlug — same-day lead-time cutoff', () => {
+describe('SlotsService.findPublicBySlug — same-day cutoff', () => {
   // Today = 2026-07-02 (Thursday), first slot 14:00. Bulgaria is UTC+3 in July.
   const rows = [
     { id: 's-today', date: '2026-07-02', startTime: '14:00', endTime: '14:30' },
@@ -180,17 +180,17 @@ describe('SlotsService.findPublicBySlug — same-day lead-time cutoff', () => {
 
   afterEach(() => jest.useRealTimers());
 
-  it('drops today once within 2h of its first slot (13:00 local, cutoff is 12:00)', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-07-02T10:00:00Z')); // 13:00 Sofia (UTC+3)
+  it('drops today entirely, even right after midnight (00:30 local)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-01T21:30:00Z')); // 00:30 Sofia (UTC+3)
     const svc = new SlotsService(publicSlotsDb(rows), publicCache as never);
     const result = await svc.findPublicBySlug('chaika');
     expect(result.map((r) => r.id)).toEqual(['s-future']);
   });
 
-  it('keeps today before the cutoff (09:00 local, 5h before the 14:00 slot)', async () => {
+  it('drops today regardless of how early it still is before the first slot (09:00 local)', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-02T06:00:00Z')); // 09:00 Sofia (UTC+3)
     const svc = new SlotsService(publicSlotsDb(rows), publicCache as never);
     const result = await svc.findPublicBySlug('chaika');
-    expect(result.map((r) => r.id)).toEqual(['s-today', 's-future']);
+    expect(result.map((r) => r.id)).toEqual(['s-future']);
   });
 });

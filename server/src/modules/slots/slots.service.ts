@@ -8,10 +8,9 @@ import { and, eq, ne, gte, lte, sql, getTableColumns } from 'drizzle-orm';
 import { type Database, deliverySlots, orders, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
-import { bgNowMinutes, minutesOf } from '../../common/time/bg-time';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { UpdateSlotDto } from './dto/update-slot.dto';
-import { SlotRule, slotRuleSlots, normalizeRule, migrateRule, SAME_DAY_LEAD_HOURS } from './slot-rule';
+import { SlotRule, slotRuleSlots, normalizeRule, migrateRule } from './slot-rule';
 
 /** A delivery slot plus its live `booked` count (non-cancelled orders). */
 type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
@@ -253,17 +252,11 @@ export class SlotsService {
       .having(sql`count(${orders.id}) = 0`)
       .orderBy(deliverySlots.date, deliverySlots.timeFrom);
 
-    // Drop today entirely once we're within the lead-time window of its first
-    // slot — a whole-day cutoff, not a per-slot one (see SAME_DAY_LEAD_HOURS).
+    // Today is never pickable — the farm needs a full day's lead time to plan
+    // the day's route/prep, so the last chance to book a day's slot is the day
+    // before it.
     const today = this.bgToday();
-    const todayRows = rows.filter((r) => r.date === today);
-    if (todayRows.length) {
-      const firstSlotMinutes = Math.min(...todayRows.map((r) => minutesOf(r.startTime)));
-      if (bgNowMinutes() >= firstSlotMinutes - SAME_DAY_LEAD_HOURS * 60) {
-        return rows.filter((r) => r.date !== today);
-      }
-    }
-    return rows;
+    return rows.filter((r) => r.date !== today);
   }
 
   // ---- Recurring slot rule (settings.slotRule) ----
