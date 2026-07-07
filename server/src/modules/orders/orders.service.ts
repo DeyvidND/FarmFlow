@@ -38,6 +38,7 @@ import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econ
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay } from './order-scheduling';
 import { decideDecrement, restoreRemaining } from '../availability/availability.util';
+import { slotIsFull } from '../slots/slot-rule';
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
@@ -1375,7 +1376,7 @@ export class OrdersService {
         .select({ count: sql<number>`count(*)::int` })
         .from(orders)
         .where(and(eq(orders.slotId, slotId), ne(orders.status, 'cancelled')));
-      if (count >= 1) throw new ConflictException('Слотът е запълнен');
+      if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
     }
 
     // Per-item availability-window enforcement (lock all active windows in one
