@@ -14,6 +14,7 @@ import type { RouteStop, RouteResult } from '@/lib/types';
 // Reserved demo map id — renders AdvancedMarkers without cloud styling (same as route-map).
 const MAP_ID = 'DEMO_MAP_ID';
 const BG_CENTROID = { lat: 42.7339, lng: 25.4858 };
+const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
 type Origin = RouteResult['origin'];
 type LatLng = { lat: number; lng: number };
@@ -56,7 +57,7 @@ export function EditAddressModal({
   );
 
   const [saving, setSaving] = useState(false);
-  const key = mapsKey ?? '';
+  const key = mapsKey || MAPS_KEY;
 
   const mapCenter: LatLng =
     mapPin ??
