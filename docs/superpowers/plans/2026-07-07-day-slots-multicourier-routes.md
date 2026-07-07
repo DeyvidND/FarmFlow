@@ -530,6 +530,7 @@ git commit -m "feat(slots): day-capacity slot rule — windows and slotMinutes r
 - Modify: `server/src/modules/slots/dto/slot-rule.dto.ts` (mirror the new SlotRule shape; read the file first)
 - Modify: `server/src/modules/slots/slots.service.spec.ts`, `server/src/modules/slots/slots.processor.spec.ts` (adapt fixtures)
 - Modify: `server/src/modules/orders/orders.service.ts:1362-1392` (`lockAndCheckSlot`) + its spec fixtures
+- Modify: `server/src/modules/orders/delivery-pricing.ts:220-254` (`buildPublicOwnSlots` + its local `OwnSlotsRule` type) + its spec: the public schedule text loses hours — weekdays mode → `всеки Пн, Ср и Чт` (weekday grouping collapses to one list, no time suffix); interval mode → `на всеки N дни`. `OwnSlotsRule.days` becomes `{dow: number}[]`; old stored rules still parse (dow present in every historical shape). `PublicOwnSlots` shape unchanged.
 
 **Interfaces:**
 - Consumes: `migrateRule`, `normalizeRule`, `slotRuleSlots`, `clampCapacity`, `GenSlot {date, capacity}` from Task 2.
