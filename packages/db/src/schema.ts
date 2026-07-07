@@ -319,8 +319,10 @@ export const deliverySlots = pgTable(
     id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
     tenantId: uuid('tenant_id').references(() => tenants.id),
     date: date('date').notNull(),
-    timeFrom: time('time_from').notNull(),
-    timeTo: time('time_to').notNull(),
+    // NULL on day-based slots (one row per delivery day, no hours). Non-null
+    // only on legacy pre-0081 rows, kept for history display.
+    timeFrom: time('time_from'),
+    timeTo: time('time_to'),
     isActive: boolean('is_active').default(true),
     // Customer-facing note shown in the storefront slot picker (e.g. "ще се обадя
     // преди доставка"). Safe to expose publicly.
@@ -331,9 +333,9 @@ export const deliverySlots = pgTable(
     // True for rows created by the recurrence rule (vs. one-off manual slots). The
     // generator only ever touches generated rows.
     generated: boolean('generated').notNull().default(false),
-    // How many orders this slot accepts (= how many people work it). Booked count
+    // Daily order ceiling for this delivery day (see migration 0081). Booked count
     // is computed live from non-cancelled orders; this is just the ceiling. Default
-    // 1 preserves the historical one-order-per-slot behaviour. See migration 0079.
+    // 1 preserves the historical one-order-per-slot behaviour on legacy rows.
     capacity: integer('capacity').notNull().default(1),
   },
   // Slot lists + dashboard summary filter by tenant, usually over a date window.

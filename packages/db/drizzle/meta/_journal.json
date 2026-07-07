@@ -568,6 +568,13 @@
       "when": 1783442173147,
       "tag": "0080_drop_farmers_courier_enabled",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1783448616412,
+      "tag": "0081_day_slots",
+      "breakpoints": true
     }
   ]
 }

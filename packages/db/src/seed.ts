@@ -165,7 +165,10 @@ async function main() {
   // 13 demo orders (all "today" = Събота 30.05.2026) from data.js, across statuses.
   const findProduct = (itemName: string) => productRows.find((p) => itemName.startsWith(p.name));
   const todaySlot = new Map(
-    slotRows.filter((s) => s.date === '2026-05-30').map((s) => [s.timeFrom.slice(0, 5), s.id]),
+    slotRows
+      .filter((s) => s.date === '2026-05-30')
+      // Seed data always sets timeFrom explicitly (see DAY_TEMPLATE/ROLLING_SLOTS above).
+      .map((s) => [s.timeFrom!.slice(0, 5), s.id]),
   );
 
   type DemoOrder = {
