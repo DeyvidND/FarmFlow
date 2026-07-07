@@ -76,6 +76,7 @@ export class SlotsService {
       tenantId,
       timeFrom: dto.timeFrom,
       timeTo: dto.timeTo,
+      capacity: dto.capacity ?? 1,
       customerNote: dto.customerNote ?? null,
       driverNote: dto.driverNote ?? null,
     };
@@ -102,7 +103,7 @@ export class SlotsService {
     // Explicit allow-list: a partial slot edit must not inject recurrence-only
     // keys (date range / weekdays) or the generated flag into the row.
     const patch: Record<string, unknown> = {};
-    for (const k of ['timeFrom', 'timeTo', 'customerNote', 'driverNote'] as const) {
+    for (const k of ['timeFrom', 'timeTo', 'capacity', 'customerNote', 'driverNote'] as const) {
       if (dto[k] !== undefined) patch[k] = dto[k];
     }
     const [row] = await this.db

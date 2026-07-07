@@ -59,6 +59,16 @@ export class SaveSlotRuleDto {
   @Max(480)
   slotMinutes?: number;
 
+  @ApiPropertyOptional({
+    example: 2,
+    description: 'Колко поръчки приема всеки автоматичен слот (1–20). По подразбиране 1.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  defaultCapacity?: number;
+
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(280) customerNote?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) driverNote?: string;

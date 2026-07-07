@@ -28,6 +28,16 @@ export class CreateSlotDto {
   timeTo: string;
 
   @ApiPropertyOptional({
+    example: 2,
+    description: 'Колко поръчки приема слотът (1–20). По подразбиране 1.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  capacity?: number;
+
+  @ApiPropertyOptional({
     example: '2026-06-30',
     description: 'Range end — set together with weekdays to bulk-create across [date, dateTo].',
   })
