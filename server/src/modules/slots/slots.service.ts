@@ -10,7 +10,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { UpdateSlotDto } from './dto/update-slot.dto';
-import { SlotRule, slotRuleSlots, normalizeRule, migrateRule } from './slot-rule';
+import { SlotRule, slotRuleSlots, normalizeRule, migrateRule, clampCapacity } from './slot-rule';
 
 /** A delivery slot plus its live `booked` count (non-cancelled orders). */
 type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
@@ -368,6 +368,7 @@ export class SlotsService {
           timeFrom: w.timeFrom,
           timeTo: w.timeTo,
           generated: true,
+          capacity: clampCapacity(rule.defaultCapacity),
           customerNote: rule.customerNote ?? null,
           driverNote: rule.driverNote ?? null,
         })),

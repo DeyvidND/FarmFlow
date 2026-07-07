@@ -80,6 +80,42 @@ describe('SlotsService.materializeRule', () => {
       timeTo: '12:00',
     });
   });
+
+  it('stamps defaultCapacity onto generated slots', async () => {
+    const inserted: Record<string, unknown>[] = [];
+    const svc = new SlotsService(fakeDb([], inserted), {} as never);
+    jest.spyOn(svc, 'getRule').mockResolvedValue({
+      active: true,
+      repeat: 'interval',
+      days: [],
+      intervalDays: 3,
+      intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
+      anchorDate: '2026-06-08',
+      horizonDays: 3,
+      skipDates: [],
+      defaultCapacity: 2,
+    });
+    await svc.materializeRule('t1', '2026-06-08');
+    expect(inserted.length).toBeGreaterThan(0);
+    expect(inserted.every((r) => r.capacity === 2)).toBe(true);
+  });
+
+  it('defaults capacity to 1 when the rule has no defaultCapacity', async () => {
+    const inserted: Record<string, unknown>[] = [];
+    const svc = new SlotsService(fakeDb([], inserted), {} as never);
+    jest.spyOn(svc, 'getRule').mockResolvedValue({
+      active: true,
+      repeat: 'interval',
+      days: [],
+      intervalDays: 3,
+      intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
+      anchorDate: '2026-06-08',
+      horizonDays: 3,
+      skipDates: [],
+    });
+    await svc.materializeRule('t1', '2026-06-08');
+    expect(inserted.every((r) => r.capacity === 1)).toBe(true);
+  });
 });
 
 /** db stub for remove(): 1st select = slot lookup (.limit), 2nd select = live-order
