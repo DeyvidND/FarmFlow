@@ -18,8 +18,10 @@ type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
 /**
  * Public-facing slot shape for the storefront picker. Internal columns
  * (`tenantId`, `isActive`, `createdAt`) are dropped and times are trimmed to
- * `HH:MM`. Only slots with remaining capacity (booked < capacity) are
- * returned; capacity itself is never exposed.
+ * `HH:MM`. Only slots with remaining capacity (booked < capacity) are returned.
+ * `remaining` = free spots left, BUT only for multi-capacity slots (>1) — a
+ * single-capacity slot sends null so the storefront shows no "N places left"
+ * noise and the raw capacity number is still never exposed for the common case.
  */
 export interface PublicSlot {
   id: string;
@@ -27,6 +29,8 @@ export interface PublicSlot {
   startTime: string; // HH:MM
   endTime: string; // HH:MM
   customerNote: string | null;
+  /** Free spots left on a multi-capacity slot (>=1), or null for capacity-1 slots. */
+  remaining: number | null;
 }
 
 /** Columns the storefront may read for a slot. driverNote is intentionally absent. */
@@ -36,6 +40,7 @@ export const PUBLIC_SLOT_COLUMNS = [
   'startTime',
   'endTime',
   'customerNote',
+  'remaining',
 ] as const;
 
 @Injectable()
@@ -241,6 +246,12 @@ export class SlotsService {
         startTime: sql<string>`substring(${deliverySlots.timeFrom}::text from 1 for 5)`,
         endTime: sql<string>`substring(${deliverySlots.timeTo}::text from 1 for 5)`,
         customerNote: deliverySlots.customerNote,
+        // Free spots left — only for multi-capacity slots (>1); single-capacity
+        // slots send null so the picker shows no count and the raw capacity of a
+        // normal one-order slot is never disclosed.
+        remaining: sql<number | null>`case when ${deliverySlots.capacity} > 1
+          then (${deliverySlots.capacity} - count(${orders.id}))::int
+          else null end`,
       })
       .from(deliverySlots)
       .leftJoin(
