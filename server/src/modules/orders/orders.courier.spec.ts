@@ -52,7 +52,7 @@ const DTO = {
  * — branched on which table `insert(table)` was called with.
  */
 function makeTx(
-  farmerRows: Array<{ id: string; name: string | null; courierEnabled: boolean }>,
+  farmerRows: Array<{ id: string; name: string | null }>,
   nextNumber: number,
   ordersValues: any[],
   itemsValues: any[],
@@ -137,8 +137,8 @@ describe('OrdersService.createCourierOrders()', () => {
     const shipmentsValues: any[] = [];
     const tx = makeTx(
       [
-        { id: FARMER_A, name: 'Ферма А', courierEnabled: true },
-        { id: FARMER_B, name: 'Ферма Б', courierEnabled: true },
+        { id: FARMER_A, name: 'Ферма А' },
+        { id: FARMER_B, name: 'Ферма Б' },
       ],
       7, // nextNumber
       ordersValues,
@@ -218,7 +218,7 @@ describe('OrdersService.createCourierOrders()', () => {
     const itemsValues: any[] = [];
     const shipmentsValues: any[] = [];
     const tx = makeTx(
-      [{ id: FARMER_A, name: 'Ферма А', courierEnabled: true }],
+      [{ id: FARMER_A, name: 'Ферма А' }],
       1,
       ordersValues,
       itemsValues,
@@ -250,7 +250,7 @@ describe('OrdersService.createCourierOrders()', () => {
     const itemsValues: any[] = [];
     const shipmentsValues: any[] = [];
     const tx = makeTx(
-      [{ id: FARMER_A, name: 'Ферма А', courierEnabled: true }],
+      [{ id: FARMER_A, name: 'Ферма А' }],
       1,
       ordersValues,
       itemsValues,
@@ -277,7 +277,7 @@ describe('OrdersService.createCourierOrders()', () => {
     const ordersValues: any[] = [];
     const itemsValues: any[] = [];
     const tx = makeTx(
-      [{ id: FARMER_A, name: 'Ферма А', courierEnabled: true }],
+      [{ id: FARMER_A, name: 'Ферма А' }],
       1,
       ordersValues,
       itemsValues,
@@ -304,9 +304,9 @@ describe('OrdersService.createCourierOrders()', () => {
     const itemsValues: any[] = [];
     const tx = makeTx(
       [
-        { id: FARMER_A, name: 'Ферма А', courierEnabled: true },
-        // Farmer B exists but is NOT ready (courierEnabled false + no configured carrier).
-        { id: FARMER_B, name: 'Ферма Б', courierEnabled: false },
+        { id: FARMER_A, name: 'Ферма А' },
+        // Farmer B exists but is NOT ready (no configured carrier).
+        { id: FARMER_B, name: 'Ферма Б' },
       ],
       1,
       ordersValues,
@@ -334,7 +334,7 @@ describe('OrdersService.createCourierOrders()', () => {
     const ordersValues: any[] = [];
     const itemsValues: any[] = [];
     const tx = makeTx(
-      [{ id: FARMER_A, name: 'Ферма А', courierEnabled: true }],
+      [{ id: FARMER_A, name: 'Ферма А' }],
       1,
       ordersValues,
       itemsValues,

@@ -419,8 +419,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
           {d.farmers.length > 0 && (
             <span className="text-[12.5px] text-ff-muted">
               {d.farmers.length} {d.farmers.length === 1 ? 'фермер' : 'фермери'} ·{' '}
-              {d.farmers.filter((f) => f.hasLogin).length} с достъп ·{' '}
-              {d.farmers.filter((f) => f.courierEnabled).length} с куриер
+              {d.farmers.filter((f) => f.hasLogin).length} с достъп
             </span>
           )}
         </div>
@@ -431,7 +430,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-                  {['Фермер', 'Вход', 'Куриер', 'Свързани', 'Продукти', 'Поръчки', 'Пратки', 'НП чака'].map((h) => (
+                  {['Фермер', 'Вход', 'Свързани', 'Продукти', 'Поръчки', 'Пратки', 'НП чака'].map((h) => (
                     <th key={h} className="whitespace-nowrap px-4 py-3 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
                       {h}
                     </th>
@@ -458,16 +457,6 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
                       ) : (
                         <span className="text-ff-muted-2">няма достъп</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          'inline-flex rounded-full px-2.5 py-1 text-[12px] font-bold',
-                          f.courierEnabled ? 'bg-ff-green-50 text-ff-green-700' : 'bg-ff-surface-2 text-ff-muted-2',
-                        )}
-                      >
-                        {f.courierEnabled ? 'Вкл' : 'Изкл'}
-                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">

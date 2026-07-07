@@ -53,7 +53,7 @@ export class PublicShippingQuoteController {
     }
     if (!city) return empty; // garbage input / geocode miss → storefront keeps its flat estimate
 
-    return this.quote.compare(meta.id, { ...dto, destinationCity: city }, meta.carrierPolicy, meta.courierMarkupStotinki);
+    return this.quote.compare(meta.id, { ...dto, destinationCity: city }, meta.carrierPolicy);
   }
 
   /** Resolve a settlement name from a hand-typed address, biased to the farm's

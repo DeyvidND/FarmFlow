@@ -200,7 +200,6 @@ export interface PlatformTenantDetail {
     id: string;
     name: string;
     role: string | null;
-    courierEnabled: boolean;
     hasLogin: boolean;
     loginEmail: string | null;
     invitePending: boolean;
@@ -224,7 +223,6 @@ export interface GlobalFarmerRow {
   tenantName: string;
   tenantSlug: string;
   isDemo: boolean;
-  courierEnabled: boolean;
   hasLogin: boolean;
   loginEmail: string | null;
   invitePending: boolean;
@@ -259,7 +257,6 @@ export interface FarmerDetail {
   tenantId: string;
   tenantName: string;
   tenantSlug: string;
-  courierEnabled: boolean;
   hasLogin: boolean;
   loginEmail: string | null;
   invitePending: boolean;
@@ -567,7 +564,6 @@ export class PlatformService {
         id: farmers.id,
         name: farmers.name,
         role: farmers.role,
-        courierEnabled: farmers.courierEnabled,
         userId: users.id,
         loginEmail: users.email,
         mustChange: users.mustChangePassword,
@@ -624,7 +620,6 @@ export class PlatformService {
         id: f.id,
         name: f.name,
         role: f.role,
-        courierEnabled: !!f.courierEnabled,
         hasLogin: !!f.userId,
         loginEmail: f.loginEmail ?? null,
         invitePending: !!f.userId && !!f.mustChange,
@@ -686,7 +681,6 @@ export class PlatformService {
         name: farmers.name,
         role: farmers.role,
         createdAt: farmers.createdAt,
-        courierEnabled: farmers.courierEnabled,
         tenantId: tenants.id,
         tenantName: tenants.name,
         tenantSlug: tenants.slug,
@@ -747,7 +741,6 @@ export class PlatformService {
         tenantName: r.tenantName,
         tenantSlug: r.tenantSlug,
         isDemo: !!r.isDemo,
-        courierEnabled: !!r.courierEnabled,
         hasLogin: !!r.userId,
         loginEmail: r.loginEmail ?? null,
         invitePending: !!r.userId && !!r.mustChange,
@@ -833,7 +826,6 @@ export class PlatformService {
         id: farmers.id,
         name: farmers.name,
         role: farmers.role,
-        courierEnabled: farmers.courierEnabled,
         tenantId: tenants.id,
         tenantName: tenants.name,
         tenantSlug: tenants.slug,
@@ -903,7 +895,6 @@ export class PlatformService {
       tenantId: base.tenantId,
       tenantName: base.tenantName,
       tenantSlug: base.tenantSlug,
-      courierEnabled: !!base.courierEnabled,
       hasLogin: !!base.userId,
       loginEmail: base.loginEmail ?? null,
       invitePending: !!base.userId && !!base.mustChange,

@@ -67,7 +67,6 @@ export interface GlobalFarmer {
   tenantName: string;
   tenantSlug: string;
   isDemo: boolean;
-  courierEnabled: boolean;
   hasLogin: boolean;
   loginEmail: string | null;
   invitePending: boolean;
@@ -95,7 +94,6 @@ export interface FarmerDetail {
   tenantId: string;
   tenantName: string;
   tenantSlug: string;
-  courierEnabled: boolean;
   hasLogin: boolean;
   loginEmail: string | null;
   invitePending: boolean;
@@ -208,7 +206,6 @@ export interface PlatformTenantDetail {
     id: string;
     name: string;
     role: string | null;
-    courierEnabled: boolean;
     hasLogin: boolean;
     loginEmail: string | null;
     invitePending: boolean;

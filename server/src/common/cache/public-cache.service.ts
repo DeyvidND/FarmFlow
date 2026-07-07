@@ -13,7 +13,6 @@ import {
   cardEnabled,
   speedyEnabled,
   carrierPolicy,
-  courierMarkupStotinki,
   type PublicDelivery,
   type PublicMethods,
   type PublicPickup,
@@ -75,9 +74,6 @@ export interface TenantMeta {
   // How a door order picks its carrier when both run (customer | cheapest | econt | speedy).
   // The storefront reads this to decide picker behaviour; only meaningful when comparisonActive.
   carrierPolicy: CarrierPolicy;
-  // The farm's courier markup (stotinki) — added to compare quotes so the picker
-  // shows what checkout charges. 0 = no markup.
-  courierMarkupStotinki: number;
   // Whether наложен платеж (COD) is offered — gates the storefront's COD radio.
   codEnabled: boolean;
   // Internal: whether the farm accepts card payment (the farmer's override). Folded
@@ -296,7 +292,6 @@ export class PublicCacheService {
       speedyConfigured: speedyOn,
       comparisonActive: mode === 'auto' && speedyOn,
       carrierPolicy: carrierPolicy(delivery),
-      courierMarkupStotinki: courierMarkupStotinki(delivery),
       codEnabled: codEnabled(delivery),
       cardEnabled: cardEnabled(delivery),
       stripeAccountId: row.stripeAccountId ?? null,

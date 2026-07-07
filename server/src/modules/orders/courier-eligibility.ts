@@ -25,14 +25,10 @@ export function farmerDeliveryNamespace(
 }
 
 /**
- * Whether a farmer can actually ship via courier: Vasil enabled it
- * (`courier_enabled`) AND the farmer has at least one carrier (Econt or Speedy)
- * connected in their sub-namespace.
+ * Whether a farmer can ship via courier: they have at least one carrier
+ * (Econt or Speedy) connected in their sub-namespace. There is no separate
+ * per-farmer opt-in — connecting a carrier is the switch.
  */
-export function farmerCourierReady(
-  courierEnabled: boolean,
-  ns: FarmerDeliveryNamespace | undefined,
-): boolean {
-  if (!courierEnabled) return false;
+export function farmerCourierReady(ns: FarmerDeliveryNamespace | undefined): boolean {
   return !!(ns?.econt?.configured || ns?.speedy?.configured);
 }

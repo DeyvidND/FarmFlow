@@ -380,7 +380,7 @@ describe('PlatformService', () => {
       db.orderBy
         .mockReturnValueOnce(db)            // recentOrders → limit
         .mockResolvedValueOnce([           // farmersBaseP terminal
-          { id: 'farmer-1', name: 'Иван', role: 'Пчелар', courierEnabled: true, userId: 'u1', loginEmail: 'ivan@farm.bg', mustChange: false },
+          { id: 'farmer-1', name: 'Иван', role: 'Пчелар', userId: 'u1', loginEmail: 'ivan@farm.bg', mustChange: false },
         ]);
       db.groupBy
         .mockResolvedValueOnce([{ farmerId: 'farmer-1', n: 5 }])                                       // products
@@ -393,7 +393,6 @@ describe('PlatformService', () => {
       expect(result.farmers[0]).toMatchObject({
         id: 'farmer-1',
         name: 'Иван',
-        courierEnabled: true,
         hasLogin: true,
         loginEmail: 'ivan@farm.bg',
         invitePending: false,
@@ -421,7 +420,6 @@ describe('PlatformService', () => {
         id: 'f1',
         name: 'Иван',
         role: 'Пчелар',
-        courierEnabled: true,
         tenantId: 't1',
         tenantName: 'Ферма',
         tenantSlug: 'ferma',
@@ -452,7 +450,6 @@ describe('PlatformService', () => {
         id: 'f1',
         name: 'Иван',
         tenantName: 'Ферма',
-        courierEnabled: true,
         hasLogin: true,
         loginEmail: 'ivan@farm.bg',
         econtConnected: true,
@@ -473,7 +470,6 @@ describe('PlatformService', () => {
         name: 'Иван',
         role: 'Пчелар',
         createdAt: new Date('2024-02-01'),
-        courierEnabled: true,
         tenantId: 't1',
         tenantName: 'Ферма Тест',
         tenantSlug: 'ferma-test',
@@ -500,7 +496,6 @@ describe('PlatformService', () => {
         name: 'Иван',
         tenantName: 'Ферма Тест',
         isDemo: false,
-        courierEnabled: true,
         hasLogin: true,
         loginEmail: 'ivan@farm.bg',
         invitePending: false,

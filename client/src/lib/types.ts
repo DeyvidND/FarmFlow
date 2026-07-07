@@ -114,7 +114,6 @@ export interface Farmer {
   coverCrop: CoverCrop | null;
   position: number;
   createdAt: string;
-  courierEnabled?: boolean;
 }
 
 export interface FarmerAccess {
@@ -231,9 +230,6 @@ export interface DeliverySchedule {
 
 export interface DeliveryPricing {
   freeThresholdStotinki: number;
-  /** Markup (cents) added on top of the courier (Econt/Speedy) price the customer
-   *  pays — the farm's margin. Courier methods only; absent/0 → no markup. */
-  courierMarkupStotinki?: number;
 }
 
 export interface EcontSender {

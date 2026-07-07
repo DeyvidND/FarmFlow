@@ -298,37 +298,37 @@ describe('CheckoutService.create (courier split)', () => {
   });
 });
 
-describe('CheckoutService.shippingStotinki (courier markup)', () => {
-  const markupCfg = {
+describe('CheckoutService.shippingStotinki (raw courier price, no markup)', () => {
+  const courierCfg = {
     econt: { mode: 'auto' },
     speedy: { configured: true },
-    pricing: { freeThresholdStotinki: 0, courierMarkupStotinki: 80 },
+    pricing: { freeThresholdStotinki: 0 },
   } as const;
 
-  it('adds the markup on top of a live Speedy door quote', async () => {
+  it('charges the live Speedy door quote as-is', async () => {
     const speedyStub = {
       searchSites: jest.fn().mockResolvedValue([{ id: 100 }]),
       estimateShipping: jest.fn().mockResolvedValue(420),
     };
     const { svc } = build(makeOrder(), { speedy: speedyStub });
-    const fee = await (svc as any).shippingStotinki(speedyOrder(), 3000, markupCfg);
-    expect(fee).toBe(500); // 420 live + 80 markup
+    const fee = await (svc as any).shippingStotinki(speedyOrder(), 3000, courierCfg);
+    expect(fee).toBe(420); // raw live quote, no markup
   });
 
-  it('adds the markup on top of the flat fallback when the carrier is unreachable', async () => {
+  it('charges the flat fallback as-is when the carrier is unreachable', async () => {
     const speedyStub = { searchSites: jest.fn().mockResolvedValue([]), estimateShipping: jest.fn() };
     const { svc } = build(makeOrder(), { speedy: speedyStub });
-    const fee = await (svc as any).shippingStotinki(speedyOrder(), 3000, markupCfg);
-    expect(fee).toBe(670); // 590 fallback + 80 markup
+    const fee = await (svc as any).shippingStotinki(speedyOrder(), 3000, courierCfg);
+    expect(fee).toBe(590); // raw fallback, no markup
   });
 
-  it('free-over threshold still zeroes a marked-up courier fee', async () => {
+  it('free-over threshold still zeroes the raw courier fee', async () => {
     const speedyStub = {
       searchSites: jest.fn().mockResolvedValue([{ id: 100 }]),
       estimateShipping: jest.fn().mockResolvedValue(420),
     };
     const { svc } = build(makeOrder(), { speedy: speedyStub });
-    const cfg = { ...markupCfg, pricing: { freeThresholdStotinki: 2000, courierMarkupStotinki: 80 } };
+    const cfg = { ...courierCfg, pricing: { freeThresholdStotinki: 2000 } };
     const fee = await (svc as any).shippingStotinki(speedyOrder(), 3000, cfg); // subtotal 3000 ≥ 2000
     expect(fee).toBe(0);
   });

@@ -145,7 +145,7 @@ export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
  *  separate). Product decision made 2026-07-02; see farmers.service.ts. */
 export type PublicFarmer = Omit<Farmer, 'tenantId'> & {
   images: string[];
-  /** Phase 2: farmer offers nationwide courier (courier_enabled AND ≥1 carrier connected). */
+  /** Phase 2: farmer offers nationwide courier (≥1 carrier connected). */
   courierReady: boolean;
 };
 export type PublicSubcategory = Omit<Subcategory, 'tenantId'> & { images: string[] };

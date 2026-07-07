@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { ImagePlus, PackageCheck, PackageX, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/delivery/ui';
@@ -26,8 +25,6 @@ export function ProductDialog({
   subcats,
   multiFarmer,
   multiSubcat,
-  isFarmer = false,
-  deliverySettingsHref = '/delivery',
   onOpenCourierSettings,
   onClose,
   onSubmit,
@@ -39,10 +36,6 @@ export function ProductDialog({
   subcats: Subcategory[];
   multiFarmer: boolean;
   multiSubcat: boolean;
-  /** True for a farmer sub-account — switches the courier-lock note to 2nd person. */
-  isFarmer?: boolean;
-  /** Route to the carrier-connect screen — differs for admin (/delivery) vs a farmer sub-account (/farmer-delivery). */
-  deliverySettingsHref?: string;
   /** Lets the farmer jump straight to the bulk "Куриер" editor instead of toggling one product at a time. */
   onOpenCourierSettings?: () => void;
   onClose: () => void;
@@ -60,8 +53,6 @@ export function ProductDialog({
   const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(product?.coverCrop ?? null);
   // courierEnabled = !courierDisabled — ON (green) = ships by courier (default), OFF = no courier.
   const [courierEnabled, setCourierEnabled] = useState(!(product?.courierDisabled ?? false));
-  // Derived: is the assigned farmer connected to a courier carrier?
-  const farmerHasCourier = farmers.find((f) => f.id === farmerId)?.courierEnabled ?? false;
   // Price + stock live in rows: one product is a list of ≥1 priced row. ONE row =
   // a plain product (its price = the product price, its stock = the availability
   // window — same number „Задай наличност" edits, never desync; label optional).
@@ -504,19 +495,16 @@ export function ProductDialog({
             )}
           </Collapsible>
 
-          {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only.
-              Locked when the farmer has no carrier connected (no Econt/Speedy). */}
+          {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only. */}
           <button
             type="button"
             role="switch"
             aria-checked={courierEnabled}
-            onClick={() => farmerHasCourier && setCourierEnabled((v) => !v)}
+            onClick={() => setCourierEnabled((v) => !v)}
             className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
-              !farmerHasCourier
-                ? 'border-ff-border bg-ff-surface-2 opacity-60 cursor-not-allowed'
-                : courierEnabled
-                  ? 'border-green-200 bg-green-50'
-                  : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
+              courierEnabled
+                ? 'border-green-200 bg-green-50'
+                : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
             }`}
           >
             <span
@@ -548,16 +536,6 @@ export function ProductDialog({
               />
             </span>
           </button>
-
-          {!farmerHasCourier && (
-            <p className="text-[11.5px] text-ff-muted pl-1">
-              {isFarmer ? 'Още нямаш активна куриерна доставка — свържи Еконт или Спиди от' : 'Фермерът няма активна куриерна доставка — свържете Еконт или Спиди от'}{' '}
-              <Link href={deliverySettingsHref} className="font-semibold text-ff-green-700 underline underline-offset-2 hover:text-ff-green-800">
-                приложението „Доставки“
-              </Link>
-              . Настройката ще влезе в сила при активиране.
-            </p>
-          )}
 
           {onOpenCourierSettings && (
             <button

@@ -475,10 +475,7 @@ export class FarmersService {
     const result: PublicFarmer[] = rows.map(({ tenantId: _tenantId, ...rest }) => {
       const urls = mediaByFarmer.get(rest.id) ?? [];
       const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
-      const courierReady = farmerCourierReady(
-        rest.courierEnabled,
-        farmerDeliveryNamespace(settings, rest.id),
-      );
+      const courierReady = farmerCourierReady(farmerDeliveryNamespace(settings, rest.id));
       return { ...rest, images, courierReady };
     });
     await this.publicCache.set(key, result);

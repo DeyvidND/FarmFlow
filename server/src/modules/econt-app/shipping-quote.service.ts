@@ -29,7 +29,6 @@ export class ShippingQuoteService {
     tenantId: string,
     input: CompareShipmentDto,
     policy: CarrierPolicy = 'customer',
-    markupStotinki = 0,
   ): Promise<QuoteResult> {
     // Resolve one weight up front and price both carriers at it (fair compare).
     const weightGrams = input.weightGrams ?? DEFAULT_WEIGHT_GRAMS;
@@ -42,7 +41,7 @@ export class ShippingQuoteService {
     ]);
     const econtStotinki = econtRes.status === 'fulfilled' ? econtRes.value : null;
     const speedyStotinki = speedyRes.status === 'fulfilled' ? speedyRes.value : null;
-    return buildQuoteResult(econtStotinki, speedyStotinki, policy, markupStotinki);
+    return buildQuoteResult(econtStotinki, speedyStotinki, policy);
   }
 
   /** Econt city-level estimate (door-to-city), priced at the shared weight. */

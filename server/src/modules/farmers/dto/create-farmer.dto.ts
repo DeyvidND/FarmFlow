@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsInt, IsUrl, IsEmail, Min, MaxLength, ValidateNested, IsBoolean,
+  IsString, IsOptional, IsInt, IsUrl, IsEmail, Min, MaxLength, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -64,11 +64,4 @@ export class CreateFarmerDto {
   @IsInt()
   @Min(0)
   position?: number;
-
-  // Per-farmer courier opt-in (migration 0069). Vasil toggles it from "Фермери";
-  // settable on create or update. Inherited as optional by UpdateFarmerDto.
-  @ApiPropertyOptional({ description: 'Enable/disable courier delivery for this farmer' })
-  @IsOptional()
-  @IsBoolean()
-  courierEnabled?: boolean;
 }
