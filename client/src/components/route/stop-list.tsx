@@ -1,20 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  AlertTriangle,
-  Check,
-  Copy,
-  Crosshair,
-  Mail,
-  MapPin,
-  Navigation,
-  Phone,
-  Search,
-  X,
-} from 'lucide-react';
+import { AlertTriangle, Check, Copy, Mail, MapPin, MapPinned, Navigation, Phone } from 'lucide-react';
 import { toast } from 'sonner';
-import { setStopLocation } from '@/lib/api-client';
 import { cn, hhmm } from '@/lib/utils';
 import type { RouteStop } from '@/lib/types';
 
@@ -25,14 +13,8 @@ interface StopListProps {
   onOpenMaps: (stop: RouteStop) => void;
   onCall: (stop: RouteStop) => void;
   onEmail: (stop: RouteStop) => void;
-  /** A stop's location was fixed — re-fetch the route. */
-  onFixed: () => void;
-  /** The stop currently waiting for a map click to drop a manual pin. */
-  placingId: string | null;
-  /** Enter "click the map to place this stop" mode. */
-  onStartPlace: (id: string) => void;
-  /** Leave map-placing mode. */
-  onCancelPlace: () => void;
+  /** Open the „Смени адрес" modal for this stop. */
+  onEditAddress: (stop: RouteStop) => void;
 }
 
 /** A stop is "on the map" only when it has been geocoded (has both coords). */
@@ -85,131 +67,6 @@ function CopyLine({
   );
 }
 
-/**
- * Inline fixer for a stop with no map pin. The farmer either types a corrected
- * address (re-geocoded server-side) or drops a manual pin by clicking the map.
- * The original (not-found) address is shown so they know what failed.
- */
-function FixLocation({
-  stop,
-  placing,
-  onFixed,
-  onStartPlace,
-  onCancelPlace,
-}: {
-  stop: RouteStop;
-  placing: boolean;
-  onFixed: () => void;
-  onStartPlace: () => void;
-  onCancelPlace: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [addr, setAddr] = useState(stop.address ?? '');
-  const [saving, setSaving] = useState(false);
-
-  // When map-placing is active, surface the live instruction even if the panel
-  // wasn't expanded (the farmer started placing from elsewhere).
-  const expanded = open || placing;
-
-  async function findByAddress(e: React.MouseEvent) {
-    e.stopPropagation();
-    const query = addr.trim();
-    if (!query) {
-      toast.error('Въведи адрес');
-      return;
-    }
-    setSaving(true);
-    try {
-      await setStopLocation(stop.id, { address: query });
-      toast.success('Адресът е намерен и поставен на картата');
-      setOpen(false);
-      onFixed();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Адресът не е намерен');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
-      {!expanded ? (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setOpen(true);
-          }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-ff-amber-soft bg-ff-amber-softer px-2.5 py-1.5 text-[12px] font-bold text-ff-amber-600 transition hover:brightness-95"
-        >
-          <Crosshair size={13} /> Намери / постави на картата
-        </button>
-      ) : (
-        <div className="rounded-lg border border-ff-border bg-ff-surface-2 p-2.5">
-          <div className="mb-1.5 text-[11.5px] text-ff-muted">
-            Търсен адрес: <span className="font-semibold text-ff-ink-2">{stop.address ?? '—'}</span>
-          </div>
-
-          {placing ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[12px] font-bold text-ff-amber-600">
-                Кликни на картата, за да поставиш пина.
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCancelPlace();
-                }}
-                className="inline-flex items-center gap-1 rounded-md border border-ff-border bg-ff-surface px-2 py-1 text-[12px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2"
-              >
-                <X size={12} /> Отказ
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-1.5">
-                <input
-                  value={addr}
-                  onChange={(e) => setAddr(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  placeholder="по-точен адрес"
-                  className="min-w-0 flex-1 rounded-md border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] outline-none focus:border-ff-green-500"
-                />
-                <button
-                  onClick={findByAddress}
-                  disabled={saving}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md bg-ff-green-100 px-2.5 py-1.5 text-[12.5px] font-bold text-ff-green-800 transition hover:brightness-95 disabled:opacity-50"
-                >
-                  <Search size={13} /> {saving ? 'Търси…' : 'Намери'}
-                </button>
-              </div>
-              <div className="mt-1.5 flex items-center gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStartPlace();
-                  }}
-                  className="inline-flex items-center gap-1 rounded-md border border-ff-border bg-ff-surface px-2 py-1 text-[12px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2"
-                >
-                  <Crosshair size={12} /> Постави на картата
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setOpen(false);
-                  }}
-                  className="text-[12px] font-bold text-ff-muted transition hover:text-ff-ink-2"
-                >
-                  Затвори
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function StopList({
   stops,
   activeId,
@@ -217,10 +74,7 @@ export function StopList({
   onOpenMaps,
   onCall,
   onEmail,
-  onFixed,
-  placingId,
-  onStartPlace,
-  onCancelPlace,
+  onEditAddress,
 }: StopListProps) {
   if (stops.length === 0) {
     return (
@@ -271,6 +125,16 @@ export function StopList({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      onEditAddress(s);
+                    }}
+                    title="Смени адрес"
+                    className="grid h-8 w-8 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
+                  >
+                    <MapPinned size={16} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       onOpenMaps(s);
                     }}
                     title="Отвори в Google Maps"
@@ -316,12 +180,16 @@ export function StopList({
                   <span className="w-full pl-[19px] text-[12px] text-ff-muted">{s.note}</span>
                 )}
                 {!located && (
-                  <span
-                    title="Адресът не е намерен на картата — няма пин. Провери адреса или се обади на клиента."
-                    className="inline-flex items-center gap-1 rounded-md border border-ff-amber-soft bg-ff-amber-softer px-1.5 py-0.5 text-[11px] font-bold text-ff-amber-600"
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditAddress(s);
+                    }}
+                    title="Адресът не е намерен — натисни, за да поправиш"
+                    className="inline-flex items-center gap-1 rounded-md border border-ff-amber-soft bg-ff-amber-softer px-1.5 py-0.5 text-[11px] font-bold text-ff-amber-600 transition hover:brightness-95"
                   >
-                    <AlertTriangle size={11} /> не е на картата
-                  </span>
+                    <AlertTriangle size={11} /> не е на картата — поправи
+                  </button>
                 )}
               </div>
 
@@ -352,17 +220,6 @@ export function StopList({
                   </div>
                 )}
               </div>
-
-              {/* un-geocoded stop → let the farmer fix it (re-geocode or pin) */}
-              {!located && (
-                <FixLocation
-                  stop={s}
-                  placing={placingId === s.id}
-                  onFixed={onFixed}
-                  onStartPlace={() => onStartPlace(s.id)}
-                  onCancelPlace={onCancelPlace}
-                />
-              )}
 
               <div className="mt-1.5 text-[12.5px] text-ff-muted">
                 {s.summary}

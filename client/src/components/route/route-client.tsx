@@ -17,9 +17,10 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { setStopLocation, updateOrderStatus } from '@/lib/api-client';
+import { updateOrderStatus } from '@/lib/api-client';
 import type { RouteResult, RouteStop, RouteEndMode, RouteOrderMode } from '@/lib/types';
 import { StopList } from './stop-list';
+import { EditAddressModal } from './edit-address-modal';
 import { RouteMap } from './route-map';
 import { LocationRouteCard } from './location-route-card';
 import { WazeStepper } from './waze-stepper';
@@ -135,8 +136,8 @@ export function RouteClient({
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
   const [showHelp, setShowHelp] = useState(false);
   const [showLoc, setShowLoc] = useState(false);
-  // The un-geocoded stop awaiting a manual pin (set by clicking the map).
-  const [placingId, setPlacingId] = useState<string | null>(null);
+  // The stop whose address is being edited (drives the „Смени адрес" modal).
+  const [editStop, setEditStop] = useState<RouteStop | null>(null);
   // Remaining legs of a long (>9-waypoint) route — opened one-by-one on click so
   // each is a real user gesture (a burst of window.open() gets popup-blocked).
   const [extraLegs, setExtraLegs] = useState<string[]>([]);
@@ -263,20 +264,6 @@ export function RouteClient({
     if (s.email) window.open(`mailto:${s.email}`, '_self');
   };
 
-  // Manual-pin flow: the stop being placed + the map-click handler that saves it.
-  const placingStop = placingId ? (stops.find((s) => s.id === placingId) ?? null) : null;
-  const onPlaceOnMap = async (lat: number, lng: number) => {
-    if (!placingId) return;
-    try {
-      await setStopLocation(placingId, { lat, lng });
-      toast.success('Пинът е поставен на картата');
-      setPlacingId(null);
-      router.refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Неуспешно записване');
-    }
-  };
-
   // Stops whose address couldn't be geocoded — no map pin. They're still in the
   // list (nothing dropped), but the farmer must be told so a delivery isn't
   // silently missed just because it never showed up on the map.
@@ -322,7 +309,7 @@ export function RouteClient({
             {unlocated.length === 1
               ? '1 адрес не е намерен на картата'
               : `${unlocated.length} адреса не са намерени на картата`}{' '}
-            — показани са в списъка (с ⚠), но без пин. Провери адреса или се обади на клиента.
+            — показани са в списъка, но без пин. Натисни иконата за адрес при спирката, за да ги поправиш.
           </span>
         </div>
       )}
@@ -529,10 +516,9 @@ export function RouteClient({
               иконата за копиране. <b>Карти</b> отваря само тази спирка.
             </li>
             <li>
-              <b>⚠ не е на картата</b> — адресът не можа да се намери, затова няма пин. Спирката пак
-              е в списъка. Натисни <b>Намери / постави на картата</b> при спирката: въведи по-точен
-              адрес (<b>Намери</b>), или избери <b>Постави на картата</b> и кликни точното място на
-              картата. Така пинът се запазва и спирката влиза в маршрута.
+              <b>Смени адрес</b> (иконата с карфицата при всяка спирка, или жълтият етикет
+              „не е на картата&quot;) — отваря прозорец с два начина да оправиш точката: въведи/потърси
+              адрес, или цъкни точното място на малка карта. Запазва се и спирката влиза в маршрута.
             </li>
             <li>
               Много спирки? Google показва до 9 на компютър и до 3 на телефон — затова при дълъг
@@ -591,29 +577,12 @@ export function RouteClient({
             onOpenMaps={onOpenMaps}
             onCall={onCall}
             onEmail={onEmail}
-            onFixed={() => router.refresh()}
-            placingId={placingId}
-            onStartPlace={(id) => {
-              setActiveId(id);
-              setPlacingId(id);
-            }}
-            onCancelPlace={() => setPlacingId(null)}
+            onEditAddress={setEditStop}
           />
         </div>
 
         {/* map */}
         <div className="relative overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:order-[-1] max-[900px]:h-[340px]">
-          {placingStop && (
-            <div className="absolute inset-x-0 top-0 z-[2] flex flex-wrap items-center justify-center gap-2 bg-ff-amber-600/95 px-3 py-2 text-center text-[12.5px] font-bold text-white">
-              Кликни на картата, за да поставиш пин за {placingStop.customer ?? 'клиента'}
-              <button
-                onClick={() => setPlacingId(null)}
-                className="rounded-md bg-white/20 px-2 py-0.5 transition hover:bg-white/30"
-              >
-                Отказ
-              </button>
-            </div>
-          )}
           <RouteMap
             stops={stops}
             origin={origin}
@@ -621,8 +590,6 @@ export function RouteClient({
             polyline={polyline}
             activeId={activeId}
             onPick={setActiveId}
-            placing={placingId != null}
-            onMapClick={onPlaceOnMap}
             apiKey={mapsKey}
           />
         </div>
@@ -636,6 +603,20 @@ export function RouteClient({
           busy={finishing}
           onCancel={() => setConfirmFinish(false)}
           onConfirm={finishDay}
+        />
+      )}
+
+      {editStop && (
+        <EditAddressModal
+          stop={editStop}
+          origin={origin}
+          mapsKey={mapsKey}
+          placesKey={placesKey}
+          onClose={() => setEditStop(null)}
+          onSaved={() => {
+            setEditStop(null);
+            router.refresh();
+          }}
         />
       )}
     </div>

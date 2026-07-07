@@ -28,10 +28,6 @@ interface RouteMapProps {
   polyline?: string[] | null;
   activeId: string | null;
   onPick: (id: string) => void;
-  /** Map-pin placement mode: a map click drops a pin for the placing stop. */
-  placing?: boolean;
-  /** Called with the clicked coords while `placing` is on. */
-  onMapClick?: (lat: number, lng: number) => void;
   /** Maps key from the server (Dokploy runtime env); falls back to the build-time
    *  NEXT_PUBLIC_ constant when absent. */
   apiKey?: string;
@@ -49,8 +45,6 @@ export function RouteMap({
   polyline,
   activeId,
   onPick,
-  placing = false,
-  onMapClick,
   apiKey,
 }: RouteMapProps) {
   const key = apiKey || MAPS_KEY;
@@ -85,12 +79,6 @@ export function RouteMap({
         defaultZoom={11}
         gestureHandling="greedy"
         disableDefaultUI={false}
-        draggableCursor={placing ? 'crosshair' : undefined}
-        onClick={(e) => {
-          if (!placing || !onMapClick) return;
-          const ll = e.detail.latLng;
-          if (ll) onMapClick(ll.lat, ll.lng);
-        }}
         style={{ width: '100%', height: '100%' }}
       >
         <FitBounds origin={origin} stops={located} end={customEnd} />
