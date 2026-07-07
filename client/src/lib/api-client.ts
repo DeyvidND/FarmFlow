@@ -32,6 +32,7 @@ import type {
   StatsRange,
   Subcategory,
   TenantProfile,
+  UpdateOrderInput,
 } from './types';
 
 /** Thrown by apiFetch on a non-2xx response, carrying the API's BG message. */
@@ -544,6 +545,9 @@ export const listOrders = (opts?: { page?: number; limit?: number; q?: string; s
 
 export const updateOrderStatus = (id: string, status: string) =>
   apiFetch<Order>(`orders/${id}/status`, { method: 'PATCH', ...json({ status }) }, 'Неуспешна промяна на статуса');
+
+export const updateOrder = (id: string, body: UpdateOrderInput) =>
+  apiFetch<Order>(`orders/${id}`, { method: 'PATCH', ...json(body) }, 'Неуспешно записване на поръчката');
 
 export const setCodOutcome = (id: string, outcome: 'received' | 'refused', reason?: string) =>
   apiFetch<Order>(

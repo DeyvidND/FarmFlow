@@ -10,6 +10,7 @@ import { CheckoutService } from './checkout.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
 import { PaymentsQueryDto } from './dto/payments-query.dto';
 import { OrdersQueryDto } from './dto/orders-query.dto';
 import { MyOrdersQueryDto } from './dto/my-orders-query.dto';
@@ -131,6 +132,18 @@ export class OrdersController {
     return scope
       ? this.ordersService.setCodOutcomeForFarmer(id, user.tenantId, scope, dto)
       : this.ordersService.setCodOutcome(id, user.tenantId, dto);
+  }
+
+  // Owner-only full order edit (contact / delivery values / slot / notes / items).
+  // Unlike /status and /cod-outcome this is NOT opened to producer sub-accounts.
+  @Patch(':id')
+  @Roles('admin')
+  updateOrder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: UpdateOrderDto,
+  ) {
+    return this.ordersService.updateOrder(id, tenantId, dto);
   }
 }
 

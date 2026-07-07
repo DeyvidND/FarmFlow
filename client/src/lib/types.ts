@@ -715,3 +715,17 @@ export interface Order {
   slotTo: string | null;
   items: OrderItem[];
 }
+
+/** Payload for PATCH /orders/:id — every field optional. `items` replaces all
+ *  lines; `slotId: null` clears the slot. */
+export interface UpdateOrderInput {
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string | null;
+  deliveryAddress?: string;
+  deliveryNote?: string | null;
+  econtOffice?: string;
+  slotId?: string | null;
+  notes?: string | null;
+  items?: { productId: string; quantity: number; variantId?: string }[];
+}

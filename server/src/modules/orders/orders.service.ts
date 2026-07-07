@@ -30,6 +30,7 @@ import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from './carrier-fulfillment.service';
@@ -948,6 +949,104 @@ export class OrdersService {
     if (!row) throw new NotFoundException('Поръчката не е намерена');
     const [withItems] = await this.attachItems([row]);
     return serializeOrder(withItems);
+  }
+
+  /**
+   * Owner-side full order edit. Sets whatever scalar fields the patch carries
+   * (re-geocoding a changed address), reassigns the slot with a one-per-slot
+   * capacity check, and (Task 3) replaces the line items. Rejects on closed
+   * orders and on item edits of a card-paid order. Returns the serialized order.
+   */
+  async updateOrder(id: string, tenantId: string, dto: UpdateOrderDto): Promise<SerializedOrder> {
+    const [current] = await this.db
+      .select(orderWithSlot)
+      .from(orders)
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+      .limit(1);
+    if (!current) throw new NotFoundException('Поръчката не е намерена');
+
+    // Guard: closed orders are read-only history.
+    if (current.status === 'delivered' || current.status === 'cancelled') {
+      throw new BadRequestException('Доставените и отказаните поръчки не могат да се редактират.');
+    }
+    // Guard: a card-paid order's money is fixed — no item/total changes.
+    if (dto.items && current.paidAt) {
+      throw new BadRequestException('Платена поръчка — артикулите не могат да се променят.');
+    }
+
+    // Geocode a changed address OUTSIDE the transaction (no network under a lock).
+    // Local delivery needs coords for the route; Econt-door/courier need a city.
+    const geocodes = current.deliveryType === 'address';
+    const needsCity = current.deliveryType === 'econt_address' || current.deliveryType === 'courier';
+    const addressChanged =
+      dto.deliveryAddress !== undefined && dto.deliveryAddress !== current.deliveryAddress;
+    let newLat: string | null | undefined;
+    let newLng: string | null | undefined;
+    let newCity: string | null | undefined;
+    if (addressChanged && dto.deliveryAddress && (geocodes || needsCity)) {
+      const [tenant] = await this.db
+        .select({ farmLat: tenants.farmLat, farmLng: tenants.farmLng })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+      const fLat = tenant?.farmLat == null ? null : Number(tenant.farmLat);
+      const fLng = tenant?.farmLng == null ? null : Number(tenant.farmLng);
+      const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
+      if (geocodes) {
+        const geo = await this.maps.geocode(dto.deliveryAddress, bias);
+        if (geo) {
+          newLat = String(geo.lat);
+          newLng = String(geo.lng);
+        }
+      } else {
+        newCity = (await this.maps.geocodeCity(dto.deliveryAddress, bias)) ?? undefined;
+      }
+    }
+
+    await this.db.transaction(async (tx) => {
+      // Slot reassign — only when slotId is present in the patch and differs.
+      if (dto.slotId !== undefined && dto.slotId !== current.slotId) {
+        if (dto.slotId !== null) {
+          const [slot] = await tx
+            .select()
+            .from(deliverySlots)
+            .where(and(eq(deliverySlots.id, dto.slotId), eq(deliverySlots.tenantId, tenantId)))
+            .for('update')
+            .limit(1);
+          if (!slot) throw new BadRequestException('Слотът не е намерен');
+          if (slot.date === bgToday()) throw new BadRequestException('Слотът вече не е достъпен за днес');
+          const [{ count }] = await tx
+            .select({ count: sql<number>`count(*)::int` })
+            .from(orders)
+            .where(and(eq(orders.slotId, dto.slotId), ne(orders.status, 'cancelled'), ne(orders.id, id)));
+          if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
+        }
+      }
+
+      // Scalar fields: only those present in the patch.
+      const set: Partial<typeof orders.$inferInsert> = {};
+      if (dto.customerName !== undefined) set.customerName = dto.customerName;
+      if (dto.customerPhone !== undefined) set.customerPhone = dto.customerPhone;
+      if (dto.customerEmail !== undefined) set.customerEmail = dto.customerEmail;
+      if (dto.deliveryAddress !== undefined) set.deliveryAddress = dto.deliveryAddress;
+      if (dto.deliveryNote !== undefined) set.deliveryNote = dto.deliveryNote;
+      if (dto.econtOffice !== undefined) set.econtOffice = dto.econtOffice;
+      if (dto.notes !== undefined) set.notes = dto.notes;
+      if (dto.slotId !== undefined && dto.slotId !== current.slotId) set.slotId = dto.slotId;
+      if (newLat !== undefined) set.deliveryLat = newLat;
+      if (newLng !== undefined) set.deliveryLng = newLng;
+      if (newCity !== undefined) set.deliveryCity = newCity;
+
+      // Items replacement is implemented in Task 3.
+
+      if (Object.keys(set).length > 0) {
+        await tx.update(orders).set(set).where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
+      }
+    });
+
+    await this.bustPayments(tenantId);
+    return this.findOne(id, tenantId);
   }
 
   /** Cancelling frees slot capacity automatically (booked is computed from non-cancelled orders). */
