@@ -256,7 +256,13 @@ export class SlotsService {
       // Ranged (or open) request: always bound below by today so the query can't
       // return the farm's entire (ever-growing) slot history. The picker sends one
       // ranged request for its whole window instead of one-request-per-day.
-      filters.push(gte(deliverySlots.date, from ?? this.bgToday()));
+      // A caller-supplied `from` can only narrow this floor, never widen it below
+      // today — otherwise an older `from` (or a UTC/Sofia calendar-date mismatch
+      // right around midnight) would leak past slot history on this public,
+      // unauthenticated endpoint. YYYY-MM-DD strings compare lexically, so a plain
+      // string max is enough.
+      const floor = this.bgToday();
+      filters.push(gte(deliverySlots.date, from && from > floor ? from : floor));
       if (to) filters.push(lte(deliverySlots.date, to));
     }
 
