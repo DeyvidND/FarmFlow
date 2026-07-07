@@ -230,6 +230,91 @@ export function toPaymentOrder(r: PaymentRow): PaymentOrder {
   };
 }
 
+/** One of the farmer's own product lines on an order. */
+export interface FarmerOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  priceStotinki: number;
+}
+
+/** Raw shape assembled for one order on the «Моите поръчки» screen, before
+ *  mapping to the API shape. `items` holds only THIS farmer's own lines —
+ *  a co-producer's lines never appear here, only the `shared` flag notes
+ *  that the order also has them. */
+export interface FarmerOrderRow {
+  day: string;
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  status: string;
+  deliveryType: string;
+  paymentMethod: PaymentChannel;
+  createdAt: Date | string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+  codOutcome: 'received' | 'refused' | null;
+  codOutcomeReason: string | null;
+  /** True when the order also contains another producer's items — mutation
+   *  actions are disabled client-side (and would 403 server-side via the
+   *  same ownership gate as updateStatusForFarmer). */
+  shared: boolean;
+  items: FarmerOrderItem[];
+}
+
+/** One order on the «Моите поръчки» screen — every status, unlike Плащания. */
+export interface FarmerOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  status: string;
+  deliveryType: string;
+  paymentMethod: PaymentChannel;
+  day: string;
+  createdAt: string | null;
+  slotFrom: string | null;
+  slotTo: string | null;
+  codOutcome: 'received' | 'refused' | null;
+  codOutcomeReason: string | null;
+  shared: boolean;
+  /** This farmer's own subtotal on the order (their items only). */
+  subtotalStotinki: number;
+  items: FarmerOrderItem[];
+}
+
+export interface FarmerOrdersPage {
+  orders: FarmerOrder[];
+  nextCursor: string | null;
+}
+
+/** Map one assembled row to the API shape. Pure (no DB) so it's unit-testable,
+ *  mirroring {@link toPaymentOrder}. */
+export function toFarmerOrder(r: FarmerOrderRow): FarmerOrder {
+  return {
+    id: r.id,
+    orderNumber: r.orderNumber,
+    customerName: r.customerName,
+    customerPhone: r.customerPhone,
+    customerEmail: r.customerEmail,
+    status: r.status,
+    deliveryType: r.deliveryType,
+    paymentMethod: r.paymentMethod,
+    day: r.day,
+    createdAt: toIso(r.createdAt),
+    slotFrom: r.slotFrom,
+    slotTo: r.slotTo,
+    codOutcome: r.codOutcome,
+    codOutcomeReason: r.codOutcomeReason,
+    shared: r.shared,
+    subtotalStotinki: r.items.reduce((sum, it) => sum + it.quantity * it.priceStotinki, 0),
+    items: r.items,
+  };
+}
+
 /**
  * Fold the per-channel SQL aggregate into screen totals. Pure (no DB). COD counts
  * every due order; card counts only paid orders (money actually received).
@@ -670,6 +755,134 @@ export class OrdersService {
     const totals = cur ? null : paymentTotals(aggRows as PaymentAggRow[]);
 
     return { totals, orders: items.map(toPaymentOrder), nextCursor };
+  }
+
+  /**
+   * Every order containing at least one of this farmer's own products, across
+   * ALL statuses (pending/cancelled included) — the «Моите поръчки» screen's
+   * data source. Unlike {@link paymentsForFarmer} this is a fulfillment view,
+   * not a money view: it carries per-item detail (not just a subtotal) and a
+   * `shared` flag for orders that also have another producer's items, so the
+   * client can explain why the mark-delivered/cod-outcome actions are hidden
+   * instead of the caller hitting a silent 403 from updateStatusForFarmer.
+   */
+  async ordersForFarmer(
+    tenantId: string,
+    farmerId: string,
+    opts: {
+      status?: 'pending' | 'confirmed' | 'preparing' | 'out_for_delivery' | 'delivered' | 'cancelled';
+      q?: string;
+      cursor?: string;
+      limit?: number;
+    } = {},
+  ): Promise<FarmerOrdersPage> {
+    const q = (opts.q ?? '').trim();
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+
+    const conds = [eq(orders.tenantId, tenantId), eq(products.farmerId, farmerId)];
+    if (opts.status) conds.push(eq(orders.status, opts.status));
+    if (q) conds.push(this.paymentSearchCond(q));
+    if (cur) {
+      conds.push(
+        sql`(${orders.createdAt}, ${orders.id}) < (${cur.createdAt}::timestamp, ${cur.id}::uuid)`,
+      );
+    }
+
+    // True when the order also has a line item belonging to a DIFFERENT farmer.
+    const shared = sql<boolean>`exists (
+      select 1 from ${orderItems} oi2
+      inner join ${products} p2 on p2.id = oi2.product_id
+      where oi2.order_id = ${orders.id} and p2.farmer_id is distinct from ${farmerId}
+    )`;
+
+    const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
+    const rows = await this.db
+      .select({
+        day,
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        customerEmail: orders.customerEmail,
+        status: orders.status,
+        deliveryType: orders.deliveryType,
+        paymentMethod: orders.paymentMethod,
+        createdAt: orders.createdAt,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+        codOutcome: orders.codOutcome,
+        codOutcomeReason: orders.codOutcomeReason,
+        shared,
+        [KEYSET_TS]: cursorTs(orders.createdAt),
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(and(...conds)!)
+      .groupBy(
+        orders.id,
+        orders.orderNumber,
+        orders.customerName,
+        orders.customerPhone,
+        orders.customerEmail,
+        orders.status,
+        orders.deliveryType,
+        orders.paymentMethod,
+        orders.createdAt,
+        orders.codOutcome,
+        orders.codOutcomeReason,
+        deliverySlots.date,
+        deliverySlots.timeFrom,
+        deliverySlots.timeTo,
+      )
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(lim + 1);
+
+    const { items: pageRows, nextCursor } = buildKeysetPage(
+      rows as Array<Omit<FarmerOrderRow, 'items'> & { [KEYSET_TS]: string }>,
+      lim,
+    );
+    if (pageRows.length === 0) return { orders: [], nextCursor };
+
+    const orderIds = pageRows.map((r) => r.id);
+    const itemRows = await this.db
+      .select({
+        orderId: orderItems.orderId,
+        productId: orderItems.productId,
+        productName: products.name,
+        quantity: orderItems.quantity,
+        priceStotinki: orderItems.priceStotinki,
+      })
+      .from(orderItems)
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(and(inArray(orderItems.orderId, orderIds), eq(products.farmerId, farmerId)));
+
+    const itemsByOrder = new Map<string, FarmerOrderItem[]>();
+    for (const it of itemRows as Array<{
+      orderId: string;
+      productId: string;
+      productName: string;
+      quantity: number;
+      priceStotinki: number;
+    }>) {
+      const list = itemsByOrder.get(it.orderId) ?? [];
+      list.push({
+        productId: it.productId,
+        productName: it.productName,
+        quantity: it.quantity,
+        priceStotinki: it.priceStotinki,
+      });
+      itemsByOrder.set(it.orderId, list);
+    }
+
+    const fullRows: FarmerOrderRow[] = pageRows.map((r) => ({
+      ...r,
+      items: itemsByOrder.get(r.id) ?? [],
+    }));
+
+    return { orders: fullRows.map(toFarmerOrder), nextCursor };
   }
 
   /** Tenant-wide payment totals, Redis-cached (busted on order writes). */
