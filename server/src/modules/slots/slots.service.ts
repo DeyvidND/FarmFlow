@@ -18,8 +18,8 @@ type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
 /**
  * Public-facing slot shape for the storefront picker. Internal columns
  * (`tenantId`, `isActive`, `createdAt`) are dropped and times are trimmed to
- * `HH:MM`. A slot holds exactly one order, so only free slots (no live order)
- * are returned — there is no capacity to expose.
+ * `HH:MM`. Only slots with remaining capacity (booked < capacity) are
+ * returned; capacity itself is never exposed.
  */
 export interface PublicSlot {
   id: string;
@@ -248,9 +248,9 @@ export class SlotsService {
         and(eq(orders.slotId, deliverySlots.id), ne(orders.status, 'cancelled')),
       )
       .where(and(...filters))
-      .groupBy(deliverySlots.id)
-      // A slot holds one order — return only the free ones (no live order).
-      .having(sql`count(${orders.id}) = 0`)
+      .groupBy(deliverySlots.id, deliverySlots.capacity)
+      // A slot shows while its live order count is below its capacity.
+      .having(sql`count(${orders.id}) < ${deliverySlots.capacity}`)
       .orderBy(deliverySlots.date, deliverySlots.timeFrom);
 
     // Today is never pickable — the farm needs a full day's lead time to plan
