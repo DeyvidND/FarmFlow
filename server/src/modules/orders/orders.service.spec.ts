@@ -187,7 +187,7 @@ function buildDb(valuesCapture: unknown[], tenantDeliveryCfg = DELIVERY_CFG) {
  */
 function buildDbForSlotBooking(
   valuesCapture: unknown[],
-  slotRow: { id: string; date: string; timeFrom: string; timeTo: string; capacity: number },
+  slotRow: { id: string; date: string; capacity: number },
   bookedCount: number,
 ) {
   const txMock: any = {
@@ -384,7 +384,7 @@ describe('OrdersService.create() slot capacity', () => {
     deliveryLng: 27.0,
     slotId: 'slot-1',
   };
-  const SLOT_ROW = { id: 'slot-1', date: '2099-01-01', timeFrom: '10:00:00', timeTo: '11:00:00' };
+  const SLOT_ROW = { id: 'slot-1', date: '2099-01-01' };
 
   it('allows a second order on a capacity-2 slot', async () => {
     const captured: unknown[] = [];

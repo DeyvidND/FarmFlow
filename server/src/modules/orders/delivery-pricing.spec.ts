@@ -203,44 +203,33 @@ describe('carrier-comparison helpers', () => {
 describe('buildPublicOwnSlots', () => {
   it('inactive → not active, no schedule', () => {
     expect(buildPublicOwnSlots(null)).toEqual({ active: false, schedule: null });
-    expect(buildPublicOwnSlots({ active: false, repeat: 'weekdays', days: [{ dow: 4, timeFrom: '10:00', timeTo: '18:00' }] } as any)).toEqual({
+    expect(buildPublicOwnSlots({ active: false, repeat: 'weekdays', days: [{ dow: 4 }] } as any)).toEqual({
       active: false,
       schedule: null,
     });
   });
-  it('weekdays mode, single day → "всеки <ден> · <от>–<до>"', () => {
+  it('weekdays mode, single day → "всеки <ден>" (no time suffix)', () => {
     expect(
-      buildPublicOwnSlots({
-        active: true,
-        repeat: 'weekdays',
-        days: [{ dow: 5, timeFrom: '11:00', timeTo: '20:00' }],
-      } as any),
-    ).toEqual({ active: true, schedule: 'всеки петък · 11:00–20:00' });
+      buildPublicOwnSlots({ active: true, repeat: 'weekdays', days: [{ dow: 5 }] } as any),
+    ).toEqual({ active: true, schedule: 'всеки петък' });
   });
-  it('weekdays mode, multiple days sharing one window → joined with "и"', () => {
+  it('weekdays mode, multiple days → one grouped list joined with "и"', () => {
     expect(
       buildPublicOwnSlots({
         active: true,
         repeat: 'weekdays',
-        days: [
-          { dow: 1, timeFrom: '10:00', timeTo: '18:00' },
-          { dow: 3, timeFrom: '10:00', timeTo: '18:00' },
-          { dow: 5, timeFrom: '10:00', timeTo: '18:00' },
-        ],
+        days: [{ dow: 1 }, { dow: 3 }, { dow: 5 }],
       } as any),
-    ).toEqual({ active: true, schedule: 'всеки понеделник, сряда и петък · 10:00–18:00' });
+    ).toEqual({ active: true, schedule: 'всеки понеделник, сряда и петък' });
   });
-  it('weekdays mode, days with different windows → grouped, joined with "; "', () => {
+  it('weekdays mode dedupes repeated dow entries (older windowed rules had one entry per window)', () => {
     expect(
       buildPublicOwnSlots({
         active: true,
         repeat: 'weekdays',
-        days: [
-          { dow: 1, timeFrom: '10:00', timeTo: '12:00' },
-          { dow: 5, timeFrom: '14:00', timeTo: '18:00' },
-        ],
+        days: [{ dow: 1 }, { dow: 1 }, { dow: 5 }],
       } as any),
-    ).toEqual({ active: true, schedule: 'всеки понеделник · 10:00–12:00; всеки петък · 14:00–18:00' });
+    ).toEqual({ active: true, schedule: 'всеки понеделник и петък' });
   });
   it('weekdays mode with no days → active, no schedule', () => {
     expect(buildPublicOwnSlots({ active: true, repeat: 'weekdays', days: [] } as any)).toEqual({
@@ -248,14 +237,9 @@ describe('buildPublicOwnSlots', () => {
       schedule: null,
     });
   });
-  it('interval mode → "на всеки N дни · <от>–<до>"', () => {
+  it('interval mode → "на всеки N дни" (no time suffix)', () => {
     expect(
-      buildPublicOwnSlots({
-        active: true,
-        repeat: 'interval',
-        intervalDays: 3,
-        intervalWindow: { timeFrom: '09:00', timeTo: '13:00' },
-      } as any),
-    ).toEqual({ active: true, schedule: 'на всеки 3 дни · 09:00–13:00' });
+      buildPublicOwnSlots({ active: true, repeat: 'interval', intervalDays: 3 } as any),
+    ).toEqual({ active: true, schedule: 'на всеки 3 дни' });
   });
 });

@@ -8,20 +8,12 @@ describe('PUBLIC_SLOT_COLUMNS', () => {
   });
 });
 
-/** Minimal chainable db stub matching the calls materializeRule makes. Existing
- *  rows carry PG-style HH:MM:SS times — the diff key must trim them to HH:MM. */
-function fakeDb(
-  existing: { date: string; timeFrom?: string; timeTo?: string }[],
-  inserted: Record<string, unknown>[],
-) {
+/** Minimal chainable db stub matching the calls materializeRule makes. Day-rows
+ *  carry no time window — the diff key is date-only now. */
+function fakeDb(existing: { date: string }[], inserted: Record<string, unknown>[]) {
   const sel = {
     from: () => sel,
-    where: async () =>
-      existing.map((r) => ({
-        date: r.date,
-        timeFrom: r.timeFrom ?? '10:00:00',
-        timeTo: r.timeTo ?? '12:00:00',
-      })),
+    where: async () => existing.map((r) => ({ date: r.date })),
   };
   const ins = {
     values: async (rows: Record<string, unknown>[]) => {
@@ -33,7 +25,7 @@ function fakeDb(
 }
 
 describe('SlotsService.materializeRule', () => {
-  it('inserts only the missing dates as generated slots', async () => {
+  it('inserts only the missing dates as generated slots (interval mode)', async () => {
     const inserted: Record<string, unknown>[] = [];
     const svc = new SlotsService(fakeDb([{ date: '2026-06-08' }], inserted), {} as never);
     jest.spyOn(svc, 'getRule').mockResolvedValue({
@@ -41,7 +33,7 @@ describe('SlotsService.materializeRule', () => {
       repeat: 'interval',
       days: [],
       intervalDays: 3,
-      intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
+      intervalCapacity: 10,
       anchorDate: '2026-06-08',
       horizonDays: 9,
       skipDates: [],
@@ -51,70 +43,114 @@ describe('SlotsService.materializeRule', () => {
     expect(n).toBe(3);
     expect(inserted.map((r) => r.date)).toEqual(['2026-06-11', '2026-06-14', '2026-06-17']);
     expect(inserted.every((r) => r.generated === true)).toBe(true);
+    expect(inserted.every((r) => r.capacity === 10)).toBe(true);
   });
 
-  it('with slotMinutes the diff is per sub-slot, not per date', async () => {
+  it("stamps each date's own capacity in weekdays mode (per-day, not a single default)", async () => {
     const inserted: Record<string, unknown>[] = [];
-    // 10:00–12:00 split at 60 → wants 10–11 + 11–12; the 10–11 row already exists.
-    const svc = new SlotsService(
-      fakeDb([{ date: '2026-06-08', timeFrom: '10:00:00', timeTo: '11:00:00' }], inserted),
-      {} as never,
-    );
+    const svc = new SlotsService(fakeDb([], inserted), {} as never);
+    // 2026-06-08 is a Monday, 2026-06-10 a Wednesday.
     jest.spyOn(svc, 'getRule').mockResolvedValue({
       active: true,
-      repeat: 'interval',
-      days: [],
-      intervalDays: 7,
-      intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
+      repeat: 'weekdays',
+      days: [
+        { dow: 1, capacity: 5 }, // Monday
+        { dow: 3, capacity: 9 }, // Wednesday
+      ],
+      intervalDays: 1,
+      intervalCapacity: 1,
       anchorDate: '2026-06-08',
       horizonDays: 3,
       skipDates: [],
-      slotMinutes: 60,
     });
     const n = await svc.materializeRule('t1', '2026-06-08');
-    expect(n).toBe(1);
-    expect(inserted).toHaveLength(1);
-    expect(inserted[0]).toMatchObject({
-      date: '2026-06-08',
-      timeFrom: '11:00',
-      timeTo: '12:00',
-    });
+    expect(n).toBe(2);
+    const byDate = new Map(inserted.map((r) => [r.date, r.capacity]));
+    expect(byDate.get('2026-06-08')).toBe(5);
+    expect(byDate.get('2026-06-10')).toBe(9);
   });
 
-  it('stamps defaultCapacity onto generated slots', async () => {
+  it('the date-only diff skips a date that already has a generated row, regardless of capacity', async () => {
     const inserted: Record<string, unknown>[] = [];
-    const svc = new SlotsService(fakeDb([], inserted), {} as never);
+    const svc = new SlotsService(fakeDb([{ date: '2026-06-08' }], inserted), {} as never);
     jest.spyOn(svc, 'getRule').mockResolvedValue({
       active: true,
-      repeat: 'interval',
-      days: [],
-      intervalDays: 3,
-      intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
+      repeat: 'weekdays',
+      days: [{ dow: 1, capacity: 40 }], // Monday — 2026-06-08 already exists
+      intervalDays: 1,
+      intervalCapacity: 1,
       anchorDate: '2026-06-08',
-      horizonDays: 3,
+      horizonDays: 0,
       skipDates: [],
-      defaultCapacity: 2,
     });
-    await svc.materializeRule('t1', '2026-06-08');
-    expect(inserted.length).toBeGreaterThan(0);
-    expect(inserted.every((r) => r.capacity === 2)).toBe(true);
+    const n = await svc.materializeRule('t1', '2026-06-08');
+    expect(n).toBe(0);
+    expect(inserted).toHaveLength(0);
+  });
+});
+
+describe('SlotsService.create', () => {
+  it('creates a day-row slot with no time window', async () => {
+    const inserted: Record<string, unknown>[] = [];
+    const db = {
+      select: () => ({
+        from: () => ({ where: () => ({ limit: async () => [] }) }),
+      }),
+      insert: () => ({
+        values: (v: Record<string, unknown>) => {
+          inserted.push(v);
+          return {
+            returning: async () => [{ id: 's1', ...v, timeFrom: null, timeTo: null }],
+          };
+        },
+      }),
+    } as never;
+    const svc = new SlotsService(db, {} as never);
+    const row = await svc.create('t1', { date: '2026-07-09', capacity: 40 } as never);
+    expect(row).toMatchObject({ date: '2026-07-09', capacity: 40, timeFrom: null });
+    expect(inserted[0]).not.toHaveProperty('timeFrom');
+    expect(inserted[0]).not.toHaveProperty('timeTo');
   });
 
-  it('defaults capacity to 1 when the rule has no defaultCapacity', async () => {
+  it('rejects a second day-row on an already-open date', async () => {
+    const db = {
+      select: () => ({
+        from: () => ({ where: () => ({ limit: async () => [{ id: 'existing' }] }) }),
+      }),
+      insert: () => {
+        throw new Error('must not insert when the date is already open');
+      },
+    } as never;
+    const svc = new SlotsService(db, {} as never);
+    await expect(
+      svc.create('t1', { date: '2026-07-09', capacity: 10 } as never),
+    ).rejects.toThrow('Този ден вече е отворен');
+  });
+
+  it('bulk create silently skips dates that already have a day-row', async () => {
     const inserted: Record<string, unknown>[] = [];
-    const svc = new SlotsService(fakeDb([], inserted), {} as never);
-    jest.spyOn(svc, 'getRule').mockResolvedValue({
-      active: true,
-      repeat: 'interval',
-      days: [],
-      intervalDays: 3,
-      intervalWindow: { timeFrom: '10:00', timeTo: '12:00' },
-      anchorDate: '2026-06-08',
-      horizonDays: 3,
-      skipDates: [],
-    });
-    await svc.materializeRule('t1', '2026-06-08');
-    expect(inserted.every((r) => r.capacity === 1)).toBe(true);
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: async () => [{ date: '2026-07-08' }], // Wed already open
+        }),
+      }),
+      insert: () => ({
+        values: (rows: Record<string, unknown>[]) => {
+          inserted.push(...rows);
+          return { returning: async () => rows.map((r, i) => ({ id: `s${i}`, ...r })) };
+        },
+      }),
+    } as never;
+    const svc = new SlotsService(db, {} as never);
+    // Mon 07-06 .. Wed 07-08, weekdays [1,3] (Mon, Wed) → wants 07-06 and 07-08.
+    await svc.create('t1', {
+      date: '2026-07-06',
+      dateTo: '2026-07-08',
+      weekdays: [1, 3],
+      capacity: 20,
+    } as never);
+    expect(inserted.map((r) => r.date)).toEqual(['2026-07-06']);
   });
 });
 
@@ -194,7 +230,9 @@ describe('SlotsService.remove', () => {
 });
 
 /** db stub for findPublicBySlug: the whole select chain resolves to `rows`. */
-function publicSlotsDb(rows: { id: string; date: string; startTime: string; endTime: string }[]) {
+function publicSlotsDb(
+  rows: { id: string; date: string; startTime: string | null; endTime: string | null }[],
+) {
   const sel = {
     from: () => sel,
     leftJoin: () => sel,
@@ -228,5 +266,15 @@ describe('SlotsService.findPublicBySlug — same-day cutoff', () => {
     const svc = new SlotsService(publicSlotsDb(rows), publicCache as never);
     const result = await svc.findPublicBySlug('chaika');
     expect(result.map((r) => r.id)).toEqual(['s-future']);
+  });
+});
+
+describe('SlotsService.findPublicBySlug — day-row shape (no time windows)', () => {
+  it('passes through null start/end times for a day-row slot', async () => {
+    const rows = [{ id: 's1', date: '2099-01-01', startTime: null, endTime: null }];
+    const publicCache = { resolveTenant: async () => ({ id: 't1', deliveryEnabled: true }) };
+    const svc = new SlotsService(publicSlotsDb(rows), publicCache as never);
+    const result = await svc.findPublicBySlug('chaika');
+    expect(result).toEqual([{ id: 's1', date: '2099-01-01', startTime: null, endTime: null }]);
   });
 });

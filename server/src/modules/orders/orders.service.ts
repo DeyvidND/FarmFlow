@@ -1364,7 +1364,7 @@ export class OrdersService {
     tenantId: string,
     slotId: string,
     excludeOrderId?: string,
-  ): Promise<{ timeFrom: string; timeTo: string; date: string; capacity: number }> {
+  ): Promise<{ date: string; capacity: number }> {
     const [slot] = await tx
       .select()
       .from(deliverySlots)
@@ -1388,7 +1388,7 @@ export class OrdersService {
       .where(and(...conds));
     if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
 
-    return { timeFrom: slot.timeFrom, timeTo: slot.timeTo, date: slot.date, capacity: slot.capacity };
+    return { date: slot.date, capacity: slot.capacity };
   }
 
   /**
@@ -1542,13 +1542,14 @@ export class OrdersService {
 
     // Slot (local delivery only): lock the row + enforce the slot's capacity. When
     // slotId is null (courier / non-local) this whole block is skipped.
+    // slotFrom/slotTo: day-rows carry no time window anymore (see migration
+    // 0081) — lockAndCheckSlot returns date-only now, so these stay null.
+    // Any time-window email copy is Task 9's concern.
     let slotFrom: string | null = null;
     let slotTo: string | null = null;
     let slotDate: string | null = null;
     if (slotId) {
       const s = await this.lockAndCheckSlot(tx, tenantId, slotId);
-      slotFrom = s.timeFrom;
-      slotTo = s.timeTo;
       slotDate = s.date;
     }
 

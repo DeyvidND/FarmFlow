@@ -218,39 +218,29 @@ export interface PublicOwnSlots {
 
 /** Minimal shape of the tenant's `settings.slotRule` this needs — kept local
  *  (rather than importing the slots module's `SlotRule`) to avoid a cross-module
- *  type dependency for three fields. */
+ *  type dependency for three fields. Time windows are gone from the rule (see
+ *  migration 0081 — a slot is now a whole delivery day, no hours), so the
+ *  public schedule text below is day/interval-only. Older stored rules still
+ *  parse fine here: `dow` is present on every historical day shape. */
 interface OwnSlotsRule {
   active: boolean;
   repeat: 'weekdays' | 'interval';
-  days: { dow: number; timeFrom: string; timeTo: string }[];
+  days: { dow: number }[];
   intervalDays: number;
-  intervalWindow: { timeFrom: string; timeTo: string };
 }
 
 export function buildPublicOwnSlots(rule: OwnSlotsRule | null | undefined): PublicOwnSlots {
   if (!rule?.active) return { active: false, schedule: null };
   if (rule.repeat === 'interval') {
-    const { timeFrom, timeTo } = rule.intervalWindow;
-    return { active: true, schedule: `на всеки ${rule.intervalDays} дни · ${timeFrom}–${timeTo}` };
+    return { active: true, schedule: `на всеки ${rule.intervalDays} дни` };
   }
   if (!rule.days?.length) return { active: true, schedule: null };
-  // Group weekdays sharing an identical window into one phrase; days with a
-  // different window get their own phrase, joined with "; ".
-  const groups = new Map<string, number[]>();
-  for (const d of rule.days) {
-    const key = `${d.timeFrom}-${d.timeTo}`;
-    const dows = groups.get(key);
-    if (dows) dows.push(d.dow);
-    else groups.set(key, [d.dow]);
-  }
-  const phrases = [...groups.entries()].map(([key, dows]) => {
-    const [timeFrom, timeTo] = key.split('-');
-    const names = [...dows].sort((a, b) => a - b).map((d) => OWN_SLOTS_WD[d]);
-    const list =
-      names.length > 1 ? `${names.slice(0, -1).join(', ')} и ${names[names.length - 1]}` : names[0];
-    return `всеки ${list} · ${timeFrom}–${timeTo}`;
-  });
-  return { active: true, schedule: phrases.join('; ') };
+  // One grouped weekday list — there's no per-day time window to group by anymore.
+  const dows = [...new Set(rule.days.map((d) => d.dow))].sort((a, b) => a - b);
+  const names = dows.map((d) => OWN_SLOTS_WD[d]);
+  const list =
+    names.length > 1 ? `${names.slice(0, -1).join(', ')} и ${names[names.length - 1]}` : names[0];
+  return { active: true, schedule: `всеки ${list}` };
 }
 
 /** Whether Speedy live pricing/fulfillment is configured for this farm. */

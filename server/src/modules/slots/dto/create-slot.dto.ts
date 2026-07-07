@@ -5,7 +5,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  Matches,
   Max,
   MaxLength,
   Min,
@@ -17,24 +16,14 @@ export class CreateSlotDto {
   @IsDateString()
   date: string;
 
-  @ApiProperty({ example: '09:00' })
-  @IsString()
-  @Matches(/^\d{2}:\d{2}$/, { message: 'timeFrom must be HH:MM' })
-  timeFrom: string;
-
-  @ApiProperty({ example: '12:00' })
-  @IsString()
-  @Matches(/^\d{2}:\d{2}$/, { message: 'timeTo must be HH:MM' })
-  timeTo: string;
-
   @ApiPropertyOptional({
-    example: 2,
-    description: 'Колко поръчки приема слотът (1–20). По подразбиране 1.',
+    example: 40,
+    description: 'Колко поръчки приема денят (1–500). По подразбиране 1.',
   })
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(20)
+  @Max(500)
   capacity?: number;
 
   @ApiPropertyOptional({

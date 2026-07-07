@@ -4,7 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, eq, ne, gte, lte, sql, getTableColumns } from 'drizzle-orm';
+import { and, eq, ne, gte, lte, sql, getTableColumns, inArray } from 'drizzle-orm';
 import { type Database, deliverySlots, orders, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -17,17 +17,20 @@ type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
 
 /**
  * Public-facing slot shape for the storefront picker. Internal columns
- * (`tenantId`, `isActive`, `createdAt`) are dropped and times are trimmed to
- * `HH:MM`. Only slots with remaining capacity (booked < capacity) are returned.
- * `remaining` = free spots left, BUT only for multi-capacity slots (>1) — a
- * single-capacity slot sends null so the storefront shows no "N places left"
- * noise and the raw capacity number is still never exposed for the common case.
+ * (`tenantId`, `isActive`, `createdAt`) are dropped. `startTime`/`endTime` are
+ * `null` for day-rows (the common case since migration 0081 — a slot is a
+ * whole delivery day, no time window); non-null only for legacy pre-0081 rows
+ * that still carry hours. Only slots with remaining capacity (booked <
+ * capacity) are returned. `remaining` = free spots left, BUT only for
+ * multi-capacity slots (>1) — a single-capacity slot sends null so the
+ * storefront shows no "N places left" noise and the raw capacity number is
+ * still never exposed for the common case.
  */
 export interface PublicSlot {
   id: string;
   date: string; // YYYY-MM-DD
-  startTime: string; // HH:MM
-  endTime: string; // HH:MM
+  startTime: string | null; // HH:MM, null for day-rows
+  endTime: string | null; // HH:MM, null for day-rows
   customerNote: string | null;
   /** Free spots left on a multi-capacity slot (>=1), or null for capacity-1 slots. */
   remaining: number | null;
@@ -72,16 +75,14 @@ export class SlotsService {
       )
       .where(and(...filters))
       .groupBy(deliverySlots.id)
-      .orderBy(deliverySlots.date, deliverySlots.timeFrom);
+      .orderBy(deliverySlots.date);
   }
 
-  /** Single slot, or bulk across a date range + weekday pattern. */
+  /** Single day-row, or bulk across a date range + weekday pattern. */
   async create(tenantId: string, dto: CreateSlotDto) {
     const base = {
       tenantId,
-      timeFrom: dto.timeFrom,
-      timeTo: dto.timeTo,
-      capacity: dto.capacity ?? 1,
+      capacity: clampCapacity(dto.capacity),
       customerNote: dto.customerNote ?? null,
       driverNote: dto.driverNote ?? null,
     };
@@ -91,10 +92,31 @@ export class SlotsService {
       if (!dates.length) {
         throw new BadRequestException('Няма дати, отговарящи на избраните дни');
       }
+      // Bulk: a date that already has a day-row keeps it untouched — silently
+      // skipped rather than erroring out the whole range.
+      const existingRows = await this.db
+        .select({ date: deliverySlots.date })
+        .from(deliverySlots)
+        .where(and(eq(deliverySlots.tenantId, tenantId), inArray(deliverySlots.date, dates)));
+      const existingDates = new Set(existingRows.map((r) => r.date));
+      const toInsert = dates.filter((d) => !existingDates.has(d));
+      if (!toInsert.length) return [];
       return this.db
         .insert(deliverySlots)
-        .values(dates.map((date) => ({ ...base, date })))
+        .values(toInsert.map((date) => ({ ...base, date })))
         .returning();
+    }
+
+    // One day-row per (tenant, date) — a second create() on an already-open day
+    // must not silently double the day up; the farmer edits the existing row's
+    // capacity via update() instead.
+    const [existing] = await this.db
+      .select({ id: deliverySlots.id })
+      .from(deliverySlots)
+      .where(and(eq(deliverySlots.tenantId, tenantId), eq(deliverySlots.date, dto.date)))
+      .limit(1);
+    if (existing) {
+      throw new BadRequestException('Този ден вече е отворен — редактирай капацитета му');
     }
 
     const [row] = await this.db
@@ -108,8 +130,8 @@ export class SlotsService {
     // Explicit allow-list: a partial slot edit must not inject recurrence-only
     // keys (date range / weekdays) or the generated flag into the row.
     const patch: Record<string, unknown> = {};
-    for (const k of ['timeFrom', 'timeTo', 'capacity', 'customerNote', 'driverNote'] as const) {
-      if (dto[k] !== undefined) patch[k] = dto[k];
+    for (const k of ['capacity', 'customerNote', 'driverNote'] as const) {
+      if (dto[k] !== undefined) patch[k] = k === 'capacity' ? clampCapacity(dto.capacity) : dto[k];
     }
     const [row] = await this.db
       .update(deliverySlots)
@@ -242,9 +264,10 @@ export class SlotsService {
       .select({
         id: deliverySlots.id,
         date: deliverySlots.date,
-        // pg `time` serializes as HH:MM:SS — trim to HH:MM for the UI.
-        startTime: sql<string>`substring(${deliverySlots.timeFrom}::text from 1 for 5)`,
-        endTime: sql<string>`substring(${deliverySlots.timeTo}::text from 1 for 5)`,
+        // pg `time` serializes as HH:MM:SS — trim to HH:MM for the UI. NULL on a
+        // day-row (no time window) substrings to NULL, which is exactly what we want.
+        startTime: sql<string | null>`substring(${deliverySlots.timeFrom}::text from 1 for 5)`,
+        endTime: sql<string | null>`substring(${deliverySlots.timeTo}::text from 1 for 5)`,
         customerNote: deliverySlots.customerNote,
         // Free spots left — only for multi-capacity slots (>1); single-capacity
         // slots send null so the picker shows no count and the raw capacity of a
@@ -262,7 +285,7 @@ export class SlotsService {
       .groupBy(deliverySlots.id, deliverySlots.capacity)
       // A slot shows while its live order count is below its capacity.
       .having(sql`count(${orders.id}) < ${deliverySlots.capacity}`)
-      .orderBy(deliverySlots.date, deliverySlots.timeFrom);
+      .orderBy(deliverySlots.date);
 
     // Today is never pickable — the farm needs a full day's lead time to plan
     // the day's route/prep, so the last chance to book a day's slot is the day
@@ -315,6 +338,12 @@ export class SlotsService {
       })
       .where(eq(tenants.id, tenantId));
 
+    // A rule edit that only changes capacity (or anything else) must still reach
+    // future days: delete-then-rebuild is how that propagates, since
+    // materializeRule only fills gaps rather than updating existing rows. A
+    // future generated row that already holds a live order is NOT deleted (see
+    // deleteFutureUnbookedGenerated's `not exists ... orders` guard) — its
+    // capacity is left as-is; the farmer edits that one day manually if needed.
     await this.deleteFutureUnbookedGenerated(tenantId, this.bgToday());
     await this.materializeRule(tenantId, this.bgToday(), true); // force rebuild
     return rule;
@@ -352,8 +381,6 @@ export class SlotsService {
     const existing = await this.db
       .select({
         date: deliverySlots.date,
-        timeFrom: deliverySlots.timeFrom,
-        timeTo: deliverySlots.timeTo,
       })
       .from(deliverySlots)
       .where(
@@ -364,23 +391,19 @@ export class SlotsService {
           lte(deliverySlots.date, wanted[wanted.length - 1].date),
         ),
       );
-    // Key on date+times (PG `time` comes back HH:MM:SS — trim to HH:MM): with
-    // slotMinutes a date carries several slots, so a date-only diff would stop
-    // after the first one. A date-keyed set also guards rule edits that change
-    // a day's hours: those rows were already deleted by the force path.
-    const slotKey = (d: string, from: string, to: string) =>
-      `${d}|${from.slice(0, 5)}|${to.slice(0, 5)}`;
-    const have = new Set(existing.map((r) => slotKey(r.date, r.timeFrom, r.timeTo)));
-    const missing = wanted.filter((w) => !have.has(slotKey(w.date, w.timeFrom, w.timeTo)));
+    // One GenSlot per date now (no more per-window sub-slots), so the diff keys
+    // on date alone. A rule edit that changes a day's capacity is handled by the
+    // force-rebuild path (saveRule deletes future unbooked generated rows first),
+    // not by this diff.
+    const have = new Set(existing.map((r) => r.date));
+    const missing = wanted.filter((w) => !have.has(w.date));
     if (missing.length) {
       await this.db.insert(deliverySlots).values(
         missing.map((w) => ({
           tenantId,
           date: w.date,
-          timeFrom: w.timeFrom,
-          timeTo: w.timeTo,
           generated: true,
-          capacity: clampCapacity(rule.defaultCapacity),
+          capacity: w.capacity,
           customerNote: rule.customerNote ?? null,
           driverNote: rule.driverNote ?? null,
         })),
