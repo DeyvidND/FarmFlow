@@ -33,6 +33,8 @@ export function LocationRouteCard({
   // address was typed/edited by hand → backend geocodes it.
   const [homePin, setHomePin] = useState<{ lat: number; lng: number } | null>(null);
   const [endMode, setEndMode] = useState<RouteEndMode>('home');
+  // Default courier count for the /route page when ?couriers= is omitted.
+  const [courierCount, setCourierCount] = useState(1);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -42,6 +44,8 @@ export function LocationRouteCard({
         const r = (t.routing ?? {}) as RoutingConfig;
         // Fall back to 'home' for legacy 'custom' (no longer offered).
         setEndMode(r.endMode === 'last' ? 'last' : 'home');
+        const n = Number(r.courierCount ?? 1);
+        setCourierCount(Number.isFinite(n) ? Math.min(10, Math.max(1, Math.round(n))) : 1);
       })
       .catch(() => {});
   }, []);
@@ -57,7 +61,7 @@ export function LocationRouteCard({
       await updateTenant({
         farmAddress: home.trim(),
         ...(homePin ? { farmLat: homePin.lat, farmLng: homePin.lng } : {}),
-        routing: { endMode, endAddress: '' },
+        routing: { endMode, endAddress: '', courierCount },
       });
       toast.success('Локацията е запазена');
       onSaved?.();
@@ -106,6 +110,25 @@ export function LocationRouteCard({
             onPick={setHomePin}
             apiKey={placesKey}
           />
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-bold text-ff-ink-2">Куриери по подразбиране</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={courierCount}
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10);
+                setCourierCount(Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : 1);
+              }}
+              className="w-24 rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[15px] font-bold text-ff-ink outline-none focus:border-ff-green-500"
+            />
+            <span className="text-[12px] text-ff-muted">
+              Между колко човека да се разпределят спирките, когато не е избрано друго на екрана
+              „Маршрут&quot;.
+            </span>
+          </label>
 
           <Button
             variant="primary"

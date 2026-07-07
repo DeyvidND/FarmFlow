@@ -301,7 +301,11 @@ export const updateTenant = (data: {
   farmAddress?: string;
   farmLat?: number;
   farmLng?: number;
-  routing?: { endMode?: 'home' | 'last' | 'custom'; endAddress?: string | null };
+  routing?: {
+    endMode?: 'home' | 'last' | 'custom';
+    endAddress?: string | null;
+    courierCount?: number;
+  };
 }) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
 // ---- Route stops ----

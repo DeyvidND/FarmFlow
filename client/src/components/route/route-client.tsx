@@ -16,14 +16,17 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateOrderStatus } from '@/lib/api-client';
-import type { MultiRouteResult, RouteStop, RouteEndMode } from '@/lib/types';
+import type { MultiRouteResult, CourierRoute, RouteStop, RouteEndMode } from '@/lib/types';
 import { StopList } from './stop-list';
 import { EditAddressModal } from './edit-address-modal';
-import { RouteMap } from './route-map';
+import { RouteMap, ROUTE_COLORS } from './route-map';
 import { LocationRouteCard } from './location-route-card';
 import { WazeStepper } from './waze-stepper';
 import { buildWazeTargets, wazeUrl } from './waze';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+
+// Re-exported so callers only need to import from one place.
+export { ROUTE_COLORS };
 
 const cn = (...c: (string | false)[]) => c.filter(Boolean).join(' ');
 
@@ -97,6 +100,14 @@ function fmtDur(s: number | null): string | null {
   return r ? `${h} ч ${r} мин` : `${h} ч`;
 }
 
+const EMPTY_ROUTE: CourierRoute = {
+  stops: [],
+  totalDistanceM: null,
+  totalDurationS: null,
+  optimized: false,
+  polyline: null,
+};
+
 export function RouteClient({
   route,
   dateLabel,
@@ -116,12 +127,31 @@ export function RouteClient({
 }) {
   const router = useRouter();
   const { origin, end, routes } = route;
-  // Single-courier view for now — the courier selector + per-courier tabs
-  // (multi-courier UI) land in a follow-up; this always shows the first leg,
-  // which is the only leg when `couriers=1` (today's default).
-  const active = routes[0] ?? { stops: [], totalDistanceM: null, totalDurationS: null, optimized: false, polyline: null };
-  const { stops, polyline } = active;
+
+  // Which courier's leg is shown in the list/map/Waze — a plain tab index into
+  // `routes`. Reset to the first tab whenever the day or courier count changes
+  // (a new fetch means the previous tab may no longer correspond to the same leg).
+  const [activeCourierIdx, setActiveCourierIdx] = useState(0);
+  useEffect(() => {
+    setActiveCourierIdx(0);
+  }, [route.date, route.couriers]);
+
+  const multi = routes.length > 1;
+  const active: CourierRoute = routes[activeCourierIdx] ?? routes[0] ?? EMPTY_ROUTE;
+  const { stops } = active;
+  // Every stop across every courier — used for the "mark all delivered" bulk
+  // action and the unlocated-address warning, both of which must cover the
+  // whole day, not just whichever tab happens to be open.
+  const allStops = useMemo(() => routes.flatMap((r) => r.stops), [routes]);
+
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
+  // Switching courier tabs (or loading a new day) selects that leg's first stop
+  // so the map/list don't keep highlighting a pin that belongs to another courier.
+  useEffect(() => {
+    setActiveId(active.stops[0]?.id ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCourierIdx, route.date, route.couriers]);
+
   const [showHelp, setShowHelp] = useState(false);
   const [showLoc, setShowLoc] = useState(false);
   // The stop whose address is being edited (drives the „Смени адрес" modal).
@@ -132,6 +162,7 @@ export function RouteClient({
 
   // Waze step-by-step navigator: which target is next, and whether the panel is
   // open. `wazeIdx` reaches `wazeTargets.length` when every stop is done.
+  // Targets are always built from the ACTIVE courier's stops.
   const [showWaze, setShowWaze] = useState(false);
   const [wazeIdx, setWazeIdx] = useState(0);
   const wazeTargets = useMemo(
@@ -139,44 +170,54 @@ export function RouteClient({
     [stops, end, origin],
   );
 
-  // Restore Waze progress for THIS date (survives reload / phone lock). Clamp to
-  // the current target count. Keyed on the date only so re-ordering mid-run
-  // doesn't reset the pointer.
+  // Restore Waze progress for THIS date AND courier (each courier walks their
+  // own leg, so their progress pointers must not collide). Clamp to the
+  // current target count.
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(`ff:waze:${route.date}`);
+      const raw = localStorage.getItem(`ff:waze:${route.date}:${activeCourierIdx}`);
       const n = raw == null ? 0 : parseInt(raw, 10);
       setWazeIdx(Number.isFinite(n) ? Math.min(Math.max(n, 0), wazeTargets.length) : 0);
     } catch {
       setWazeIdx(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.date]);
+  }, [route.date, activeCourierIdx]);
 
   // Persist progress on every change.
   useEffect(() => {
     try {
-      localStorage.setItem(`ff:waze:${route.date}`, String(wazeIdx));
+      localStorage.setItem(`ff:waze:${route.date}:${activeCourierIdx}`, String(wazeIdx));
     } catch {
       /* localStorage unavailable (private mode) — progress just won't persist */
     }
-  }, [wazeIdx, route.date]);
+  }, [wazeIdx, route.date, activeCourierIdx]);
 
   const dist = fmtDist(active.totalDistanceM);
   const dur = fmtDur(active.totalDurationS);
-  const summary = `${stops.length} ${stops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`;
+  // With one courier, the summary is that courier's own stats (as before). With
+  // several, lead with the day-wide total — the per-courier distance/duration
+  // is already visible on each tab below.
+  const summary = multi
+    ? `${allStops.length} ${allStops.length === 1 ? 'спирка' : 'спирки'} общо · ${routes.length} куриера`
+    : `${stops.length} ${stops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`;
 
-  // Where the route ends, for the Google Maps deep link (null = end at last stop).
+  // Where the van goes after the last delivery, for the Google Maps deep link
+  // (null = end at last stop). Shared across all couriers.
   const endPoint: Point | null =
     end.mode !== 'last' && (end.lat != null || end.address)
       ? { address: end.address, lat: end.lat, lng: end.lng }
       : null;
 
   // Navigate keeping the other options; override only what changed.
-  const go = (over: { end?: RouteEndMode }) =>
-    router.push(`/route?date=${route.date}&end=${over.end ?? end.mode}`);
+  const go = (over: { end?: RouteEndMode; couriers?: number }) =>
+    router.push(
+      `/route?date=${route.date}&end=${over.end ?? end.mode}&couriers=${over.couriers ?? route.couriers}`,
+    );
   const setEnd = (mode: RouteEndMode) => go({ end: mode });
-  const setDate = (date: string) => router.push(`/route?date=${date}&end=${end.mode}`);
+  const setCouriers = (n: number) => go({ couriers: n });
+  const setDate = (date: string) =>
+    router.push(`/route?date=${date}&end=${end.mode}&couriers=${route.couriers}`);
 
   const endHint = END_OPTIONS.find((o) => o.mode === end.mode)?.hint ?? '';
 
@@ -212,22 +253,23 @@ export function RouteClient({
   const wazeNext = () => setWazeIdx((v) => Math.min(wazeTargets.length, v + 1));
   const wazeReset = () => setWazeIdx(0);
 
-  // Bulk "finish the day" action: marks every stop's order as delivered.
+  // Bulk "finish the day" action: marks every stop's order as delivered, across
+  // EVERY courier's leg — not just whichever tab is currently open.
   // Does not touch payment/COD fields — those are a separate, existing flow.
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const finishDay = async () => {
     setFinishing(true);
     const results = await Promise.allSettled(
-      stops.map((s) => updateOrderStatus(s.id, 'delivered')),
+      allStops.map((s) => updateOrderStatus(s.id, 'delivered')),
     );
     setFinishing(false);
     setConfirmFinish(false);
     const failed = results.filter((r) => r.status === 'rejected').length;
     if (failed === 0) {
-      toast.success(`Всички ${stops.length} спирки маркирани като доставени`);
+      toast.success(`Всички ${allStops.length} спирки маркирани като доставени`);
     } else {
-      toast.error(`${stops.length - failed}/${stops.length} маркирани, ${failed} неуспешни — опитай пак`);
+      toast.error(`${allStops.length - failed}/${allStops.length} маркирани, ${failed} неуспешни — опитай пак`);
     }
     router.refresh();
   };
@@ -249,8 +291,9 @@ export function RouteClient({
 
   // Stops whose address couldn't be geocoded — no map pin. They're still in the
   // list (nothing dropped), but the farmer must be told so a delivery isn't
-  // silently missed just because it never showed up on the map.
-  const unlocated = stops.filter((s) => s.lat == null || s.lng == null);
+  // silently missed just because it never showed up on the map. Checked across
+  // every courier's leg, not just the active tab.
+  const unlocated = allStops.filter((s) => s.lat == null || s.lng == null);
 
   // No base address yet — the route starts from the farm, so without it nothing
   // can be computed. Point the farmer straight at the location card.
@@ -297,7 +340,7 @@ export function RouteClient({
         </div>
       )}
 
-      {/* summary + end-mode + date + help */}
+      {/* summary + end-mode + couriers + date + help */}
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[14px] text-ff-muted">{summary}</p>
         <div className="flex flex-wrap items-center gap-2">
@@ -319,6 +362,22 @@ export function RouteClient({
               </button>
             ))}
           </div>
+          {/* how many people split today's deliveries */}
+          <label className="flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm">
+            Куриери
+            <select
+              value={route.couriers}
+              onChange={(e) => setCouriers(parseInt(e.target.value, 10))}
+              aria-label="Брой куриери"
+              className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
+            >
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="relative flex cursor-pointer items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2">
             <CalendarDays size={17} />
             <span className="capitalize">{dateLabel}</span>
@@ -451,6 +510,10 @@ export function RouteClient({
               задаваш нещо.
             </li>
             <li>
+              <b>Куриери</b> — раздели маршрута между няколко души — всеки получава балансирана част от
+              спирките, всички тръгват от базата.
+            </li>
+            <li>
               <b>Към дома / Край при клиента / По избор</b> — къде свършваш след последната доставка: при
               базата, при последния клиент, или на друг адрес. Изборът тук важи{' '}
               <b>само за този преглед</b>; стойността по подразбиране се задава от бутона{' '}
@@ -460,15 +523,15 @@ export function RouteClient({
               <b>Google Maps</b> — отваря целия маршрут в Google Maps, за да го видиш на картата.
             </li>
             <li>
-              <b>Завърших доставките</b> — маркира всички спирки за деня като доставени
-              (след потвърждение). Не пипа информацията дали парите са получени — това е
+              <b>Завърших доставките</b> — маркира всички спирки за деня (при всички куриери) като
+              доставени (след потвърждение). Не пипа информацията дали парите са получени — това е
               отделно.
             </li>
             <li>
               <b>Waze</b> — навигация спирка по спирка. За разлика от Google Maps, Waze{' '}
               <b>не поддържа маршрути с много спирки</b> — приема само една дестинация наведнъж.
               Затова тук цъкаш „Навигирай“ за текущата спирка, закарай, после мини на следващата.
-              Помни докъде си стигнал за деня.
+              Помни докъде си стигнал за деня — отделно за всеки куриер.
             </li>
             <li>
               При всяка спирка виждаш <b>телефон и имейл</b> — натисни ги за обаждане/писмо, или
@@ -484,16 +547,50 @@ export function RouteClient({
               маршрут се появяват бутони <b>Отсечка 2, 3…</b> за останалите.
             </li>
             <li>
-              На картата: <b>★</b> = твоята база, <b>номерата</b> = редът на доставките, <b>⚑</b> =
-              краят на маршрута.
+              На картата: <b>★</b> = твоята база, <b>номерата</b> = редът на доставките (различен цвят
+              за всеки куриер), <b>⚑</b> = краят на маршрута.
             </li>
           </ul>
           </div>
         </div>
       )}
 
+      {/* courier tabs — one per leg, each labelled with its own stop count and
+          distance/duration; only shown when the day is actually split */}
+      {multi && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {routes.map((r, i) => {
+            const rDist = fmtDist(r.totalDistanceM);
+            const rDur = fmtDur(r.totalDurationS);
+            const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+            const on = i === activeCourierIdx;
+            return (
+              <button
+                key={i}
+                onClick={() => setActiveCourierIdx(i)}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[12.5px] font-bold transition',
+                  on
+                    ? 'border-transparent text-white shadow-ff-sm'
+                    : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+                )}
+                style={on ? { backgroundColor: color } : undefined}
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: on ? 'rgba(255,255,255,0.9)' : color }}
+                />
+                Маршрут {i + 1} ({r.stops.length} {r.stops.length === 1 ? 'спирка' : 'спирки'}
+                {rDist ? ` · ${rDist}` : ''}
+                {rDur ? ` · ~${rDur}` : ''})
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="grid h-[calc(100vh-var(--topbar-h)-152px)] min-h-[460px] grid-cols-[380px_1fr] items-stretch gap-4 max-[900px]:h-auto max-[900px]:min-h-0 max-[900px]:grid-cols-1">
-        {/* stops list */}
+        {/* stops list — shows the ACTIVE courier's leg */}
         <div className="flex flex-col overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
           <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-ff-border-2 px-[18px] pb-[13px] pt-4">
             <h2 className="text-[16px] font-extrabold">Маршрут за доставка</h2>
@@ -521,8 +618,8 @@ export function RouteClient({
               </button>
               <button
                 onClick={() => setConfirmFinish(true)}
-                disabled={!stops.length}
-                title="Маркира всички спирки за днес като доставени"
+                disabled={!allStops.length}
+                title="Маркира всички спирки за днес (при всички куриери) като доставени"
                 className="inline-flex items-center gap-1.5 rounded-[9px] bg-ff-green-100 px-[11px] py-[7px] text-[13px] font-bold text-ff-green-800 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <CheckCircle2 size={15} /> Завърших доставките
@@ -540,13 +637,13 @@ export function RouteClient({
           />
         </div>
 
-        {/* map */}
+        {/* map — every courier's route is drawn; the active one is highlighted */}
         <div className="relative overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:order-[-1] max-[900px]:h-[340px]">
           <RouteMap
-            stops={stops}
+            routes={routes}
+            activeRoute={activeCourierIdx}
             origin={origin}
             end={end}
-            polyline={polyline}
             activeId={activeId}
             onPick={setActiveId}
             apiKey={mapsKey}
@@ -557,7 +654,7 @@ export function RouteClient({
       {confirmFinish && (
         <ConfirmDialog
           title="Завърши доставките за днес?"
-          message={`Всички ${stops.length} спирки ще бъдат маркирани като доставени.`}
+          message={`Всички ${allStops.length} спирки (при всички куриери) ще бъдат маркирани като доставени.`}
           confirmLabel="Завърших"
           busy={finishing}
           onCancel={() => setConfirmFinish(false)}

@@ -178,6 +178,8 @@ export interface RoutingConfig {
   endAddress?: string | null;
   endLat?: string | null;
   endLng?: string | null;
+  /** Default number of couriers to split the route between (1-10). */
+  courierCount?: number;
 }
 
 // ---- Delivery configuration (persisted to tenant.settings.delivery) ----

@@ -10,7 +10,21 @@ import {
   useMapsLibrary,
 } from '@vis.gl/react-google-maps';
 import { cn } from '@/lib/utils';
-import type { RouteStop, MultiRouteResult, RouteEnd } from '@/lib/types';
+import type { RouteStop, CourierRoute, MultiRouteResult, RouteEnd } from '@/lib/types';
+
+/** One distinct color per courier route (cycles if there are more than 10). */
+export const ROUTE_COLORS = [
+  '#2c7a3f',
+  '#1d6fb8',
+  '#c2571d',
+  '#7b3fb8',
+  '#b83f5e',
+  '#3fb8a9',
+  '#8a8f1d',
+  '#5e5e5e',
+  '#b89f1d',
+  '#1db884',
+];
 
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 // Reserved demo map id — renders AdvancedMarkers without cloud map styling.
@@ -19,13 +33,19 @@ const BG_CENTROID = { lat: 42.7339, lng: 25.4858 };
 
 type Origin = MultiRouteResult['origin'];
 
+/** A stop is "on the map" only when it has been geocoded (has both coords). */
+const isLocated = (s: RouteStop) => s.lat != null && s.lng != null;
+
+/** Route color for a given route index, cycling through the palette. */
+const routeColor = (i: number) => ROUTE_COLORS[i % ROUTE_COLORS.length];
+
 interface RouteMapProps {
-  stops: RouteStop[];
+  /** One entry per courier — every route is drawn, the active one highlighted. */
+  routes: CourierRoute[];
+  /** Index into `routes` of the currently selected courier tab. */
+  activeRoute: number;
   origin: Origin;
   end: RouteEnd;
-  /** Encoded road-geometry legs (from the backend Routes API) for the current
-   *  order. Decoded + drawn so the line follows streets; absent → straight line. */
-  polyline?: string[] | null;
   activeId: string | null;
   onPick: (id: string) => void;
   /** Maps key from the server (Dokploy runtime env); falls back to the build-time
@@ -35,21 +55,23 @@ interface RouteMapProps {
 
 /**
  * Delivery route map. With a Maps key + geocoded points it renders a real
- * Google map (farm origin + numbered stop pins + a connecting route line);
- * otherwise it falls back to the styled demo placeholder.
+ * Google map (farm origin + one numbered+colored pin set per courier route +
+ * a connecting line per route); otherwise it falls back to the styled demo
+ * placeholder (active courier only).
  */
 export function RouteMap({
-  stops,
+  routes,
+  activeRoute,
   origin,
   end,
-  polyline,
   activeId,
   onPick,
   apiKey,
 }: RouteMapProps) {
   const key = apiKey || MAPS_KEY;
-  const located = stops.filter((s) => s.lat != null && s.lng != null);
   const hasOrigin = origin.lat != null && origin.lng != null;
+  const active = routes[activeRoute] ?? routes[0];
+  const activeLocated = (active?.stops ?? []).filter(isLocated);
   // A real map renders whenever we have a Maps key — even with zero stops it
   // shows a genuine Google map (centred on the farm, or the country) instead of
   // the styled placeholder. The demo only stands in for a missing key (local dev).
@@ -62,13 +84,14 @@ export function RouteMap({
       : null;
 
   if (!canRenderReal) {
-    return <DemoMap stops={stops} activeId={activeId} onPick={onPick} />;
+    return <DemoMap stops={active?.stops ?? []} activeId={activeId} onPick={onPick} />;
   }
 
+  const allLocated = routes.flatMap((r) => r.stops.filter(isLocated));
   const center = hasOrigin
     ? { lat: origin.lat as number, lng: origin.lng as number }
-    : located.length > 0
-      ? { lat: located[0].lat as number, lng: located[0].lng as number }
+    : allLocated.length > 0
+      ? { lat: allLocated[0].lat as number, lng: allLocated[0].lng as number }
       : BG_CENTROID;
 
   return (
@@ -81,8 +104,19 @@ export function RouteMap({
         disableDefaultUI={false}
         style={{ width: '100%', height: '100%' }}
       >
-        <FitBounds origin={origin} stops={located} end={customEnd} />
-        <RouteLine origin={origin} stops={located} end={end} polyline={polyline} />
+        <FitBounds origin={origin} stops={allLocated} end={customEnd} />
+
+        {routes.map((r, ri) => (
+          <RouteLine
+            key={ri}
+            origin={origin}
+            stops={r.stops.filter(isLocated)}
+            end={end}
+            polyline={r.polyline}
+            color={routeColor(ri)}
+            opacity={ri === activeRoute ? 0.9 : 0.45}
+          />
+        ))}
 
         {hasOrigin && (
           <AdvancedMarker
@@ -99,29 +133,31 @@ export function RouteMap({
           </AdvancedMarker>
         )}
 
-        {located.map((s, i) => (
-          <AdvancedMarker
-            key={s.id}
-            position={{ lat: s.lat as number, lng: s.lng as number }}
-            onClick={() => onPick(s.id)}
-          >
-            <NumPin n={i + 1} active={activeId === s.id} />
-          </AdvancedMarker>
-        ))}
+        {routes.map((r, ri) =>
+          r.stops.filter(isLocated).map((s, i) => (
+            <AdvancedMarker
+              key={s.id}
+              position={{ lat: s.lat as number, lng: s.lng as number }}
+              onClick={() => onPick(s.id)}
+            >
+              <NumPin n={i + 1} active={activeId === s.id} color={routeColor(ri)} />
+            </AdvancedMarker>
+          )),
+        )}
       </Map>
     </APIProvider>
   );
 }
 
-/** Pin marker content for a delivery stop (mirrors the demo pin look). */
-function NumPin({ n, active }: { n: number; active: boolean }) {
+/** Pin marker content for a delivery stop — colored to match its courier route. */
+function NumPin({ n, active, color }: { n: number; active: boolean; color: string }) {
   return (
     <span
       className={cn(
         'grid h-[30px] w-[30px] place-items-center rounded-[50%_50%_50%_2px] shadow-[0_4px_10px_rgba(0,0,0,0.25)]',
-        active ? 'bg-ff-amber' : 'bg-ff-green-700',
+        active && 'bg-ff-amber',
       )}
-      style={{ transform: 'rotate(45deg)' }}
+      style={{ transform: 'rotate(45deg)', ...(active ? {} : { backgroundColor: color }) }}
     >
       <span
         className={cn('text-[13.5px] font-extrabold', active ? 'text-[#3a2a08]' : 'text-white')}
@@ -149,7 +185,7 @@ function EndPin() {
   );
 }
 
-/** Fit the viewport to the farm + all stops (+ custom end). */
+/** Fit the viewport to the farm + every route's stops (+ custom end). */
 function FitBounds({
   origin,
   stops,
@@ -182,22 +218,26 @@ function FitBounds({
 }
 
 /**
- * Draw the route line: farm → stops → end (home = back to farm, last = stop,
- * custom = end point). Prefers the real road geometry from the backend (encoded
- * polyline legs decoded via the `geometry` library) so the line follows streets;
- * falls back to straight segments between pins when no geometry is available
- * (maps stub, un-routed order, or a Routes API miss).
+ * Draw one courier's route line: farm → stops → end (home = back to farm, last
+ * = stop, custom = end point). Prefers the real road geometry from the backend
+ * (encoded polyline legs decoded via the `geometry` library) so the line
+ * follows streets; falls back to straight segments between pins when no
+ * geometry is available (maps stub, un-routed order, or a Routes API miss).
  */
 function RouteLine({
   origin,
   stops,
   end,
   polyline,
+  color,
+  opacity,
 }: {
   origin: Origin;
   stops: RouteStop[];
   end: RouteEnd;
   polyline?: string[] | null;
+  color: string;
+  opacity: number;
 }) {
   const map = useMap();
   const maps = useMapsLibrary('maps');
@@ -217,8 +257,8 @@ function RouteLine({
       if (roadPath.length >= 2) {
         const line = new maps.Polyline({
           path: roadPath,
-          strokeColor: '#2d6a4f',
-          strokeOpacity: 0.9,
+          strokeColor: color,
+          strokeOpacity: opacity,
           strokeWeight: 4,
         });
         line.setMap(map);
@@ -239,13 +279,13 @@ function RouteLine({
     if (path.length < 2) return;
     const line = new maps.Polyline({
       path,
-      strokeColor: '#2d6a4f',
-      strokeOpacity: 0.85,
+      strokeColor: color,
+      strokeOpacity: opacity,
       strokeWeight: 3,
     });
     line.setMap(map);
     return () => line.setMap(null);
-  }, [map, maps, geometry, origin, stops, end, polyline]);
+  }, [map, maps, geometry, origin, stops, end, polyline, color, opacity]);
   return null;
 }
 
@@ -258,6 +298,7 @@ function demoPos(i: number, n: number): { x: number; y: number } {
   return { x, y };
 }
 
+/** No Maps key configured (local dev) — shows the active courier's stops only. */
 function DemoMap({
   stops,
   activeId,
