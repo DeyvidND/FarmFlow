@@ -346,20 +346,13 @@ function MethodCard({
  * method (the old per-card inputs all wrote the same global value).
  */
 export function GlobalRulesSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut }) {
-  const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
-  const courierOn = econtMode !== 'off';
   return (
     <DSection
       title="Общи правила"
       helper="Важат за всички методи наведнъж."
-      info={
-        <>
-          „Безплатно над сума“ и надценката върху куриера са общи за магазина — задаваш ги
-          веднъж тук, а не за всеки метод поотделно.
-        </>
-      }
+      info={<>„Безплатно над сума“ важи за всички методи — задаваш го веднъж тук.</>}
     >
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3.5">
         <div>
           <LvInput
             label="Безплатна доставка над сума"
@@ -370,18 +363,6 @@ export function GlobalRulesSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut
             Поръчка над тази сума пътува безплатно с всеки метод. 0 = без безплатна доставка.
           </p>
         </div>
-        {courierOn && (
-          <div>
-            <LvInput
-              label="Надценка върху куриерската цена"
-              value={cfg.pricing.courierMarkupStotinki ?? 0}
-              onChange={(v) => mut((d) => (d.pricing.courierMarkupStotinki = v))}
-            />
-            <p className="mt-1.5 text-[12.5px] text-ff-muted">
-              Твоят марж върху цената на Еконт/Speedy, която клиентът плаща. 0 = без надценка.
-            </p>
-          </div>
-        )}
       </div>
     </DSection>
   );
