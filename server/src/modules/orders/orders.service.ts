@@ -966,9 +966,11 @@ export class OrdersService {
       .limit(1);
     if (!current) throw new NotFoundException('Поръчката не е намерена');
 
-    // Guard: closed orders are read-only history.
-    if (current.status === 'delivered' || current.status === 'cancelled') {
-      throw new BadRequestException('Доставените и отказаните поръчки не могат да се редактират.');
+    // Guard: only live (pending/confirmed) orders are editable — an allowlist,
+    // not a blocklist, since the status enum has more than two closed states
+    // (preparing/out_for_delivery are also non-editable here).
+    if (current.status !== 'pending' && current.status !== 'confirmed') {
+      throw new BadRequestException('Само поръчки в статус "чакаща" или "потвърдена" могат да се редактират.');
     }
     // Guard: a card-paid order's money is fixed — no item/total changes.
     if (dto.items && current.paidAt) {
@@ -1002,26 +1004,19 @@ export class OrdersService {
       } else {
         newCity = (await this.maps.geocodeCity(dto.deliveryAddress, bias)) ?? undefined;
       }
+    } else if (addressChanged && !dto.deliveryAddress) {
+      // Address cleared — the OLD coordinates/city must not survive an emptied address.
+      if (geocodes) {
+        newLat = null;
+        newLng = null;
+      }
+      if (needsCity) newCity = null;
     }
 
     await this.db.transaction(async (tx) => {
       // Slot reassign — only when slotId is present in the patch and differs.
-      if (dto.slotId !== undefined && dto.slotId !== current.slotId) {
-        if (dto.slotId !== null) {
-          const [slot] = await tx
-            .select()
-            .from(deliverySlots)
-            .where(and(eq(deliverySlots.id, dto.slotId), eq(deliverySlots.tenantId, tenantId)))
-            .for('update')
-            .limit(1);
-          if (!slot) throw new BadRequestException('Слотът не е намерен');
-          if (slot.date === bgToday()) throw new BadRequestException('Слотът вече не е достъпен за днес');
-          const [{ count }] = await tx
-            .select({ count: sql<number>`count(*)::int` })
-            .from(orders)
-            .where(and(eq(orders.slotId, dto.slotId), ne(orders.status, 'cancelled'), ne(orders.id, id)));
-          if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
-        }
+      if (dto.slotId !== undefined && dto.slotId !== current.slotId && dto.slotId !== null) {
+        await this.lockAndCheckSlot(tx, tenantId, dto.slotId, id);
       }
 
       // Scalar fields: only those present in the patch.
@@ -1378,6 +1373,43 @@ export class OrdersService {
    * (with each line's owning farmer) plus the resolved slot times. Throws
    * Bad/Conflict exactly as the inline intake logic did.
    */
+  /**
+   * Lock a delivery slot row and enforce its capacity + same-day cutoff.
+   * Shared by intake (reserveCartItems) and the order-edit slot reassign —
+   * `excludeOrderId` lets an edit's own order not count against its own slot.
+   */
+  private async lockAndCheckSlot(
+    tx: Tx,
+    tenantId: string,
+    slotId: string,
+    excludeOrderId?: string,
+  ): Promise<{ timeFrom: string; timeTo: string; date: string; capacity: number }> {
+    const [slot] = await tx
+      .select()
+      .from(deliverySlots)
+      .where(and(eq(deliverySlots.id, slotId), eq(deliverySlots.tenantId, tenantId)))
+      .for('update')
+      .limit(1);
+    if (!slot) throw new BadRequestException('Слотът не е намерен');
+
+    // Backstop for a stale checkout page open past the picker's same-day
+    // cutoff (SlotsService.findPublicBySlug hides today's slots entirely;
+    // this rejects the booking too, in case an old tab/replay still tries it).
+    if (slot.date === bgToday()) {
+      throw new BadRequestException('Слотът вече не е достъпен за днес');
+    }
+
+    const conds = [eq(orders.slotId, slotId), ne(orders.status, 'cancelled')];
+    if (excludeOrderId) conds.push(ne(orders.id, excludeOrderId));
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(orders)
+      .where(and(...conds));
+    if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
+
+    return { timeFrom: slot.timeFrom, timeTo: slot.timeTo, date: slot.date, capacity: slot.capacity };
+  }
+
   private async reserveCartItems(
     tx: Tx,
     tenantId: string,
@@ -1453,29 +1485,10 @@ export class OrdersService {
     let slotTo: string | null = null;
     let slotDate: string | null = null;
     if (slotId) {
-      const [slot] = await tx
-        .select()
-        .from(deliverySlots)
-        .where(and(eq(deliverySlots.id, slotId), eq(deliverySlots.tenantId, tenantId)))
-        .for('update')
-        .limit(1);
-      if (!slot) throw new BadRequestException('Слотът не е намерен');
-      slotFrom = slot.timeFrom;
-      slotTo = slot.timeTo;
-      slotDate = slot.date;
-
-      // Backstop for a stale checkout page open past the picker's same-day
-      // cutoff (SlotsService.findPublicBySlug hides today's slots entirely;
-      // this rejects the booking too, in case an old tab/replay still tries it).
-      if (slotDate === bgToday()) {
-        throw new BadRequestException('Слотът вече не е достъпен за днес');
-      }
-
-      const [{ count }] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(orders)
-        .where(and(eq(orders.slotId, slotId), ne(orders.status, 'cancelled')));
-      if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
+      const s = await this.lockAndCheckSlot(tx, tenantId, slotId);
+      slotFrom = s.timeFrom;
+      slotTo = s.timeTo;
+      slotDate = s.date;
     }
 
     // Per-item availability-window enforcement (lock all active windows in one

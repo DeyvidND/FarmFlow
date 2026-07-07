@@ -40,6 +40,14 @@ describe('updateOrder guards', () => {
     const svc = serviceWithOrder({ ...BASE, status: 'cancelled' });
     await expect(svc.updateOrder('order-1', 'tenant-1', { customerName: 'Х' })).rejects.toBeInstanceOf(BadRequestException);
   });
+  it('rejects editing a preparing order (allowlist, not just delivered/cancelled)', async () => {
+    const svc = serviceWithOrder({ ...BASE, status: 'preparing' });
+    await expect(svc.updateOrder('order-1', 'tenant-1', { customerName: 'Х' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+  it('rejects editing an out_for_delivery order', async () => {
+    const svc = serviceWithOrder({ ...BASE, status: 'out_for_delivery' });
+    await expect(svc.updateOrder('order-1', 'tenant-1', { customerName: 'Х' })).rejects.toBeInstanceOf(BadRequestException);
+  });
   it('rejects item edits on a card-paid order', async () => {
     const svc = serviceWithOrder({ ...BASE, paidAt: new Date() });
     await expect(
