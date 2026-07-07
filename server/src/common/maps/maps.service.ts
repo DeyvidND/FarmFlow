@@ -170,6 +170,46 @@ export class MapsService {
   }
 
   /**
+   * Resolve a map point back to a human address (reverse geocoding) — used by
+   * the route stop editor when the farmer drops/drags a pin on the embedded
+   * map, so the address field can reflect where the pin actually landed.
+   * Returns null when disabled, on no match, or on any error — same
+   * graceful-degradation contract as every other method here. Cached for
+   * {@link GEOCODE_CACHE_TTL}, keyed by coordinates rounded to ~1m precision.
+   */
+  async reverseGeocode(lat: number, lng: number): Promise<string | null> {
+    if (!this.enabled) return null;
+
+    const key = this.reverseGeoKey(lat, lng);
+    const cached = await this.cachedGet<string>(key);
+    if (cached) return cached;
+
+    const url = `${GEOCODE_URL}?latlng=${lat},${lng}&language=bg&key=${this.apiKey}`;
+    try {
+      const res = await this.fetchJson(url);
+      if (res?.status !== 'OK' || !Array.isArray(res.results) || !res.results.length) {
+        if (res?.status && res.status !== 'ZERO_RESULTS') {
+          this.logger.warn(`Reverse geocode failed (${res.status}) for ${lat},${lng}.`);
+        }
+        return null;
+      }
+      const raw = res.results[0]?.formatted_address;
+      if (typeof raw !== 'string' || !raw) return null;
+      const address = raw.replace(/,?\s*(България|Bulgaria)\s*$/i, '');
+      await this.cachedSet(key, address, GEOCODE_CACHE_TTL);
+      return address;
+    } catch (err) {
+      this.logger.warn(`Reverse geocode error for ${lat},${lng}: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /** Stable cache key for a reverse geocode — coordinates rounded to ~1m. */
+  private reverseGeoKey(lat: number, lng: number): string {
+    return `maps:reverse:${lat.toFixed(5)},${lng.toFixed(5)}`;
+  }
+
+  /**
    * Resolve just the settlement (city/town) name for a typed address — used by the
    * courier / Econt-to-door checkout path, where the buyer may type the address by
    * hand (no Google Places pick) yet the carrier still needs a structured city to

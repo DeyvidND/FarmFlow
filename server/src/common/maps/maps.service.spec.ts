@@ -49,13 +49,14 @@ const stops = [
 afterEach(() => jest.clearAllMocks());
 
 describe('MapsService disabled (no API key)', () => {
-  it('route/geocode/routeFixed all resolve to null and never call fetch', async () => {
+  it('route/geocode/routeFixed/reverseGeocode all resolve to null and never call fetch', async () => {
     const fetchSpy = mockFetch({});
     const svc = make('');
     expect(svc.enabled).toBe(false);
     expect(await svc.route(origin, stops)).toBeNull();
     expect(await svc.geocode('ул. Шипка 5')).toBeNull();
     expect(await svc.routeFixed([origin, ...stops])).toBeNull();
+    expect(await svc.reverseGeocode(42.0, 23.0)).toBeNull();
     expect(fetchSpy).toHaveLength(0);
   });
 });
@@ -391,5 +392,39 @@ describe('MapsService.placeAutocomplete', () => {
       throw new Error('network error');
     });
     expect(await make('k').placeAutocomplete('Витоша', 'sess-1')).toEqual([]);
+  });
+});
+
+describe('MapsService.reverseGeocode', () => {
+  const reverseOk = (formattedAddress: string) => ({
+    status: 'OK',
+    results: [{ formatted_address: formattedAddress }],
+  });
+
+  it('returns the formatted address, stripped of the trailing country name', async () => {
+    const calls = mockFetch(reverseOk('ул. Иван Вазов 12, Варна, България'));
+    const out = await make('k').reverseGeocode(43.2, 27.9);
+    expect(out).toBe('ул. Иван Вазов 12, Варна');
+    expect(decodeURIComponent(calls[0].url)).toContain('latlng=43.2,27.9');
+  });
+
+  it('returns null on ZERO_RESULTS', async () => {
+    mockFetch(geoZero);
+    expect(await make('k').reverseGeocode(0, 0)).toBeNull();
+  });
+
+  it('caches a successful result — second call skips fetch', async () => {
+    const store = new Map<string, unknown>();
+    const cache = {
+      get: jest.fn(async (k: string) => store.get(k) ?? null),
+      set: jest.fn(async (k: string, v: unknown) => void store.set(k, v)),
+    } as never;
+    const svc = new MapsService({ get: () => 'k' } as never, cache);
+    const calls = mockFetch(reverseOk('пл. Свобода 1, Севлиево'));
+    const first = await svc.reverseGeocode(43.0, 25.0);
+    const second = await svc.reverseGeocode(43.0, 25.0);
+    expect(first).toBe('пл. Свобода 1, Севлиево');
+    expect(second).toBe('пл. Свобода 1, Севлиево');
+    expect(calls).toHaveLength(1);
   });
 });
