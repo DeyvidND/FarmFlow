@@ -483,6 +483,7 @@ export type SlotRuleInput = Omit<SlotRule, 'skipDates' | 'lastMaterializedDate'>
 export interface OrderItem {
   id: string;
   productId: string | null;
+  variantId: string | null;
   productName: string | null;
   quantity: number;
   priceStotinki: number;
