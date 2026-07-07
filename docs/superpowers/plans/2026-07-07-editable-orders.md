@@ -354,6 +354,8 @@ In `server/src/modules/orders/orders.service.ts`, add the import for the DTO nea
 import { UpdateOrderDto } from './dto/update-order.dto';
 ```
 
+**Note:** `slotIsFull(booked: number, capacity: number): boolean` from `../slots/slot-rule` is ALREADY imported in this file (concurrent slot-capacity work landed it) — do not re-import it, just use it. The slot's `capacity` column already exists on `deliverySlots` (`slot.capacity`).
+
 and add the method right after `findOne` (after line 950):
 
 ```ts
@@ -426,7 +428,7 @@ and add the method right after `findOne` (after line 950):
             .select({ count: sql<number>`count(*)::int` })
             .from(orders)
             .where(and(eq(orders.slotId, dto.slotId), ne(orders.status, 'cancelled'), ne(orders.id, id)));
-          if (count >= 1) throw new ConflictException('Слотът е запълнен');
+          if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
         }
       }
 
