@@ -1,0 +1,40 @@
+# ФермериБГ dedicated DB box — postgres (private-network-only, 10.0.0.3) plus
+# Uptime Kuma monitoring. App layer lives on the app box and connects to
+# postgres over the Hetzner private net (fermeribg-net).
+name: fermeribg
+
+services:
+  postgres:
+    image: postgres:16@sha256:081f1bc7bd5e143dbb6e487b710bbc27712cdcfaced4c071b8e47349aa1b4171
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: farmflow
+      POSTGRES_USER: farmflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    ports:
+      - "10.0.0.3:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farmflow -d farmflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Uptime monitoring (Uptime Kuma) — lives on the DB box so it watches the app
+  # box from OUTSIDE its failure domain. UI is NOT on the public internet:
+  # published only on localhost (SSH tunnel) and the private net IP (so the app
+  # box's Cloudflare tunnel could route status.fermeribg.com here later).
+  # Alerts (Telegram/email) are configured in the UI and fire regardless.
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    restart: unless-stopped
+    volumes:
+      - kumadata:/app/data
+    ports:
+      - "127.0.0.1:3001:3001"
+      - "10.0.0.3:3001:3001"
+
+volumes:
+  pgdata:
+  kumadata:
