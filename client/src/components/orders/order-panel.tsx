@@ -1,15 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Phone, Mail, MapPin, Package, CalendarClock, Check, Truck, CreditCard, ExternalLink } from 'lucide-react';
+import { X, Phone, Mail, MapPin, Package, CalendarClock, Check, Truck, CreditCard, ExternalLink, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
 import { moneyFromStotinki, hhmm, timeFromIso, relDayLabel, statusMeta, type OrderStatus } from '@/lib/utils';
-import { ApiError, requestDeliveryHandoff, setCodOutcome } from '@/lib/api-client';
-import type { Order } from '@/lib/types';
+import { ApiError, requestDeliveryHandoff, setCodOutcome, updateOrder } from '@/lib/api-client';
+import type { Order, UpdateOrderInput } from '@/lib/types';
+import { OrderEditForm } from './order-edit-fields';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -18,13 +19,18 @@ export function OrderPanel({
   busy,
   onClose,
   onAction,
+  onSaved,
 }: {
   order: Order;
   busy?: boolean;
   onClose: () => void;
   onAction: (status: OrderStatus) => void;
+  onSaved: (updated: Order) => void;
 }) {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const editable = order.status === 'pending' || order.status === 'confirmed';
 
   return (
     <>
@@ -37,57 +43,92 @@ export function OrderPanel({
             </div>
             <h2 className="text-[22px] font-extrabold tracking-[-0.015em]">{order.customerName ?? 'Клиент'}</h2>
           </div>
-          <button onClick={onClose} aria-label="Затвори" className="grid h-10 w-10 place-items-center rounded-[11px] border border-ff-border bg-ff-surface-2 text-ff-ink-2">
-            <X size={20} />
-          </button>
-        </div>
-
-        <OrderDetailBody key={order.id} order={order} />
-
-        <div className="flex flex-col gap-2.5 border-t border-ff-border-2 px-6 py-5">
-          {order.status === 'pending' && (
-            <Button variant="primary" disabled={busy} onClick={() => onAction('confirmed')} className="w-full rounded-sm">
-              <Check size={18} /> Потвърди
-            </Button>
-          )}
-          {(order.status === 'pending' || order.status === 'confirmed') && (
-            <Button variant="soft" disabled={busy} onClick={() => onAction('delivered')} className="w-full rounded-sm">
-              <Truck size={18} /> Маркирай доставена
-            </Button>
-          )}
-          {order.status !== 'cancelled' && order.status !== 'delivered' && (
-            <Button
-              variant="danger"
-              disabled={busy}
-              onClick={() => setConfirmingCancel(true)}
-              className="w-full rounded-sm"
-            >
-              <X size={18} /> Откажи
-            </Button>
-          )}
-
-          <div className="flex items-center gap-2.5 border-t border-ff-border-2 pt-3.5">
-            <label htmlFor="order-status-override" className="shrink-0 text-xs font-bold text-ff-muted">
-              Промени статус
-            </label>
-            <select
-              id="order-status-override"
-              value={order.status}
-              disabled={busy}
-              onChange={(e) => {
-                const next = e.target.value as OrderStatus;
-                if (next !== order.status) onAction(next);
-              }}
-              className="flex-1 rounded-sm border border-ff-border bg-ff-surface-2 px-2.5 py-2 text-[13px] font-semibold text-ff-ink outline-none transition-colors focus:border-ff-green-500 disabled:opacity-60"
-            >
-              {(Object.keys(statusMeta) as OrderStatus[]).map((s) => (
-                <option key={s} value={s}>
-                  {statusMeta[s].label}
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center gap-2">
+            {editable && !editing && (
+              <button
+                onClick={() => setEditing(true)}
+                aria-label="Редактирай"
+                className="grid h-10 w-10 place-items-center rounded-[11px] border border-ff-border bg-ff-surface-2 text-ff-ink-2"
+              >
+                <Pencil size={18} />
+              </button>
+            )}
+            <button onClick={onClose} aria-label="Затвори" className="grid h-10 w-10 place-items-center rounded-[11px] border border-ff-border bg-ff-surface-2 text-ff-ink-2">
+              <X size={20} />
+            </button>
           </div>
         </div>
+
+        {editing ? (
+          <OrderEditForm
+            key={order.id}
+            order={order}
+            saving={saving}
+            onCancel={() => setEditing(false)}
+            onSave={async (patch: UpdateOrderInput) => {
+              setSaving(true);
+              try {
+                const updated = await updateOrder(order.id, patch);
+                onSaved(updated);
+                setEditing(false);
+                toast.success('Запазено');
+              } catch (e) {
+                toast.error(e instanceof ApiError ? e.message : 'Възникна грешка');
+              } finally {
+                setSaving(false);
+              }
+            }}
+          />
+        ) : (
+          <OrderDetailBody key={order.id} order={order} />
+        )}
+
+        {!editing && (
+          <div className="flex flex-col gap-2.5 border-t border-ff-border-2 px-6 py-5">
+            {order.status === 'pending' && (
+              <Button variant="primary" disabled={busy} onClick={() => onAction('confirmed')} className="w-full rounded-sm">
+                <Check size={18} /> Потвърди
+              </Button>
+            )}
+            {(order.status === 'pending' || order.status === 'confirmed') && (
+              <Button variant="soft" disabled={busy} onClick={() => onAction('delivered')} className="w-full rounded-sm">
+                <Truck size={18} /> Маркирай доставена
+              </Button>
+            )}
+            {order.status !== 'cancelled' && order.status !== 'delivered' && (
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={() => setConfirmingCancel(true)}
+                className="w-full rounded-sm"
+              >
+                <X size={18} /> Откажи
+              </Button>
+            )}
+
+            <div className="flex items-center gap-2.5 border-t border-ff-border-2 pt-3.5">
+              <label htmlFor="order-status-override" className="shrink-0 text-xs font-bold text-ff-muted">
+                Промени статус
+              </label>
+              <select
+                id="order-status-override"
+                value={order.status}
+                disabled={busy}
+                onChange={(e) => {
+                  const next = e.target.value as OrderStatus;
+                  if (next !== order.status) onAction(next);
+                }}
+                className="flex-1 rounded-sm border border-ff-border bg-ff-surface-2 px-2.5 py-2 text-[13px] font-semibold text-ff-ink outline-none transition-colors focus:border-ff-green-500 disabled:opacity-60"
+              >
+                {(Object.keys(statusMeta) as OrderStatus[]).map((s) => (
+                  <option key={s} value={s}>
+                    {statusMeta[s].label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </aside>
 
       {confirmingCancel && (

@@ -338,6 +338,9 @@ export function DashboardClient({
           busy={busy}
           onClose={() => setActiveId(null)}
           onAction={(s) => onAction(active, s)}
+          onSaved={(updated) => {
+            setOrders((p) => p.map((x) => (x.id === updated.id ? updated : x)));
+          }}
         />
       )}
 

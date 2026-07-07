@@ -38,6 +38,7 @@ import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay } from './order-scheduling';
+import { subtotalStotinki, recomputeTotalStotinki } from './order-total.util';
 import { decideDecrement, restoreRemaining } from '../availability/availability.util';
 import { slotIsFull } from '../slots/slot-rule';
 
@@ -966,9 +967,11 @@ export class OrdersService {
       .limit(1);
     if (!current) throw new NotFoundException('Поръчката не е намерена');
 
-    // Guard: closed orders are read-only history.
-    if (current.status === 'delivered' || current.status === 'cancelled') {
-      throw new BadRequestException('Доставените и отказаните поръчки не могат да се редактират.');
+    // Guard: only live (pending/confirmed) orders are editable — an allowlist,
+    // not a blocklist, since the status enum has more than two closed states
+    // (preparing/out_for_delivery are also non-editable here).
+    if (current.status !== 'pending' && current.status !== 'confirmed') {
+      throw new BadRequestException('Само поръчки в статус "чакаща" или "потвърдена" могат да се редактират.');
     }
     // Guard: a card-paid order's money is fixed — no item/total changes.
     if (dto.items && current.paidAt) {
@@ -984,44 +987,39 @@ export class OrdersService {
     let newLat: string | null | undefined;
     let newLng: string | null | undefined;
     let newCity: string | null | undefined;
-    if (addressChanged && dto.deliveryAddress && (geocodes || needsCity)) {
-      const [tenant] = await this.db
-        .select({ farmLat: tenants.farmLat, farmLng: tenants.farmLng })
-        .from(tenants)
-        .where(eq(tenants.id, tenantId))
-        .limit(1);
-      const fLat = tenant?.farmLat == null ? null : Number(tenant.farmLat);
-      const fLng = tenant?.farmLng == null ? null : Number(tenant.farmLng);
-      const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
-      if (geocodes) {
-        const geo = await this.maps.geocode(dto.deliveryAddress, bias);
-        if (geo) {
-          newLat = String(geo.lat);
-          newLng = String(geo.lng);
+    if (addressChanged && (geocodes || needsCity)) {
+      if (dto.deliveryAddress) {
+        const [tenant] = await this.db
+          .select({ farmLat: tenants.farmLat, farmLng: tenants.farmLng })
+          .from(tenants)
+          .where(eq(tenants.id, tenantId))
+          .limit(1);
+        const fLat = tenant?.farmLat == null ? null : Number(tenant.farmLat);
+        const fLng = tenant?.farmLng == null ? null : Number(tenant.farmLng);
+        const bias = fLat != null && fLng != null ? { lat: fLat, lng: fLng } : undefined;
+        if (geocodes) {
+          // Geocode lookup attempted — a miss (or Maps disabled) must clear the
+          // OLD pin, never silently leave it standing under the NEW address text.
+          const geo = await this.maps.geocode(dto.deliveryAddress, bias);
+          newLat = geo ? String(geo.lat) : null;
+          newLng = geo ? String(geo.lng) : null;
+        } else {
+          newCity = (await this.maps.geocodeCity(dto.deliveryAddress, bias)) ?? null;
         }
       } else {
-        newCity = (await this.maps.geocodeCity(dto.deliveryAddress, bias)) ?? undefined;
+        // Address cleared — the OLD coordinates/city must not survive an emptied address.
+        if (geocodes) {
+          newLat = null;
+          newLng = null;
+        }
+        if (needsCity) newCity = null;
       }
     }
 
     await this.db.transaction(async (tx) => {
       // Slot reassign — only when slotId is present in the patch and differs.
-      if (dto.slotId !== undefined && dto.slotId !== current.slotId) {
-        if (dto.slotId !== null) {
-          const [slot] = await tx
-            .select()
-            .from(deliverySlots)
-            .where(and(eq(deliverySlots.id, dto.slotId), eq(deliverySlots.tenantId, tenantId)))
-            .for('update')
-            .limit(1);
-          if (!slot) throw new BadRequestException('Слотът не е намерен');
-          if (slot.date === bgToday()) throw new BadRequestException('Слотът вече не е достъпен за днес');
-          const [{ count }] = await tx
-            .select({ count: sql<number>`count(*)::int` })
-            .from(orders)
-            .where(and(eq(orders.slotId, dto.slotId), ne(orders.status, 'cancelled'), ne(orders.id, id)));
-          if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
-        }
+      if (dto.slotId !== undefined && dto.slotId !== current.slotId && dto.slotId !== null) {
+        await this.lockAndCheckSlot(tx, tenantId, dto.slotId, id);
       }
 
       // Scalar fields: only those present in the patch.
@@ -1038,7 +1036,28 @@ export class OrdersService {
       if (newLng !== undefined) set.deliveryLng = newLng;
       if (newCity !== undefined) set.deliveryCity = newCity;
 
-      // Items replacement is implemented in Task 3.
+      // Items replacement — restore old stock, re-reserve new, swap rows, recompute
+      // total (preserving the folded-in delivery fee). Slot is handled above, so we
+      // pass slotId=null to reserveCartItems (its slot block is skipped for null).
+      if (dto.items) {
+        const oldItems = await tx.select().from(orderItems).where(eq(orderItems.orderId, id));
+        await this.restoreAvailabilityWindows(tx, tenantId, oldItems);
+        await this.restoreVariantStock(tx, oldItems);
+
+        const carrierDelivery =
+          current.deliveryType === 'econt' ||
+          current.deliveryType === 'econt_address' ||
+          current.deliveryType === 'courier';
+        const { items: prepared } = await this.reserveCartItems(tx, tenantId, dto.items, null, carrierDelivery);
+        const lines = prepared.map(({ farmerId: _f, ...line }) => line);
+
+        await tx.delete(orderItems).where(eq(orderItems.orderId, id));
+        await tx.insert(orderItems).values(lines.map((l) => ({ ...l, orderId: id })));
+
+        const prevSubtotal = subtotalStotinki(oldItems);
+        const newSubtotal = subtotalStotinki(prepared);
+        set.totalStotinki = recomputeTotalStotinki(current.totalStotinki, prevSubtotal, newSubtotal);
+      }
 
       if (Object.keys(set).length > 0) {
         await tx.update(orders).set(set).where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
@@ -1101,41 +1120,7 @@ export class OrdersService {
           .select()
           .from(orderItems)
           .where(eq(orderItems.orderId, id));
-        const today = bgToday();
-        const restoreProductIds = items
-          .map((it) => it.productId)
-          .filter((p): p is string => !!p);
-        // Lock every restorable product's active window in one ordered statement
-        // (deadlock-free, no N+1). Expired windows simply aren't returned.
-        const activeWindows = restoreProductIds.length
-          ? await tx
-              .select()
-              .from(productAvailabilityWindows)
-              .where(
-                and(
-                  inArray(productAvailabilityWindows.productId, restoreProductIds),
-                  eq(productAvailabilityWindows.tenantId, tenantId),
-                  lte(productAvailabilityWindows.startsAt, today),
-                  gte(productAvailabilityWindows.endsAt, today),
-                ),
-              )
-              .for('update')
-              .orderBy(asc(productAvailabilityWindows.productId))
-          : [];
-        const winByProduct = new Map(activeWindows.map((w) => [w.productId, w]));
-        for (const it of items) {
-          if (!it.productId) continue;
-          const win = winByProduct.get(it.productId);
-          // Mutate in memory so repeated line items for the same product chain
-          // their restores (and the cap re-applies each step).
-          if (win) win.remaining = restoreRemaining(win, it.quantity);
-        }
-        for (const w of activeWindows) {
-          await tx
-            .update(productAvailabilityWindows)
-            .set({ remaining: w.remaining })
-            .where(eq(productAvailabilityWindows.id, w.id));
-        }
+        await this.restoreAvailabilityWindows(tx, tenantId, items);
       });
     }
     // Status change moves the order in/out of the counted set (and flips collected
@@ -1370,6 +1355,114 @@ export class OrdersService {
   }
 
   /**
+   * Lock a delivery slot row and enforce its capacity + same-day cutoff.
+   * Shared by intake (reserveCartItems) and the order-edit slot reassign —
+   * `excludeOrderId` lets an edit's own order not count against its own slot.
+   */
+  private async lockAndCheckSlot(
+    tx: Tx,
+    tenantId: string,
+    slotId: string,
+    excludeOrderId?: string,
+  ): Promise<{ timeFrom: string; timeTo: string; date: string; capacity: number }> {
+    const [slot] = await tx
+      .select()
+      .from(deliverySlots)
+      .where(and(eq(deliverySlots.id, slotId), eq(deliverySlots.tenantId, tenantId)))
+      .for('update')
+      .limit(1);
+    if (!slot) throw new BadRequestException('Слотът не е намерен');
+
+    // Backstop for a stale checkout page open past the picker's same-day
+    // cutoff (SlotsService.findPublicBySlug hides today's slots entirely;
+    // this rejects the booking too, in case an old tab/replay still tries it).
+    if (slot.date === bgToday()) {
+      throw new BadRequestException('Слотът вече не е достъпен за днес');
+    }
+
+    const conds = [eq(orders.slotId, slotId), ne(orders.status, 'cancelled')];
+    if (excludeOrderId) conds.push(ne(orders.id, excludeOrderId));
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(orders)
+      .where(and(...conds));
+    if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
+
+    return { timeFrom: slot.timeFrom, timeTo: slot.timeTo, date: slot.date, capacity: slot.capacity };
+  }
+
+  /**
+   * Return each item's reserved stock to its active availability window
+   * (best-effort — only while the window is still active; expired windows left
+   * as-is). Extracted from the cancel branch so the order-edit path can reuse it.
+   * Caller must run this inside an open transaction.
+   */
+  private async restoreAvailabilityWindows(
+    tx: Tx,
+    tenantId: string,
+    items: { productId: string | null; quantity: number }[],
+  ): Promise<void> {
+    const today = bgToday();
+    const restoreProductIds = items.map((it) => it.productId).filter((p): p is string => !!p);
+    if (!restoreProductIds.length) return;
+    const activeWindows = await tx
+      .select()
+      .from(productAvailabilityWindows)
+      .where(
+        and(
+          inArray(productAvailabilityWindows.productId, restoreProductIds),
+          eq(productAvailabilityWindows.tenantId, tenantId),
+          lte(productAvailabilityWindows.startsAt, today),
+          gte(productAvailabilityWindows.endsAt, today),
+        ),
+      )
+      .for('update')
+      .orderBy(asc(productAvailabilityWindows.productId));
+    const winByProduct = new Map(activeWindows.map((w) => [w.productId, w]));
+    for (const it of items) {
+      if (!it.productId) continue;
+      const win = winByProduct.get(it.productId);
+      if (win) win.remaining = restoreRemaining(win, it.quantity);
+    }
+    for (const w of activeWindows) {
+      await tx
+        .update(productAvailabilityWindows)
+        .set({ remaining: w.remaining })
+        .where(eq(productAvailabilityWindows.id, w.id));
+    }
+  }
+
+  /**
+   * Add each variant line's quantity back to its variant stock counter (NULL =
+   * unlimited, skipped). Rows locked in id order (deadlock-free). Used by the
+   * order-edit path — variant stock is decremented by reserveCartItems, so an
+   * edit that drops/reduces a variant line must return that stock.
+   */
+  private async restoreVariantStock(
+    tx: Tx,
+    items: { variantId: string | null; quantity: number }[],
+  ): Promise<void> {
+    const variantIds = items.map((it) => it.variantId).filter((v): v is string => !!v);
+    if (!variantIds.length) return;
+    const rows = await tx
+      .select()
+      .from(productVariants)
+      .where(inArray(productVariants.id, variantIds))
+      .for('update')
+      .orderBy(asc(productVariants.id));
+    const byId = new Map(rows.map((v) => [v.id, v]));
+    const add = new Map<string, number>();
+    for (const it of items) {
+      if (it.variantId) add.set(it.variantId, (add.get(it.variantId) ?? 0) + it.quantity);
+    }
+    for (const v of rows) {
+      if (v.stockQuantity == null) continue; // unlimited
+      const restored = v.stockQuantity + (add.get(v.id) ?? 0);
+      await tx.update(productVariants).set({ stockQuantity: restored }).where(eq(productVariants.id, v.id));
+    }
+  }
+
+  /**
    * Validate the cart, reserve stock (availability windows + variant stock), price
    * each line, and — when a slot is given (local delivery) — lock it and enforce
    * the slot's capacity. Runs inside an open transaction; mutates the
@@ -1453,29 +1546,10 @@ export class OrdersService {
     let slotTo: string | null = null;
     let slotDate: string | null = null;
     if (slotId) {
-      const [slot] = await tx
-        .select()
-        .from(deliverySlots)
-        .where(and(eq(deliverySlots.id, slotId), eq(deliverySlots.tenantId, tenantId)))
-        .for('update')
-        .limit(1);
-      if (!slot) throw new BadRequestException('Слотът не е намерен');
-      slotFrom = slot.timeFrom;
-      slotTo = slot.timeTo;
-      slotDate = slot.date;
-
-      // Backstop for a stale checkout page open past the picker's same-day
-      // cutoff (SlotsService.findPublicBySlug hides today's slots entirely;
-      // this rejects the booking too, in case an old tab/replay still tries it).
-      if (slotDate === bgToday()) {
-        throw new BadRequestException('Слотът вече не е достъпен за днес');
-      }
-
-      const [{ count }] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(orders)
-        .where(and(eq(orders.slotId, slotId), ne(orders.status, 'cancelled')));
-      if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
+      const s = await this.lockAndCheckSlot(tx, tenantId, slotId);
+      slotFrom = s.timeFrom;
+      slotTo = s.timeTo;
+      slotDate = s.date;
     }
 
     // Per-item availability-window enforcement (lock all active windows in one
