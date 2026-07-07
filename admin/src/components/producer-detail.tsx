@@ -93,14 +93,6 @@ export function ProducerDetail({ farmer: f }: { farmer: FarmerDetail }) {
             <ImpersonateButton farmerId={f.id} hasLogin={f.hasLogin} />
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] font-bold',
-                f.courierEnabled ? 'bg-ff-green-50 text-ff-green-700' : 'bg-ff-surface-2 text-ff-muted-2',
-              )}
-            >
-              <Truck size={13} /> Куриер {f.courierEnabled ? 'вкл' : 'изкл'}
-            </span>
             <CarrierPill on={f.econtConnected} label="Еконт" />
             <CarrierPill on={f.speedyConnected} label="Speedy" />
           </div>

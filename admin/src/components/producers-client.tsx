@@ -42,7 +42,6 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
   const rows = items.filter((f) => (tab === 'real' ? !f.isDemo : f.isDemo) && matches(f));
 
   const withLogin = items.filter((f) => f.hasLogin && !f.isDemo).length;
-  const withCourier = items.filter((f) => f.courierEnabled && !f.isDemo).length;
 
   return (
     <div className="animate-ff-fade-up">
@@ -50,7 +49,7 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
         <div>
           <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Производители</h1>
           <p className="mt-0.5 text-[13.5px] text-ff-muted">
-            Всички фермери от всички ферми · {items.length} общо · {withLogin} с достъп · {withCourier} с куриер
+            Всички фермери от всички ферми · {items.length} общо · {withLogin} с достъп
           </p>
         </div>
         <div className="relative w-[300px] max-[560px]:w-full">
@@ -96,7 +95,7 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-                {['Фермер', 'Ферма', 'Вход', 'Куриер', 'Свързани', 'Продукти', 'Поръчки', 'Пратки', 'НП чака'].map((h) => (
+                {['Фермер', 'Ферма', 'Вход', 'Свързани', 'Продукти', 'Поръчки', 'Пратки', 'НП чака'].map((h) => (
                   <th key={h} className="whitespace-nowrap px-4 py-3 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
                     {h}
                   </th>
@@ -141,16 +140,6 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
                     ) : (
                       <span className="text-ff-muted-2">няма достъп</span>
                     )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        'inline-flex rounded-full px-2.5 py-1 text-[12px] font-bold',
-                        f.courierEnabled ? 'bg-ff-green-50 text-ff-green-700' : 'bg-ff-surface-2 text-ff-muted-2',
-                      )}
-                    >
-                      {f.courierEnabled ? 'Вкл' : 'Изкл'}
-                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
