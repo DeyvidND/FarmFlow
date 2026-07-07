@@ -135,3 +135,33 @@ describe('updateOrder geocode-miss clears stale coordinates/city', () => {
     expect(setCapture[0].deliveryCity).toBeNull();
   });
 });
+
+describe('restoreVariantStock (via a captured tx)', () => {
+  it('adds quantities back per variant, skips unlimited (null) stock', async () => {
+    const updates: Array<{ id: string; stockQuantity: number }> = [];
+    const rows = [
+      { id: 'v1', stockQuantity: 2 },
+      { id: 'v2', stockQuantity: null },
+    ];
+    const tx: any = {
+      select: () => ({
+        from: () => ({ where: () => ({ for: () => ({ orderBy: () => Promise.resolve(rows) }) }) }),
+      }),
+      update: () => ({
+        set: (vals: { stockQuantity: number }) => ({
+          where: (_: unknown) => {
+            updates.push({ id: 'captured', stockQuantity: vals.stockQuantity });
+            return Promise.resolve();
+          },
+        }),
+      }),
+    };
+    const svc: any = new OrdersService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    await svc.restoreVariantStock(tx, [
+      { variantId: 'v1', quantity: 3 },
+      { variantId: 'v2', quantity: 1 },
+    ]);
+    // Only v1 (finite stock) is written: 2 + 3 = 5. v2 (null) is skipped.
+    expect(updates).toEqual([{ id: 'captured', stockQuantity: 5 }]);
+  });
+});

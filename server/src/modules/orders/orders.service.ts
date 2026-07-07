@@ -38,6 +38,7 @@ import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay } from './order-scheduling';
+import { subtotalStotinki, recomputeTotalStotinki } from './order-total.util';
 import { decideDecrement, restoreRemaining } from '../availability/availability.util';
 import { slotIsFull } from '../slots/slot-rule';
 
@@ -1035,7 +1036,28 @@ export class OrdersService {
       if (newLng !== undefined) set.deliveryLng = newLng;
       if (newCity !== undefined) set.deliveryCity = newCity;
 
-      // Items replacement is implemented in Task 3.
+      // Items replacement — restore old stock, re-reserve new, swap rows, recompute
+      // total (preserving the folded-in delivery fee). Slot is handled above, so we
+      // pass slotId=null to reserveCartItems (its slot block is skipped for null).
+      if (dto.items) {
+        const oldItems = await tx.select().from(orderItems).where(eq(orderItems.orderId, id));
+        await this.restoreAvailabilityWindows(tx, tenantId, oldItems);
+        await this.restoreVariantStock(tx, oldItems);
+
+        const carrierDelivery =
+          current.deliveryType === 'econt' ||
+          current.deliveryType === 'econt_address' ||
+          current.deliveryType === 'courier';
+        const { items: prepared } = await this.reserveCartItems(tx, tenantId, dto.items, null, carrierDelivery);
+        const lines = prepared.map(({ farmerId: _f, ...line }) => line);
+
+        await tx.delete(orderItems).where(eq(orderItems.orderId, id));
+        await tx.insert(orderItems).values(lines.map((l) => ({ ...l, orderId: id })));
+
+        const prevSubtotal = subtotalStotinki(oldItems);
+        const newSubtotal = subtotalStotinki(prepared);
+        set.totalStotinki = recomputeTotalStotinki(current.totalStotinki, prevSubtotal, newSubtotal);
+      }
 
       if (Object.keys(set).length > 0) {
         await tx.update(orders).set(set).where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
@@ -1098,41 +1120,7 @@ export class OrdersService {
           .select()
           .from(orderItems)
           .where(eq(orderItems.orderId, id));
-        const today = bgToday();
-        const restoreProductIds = items
-          .map((it) => it.productId)
-          .filter((p): p is string => !!p);
-        // Lock every restorable product's active window in one ordered statement
-        // (deadlock-free, no N+1). Expired windows simply aren't returned.
-        const activeWindows = restoreProductIds.length
-          ? await tx
-              .select()
-              .from(productAvailabilityWindows)
-              .where(
-                and(
-                  inArray(productAvailabilityWindows.productId, restoreProductIds),
-                  eq(productAvailabilityWindows.tenantId, tenantId),
-                  lte(productAvailabilityWindows.startsAt, today),
-                  gte(productAvailabilityWindows.endsAt, today),
-                ),
-              )
-              .for('update')
-              .orderBy(asc(productAvailabilityWindows.productId))
-          : [];
-        const winByProduct = new Map(activeWindows.map((w) => [w.productId, w]));
-        for (const it of items) {
-          if (!it.productId) continue;
-          const win = winByProduct.get(it.productId);
-          // Mutate in memory so repeated line items for the same product chain
-          // their restores (and the cap re-applies each step).
-          if (win) win.remaining = restoreRemaining(win, it.quantity);
-        }
-        for (const w of activeWindows) {
-          await tx
-            .update(productAvailabilityWindows)
-            .set({ remaining: w.remaining })
-            .where(eq(productAvailabilityWindows.id, w.id));
-        }
+        await this.restoreAvailabilityWindows(tx, tenantId, items);
       });
     }
     // Status change moves the order in/out of the counted set (and flips collected
@@ -1401,6 +1389,77 @@ export class OrdersService {
     if (slotIsFull(count, slot.capacity)) throw new ConflictException('Слотът е запълнен');
 
     return { timeFrom: slot.timeFrom, timeTo: slot.timeTo, date: slot.date, capacity: slot.capacity };
+  }
+
+  /**
+   * Return each item's reserved stock to its active availability window
+   * (best-effort — only while the window is still active; expired windows left
+   * as-is). Extracted from the cancel branch so the order-edit path can reuse it.
+   * Caller must run this inside an open transaction.
+   */
+  private async restoreAvailabilityWindows(
+    tx: Tx,
+    tenantId: string,
+    items: { productId: string | null; quantity: number }[],
+  ): Promise<void> {
+    const today = bgToday();
+    const restoreProductIds = items.map((it) => it.productId).filter((p): p is string => !!p);
+    if (!restoreProductIds.length) return;
+    const activeWindows = await tx
+      .select()
+      .from(productAvailabilityWindows)
+      .where(
+        and(
+          inArray(productAvailabilityWindows.productId, restoreProductIds),
+          eq(productAvailabilityWindows.tenantId, tenantId),
+          lte(productAvailabilityWindows.startsAt, today),
+          gte(productAvailabilityWindows.endsAt, today),
+        ),
+      )
+      .for('update')
+      .orderBy(asc(productAvailabilityWindows.productId));
+    const winByProduct = new Map(activeWindows.map((w) => [w.productId, w]));
+    for (const it of items) {
+      if (!it.productId) continue;
+      const win = winByProduct.get(it.productId);
+      if (win) win.remaining = restoreRemaining(win, it.quantity);
+    }
+    for (const w of activeWindows) {
+      await tx
+        .update(productAvailabilityWindows)
+        .set({ remaining: w.remaining })
+        .where(eq(productAvailabilityWindows.id, w.id));
+    }
+  }
+
+  /**
+   * Add each variant line's quantity back to its variant stock counter (NULL =
+   * unlimited, skipped). Rows locked in id order (deadlock-free). Used by the
+   * order-edit path — variant stock is decremented by reserveCartItems, so an
+   * edit that drops/reduces a variant line must return that stock.
+   */
+  private async restoreVariantStock(
+    tx: Tx,
+    items: { variantId: string | null; quantity: number }[],
+  ): Promise<void> {
+    const variantIds = items.map((it) => it.variantId).filter((v): v is string => !!v);
+    if (!variantIds.length) return;
+    const rows = await tx
+      .select()
+      .from(productVariants)
+      .where(inArray(productVariants.id, variantIds))
+      .for('update')
+      .orderBy(asc(productVariants.id));
+    const byId = new Map(rows.map((v) => [v.id, v]));
+    const add = new Map<string, number>();
+    for (const it of items) {
+      if (it.variantId) add.set(it.variantId, (add.get(it.variantId) ?? 0) + it.quantity);
+    }
+    for (const v of rows) {
+      if (v.stockQuantity == null) continue; // unlimited
+      const restored = v.stockQuantity + (add.get(v.id) ?? 0);
+      await tx.update(productVariants).set({ stockQuantity: restored }).where(eq(productVariants.id, v.id));
+    }
   }
 
   /**
