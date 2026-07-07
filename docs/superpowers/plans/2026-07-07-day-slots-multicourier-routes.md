@@ -26,6 +26,37 @@
 
 ---
 
+## Status (2026-07-08)
+
+All 12 tasks shipped on `feat/day-slots-multicourier`. Every task went through implement → build/test → adversarial review → fix-if-needed. Task-level checkboxes above are left unticked (52 boxes across 12 tasks wasn't worth hand-marking); this ledger is the source of truth for what's done.
+
+| Task | Repo | Commit(s) | Review outcome |
+|---|---|---|---|
+| 1. Migration 0081 | FarmFlow | `f6db90f` | — |
+| 2. slot-rule per-day capacity | FarmFlow | `236fc39`, `d20af4b` | compile gap found pre-merge, fixed |
+| 3. SlotsService/DTOs/public picker | FarmFlow | `96d2bb9`, `20ddd46` | dup-day generator bug found, fixed |
+| 4. Sweep-partition splitter | FarmFlow | `b84d6c9` | clean |
+| 5. Multi-courier RoutingService | FarmFlow | `befe025`, `6c6e215` | zero-order-day bug found, fixed |
+| 6. Server null-safe slot rendering | FarmFlow | `868384b` | clean |
+| 7. Client slots UI | FarmFlow | `a8a00a6`, `155a78c` | HIGH bug found (day-with-orders reopen crashed) — fixed; 2 cosmetic nits fixed |
+| 8. Client multi-courier route UI | FarmFlow | `0550c3c` | clean (2 dead-code nits, not worth a fix commit) |
+| 9. Storefront day picker | FarmFlow | `f33b0b2`, `9188aa1` | **security/data-leak bug found**: public ranged-slots endpoint let a caller-supplied `from` bypass the "never before today" floor — fixed server-side in `ddf9745` |
+| 10. chaika day picker | fermerski-pazar-chaika | `b68864a`, `d8c91f3` (main, **not pushed**) | stale copy nit, fixed |
+| 11. Templates day picker | FarmFlow-Templates | `8a48abf` (main, **not pushed**) | clean; confirmed a pre-existing (not new) gap — see follow-up below |
+| 12. E2E verification + rollout | FarmFlow | this note | full server suite 146/146 · 1276/1276 green; `client`/`storefront` builds clean; chaika + Templates `check` clean. Live dev-stack E2E walkthrough was scoped out by the user for this pass — every task's server/build/lint/test gate passed individually instead. |
+
+**Follow-up filed, out of scope for this branch:** local-delivery checkout in both chaika and FarmFlow-Templates lets a shopper submit without picking a delivery day even when the farm has slots configured (`selectedSlotId` is only conditionally attached, never required). Pre-existing before this rework, not a regression — flagged as a separate task.
+
+**Deploy order** (per the original plan's Task 12 Step 3):
+1. **FarmFlow server** first — migration 0081 + API. Old storefront bundles keep working during the gap (they render day-grouped slots with blank time labels).
+2. **FarmFlow client + storefront** — same deploy as server (monorepo).
+3. **chaika** — push `main` (2 commits ahead: `b68864a`, `d8c91f3`); deploys automatically via CF Workers Builds on push.
+4. **FarmFlow-Templates** — push `main` (1 commit ahead: `8a48abf`); respects the factory's frozen-lockfile CI.
+
+None of chaika/Templates have been pushed yet — that's a deliberate hold per the plan (Task 10 Step 4), pending explicit go-ahead.
+
+---
+
 ### Task 1: Migration 0081 — nullable times + merge future slots into day-rows
 
 **Files:**
