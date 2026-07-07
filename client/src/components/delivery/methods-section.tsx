@@ -340,10 +340,10 @@ function MethodCard({
 }
 
 /**
- * The two delivery values that apply across **all** methods at once — the global
- * free-over threshold and the courier markup. Kept in one section so a farmer
- * can't edit „one method card" and silently change a rule that affects every
- * method (the old per-card inputs all wrote the same global value).
+ * The delivery value that applies across **all** methods at once — the global
+ * free-over threshold. Kept in its own section so a farmer can't edit „one
+ * method card" and silently change a rule that affects every method (the old
+ * per-card inputs all wrote the same global value).
  */
 export function GlobalRulesSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut }) {
   return (
