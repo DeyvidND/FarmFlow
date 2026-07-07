@@ -497,13 +497,14 @@ export const createSlot = (data: {
   date: string;
   timeFrom: string;
   timeTo: string;
+  capacity?: number;
   customerNote?: string;
   driverNote?: string;
 }) => apiFetch<Slot>('slots', { method: 'POST', ...json(data) }, 'Неуспешно създаване на час за доставка');
 
 export const updateSlot = (
   id: string,
-  data: { timeFrom?: string; timeTo?: string; customerNote?: string; driverNote?: string },
+  data: { timeFrom?: string; timeTo?: string; capacity?: number; customerNote?: string; driverNote?: string },
 ) => apiFetch<Slot>(`slots/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешна промяна на час за доставка');
 
 export const deleteSlot = (id: string) =>

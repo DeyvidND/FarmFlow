@@ -15,6 +15,7 @@ export type SlotInput = {
   date: string;
   timeFrom: string;
   timeTo: string;
+  capacity: number;
   customerNote?: string;
   driverNote?: string;
 };
@@ -33,6 +34,7 @@ export function AddSlotDialog({
   const editing = !!slot;
   const [from, setFrom] = useState(slot ? hhmm(slot.timeFrom) : '09:00');
   const [to, setTo] = useState(slot ? hhmm(slot.timeTo) : '10:00');
+  const [capacity, setCapacity] = useState(slot?.capacity ?? 1);
   const [cNote, setCNote] = useState(slot?.customerNote ?? '');
   const [dNote, setDNote] = useState(slot?.driverNote ?? '');
   const [err, setErr] = useState('');
@@ -53,6 +55,7 @@ export function AddSlotDialog({
           date: theDate as string,
           timeFrom: from,
           timeTo: to,
+          capacity,
           customerNote: cNote.trim() || undefined,
           driverNote: dNote.trim() || undefined,
         },
@@ -97,6 +100,17 @@ export function AddSlotDialog({
               <input type="time" value={to} onChange={(e) => setTo(e.target.value)} className={field} />
             </label>
           </div>
+          <label className={labelCls}>
+            Поръчки на слот <span className="font-normal text-ff-muted">(колко доставки поемаш едновременно · напр. 2 човека = 2)</span>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={capacity}
+              onChange={(e) => setCapacity(Math.min(20, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+              className={field}
+            />
+          </label>
           <label className={labelCls}>
             Бележка за клиента <span className="font-normal text-ff-muted">(по избор · вижда се в магазина)</span>
             <input
