@@ -42,14 +42,13 @@ describe('PublicShippingQuoteController.compare', () => {
       id: 't1',
       comparisonActive: true,
       carrierPolicy: 'cheapest',
-      courierMarkupStotinki: 200,
     });
     (quote.compare as jest.Mock).mockResolvedValue(quoteResult);
 
     const ctrl = new PublicShippingQuoteController(db, tenantCache, quote, maps);
     const result = await ctrl.compare('test-farm', DTO);
 
-    expect((quote.compare as jest.Mock)).toHaveBeenCalledWith('t1', DTO, 'cheapest', 200);
+    expect((quote.compare as jest.Mock)).toHaveBeenCalledWith('t1', DTO, 'cheapest');
     expect(result).toBe(quoteResult);
     expect(maps.geocodeCity).not.toHaveBeenCalled();
     expect(dbChain.select).not.toHaveBeenCalled();
@@ -61,7 +60,6 @@ describe('PublicShippingQuoteController.compare', () => {
       id: 't1',
       comparisonActive: true,
       carrierPolicy: 'customer',
-      courierMarkupStotinki: 0,
     });
     dbChain.limit.mockResolvedValue([{ farmLat: '43.2', farmLng: '27.9' }]);
     (maps.geocodeCity as jest.Mock).mockResolvedValue('Варна');
@@ -76,7 +74,6 @@ describe('PublicShippingQuoteController.compare', () => {
       't1',
       { ...addrDto, destinationCity: 'Варна' },
       'customer',
-      0,
     );
   });
 

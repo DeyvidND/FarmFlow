@@ -7,7 +7,6 @@ import {
   buildPublicDelivery,
   buildPublicPickup,
   buildPublicOwnSlots,
-  courierMarkupStotinki,
   codEnabled,
   DELIVERY_DEFAULTS,
   type DeliveryConfig,
@@ -193,19 +192,10 @@ describe('carrier-comparison helpers', () => {
     expect(carrierPolicy({ carrierPolicy: 'speedy' } as any)).toBe('speedy');
     expect(carrierPolicy({ carrierPolicy: 'bogus' } as any)).toBe('customer');
   });
-  it('courierMarkupStotinki defaults to 0; reads a positive value; ignores negatives/garbage', () => {
-    expect(courierMarkupStotinki(null)).toBe(0);
-    expect(courierMarkupStotinki({} as any)).toBe(0);
-    expect(courierMarkupStotinki({ pricing: { courierMarkupStotinki: 150 } } as any)).toBe(150);
-    expect(courierMarkupStotinki({ pricing: { courierMarkupStotinki: -50 } } as any)).toBe(0);
-    expect(courierMarkupStotinki({ pricing: { courierMarkupStotinki: 12.6 } } as any)).toBe(13); // rounded
-  });
-  it('buildPublicDelivery adds markup to courier fees only (not local self-delivery)', () => {
-    const pub = buildPublicDelivery({ pricing: { courierMarkupStotinki: 100 } } as any);
-    // courier fees = DELIVERY_DEFAULTS (350 / 590) + markup 100
-    expect(pub.econtFeeStotinki).toBe(450);
-    expect(pub.econtAddressFeeStotinki).toBe(690);
-    // local self-delivery fee is untouched by courier markup
+  it('buildPublicDelivery courier fees = fallback fee, local self-delivery unchanged', () => {
+    const pub = buildPublicDelivery({} as any);
+    expect(pub.econtFeeStotinki).toBe(DELIVERY_DEFAULTS.econtFeeStotinki);
+    expect(pub.econtAddressFeeStotinki).toBe(DELIVERY_DEFAULTS.econtAddressFeeStotinki);
     expect(pub.addressFeeStotinki).toBe(DELIVERY_DEFAULTS.addressFeeStotinki);
   });
 });

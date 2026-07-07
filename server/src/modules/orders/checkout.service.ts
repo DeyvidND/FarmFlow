@@ -23,7 +23,6 @@ import {
   codEnabled,
   carrierPolicy,
   comparisonActive,
-  courierMarkupStotinki,
   type DeliveryConfig,
 } from './delivery-pricing';
 
@@ -326,7 +325,7 @@ export class CheckoutService {
           await this.db.update(orders).set({ carrier: picked.carrier }).where(eq(orders.id, order.id));
         }
         order.carrier = picked.carrier;
-        return applyFreeThreshold(picked.fee + courierMarkupStotinki(cfg), subtotal, freeThresholdStotinki(cfg));
+        return applyFreeThreshold(picked.fee, subtotal, freeThresholdStotinki(cfg));
       }
     }
 
@@ -349,9 +348,9 @@ export class CheckoutService {
       // Econt manual mode (farm ships itself) or Econt off — always flat fee, no API call.
       fee = econtFallbackFee(cfg, door);
     }
-    // Courier methods carry the farm's markup (margin on the courier price); the
-    // free-over threshold then zeroes the whole fee once the basket clears it.
-    return applyFreeThreshold(fee + courierMarkupStotinki(cfg), subtotal, freeThresholdStotinki(cfg));
+    // The customer pays the raw courier price; the free-over threshold then
+    // zeroes the whole fee once the basket clears it.
+    return applyFreeThreshold(fee, subtotal, freeThresholdStotinki(cfg));
   }
 
   /**

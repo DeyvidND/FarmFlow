@@ -37,7 +37,7 @@ export interface DeliveryConfig {
     econtAddress?: MethodConfig;
     pickup?: MethodConfig;
   };
-  pricing?: { freeThresholdStotinki?: number; courierMarkupStotinki?: number };
+  pricing?: { freeThresholdStotinki?: number };
   econt?: { mode?: EcontMode; configured?: boolean };
   speedy?: { configured?: boolean };
   cod?: { enabled?: boolean };
@@ -123,18 +123,6 @@ export function freeThresholdStotinki(cfg: DeliveryConfig | null | undefined): n
   return cfg?.pricing?.freeThresholdStotinki ?? DELIVERY_DEFAULTS.freeThresholdStotinki;
 }
 
-/**
- * Per-farm markup (stotinki) added on top of the COURIER shipping price the
- * customer pays — the farm's margin on Econt/Speedy. Applies only to courier
- * methods (office + door), never to local self-delivery or pickup. Default 0
- * (no markup); negatives are ignored. Folded in before the free-over threshold,
- * so a marked-up courier order still ships free once the basket clears it.
- */
-export function courierMarkupStotinki(cfg: DeliveryConfig | null | undefined): number {
-  const m = cfg?.pricing?.courierMarkupStotinki;
-  return typeof m === 'number' && m > 0 ? Math.round(m) : 0;
-}
-
 /** Zero the fee once the basket clears the global threshold (applies to every method). */
 export function applyFreeThreshold(fee: number, subtotal: number, threshold: number): number {
   return threshold > 0 && subtotal >= threshold ? 0 : fee;
@@ -162,14 +150,11 @@ export interface PublicDelivery {
 }
 
 export function buildPublicDelivery(cfg: DeliveryConfig | null | undefined): PublicDelivery {
-  // Courier fees carry the farm's markup so the storefront's flat estimate matches
-  // what checkout charges; local self-delivery does not (markup is courier-only).
-  const markup = courierMarkupStotinki(cfg);
   return {
     freeThresholdStotinki: freeThresholdStotinki(cfg),
     addressFeeStotinki: methodBaseFee(cfg?.methods?.ownSlots?.pricing, DELIVERY_DEFAULTS.addressFeeStotinki),
-    econtFeeStotinki: econtFallbackFee(cfg, false) + markup,
-    econtAddressFeeStotinki: econtFallbackFee(cfg, true) + markup,
+    econtFeeStotinki: econtFallbackFee(cfg, false),
+    econtAddressFeeStotinki: econtFallbackFee(cfg, true),
   };
 }
 
