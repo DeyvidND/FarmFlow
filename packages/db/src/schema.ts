@@ -903,7 +903,6 @@ export const farmers = pgTable(
     // + zoom (1..3). NULL = legacy behavior (centered, no zoom). See CoverCrop.
     coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number; shape?: 'wide' | 'square' | 'tall' }>(),
     position: integer('position').notNull().default(0),
-    courierEnabled: boolean('courier_enabled').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
   },
   // Admin + storefront lists filter by tenant, sort by (position, createdAt).
