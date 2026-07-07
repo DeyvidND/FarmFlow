@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { SetStopLocationDto } from './dto/set-stop-location.dto';
+import { ReverseGeocodeQueryDto } from './dto/reverse-geocode-query.dto';
 
 // NOTE: RoutingModule is imported before OrdersModule in app.module so this
 // literal `/orders/route` route registers before OrdersModule's `/orders/:id`.
@@ -47,5 +48,14 @@ export class RoutingController {
     @Body() dto: SetStopLocationDto,
   ) {
     return this.routingService.setStopLocation(tenantId, id, dto);
+  }
+
+  // Reverse geocode a map point to an address — used by the route stop editor's
+  // embedded pick-map. No tenant-scoped data involved (pure Google passthrough);
+  // gated the same way as the sibling route endpoints to avoid an open proxy.
+  @Get('route/reverse-geocode')
+  @UseGuards(ActiveSubscriptionGuard)
+  reverseGeocode(@Query() dto: ReverseGeocodeQueryDto) {
+    return this.routingService.reverseGeocode(dto.lat, dto.lng);
   }
 }

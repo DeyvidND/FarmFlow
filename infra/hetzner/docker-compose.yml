@@ -1,26 +1,15 @@
-# ФермериБГ core stack — single Hetzner box, plain docker compose (no Dokploy).
-# postgres + redis + api + web + admin + econt (standalone delivery) + cloudflared tunnel.
+# ФермериБГ app stack — Hetzner app box, plain docker compose (no Dokploy).
+# redis + api + web + admin + econt (standalone delivery) + cloudflared tunnel.
+# Postgres lives on the DEDICATED DB box (farmflow-db, private 10.0.0.3 on the
+# fermeribg-net Hetzner private network) — its own compose at /opt/fermeribg
+# there publishes 5432 on the private IP only. DATABASE_URL below points at it;
+# the same POSTGRES_PASSWORD lives in both boxes' .env files.
 # Public ingress = Cloudflare Tunnel (outbound) — no host ports, no TLS here.
 # api loads the full secret set via env_file (.env) for parity with the old
 # Dokploy env; DATABASE_URL / REDIS_URL are overridden to the new internal hosts.
 name: fermeribg
 
 services:
-  postgres:
-    image: postgres:16@sha256:081f1bc7bd5e143dbb6e487b710bbc27712cdcfaced4c071b8e47349aa1b4171
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: farmflow
-      POSTGRES_USER: farmflow
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U farmflow -d farmflow"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   redis:
     image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     restart: unless-stopped
@@ -40,7 +29,6 @@ services:
     pull_policy: always
     restart: unless-stopped
     depends_on:
-      postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     env_file: [.env]
     environment:
@@ -62,7 +50,7 @@ services:
       # visible in Sentry (errors are always captured; this adds performance spans).
       # Inert unless SENTRY_DSN is set. Overrides any value from env_file.
       SENTRY_TRACES_SAMPLE_RATE: "0.1"
-      DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
+      DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@10.0.0.3:5432/farmflow
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       # Target origin for the delivery-account set-password ("invite") link the api
       # mints on createDeliveryAccount — must point at the delivery panel, not the
@@ -81,7 +69,6 @@ services:
     pull_policy: always
     restart: unless-stopped
     depends_on:
-      postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       api: { condition: service_started }
     env_file: [.env]
@@ -94,7 +81,7 @@ services:
       DB_POOL_MAX: "12"
       # Latency tracing for queue jobs/crons (inert unless SENTRY_DSN set).
       SENTRY_TRACES_SAMPLE_RATE: "0.1"
-      DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
+      DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@10.0.0.3:5432/farmflow
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
 
   web:
@@ -127,7 +114,6 @@ services:
     restart: unless-stopped
     command: ["node", "dist/main.econt.js"]
     depends_on:
-      postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       api: { condition: service_started }
     env_file: [.env]
@@ -140,7 +126,7 @@ services:
       DB_POOL_MAX: "8"
       # Latency tracing for the delivery API (inert unless SENTRY_DSN set).
       SENTRY_TRACES_SAMPLE_RATE: "0.1"
-      DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@postgres:5432/farmflow
+      DATABASE_URL: postgresql://farmflow:${POSTGRES_PASSWORD}@10.0.0.3:5432/farmflow
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       CORS_ORIGIN_ECONT: https://dostavki.fermeribg.com
     healthcheck:
@@ -201,7 +187,6 @@ services:
     depends_on: [api, web, admin, econt, delivery-web]
 
 volumes:
-  pgdata:
   redisdata:
   caddydata:
   caddyconfig:

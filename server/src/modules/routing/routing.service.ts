@@ -481,4 +481,16 @@ export class RoutingService {
 
     return { lat, lng, address };
   }
+
+  /**
+   * Reverse geocode a map point to a human address — used by the route stop
+   * editor when the farmer drops/drags a pin, so the address field can show
+   * what's actually there. Wraps {@link MapsService.reverseGeocode}'s
+   * null-on-no-match contract in a plain object so the controller has a fixed
+   * response shape regardless of whether a match was found.
+   */
+  async reverseGeocode(lat: number, lng: number): Promise<{ address: string | null }> {
+    const address = await this.maps.reverseGeocode(lat, lng);
+    return { address };
+  }
 }
