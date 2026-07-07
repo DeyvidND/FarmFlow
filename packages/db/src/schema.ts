@@ -331,6 +331,10 @@ export const deliverySlots = pgTable(
     // True for rows created by the recurrence rule (vs. one-off manual slots). The
     // generator only ever touches generated rows.
     generated: boolean('generated').notNull().default(false),
+    // How many orders this slot accepts (= how many people work it). Booked count
+    // is computed live from non-cancelled orders; this is just the ceiling. Default
+    // 1 preserves the historical one-order-per-slot behaviour. See migration 0079.
+    capacity: integer('capacity').notNull().default(1),
   },
   // Slot lists + dashboard summary filter by tenant, usually over a date window.
   (t) => ({
