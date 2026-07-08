@@ -1143,31 +1143,40 @@ export class OrdersService {
       throw new BadRequestException('Не може да преместиш поръчки в минал ден.');
     }
 
-    // Read the candidate rows OUTSIDE the transaction (same shape as updateOrder's
-    // `current` read) — the transaction below only needs to lock/create the target
-    // slot and write the reassignments.
-    const rows = await this.db
-      .select({
-        id: orders.id,
-        status: orders.status,
-        deliveryType: orders.deliveryType,
-        slotId: orders.slotId,
-        fromDate: deliverySlots.date,
-      })
-      .from(orders)
-      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
-      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)))
-      .limit(orderIds.length);
-
-    const movable = rows.filter(
-      (r) => r.deliveryType === 'address' && (r.status === 'pending' || r.status === 'confirmed'),
-    );
-    if (!movable.length) {
-      throw new BadRequestException('Няма поръчки за преместване.');
-    }
-
     const moved: { id: string; fromDate: string | null }[] = [];
     await this.db.transaction(async (tx) => {
+      // Serialize concurrent reschedules targeting the same (tenant, date) — a
+      // SELECT...FOR UPDATE below can't lock a target-slot row that doesn't exist
+      // yet, so two concurrent calls creating the SAME new day would otherwise both
+      // insert a duplicate delivery_slots row (there's no unique DB constraint on
+      // (tenant_id, date) to fall back on). Salt 1 keeps this in its own lock
+      // namespace, separate from the per-tenant order-number lock (salt 0) above.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId} || ${toDate}, 1))`);
+
+      // Read the candidate rows INSIDE the transaction (after the advisory lock) so
+      // the movable-order snapshot can't go stale between the read and the UPDATE
+      // below — e.g. a concurrent cancel changing status after an outside-tx read
+      // would otherwise silently re-slot a no-longer-movable order.
+      const rows = await tx
+        .select({
+          id: orders.id,
+          status: orders.status,
+          deliveryType: orders.deliveryType,
+          slotId: orders.slotId,
+          fromDate: deliverySlots.date,
+        })
+        .from(orders)
+        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+        .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)))
+        .limit(orderIds.length);
+
+      const movable = rows.filter(
+        (r) => r.deliveryType === 'address' && (r.status === 'pending' || r.status === 'confirmed'),
+      );
+      if (!movable.length) {
+        throw new BadRequestException('Няма поръчки за преместване.');
+      }
+
       // find-or-create the target-day slot (one row per (tenant, date), like SlotsService.create).
       const [existing] = await tx
         .select({ id: deliverySlots.id })

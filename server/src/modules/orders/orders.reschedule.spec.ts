@@ -5,12 +5,17 @@ const TENANT = 'tenant-1';
 const UUID = (n: number) => `${n}`.padStart(8, '0') + '-0000-0000-0000-000000000000';
 
 /**
- * Build a service whose:
- *  - first `db.select` (the load) resolves to `loadRows`
- *  - `db.transaction` runs the callback against a tx that:
- *      • answers `select(...).for('update')` for the target-slot lookup with `existingSlot`
- *      • records inserted slot rows into `inserted`
- *      • records `update(orders).set(v).where()` values into `setCalls`
+ * Build a service whose `db.transaction` runs the callback against a tx that:
+ *  - answers `tx.execute(...)` (the advisory lock) by resolving immediately
+ *  - answers the movable-order read (`select().from().leftJoin().where().limit()`)
+ *    with `loadRows`
+ *  - answers `select(...).for('update')` for the target-slot lookup with `existingSlot`
+ *  - records inserted slot rows into `inserted`
+ *  - records `update(orders).set(v).where()` values into `setCalls`
+ *
+ * The movable-order read and the target-slot lookup share the same tx.select()
+ * factory shape, so we distinguish them by whether `.for('update')` was called:
+ * only the target-slot lookup calls `.for(...)`.
  */
 function makeSvc(opts: {
   loadRows: Record<string, unknown>[];
@@ -20,25 +25,24 @@ function makeSvc(opts: {
   const inserted: Record<string, unknown>[] = [];
   const sendMoved = jest.fn().mockResolvedValue(undefined);
 
-  const loadChain: any = {};
-  loadChain.from = () => loadChain;
-  loadChain.leftJoin = () => loadChain;
-  loadChain.innerJoin = () => loadChain;
-  loadChain.where = () => loadChain;
-  loadChain.orderBy = () => Promise.resolve(opts.loadRows);
-  loadChain.limit = () => Promise.resolve(opts.loadRows);
-
   const db: any = {
-    select: () => loadChain,
     transaction: jest.fn(async (fn: (tx: any) => Promise<unknown>) => {
       const tx: any = {
+        execute: () => Promise.resolve(),
         select: () => {
+          let usedFor = false;
           const c: any = {};
           c.from = () => c;
           c.leftJoin = () => c;
           c.where = () => c;
-          c.for = () => c;
-          c.limit = () => Promise.resolve(opts.existingSlot ? [opts.existingSlot] : []);
+          c.for = () => {
+            usedFor = true;
+            return c;
+          };
+          c.limit = () =>
+            usedFor
+              ? Promise.resolve(opts.existingSlot ? [opts.existingSlot] : [])
+              : Promise.resolve(opts.loadRows);
           return c;
         },
         insert: () => ({
