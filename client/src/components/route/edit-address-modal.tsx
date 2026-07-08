@@ -129,9 +129,15 @@ export function EditAddressModal({
           </button>
         </div>
 
-        <p className="mb-4 text-[13px] leading-relaxed text-ff-muted">
+        <p className="mb-3 text-[13px] leading-relaxed text-ff-muted">
           Избери от подсказките или кликни/провлачи пина на картата — адресът и
           точката се обновяват заедно.
+        </p>
+
+        <p className="mb-4 rounded-lg border border-ff-amber-soft bg-ff-amber-softer px-3 py-2 text-[12.5px] leading-relaxed text-ff-amber-600">
+          На голям път (булевард/шосе) точното място за спиране не може да се
+          познае автоматично — премести пина на близка малка уличка, където
+          куриерът може да спре.
         </p>
 
         <div className="flex flex-col gap-4">
