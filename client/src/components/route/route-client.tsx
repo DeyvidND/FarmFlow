@@ -12,7 +12,7 @@ import {
   HelpCircle,
   Settings,
   AlertTriangle,
-  RotateCcw,
+  ArrowUpDown,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -26,7 +26,8 @@ import { isMajorRoadAddress } from './major-road';
 import { WazeStepper } from './waze-stepper';
 import { buildWazeTargets, wazeUrl } from './waze';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { reconcileOrder, moveInOrder, dragInOrder } from './route-order';
+import { reconcileOrder } from './route-order';
+import { ReorderStopsModal } from './reorder-stops-modal';
 
 // Re-exported so callers only need to import from one place.
 export { ROUTE_COLORS };
@@ -203,14 +204,6 @@ export function RouteClient({
     }
   };
 
-  // Move the stop at `index` one slot up (dir -1) or down (dir +1).
-  const moveStop = (index: number, dir: -1 | 1) =>
-    persistOrder(moveInOrder(orderedStops.map((s) => s.id), index, dir));
-
-  // Drag row `from` onto position `to` (native HTML5 DnD; desktop pointer).
-  const dragStop = (from: number, to: number) =>
-    persistOrder(dragInOrder(orderedStops.map((s) => s.id), from, to));
-
   // Drop the override — fall back to the server's auto-optimized order.
   const resetOrder = () => {
     setManualIds(null);
@@ -220,6 +213,10 @@ export function RouteClient({
       /* ignore */
     }
   };
+
+  // The compact reorder modal (single line per stop) — the full side-list cards
+  // are too tall to reorder without heavy scrolling.
+  const [showReorder, setShowReorder] = useState(false);
 
   const [showHelp, setShowHelp] = useState(false);
   const [showLoc, setShowLoc] = useState(false);
@@ -719,6 +716,19 @@ export function RouteClient({
             <h2 className="text-[16px] font-extrabold">Маршрут за доставка</h2>
             <div className="flex flex-wrap gap-2">
               <button
+                onClick={() => setShowReorder(true)}
+                disabled={orderedStops.length < 2}
+                title="Подреди ръчно реда на доставка"
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-[9px] border px-[11px] py-[7px] text-[13px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50',
+                  isManualOrder
+                    ? 'border-ff-green-500 bg-ff-green-100 text-ff-green-800'
+                    : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+                )}
+              >
+                <ArrowUpDown size={15} /> Подреди реда{isManualOrder ? ' · ръчен' : ''}
+              </button>
+              <button
                 onClick={() => openRoute()}
                 disabled={!stops.length}
                 title="Отваря целия маршрут в Google Maps за преглед"
@@ -749,20 +759,16 @@ export function RouteClient({
               </button>
             </div>
           </div>
-          {stops.length > 0 && (
-            <div className="flex items-center justify-between gap-2 border-b border-ff-border-2 bg-ff-surface-2 px-[18px] py-2">
-              <span className="text-[12px] font-semibold text-ff-muted">
-                {isManualOrder ? 'Ръчен ред на доставка' : 'Плъзни спирка или ↑↓, за да смениш реда'}
-              </span>
-              {isManualOrder && (
-                <button
-                  onClick={resetOrder}
-                  title="Върни автоматичния ред (най-малко километри)"
-                  className="inline-flex items-center gap-1.5 rounded-[8px] border border-ff-border bg-ff-surface px-2.5 py-1 text-[12px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2"
-                >
-                  <RotateCcw size={13} /> Върни авто-реда
-                </button>
-              )}
+          {isManualOrder && (
+            <div className="flex items-center justify-between gap-2 border-b border-ff-border-2 bg-ff-green-50 px-[18px] py-1.5">
+              <span className="text-[12px] font-semibold text-ff-green-800">Ръчен ред на доставка</span>
+              <button
+                onClick={resetOrder}
+                title="Върни автоматичния ред (най-малко километри)"
+                className="text-[12px] font-bold text-ff-ink-2 underline-offset-2 hover:underline"
+              >
+                Върни авто-реда
+              </button>
             </div>
           )}
           <StopList
@@ -773,9 +779,6 @@ export function RouteClient({
             onCall={onCall}
             onEmail={onEmail}
             onEditAddress={setEditStop}
-            onMoveUp={(i) => moveStop(i, -1)}
-            onMoveDown={(i) => moveStop(i, 1)}
-            onDragReorder={dragStop}
           />
         </div>
 
@@ -816,6 +819,23 @@ export function RouteClient({
             setEditStop(null);
             router.refresh();
           }}
+        />
+      )}
+
+      {showReorder && (
+        <ReorderStopsModal
+          stops={orderedStops}
+          dateLabel={dateLabel}
+          isManual={isManualOrder}
+          onSave={(ids) => {
+            persistOrder(ids);
+            setShowReorder(false);
+          }}
+          onReset={() => {
+            resetOrder();
+            setShowReorder(false);
+          }}
+          onClose={() => setShowReorder(false)}
         />
       )}
     </div>
