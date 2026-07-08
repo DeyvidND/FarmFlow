@@ -20,13 +20,15 @@ The shipped multi-day suggester (`POST /orders/suggest-days`, merged `ad25c0e`) 
 - **Apply is unchanged:** still one `rescheduleOrders(ids, date)` per day over non-excluded orders. Courier count never touches the move/notify path.
 - **No schema change. No migration.**
 
-## Approach A — one split, bin to days
+## Approach A — count-proportional day arcs, then split within each day
 
-1. `located` = geocoded pool orders. `K = Σ days[].couriers`.
-2. `groups = sweepSplit(depot, located, K, depot)` — K balanced (equal-workload) geographic groups. Each group ≈ one courier's route. (`sweepSplit` already does sweep + k-means + radial seeds + makespan local search, deterministic; reused, not reimplemented.)
-3. Sort the K groups by **bearing** around the depot (`atan2` of each group's centroid), tie-break by distance then a stable key.
-4. Walk the sorted groups and fill days **in date order**, each day taking `couriers[d]` groups before advancing. Each day thus gets a **contiguous bearing arc** (a coherent region), and a day with more couriers grabs more consecutive groups → more orders (capacity weighting falls out for free, because the groups are equal-workload).
-5. Fewer groups than `K` (few orders): later courier slots simply get no group (idle courier). Un-geocoded orders → `unplaced`, never placed.
+> **Correction (during implementation):** the first framing binned `K = Σ couriers` `sweepSplit` groups to days. That does **not** guarantee capacity weighting — `sweepSplit` balances by **workload (drive time)**, not order **count**, so its groups have unequal counts and "give a day N groups" ≠ "more orders". The corrected, implemented algorithm weights the day-level split by **order count** directly:
+
+1. `located` = geocoded pool orders. `K = Σ days[].couriers`. `total = located.length`.
+2. Sort `located` into a **bearing sweep** around the depot (`atan2(dLat, dLng)`, tie-break by distance then id).
+3. Walk the sweep and give each day (**date order**) a **contiguous arc** sized to its courier share, using a running cumulative boundary: after adding day `d`'s couriers to `cum`, that day's arc ends at index `round((cum / K) * total)`. This is an exact partition (no gap/overlap; the last day ends at `total`) and makes **a day with more couriers get more orders — by construction**.
+4. Cut each day's arc into that day's courier routes with `sweepSplit(depot, dayOrders, couriers[d], depot)` — used **only within a day** (where balancing route workload is exactly what we want).
+5. Empty arc (a day allotted zero orders): no routes. Un-geocoded orders → `unplaced`, never placed.
 
 Deterministic throughout (no `Math.random`, no wall-clock).
 
