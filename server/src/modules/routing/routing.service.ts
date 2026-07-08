@@ -14,9 +14,19 @@ import { bgToday } from '../../common/time/bg-time';
 import { scheduledForDay } from '../orders/order-scheduling';
 import { sweepSplit, haversineKm, type Pt } from './route-split';
 import { humanizeStopOrder } from './route-humanize';
-import { suggestDayAssignment } from './route-day-suggest';
-import { harvestSummary, type HarvestLine } from '../orders/harvest-summary';
 import { OrdersService } from '../orders/orders.service';
+import {
+  assembleDaySuggestion,
+  type SuggestedDayOrder,
+  type SuggestedDay,
+  type UnplacedOrder,
+  type DaySuggestionResult,
+} from './route-day-assemble';
+
+// Re-exported so existing importers of these result shapes from this module
+// keep working — the types themselves now live alongside the pure assembly
+// logic in route-day-assemble.ts (see assembleDaySuggestion).
+export type { SuggestedDayOrder, SuggestedDay, UnplacedOrder, DaySuggestionResult };
 
 export interface RouteOrigin {
   address: string | null;
@@ -73,32 +83,6 @@ export interface MultiRouteResult {
   /** Effective courier count (== routes.length). */
   couriers: number;
   routes: CourierRoute[];
-}
-
-export interface SuggestedDayOrder {
-  id: string;
-  orderNumber: number | null;
-  customerName: string | null;
-  lat: number | null;
-  lng: number | null;
-  totalStotinki: number;
-}
-export interface SuggestedDay {
-  date: string;
-  orders: SuggestedDayOrder[];
-  harvest: HarvestLine[];
-  /** Sum of straight-line depot→stop km — a rough "how spread" hint, not a route length. */
-  spreadKm: number;
-}
-export interface UnplacedOrder {
-  id: string;
-  orderNumber: number | null;
-  customerName: string | null;
-  totalStotinki: number;
-}
-export interface DaySuggestionResult {
-  days: SuggestedDay[];
-  unplaced: UnplacedOrder[];
 }
 
 const toNum = (v: string | null): number | null => (v == null ? null : Number(v));
@@ -668,14 +652,6 @@ export class RoutingService {
         ? { lat: Number(tenant.farmLat), lng: Number(tenant.farmLng) }
         : null;
 
-    const { assignment, unplaced } = suggestDayAssignment(
-      pool.map((o) => ({ id: o.id, lat: toNum(o.deliveryLat), lng: toNum(o.deliveryLng) })),
-      days,
-      depot,
-    );
-
-    const byId = new Map(pool.map((o) => [o.id, o]));
-
     // Per-order line items for the harvest readout (no N+1 — one query).
     const poolIds = pool.map((o) => o.id);
     const itemsByOrder = new Map<string, { productName: string | null; quantity: number }[]>();
@@ -695,42 +671,6 @@ export class RoutingService {
       }
     }
 
-    const daysOut: SuggestedDay[] = Object.entries(assignment).map(([date, ids]) => {
-      const dayOrders = ids.map((id) => byId.get(id)!).filter(Boolean);
-      const dayItems = ids.flatMap((id) => itemsByOrder.get(id) ?? []);
-      const spreadKm =
-        depot == null
-          ? 0
-          : dayOrders.reduce((sum, o) => {
-              const lat = toNum(o.deliveryLat);
-              const lng = toNum(o.deliveryLng);
-              return lat != null && lng != null ? sum + haversineKm(depot, { lat, lng }) : sum;
-            }, 0);
-      return {
-        date,
-        orders: dayOrders.map((o) => ({
-          id: o.id,
-          orderNumber: o.orderNumber,
-          customerName: o.customerName,
-          lat: toNum(o.deliveryLat),
-          lng: toNum(o.deliveryLng),
-          totalStotinki: o.totalStotinki,
-        })),
-        harvest: harvestSummary(dayItems),
-        spreadKm: Math.round(spreadKm * 10) / 10,
-      };
-    });
-
-    const unplacedOut: UnplacedOrder[] = unplaced.map((id) => {
-      const o = byId.get(id)!;
-      return {
-        id: o.id,
-        orderNumber: o.orderNumber,
-        customerName: o.customerName,
-        totalStotinki: o.totalStotinki,
-      };
-    });
-
-    return { days: daysOut, unplaced: unplacedOut };
+    return assembleDaySuggestion(pool, itemsByOrder, depot, days);
   }
 }
