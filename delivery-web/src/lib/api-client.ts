@@ -279,6 +279,49 @@ export const requestCourier = async (carrier: Carrier, shipmentIds: string[]): P
   }, 'Заявката за куриер се провали');
 };
 
+/* ---------------------------- consolidation ------------------------------- */
+
+export interface ConsolidationMember {
+  shipmentId: string;
+  orderId: string;
+  orderNumber: number | null;
+  farmerId: string;
+  farmerName: string | null;
+  totalStotinki: number;
+}
+export interface ConsolidationSuggestion {
+  key: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  deliveryCity: string | null;
+  deliveryAddress: string | null;
+  sumStotinki: number;
+  members: ConsolidationMember[];
+}
+
+export const listConsolidationSuggestions = async (): Promise<ConsolidationSuggestion[]> => {
+  const body: { suggestions: ConsolidationSuggestion[] } = await (await bff('shipping/consolidation/suggestions')).json();
+  return body.suggestions;
+};
+
+export const getConsolidationEnabled = async (): Promise<boolean> =>
+  (await (await bff('shipping/consolidation/settings')).json()).enabled;
+
+export const setConsolidationEnabled = async (enabled: boolean): Promise<boolean> =>
+  (await (await bff('shipping/consolidation/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
+  }, 'Запазването се провали')).json()).enabled;
+
+export const consolidateShipments = async (
+  input: { collectorFarmerId: string; memberOrderIds: string[]; carrier?: Carrier },
+): Promise<{ masterShipmentId: string; carrier: Carrier; sumStotinki: number; breakdown: Array<{ farmerId: string; farmerName: string | null; totalStotinki: number }> }> =>
+  (await bff('shipping/consolidation', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  }, 'Обединяването се провали')).json();
+
+export const unconsolidateShipment = async (masterId: string): Promise<{ restored: number }> =>
+  (await bff(`shipping/consolidation/${masterId}/undo`, { method: 'POST' }, 'Разделянето се провали')).json();
+
 /* -------------------------------- COD risk -------------------------------- */
 
 export interface RiskReport {
