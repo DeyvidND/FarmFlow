@@ -14,6 +14,9 @@ import { bgToday } from '../../common/time/bg-time';
 import { scheduledForDay } from '../orders/order-scheduling';
 import { sweepSplit, haversineKm, type Pt } from './route-split';
 import { humanizeStopOrder } from './route-humanize';
+import { suggestDayAssignment } from './route-day-suggest';
+import { harvestSummary, type HarvestLine } from '../orders/harvest-summary';
+import { OrdersService } from '../orders/orders.service';
 
 export interface RouteOrigin {
   address: string | null;
@@ -70,6 +73,32 @@ export interface MultiRouteResult {
   /** Effective courier count (== routes.length). */
   couriers: number;
   routes: CourierRoute[];
+}
+
+export interface SuggestedDayOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  lat: number | null;
+  lng: number | null;
+  totalStotinki: number;
+}
+export interface SuggestedDay {
+  date: string;
+  orders: SuggestedDayOrder[];
+  harvest: HarvestLine[];
+  /** Sum of straight-line depot→stop km — a rough "how spread" hint, not a route length. */
+  spreadKm: number;
+}
+export interface UnplacedOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  totalStotinki: number;
+}
+export interface DaySuggestionResult {
+  days: SuggestedDay[];
+  unplaced: UnplacedOrder[];
 }
 
 const toNum = (v: string | null): number | null => (v == null ? null : Number(v));
@@ -189,6 +218,7 @@ export class RoutingService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly maps: MapsService,
+    private readonly ordersService: OrdersService,
   ) {}
 
   /**
@@ -615,5 +645,92 @@ export class RoutingService {
   async reverseGeocode(lat: number, lng: number): Promise<{ address: string | null }> {
     const address = await this.maps.reverseGeocode(lat, lng);
     return { address };
+  }
+
+  /**
+   * Geography-first proposal: spread the tenant's pending address orders (the
+   * reschedulable pool) across `days`. Returns per-day orders + a harvest total
+   * + a spread hint, plus the un-geocoded orders the farmer must place by hand.
+   * Applying the proposal is the client's job (it calls the existing reschedule
+   * endpoint once per day) — this method never mutates.
+   */
+  async suggestDays(tenantId: string, days: string[]): Promise<DaySuggestionResult> {
+    const pool = await this.ordersService.reschedulable(tenantId);
+
+    // Depot = farm coords (null when the farm was never geocoded).
+    const [tenant] = await this.db
+      .select({ farmLat: tenants.farmLat, farmLng: tenants.farmLng })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const depot: Pt | null =
+      tenant?.farmLat != null && tenant?.farmLng != null
+        ? { lat: Number(tenant.farmLat), lng: Number(tenant.farmLng) }
+        : null;
+
+    const { assignment, unplaced } = suggestDayAssignment(
+      pool.map((o) => ({ id: o.id, lat: toNum(o.deliveryLat), lng: toNum(o.deliveryLng) })),
+      days,
+      depot,
+    );
+
+    const byId = new Map(pool.map((o) => [o.id, o]));
+
+    // Per-order line items for the harvest readout (no N+1 — one query).
+    const poolIds = pool.map((o) => o.id);
+    const itemsByOrder = new Map<string, { productName: string | null; quantity: number }[]>();
+    if (poolIds.length) {
+      const items = await this.db
+        .select({
+          orderId: orderItems.orderId,
+          productName: orderItems.productName,
+          quantity: orderItems.quantity,
+        })
+        .from(orderItems)
+        .where(inArray(orderItems.orderId, poolIds));
+      for (const it of items) {
+        const list = itemsByOrder.get(it.orderId!) ?? [];
+        list.push({ productName: it.productName, quantity: it.quantity });
+        itemsByOrder.set(it.orderId!, list);
+      }
+    }
+
+    const daysOut: SuggestedDay[] = Object.entries(assignment).map(([date, ids]) => {
+      const dayOrders = ids.map((id) => byId.get(id)!).filter(Boolean);
+      const dayItems = ids.flatMap((id) => itemsByOrder.get(id) ?? []);
+      const spreadKm =
+        depot == null
+          ? 0
+          : dayOrders.reduce((sum, o) => {
+              const lat = toNum(o.deliveryLat);
+              const lng = toNum(o.deliveryLng);
+              return lat != null && lng != null ? sum + haversineKm(depot, { lat, lng }) : sum;
+            }, 0);
+      return {
+        date,
+        orders: dayOrders.map((o) => ({
+          id: o.id,
+          orderNumber: o.orderNumber,
+          customerName: o.customerName,
+          lat: toNum(o.deliveryLat),
+          lng: toNum(o.deliveryLng),
+          totalStotinki: o.totalStotinki,
+        })),
+        harvest: harvestSummary(dayItems),
+        spreadKm: Math.round(spreadKm * 10) / 10,
+      };
+    });
+
+    const unplacedOut: UnplacedOrder[] = unplaced.map((id) => {
+      const o = byId.get(id)!;
+      return {
+        id: o.id,
+        orderNumber: o.orderNumber,
+        customerName: o.customerName,
+        totalStotinki: o.totalStotinki,
+      };
+    });
+
+    return { days: daysOut, unplaced: unplacedOut };
   }
 }

@@ -201,7 +201,7 @@ describe('Adversarial 6 — RoutingService.getRoute multi-courier split', () => 
 
   it('couriers=2 splits 4 geocoded stops into 2 routes covering every id exactly once', async () => {
     const db = makeDb([[TENANT], [s1, s2, s3, s4], []]);
-    const svc = new RoutingService(db, makeMaps());
+    const svc = new RoutingService(db, makeMaps(), {} as any);
 
     const result = await svc.getRoute('t1', '2026-07-07', undefined, 2);
 
@@ -213,7 +213,7 @@ describe('Adversarial 6 — RoutingService.getRoute multi-courier split', () => 
 
   it('couriers=1 keeps the old single-route behaviour', async () => {
     const db = makeDb([[TENANT], [s1, s2, s3, s4], []]);
-    const svc = new RoutingService(db, makeMaps());
+    const svc = new RoutingService(db, makeMaps(), {} as any);
 
     const result = await svc.getRoute('t1', '2026-07-07', undefined, 1);
 
@@ -234,7 +234,7 @@ describe('Adversarial 6 — RoutingService.getRoute multi-courier split', () => 
       lng: null,
     };
     const db = makeDb([[TENANT], [s1, s2, s3, ghost], []]);
-    const svc = new RoutingService(db, makeMaps());
+    const svc = new RoutingService(db, makeMaps(), {} as any);
 
     const result = await svc.getRoute('t1', '2026-07-07', undefined, 2);
 
@@ -248,7 +248,7 @@ describe('Adversarial 6 — RoutingService.getRoute multi-courier split', () => 
     // No confirmed address-orders that day → both located and unlocated are
     // empty, so the item-summary select is skipped (ids.length === 0).
     const db = makeDb([[TENANT], []]);
-    const svc = new RoutingService(db, makeMaps());
+    const svc = new RoutingService(db, makeMaps(), {} as any);
 
     const result = await svc.getRoute('t1', '2026-07-07', undefined, 2);
 

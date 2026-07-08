@@ -25,5 +25,6 @@ import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
   ],
   controllers: [OrdersController, PublicOrdersController, PublicCheckoutController],
   providers: [OrdersService, CheckoutService],
+  exports: [OrdersService],
 })
 export class OrdersModule {}
