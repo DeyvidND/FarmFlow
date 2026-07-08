@@ -21,6 +21,7 @@ import { StopList } from './stop-list';
 import { EditAddressModal } from './edit-address-modal';
 import { RouteMap, ROUTE_COLORS } from './route-map';
 import { LocationRouteCard } from './location-route-card';
+import { isMajorRoadAddress } from './major-road';
 import { WazeStepper } from './waze-stepper';
 import { buildWazeTargets, wazeUrl } from './waze';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -295,6 +296,12 @@ export function RouteClient({
   // every courier's leg, not just the active tab.
   const unlocated = allStops.filter((s) => s.lat == null || s.lng == null);
 
+  // Located stops sitting on a major road (boulevard/trunk) — the farmer likely
+  // wants to nudge the pin to a side street. Informational, across all couriers.
+  const onMajorRoad = allStops.filter(
+    (s) => s.lat != null && s.lng != null && isMajorRoadAddress(s.address),
+  );
+
   // No base address yet — the route starts from the farm, so without it nothing
   // can be computed. Point the farmer straight at the location card.
   const noOrigin = !origin.address && origin.lat == null && origin.lng == null;
@@ -336,6 +343,20 @@ export function RouteClient({
               ? '1 адрес не е намерен на картата'
               : `${unlocated.length} адреса не са намерени на картата`}{' '}
             — показани са в списъка, но без пин. Натисни иконата за адрес при спирката, за да ги поправиш.
+          </span>
+        </div>
+      )}
+
+      {/* guard: located stops on a big road — nudge to move the pin to a side
+          street where the courier can actually stop. Informational only. */}
+      {onMajorRoad.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
+          <AlertTriangle size={16} className="shrink-0 text-ff-amber-600" />
+          <span className="text-[12.5px] font-bold text-ff-amber-600">
+            {onMajorRoad.length === 1
+              ? '1 спирка е на голям път'
+              : `${onMajorRoad.length} спирки са на голям път`}{' '}
+            — при нужда премести пина на близка уличка (иконата за адрес при спирката).
           </span>
         </div>
       )}

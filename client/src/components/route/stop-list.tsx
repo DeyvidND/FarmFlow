@@ -5,6 +5,7 @@ import { AlertTriangle, Check, Copy, Mail, MapPin, MapPinned, Navigation, Phone 
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { RouteStop } from '@/lib/types';
+import { isMajorRoadAddress } from './major-road';
 
 interface StopListProps {
   stops: RouteStop[];
@@ -188,6 +189,18 @@ export function StopList({
                     className="inline-flex items-center gap-1 rounded-md border border-ff-amber-soft bg-ff-amber-softer px-1.5 py-0.5 text-[11px] font-bold text-ff-amber-600 transition hover:brightness-95"
                   >
                     <AlertTriangle size={11} /> не е на картата — поправи
+                  </button>
+                )}
+                {located && isMajorRoadAddress(s.address) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditAddress(s);
+                    }}
+                    title="Голям път — премести пина на близка уличка за удобно спиране"
+                    className="inline-flex items-center gap-1 rounded-md border border-ff-amber-soft bg-ff-amber-softer px-1.5 py-0.5 text-[11px] font-bold text-ff-amber-600 transition hover:brightness-95"
+                  >
+                    <AlertTriangle size={11} /> голям път — спри на близка уличка
                   </button>
                 )}
               </div>
