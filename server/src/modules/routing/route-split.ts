@@ -134,6 +134,66 @@ function maxWorkload(depot: Pt, groups: Geo[][]): number {
 }
 
 /**
+ * Best-improving inter-route local search: repeatedly try moving one stop to
+ * another courier (relocate) or exchanging one stop between two couriers
+ * (swap), across ALL courier pairs, applying the single move that most lowers
+ * the hybrid cost. Stops when no move improves, or after 60 iterations
+ * (deterministic bound; ample for farm-scale N). Group count is preserved.
+ */
+function localSearch<T extends Geo>(depot: Pt, groups: T[][], endPt: Pt | null): T[][] {
+  let cur = groups.map((g) => [...g]);
+  let curCost = partitionCost(depot, cur, endPt);
+  const maxIters = 60;
+
+  for (let iter = 0; iter < maxIters; iter++) {
+    let bestCost = curCost;
+    let bestGroups: T[][] | null = null;
+
+    // Relocate: stop si from group gi -> group gj.
+    for (let gi = 0; gi < cur.length; gi++) {
+      for (let si = 0; si < cur[gi].length; si++) {
+        for (let gj = 0; gj < cur.length; gj++) {
+          if (gi === gj) continue;
+          const cand = cur.map((g) => [...g]);
+          const [moved] = cand[gi].splice(si, 1);
+          cand[gj].push(moved);
+          const c = partitionCost(depot, cand, endPt);
+          if (betterCost(c, bestCost)) {
+            bestCost = c;
+            bestGroups = cand;
+          }
+        }
+      }
+    }
+
+    // Swap: stop si in gi <-> stop sj in gj (gi < gj).
+    for (let gi = 0; gi < cur.length; gi++) {
+      for (let gj = gi + 1; gj < cur.length; gj++) {
+        for (let si = 0; si < cur[gi].length; si++) {
+          for (let sj = 0; sj < cur[gj].length; sj++) {
+            const cand = cur.map((g) => [...g]);
+            const tmp = cand[gi][si];
+            cand[gi][si] = cand[gj][sj];
+            cand[gj][sj] = tmp;
+            const c = partitionCost(depot, cand, endPt);
+            if (betterCost(c, bestCost)) {
+              bestCost = c;
+              bestGroups = cand;
+            }
+          }
+        }
+      }
+    }
+
+    if (!bestGroups) break;
+    cur = bestGroups;
+    curCost = bestCost;
+  }
+
+  return cur;
+}
+
+/**
  * Cut an angle-sorted circle of stops into `couriers` contiguous arcs,
  * balancing estimated workload. Tries every rotation of the cut start (up to
  * 24 evenly-spaced candidates) and keeps the best; then shifts border stops
@@ -365,4 +425,5 @@ export const __test = {
   kmeansSeed,
   radialSeed,
   padGroups,
+  localSearch,
 };

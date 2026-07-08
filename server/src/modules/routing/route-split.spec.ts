@@ -147,3 +147,26 @@ describe('seeds', () => {
     }
   });
 });
+
+describe('localSearch', () => {
+  const d: Pt = { lat: 42.5, lng: 25.0 };
+
+  it('never worsens the hybrid cost and is idempotent', () => {
+    // Deliberately bad start: all stops on one courier, other empty.
+    const bad: Pt[][] = [[...west, ...east], []];
+    const before = __test.partitionCost(d, bad, d);
+    const after = __test.localSearch(d, bad, d);
+    const afterCost = __test.partitionCost(d, after, d);
+    expect(afterCost.makespan).toBeLessThan(before.makespan);
+    // Running it again changes nothing (local optimum).
+    const twice = __test.localSearch(d, after, d);
+    expect(__test.partitionCost(d, twice, d)).toEqual(afterCost);
+  });
+
+  it('preserves group count and loses no stop', () => {
+    const start: Pt[][] = [[...west, ...east], []];
+    const out = __test.localSearch(d, start, d);
+    expect(out).toHaveLength(2);
+    expect(out.flat()).toHaveLength(twoClusters.length);
+  });
+});
