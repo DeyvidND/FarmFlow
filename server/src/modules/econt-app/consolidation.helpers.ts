@@ -100,3 +100,97 @@ export function groupConsolidationCandidates(rows: CandidateRow[]): SuggestionGr
   }
   return out;
 }
+
+/** Thrown for any invalid consolidation request. `message` is user-facing (Bulgarian). */
+export class ConsolidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConsolidationError';
+  }
+}
+
+export interface MemberState {
+  shipmentId: string;
+  orderId: string;
+  farmerId: string;
+  status: string;
+  hasWaybill: boolean;
+  consolidationGroupId: string | null;
+  totalStotinki: number;
+}
+
+export interface ConsolidationPlan {
+  masterShipmentId: string;
+  masterOrderId: string;
+  childShipmentIds: string[];
+  codSumStotinki: number;
+}
+
+/**
+ * Validate a set of member draft shipments and produce the merge plan: the
+ * collector's shipment becomes the master (collects the summed COD), the rest
+ * become children. Throws ConsolidationError on any invalid state.
+ */
+export function planConsolidation(members: MemberState[], collectorFarmerId: string): ConsolidationPlan {
+  if (members.length < 2) {
+    throw new ConsolidationError('Обединяването изисква поне две пратки.');
+  }
+  for (const m of members) {
+    if (m.status !== 'draft' || m.hasWaybill) {
+      throw new ConsolidationError('Една от пратките вече е обработена и не може да се обедини.');
+    }
+    if (m.consolidationGroupId) {
+      throw new ConsolidationError('Една от пратките вече е обединена.');
+    }
+  }
+  const master = members.find((m) => m.farmerId === collectorFarmerId);
+  if (!master) {
+    throw new ConsolidationError('Избраният събирач не е сред фермерите в групата.');
+  }
+  return {
+    masterShipmentId: master.shipmentId,
+    masterOrderId: master.orderId,
+    childShipmentIds: members.filter((m) => m.shipmentId !== master.shipmentId).map((m) => m.shipmentId),
+    codSumStotinki: members.reduce((s, m) => s + m.totalStotinki, 0),
+  };
+}
+
+/**
+ * Resolve which carrier the collector ships the consolidated parcel with. Uses the
+ * single configured carrier; when both are configured a `requested` carrier must be
+ * supplied. Throws when the collector cannot ship (or the request is unconfigured).
+ */
+export function resolveCollectorCarrier(
+  ns: { econt?: { configured?: boolean }; speedy?: { configured?: boolean } } | undefined,
+  requested?: 'econt' | 'speedy',
+): 'econt' | 'speedy' {
+  const econt = !!ns?.econt?.configured;
+  const speedy = !!ns?.speedy?.configured;
+  if (!econt && !speedy) {
+    throw new ConsolidationError('Събирачът няма свързан куриер.');
+  }
+  if (requested) {
+    if ((requested === 'econt' && !econt) || (requested === 'speedy' && !speedy)) {
+      throw new ConsolidationError('Избраният куриер не е конфигуриран за събирача.');
+    }
+    return requested;
+  }
+  if (econt && speedy) {
+    throw new ConsolidationError('Изберете куриер за обединената товарителница.');
+  }
+  return econt ? 'econt' : 'speedy';
+}
+
+/**
+ * The COD a waybill must collect for `shipment`. For a consolidation MASTER
+ * (consolidation_group_id === id) that is the stored group sum; otherwise null so
+ * the caller keeps deriving COD from the order total (unchanged behaviour).
+ */
+export function consolidatedCodOverride(
+  shipment: { id: string; consolidationGroupId: string | null; codAmountStotinki: number | null } | null | undefined,
+): number | null {
+  if (shipment && shipment.consolidationGroupId === shipment.id) {
+    return shipment.codAmountStotinki;
+  }
+  return null;
+}

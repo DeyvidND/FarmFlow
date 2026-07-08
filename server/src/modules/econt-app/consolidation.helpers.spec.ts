@@ -41,3 +41,74 @@ describe('groupConsolidationCandidates', () => {
     expect(groupConsolidationCandidates(rows)).toEqual([]);
   });
 });
+
+import {
+  planConsolidation, resolveCollectorCarrier, consolidatedCodOverride,
+  ConsolidationError, type MemberState,
+} from './consolidation.helpers';
+
+const member = (o: Partial<MemberState>): MemberState => ({
+  shipmentId: 's', orderId: 'o', farmerId: 'f', status: 'draft',
+  hasWaybill: false, consolidationGroupId: null, totalStotinki: 1000, ...o,
+});
+
+describe('planConsolidation', () => {
+  const members = [
+    member({ shipmentId: 's1', orderId: 'o1', farmerId: 'fA', totalStotinki: 1300 }),
+    member({ shipmentId: 's2', orderId: 'o2', farmerId: 'fB', totalStotinki: 500 }),
+  ];
+
+  it('makes the collector the master and sums COD', () => {
+    const plan = planConsolidation(members, 'fB');
+    expect(plan.masterShipmentId).toBe('s2');
+    expect(plan.masterOrderId).toBe('o2');
+    expect(plan.childShipmentIds).toEqual(['s1']);
+    expect(plan.codSumStotinki).toBe(1800);
+  });
+
+  it('rejects fewer than two members', () => {
+    expect(() => planConsolidation([members[0]], 'fA')).toThrow(ConsolidationError);
+  });
+  it('rejects a collector not in the group', () => {
+    expect(() => planConsolidation(members, 'fZ')).toThrow(ConsolidationError);
+  });
+  it('rejects a member that already has a waybill', () => {
+    const bad = [members[0], member({ shipmentId: 's2', farmerId: 'fB', hasWaybill: true })];
+    expect(() => planConsolidation(bad, 'fA')).toThrow(ConsolidationError);
+  });
+  it('rejects a member already in a group', () => {
+    const bad = [members[0], member({ shipmentId: 's2', farmerId: 'fB', consolidationGroupId: 'gX' })];
+    expect(() => planConsolidation(bad, 'fA')).toThrow(ConsolidationError);
+  });
+});
+
+describe('resolveCollectorCarrier', () => {
+  it('uses the only configured carrier', () => {
+    expect(resolveCollectorCarrier({ econt: { configured: true } })).toBe('econt');
+    expect(resolveCollectorCarrier({ speedy: { configured: true } })).toBe('speedy');
+  });
+  it('honours a valid requested carrier when both are configured', () => {
+    expect(resolveCollectorCarrier({ econt: { configured: true }, speedy: { configured: true } }, 'speedy')).toBe('speedy');
+  });
+  it('throws when both configured and none requested', () => {
+    expect(() => resolveCollectorCarrier({ econt: { configured: true }, speedy: { configured: true } })).toThrow(ConsolidationError);
+  });
+  it('throws when the collector has no carrier', () => {
+    expect(() => resolveCollectorCarrier({})).toThrow(ConsolidationError);
+    expect(() => resolveCollectorCarrier(undefined)).toThrow(ConsolidationError);
+  });
+  it('throws when the requested carrier is not configured', () => {
+    expect(() => resolveCollectorCarrier({ econt: { configured: true } }, 'speedy')).toThrow(ConsolidationError);
+  });
+});
+
+describe('consolidatedCodOverride', () => {
+  it('returns the group sum for a master shipment', () => {
+    expect(consolidatedCodOverride({ id: 'm', consolidationGroupId: 'm', codAmountStotinki: 1800 })).toBe(1800);
+  });
+  it('returns null for a child or a non-consolidated shipment', () => {
+    expect(consolidatedCodOverride({ id: 'c', consolidationGroupId: 'm', codAmountStotinki: 500 })).toBeNull();
+    expect(consolidatedCodOverride({ id: 'x', consolidationGroupId: null, codAmountStotinki: 500 })).toBeNull();
+    expect(consolidatedCodOverride(null)).toBeNull();
+  });
+});
