@@ -47,6 +47,24 @@ function esc(s: string | null | undefined): string {
   return (s ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c]);
 }
 
+/** "четвъртък, 10.07" in Europe/Sofia. Noon-UTC input avoids a midnight day-shift. */
+const BG_DAY_FMT = new Intl.DateTimeFormat('bg-BG', {
+  timeZone: 'Europe/Sofia',
+  weekday: 'long',
+  day: '2-digit',
+  month: '2-digit',
+});
+function dayLabel(date: string): string {
+  return BG_DAY_FMT.format(new Date(`${date}T12:00:00Z`));
+}
+
+/** Farm contact phone from settings.contact.phone, or null. */
+function contactPhone(settings: unknown): string | null {
+  const c = (settings as { contact?: { phone?: unknown } } | null)?.contact;
+  const p = typeof c?.phone === 'string' ? c.phone.trim() : '';
+  return p || null;
+}
+
 /**
  * Sends the buyer their order-confirmation email when an order becomes
  * `confirmed`. Self-contained (depends only on the global DB + EmailService),
@@ -80,6 +98,42 @@ export class OrderConfirmationService {
    */
   async sendForOrder(orderId: string): Promise<void> {
     return this.send(orderId, 'confirmed');
+  }
+
+  /**
+   * Email the buyer that their delivery DAY was changed (farmer moved the order to
+   * another day). Fire-and-forget — swallows its own errors, no-ops without an email.
+   */
+  async sendMoved(orderId: string, fromDate: string | null, toDate: string): Promise<void> {
+    try {
+      const [order] = await this.db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+      if (!order) return;
+      const to = order.customerEmail?.trim();
+      if (!to) return;
+
+      const [tenant] = order.tenantId
+        ? await this.db
+            .select({ name: tenants.name, settings: tenants.settings })
+            .from(tenants)
+            .where(eq(tenants.id, order.tenantId))
+            .limit(1)
+        : [undefined];
+      const farmName = tenant?.name ?? 'ФермериБГ';
+      const phone = contactPhone(tenant?.settings);
+      const safeFarmName = farmName.replace(/[\r\n]+/g, ' ').trim();
+
+      await this.email.sendMail({
+        to,
+        subject: `Промяна в деня на доставка — ${safeFarmName}`.trim(),
+        html: this.renderMovedHtml(order, farmName, fromDate, toDate, phone),
+        text: this.renderMovedText(order, farmName, fromDate, toDate, phone),
+        stream: 'transactional',
+      });
+    } catch (err) {
+      this.logger.error(
+        `order-moved email failed for ${orderId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private async send(orderId: string, phase: 'received' | 'confirmed'): Promise<void> {
@@ -189,6 +243,63 @@ export class OrderConfirmationService {
       where = order.deliveryCity;
     }
     return where ? `${label} — ${where}` : label;
+  }
+
+  private renderMovedHtml(
+    order: OrderRow,
+    farmName: string,
+    fromDate: string | null,
+    toDate: string,
+    phone: string | null,
+  ): string {
+    const greetingName = order.customerName ? esc(order.customerName) : '';
+    const fromClause = fromDate ? `от <strong>${esc(dayLabel(fromDate))}</strong> ` : '';
+    const phoneClause = phone
+      ? ` Ако този ден не ти е удобен, обади се на <strong>${esc(phone)}</strong>, за да се уговорим за друг ден.`
+      : '';
+    return `<!doctype html><html lang="bg"><body style="margin:0;background:#f6f4ec;font-family:Arial,Helvetica,sans-serif;color:#23210f">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f4ec;padding:28px 0">
+    <tr><td align="center">
+      <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fffdf7;border:1px solid #e7e3d6;border-radius:16px;overflow:hidden">
+        <tr><td style="background:#2d6a4f;padding:22px 28px;color:#eaf1e4;font-size:20px;font-weight:bold">🌿 ${esc(farmName)}</td></tr>
+        <tr><td style="padding:28px">
+          <h1 style="margin:0 0 6px;font-size:22px;color:#23210f">Промяна в деня на доставка</h1>
+          <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#4a4733">
+            ${greetingName ? `Здравей, ${greetingName}! ` : ''}Денят за доставка на поръчката ти е преместен ${fromClause}за <strong>${esc(dayLabel(toDate))}</strong>.${phoneClause}
+          </p>
+          <div style="margin-top:8px;padding:14px 16px;background:#f3f6f0;border:1px solid #e1e9dd;border-radius:12px">
+            <div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#8a8770;margin-bottom:4px">Доставка</div>
+            <div style="font-size:14px;color:#23210f">${esc(this.deliveryLine(order))}</div>
+          </div>
+          <p style="margin:22px 0 0">
+            <a href="${esc(this.storefrontUrl)}/confirmation?order=${esc(order.id)}" style="display:inline-block;background:#2d6a4f;color:#ffffff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 20px;border-radius:10px">Виж поръчката</a>
+          </p>
+        </td></tr>
+        <tr><td style="padding:16px 28px;border-top:1px solid #eee7d6;font-size:12px;color:#a8a594">${esc(farmName)} · Благодарим, че пазаруваш от местни производители 🌱</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+  }
+
+  private renderMovedText(
+    order: OrderRow,
+    farmName: string,
+    fromDate: string | null,
+    toDate: string,
+    phone: string | null,
+  ): string {
+    return [
+      `${farmName} — Промяна в деня на доставка.`,
+      order.customerName ? `Здравей, ${order.customerName}!` : '',
+      '',
+      `Денят за доставка на поръчката ти е преместен ${fromDate ? `от ${dayLabel(fromDate)} ` : ''}за ${dayLabel(toDate)}.`,
+      phone ? `Ако този ден не ти е удобен, обади се на ${phone}, за да се уговорим за друг ден.` : '',
+      '',
+      this.deliveryLine(order),
+    ]
+      .filter((l) => l !== '')
+      .join('\n');
   }
 
   private renderHtml(order: OrderRow, items: EmailItem[], farmName: string, phase: 'received' | 'confirmed'): string {
