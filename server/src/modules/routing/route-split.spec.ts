@@ -170,3 +170,38 @@ describe('localSearch', () => {
     expect(out.flat()).toHaveLength(twoClusters.length);
   });
 });
+
+// Task 5: sweepSplit wired to the multi-seed + local-search pipeline (this
+// block's tests are additive to the earlier `describe('sweepSplit', ...)`
+// ring-based tests above; different fixtures, no collisions).
+describe('sweepSplit', () => {
+  const d: Pt = { lat: 42.5, lng: 25.0 };
+
+  it('gives each geographic cluster to its own courier (no pie-slice split)', () => {
+    const g = sweepSplit(d, twoClusters, 2, d);
+    expect(g).toHaveLength(2);
+    for (const grp of g) {
+      const sides = new Set(grp.map((p) => (p.lng < 25.0 ? 'W' : 'E')));
+      expect(sides.size).toBe(1); // each courier stays on one side
+    }
+  });
+
+  it('result is no worse than the sweep seed alone (makespan)', () => {
+    const seed = __test.sweepSeed(d, twoClusters, 2, d);
+    const split = sweepSplit(d, twoClusters, 2, d);
+    expect(__test.partitionCost(d, split, d).makespan).toBeLessThanOrEqual(
+      __test.partitionCost(d, seed, d).makespan + 1e-6,
+    );
+  });
+
+  it('is deterministic', () => {
+    expect(sweepSplit(d, twoClusters, 2, d)).toEqual(sweepSplit(d, twoClusters, 2, d));
+  });
+
+  it('handles the trivial cases', () => {
+    expect(sweepSplit(d, [], 2)).toEqual([]);
+    expect(sweepSplit(d, [{ lat: 42.5, lng: 25.1 }], 1)).toHaveLength(1);
+    // more couriers than stops -> one stop each
+    expect(sweepSplit(d, west, 5)).toHaveLength(west.length);
+  });
+});

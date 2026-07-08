@@ -194,95 +194,43 @@ function localSearch<T extends Geo>(depot: Pt, groups: T[][], endPt: Pt | null):
 }
 
 /**
- * Cut an angle-sorted circle of stops into `couriers` contiguous arcs,
- * balancing estimated workload. Tries every rotation of the cut start (up to
- * 24 evenly-spaced candidates) and keeps the best; then shifts border stops
- * between neighbouring arcs while the max workload drops (≤2 passes).
+ * Partition `stops` among `couriers` drivers starting from `depot`, minimizing
+ * makespan (busiest courier) with total workload as a tie-break. Builds three
+ * deterministic seeds (sweep, geographic k-means, radial bands), keeps the best
+ * by the hybrid cost, then refines it with inter-route local search. `endPt` is
+ * where each courier goes after its last stop (the depot for a round trip,
+ * a custom end, or null for one-way) — it makes the workload estimate match the
+ * real route. Returns exactly `couriers` groups when there are more stops than
+ * couriers; otherwise one stop per group.
  */
-export function sweepSplit<T extends Geo>(depot: Pt, stops: T[], couriers: number): T[][] {
+export function sweepSplit<T extends Geo>(
+  depot: Pt,
+  stops: T[],
+  couriers: number,
+  endPt: Pt | null = null,
+): T[][] {
   const n = Math.max(1, Math.floor(couriers));
   if (stops.length === 0) return [];
-  if (n === 1 || stops.length <= n) {
-    return n === 1 ? [stops.slice()] : stops.map((s) => [s]);
-  }
+  if (n === 1) return [stops.slice()];
+  if (stops.length <= n) return stops.map((s) => [s]);
 
-  const sorted = [...stops].sort((a, b) => {
-    const aa = Math.atan2((a.lat as number) - depot.lat, (a.lng as number) - depot.lng);
-    const ab = Math.atan2((b.lat as number) - depot.lat, (b.lng as number) - depot.lng);
-    return aa - ab || (a.lat as number) - (b.lat as number) || (a.lng as number) - (b.lng as number);
-  });
+  const seeds: T[][][] = [
+    sweepSeed(depot, stops, n, endPt),
+    kmeansSeed(depot, stops, n),
+    radialSeed(depot, stops, n),
+  ];
 
-  // Greedy arc fill for one rotation: walk the circle, close an arc once its
-  // workload reaches the remaining average.
-  const fill = (offset: number): T[][] => {
-    const seq = [...sorted.slice(offset), ...sorted.slice(0, offset)];
-    const total = estimateWorkloadS(depot, seq.map(pt));
-    const groups: T[][] = [];
-    let current: T[] = [];
-    let used = 0;
-    for (const s of seq) {
-      const left = n - groups.length - 1; // arcs still to open after the current one
-      current.push(s);
-      const w = estimateWorkloadS(depot, current.map(pt));
-      const target = (total - used) / (left + 1);
-      // Close the arc when it met its share, but never leave more arcs than stops.
-      const remainingStops = seq.length - seq.indexOf(s) - 1;
-      if (left > 0 && w >= target && remainingStops >= left) {
-        groups.push(current);
-        used += w;
-        current = [];
-      }
-    }
-    if (current.length) groups.push(current);
-    return groups;
-  };
-
-  const rotations = Math.min(sorted.length, 24);
-  let best: T[][] | null = null;
-  let bestScore = Infinity;
-  for (let r = 0; r < rotations; r++) {
-    const offset = Math.floor((r * sorted.length) / rotations);
-    const g = fill(offset);
-    const score = maxWorkload(depot, g);
-    if (score < bestScore) {
-      bestScore = score;
-      best = g;
+  let best = seeds[0];
+  let bestCost = partitionCost(depot, best, endPt);
+  for (let i = 1; i < seeds.length; i++) {
+    const c = partitionCost(depot, seeds[i], endPt);
+    if (betterCost(c, bestCost)) {
+      best = seeds[i];
+      bestCost = c;
     }
   }
-  let groups = best!;
 
-  // Border improvement: move an edge stop to the neighbouring arc when that
-  // lowers the max workload. Two passes keep it bounded and deterministic.
-  for (let pass = 0; pass < 2; pass++) {
-    let improved = false;
-    for (let i = 0; i < groups.length - 1; i++) {
-      const a = groups[i];
-      const b = groups[i + 1];
-      // last of a → front of b
-      if (a.length > 1) {
-        const cand = [...groups];
-        cand[i] = a.slice(0, -1);
-        cand[i + 1] = [a[a.length - 1], ...b];
-        if (maxWorkload(depot, cand) < maxWorkload(depot, groups)) {
-          groups = cand;
-          improved = true;
-          continue;
-        }
-      }
-      // front of b → end of a
-      if (b.length > 1) {
-        const cand = [...groups];
-        cand[i] = [...a, b[0]];
-        cand[i + 1] = b.slice(1);
-        if (maxWorkload(depot, cand) < maxWorkload(depot, groups)) {
-          groups = cand;
-          improved = true;
-        }
-      }
-    }
-    if (!improved) break;
-  }
-  return groups;
+  return localSearch(depot, best, endPt);
 }
 
 /** Pad a group list with empty groups up to exactly `n`. */

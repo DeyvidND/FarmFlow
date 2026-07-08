@@ -270,7 +270,10 @@ export class RoutingService {
     // over a greedy chain so groups still make geographic sense).
     let groups: RouteStop[][];
     if (originPt && located.length) {
-      groups = sweepSplit(originPt, located, n);
+      // Feed the split the point every courier returns to after its last stop,
+      // so workload balancing counts the return leg (round trip vs one-way).
+      const splitEnd = endPoint(mode, originPt, end);
+      groups = sweepSplit(originPt, located, n, splitEnd);
     } else if (located.length) {
       const chain = greedyByDistance(null, located);
       groups = Array.from({ length: Math.min(n, chain.length) }, () => []);
@@ -280,10 +283,12 @@ export class RoutingService {
     }
     if (!groups.length) groups = [[]];
 
-    const routes: CourierRoute[] = [];
-    for (const group of groups) {
-      routes.push(await this.optimizeGroup(originPt, group, mode, end));
-    }
+    // Groups are independent (pure inputs, key-isolated MapsService cache writes),
+    // so optimize them concurrently — each courier's Google Routes call(s) no longer
+    // wait on the previous courier's. Serial cost was ~2 round-trips × courier count.
+    const routes: CourierRoute[] = await Promise.all(
+      groups.map((group) => this.optimizeGroup(originPt, group, mode, end)),
+    );
 
     // Un-geocoded stops: tail of the least-loaded route (they can't be placed).
     if (unlocated.length) {
@@ -318,6 +323,18 @@ export class RoutingService {
     }
 
     let orderedGroup: RouteStop[];
+    // Reuse: when the optimize call above already covers every stop in the group
+    // (no MAX_OPTIMIZE_STOPS overflow) AND targets the SAME destination pathTotal
+    // would use, its distanceM/durationS/polyline are for the identical
+    // origin→…→dest path pathTotal would recompute — skip that second, redundant
+    // Routes call. Reusable only when `dest !== null`: that's precisely the same
+    // condition pathTotal (below) checks before pushing an end point onto its own
+    // path — `last` mode always has dest=null (endPoint returns null → route()
+    // falls back to dest=origin, a round trip, while pathTotal measures
+    // origin→…→last-stop with NO return leg), and so does a misconfigured
+    // `custom` end with no coords saved. Either way `dest === null` means route()
+    // targeted a DIFFERENT path than pathTotal would — not safe to reuse.
+    let reusablePlan: { distanceM: number; durationS: number; polyline: string | null } | null = null;
     if (originPt) {
       // Let Google optimize the visit order, targeting the REAL end point so a
       // one-way / custom-end route isn't optimized as a round trip.
@@ -338,6 +355,8 @@ export class RoutingService {
             `Route has ${group.length} located stops; only the first ${MAX_OPTIMIZE_STOPS} ` +
               `are Google-optimized, the rest are ordered by nearest-neighbour heuristic.`,
           );
+        } else if (dest !== null) {
+          reusablePlan = { distanceM: plan.distanceM, durationS: plan.durationS, polyline: plan.polyline };
         }
         const tail = greedyByDistance(ptOf(head[head.length - 1]) ?? originPt, rest);
         orderedGroup = [...head, ...tail];
@@ -358,7 +377,11 @@ export class RoutingService {
     let totalDistanceM: number | null = null;
     let totalDurationS: number | null = null;
     let routePolyline: string[] | null = null;
-    if (originPt) {
+    if (reusablePlan) {
+      totalDistanceM = reusablePlan.distanceM;
+      totalDurationS = reusablePlan.durationS;
+      routePolyline = reusablePlan.polyline ? [reusablePlan.polyline] : null;
+    } else if (originPt) {
       const pts: Pt[] = [originPt];
       for (const s of orderedGroup) {
         const p = ptOf(s);
