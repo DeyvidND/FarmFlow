@@ -10,7 +10,7 @@ import {
   ArrayMaxSize,
   ValidateIf,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { CreateOrderItemDto } from './create-order-item.dto';
 
@@ -34,6 +34,11 @@ export class UpdateOrderDto {
   customerPhone?: string;
 
   @ApiPropertyOptional()
+  // Same guard as CreateOrderDto: @IsOptional() skips only null/undefined, so a
+  // blank '' (or whitespace) from an order-edit patch would otherwise reach
+  // @IsEmail() and 400 a field advertised as optional. Normalise blank →
+  // undefined so clearing the email is truly skipped.
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
   @IsOptional()
   @IsEmail()
   customerEmail?: string | null;

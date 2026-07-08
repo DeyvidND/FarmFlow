@@ -28,4 +28,20 @@ describe('UpdateOrderDto', () => {
   it('rejects an empty items array', async () => {
     expect(await errsFor({ items: [] })).toContain('items');
   });
+
+  // Clearing the email in the order-edit form must not 400. @IsOptional() alone
+  // skips only null/undefined, so a bare @IsEmail() used to reject '' — a field
+  // advertised as optional. The @Transform normalises blank → undefined.
+  it('accepts an empty-string email (cleared in edit form)', async () => {
+    expect(await errsFor({ customerEmail: '' })).not.toContain('customerEmail');
+  });
+  it('accepts a whitespace-only email as blank', async () => {
+    expect(await errsFor({ customerEmail: '   ' })).not.toContain('customerEmail');
+  });
+  it('accepts a valid email', async () => {
+    expect(await errsFor({ customerEmail: 'ivan@example.bg' })).not.toContain('customerEmail');
+  });
+  it('still rejects a non-empty malformed email', async () => {
+    expect(await errsFor({ customerEmail: 'not-an-email' })).toContain('customerEmail');
+  });
 });
