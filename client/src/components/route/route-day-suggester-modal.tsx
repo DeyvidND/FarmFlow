@@ -35,7 +35,19 @@ export function RouteDaySuggesterModal({
     if (newDay && !days.includes(newDay)) setDays([...days, newDay].sort());
     setNewDay('');
   };
-  const removeDay = (d: string) => setDays(days.filter((x) => x !== d));
+  const removeDay = (d: string) => {
+    setDays(days.filter((x) => x !== d));
+    // Any orders currently assigned to the removed day become excluded — so
+    // apply() never reschedules onto a day the farmer just took off the list
+    // (and their per-order picker doesn't show a now-missing option).
+    setChoices((c) => {
+      const next: Record<string, Choice> = {};
+      for (const [id, choice] of Object.entries(c)) {
+        next[id] = choice.day === d ? { day: null } : choice;
+      }
+      return next;
+    });
+  };
 
   // Pre-seed the picker with the farm's upcoming delivery days (distinct
   // slotDate values from the reschedulable pool) — the farmer can still add
