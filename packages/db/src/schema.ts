@@ -538,6 +538,15 @@ export const shipments = pgTable(
     customerNotifiedAt: timestamp('customer_notified_at', { withTimezone: true }),
     codCollectedAt: timestamp('cod_collected_at', { withTimezone: true }),
     codSettledAt: timestamp('cod_settled_at', { withTimezone: true }),
+    // --- Courier consolidation (migration 0083) ---
+    // Links the per-farmer courier shipments physically shipped as one parcel. The
+    // MASTER (the collector's shipment) carries its OWN id here and its
+    // cod_amount_stotinki holds the whole group's COD; each CHILD carries the
+    // master's id and status='consolidated' (superseded, no waybill of its own).
+    // NULL for every non-consolidated shipment.
+    consolidationGroupId: uuid('consolidation_group_id').references((): AnyPgColumn => shipments.id, {
+      onDelete: 'set null',
+    }),
     // --- Standalone (order-less) shipments: a producer types the receiver in by
     // hand via the standalone Econt app, so there is no `orders` row to derive
     // from. NULL for FarmFlow shipments (which keep deriving from `orders`). ---
@@ -570,6 +579,7 @@ export const shipments = pgTable(
     tenantFarmerIdx: index('shipments_tenant_farmer_idx').on(t.tenantId, t.farmerId),
     // Panel/dostavki shipments list keyset: WHERE tenant_id=? ORDER BY created_at desc, id desc.
     tenantCreatedIdx: index('shipments_tenant_created_idx').on(t.tenantId, t.createdAt, t.id),
+    consolidationGroupIdx: index('shipments_consolidation_group_idx').on(t.consolidationGroupId),
   }),
 );
 
