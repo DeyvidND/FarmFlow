@@ -23,24 +23,29 @@ export function RescheduleOrdersModal({
   onDone: () => void;
 }) {
   const [rows, setRows] = useState<ReschedulableOrder[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [sourceDate, setSourceDate] = useState<string>('');
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [toDate, setToDate] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let live = true;
+  const fetchReschedulable = () => {
+    setRows(null);
+    setError(null);
     listReschedulable()
       .then((r) => {
-        if (!live) return;
         setRows(r);
       })
       .catch((e) => {
-        if (live) toast.error(errMsg(e));
+        const msg = errMsg(e);
+        toast.error(msg);
+        setError(msg);
+        setRows([]);
       });
-    return () => {
-      live = false;
-    };
+  };
+
+  useEffect(() => {
+    fetchReschedulable();
   }, []);
 
   // Distinct source days with their orders, sorted ascending.
@@ -110,6 +115,13 @@ export function RescheduleOrdersModal({
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
           {rows === null ? (
             <p className="py-8 text-center text-sm text-ff-muted">Зареждане…</p>
+          ) : error ? (
+            <div className="py-8 text-center">
+              <p className="mb-4 text-sm text-ff-muted">{error}</p>
+              <Button variant="primary" size="sm" onClick={fetchReschedulable}>
+                Опитай пак
+              </Button>
+            </div>
           ) : days.length === 0 ? (
             <p className="py-8 text-center text-sm text-ff-muted">
               Няма поръчки с лична доставка за преместване.
