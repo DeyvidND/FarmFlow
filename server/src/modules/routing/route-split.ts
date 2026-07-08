@@ -225,5 +225,144 @@ export function sweepSplit<T extends Geo>(depot: Pt, stops: T[], couriers: numbe
   return groups;
 }
 
+/** Pad a group list with empty groups up to exactly `n`. */
+function padGroups<T>(groups: T[][], n: number): T[][] {
+  const out = groups.map((g) => [...g]);
+  while (out.length < n) out.push([]);
+  return out;
+}
+
+/** A point `km` from `o` at bearing `theta` rad (equirectangular approx). */
+function offsetPt(o: Pt, km: number, theta: number): Pt {
+  const dLat = (km * Math.cos(theta)) / 111;
+  const dLng = (km * Math.sin(theta)) / (111 * Math.cos((o.lat * Math.PI) / 180) || 1e-9);
+  return { lat: o.lat + dLat, lng: o.lng + dLng };
+}
+
+/**
+ * Angular-arc fill (the classic sweep): sort stops by polar angle around the
+ * depot, walk the circle closing an arc once its workload meets the remaining
+ * average, over ≤24 rotations, keep the best by makespan. Padded to `n` groups.
+ */
+function sweepSeed<T extends Geo>(depot: Pt, stops: T[], n: number, endPt: Pt | null): T[][] {
+  const sorted = [...stops].sort((a, b) => {
+    const aa = Math.atan2((a.lat as number) - depot.lat, (a.lng as number) - depot.lng);
+    const ab = Math.atan2((b.lat as number) - depot.lat, (b.lng as number) - depot.lng);
+    return aa - ab || (a.lat as number) - (b.lat as number) || (a.lng as number) - (b.lng as number);
+  });
+
+  const fill = (offset: number): T[][] => {
+    const seq = [...sorted.slice(offset), ...sorted.slice(0, offset)];
+    const total = estimateWorkloadS(depot, seq.map(pt), endPt);
+    const groups: T[][] = [];
+    let current: T[] = [];
+    let used = 0;
+    seq.forEach((s, idx) => {
+      const left = n - groups.length - 1;
+      current.push(s);
+      const w = estimateWorkloadS(depot, current.map(pt), endPt);
+      const target = (total - used) / (left + 1);
+      const remainingStops = seq.length - idx - 1;
+      if (left > 0 && w >= target && remainingStops >= left) {
+        groups.push(current);
+        used += w;
+        current = [];
+      }
+    });
+    if (current.length) groups.push(current);
+    return groups;
+  };
+
+  const rotations = Math.min(sorted.length, 24);
+  let best: T[][] | null = null;
+  let bestCost: PartCost | null = null;
+  for (let r = 0; r < rotations; r++) {
+    const offset = Math.floor((r * sorted.length) / rotations);
+    const g = fill(offset);
+    const c = partitionCost(depot, g, endPt);
+    if (!bestCost || betterCost(c, bestCost)) {
+      bestCost = c;
+      best = g;
+    }
+  }
+  return padGroups(best!, n);
+}
+
+/**
+ * Geographic k-means (deterministic Lloyd's): centroids seeded at angularly-
+ * even bearings around the depot at the mean stop radius; assign each stop to
+ * its nearest centroid, recompute, repeat until stable or 20 iterations.
+ * Assignment ties break by lower centroid index. Balancing is delegated to the
+ * local-search pass — this seed's job is geographic coherence. Exactly `n`
+ * groups (a centroid with no stops yields an empty group).
+ */
+function kmeansSeed<T extends Geo>(depot: Pt, stops: T[], n: number): T[][] {
+  const meanR =
+    stops.reduce((s, p) => s + haversineKm(depot, pt(p)), 0) / (stops.length || 1);
+  let centroids: Pt[] = Array.from({ length: n }, (_, i) =>
+    offsetPt(depot, Math.max(meanR, 0.1), (2 * Math.PI * i) / n),
+  );
+  const assign = new Array<number>(stops.length).fill(0);
+  for (let iter = 0; iter < 20; iter++) {
+    let changed = false;
+    stops.forEach((s, si) => {
+      const p = pt(s);
+      let best = 0;
+      let bestD = Infinity;
+      centroids.forEach((c, ci) => {
+        const d = haversineKm(p, c);
+        if (d < bestD - 1e-9) {
+          bestD = d;
+          best = ci;
+        }
+      });
+      if (assign[si] !== best) {
+        assign[si] = best;
+        changed = true;
+      }
+    });
+    const sums = Array.from({ length: n }, () => ({ lat: 0, lng: 0, c: 0 }));
+    stops.forEach((s, si) => {
+      const g = sums[assign[si]];
+      g.lat += s.lat as number;
+      g.lng += s.lng as number;
+      g.c += 1;
+    });
+    centroids = centroids.map((c, ci) =>
+      sums[ci].c ? { lat: sums[ci].lat / sums[ci].c, lng: sums[ci].lng / sums[ci].c } : c,
+    );
+    if (!changed) break;
+  }
+  const groups: T[][] = Array.from({ length: n }, () => []);
+  stops.forEach((s, si) => groups[assign[si]].push(s));
+  return groups;
+}
+
+/**
+ * Radial bands: sort stops by distance from the depot, cut into `n` contiguous
+ * equal-size chunks (near stops to the first courier, far to the last). A cheap
+ * third seed that suits depot-centric spreads. Exactly `n` groups.
+ */
+function radialSeed<T extends Geo>(depot: Pt, stops: T[], n: number): T[][] {
+  const sorted = [...stops].sort(
+    (a, b) =>
+      haversineKm(depot, pt(a)) - haversineKm(depot, pt(b)) ||
+      (a.lat as number) - (b.lat as number) ||
+      (a.lng as number) - (b.lng as number),
+  );
+  const groups: T[][] = Array.from({ length: n }, () => []);
+  const per = Math.ceil(sorted.length / n) || 1;
+  sorted.forEach((s, i) => groups[Math.min(n - 1, Math.floor(i / per))].push(s));
+  return groups;
+}
+
 /** Internal helpers exposed for unit tests only. Not part of the public API. */
-export const __test = { partitionCost, betterCost };
+export const __test = {
+  partitionCost,
+  betterCost,
+  offsetPt,
+  sweepSeed,
+  kmeansSeed,
+  radialSeed,
+  padGroups,
+};

@@ -109,3 +109,41 @@ describe('partitionCost / betterCost', () => {
     expect(__test.betterCost({ makespan: 10, total: 30 }, { makespan: 10, total: 20 })).toBe(false);
   });
 });
+
+// Two tight clusters east and west of a central depot.
+const west: Pt[] = [
+  { lat: 42.50, lng: 24.70 },
+  { lat: 42.52, lng: 24.71 },
+  { lat: 42.48, lng: 24.69 },
+];
+const east: Pt[] = [
+  { lat: 42.50, lng: 25.30 },
+  { lat: 42.52, lng: 25.31 },
+  { lat: 42.48, lng: 25.29 },
+];
+const twoClusters = [...west, ...east];
+
+describe('seeds', () => {
+  const d: Pt = { lat: 42.5, lng: 25.0 };
+
+  it('kmeansSeed keeps each geographic cluster whole for 2 couriers', () => {
+    const g = __test.kmeansSeed(d, twoClusters, 2);
+    expect(g).toHaveLength(2);
+    // Each group's longitudes are all on one side of the depot (25.0).
+    for (const grp of g) {
+      const sides = new Set(grp.map((p) => (p.lng < 25.0 ? 'W' : 'E')));
+      expect(sides.size).toBe(1);
+    }
+  });
+
+  it('every seed returns exactly n groups and loses no stop', () => {
+    for (const seed of [
+      __test.sweepSeed(d, twoClusters, 3, d),
+      __test.kmeansSeed(d, twoClusters, 3),
+      __test.radialSeed(d, twoClusters, 3),
+    ]) {
+      expect(seed).toHaveLength(3);
+      expect(seed.flat()).toHaveLength(twoClusters.length);
+    }
+  });
+});
