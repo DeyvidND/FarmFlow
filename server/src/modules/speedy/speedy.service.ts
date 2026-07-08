@@ -26,6 +26,7 @@ import { SpeedyCourierRequestDto } from './dto/speedy-courier-request.dto';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { isReturnedStatus } from '../cod-risk/cod-risk.helpers';
 import type { CarrierAdapter } from '../orders/carrier-adapter';
+import { consolidatedCodOverride } from '../econt-app/consolidation.helpers';
 
 const SPEEDY_BASE = 'https://api.speedy.bg/v1';
 const NOMENCLATURE_TTL = 60 * 60 * 24; // 1 day
@@ -506,7 +507,22 @@ export class SpeedyService implements CarrierAdapter {
     const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
     const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
     const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
-    const codAmount = input.codAmountStotinki && input.codAmountStotinki > 0 ? Math.round(input.codAmountStotinki) : null;
+    const [existingShipment] = await this.db
+      .select({
+        id: shipments.id,
+        consolidationGroupId: shipments.consolidationGroupId,
+        codAmountStotinki: shipments.codAmountStotinki,
+      })
+      .from(shipments)
+      .where(eq(shipments.orderId, orderId))
+      .limit(1);
+    const override = consolidatedCodOverride(existingShipment ?? null);
+    const codAmount =
+      override != null
+        ? override
+        : input.codAmountStotinki && input.codAmountStotinki > 0
+          ? Math.round(input.codAmountStotinki)
+          : null;
     // The owning farmer for a finalized waybill: prefer the order's own farmer_id (set
     // on a Phase-3 courier split) and fall back to the caller's farmerId arg. Stays null
     // for legacy tenant-level Speedy orders.

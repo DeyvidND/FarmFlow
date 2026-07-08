@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 import { EcontService } from './econt.service';
 import { mapShipmentRow, mapTrackingEvents, mergePdfs, parseCodReconciliation, shouldNotifyShipped, buildManualOrderShape, mapManualShipmentRow, parseAddressValidation, slimClientProfiles, buildCourierRequest } from './econt.mappers';
 import { deriveSenderFromFarm } from './econt.sender';
+import { consolidatedCodOverride } from '../econt-app/consolidation.helpers';
 
 
 describe('EcontService.codAmountFor', () => {
@@ -17,6 +18,17 @@ describe('EcontService.codAmountFor', () => {
   });
   it('COD already paid online → null (no second collection)', () => {
     expect(cod({ paymentMethod: 'cod', totalStotinki: 2400, paidAt: new Date() })).toBeNull();
+  });
+});
+
+describe('consolidated master COD wins over order total', () => {
+  it('uses the master shipment group sum, not codAmountFor(order)', () => {
+    // The order total is the collector's own share (500); the master shipment holds
+    // the whole group's COD (1800). The waybill must collect 1800.
+    const masterDraft = { id: 'm', consolidationGroupId: 'm', codAmountStotinki: 1800 };
+    const orderShare = 500;
+    const cod = consolidatedCodOverride(masterDraft) ?? orderShare;
+    expect(cod).toBe(1800);
   });
 });
 
@@ -558,7 +570,13 @@ describe('EcontService.createLabel (finalize courier draft)', () => {
     const updWhere = jest.fn().mockResolvedValue(undefined);
     const updSet = jest.fn().mockReturnValue({ where: updWhere });
     const update = jest.fn().mockReturnValue({ set: updSet });
-    (svc as any).db = { insert, update };
+    // db.select(...).from(shipments).where(...).limit(1) — the pre-read for a possible
+    // consolidation-master override; no existing draft row here → [] → unchanged codAmountFor path.
+    const selLimit = jest.fn().mockResolvedValue([]);
+    const selWhere = jest.fn().mockReturnValue({ limit: selLimit });
+    const selFrom = jest.fn().mockReturnValue({ where: selWhere });
+    const select = jest.fn().mockReturnValue({ from: selFrom });
+    (svc as any).db = { insert, update, select };
 
     const row = await svc.createLabel('t1', 'order-1', 'farmer-1');
 

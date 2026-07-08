@@ -140,7 +140,13 @@ describe('SpeedyService.createLabelForOrder', () => {
     const updWhere = jest.fn().mockResolvedValue(undefined);
     const updSet = jest.fn().mockReturnValue({ where: updWhere });
     const update = jest.fn().mockReturnValue({ set: updSet });
-    (svc as any).db = { insert, update };
+    // db.select(...).from(shipments).where(...).limit(1) — consolidation-master pre-read;
+    // no existing draft row here → [] → unchanged (non-consolidated) codAmount path.
+    const selLimit = jest.fn().mockResolvedValue([]);
+    const selWhere = jest.fn().mockReturnValue({ limit: selLimit });
+    const selFrom = jest.fn().mockReturnValue({ where: selWhere });
+    const select = jest.fn().mockReturnValue({ from: selFrom });
+    (svc as any).db = { insert, update, select };
 
     const row = await svc.createLabelForOrder('t1', 'order-1');
     expect(call).toHaveBeenCalledWith(expect.anything(), 'shipment', expect.anything());
@@ -167,7 +173,13 @@ describe('SpeedyService.createLabelForOrder', () => {
     const updWhere = jest.fn().mockResolvedValue(undefined);
     const updSet = jest.fn().mockReturnValue({ where: updWhere });
     const update = jest.fn().mockReturnValue({ set: updSet });
-    (svc as any).db = { insert, update };
+    // db.select(...).from(shipments).where(...).limit(1) — consolidation-master pre-read;
+    // no existing draft row here → [] → unchanged (non-consolidated) codAmount path.
+    const selLimit = jest.fn().mockResolvedValue([]);
+    const selWhere = jest.fn().mockReturnValue({ limit: selLimit });
+    const selFrom = jest.fn().mockReturnValue({ where: selWhere });
+    const select = jest.fn().mockReturnValue({ from: selFrom });
+    (svc as any).db = { insert, update, select };
 
     const row = await svc.createLabelForOrder('t1', 'order-1', 'farmer-1');
 

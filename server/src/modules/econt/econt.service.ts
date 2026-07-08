@@ -44,6 +44,7 @@ import { ShipmentEmailService } from './shipment-email.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { isReturnedStatus } from '../cod-risk/cod-risk.helpers';
 import type { CarrierAdapter } from '../orders/carrier-adapter';
+import { consolidatedCodOverride } from '../econt-app/consolidation.helpers';
 
 const DEMO_BASE = 'https://demo.econt.com/ee/services';
 const PROD_BASE = 'https://ee.econt.com/services';
@@ -871,7 +872,18 @@ export class EcontService implements CarrierAdapter {
     // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted
     // price and the persisted/charged price can't diverge. EUR (BG euro 2026) → ×100 = stotinki.
     const priceEur: number | undefined = out.totalPrice ?? out.totalPriceVAT;
-    const codAmount = this.codAmountFor(order);
+    // A consolidation master's draft shipment already holds the whole group's COD;
+    // prefer it so the waybill collects the summed amount, not just this order's total.
+    const [existingShipment] = await this.db
+      .select({
+        id: shipments.id,
+        consolidationGroupId: shipments.consolidationGroupId,
+        codAmountStotinki: shipments.codAmountStotinki,
+      })
+      .from(shipments)
+      .where(eq(shipments.orderId, orderId))
+      .limit(1);
+    const codAmount = consolidatedCodOverride(existingShipment ?? null) ?? this.codAmountFor(order);
     // The owning farmer for a finalized waybill: prefer the order's own farmer_id
     // (the true owner, set on a Phase-3 courier split) and fall back to the caller's
     // farmerId arg. Stays null for legacy tenant-level Econt orders.
