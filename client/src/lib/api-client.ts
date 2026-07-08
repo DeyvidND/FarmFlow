@@ -553,12 +553,13 @@ export const openSlotDay = (date: string) =>
   );
 
 // ---- Orders ----
-export const listOrders = (opts?: { page?: number; limit?: number; q?: string; status?: string }) => {
+export const listOrders = (opts?: { page?: number; limit?: number; q?: string; status?: string; date?: string }) => {
   const p = new URLSearchParams();
   if (opts?.page) p.set('page', String(opts.page));
   if (opts?.limit) p.set('limit', String(opts.limit));
   if (opts?.q) p.set('q', opts.q);
   if (opts?.status && opts.status !== 'all') p.set('status', opts.status);
+  if (opts?.date) p.set('date', opts.date);
   const query = p.toString();
   return apiFetch<Paged<Order>>(`orders${query ? `?${query}` : ''}`);
 };

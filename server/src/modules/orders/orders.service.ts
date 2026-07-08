@@ -511,6 +511,8 @@ export class OrdersService {
       limit?: number;
       status?: 'pending' | 'confirmed' | 'delivered' | 'cancelled';
       q?: string;
+      /** Delivery-day filter (YYYY-MM-DD); scopes via `scheduledForDay`. Omit = all days. */
+      date?: string;
     } = {},
   ): Promise<{ items: SerializedOrder[]; total: number }> {
     const lim = clampLimit(opts.limit);
@@ -531,12 +533,20 @@ export class OrdersService {
 
     if (opts.status) conds.push(eq(orders.status, opts.status));
     if (q) conds.push(this.paymentSearchCond(q));
+    // Optional delivery-day scope — slot day, creation-day fallback for slotless
+    // orders (same rule as production / payments / digests). References
+    // deliverySlots.date, so both queries below must carry the slots leftJoin.
+    if (opts.date) conds.push(scheduledForDay(opts.date));
     const where = and(...conds)!;
 
     // Count + page run concurrently. The count drives the numbered footer; both share
     // the same predicate, served by the (tenant_id, status) / (tenant_id, created_at) idx.
     const [countRow, rows] = await Promise.all([
-      this.db.select({ n: sql<number>`count(*)::int` }).from(orders).where(where),
+      this.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(orders)
+        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+        .where(where),
       this.db
         .select(orderWithSlot)
         .from(orders)

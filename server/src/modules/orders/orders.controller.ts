@@ -35,12 +35,14 @@ export class OrdersController {
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'date', required: false })
   findAll(@CurrentTenant() tenantId: string, @Query() q: OrdersQueryDto) {
     return this.ordersService.findAll(tenantId, {
       page: q.page,
       limit: q.limit,
       status: q.status,
       q: q.q,
+      date: q.date,
     });
   }
 

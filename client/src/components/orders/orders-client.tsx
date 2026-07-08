@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Search, MapPin, Package, Store, Info, ArrowRightLeft } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn, moneyFromStotinki, timeFromIso, hhmm, relDayLabel, type OrderStatus } from '@/lib/utils';
+import { cn, moneyFromStotinki, timeFromIso, hhmm, relDayLabel, todayIso, type OrderStatus } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { DateNavBar } from '@/components/production/date-nav-bar';
 import { HelpModal } from '@/components/delivery/ui';
 import { ORDERS_HELP } from '@/lib/help-content';
 import { RescheduleOrdersModal } from './reschedule-orders-modal';
@@ -93,6 +94,9 @@ export function OrdersClient({
   const [q, setQ] = useState('');
   const [dq, setDq] = useState(''); // debounced query actually sent to the API
   const [filter, setFilter] = useState('all');
+  // Optional delivery-day scope. null = «Всички дни» (the SSR default). Picking a
+  // day in the calendar filters by that day server-side (scheduledForDay rule).
+  const [dateFilter, setDateFilter] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -106,10 +110,10 @@ export function OrdersClient({
     return () => clearTimeout(t);
   }, [q]);
 
-  // A new search term or status tab always restarts at page 1.
+  // A new search term, status tab or day always restarts at page 1.
   useEffect(() => {
     setPage(1);
-  }, [dq, filter]);
+  }, [dq, filter, dateFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,6 +123,7 @@ export function OrdersClient({
         limit: ORDERS_PAGE_SIZE,
         q: dq || undefined,
         status: filter,
+        date: dateFilter ?? undefined,
       });
       setOrders(res.items);
       setTotal(res.total);
@@ -127,7 +132,7 @@ export function OrdersClient({
     } finally {
       setLoading(false);
     }
-  }, [page, dq, filter]);
+  }, [page, dq, filter, dateFilter]);
 
   // Skip the very first run: the server already rendered page 1 / all / no query —
   // unless that SSR render itself failed (initialOk === false), in which case the
@@ -136,10 +141,10 @@ export function OrdersClient({
   useEffect(() => {
     if (!hydrated.current) {
       hydrated.current = true;
-      if (initialOk && page === 1 && !dq && filter === 'all') return;
+      if (initialOk && page === 1 && !dq && filter === 'all' && !dateFilter) return;
     }
     void load();
-  }, [load, page, dq, filter, initialOk]);
+  }, [load, page, dq, filter, dateFilter, initialOk]);
 
   const pageCount = Math.max(1, Math.ceil(total / ORDERS_PAGE_SIZE));
   const paged = orders;
@@ -226,6 +231,15 @@ export function OrdersClient({
             onChange={(e) => setQ(e.target.value)}
             placeholder="Търси име, телефон, имейл или № поръчка…"
             className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface pl-11 pr-3 text-[14.5px] shadow-ff-sm outline-none focus:border-ff-green-500"
+          />
+        </div>
+        <div className="max-[680px]:w-full">
+          <DateNavBar
+            date={dateFilter ?? todayIso()}
+            dateLabel={dateFilter ? relDayLabel(dateFilter) : 'Всички дни'}
+            allDays={!dateFilter}
+            onSelect={(iso) => setDateFilter(iso)}
+            onAllDays={() => setDateFilter(null)}
           />
         </div>
         <div className="ml-auto flex gap-1.5 rounded-xl border border-ff-border bg-ff-surface p-[5px] shadow-ff-sm max-[680px]:ml-0 max-[680px]:w-full max-[680px]:overflow-x-auto">

@@ -31,7 +31,29 @@ function firstOfMonth(dateStr: string) {
   return { y, m };
 }
 
-export function DateNavBar({ date, dateLabel }: { date: string; dateLabel: string }) {
+/**
+ * Day picker + prev/next nav. Two modes:
+ *  - Production (default): URL-driven — picking a day pushes `${hrefBase}?date=`.
+ *  - Orders: controlled — pass `onSelect` (called with the picked iso) and
+ *    `onAllDays` to enable the «Всички дни» clear affordance. In all-days mode
+ *    pass `allDays` so no day reads as selected and the «Днес» badge hides.
+ */
+export function DateNavBar({
+  date,
+  dateLabel,
+  onSelect,
+  hrefBase = '/production',
+  allDays = false,
+  onAllDays,
+}: {
+  /** Concrete day driving the calendar view. In orders all-days mode pass today. */
+  date: string;
+  dateLabel: string;
+  onSelect?: (iso: string) => void;
+  hrefBase?: string;
+  allDays?: boolean;
+  onAllDays?: () => void;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(() => firstOfMonth(date));
@@ -90,12 +112,13 @@ export function DateNavBar({ date, dateLabel }: { date: string; dateLabel: strin
     return result;
   }, [viewMonth]);
 
-  const isToday = today !== null && date === today;
+  const isToday = !allDays && today !== null && date === today;
 
-  const go = (iso: string) => router.push(`/production?date=${iso}`);
+  const go = onSelect ?? ((iso: string) => router.push(`${hrefBase}?date=${iso}`));
   const goPrev = () => go(shiftIsoDate(date, -1));
   const goNext = () => go(shiftIsoDate(date, +1));
   const goToday = () => { go(todayIso()); setOpen(false); };
+  const goAllDays = () => { onAllDays?.(); setOpen(false); };
   const pickDay = (cell: Cell) => { if (cell.otherMonth) return; go(cell.iso); setOpen(false); };
   const prevMonth = () => setViewMonth(({ y, m }) => m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 });
   const nextMonth = () => setViewMonth(({ y, m }) => m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 });
@@ -187,9 +210,9 @@ export function DateNavBar({ date, dateLabel }: { date: string; dateLabel: strin
                 className={cn(
                   'aspect-square rounded-lg text-[13px] font-bold transition-colors',
                   cell.otherMonth && 'pointer-events-none text-ff-muted-2 opacity-30',
-                  !cell.otherMonth && cell.iso === date && 'bg-ff-green-600 text-white',
-                  !cell.otherMonth && cell.iso !== date && cell.iso === today && 'bg-ff-green-50 text-ff-green-700',
-                  !cell.otherMonth && cell.iso !== date && cell.iso !== today && 'text-ff-ink hover:bg-ff-surface-2',
+                  !cell.otherMonth && !allDays && cell.iso === date && 'bg-ff-green-600 text-white',
+                  !cell.otherMonth && (allDays || cell.iso !== date) && cell.iso === today && 'bg-ff-green-50 text-ff-green-700',
+                  !cell.otherMonth && (allDays || cell.iso !== date) && cell.iso !== today && 'text-ff-ink hover:bg-ff-surface-2',
                 )}
               >
                 {cell.day}
@@ -198,7 +221,18 @@ export function DateNavBar({ date, dateLabel }: { date: string; dateLabel: strin
           </div>
 
           {/* footer */}
-          <div className="mt-2 flex justify-end border-t border-ff-border-2 pt-2">
+          <div className={cn('mt-2 flex items-center border-t border-ff-border-2 pt-2', onAllDays ? 'justify-between' : 'justify-end')}>
+            {onAllDays && (
+              <button
+                onClick={goAllDays}
+                className={cn(
+                  'rounded-lg px-2.5 py-1.5 text-[12.5px] font-bold transition-colors',
+                  allDays ? 'bg-ff-green-50 text-ff-green-700' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+                )}
+              >
+                Всички дни
+              </button>
+            )}
             <button
               onClick={goToday}
               className="rounded-lg px-2.5 py-1.5 text-[12.5px] font-bold text-ff-green-700 transition-colors hover:bg-ff-green-50"
