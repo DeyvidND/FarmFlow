@@ -94,6 +94,9 @@ export interface SpeedyShipment {
   codAmountStotinki: number | null;
   /** Courier-pickup request status (null until a pickup is requested for this waybill). */
   courierRequestStatus: string | null;
+  /** True when this shipment is a consolidation MASTER (see econt.mappers.ts /
+   *  consolidation.service.ts) — drives the debt-breakdown + „Раздели" undo action. */
+  isConsolidationMaster?: boolean;
 }
 
 @Injectable()
@@ -594,6 +597,7 @@ export class SpeedyService implements CarrierAdapter {
         priceStotinki: shipments.courierPriceStotinki,
         codAmountStotinki: shipments.codAmountStotinki,
         courierRequestStatus: shipments.courierRequestStatus,
+        consolidationGroupId: shipments.consolidationGroupId,
         [KEYSET_TS]: cursorTs(shipments.createdAt),
       })
       .from(shipments)
@@ -611,6 +615,8 @@ export class SpeedyService implements CarrierAdapter {
         priceStotinki: r.priceStotinki,
         codAmountStotinki: r.codAmountStotinki,
         courierRequestStatus: r.courierRequestStatus ?? null,
+        // Same self-referencing check as econt.mappers.ts's mapShipmentRow.
+        isConsolidationMaster: !!r.shipmentId && !!r.consolidationGroupId && r.consolidationGroupId === r.shipmentId,
       })),
       nextCursor,
     };

@@ -1193,6 +1193,7 @@ export class EcontService implements CarrierAdapter {
           trackingNumber: shipments.trackingNumber,
           carrierShipmentId: shipments.carrierShipmentId,
           courierRequestStatus: shipments.courierRequestStatus,
+          consolidationGroupId: shipments.consolidationGroupId,
           [KEYSET_TS]: cursorTs(orders.createdAt),
         })
         .from(orders)
@@ -1236,6 +1237,7 @@ export class EcontService implements CarrierAdapter {
           trackingNumber: shipments.trackingNumber,
           carrierShipmentId: shipments.carrierShipmentId,
           courierRequestStatus: shipments.courierRequestStatus,
+          consolidationGroupId: shipments.consolidationGroupId,
           [KEYSET_TS]: cursorTs(orders.createdAt),
         })
         .from(orders)

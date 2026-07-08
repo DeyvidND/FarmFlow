@@ -39,6 +39,11 @@ export interface ShipmentJoinRow {
   carrierShipmentId: string | null;
   /** Courier-pickup request status persisted on the shipments row (null until requested). */
   courierRequestStatus?: string | null;
+  /** Self-referencing FK when this shipment collects a multi-farmer consolidation
+   *  (see consolidation.service.ts); null for an ordinary shipment. Compared against
+   *  shipmentId below to detect a MASTER row (as opposed to a 'consolidated' child,
+   *  which points here too but has its own distinct id). */
+  consolidationGroupId?: string | null;
 }
 
 /** Admin shipments-table row. */
@@ -62,6 +67,10 @@ export interface AdminShipment {
   // shipment id as a row key (there is no order) — consumers must NOT use it as a
   // navigable order id when `manual` is set.
   manual?: boolean;
+  /** True when this shipment is a consolidation MASTER — its codAmountStotinki holds
+   *  the summed COD of ≥1 other farmers' orders folded into this one waybill. Drives
+   *  the per-farmer debt breakdown + „Раздели" (undo) action in the dostavki UI. */
+  isConsolidationMaster?: boolean;
   history: { at: string; label: string; location?: string }[];
 }
 
@@ -145,6 +154,10 @@ export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
     labelPdfUrl: r.labelPdfUrl ?? undefined,
     shipmentId: r.shipmentId ?? undefined,
     courierRequestStatus: r.courierRequestStatus ?? null,
+    // Self-referencing consolidationGroupId === own shipmentId is exactly how
+    // consolidation.service.ts's `consolidate()` marks the master row (a child gets
+    // the SAME groupId but a DIFFERENT id, plus status 'consolidated' — never this).
+    isConsolidationMaster: !!r.shipmentId && !!r.consolidationGroupId && r.consolidationGroupId === r.shipmentId,
     history: mapTrackingEvents(r.trackingJson),
   };
 }

@@ -247,6 +247,45 @@ export class ConsolidationService {
     return { restored };
   }
 
+  /**
+   * Per-farmer debt breakdown for a consolidation master: who (besides the collector)
+   * has an order folded into this waybill, and how much of the collected COD is theirs.
+   * The WHERE (consolidationGroupId = masterShipmentId) also matches the master's OWN
+   * shipment row (its consolidationGroupId self-references), so that row is filtered
+   * out of `members` — the collector doesn't owe themself — and its farmerId is
+   * surfaced separately as `collectorFarmerId` for the UI to label "you" vs "owed to".
+   */
+  async breakdown(
+    tenantId: string,
+    masterShipmentId: string,
+  ): Promise<{
+    collectorFarmerId: string | null;
+    members: Array<{ farmerId: string; farmerName: string | null; totalStotinki: number }>;
+    sumStotinki: number;
+  }> {
+    const rows = await this.db
+      .select({
+        shipmentId: shipments.id,
+        farmerId: orders.farmerId,
+        farmerName: farmers.name,
+        totalStotinki: orders.totalStotinki,
+        status: orders.status,
+      })
+      .from(shipments)
+      .innerJoin(orders, eq(shipments.orderId, orders.id))
+      .leftJoin(farmers, eq(orders.farmerId, farmers.id))
+      .where(and(eq(shipments.tenantId, tenantId), eq(shipments.consolidationGroupId, masterShipmentId)));
+    const collector = rows.find((r) => r.shipmentId === masterShipmentId);
+    const members = rows
+      .filter((r) => r.shipmentId !== masterShipmentId && r.status !== 'cancelled')
+      .map((r) => ({ farmerId: r.farmerId as string, farmerName: r.farmerName, totalStotinki: r.totalStotinki }));
+    return {
+      collectorFarmerId: (collector?.farmerId as string | null | undefined) ?? null,
+      members,
+      sumStotinki: members.reduce((s, m) => s + m.totalStotinki, 0),
+    };
+  }
+
   private async loadSettings(tenantId: string): Promise<unknown> {
     const [row] = await this.db
       .select({ settings: tenants.settings })

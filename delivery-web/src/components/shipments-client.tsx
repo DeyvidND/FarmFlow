@@ -7,8 +7,9 @@ import { RefreshCw, FileDown, Package, Upload, FilePlus, Truck, CheckCircle2, In
 import {
   ApiError, listEcontShipments, listSpeedyShipments, refreshShipment, downloadLabel,
   finalizeCourierDraft, requestCourier, carrierTrackUrl,
-  listConsolidationSuggestions,
+  listConsolidationSuggestions, consolidationBreakdown, unconsolidateShipment,
   type ShipmentRow, type ShipmentStatus, type Carrier, type DraftOverrides, type ConsolidationSuggestion,
+  type ConsolidationBreakdown,
 } from '@/lib/api-client';
 import { SenderStrip } from './sender-strip';
 import { ConsolidationModal } from './consolidation-modal';
@@ -101,6 +102,11 @@ export function ShipmentsClient() {
   // currently open in the merge modal, if any.
   const [suggestions, setSuggestions] = useState<ConsolidationSuggestion[]>([]);
   const [activeSuggestion, setActiveSuggestion] = useState<ConsolidationSuggestion | null>(null);
+  // Per-farmer debt breakdown for consolidation MASTER rows, keyed by shipmentId.
+  // Fetched lazily (not part of the main list payload) — admin-only, so a farmer
+  // session's 403 is swallowed and that row just shows no breakdown.
+  const [breakdowns, setBreakdowns] = useState<Record<string, ConsolidationBreakdown>>({});
+  const breakdownFetched = useRef<Set<string>>(new Set());
   // The handover tip starts collapsed (matches SSR), then auto-opens on a farmer's first
   // visit only — so a newcomer reads the print-vs-courier choice, but a returning farmer
   // isn't re-nagged. Marked seen the moment it auto-opens.
@@ -138,6 +144,23 @@ export function ShipmentsClient() {
   }, []);
 
   useEffect(() => { void load(); loadSuggestions(); }, [load, loadSuggestions]);
+
+  // Lazily fetch the debt breakdown for any newly-seen consolidation master row.
+  // Best-effort: a non-admin (farmer) session gets a 403 from this admin-only
+  // endpoint, same as loadSuggestions above — caught and simply left unset, so
+  // that row's breakdown box/undo button never renders for a farmer.
+  useEffect(() => {
+    const masters = rows.filter(
+      (r): r is ShipmentRow & { shipmentId: string } =>
+        !!r.isConsolidationMaster && !!r.shipmentId && !breakdownFetched.current.has(r.shipmentId),
+    );
+    for (const r of masters) {
+      breakdownFetched.current.add(r.shipmentId);
+      consolidationBreakdown(r.shipmentId)
+        .then((b) => setBreakdowns((m) => ({ ...m, [r.shipmentId]: b })))
+        .catch(() => { /* non-admin or transient — leave unset */ });
+    }
+  }, [rows]);
 
   // Rows the farmer can request a pickup for, and the live selection over them.
   const shippable = useMemo(() => rows.filter(isShippable), [rows]);
@@ -209,6 +232,26 @@ export function ShipmentsClient() {
       await finalizeCourierDraft(carrier, r.orderId, overridesFor(r.rowKey));
       toast.success('Товарителницата е създадена');
       await load(); // row flips to a finalized waybill (number + label PDF).
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusyKey(null); }
+  }
+
+  // Undo a consolidation: the master row goes back to an ordinary draft carrying only
+  // its own order's COD, and every folded-in child is restored to its own draft too.
+  // Only possible while the master has no waybill yet (server also enforces this).
+  async function undoConsolidation(r: ShipmentRow) {
+    if (!r.shipmentId) return;
+    setBusyKey(r.rowKey);
+    try {
+      await unconsolidateShipment(r.shipmentId);
+      toast.success('Пратката е разделена');
+      setBreakdowns((m) => {
+        const next = { ...m };
+        delete next[r.shipmentId!];
+        return next;
+      });
+      breakdownFetched.current.delete(r.shipmentId);
+      await load(); // rows split back apart; the split orders may re-suggest a merge.
+      loadSuggestions();
     } catch (e) { toast.error(errMsg(e)); } finally { setBusyKey(null); }
   }
 
@@ -370,6 +413,34 @@ export function ShipmentsClient() {
       <SlidersHorizontal size={14} /> <span className={full ? '' : 'max-xl:hidden'}>Детайли</span>
     </button>
   );
+
+  // Per-farmer debt breakdown for a consolidation MASTER row (its codAmountStotinki
+  // holds ≥1 other farmers' order totals too) + the „Раздели" undo action, while the
+  // waybill hasn't been created yet (once it has, unconsolidate is server-blocked).
+  const ConsolidationBreakdownBox = ({ r }: { r: ShipmentRow }) => {
+    const b = r.shipmentId ? breakdowns[r.shipmentId] : undefined;
+    if (!b || b.members.length === 0) return null;
+    const canUndo = !r.trackingNumber;
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-ff-border bg-ff-surface-2 px-3.5 py-3">
+        <div className="min-w-0 text-[12.5px] leading-snug text-ff-ink-2">
+          <span className="font-bold text-ff-ink">Обединена пратка</span> — дължи се:{' '}
+          {b.members.map((m) => `${m.farmerName ?? 'Ферма'} ${money(m.totalStotinki)}`).join(', ')}
+        </div>
+        {canUndo && (
+          <button
+            type="button"
+            onClick={() => void undoConsolidation(r)}
+            disabled={busyKey === r.rowKey}
+            className={btn + ' shrink-0'}
+            title="Раздели обратно в отделни пратки"
+          >
+            <Layers size={14} /> Раздели
+          </button>
+        )}
+      </div>
+    );
+  };
 
   // Section divider between drafts ("need a waybill") and finalized rows
   // ("already have one") — only shown when the table actually mixes both,
@@ -561,6 +632,13 @@ export function ShipmentsClient() {
                         </td>
                       </tr>
                     )}
+                    {r.isConsolidationMaster && (
+                      <tr className="border-b border-ff-border-2 last:border-0">
+                        <td colSpan={9} className="px-3 pb-3.5 pt-0">
+                          <ConsolidationBreakdownBox r={r} />
+                        </td>
+                      </tr>
+                    )}
                     </Fragment>
                   );
                 })}
@@ -596,6 +674,9 @@ export function ShipmentsClient() {
                     <dt className="text-ff-muted">Цена</dt>
                     <dd className="ff-fig text-right text-ff-ink-2">{money(r.priceStotinki)}</dd>
                   </dl>
+                  {r.isConsolidationMaster && (
+                    <div className="mt-3"><ConsolidationBreakdownBox r={r} /></div>
+                  )}
                   {draft ? (
                     <>
                       <div className="mt-3 flex gap-2">

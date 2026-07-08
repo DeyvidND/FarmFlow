@@ -54,4 +54,15 @@ export class ConsolidationController {
     this.assertAdmin(f);
     return this.consolidation.unconsolidate(t, masterId);
   }
+
+  // Registered AFTER the literal GET routes above ('consolidation/suggestions',
+  // 'consolidation/settings') so those still match first — Nest/Express resolve
+  // path patterns in registration order, and this param route would otherwise
+  // swallow requests meant for the literal ones.
+  @Roles('admin')
+  @Get('consolidation/:masterId')
+  breakdown(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined, @Param('masterId', ParseUUIDPipe) masterId: string) {
+    this.assertAdmin(f);
+    return this.consolidation.breakdown(t, masterId);
+  }
 }
