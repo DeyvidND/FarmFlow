@@ -597,7 +597,7 @@ git commit -m "feat(routing): POST /orders/suggest-days geography-first proposal
 - Create: `client/src/components/route/route-day-suggester-modal.tsx`
 
 **Interfaces:**
-- Consumes: `rescheduleOrders` (existing), `listReschedulable` (existing, now returns coords — unused here), `relDayLabel`, `moneyFromStotinki` from `@/lib/utils`.
+- Consumes: `rescheduleOrders` (existing), `listReschedulable` (existing, now returns coords; also used here to pre-seed the day picker), `relDayLabel`, `moneyFromStotinki` from `@/lib/utils`.
 - Produces:
   - types `SuggestedDayOrder`, `SuggestedDay`, `UnplacedOrder`, `DaySuggestionResult`, `HarvestLine` in `types.ts`
   - `suggestDays(days: string[]): Promise<DaySuggestionResult>` in `api-client.ts`
@@ -658,12 +658,12 @@ export const suggestDays = (days: string[]) =>
 // client/src/components/route/route-day-suggester-modal.tsx
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Wand2, MapPin, Sprout } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { relDayLabel, moneyFromStotinki } from '@/lib/utils';
-import { ApiError, suggestDays, rescheduleOrders } from '@/lib/api-client';
+import { ApiError, suggestDays, rescheduleOrders, listReschedulable } from '@/lib/api-client';
 import type { DaySuggestionResult, SuggestedDayOrder } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -694,6 +694,20 @@ export function RouteDaySuggesterModal({
     setNewDay('');
   };
   const removeDay = (d: string) => setDays(days.filter((x) => x !== d));
+
+  // Pre-seed the picker with the farm's upcoming delivery days (distinct
+  // slotDate values from the reschedulable pool) — the farmer can still add
+  // or remove any date afterward.
+  useEffect(() => {
+    listReschedulable()
+      .then((rows) => {
+        const distinct = [...new Set(rows.map((r) => r.slotDate))].sort();
+        setDays(distinct);
+      })
+      .catch(() => {
+        // Non-fatal — the farmer can still add days by hand.
+      });
+  }, []);
 
   async function propose() {
     if (!days.length) return;
@@ -980,10 +994,10 @@ git commit -m "feat(route-web): add day-suggester button to the route toolbar"
 - **`POST /routing|orders/suggest-days` endpoint** → Task 3 (mounted on the `orders`-prefixed RoutingController, path `orders/suggest-days`, admin-scoped, tenant-isolated). ✅
 - **Harvest summary shared helper (extract from digest)** → Task 2. ✅
 - **Un-geocoded → manual bucket** → engine `unplaced` (Task 1) + amber bucket in modal (Task 4). ✅
-- **Days pre-seed + free add** → modal day picker (Task 4). *Note:* v1 starts with an EMPTY day picker the farmer fills (no auto pre-seed from slot dates) to keep Task 4 self-contained; pre-seeding upcoming delivery days is a trivial follow-up (map distinct `listReschedulable()` slotDates into the initial `days` state) — flagged, not silently dropped.
+- **Days pre-seed + free add** → modal day picker (Task 4): `useEffect` seeds `days` from distinct `listReschedulable()` `slotDate`s on mount; farmer can still add/remove any date. ✅
 - **Apply = per-day reschedule reuse** → modal `apply()` loops `rescheduleOrders` (Task 4). ✅
 - **Display-only harvest** → engine ignores products; harvest only rendered. ✅
 - **Placement in Маршрути** → Task 5. ✅
 - **Deterministic engine** → Task 1 test. ✅
 
-**Deviation from spec worth the user's eye:** the day picker in v1 is **not** pre-seeded with the farm's upcoming delivery days (starts empty). This trims Task 4's scope; pre-seeding is a small, isolated follow-up. If the user wants pre-seed in v1, add a step to Task 4 that calls `listReschedulable()` on mount and seeds `days` with its distinct `slotDate`s ≥ today.
+No open deviations from the spec. `reschedulable()` already filters slot date ≥ today server-side, so the pre-seed `useEffect` needs no extra client-side date filtering.
