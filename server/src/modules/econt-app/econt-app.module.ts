@@ -30,6 +30,8 @@ import { ShippingQuoteController } from './shipping-quote.controller';
 import { PublicShippingQuoteController } from './public-shipping-quote.controller';
 import { EcontHealthController } from './econt-health.controller';
 import { ImportModule } from '../import/import.module';
+import { ConsolidationController } from './consolidation.controller';
+import { ConsolidationService } from './consolidation.service';
 
 @Module({
   imports: [
@@ -59,10 +61,11 @@ import { ImportModule } from '../import/import.module';
     SpeedyCoreModule, // SpeedyService + refresh queue/processor; SpeedyConfigController lives in SpeedyConfigModule (main API only)
     ImportModule,
   ],
-  controllers: [EcontHealthController, StandaloneAuthController, EcontStandaloneController, SpeedyStandaloneController, ShippingQuoteController, PublicShippingQuoteController],
+  controllers: [EcontHealthController, StandaloneAuthController, EcontStandaloneController, SpeedyStandaloneController, ShippingQuoteController, PublicShippingQuoteController, ConsolidationController],
   providers: [
     ActivationGuard,
     ShippingQuoteService,
+    ConsolidationService,
     // Flood protection first.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Same default-deny + force-change-password posture as the main API, so the
