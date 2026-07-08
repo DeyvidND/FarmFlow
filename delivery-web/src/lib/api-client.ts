@@ -108,7 +108,12 @@ export const templateUrl = '/bff/import/template.xlsx';
 
 export type Carrier = 'econt' | 'speedy';
 export type ShipmentStatus =
-  | 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused';
+  | 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused'
+  // A child row folded into a multi-farmer consolidation master — its own waybill will
+  // never be created (see shipping/consolidation), so it's a terminal, non-actionable
+  // status rather than a step toward one. Set server-side on the shared `shipments`
+  // table (see consolidation.service.ts), so it can appear under either carrier.
+  | 'consolidated';
 
 /** A single shipment row, normalised across both carriers. Econt returns the richer
  *  `AdminShipment` shape (server); Speedy returns a slimmer `SpeedyShipment`. We tag
@@ -143,7 +148,7 @@ interface EcontAdminShipment {
   orderNumber: string;
   customerName: string;
   method: 'econtOffice' | 'econtAddress';
-  status: 'pending' | 'created' | 'shipped' | 'delivered';
+  status: 'pending' | 'created' | 'shipped' | 'delivered' | 'consolidated';
   trackingNumber?: string;
   priceStotinki?: number;
   codAmountStotinki?: number;

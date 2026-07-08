@@ -47,7 +47,7 @@ export interface AdminShipment {
   orderNumber: string;
   customerName: string;
   method: 'econtOffice' | 'econtAddress';
-  status: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused';
+  status: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused' | 'consolidated';
   /** Which carrier owns this shipment — used by the panel to route print/void/refresh. */
   carrier: 'econt' | 'speedy';
   trackingNumber?: string;
@@ -249,7 +249,7 @@ export function mapTrackingEvents(status: unknown): TrackingEvent[] {
 /** Send the buyer the "shipped" email exactly once — when the parcel first reaches
  *  shipped/delivered and we haven't notified before. */
 export function shouldNotifyShipped(
-  uiStatus: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused',
+  uiStatus: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused' | 'consolidated',
   customerNotifiedAt: Date | string | null,
 ): boolean {
   return !customerNotifiedAt && (uiStatus === 'shipped' || uiStatus === 'delivered');
@@ -343,11 +343,16 @@ export function buildCourierRequest(
 /** Collapse Econt's free-text status into the admin table's known status set.
  *  Returned/refused/cancelled parcels collapse to 'returned'/'refused' (matched by the
  *  same Bulgarian substrings as delivery-accounts.helpers.isDeadCodStatus) so they don't
- *  masquerade as delivered/shipped in the panel. */
+ *  masquerade as delivered/shipped in the panel.
+ *  A consolidation CHILD (migration 0083) is checked BEFORE the no-number fallback below:
+ *  it never gets its own waybill number, so without this check it would silently fall
+ *  into the `!number → 'pending'` branch and read as an ordinary unprocessed draft —
+ *  indistinguishable from a real draft in the admin/dostavki shipments list. */
 export function uiShipmentStatus(
   number: string | null,
   status: string | null,
-): 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused' {
+): 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused' | 'consolidated' {
+  if (status === 'consolidated') return 'consolidated';
   if (!number) return 'pending';
   const s = (status ?? '').toLowerCase();
   // Check terminal-failure states FIRST — a returned parcel may still carry a delivery word.

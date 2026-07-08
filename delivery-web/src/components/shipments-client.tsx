@@ -22,6 +22,7 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   delivered: 'Доставена',
   returned: 'Върната',
   refused: 'Отказана',
+  consolidated: 'Обединена',
 };
 
 // created/shipped used to share the same amber tone and were hard to tell apart
@@ -35,6 +36,10 @@ const statusPill = (s: ShipmentStatus): string => {
     case 'created': return 'bg-ff-amber-soft text-ff-amber-600';
     case 'returned':
     case 'refused': return 'bg-[#FBE9E7] text-ff-red';
+    // Superseded by a consolidation master — no waybill of its own ever gets created,
+    // so it reads as neither good nor bad, just inert; same neutral badge token as the
+    // "Общо" total chip, not one of the active-status colors above.
+    case 'consolidated':
     case 'pending':
     default: return 'bg-ff-badge-bg text-ff-badge-ink';
   }
@@ -51,9 +56,12 @@ const money = (st: number | null | undefined) => (st == null ? '—' : `${(st / 
 
 // A courier DRAFT: an order-backed row with no waybill yet (the farmer must pick a
 // carrier and create the товарителница). Finalized rows have a trackingNumber; order-less
-// manual rows have no orderId, so neither is offered the picker.
+// manual rows have no orderId, so neither is offered the picker. A 'consolidated' child
+// also has no trackingNumber (its own waybill will never be created — it's folded into
+// the collector's master shipment), so it must be excluded explicitly here or it would
+// wrongly offer the "Създай товарителница" CTA for a row that can't take that action.
 const isCourierDraft = (r: ShipmentRow): r is ShipmentRow & { orderId: string } =>
-  !r.trackingNumber && !!r.orderId;
+  !r.trackingNumber && !!r.orderId && r.status !== 'consolidated';
 
 // A row whose courier pickup has already been requested — show the badge, never re-offer.
 const courierRequested = (r: ShipmentRow) => !!r.courierRequestStatus;
