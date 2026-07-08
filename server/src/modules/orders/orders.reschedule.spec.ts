@@ -11,7 +11,9 @@ const UUID = (n: number) => `${n}`.padStart(8, '0') + '-0000-0000-0000-000000000
  *    with `loadRows`
  *  - answers `select(...).for('update')` for the target-slot lookup with `existingSlot`
  *  - records inserted slot rows into `inserted`
- *  - records `update(orders).set(v).where()` values into `setCalls`
+ *  - records `update(orders).set(v).where()` values into `setCalls`, then resolves
+ *    `.returning()` with `updateReturns` (defaults to a single claimed row) so the
+ *    atomic UPDATE...RETURNING race-gate has something to match against
  *
  * The movable-order read and the target-slot lookup share the same tx.select()
  * factory shape, so we distinguish them by whether `.for('update')` was called:
@@ -20,6 +22,10 @@ const UUID = (n: number) => `${n}`.padStart(8, '0') + '-0000-0000-0000-000000000
 function makeSvc(opts: {
   loadRows: Record<string, unknown>[];
   existingSlot?: { id: string };
+  /** What each per-row UPDATE...RETURNING resolves to, in call order. Defaults to
+   *  always returning a claimed row (i.e. no race). Pass `[]` for a given call to
+   *  simulate a concurrent status change that un-movable-ized the row first. */
+  updateReturns?: Record<string, unknown>[][];
 }) {
   const setCalls: Record<string, unknown>[] = [];
   const inserted: Record<string, unknown>[] = [];
@@ -55,10 +61,14 @@ function makeSvc(opts: {
         }),
         update: () => ({
           set: (v: Record<string, unknown>) => ({
-            where: () => {
-              setCalls.push(v);
-              return Promise.resolve();
-            },
+            where: () => ({
+              returning: () => {
+                const idx = setCalls.length;
+                setCalls.push(v);
+                const claimed = opts.updateReturns?.[idx] ?? [{ id: 'claimed' }];
+                return Promise.resolve(claimed);
+              },
+            }),
           }),
         }),
       };
@@ -132,5 +142,22 @@ describe('OrdersService.rescheduleOrders', () => {
     expect(setCalls).toHaveLength(0);
     expect(sendMoved).not.toHaveBeenCalled();
     expect(res.moved).toBe(0);
+  });
+
+  it('silently skips a row raced by a concurrent status change (UPDATE...RETURNING empty)', async () => {
+    // Snapshot read still sees both rows as movable, but the per-row UPDATE...RETURNING
+    // for order 1 comes back empty — simulating a concurrent cancel between the read
+    // and the write. Order 2's UPDATE still claims normally.
+    const { svc, setCalls, sendMoved } = makeSvc({
+      loadRows: [addr({ id: UUID(1) }), addr({ id: UUID(2), fromDate: '2026-07-10' })],
+      updateReturns: [[], [{ id: UUID(2) }]],
+    });
+    const res = await svc.rescheduleOrders(TENANT, { orderIds: [UUID(1), UUID(2)], toDate: '2026-12-31' });
+    // Both UPDATEs were attempted (the WHERE-clause race check doesn't short-circuit
+    // the loop), but only order 2's claim counts as moved.
+    expect(setCalls).toEqual([{ slotId: 'new-slot' }, { slotId: 'new-slot' }]);
+    expect(res).toEqual({ moved: 1, toDate: '2026-12-31' });
+    expect(sendMoved).toHaveBeenCalledTimes(1);
+    expect(sendMoved).toHaveBeenCalledWith(UUID(2), '2026-07-10', '2026-12-31');
   });
 });

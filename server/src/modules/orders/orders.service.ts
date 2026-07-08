@@ -1202,10 +1202,25 @@ export class OrdersService {
 
       for (const r of movable) {
         if (r.slotId === targetSlotId) continue; // already on the target day
-        await tx
+        // Atomic claim, same pattern as updateStatus's into-cancelled transition
+        // above: the pre-read `movable` snapshot can go stale between the SELECT
+        // and this UPDATE (a concurrent status change could un-movable-ize the
+        // row in between). Re-check status/deliveryType IN the UPDATE's WHERE and
+        // gate on RETURNING actually matching a row — that's evaluated against the
+        // row's current state at write time, not the earlier read.
+        const claimed = await tx
           .update(orders)
           .set({ slotId: targetSlotId })
-          .where(and(eq(orders.id, r.id), eq(orders.tenantId, tenantId)));
+          .where(
+            and(
+              eq(orders.id, r.id),
+              eq(orders.tenantId, tenantId),
+              inArray(orders.status, ['pending', 'confirmed']),
+              eq(orders.deliveryType, 'address'),
+            ),
+          )
+          .returning({ id: orders.id });
+        if (!claimed.length) continue; // raced by a concurrent status change — no longer movable
         moved.push({ id: r.id, fromDate: r.fromDate ?? null });
       }
     });
