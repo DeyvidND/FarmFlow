@@ -218,11 +218,14 @@ export function RouteClient({
 
   // Where the van goes after the last delivery, for the Google Maps deep link
   // (null = end at last stop). Shared across all couriers.
-  // Deep-link end for the ACTIVE courier: home → back to base, last → open route.
+  // Deep-link end for the ACTIVE courier: home → back to base, custom → saved end,
+  // last → open route (no return leg).
   const endPoint: Point | null =
     activeEndMode === 'home' && (origin.lat != null || origin.address)
       ? { address: origin.address, lat: origin.lat, lng: origin.lng }
-      : null;
+      : activeEndMode === 'custom' && (end.lat != null || end.address)
+        ? { address: end.address, lat: end.lat, lng: end.lng }
+        : null;
 
   // The end toggle applies to the ACTIVE courier only; the ends csv carries all.
   const setCourierEnd = (mode: RouteEndMode) => {
@@ -230,9 +233,12 @@ export function RouteClient({
     router.push(`/route?date=${route.date}&couriers=${route.couriers}&ends=${next.join(',')}`);
   };
   // Changing courier count or date re-splits everyone, so prior per-leg ends no
-  // longer map to the same legs — drop ends; all fall back to the saved default.
-  const setCouriers = (n: number) => router.push(`/route?date=${route.date}&couriers=${n}`);
-  const setDate = (date: string) => router.push(`/route?date=${date}&couriers=${route.couriers}`);
+  // longer map to the same legs — drop ?ends= but carry the active mode forward as
+  // the new single default (?end=) so the choice isn't silently reset.
+  const setCouriers = (n: number) =>
+    router.push(`/route?date=${route.date}&end=${activeEndMode}&couriers=${n}`);
+  const setDate = (date: string) =>
+    router.push(`/route?date=${date}&end=${activeEndMode}&couriers=${route.couriers}`);
 
   const endHint = END_OPTIONS.find((o) => o.mode === activeEndMode)?.hint ?? '';
 

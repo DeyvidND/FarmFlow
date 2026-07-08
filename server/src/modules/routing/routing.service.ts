@@ -155,6 +155,16 @@ export function resolveCourierModes(
   return Array.from({ length: n }, (_, i) => endModes?.[i] ?? defaultMode);
 }
 
+/**
+ * Parse the ?ends= csv into per-courier end modes. Blank / invalid tokens map to
+ * `undefined` so resolveCourierModes fills those slots with the single default
+ * mode (never throws — a malformed query degrades, it doesn't 500).
+ */
+export function parseEndModes(ends: string | undefined): (RouteEndMode | undefined)[] | undefined {
+  if (!ends) return undefined;
+  return ends.split(',').map((e) => (e === 'home' || e === 'last' || e === 'custom' ? e : undefined));
+}
+
 @Injectable()
 export class RoutingService {
   private readonly logger = new Logger(RoutingService.name);

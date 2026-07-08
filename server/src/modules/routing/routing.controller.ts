@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
-import { RoutingService, type RouteEndMode } from './routing.service';
+import { RoutingService, parseEndModes, type RouteEndMode } from './routing.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -32,11 +32,7 @@ export class RoutingController {
     const endMode: RouteEndMode | undefined =
       end === 'home' || end === 'last' || end === 'custom' ? end : undefined;
     const parsed = couriers ? parseInt(couriers, 10) : undefined;
-    const endModes: (RouteEndMode | undefined)[] | undefined = ends
-      ? ends
-          .split(',')
-          .map((e) => (e === 'home' || e === 'last' || e === 'custom' ? (e as RouteEndMode) : undefined))
-      : undefined;
+    const endModes = parseEndModes(ends);
     return this.routingService.getRoute(
       tenantId,
       date,

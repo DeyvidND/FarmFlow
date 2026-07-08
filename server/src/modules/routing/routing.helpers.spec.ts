@@ -4,6 +4,7 @@ import {
   ptOf,
   effectiveCourierCount,
   resolveCourierModes,
+  parseEndModes,
   type RouteStop,
   type RouteEnd,
 } from './routing.service';
@@ -114,5 +115,16 @@ describe('resolveCourierModes', () => {
   it('falls back to the default for missing / undefined slots and truncates extras', () => {
     expect(resolveCourierModes('last', ['home'], 3)).toEqual(['home', 'last', 'last']);
     expect(resolveCourierModes('home', ['last', 'last', 'last', 'last'], 2)).toEqual(['last', 'last']);
+  });
+});
+
+describe('parseEndModes', () => {
+  it('returns undefined for empty / missing input', () => {
+    expect(parseEndModes(undefined)).toBeUndefined();
+    expect(parseEndModes('')).toBeUndefined();
+  });
+  it('parses valid modes and maps invalid / blank tokens to undefined', () => {
+    expect(parseEndModes('home,last,home')).toEqual(['home', 'last', 'home']);
+    expect(parseEndModes('home,bogus,,last')).toEqual(['home', undefined, undefined, 'last']);
   });
 });
