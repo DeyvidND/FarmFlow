@@ -44,6 +44,8 @@ export interface DeliveryConfig {
   card?: { enabled?: boolean };
   /** How a door order picks its carrier when the farm runs both (see CarrierPolicy). */
   carrierPolicy?: CarrierPolicy;
+  /** Whether the farm merges a multi-farmer courier order into one waybill (opt-in). */
+  consolidateCourier?: boolean;
 }
 
 /**
@@ -95,6 +97,14 @@ export function codEnabled(cfg: DeliveryConfig | null | undefined): boolean {
  */
 export function cardEnabled(cfg: DeliveryConfig | null | undefined): boolean {
   return cfg?.card?.enabled ?? true;
+}
+
+/**
+ * Whether the farm merges a multi-farmer courier order into one waybill (opt-in).
+ * Off by default: absent flag means the current one-parcel-per-farmer behavior.
+ */
+export function consolidateCourierEnabled(cfg: DeliveryConfig | null | undefined): boolean {
+  return cfg?.consolidateCourier ?? false;
 }
 
 /** Legacy hardcoded amounts — the fallback when a tenant has no saved config. */
