@@ -7,6 +7,7 @@ import { cn, moneyFromStotinki, timeFromIso, hhmm, relDayLabel, type OrderStatus
 import { Button } from '@/components/ui/button';
 import { HelpModal } from '@/components/delivery/ui';
 import { ORDERS_HELP } from '@/lib/help-content';
+import { RescheduleOrdersModal } from './reschedule-orders-modal';
 import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
 import { OrderPanel } from './order-panel';
@@ -360,6 +361,13 @@ export function OrdersClient({
       )}
 
       {help && <HelpModal {...ORDERS_HELP} onClose={() => setHelp(false)} />}
+
+      {rescheduleOpen && (
+        <RescheduleOrdersModal
+          onClose={() => setRescheduleOpen(false)}
+          onDone={() => void load()}
+        />
+      )}
     </div>
   );
 }
