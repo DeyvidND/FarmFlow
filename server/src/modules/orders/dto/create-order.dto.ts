@@ -15,7 +15,7 @@ import {
   ArrayMinSize,
   ArrayMaxSize,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CreateOrderItemDto } from './create-order-item.dto';
 
@@ -46,6 +46,11 @@ export class CreateOrderDto {
   customerPhone?: string;
 
   @ApiPropertyOptional()
+  // The storefront always posts customerEmail — a blank string when the buyer
+  // leaves the optional field empty. @IsOptional() skips only null/undefined, so
+  // without this a '' (or whitespace) reached @IsEmail() and 400'd a field that
+  // is advertised as optional. Normalise blank → undefined so it's truly skipped.
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
   @IsOptional()
   @IsEmail()
   customerEmail?: string;

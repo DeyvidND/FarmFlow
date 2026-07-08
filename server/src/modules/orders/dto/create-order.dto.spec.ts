@@ -36,3 +36,29 @@ describe('CreateOrderDto.deliveryNote', () => {
     expect(noteErr?.constraints?.maxLength).toBeDefined();
   });
 });
+
+describe('CreateOrderDto.customerEmail', () => {
+  // The storefront always sends customerEmail (an empty string when the buyer
+  // leaves the optional field blank). @IsOptional() alone skips only null/
+  // undefined, so a bare @IsEmail() used to 400 on '' — the field is advertised
+  // as optional but rejected an empty value. It must accept a blank email.
+  it('accepts an empty-string email (optional field left blank)', async () => {
+    const errs = await errorsFor({ customerEmail: '' });
+    expect(errs.find((e) => e.property === 'customerEmail')).toBeUndefined();
+  });
+
+  it('accepts a whitespace-only email as blank', async () => {
+    const errs = await errorsFor({ customerEmail: '   ' });
+    expect(errs.find((e) => e.property === 'customerEmail')).toBeUndefined();
+  });
+
+  it('accepts a valid email', async () => {
+    const errs = await errorsFor({ customerEmail: 'ivan@example.bg' });
+    expect(errs.find((e) => e.property === 'customerEmail')).toBeUndefined();
+  });
+
+  it('still rejects a non-empty malformed email', async () => {
+    const errs = await errorsFor({ customerEmail: 'not-an-email' });
+    expect(errs.find((e) => e.property === 'customerEmail')?.constraints?.isEmail).toBeDefined();
+  });
+});
