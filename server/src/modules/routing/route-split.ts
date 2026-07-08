@@ -3,24 +3,38 @@
  * geocoded stops and gets courier groups back, then optimizes each group's
  * visit order separately (Google / greedy — routing.service).
  *
- * Method: "sweep" — stops sorted by polar angle around the depot form a
- * circle; couriers get contiguous arcs. Arcs are cut to balance estimated
- * workload (drive time at urban speed + fixed service time per stop), then a
- * bounded local-improvement pass shifts border stops between neighbouring
- * arcs while the worst courier's workload keeps dropping. Deterministic.
+ * Pipeline: build three deterministic seed partitions — angular **sweep**
+ * (Gillett-Miller pie slices), geographic **k-means** (keeps clusters whole),
+ * and **radial** distance bands — score each by a hybrid cost (makespan of the
+ * busiest courier, tie-broken on total workload) and keep the best, then refine
+ * it with **inter-route local search** (relocate a stop to another courier, or
+ * swap two stops between couriers) accepting only cost-lowering moves.
+ *
+ * Workload is estimated as drive time at urban speed + fixed service time per
+ * stop. Candidate ranking during seed construction and local search uses a
+ * cheap nearest-neighbour tour proxy (no 2-opt); the internal tour order is
+ * only a balancing proxy — the real per-group visit order is produced later by
+ * routing.service's optimizeGroup (Google or greedy). Deterministic throughout
+ * (no Math.random, no wall-clock): same input → same output.
  */
 
 export type Pt = { lat: number; lng: number };
 
-/** Straight-line distance (km). */
-export function haversineKm(a: Pt, b: Pt): number {
+/** Straight-line distance (km) between raw lat/lng pairs. Hot-path core: no
+ * object allocation, so the O(N²) search loops can call it millions of times. */
+function havLL(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
   const s =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+    Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+/** Straight-line distance (km). */
+export function haversineKm(a: Pt, b: Pt): number {
+  return havLL(a.lat, a.lng, b.lat, b.lng);
 }
 
 const URBAN_KMH = 30; // pessimistic city driving speed for the estimate
@@ -100,6 +114,12 @@ function twoOpt(depot: Pt, ordered: Pt[], endPt: Pt | null): Pt[] {
  * the last stop (null = one-way, no return leg). Greedy NN order, 2-opt
  * improved, at urban speed + fixed service time per stop. A comparable
  * workload number for balancing — not the real route (that's built later).
+ *
+ * NOTE: the 2-opt pass makes this O(stops²) per pass × up to 30 passes. That is
+ * fine for a one-off final measurement, but far too expensive to call inside
+ * the O(N²)-candidate search loops. Those paths use `workloadNnS` instead —
+ * see the module doc. This function is kept as a general-purpose 2-opt-improved
+ * estimate (and its direct unit tests depend on that behaviour).
  */
 export function estimateWorkloadS(depot: Pt, stops: Pt[], endPt: Pt | null = null): number {
   if (!stops.length) return 0;
@@ -107,14 +127,123 @@ export function estimateWorkloadS(depot: Pt, stops: Pt[], endPt: Pt | null = nul
   return kmToS(pathKm(depot, ordered, endPt)) + stops.length * SERVICE_S;
 }
 
+/**
+ * Cheap workload proxy: greedy NN order only, NO 2-opt. Used for candidate
+ * ranking in seed construction and local search, where the same estimate is
+ * computed O(N²) times per iteration and the 2-opt pass would dominate runtime
+ * (measured: seconds vs milliseconds at N≈60, 10 couriers). The route order
+ * here is never used as the real visit order — routing.service reorders each
+ * group afterward — so a monotone workload proxy is all that's needed for
+ * balancing. Deterministic (NN ties break by lowest index, same as `nnOrder`).
+ *
+ * Implemented over reused module-level scratch buffers so the hot search loops
+ * allocate nothing per candidate — the whole splitter is single-threaded and
+ * synchronous, so buffer reuse is safe (no reentrancy). The `workload*` family
+ * fills the scratch from a "virtual" group (a group with one stop removed /
+ * added / replaced) so a candidate relocate/swap is scored without ever
+ * materialising the moved group.
+ */
+let scLat = new Float64Array(64);
+let scLng = new Float64Array(64);
+let scVis = new Uint8Array(64);
+function ensureScratch(n: number): void {
+  if (scLat.length < n) {
+    const cap = Math.max(n, scLat.length * 2);
+    scLat = new Float64Array(cap);
+    scLng = new Float64Array(cap);
+    scVis = new Uint8Array(cap);
+  }
+}
+
+/** NN-tour workload over the `m` coords already loaded into scLat/scLng[0..m). */
+function nnWorkloadScratch(depot: Pt, m: number, endPt: Pt | null): number {
+  if (m === 0) return 0;
+  for (let i = 0; i < m; i++) scVis[i] = 0;
+  let curLat = depot.lat;
+  let curLng = depot.lng;
+  let km = 0;
+  for (let step = 0; step < m; step++) {
+    let best = -1;
+    let bestD = Infinity;
+    for (let j = 0; j < m; j++) {
+      if (scVis[j]) continue;
+      const d = havLL(curLat, curLng, scLat[j], scLng[j]);
+      if (d < bestD) {
+        bestD = d;
+        best = j;
+      }
+    }
+    scVis[best] = 1;
+    km += bestD;
+    curLat = scLat[best];
+    curLng = scLng[best];
+  }
+  if (endPt) km += havLL(curLat, curLng, endPt.lat, endPt.lng);
+  return kmToS(km) + m * SERVICE_S;
+}
+
+/** Workload of a group as-is. */
+function workloadNnS(depot: Pt, g: Geo[], endPt: Pt | null): number {
+  const len = g.length;
+  ensureScratch(len);
+  for (let i = 0; i < len; i++) {
+    scLat[i] = g[i].lat as number;
+    scLng[i] = g[i].lng as number;
+  }
+  return nnWorkloadScratch(depot, len, endPt);
+}
+
+/** Workload of `g` with the stop at index `skip` removed (order preserved). */
+function workloadMinus(depot: Pt, g: Geo[], skip: number, endPt: Pt | null): number {
+  const len = g.length;
+  ensureScratch(len);
+  let m = 0;
+  for (let i = 0; i < len; i++) {
+    if (i === skip) continue;
+    scLat[m] = g[i].lat as number;
+    scLng[m] = g[i].lng as number;
+    m++;
+  }
+  return nnWorkloadScratch(depot, m, endPt);
+}
+
+/** Workload of `g` with `extra` appended (mirrors `[...g, extra]`). */
+function workloadPlus(depot: Pt, g: Geo[], extra: Geo, endPt: Pt | null): number {
+  const len = g.length;
+  ensureScratch(len + 1);
+  for (let i = 0; i < len; i++) {
+    scLat[i] = g[i].lat as number;
+    scLng[i] = g[i].lng as number;
+  }
+  scLat[len] = extra.lat as number;
+  scLng[len] = extra.lng as number;
+  return nnWorkloadScratch(depot, len + 1, endPt);
+}
+
+/** Workload of `g` with the stop at `idx` replaced by `repl` (order preserved). */
+function workloadReplace(depot: Pt, g: Geo[], idx: number, repl: Geo, endPt: Pt | null): number {
+  const len = g.length;
+  ensureScratch(len);
+  for (let i = 0; i < len; i++) {
+    const s = i === idx ? repl : g[i];
+    scLat[i] = s.lat as number;
+    scLng[i] = s.lng as number;
+  }
+  return nnWorkloadScratch(depot, len, endPt);
+}
+
 type PartCost = { makespan: number; total: number };
 
 /** Hybrid cost of a partition: makespan (busiest courier) + total workload. */
 function partitionCost(depot: Pt, groups: Geo[][], endPt: Pt | null): PartCost {
+  return costFromWorkloads(groups.map((g) => workloadNnS(depot, g, endPt)));
+}
+
+/** Hybrid cost derived from a per-group workload array (makespan + total). */
+function costFromWorkloads(workloads: number[]): PartCost {
   let makespan = 0;
   let total = 0;
-  for (const g of groups) {
-    const w = estimateWorkloadS(depot, g.map(pt), endPt);
+  for (const w of workloads) {
     if (w > makespan) makespan = w;
     total += w;
   }
@@ -128,11 +257,6 @@ function betterCost(a: PartCost, b: PartCost): boolean {
   return a.total + 1e-6 < b.total;
 }
 
-/** Max estimated workload across groups — the number balancing minimizes. */
-function maxWorkload(depot: Pt, groups: Geo[][]): number {
-  return Math.max(0, ...groups.map((g) => estimateWorkloadS(depot, g.map(pt))));
-}
-
 /**
  * Best-improving inter-route local search: repeatedly try moving one stop to
  * another courier (relocate) or exchanging one stop between two couriers
@@ -141,52 +265,107 @@ function maxWorkload(depot: Pt, groups: Geo[][]): number {
  * (deterministic bound; ample for farm-scale N). Group count is preserved.
  */
 function localSearch<T extends Geo>(depot: Pt, groups: T[][], endPt: Pt | null): T[][] {
-  let cur = groups.map((g) => [...g]);
-  let curCost = partitionCost(depot, cur, endPt);
+  const cur = groups.map((g) => [...g]);
+  // Cache each group's workload (indexed the same as `cur`). A relocate/swap
+  // move only touches 1–2 groups, so scoring a candidate recomputes the
+  // workload for just those two groups and reads the rest from this cache —
+  // instead of re-running the workload estimate on every group every time.
+  const work = cur.map((g) => workloadNnS(depot, g, endPt));
+  let curCost = costFromWorkloads(work);
   const maxIters = 60;
+
+  // Cost of the partition with groups gi/gj's workloads replaced by wi/wj.
+  // O(groups), reading the cache for every untouched group.
+  const costWith = (gi: number, wi: number, gj: number, wj: number): PartCost => {
+    let makespan = 0;
+    let total = 0;
+    for (let i = 0; i < work.length; i++) {
+      const w = i === gi ? wi : i === gj ? wj : work[i];
+      if (w > makespan) makespan = w;
+      total += w;
+    }
+    return { makespan, total };
+  };
 
   for (let iter = 0; iter < maxIters; iter++) {
     let bestCost = curCost;
-    let bestGroups: T[][] | null = null;
+    // Move descriptor of the best improving move found this iteration, plus the
+    // two new workloads it produces. Materialising the moved groups is deferred
+    // until the move is chosen — candidates are scored over "virtual" groups.
+    let bMove: 'rel' | 'swap' | null = null;
+    let bGi = -1;
+    let bGj = -1;
+    let bSi = -1;
+    let bSj = -1;
+    let bWi = 0;
+    let bWj = 0;
 
-    // Relocate: stop si from group gi -> group gj.
+    // Relocate: stop si from group gi -> group gj (touches gi and gj only).
     for (let gi = 0; gi < cur.length; gi++) {
       for (let si = 0; si < cur[gi].length; si++) {
+        // Source workload depends only on (gi, si) — compute once per stop,
+        // not once per destination courier.
+        const wi = workloadMinus(depot, cur[gi], si, endPt);
+        const moved = cur[gi][si];
         for (let gj = 0; gj < cur.length; gj++) {
           if (gi === gj) continue;
-          const cand = cur.map((g) => [...g]);
-          const [moved] = cand[gi].splice(si, 1);
-          cand[gj].push(moved);
-          const c = partitionCost(depot, cand, endPt);
+          const wj = workloadPlus(depot, cur[gj], moved, endPt);
+          const c = costWith(gi, wi, gj, wj);
           if (betterCost(c, bestCost)) {
             bestCost = c;
-            bestGroups = cand;
+            bMove = 'rel';
+            bGi = gi;
+            bGj = gj;
+            bSi = si;
+            bWi = wi;
+            bWj = wj;
           }
         }
       }
     }
 
-    // Swap: stop si in gi <-> stop sj in gj (gi < gj).
+    // Swap: stop si in gi <-> stop sj in gj (gi < gj; touches gi and gj only).
     for (let gi = 0; gi < cur.length; gi++) {
       for (let gj = gi + 1; gj < cur.length; gj++) {
         for (let si = 0; si < cur[gi].length; si++) {
           for (let sj = 0; sj < cur[gj].length; sj++) {
-            const cand = cur.map((g) => [...g]);
-            const tmp = cand[gi][si];
-            cand[gi][si] = cand[gj][sj];
-            cand[gj][sj] = tmp;
-            const c = partitionCost(depot, cand, endPt);
+            const wi = workloadReplace(depot, cur[gi], si, cur[gj][sj], endPt);
+            const wj = workloadReplace(depot, cur[gj], sj, cur[gi][si], endPt);
+            const c = costWith(gi, wi, gj, wj);
             if (betterCost(c, bestCost)) {
               bestCost = c;
-              bestGroups = cand;
+              bMove = 'swap';
+              bGi = gi;
+              bGj = gj;
+              bSi = si;
+              bSj = sj;
+              bWi = wi;
+              bWj = wj;
             }
           }
         }
       }
     }
 
-    if (!bestGroups) break;
-    cur = bestGroups;
+    if (!bMove) break;
+
+    // Apply the winning move: rebuild only the two touched groups.
+    if (bMove === 'rel') {
+      const moved = cur[bGi][bSi];
+      cur[bGi] = cur[bGi].filter((_, k) => k !== bSi);
+      cur[bGj] = [...cur[bGj], moved];
+    } else {
+      const a = cur[bGi][bSi];
+      const b = cur[bGj][bSj];
+      const gA = [...cur[bGi]];
+      const gB = [...cur[bGj]];
+      gA[bSi] = b;
+      gB[bSj] = a;
+      cur[bGi] = gA;
+      cur[bGj] = gB;
+    }
+    work[bGi] = bWi;
+    work[bGj] = bWj;
     curCost = bestCost;
   }
 
@@ -253,6 +432,11 @@ function offsetPt(o: Pt, km: number, theta: number): Pt {
  * average, over ≤24 rotations, keep the best by makespan. Padded to `n` groups.
  */
 function sweepSeed<T extends Geo>(depot: Pt, stops: T[], n: number, endPt: Pt | null): T[][] {
+  // Defensive: no stops means no `best` fill below, and padGroups(best!, n)
+  // would deref null. sweepSplit already guards this, but guard here too so the
+  // seed is safe if ever called directly.
+  if (stops.length === 0) return padGroups([], n);
+
   const sorted = [...stops].sort((a, b) => {
     const aa = Math.atan2((a.lat as number) - depot.lat, (a.lng as number) - depot.lng);
     const ab = Math.atan2((b.lat as number) - depot.lat, (b.lng as number) - depot.lng);
@@ -261,14 +445,14 @@ function sweepSeed<T extends Geo>(depot: Pt, stops: T[], n: number, endPt: Pt | 
 
   const fill = (offset: number): T[][] => {
     const seq = [...sorted.slice(offset), ...sorted.slice(0, offset)];
-    const total = estimateWorkloadS(depot, seq.map(pt), endPt);
+    const total = workloadNnS(depot, seq, endPt);
     const groups: T[][] = [];
     let current: T[] = [];
     let used = 0;
     seq.forEach((s, idx) => {
       const left = n - groups.length - 1;
       current.push(s);
-      const w = estimateWorkloadS(depot, current.map(pt), endPt);
+      const w = workloadNnS(depot, current, endPt);
       const target = (total - used) / (left + 1);
       const remainingStops = seq.length - idx - 1;
       if (left > 0 && w >= target && remainingStops >= left) {

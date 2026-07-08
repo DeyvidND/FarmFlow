@@ -64,7 +64,7 @@ This is a comparable workload number, not a real route — the real per-group or
 - Un-geocoded stops never enter the split — `routing.service` still appends them to the lightest route's tail (unchanged).
 - No depot (`originPt === null`) → `sweepSplit` isn't called; `routing.service`'s existing round-robin-over-greedy-chain fallback stays.
 - All stops co-located (zero distance) → balance falls back to service-time only; stable.
-- `couriers > stops.length` → trailing empty routes.
+- `couriers > stops.length` → one stop per group, exactly `stops.length` groups, **no trailing empty routes** (`sweepSplit` returns `stops.map((s) => [s])` when `stops.length <= n`).
 
 ## Testing
 

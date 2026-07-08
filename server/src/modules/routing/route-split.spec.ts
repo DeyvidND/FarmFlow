@@ -194,6 +194,32 @@ describe('sweepSplit', () => {
     );
   });
 
+  it('strictly beats both the sweep seed alone and naive round-robin (makespan)', () => {
+    // Three distinct clusters (W/E/N) with three couriers: the sweep seed's
+    // angular arcs slice a cluster, and round-robin (i % n) scatters each
+    // courier across all three clusters — the full multi-seed + local-search
+    // pipeline gives each cluster to one courier. Strict `<`, not `<=`: this
+    // guards against a future regression that silently turns k-means/localSearch
+    // into no-ops (which the `<=` test above would not catch).
+    const north: Pt[] = [
+      { lat: 42.9, lng: 25.0 },
+      { lat: 42.91, lng: 25.01 },
+      { lat: 42.89, lng: 24.99 },
+    ];
+    const stops = [...west, ...east, ...north];
+    const n = 3;
+    // Naive round-robin: stops handed to couriers in input order.
+    const roundRobin: Pt[][] = Array.from({ length: n }, () => []);
+    stops.forEach((s, i) => roundRobin[i % n].push(s));
+
+    const pipeline = __test.partitionCost(d, sweepSplit(d, stops, n, d), d).makespan;
+    const seedAlone = __test.partitionCost(d, __test.sweepSeed(d, stops, n, d), d).makespan;
+    const roundRobinCost = __test.partitionCost(d, roundRobin, d).makespan;
+
+    expect(pipeline).toBeLessThan(seedAlone);
+    expect(pipeline).toBeLessThan(roundRobinCost);
+  });
+
   it('is deterministic', () => {
     expect(sweepSplit(d, twoClusters, 2, d)).toEqual(sweepSplit(d, twoClusters, 2, d));
   });
