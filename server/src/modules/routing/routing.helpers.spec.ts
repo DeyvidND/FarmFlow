@@ -2,6 +2,7 @@ import {
   greedyByDistance,
   endPoint,
   ptOf,
+  effectiveCourierCount,
   type RouteStop,
   type RouteEnd,
 } from './routing.service';
@@ -82,5 +83,22 @@ describe('greedyByDistance', () => {
     const input = [a, b, c];
     greedyByDistance(origin, input);
     expect(input.map((s) => s.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('effectiveCourierCount', () => {
+  it('defaults to 1 when omitted', () => {
+    expect(effectiveCourierCount(undefined)).toBe(1);
+  });
+  it('passes through a valid count', () => {
+    expect(effectiveCourierCount(3)).toBe(3);
+  });
+  it('clamps to [1,10] and floors', () => {
+    expect(effectiveCourierCount(0)).toBe(1);
+    expect(effectiveCourierCount(99)).toBe(10);
+    expect(effectiveCourierCount(2.9)).toBe(2);
+  });
+  it('falls back to 1 for NaN', () => {
+    expect(effectiveCourierCount(Number.NaN)).toBe(1);
   });
 });

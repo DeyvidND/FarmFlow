@@ -130,6 +130,16 @@ export function greedyByDistance(start: Pt | null, stops: RouteStop[]): RouteSto
   return out;
 }
 
+/**
+ * Effective courier count for a route request. The route-page „Куриери" dropdown
+ * (?couriers=) is the ONLY control now — there is no saved default. Absent /
+ * non-finite → 1; always clamped to [1,10] and floored.
+ */
+export function effectiveCourierCount(couriers: number | undefined): number {
+  const n = Math.floor(couriers ?? 1);
+  return Math.min(10, Math.max(1, Number.isFinite(n) ? n : 1));
+}
+
 @Injectable()
 export class RoutingService {
   private readonly logger = new Logger(RoutingService.name);
@@ -261,10 +271,9 @@ export class RoutingService {
       ? { lat: origin.lat as number, lng: origin.lng as number }
       : null;
 
-    // Effective courier count: explicit ?couriers= wins, else the tenant's
-    // saved default (settings.routing.courierCount), else 1. Clamped to [1,10].
-    const cfgCount = Number((routingCfg.courierCount as number | string | undefined) ?? 1);
-    const n = Math.min(10, Math.max(1, Math.floor(couriers ?? (Number.isFinite(cfgCount) ? cfgCount : 1))));
+    // Effective courier count: the route-page dropdown (?couriers=) is the only
+    // control; default 1 when omitted (no saved courier default any more).
+    const n = effectiveCourierCount(couriers);
 
     // Partition among couriers (sweep needs a depot; without one, round-robin
     // over a greedy chain so groups still make geographic sense).
