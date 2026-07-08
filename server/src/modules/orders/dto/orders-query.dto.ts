@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/pagination/pagination-query.dto';
 
@@ -23,4 +23,12 @@ export class OrdersQueryDto extends PaginationQueryDto {
   @IsString()
   @MaxLength(100)
   q?: string;
+
+  /** Optional delivery-day filter (YYYY-MM-DD). Scopes to orders scheduled for
+   *  that day — slot day, falling back to creation day for slotless orders, the
+   *  same `scheduledForDay` rule as production / payments / digests. Omit for
+   *  «Всички дни». */
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date трябва да е във формат YYYY-MM-DD' })
+  date?: string;
 }
