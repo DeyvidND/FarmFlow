@@ -101,8 +101,10 @@ export function RouteDaySuggesterModal({
   async function apply() {
     if (!movesCount) return;
     setBusy(true);
+    // Sequential per-day reschedule — track how many actually moved so a failure
+    // partway through reports what already happened instead of a bare error.
+    let moved = 0;
     try {
-      let moved = 0;
       for (const [date, ids] of groupedForApply) {
         if (!ids.length) continue;
         const res = await rescheduleOrders(ids, date);
@@ -112,7 +114,15 @@ export function RouteDaySuggesterModal({
       onApplied();
       onClose();
     } catch (e) {
-      toast.error(errMsg(e));
+      if (moved > 0) {
+        // Some days already moved before the failure — refresh so the route
+        // reflects them, and tell the farmer it was partial.
+        toast.error(`Преместени ${moved} поръчки, но възникна грешка при останалите`);
+        onApplied();
+        onClose();
+      } else {
+        toast.error(errMsg(e));
+      }
     } finally {
       setBusy(false);
     }
