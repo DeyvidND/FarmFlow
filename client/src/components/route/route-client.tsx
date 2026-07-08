@@ -12,6 +12,7 @@ import {
   HelpCircle,
   Settings,
   AlertTriangle,
+  RotateCcw,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -25,6 +26,7 @@ import { isMajorRoadAddress } from './major-road';
 import { WazeStepper } from './waze-stepper';
 import { buildWazeTargets, wazeUrl } from './waze';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { reconcileOrder, moveInOrder, dragInOrder } from './route-order';
 
 // Re-exported so callers only need to import from one place.
 export { ROUTE_COLORS };
@@ -167,6 +169,58 @@ export function RouteClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCourierIdx, route.date, route.couriers]);
 
+  // ---- Manual delivery order override (per date + courier) ----
+  // The server hands back an auto-optimized stop order (fewest km). A farmer who
+  // knows the roads can override it — e.g. "deliver through Kavarna first, then
+  // down to Varna". The chosen order is kept in localStorage (like the Waze
+  // progress below) so it survives a reload, and reconciled against the server's
+  // stop set on every fetch: kept for still-present stops, new stops appended in
+  // server order, removed stops dropped. `null` = follow the server's auto order.
+  const orderKey = `ff:order:${route.date}:${activeCourierIdx}`;
+  const [manualIds, setManualIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`ff:order:${route.date}:${activeCourierIdx}`);
+      setManualIds(raw ? (JSON.parse(raw) as string[]) : null);
+    } catch {
+      setManualIds(null);
+    }
+  }, [route.date, activeCourierIdx]);
+
+  const orderedStops = useMemo(
+    () => reconcileOrder(active.stops, manualIds),
+    [active.stops, manualIds],
+  );
+
+  const isManualOrder = manualIds != null;
+
+  const persistOrder = (ids: string[]) => {
+    setManualIds(ids);
+    try {
+      localStorage.setItem(orderKey, JSON.stringify(ids));
+    } catch {
+      /* localStorage unavailable (private mode) — order just won't persist */
+    }
+  };
+
+  // Move the stop at `index` one slot up (dir -1) or down (dir +1).
+  const moveStop = (index: number, dir: -1 | 1) =>
+    persistOrder(moveInOrder(orderedStops.map((s) => s.id), index, dir));
+
+  // Drag row `from` onto position `to` (native HTML5 DnD; desktop pointer).
+  const dragStop = (from: number, to: number) =>
+    persistOrder(dragInOrder(orderedStops.map((s) => s.id), from, to));
+
+  // Drop the override — fall back to the server's auto-optimized order.
+  const resetOrder = () => {
+    setManualIds(null);
+    try {
+      localStorage.removeItem(orderKey);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const [showHelp, setShowHelp] = useState(false);
   const [showLoc, setShowLoc] = useState(false);
   // The stop whose address is being edited (drives the „Смени адрес" modal).
@@ -183,13 +237,13 @@ export function RouteClient({
   const wazeTargets = useMemo(
     () =>
       buildWazeTargets(
-        stops,
+        orderedStops,
         activeEndMode === 'home'
           ? { mode: 'home', address: origin.address, lat: origin.lat, lng: origin.lng }
           : { mode: 'last', address: null, lat: null, lng: null },
         origin,
       ),
-    [stops, origin, activeEndMode],
+    [orderedStops, origin, activeEndMode],
   );
 
   // Restore Waze progress for THIS date AND courier (each courier walks their
@@ -222,7 +276,21 @@ export function RouteClient({
   // is already visible on each tab below.
   const summary = multi
     ? `${allStops.length} ${allStops.length === 1 ? 'спирка' : 'спирки'} общо · ${routes.length} куриера`
-    : `${stops.length} ${stops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`;
+    : `${orderedStops.length} ${orderedStops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`;
+
+  // Routes fed to the map: the active courier's leg reflects the (possibly
+  // manual) order, and drops the server polyline when overridden — the road
+  // geometry followed the auto order, so the map falls back to straight segments
+  // through the farmer's own sequence instead of drawing a mismatched line.
+  const displayRoutes = useMemo(
+    () =>
+      routes.map((r, i) =>
+        i === activeCourierIdx
+          ? { ...r, stops: orderedStops, polyline: isManualOrder ? null : r.polyline }
+          : r,
+      ),
+    [routes, activeCourierIdx, orderedStops, isManualOrder],
+  );
 
   // Where the van goes after the last delivery, for the Google Maps deep link
   // (null = end at last stop). Shared across all couriers.
@@ -251,7 +319,7 @@ export function RouteClient({
   const endHint = END_OPTIONS.find((o) => o.mode === activeEndMode)?.hint ?? '';
 
   const openRoute = () => {
-    const urls = dirUrls(origin, stops, endPoint);
+    const urls = dirUrls(origin, orderedStops, endPoint);
     if (!urls.length) {
       toast.error('Няма спирки за маршрут');
       return;
@@ -681,21 +749,40 @@ export function RouteClient({
               </button>
             </div>
           </div>
+          {stops.length > 0 && (
+            <div className="flex items-center justify-between gap-2 border-b border-ff-border-2 bg-ff-surface-2 px-[18px] py-2">
+              <span className="text-[12px] font-semibold text-ff-muted">
+                {isManualOrder ? 'Ръчен ред на доставка' : 'Плъзни спирка или ↑↓, за да смениш реда'}
+              </span>
+              {isManualOrder && (
+                <button
+                  onClick={resetOrder}
+                  title="Върни автоматичния ред (най-малко километри)"
+                  className="inline-flex items-center gap-1.5 rounded-[8px] border border-ff-border bg-ff-surface px-2.5 py-1 text-[12px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2"
+                >
+                  <RotateCcw size={13} /> Върни авто-реда
+                </button>
+              )}
+            </div>
+          )}
           <StopList
-            stops={stops}
+            stops={orderedStops}
             activeId={activeId}
             onPick={pickStop}
             onOpenMaps={onOpenMaps}
             onCall={onCall}
             onEmail={onEmail}
             onEditAddress={setEditStop}
+            onMoveUp={(i) => moveStop(i, -1)}
+            onMoveDown={(i) => moveStop(i, 1)}
+            onDragReorder={dragStop}
           />
         </div>
 
         {/* map — every courier's route is drawn; the active one is highlighted */}
         <div className="relative overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:order-[-1] max-[900px]:h-[340px]">
           <RouteMap
-            routes={routes}
+            routes={displayRoutes}
             activeRoute={activeCourierIdx}
             origin={origin}
             end={end}
