@@ -31,6 +31,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
+import { RescheduleOrdersDto } from './dto/reschedule-orders.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from './carrier-fulfillment.service';
@@ -72,6 +73,17 @@ const orderWithSlot = {
   // the Orders screen can show "ден + час", not just the time window.
   slotDate: deliverySlots.date,
 };
+
+/** One movable order for the "Премести на друг ден" tool (own-delivery orders on a future day). */
+export interface ReschedulableOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  totalStotinki: number;
+  status: string;
+  slotDate: string;
+}
 
 export type PaymentStatus = 'paid' | 'pending_online' | 'cash';
 
@@ -1082,6 +1094,120 @@ export class OrdersService {
     // to/from 0 here would otherwise show wrong for up to the catalog TTL.
     if (variantStockTouched) await this.catalogCache.invalidate(tenantId);
     return this.findOne(id, tenantId);
+  }
+
+  /**
+   * Own-delivery orders that can be moved: address delivery, still live
+   * (pending/confirmed), on a slot dated today-or-later. The client groups these
+   * by `slotDate` into the source-day picker + checkbox list.
+   */
+  async reschedulable(tenantId: string): Promise<ReschedulableOrder[]> {
+    const today = bgToday();
+    const rows = await this.db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        totalStotinki: orders.totalStotinki,
+        status: orders.status,
+        slotDate: deliverySlots.date,
+      })
+      .from(orders)
+      .innerJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(orders.deliveryType, 'address'),
+          inArray(orders.status, ['pending', 'confirmed']),
+          gte(deliverySlots.date, today),
+        ),
+      )
+      .orderBy(deliverySlots.date, orders.orderNumber);
+    return rows as ReschedulableOrder[];
+  }
+
+  /**
+   * Bulk-move own-delivery orders onto `toDate`. Finds-or-creates the target-day
+   * slot; a freshly created one is `isActive=false` so it never surfaces on the
+   * storefront picker (the farmer sees it; shoppers don't). Deliberately skips the
+   * capacity + same-day guards that `lockAndCheckSlot` enforces — the farmer is
+   * intentionally loading their own day. Emails each moved order's buyer.
+   */
+  async rescheduleOrders(
+    tenantId: string,
+    dto: RescheduleOrdersDto,
+  ): Promise<{ moved: number; toDate: string }> {
+    const { orderIds, toDate } = dto;
+    if (toDate < bgToday()) {
+      throw new BadRequestException('Не може да преместиш поръчки в минал ден.');
+    }
+
+    // Read the candidate rows OUTSIDE the transaction (same shape as updateOrder's
+    // `current` read) — the transaction below only needs to lock/create the target
+    // slot and write the reassignments.
+    const rows = await this.db
+      .select({
+        id: orders.id,
+        status: orders.status,
+        deliveryType: orders.deliveryType,
+        slotId: orders.slotId,
+        fromDate: deliverySlots.date,
+      })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)))
+      .limit(orderIds.length);
+
+    const movable = rows.filter(
+      (r) => r.deliveryType === 'address' && (r.status === 'pending' || r.status === 'confirmed'),
+    );
+    if (!movable.length) {
+      throw new BadRequestException('Няма поръчки за преместване.');
+    }
+
+    const moved: { id: string; fromDate: string | null }[] = [];
+    await this.db.transaction(async (tx) => {
+      // find-or-create the target-day slot (one row per (tenant, date), like SlotsService.create).
+      const [existing] = await tx
+        .select({ id: deliverySlots.id })
+        .from(deliverySlots)
+        .where(and(eq(deliverySlots.tenantId, tenantId), eq(deliverySlots.date, toDate)))
+        .for('update')
+        .limit(1);
+      let targetSlotId = existing?.id;
+      if (!targetSlotId) {
+        const [created] = await tx
+          .insert(deliverySlots)
+          .values({
+            tenantId,
+            date: toDate,
+            isActive: false, // hidden from the storefront picker (findPublicBySlug filters isActive)
+            generated: false,
+            capacity: Math.max(1, movable.length),
+            driverNote: 'Преместени поръчки',
+          })
+          .returning({ id: deliverySlots.id });
+        targetSlotId = created.id;
+      }
+
+      for (const r of movable) {
+        if (r.slotId === targetSlotId) continue; // already on the target day
+        await tx
+          .update(orders)
+          .set({ slotId: targetSlotId })
+          .where(and(eq(orders.id, r.id), eq(orders.tenantId, tenantId)));
+        moved.push({ id: r.id, fromDate: r.fromDate ?? null });
+      }
+    });
+
+    await this.bustPayments(tenantId);
+
+    // Fire-and-forget per moved order (sendMoved self-guards when the buyer has no email).
+    for (const m of moved) {
+      void this.orderEmail.sendMoved(m.id, m.fromDate, toDate);
+    }
+    return { moved: moved.length, toDate };
   }
 
   /** Cancelling frees slot capacity automatically (booked is computed from non-cancelled orders). */
