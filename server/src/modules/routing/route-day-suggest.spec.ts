@@ -78,4 +78,29 @@ describe('suggestDayAssignment (per-day couriers)', () => {
     expect(assignment).toEqual({ '2026-07-10': [] });
     expect(unplaced).toEqual(['x']);
   });
+
+  it('never gives a higher-courier day fewer orders than a lower-courier day (largest-remainder)', () => {
+    // 7 orders, couriers [6,5,6]: naive per-boundary rounding inverts to [2,3,2]
+    // (5-courier day gets more than a 6-courier day). Hamilton must not invert.
+    const orders = Array.from({ length: 7 }, (_, i) => ({
+      id: `o${i}`,
+      lat: 42.6 + i * 0.01,
+      lng: 23.3 + i * 0.01,
+    }));
+    const { assignment } = suggestDayAssignment(
+      orders,
+      [
+        { date: '2026-07-10', couriers: 6 },
+        { date: '2026-07-11', couriers: 5 },
+        { date: '2026-07-12', couriers: 6 },
+      ],
+      depot,
+    );
+    const c1 = dayIds(assignment['2026-07-10']).length;
+    const c2 = dayIds(assignment['2026-07-11']).length; // fewest couriers (5)
+    const c3 = dayIds(assignment['2026-07-12']).length;
+    expect(c1 + c2 + c3).toBe(7);
+    expect(c2).toBeLessThanOrEqual(c1);
+    expect(c2).toBeLessThanOrEqual(c3);
+  });
 });

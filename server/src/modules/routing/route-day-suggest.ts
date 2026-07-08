@@ -33,12 +33,15 @@ const capOf = (d: DaySpec) => Math.max(1, Math.floor(d.couriers));
 
 /**
  * Geography-first, capacity-weighted assignment. Sorts the geocoded orders into a
- * bearing sweep around the depot, then hands each day (in date order) a CONTIGUOUS
- * arc whose order COUNT is proportional to its share of the total couriers — so a
- * day with more couriers gets more orders, by construction (not as an emergent
- * side effect). Each day's arc is then cut into that day's courier routes via
- * `sweepSplit` (used only WITHIN a day, since it balances route workload, not
- * count). Un-geocoded orders go to `unplaced`. Pure & deterministic.
+ * bearing sweep around the depot, then apportions order COUNTS to days by
+ * largest-remainder (Hamilton) apportionment, proportional to each day's share of
+ * the total couriers. This guarantees a day with more couriers NEVER gets FEWER
+ * orders than a day with fewer couriers (equal-courier days, or very low totals,
+ * may tie by integer indivisibility — the guarantee is never-fewer, not
+ * strictly-more). Each day then gets a contiguous arc of that size, cut into that
+ * day's courier routes via `sweepSplit` (used only WITHIN a day, since it balances
+ * route workload, not count). Un-geocoded orders go to `unplaced`. Pure &
+ * deterministic.
  */
 export function suggestDayAssignment(
   orders: SuggestOrder[],
@@ -66,11 +69,9 @@ export function suggestDayAssignment(
 
   // Day-level split FIRST, capacity-weighted by order COUNT. Sort all located
   // orders into a bearing sweep around the depot; then give each day (date order)
-  // a contiguous arc sized to its courier share. A running cumulative-courier
-  // boundary (`round((cum/K) * total)`) yields an exact partition — no gap, no
-  // overlap, last day ends at `total` — and guarantees a day with more couriers
-  // gets more orders. `sweepSplit` balances by workload (drive time), NOT count,
-  // so it is used only WITHIN each day to cut the arc into that day's routes.
+  // a contiguous arc sized by largest-remainder apportionment of its courier
+  // share. `sweepSplit` balances by workload (drive time), NOT count, so it is
+  // used only WITHIN each day to cut the arc into that day's routes.
   const swept = [...located].sort(
     (a, b) =>
       Math.atan2(a.lat - depotPt.lat, a.lng - depotPt.lng) -
@@ -80,16 +81,32 @@ export function suggestDayAssignment(
   );
 
   const total = swept.length;
-  let cum = 0;
+
+  // Largest-remainder (Hamilton) apportionment of order COUNTS to days,
+  // proportional to each day's courier share. Independent per-boundary rounding
+  // could invert the guarantee (a higher-courier day getting fewer orders);
+  // largest-remainder is monotone: floor of the proportional ideal is monotone in
+  // couriers, and the leftover seats go to the largest remainders with ties broken
+  // toward MORE couriers — so a day with more couriers never gets fewer orders.
+  const ideal = sortedDays.map((d) => (capOf(d) / K) * total);
+  const counts = ideal.map((x) => Math.floor(x));
+  let leftover = total - counts.reduce((a, b) => a + b, 0);
+  const remainderRank = sortedDays
+    .map((d, i) => ({ i, rem: ideal[i] - counts[i], cour: capOf(d), date: d.date }))
+    .sort((a, b) => b.rem - a.rem || b.cour - a.cour || a.date.localeCompare(b.date));
+  for (let k = 0; k < remainderRank.length && leftover > 0; k++, leftover--) {
+    counts[remainderRank[k].i] += 1;
+  }
+
+  // Each day gets a contiguous arc of `counts[i]` orders (in the bearing sweep),
+  // then sweepSplit cuts that arc into the day's courier routes.
   let start = 0;
-  for (const d of sortedDays) {
-    cum += capOf(d);
-    const end = Math.round((cum / K) * total);
-    const dayOrders = swept.slice(start, end);
-    start = end;
+  sortedDays.forEach((d, i) => {
+    const dayOrders = swept.slice(start, start + counts[i]);
+    start += counts[i];
     const routes = dayOrders.length ? sweepSplit(depotPt, dayOrders, capOf(d), depotPt) : [];
     assignment[d.date] = routes.map((g) => g.map((s) => s.id));
-  }
+  });
 
   return { assignment, unplaced };
 }
