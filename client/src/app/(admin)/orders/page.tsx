@@ -2,20 +2,13 @@ import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { OrdersClient } from '@/components/orders/orders-client';
 import { ORDERS_PAGE_SIZE } from '@/lib/orders';
-import type { Order, Paged } from '@/lib/types';
+import type { DeliveryConfig, Order, Paged } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 const EMPTY: Paged<Order> = { items: [], total: 0 };
 
-// First numbered page, server-rendered. Search / filter / page changes are fetched
-// on demand by the client (server-side now — it no longer drains every page).
-// `ok: false` means the SSR fetch itself failed (missing token, non-2xx, network
-// blip on the server→API hop) — NOT that the tenant genuinely has zero orders.
-// The client must not treat that as trustworthy and needs to refetch itself,
-// otherwise a transient server-side hiccup permanently shows «no orders».
-async function getOrders(): Promise<Paged<Order> & { ok: boolean }> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+async function getOrders(token: string | undefined): Promise<Paged<Order> & { ok: boolean }> {
   if (!token) return { ...EMPTY, ok: false };
   try {
     const res = await fetch(`${API_BASE}/orders?page=1&limit=${ORDERS_PAGE_SIZE}`, {
@@ -30,7 +23,28 @@ async function getOrders(): Promise<Paged<Order> & { ok: boolean }> {
   }
 }
 
+/** Own delivery on = deliveryEnabled master switch AND the ownSlots method flag
+ *  (ownSlots defaults on — mirrors buildPublicMethods + setup-panel). */
+async function getOwnDeliveryEnabled(token: string | undefined): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const res = await fetch(`${API_BASE}/tenants/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return false;
+    const t = (await res.json()) as { deliveryEnabled?: boolean; delivery?: DeliveryConfig | null };
+    return !!t.deliveryEnabled && (t.delivery?.methods?.ownSlots?.enabled ?? true);
+  } catch {
+    return false;
+  }
+}
+
 export default async function OrdersPage() {
-  const { ok, ...initial } = await getOrders();
-  return <OrdersClient initial={initial} initialOk={ok} />;
+  const token = cookies().get(SESSION_COOKIE)?.value;
+  const [{ ok, ...initial }, ownDeliveryEnabled] = await Promise.all([
+    getOrders(token),
+    getOwnDeliveryEnabled(token),
+  ]);
+  return <OrdersClient initial={initial} initialOk={ok} ownDeliveryEnabled={ownDeliveryEnabled} />;
 }

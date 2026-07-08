@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Search, MapPin, Package, Store, Info } from 'lucide-react';
+import { Search, MapPin, Package, Store, Info, ArrowRightLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, timeFromIso, hhmm, relDayLabel, type OrderStatus } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -76,12 +76,14 @@ function SkeletonCards() {
 export function OrdersClient({
   initial,
   initialOk = true,
+  ownDeliveryEnabled = false,
 }: {
   initial: Paged<Order>;
   /** False when the server-rendered `initial` came from a failed SSR fetch
    *  (missing/expired token, non-2xx, network blip) rather than a genuine
    *  empty result — the client must refetch instead of trusting it. */
   initialOk?: boolean;
+  ownDeliveryEnabled?: boolean;
 }) {
   // Server-side search / filter / pagination — the screen no longer drains every
   // page on mount. The server-rendered `initial` is page 1 (all statuses, no query).
@@ -95,6 +97,7 @@ export function OrdersClient({
   const [loading, setLoading] = useState(false);
   const [help, setHelp] = useState(false);
   const [page, setPage] = useState(1);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
 
   // Debounce the search box so typing doesn't fire a request per keystroke.
   useEffect(() => {
@@ -238,6 +241,16 @@ export function OrdersClient({
             </button>
           ))}
         </div>
+        {ownDeliveryEnabled && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setRescheduleOpen(true)}
+            className="max-[680px]:w-full"
+          >
+            <ArrowRightLeft size={16} /> Премести на друг ден
+          </Button>
+        )}
         <Button variant="ghost" size="sm" onClick={() => setHelp(true)} className="max-[680px]:w-full">
           <Info size={16} /> Обяснения
         </Button>
