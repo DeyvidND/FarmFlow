@@ -1,4 +1,4 @@
-import { estimateWorkloadS, sweepSplit, type Pt } from './route-split';
+import { estimateWorkloadS, sweepSplit, type Pt, __test } from './route-split';
 
 const depot: Pt = { lat: 42.5, lng: 25.0 };
 
@@ -86,5 +86,26 @@ describe('sweepSplit', () => {
     const g = sweepSplit(ringDepot, [...cluster, far], 2);
     const wFar = g.find((x) => x.some((s) => s.id === 99))!;
     expect(wFar.length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('partitionCost / betterCost', () => {
+  const d: Pt = { lat: 42.5, lng: 25.0 };
+  const A = { lat: 42.5, lng: 25.2 };
+  const B = { lat: 42.5, lng: 24.8 };
+
+  it('makespan is the busiest group, total is the sum', () => {
+    const both = __test.partitionCost(d, [[A, B]], null);
+    const split = __test.partitionCost(d, [[A], [B]], null);
+    // One courier doing both stops is busier than either of two single-stop couriers.
+    expect(both.makespan).toBeGreaterThan(split.makespan);
+    // Splitting removes the A->B backtracking, so total work is less.
+    expect(split.total).toBeLessThanOrEqual(both.total + 1e-6);
+  });
+
+  it('betterCost prefers lower makespan, then lower total', () => {
+    expect(__test.betterCost({ makespan: 10, total: 30 }, { makespan: 12, total: 20 })).toBe(true);
+    expect(__test.betterCost({ makespan: 10, total: 20 }, { makespan: 10, total: 30 })).toBe(true);
+    expect(__test.betterCost({ makespan: 10, total: 30 }, { makespan: 10, total: 20 })).toBe(false);
   });
 });

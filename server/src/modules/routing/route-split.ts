@@ -107,6 +107,27 @@ export function estimateWorkloadS(depot: Pt, stops: Pt[], endPt: Pt | null = nul
   return kmToS(pathKm(depot, ordered, endPt)) + stops.length * SERVICE_S;
 }
 
+type PartCost = { makespan: number; total: number };
+
+/** Hybrid cost of a partition: makespan (busiest courier) + total workload. */
+function partitionCost(depot: Pt, groups: Geo[][], endPt: Pt | null): PartCost {
+  let makespan = 0;
+  let total = 0;
+  for (const g of groups) {
+    const w = estimateWorkloadS(depot, g.map(pt), endPt);
+    if (w > makespan) makespan = w;
+    total += w;
+  }
+  return { makespan, total };
+}
+
+/** True when `a` beats `b`: lower makespan, or equal makespan and lower total. */
+function betterCost(a: PartCost, b: PartCost): boolean {
+  if (a.makespan + 1e-6 < b.makespan) return true;
+  if (a.makespan - 1e-6 > b.makespan) return false;
+  return a.total + 1e-6 < b.total;
+}
+
 /** Max estimated workload across groups — the number balancing minimizes. */
 function maxWorkload(depot: Pt, groups: Geo[][]): number {
   return Math.max(0, ...groups.map((g) => estimateWorkloadS(depot, g.map(pt))));
@@ -203,3 +224,6 @@ export function sweepSplit<T extends Geo>(depot: Pt, stops: T[], couriers: numbe
   }
   return groups;
 }
+
+/** Internal helpers exposed for unit tests only. Not part of the public API. */
+export const __test = { partitionCost, betterCost };
