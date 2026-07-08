@@ -601,6 +601,58 @@ describe('EcontService.createLabel (finalize courier draft)', () => {
     expect(row.carrier).toBe('econt');
   });
 
+  it('consolidation MASTER draft present → waybill collects the group-sum COD, not the order total', async () => {
+    // Farmer's own creds/config (per-farmer defaultPackage weight) come via loadStored.
+    (svc as any).loadStored = jest.fn().mockResolvedValue({
+      tenant: { id: 't1', settings: {} },
+      econt: {
+        sender: { name: 'Ферма', phone: '0888', mode: 'office', officeCode: '1234' },
+        defaultPackage: { weightKg: 2.5 },
+      },
+    });
+    // The collector's own order total (500) is the smaller, distinguishable value —
+    // if the override wired in c7d134e didn't take effect, the assertion below on
+    // 1800 would fail against this 500.
+    (svc as any).orderForShipment = jest.fn().mockResolvedValue({
+      order: {
+        tenantId: 't1', farmerId: 'farmer-1',
+        customerName: 'Стоян', customerPhone: '0833',
+        deliveryType: 'courier', econtOffice: null,
+        deliveryCity: 'Пловдив', deliveryAddress: 'бул. България 12',
+        totalStotinki: 500, paymentMethod: 'cod', paidAt: null,
+      },
+      items: [{ name: 'Домати', qty: 2 }],
+    });
+    const callTenant = jest.fn().mockResolvedValue({ label: { shipmentNumber: '1051000000010', pdfURL: 'x.pdf', totalPrice: 6.9 } });
+    (svc as any).callTenant = callTenant;
+
+    // db.insert(...).values(...).onConflictDoUpdate(...).returning()
+    const returning = jest.fn().mockResolvedValue([{ orderId: 'order-1', farmerId: 'farmer-1', carrier: 'econt', status: 'created' }]);
+    const onConflictDoUpdate = jest.fn().mockReturnValue({ returning });
+    const values = jest.fn().mockReturnValue({ onConflictDoUpdate });
+    const insert = jest.fn().mockReturnValue({ values });
+    // db.update(orders).set(...).where(...)
+    const updWhere = jest.fn().mockResolvedValue(undefined);
+    const updSet = jest.fn().mockReturnValue({ where: updWhere });
+    const update = jest.fn().mockReturnValue({ set: updSet });
+    // db.select(...).from(shipments).where(...).limit(1) — this time a real MASTER row:
+    // consolidationGroupId === id, holding the whole group's COD (1800).
+    const selLimit = jest.fn().mockResolvedValue([{ id: 'ship-1', consolidationGroupId: 'ship-1', codAmountStotinki: 1800 }]);
+    const selWhere = jest.fn().mockReturnValue({ limit: selLimit });
+    const selFrom = jest.fn().mockReturnValue({ where: selWhere });
+    const select = jest.fn().mockReturnValue({ from: selFrom });
+    (svc as any).db = { insert, update, select };
+
+    await svc.createLabel('t1', 'order-1', 'farmer-1');
+
+    // The persisted COD must be the master's group sum (1800), NOT the order's own
+    // total (500) — proves the live createLabel path actually applies the override.
+    const insertVals = values.mock.calls[0][0];
+    expect(insertVals.codAmountStotinki).toBe(1800);
+    const updateSet = onConflictDoUpdate.mock.calls[0][0].set;
+    expect(updateSet.codAmountStotinki).toBe(1800);
+  });
+
   it('rejects finalizing another farmer\'s courier order (authz) before any carrier call', async () => {
     (svc as any).loadStored = jest.fn().mockResolvedValue({ tenant: { id: 't1', settings: {} }, econt: {} });
     // Order owned by farmer-1; caller is farmer-2.
