@@ -13,6 +13,7 @@ import { MapsService } from '../../common/maps/maps.service';
 import { bgToday } from '../../common/time/bg-time';
 import { scheduledForDay } from '../orders/order-scheduling';
 import { sweepSplit, haversineKm, type Pt } from './route-split';
+import { humanizeStopOrder } from './route-humanize';
 
 export interface RouteOrigin {
   address: string | null;
@@ -75,6 +76,22 @@ const toNum = (v: string | null): number | null => (v == null ? null : Number(v)
 
 /** Routes API hard limit on intermediate waypoints per computeRoutes request. */
 const MAX_OPTIMIZE_STOPS = 25;
+
+/**
+ * A humanized (crow-flies-tidy) visit order is kept only when its real road time
+ * stays within this factor of Google's time-optimal order. Above it, the tidier
+ * order hides a genuine detour the straight-line metric can't see (a river, a
+ * one-way maze, a motorway whose junctions are far apart) and Google's order is
+ * kept instead. 1.2 = tolerate up to +20% road time for a route that reads
+ * correctly to a person; the everyday "delivered a driven-past stop last to save
+ * ~30s" case is a tiny fraction of this, so it's always fixed.
+ */
+const MAX_HUMANIZE_TIME_FACTOR = 1.2;
+
+/** Two stop lists visit the same stops in the same order (compared by id). */
+function sameOrder(a: RouteStop[], b: RouteStop[]): boolean {
+  return a.length === b.length && a.every((s, i) => s.id === b[i].id);
+}
 
 /** Coords of a stop, or null when it isn't geocoded. */
 export const ptOf = (s: RouteStop): Pt | null =>
@@ -377,18 +394,12 @@ export class RoutingService {
     }
 
     let orderedGroup: RouteStop[];
-    // Reuse: when the optimize call above already covers every stop in the group
-    // (no MAX_OPTIMIZE_STOPS overflow) AND targets the SAME destination pathTotal
-    // would use, its distanceM/durationS/polyline are for the identical
-    // origin→…→dest path pathTotal would recompute — skip that second, redundant
-    // Routes call. Reusable only when `dest !== null`: that's precisely the same
-    // condition pathTotal (below) checks before pushing an end point onto its own
-    // path — `last` mode always has dest=null (endPoint returns null → route()
-    // falls back to dest=origin, a round trip, while pathTotal measures
-    // origin→…→last-stop with NO return leg), and so does a misconfigured
-    // `custom` end with no coords saved. Either way `dest === null` means route()
-    // targeted a DIFFERENT path than pathTotal would — not safe to reuse.
-    let reusablePlan: { distanceM: number; durationS: number; polyline: string | null } | null = null;
+    // Totals we already computed while deciding the order (Google's own numbers,
+    // or a re-measure of the humanized order) — lets the totals block below skip
+    // a redundant Routes call. `polylines` is the road geometry for this exact
+    // order. Set only when it fully describes the chosen origin→…→dest path;
+    // otherwise it stays null and the totals block measures the path itself.
+    let precomputedTotal: { distanceM: number; durationS: number; polylines: string[] } | null = null;
     if (originPt) {
       // Let Google optimize the visit order, targeting the REAL end point so a
       // one-way / custom-end route isn't optimized as a round trip.
@@ -401,17 +412,51 @@ export class RoutingService {
         dest ?? undefined,
       );
       if (plan && plan.order.length === cap.length) {
-        const head = plan.order.map((idx) => cap[idx]);
-        // Stops beyond Google's per-request cap: greedily chain them from the
-        // last optimized stop instead of leaving them in DB order.
+        const googleHead = plan.order.map((idx) => cap[idx]);
+        // Google minimizes ROAD TIME, which reads as wrong to a person when it
+        // delivers a driven-past stop last to save a few seconds. Re-sort its
+        // order to minimize crow-flies backtracking so such stops go in passing.
+        const humanHead = humanizeStopOrder(originPt, googleHead, dest, ptOf);
+        const reordered = !sameOrder(humanHead, googleHead);
+        // Google's own numbers describe the un-humanized (googleHead) path.
+        const planTotal = {
+          distanceM: plan.distanceM,
+          durationS: plan.durationS,
+          polylines: plan.polyline ? [plan.polyline] : [],
+        };
+
+        let head = humanHead;
         if (rest.length) {
+          // Stops beyond Google's per-request cap: greedily chain them from the
+          // last optimized stop instead of leaving them in DB order. The totals
+          // block re-measures the whole (humanized head + tail) path.
           this.logger.warn(
             `Route has ${group.length} located stops; only the first ${MAX_OPTIMIZE_STOPS} ` +
               `are Google-optimized, the rest are ordered by nearest-neighbour heuristic.`,
           );
-        } else if (dest !== null) {
-          reusablePlan = { distanceM: plan.distanceM, durationS: plan.durationS, polyline: plan.polyline };
+        } else if (dest === null) {
+          // One-way (`last` mode, or a custom end with no coords): Google
+          // optimized a round trip back to the depot, so its totals are for a
+          // DIFFERENT path than the one-way we actually drive — let the totals
+          // block measure origin→…→last-stop with no return leg.
+        } else if (!reordered) {
+          // Order unchanged: Google's totals + geometry describe this path — reuse.
+          precomputedTotal = planTotal;
+        } else {
+          // Humanized order differs: re-measure its real road cost (the one extra
+          // billed Routes call, only when we actually reorder), then keep it only
+          // if it isn't dramatically slower than Google's optimum — otherwise the
+          // tidier order hides a real detour and we revert to Google's order.
+          const pts: Pt[] = [originPt, ...humanHead.map((s) => ptOf(s) as Pt), dest];
+          const measured = await this.pathTotal(pts);
+          if (measured && measured.durationS <= plan.durationS * MAX_HUMANIZE_TIME_FACTOR) {
+            precomputedTotal = measured;
+          } else {
+            head = googleHead;
+            precomputedTotal = planTotal;
+          }
         }
+
         const tail = greedyByDistance(ptOf(head[head.length - 1]) ?? originPt, rest);
         orderedGroup = [...head, ...tail];
       } else {
@@ -431,10 +476,10 @@ export class RoutingService {
     let totalDistanceM: number | null = null;
     let totalDurationS: number | null = null;
     let routePolyline: string[] | null = null;
-    if (reusablePlan) {
-      totalDistanceM = reusablePlan.distanceM;
-      totalDurationS = reusablePlan.durationS;
-      routePolyline = reusablePlan.polyline ? [reusablePlan.polyline] : null;
+    if (precomputedTotal) {
+      totalDistanceM = precomputedTotal.distanceM;
+      totalDurationS = precomputedTotal.durationS;
+      routePolyline = precomputedTotal.polylines.length ? precomputedTotal.polylines : null;
     } else if (originPt) {
       const pts: Pt[] = [originPt];
       for (const s of orderedGroup) {
