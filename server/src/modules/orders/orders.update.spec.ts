@@ -16,7 +16,7 @@ function serviceWithOrder(orderRow: Record<string, unknown>): OrdersService {
   const db: any = { select: () => chain };
   // Only `db` and `maps` are touched on the guard paths.
   const maps: any = { geocode: jest.fn(), geocodeCity: jest.fn() };
-  return new OrdersService(db, maps, {} as any, {} as any, {} as any, {} as any, {} as any);
+  return new OrdersService(db, maps, {} as any, {} as any, {} as any, {} as any, {} as any, { invalidate: jest.fn() } as any);
 }
 
 const BASE = {
@@ -102,7 +102,7 @@ describe('updateOrder geocode-miss clears stale coordinates/city', () => {
       }),
     };
     const cache: any = { del: jest.fn().mockResolvedValue(undefined) };
-    const svc = new OrdersService(db, maps as any, {} as any, {} as any, cache, {} as any, {} as any);
+    const svc = new OrdersService(db, maps as any, {} as any, {} as any, cache, {} as any, {} as any, { invalidate: jest.fn() } as any);
     jest.spyOn(svc, 'findOne').mockResolvedValue({} as any);
     return svc;
   }
@@ -202,7 +202,7 @@ describe('updateOrder item replacement wiring', () => {
     };
     const maps: any = { geocode: jest.fn(), geocodeCity: jest.fn() };
     const cache: any = { del: jest.fn().mockResolvedValue(undefined) };
-    const svc = new OrdersService(db, maps, {} as any, {} as any, cache, {} as any, {} as any);
+    const svc = new OrdersService(db, maps, {} as any, {} as any, cache, {} as any, {} as any, { invalidate: jest.fn() } as any);
     jest.spyOn(svc, 'findOne').mockResolvedValue({} as any);
 
     const restoreWindowsSpy = jest
@@ -272,7 +272,7 @@ describe('restoreVariantStock (via a captured tx)', () => {
         }),
       }),
     };
-    const svc: any = new OrdersService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    const svc: any = new OrdersService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
     await svc.restoreVariantStock(tx, [
       { variantId: 'v1', quantity: 3 },
       { variantId: 'v2', quantity: 1 },

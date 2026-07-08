@@ -14,6 +14,7 @@ describe('OrdersService.updateStatusForFarmer transition guard', () => {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 
   it('rejects any transition other than «delivered» for a producer', async () => {
@@ -36,6 +37,7 @@ describe('OrdersService.updateStatusForFarmer ownership (multi-producer) guard',
     chain.where = jest.fn(() => Promise.resolve(lineItems));
     return new OrdersService(
       chain as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

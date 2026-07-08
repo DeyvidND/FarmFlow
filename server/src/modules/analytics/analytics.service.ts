@@ -159,23 +159,28 @@ export class AnalyticsService {
     valueStotinki: number | null;
   }): Promise<void> {
     try {
-      const existing = await this.db
-        .select({ id: siteEvents.id })
-        .from(siteEvents)
-        .where(and(
-          eq(siteEvents.tenantId, input.tenantId),
-          eq(siteEvents.orderId, input.orderId),
-          eq(siteEvents.eventType, 'purchase'),
-        ))
-        .limit(1);
-      if (existing.length) return;
-      await this.db.insert(siteEvents).values({
-        tenantId: input.tenantId,
-        visitorHash: input.visitorHash,
-        eventType: 'purchase',
-        orderId: input.orderId,
-        valueStotinki: input.valueStotinki,
-      });
+      // Partial unique index site_events_purchase_order_uniq (tenant_id, order_id)
+      // WHERE event_type='purchase' makes this atomic — Stripe's twin webhooks (or
+      // a courier split / backfill re-run) racing here both hit the same conflict
+      // target and only one row survives, instead of the old check-then-insert
+      // (which could both observe "no row" and double-insert) that also had no
+      // index on order_id and scanned every purchase row the tenant ever recorded.
+      await this.db
+        .insert(siteEvents)
+        .values({
+          tenantId: input.tenantId,
+          visitorHash: input.visitorHash,
+          eventType: 'purchase',
+          orderId: input.orderId,
+          valueStotinki: input.valueStotinki,
+        })
+        .onConflictDoNothing({
+          target: [siteEvents.tenantId, siteEvents.orderId],
+          // Conflict inference against a PARTIAL unique index must repeat its WHERE
+          // predicate, or Postgres can't match the index and errors "there is no
+          // unique or exclusion constraint matching the ON CONFLICT specification".
+          where: sql`${siteEvents.eventType} = 'purchase'`,
+        });
     } catch (err) {
       this.log.warn(`recordPurchase failed for order ${input.orderId}: ${err}`);
     }

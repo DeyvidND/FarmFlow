@@ -13,7 +13,7 @@ jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 function makeService(): SpeedyService {
   const db = {} as any;
   const config = { get: (_k: string, d: any) => d } as any;
-  const cache = { get: jest.fn(), set: jest.fn() } as any;
+  const cache = { get: jest.fn(), set: jest.fn(), del: jest.fn() } as any;
   const client = { call: jest.fn() } as any;
   const codRisk = {} as any;
   const shipmentEmail = { sendShipped: jest.fn() } as any;
@@ -214,7 +214,7 @@ describe('SpeedyService farmer-scoped single-source decision', () => {
     const select = jest.fn();
     (svc as any).db = { select };
     const out = await svc.listShipments('t1', 'farmer-1');
-    expect(out).toEqual([]);
+    expect(out).toEqual({ items: [], nextCursor: null });
     expect(select).not.toHaveBeenCalled();
   });
 
@@ -388,15 +388,20 @@ function renderSqlAst(x: unknown, depth = 0): string {
 }
 
 describe('syncOrderCodOutcome (speedy)', () => {
-  /** db whose update(orders).set(...).where(...) resolves immediately. Callers read
-   *  `set.mock.calls[0][0]` (the payload passed to .set()) after awaiting the call. */
-  function makeSvcWithDbSpy() {
+  /** db whose update(orders).set(...).where(...).returning(...) resolves to one
+   *  written row (the no-clobber guard matched) by default. Callers read
+   *  `set.mock.calls[0][0]` (the payload passed to .set()) after awaiting the call.
+   *  `cache.del` is a spy so the payments-cache-bust wiring can be asserted too. */
+  function makeSvcWithDbSpy(returningResult: unknown[] = [{ id: 'o1', tenantId: 't1' }]) {
     const svc = makeService();
-    const where = jest.fn().mockResolvedValue(undefined);
+    const del = jest.fn().mockResolvedValue(undefined);
+    (svc as any).cache = { del };
+    const returning = jest.fn().mockResolvedValue(returningResult);
+    const where = jest.fn((..._args: unknown[]) => ({ returning }));
     const set = jest.fn((_payload: Record<string, unknown>) => ({ where }));
     const update = jest.fn(() => ({ set }));
     (svc as any).db = { update };
-    return { svc, update, set, where };
+    return { svc, update, set, where, returning, del };
   }
 
   it('sets received when COD collected', async () => {
@@ -434,6 +439,20 @@ describe('syncOrderCodOutcome (speedy)', () => {
     const { svc, update } = makeSvcWithDbSpy();
     await (svc as any).syncOrderCodOutcome({ orderId: null, tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date() } as any);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('busts the payments cache when the no-clobber guard actually wrote a row', async () => {
+    const { svc, del } = makeSvcWithDbSpy([{ id: 'o1', tenantId: 't1' }]);
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date(), status: 'delivered' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(del).toHaveBeenCalledWith('payments:totals:t1', 'payments:list:t1:all', 'payments:list:t1:cod');
+  });
+
+  it('does not bust the payments cache when the guard matched no row (already had an outcome)', async () => {
+    const { svc, del } = makeSvcWithDbSpy([]);
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date(), status: 'delivered' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(del).not.toHaveBeenCalled();
   });
 });
 

@@ -127,6 +127,7 @@ function makeSvc(
     {} as never,
     {} as never,
     {} as never,
+    { invalidate: jest.fn() } as never,
   );
 }
 

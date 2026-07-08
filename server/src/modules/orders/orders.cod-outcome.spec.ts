@@ -50,6 +50,7 @@ function makeSvc(opts: {
     cache as never,
     {} as never,
     codRisk as never,
+    {} as never,
   );
   return { svc, db, cache, codRisk, updatedRow };
 }
@@ -134,6 +135,7 @@ describe('OrdersService.setCodOutcomeForFarmer ownership (multi-producer) guard'
     chain.where = jest.fn(() => Promise.resolve(lineItems));
     return new OrdersService(
       chain as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

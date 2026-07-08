@@ -35,6 +35,7 @@ import { OrderConfirmationService } from '../order-email/order-confirmation.serv
 import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from './carrier-fulfillment.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
+import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay } from './order-scheduling';
@@ -432,6 +433,7 @@ export class OrdersService {
     private readonly cache: PublicCacheService,
     private readonly carrierFulfillment: CarrierFulfillmentService,
     private readonly codRisk: CodRiskService,
+    private readonly catalogCache: CatalogCacheService,
   ) {}
 
   /**
@@ -734,26 +736,30 @@ export class OrdersService {
     // Totals: same line-item join, grouped by channel. count(distinct orders.id) so
     // a single order with two of the producer's items counts once; the card paid
     // split filters on orders.paidAt (money actually received). Not cached.
-    const aggRows = await this.db
-      .select({
-        paymentMethod: orders.paymentMethod,
-        count: sql<number>`count(distinct ${orders.id})::int`,
-        totalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}), 0)::int`,
-        paidCount: sql<number>`count(distinct ${orders.id}) filter (where ${orders.paidAt} is not null)::int`,
-        paidTotalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.paidAt} is not null), 0)::int`,
-      })
-      .from(orderItems)
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .innerJoin(products, eq(products.id, orderItems.productId))
-      .where(
-        and(
-          eq(orders.tenantId, tenantId),
-          eq(products.farmerId, farmerId),
-          inArray(orders.status, [...PAYMENT_COUNTED_STATUSES]),
-        ),
-      )
-      .groupBy(orders.paymentMethod);
-    // Totals are global (ignore search/page) — only returned on the first page.
+    // Totals are global (ignore search/page) — only computed on the first page; a
+    // «load more» fetch (cur set) would otherwise run this full-history aggregate
+    // and then discard the result unused.
+    const aggRows = cur
+      ? []
+      : await this.db
+          .select({
+            paymentMethod: orders.paymentMethod,
+            count: sql<number>`count(distinct ${orders.id})::int`,
+            totalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}), 0)::int`,
+            paidCount: sql<number>`count(distinct ${orders.id}) filter (where ${orders.paidAt} is not null)::int`,
+            paidTotalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.paidAt} is not null), 0)::int`,
+          })
+          .from(orderItems)
+          .innerJoin(orders, eq(orders.id, orderItems.orderId))
+          .innerJoin(products, eq(products.id, orderItems.productId))
+          .where(
+            and(
+              eq(orders.tenantId, tenantId),
+              eq(products.farmerId, farmerId),
+              inArray(orders.status, [...PAYMENT_COUNTED_STATUSES]),
+            ),
+          )
+          .groupBy(orders.paymentMethod);
     const totals = cur ? null : paymentTotals(aggRows as PaymentAggRow[]);
 
     return { totals, orders: items.map(toPaymentOrder), nextCursor };
@@ -1016,6 +1022,7 @@ export class OrdersService {
       }
     }
 
+    let variantStockTouched = false;
     await this.db.transaction(async (tx) => {
       // Slot reassign — only when slotId is present in the patch and differs.
       if (dto.slotId !== undefined && dto.slotId !== current.slotId && dto.slotId !== null) {
@@ -1042,13 +1049,20 @@ export class OrdersService {
       if (dto.items) {
         const oldItems = await tx.select().from(orderItems).where(eq(orderItems.orderId, id));
         await this.restoreAvailabilityWindows(tx, tenantId, oldItems);
-        await this.restoreVariantStock(tx, oldItems);
+        const oldTouched = await this.restoreVariantStock(tx, oldItems);
 
         const carrierDelivery =
           current.deliveryType === 'econt' ||
           current.deliveryType === 'econt_address' ||
           current.deliveryType === 'courier';
-        const { items: prepared } = await this.reserveCartItems(tx, tenantId, dto.items, null, carrierDelivery);
+        const { items: prepared, variantStockTouched: newTouched } = await this.reserveCartItems(
+          tx,
+          tenantId,
+          dto.items,
+          null,
+          carrierDelivery,
+        );
+        variantStockTouched = oldTouched || newTouched;
         const lines = prepared.map(({ farmerId: _f, ...line }) => line);
 
         await tx.delete(orderItems).where(eq(orderItems.orderId, id));
@@ -1065,6 +1079,9 @@ export class OrdersService {
     });
 
     await this.bustPayments(tenantId);
+    // Cached public catalog bakes soldOut from variant stock — a variant crossing
+    // to/from 0 here would otherwise show wrong for up to the catalog TTL.
+    if (variantStockTouched) await this.catalogCache.invalidate(tenantId);
     return this.findOne(id, tenantId);
   }
 
@@ -1095,6 +1112,7 @@ export class OrdersService {
     // active availability window (best-effort — only while the window is still
     // active; expired windows are left as-is). The into-cancelled transition is
     // claimed atomically inside the tx so two concurrent cancels can't both restore.
+    let variantStockTouched = false;
     if (dto.status === 'cancelled' && prev?.status !== 'cancelled') {
       await this.db.transaction(async (tx) => {
         // Atomic claim: lock the order row and flip its status to 'cancelled' ONLY
@@ -1121,11 +1139,15 @@ export class OrdersService {
           .from(orderItems)
           .where(eq(orderItems.orderId, id));
         await this.restoreAvailabilityWindows(tx, tenantId, items);
+        variantStockTouched = await this.restoreVariantStock(tx, items);
       });
     }
     // Status change moves the order in/out of the counted set (and flips collected
     // for COD) — refresh the Плащания cache.
     await this.bustPayments(tenantId);
+    // Restoring variant stock can flip a cached soldOut back to available —
+    // storefront must not keep serving the stale sold-out state.
+    if (variantStockTouched) await this.catalogCache.invalidate(tenantId);
     return row;
   }
 
@@ -1435,15 +1457,17 @@ export class OrdersService {
   /**
    * Add each variant line's quantity back to its variant stock counter (NULL =
    * unlimited, skipped). Rows locked in id order (deadlock-free). Used by the
-   * order-edit path — variant stock is decremented by reserveCartItems, so an
-   * edit that drops/reduces a variant line must return that stock.
+   * order-edit and cancel paths — variant stock is decremented by
+   * reserveCartItems, so an edit that drops/reduces a variant line, or a
+   * cancel of the whole order, must return that stock. Returns whether any
+   * finite-stock variant was touched (caller busts catalog:{tid} on true).
    */
   private async restoreVariantStock(
     tx: Tx,
     items: { variantId: string | null; quantity: number }[],
-  ): Promise<void> {
+  ): Promise<boolean> {
     const variantIds = items.map((it) => it.variantId).filter((v): v is string => !!v);
-    if (!variantIds.length) return;
+    if (!variantIds.length) return false;
     const rows = await tx
       .select()
       .from(productVariants)
@@ -1460,6 +1484,7 @@ export class OrdersService {
       const restored = v.stockQuantity + (add.get(v.id) ?? 0);
       await tx.update(productVariants).set({ stockQuantity: restored }).where(eq(productVariants.id, v.id));
     }
+    return rows.some((v) => v.stockQuantity != null);
   }
 
   /**
@@ -1481,7 +1506,15 @@ export class OrdersService {
     // cart is rejected: it must never end up on a waybill. Self-delivery + pickup
     // pass false here, so those products still sell through those channels.
     carrierDelivery = false,
-  ): Promise<{ items: PreparedItem[]; slotFrom: string | null; slotTo: string | null; slotDate: string | null }> {
+  ): Promise<{
+    items: PreparedItem[];
+    slotFrom: string | null;
+    slotTo: string | null;
+    slotDate: string | null;
+    /** True when any line reserved variant stock — caller busts catalog:{tid} after commit
+     *  (cached soldOut would otherwise lag a variant crossing to/from 0 for up to its TTL). */
+    variantStockTouched: boolean;
+  }> {
     const productIds = dtoItems.map((i) => i.productId);
     const prods = await tx
       .select()
@@ -1621,7 +1654,7 @@ export class OrdersService {
       };
     });
 
-    return { items, slotFrom, slotTo, slotDate };
+    return { items, slotFrom, slotTo, slotDate, variantStockTouched: dtoItems.some((it) => !!it.variantId) };
   }
 
   /**
@@ -1755,20 +1788,22 @@ export class OrdersService {
       });
     }
 
-    return this.db.transaction(async (tx) => {
+    let variantStockTouched = false;
+    const result = await this.db.transaction(async (tx) => {
       // Only local farm delivery consumes a slot; courier/Econt orders never count
       // against the farm's delivery capacity.
       const slotId = isLocal ? dto.slotId ?? null : null;
       // Econt office/door are carrier (waybill) deliveries → enforce the pickup-only
       // block. Local self-delivery (address) + pickup never touch a waybill.
       const carrierDelivery = method === 'econt' || method === 'econt_address';
-      const { items: prepared, slotFrom, slotTo, slotDate } = await this.reserveCartItems(
-        tx,
-        tenant.id,
-        dto.items,
-        slotId,
-        carrierDelivery,
-      );
+      const {
+        items: prepared,
+        slotFrom,
+        slotTo,
+        slotDate,
+        variantStockTouched: touched,
+      } = await this.reserveCartItems(tx, tenant.id, dto.items, slotId, carrierDelivery);
+      variantStockTouched = touched;
       const total = prepared.reduce((s, i) => s + i.priceStotinki * i.quantity, 0);
       // order_items has no farmer_id column — strip it before insert.
       const items = prepared.map(({ farmerId: _f, ...line }) => line);
@@ -1821,6 +1856,10 @@ export class OrdersService {
 
       return { ...order, slotFrom, slotTo, slotDate, items: inserted };
     });
+    // Cached public catalog bakes soldOut from variant stock — bust it or a variant
+    // that just sold out (or a cancel/restore elsewhere) shows wrong until its TTL.
+    if (variantStockTouched) await this.catalogCache.invalidate(tenant.id);
+    return result;
   }
 
   /**
@@ -1876,8 +1915,16 @@ export class OrdersService {
       });
     }
 
-    return this.db.transaction(async (tx) => {
-      const { items: prepared } = await this.reserveCartItems(tx, tenant.id, dto.items, null, true);
+    let variantStockTouched = false;
+    const result = await this.db.transaction(async (tx) => {
+      const { items: prepared, variantStockTouched: touched } = await this.reserveCartItems(
+        tx,
+        tenant.id,
+        dto.items,
+        null,
+        true,
+      );
+      variantStockTouched = touched;
 
       // Every courier line must resolve to a farmer (the split key).
       if (prepared.some((i) => i.farmerId == null)) {
@@ -1978,6 +2025,8 @@ export class OrdersService {
       }
       return out;
     });
+    if (variantStockTouched) await this.catalogCache.invalidate(tenant.id);
+    return result;
   }
 
   /**

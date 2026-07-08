@@ -11,6 +11,8 @@ import { and, eq, desc, inArray, ne, isNotNull, isNull, sql } from 'drizzle-orm'
 import { type Database, tenants, orders, orderItems, shipments } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
+import { buildKeysetPage, clampLimit, cursorTs, keysetAfter, KEYSET_TS } from '../../common/pagination/keyset';
+import { decodeCursor } from '../../common/pagination/cursor';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
 import { deriveSenderFromFarm } from './econt.sender';
 import { isEcontLabelUrl } from './econt-label-url';
@@ -54,11 +56,21 @@ const EMPTY_OFFICES_TTL = 60; // 60 seconds
 // Shipping estimate cache: Econt pricing is stable intraday; 8h balances freshness
 // against the checkout latency cost of a live API call.
 const ESTIMATE_TTL = 60 * 60 * 8; // 8 hours
+// getShipmentStatuses accepts an array of shipment numbers; Econt docs place no hard
+// cap on it, but this bounds request/response payload size per tenant per cron tick.
+const STATUS_BATCH_SIZE = 50;
 // Cap a single bulk label-print request: bounds peak memory + serial Econt fetch
 // time, and matches what the admin table realistically selects at once.
 const MAX_BULK_LABELS = 50;
+// Manual (order-less, standalone econt-app) shipments aren't keyset-paginated —
+// low-volume feature, capped instead of a second cursor space. See listShipments.
+const MANUAL_SHIPMENTS_CAP = 200;
 
-
+/** One keyset page of the admin/farmer shipments list. */
+export interface ShipmentsPage {
+  items: AdminShipment[];
+  nextCursor: string | null;
+}
 
 interface ResolvedCreds {
   base: string;
@@ -638,12 +650,16 @@ export class EcontService implements CarrierAdapter {
   /** Cache key for a live estimate. COD bucketed to 10€ (1000 stotinki) so COD
    *  baskets still share entries without colliding with the non-COD price for the
    *  same destination. The `:cod0` suffix is always present so COD and non-COD
-   *  calls NEVER share a cache entry (price differs by the COD surcharge). */
+   *  calls NEVER share a cache entry (price differs by the COD surcharge). The
+   *  sender fingerprint is included too — pricing is origin-dependent, and
+   *  `saveSenders` only busts `tenant:{slug}`, not this 8h key, so a sender change
+   *  must fall out of the key naturally rather than serving a stale-origin quote. */
   private estimateKeyFor(
     tenantId: string,
     order: { deliveryType?: string | null; deliveryCity?: string | null; econtOffice: string | null },
     weightKg: number,
     codAmountStotinki: number,
+    sender?: Record<string, unknown>,
   ): string {
     const weightBucket = bucketWeight(weightKg);
     const destination =
@@ -651,7 +667,12 @@ export class EcontService implements CarrierAdapter {
         ? `city:${(order.deliveryCity ?? '').toLowerCase()}`
         : `office:${order.econtOffice ?? ''}`;
     const codBucket = codAmountStotinki > 0 ? Math.ceil(codAmountStotinki / 1000) * 1000 : 0;
-    return `econt:estimate:${tenantId}:${destination}:${weightBucket}kg:cod${codBucket}`;
+    const s = sender ?? {};
+    const origin =
+      s.mode === 'address'
+        ? `city:${String(s.cityName ?? '').toLowerCase()}`
+        : `office:${String(s.officeCode ?? '')}`;
+    return `econt:estimate:${tenantId}:from${origin}:${destination}:${weightBucket}kg:cod${codBucket}`;
   }
 
   /** Price-only estimate (Econt `mode:calculate`). Returns stotinki, or null on any failure. */
@@ -687,7 +708,7 @@ export class EcontService implements CarrierAdapter {
       // We deliberately exclude customerName/phone — those don't affect price.
       const rawWeightKg = weightKgOverride ?? (econt.defaultPackage?.weightKg ?? 1);
       const cod = codAmountStotinki ?? 0;
-      const estimateKey = this.estimateKeyFor(tenantId, order, rawWeightKg, cod);
+      const estimateKey = this.estimateKeyFor(tenantId, order, rawWeightKg, cod, econt.sender);
 
       const cachedEstimate = await this.cache.get<number>(estimateKey);
       if (cachedEstimate !== null) return cachedEstimate;
@@ -1115,17 +1136,36 @@ export class EcontService implements CarrierAdapter {
   /**
    * Econt orders (office + door) joined with their shipment, shaped for the admin
    * shipments table: every Econt order is shown so the farm can create a waybill,
-   * and rows that already have one carry its tracking number + status.
+   * and rows that already have one carry its tracking number + status. Keyset-
+   * paginated on (orders.created_at, orders.id) — this was an unbounded scan of the
+   * tenant's whole shipment history (incl. the heavy trackingJson blob per row) on
+   * a hot admin-panel endpoint; `history` is never rendered by a list row in either
+   * frontend, so trackingJson is dropped from the projection entirely here.
    */
-  async listShipments(tenantId: string, farmerId?: string): Promise<AdminShipment[]> {
+  async listShipments(
+    tenantId: string,
+    farmerId?: string,
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<ShipmentsPage> {
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+
     // Phase 3: a farmer sees their OWN courier queue. Econt is the single source of the
     // carrier-neutral courier list (a draft has no carrier until ship time, so Speedy
     // returns [] to avoid listing each draft twice — once per carrier tab). We join the
     // farmer's non-cancelled courier orders to their (draft/finalized) shipment row and
     // emit the SAME AdminShipment shape as the admin path via mapShipmentRow.
     if (farmerId) {
+      const conds = [
+        eq(orders.tenantId, tenantId),
+        eq(orders.deliveryType, 'courier'),
+        eq(orders.farmerId, farmerId),
+        ne(orders.status, 'cancelled'),
+      ];
+      if (cur) conds.push(keysetAfter(orders.createdAt, orders.id, cur, 'desc'));
       const rows = await this.db
         .select({
+          id: orders.id, // required by buildKeysetPage's cursor; mapper reads orderId below
           orderId: orders.id,
           customerName: orders.customerName,
           deliveryType: orders.deliveryType,
@@ -1136,31 +1176,38 @@ export class EcontService implements CarrierAdapter {
           courierPrice: shipments.courierPriceStotinki,
           labelPdfUrl: shipments.labelPdfUrl,
           codAmount: shipments.codAmountStotinki,
-          trackingJson: shipments.trackingJson,
           carrier: shipments.carrier,
           orderCarrier: orders.carrier,
           trackingNumber: shipments.trackingNumber,
           carrierShipmentId: shipments.carrierShipmentId,
           courierRequestStatus: shipments.courierRequestStatus,
+          [KEYSET_TS]: cursorTs(orders.createdAt),
         })
         .from(orders)
         .leftJoin(shipments, eq(shipments.orderId, orders.id))
-        .where(
-          and(
-            eq(orders.tenantId, tenantId),
-            eq(orders.deliveryType, 'courier'),
-            eq(orders.farmerId, farmerId),
-            ne(orders.status, 'cancelled'),
-          ),
-        )
-        .orderBy(desc(orders.createdAt));
-      return rows.map(mapShipmentRow);
+        .where(and(...conds))
+        .orderBy(desc(orders.createdAt), desc(orders.id))
+        .limit(lim + 1);
+      const { items, nextCursor } = buildKeysetPage(rows, lim);
+      return { items: items.map(mapShipmentRow), nextCursor };
     }
-    // The order-join query and the manual (order-less) query are independent — run
-    // them concurrently rather than back-to-back on this hot admin-panel endpoint.
+
+    const orderConds = [
+      eq(orders.tenantId, tenantId),
+      inArray(orders.deliveryType, ['econt', 'econt_address']),
+      ne(orders.status, 'cancelled'),
+    ];
+    if (cur) orderConds.push(keysetAfter(orders.createdAt, orders.id, cur, 'desc'));
+    // The order-join page and the manual (order-less) shipments are independent —
+    // run them concurrently rather than back-to-back on this hot admin-panel
+    // endpoint. Manual shipments (standalone econt-app, order-less) are prepended
+    // on the FIRST page only (they'd otherwise re-appear on every "load more" page,
+    // since they don't share the orders keyset) and capped at MANUAL_SHIPMENTS_CAP —
+    // that feature is currently low-volume; give it real pagination if it scales.
     const [rows, manual] = await Promise.all([
       this.db
         .select({
+          id: orders.id, // required by buildKeysetPage's cursor; mapper reads orderId below
           orderId: orders.id,
           customerName: orders.customerName,
           deliveryType: orders.deliveryType,
@@ -1171,50 +1218,48 @@ export class EcontService implements CarrierAdapter {
           courierPrice: shipments.courierPriceStotinki,
           labelPdfUrl: shipments.labelPdfUrl,
           codAmount: shipments.codAmountStotinki,
-          trackingJson: shipments.trackingJson,
           // Carrier columns — needed to route panel actions (print/void/refresh) correctly.
           carrier: shipments.carrier,
           orderCarrier: orders.carrier,
           trackingNumber: shipments.trackingNumber,
           carrierShipmentId: shipments.carrierShipmentId,
           courierRequestStatus: shipments.courierRequestStatus,
+          [KEYSET_TS]: cursorTs(orders.createdAt),
         })
         .from(orders)
         .leftJoin(shipments, eq(shipments.orderId, orders.id))
-        .where(
-          and(
-            eq(orders.tenantId, tenantId),
-            inArray(orders.deliveryType, ['econt', 'econt_address']),
-            ne(orders.status, 'cancelled'),
-          ),
-        )
-        .orderBy(desc(orders.createdAt)),
-      // Manual (order-less) shipments created in the standalone app.
-      this.db
-        .select({
-          shipmentId: shipments.id,
-          orderId: shipments.orderId,
-          receiverName: shipments.receiverName,
-          deliveryMode: shipments.deliveryMode,
-          shipmentNumber: shipments.econtShipmentNumber,
-          shipmentStatus: shipments.status,
-          courierPrice: shipments.courierPriceStotinki,
-          labelPdfUrl: shipments.labelPdfUrl,
-          codAmount: shipments.codAmountStotinki,
-          trackingJson: shipments.trackingJson,
-          // Carrier columns — needed to route panel actions (print/void/refresh) correctly.
-          carrier: shipments.carrier,
-          trackingNumber: shipments.trackingNumber,
-          carrierShipmentId: shipments.carrierShipmentId,
-          courierRequestStatus: shipments.courierRequestStatus,
-        })
-        .from(shipments)
-        .where(and(eq(shipments.tenantId, tenantId), isNull(shipments.orderId)))
-        .orderBy(desc(shipments.createdAt)),
+        .where(and(...orderConds))
+        .orderBy(desc(orders.createdAt), desc(orders.id))
+        .limit(lim + 1),
+      cur
+        ? Promise.resolve([])
+        : this.db
+            .select({
+              shipmentId: shipments.id,
+              orderId: shipments.orderId,
+              receiverName: shipments.receiverName,
+              deliveryMode: shipments.deliveryMode,
+              shipmentNumber: shipments.econtShipmentNumber,
+              shipmentStatus: shipments.status,
+              courierPrice: shipments.courierPriceStotinki,
+              labelPdfUrl: shipments.labelPdfUrl,
+              codAmount: shipments.codAmountStotinki,
+              // Carrier columns — needed to route panel actions (print/void/refresh) correctly.
+              carrier: shipments.carrier,
+              trackingNumber: shipments.trackingNumber,
+              carrierShipmentId: shipments.carrierShipmentId,
+              courierRequestStatus: shipments.courierRequestStatus,
+            })
+            .from(shipments)
+            .where(and(eq(shipments.tenantId, tenantId), isNull(shipments.orderId)))
+            .orderBy(desc(shipments.createdAt))
+            .limit(MANUAL_SHIPMENTS_CAP),
     ]);
 
-    const orderShipments = rows.map(mapShipmentRow);
-    return [...manual.map(mapManualShipmentRow), ...orderShipments];
+    const { items, nextCursor } = buildKeysetPage(rows, lim);
+    const orderShipments = items.map(mapShipmentRow);
+    const manualShipments = manual.map(mapManualShipmentRow);
+    return { items: cur ? orderShipments : [...manualShipments, ...orderShipments], nextCursor };
   }
 
   /** Refresh a shipment's status from Econt. */
@@ -1246,11 +1291,26 @@ export class EcontService implements CarrierAdapter {
     farmerId?: string,
   ): Promise<typeof shipments.$inferSelect> {
     if (!row.econtShipmentNumber || !row.tenantId) return row;
-    const tenantId = row.tenantId;
-    const data = await this.callTenant(tenantId, 'Shipments/ShipmentService.getShipmentStatuses.json', {
+    const data = await this.callTenant(row.tenantId, 'Shipments/ShipmentService.getShipmentStatuses.json', {
       shipmentNumbers: [row.econtShipmentNumber],
     }, undefined, undefined, farmerId);
-    const st = data?.shipmentStatuses?.[0]?.status ?? data?.shipmentStatuses?.[0] ?? null;
+    const entry = data?.shipmentStatuses?.[0];
+    const st = entry?.status ?? entry ?? null;
+    return this.applyShipmentStatus(row, st);
+  }
+
+  /**
+   * Persist an already-fetched Econt status onto a row and fire the shipped-email +
+   * COD-risk + COD-outcome side effects. Split out of {@link refreshStatusForRow} so
+   * {@link refreshActiveShipments} can batch the getShipmentStatuses call per tenant
+   * (one call with N shipmentNumbers instead of N calls) and still reuse this per-row
+   * persistence logic with the response entry Econt correlates back to it.
+   */
+  private async applyShipmentStatus(
+    row: typeof shipments.$inferSelect,
+    st: any,
+  ): Promise<typeof shipments.$inferSelect> {
+    const tenantId = row.tenantId!;
     const cod = parseCodReconciliation(st);
     const [updated] = await this.db
       .update(shipments)
@@ -1302,10 +1362,21 @@ export class EcontService implements CarrierAdapter {
     if (isReturnedStatus(shipment.status)) outcome = 'refused';
     else if (shipment.codCollectedAt != null) outcome = 'received';
     if (!outcome) return;
-    await this.db
+    const written = await this.db
       .update(orders)
       .set({ codOutcome: outcome, codOutcomeAt: new Date(), codOutcomeSource: 'courier' })
-      .where(and(eq(orders.id, shipment.orderId), sql`${orders.codOutcome} is null`));
+      .where(and(eq(orders.id, shipment.orderId), sql`${orders.codOutcome} is null`))
+      .returning({ id: orders.id, tenantId: orders.tenantId });
+    // Плащания reads codOutcome from the cached payments list/totals — the manual
+    // setCodOutcome path busts them; this carrier-driven sync must too, or the COD
+    // badge lags up to PAYMENTS_CACHE_TTL (60s) after an auto-sync.
+    if (written[0]?.tenantId) {
+      await this.cache.del(
+        `payments:totals:${written[0].tenantId}`,
+        `payments:list:${written[0].tenantId}:all`,
+        `payments:list:${written[0].tenantId}:cod`,
+      );
+    }
   }
 
   /**
@@ -1318,24 +1389,56 @@ export class EcontService implements CarrierAdapter {
     // (every carrier, every status, incl. terminal) to the carrier index prefix.
     // Terminal-state exclusion stays in JS: stored `status` is Econt's raw text and
     // uiShipmentStatus maps it by substring, which can't be expressed sargably.
-    // Selecting full rows lets refreshStatusForRow run without a per-shipment re-SELECT.
+    // Selecting full rows lets applyShipmentStatus run without a per-shipment re-SELECT.
     const rows = await this.db
       .select()
       .from(shipments)
       .where(and(eq(shipments.carrier, 'econt'), isNotNull(shipments.econtShipmentNumber)));
-    let refreshed = 0;
-    for (const r of rows) {
-      if (!r.tenantId) continue;
-      // Skip terminal states (delivered + returned/refused) — no point re-polling Econt.
+    // Skip terminal states (delivered + returned/refused) and tenant-less rows up front,
+    // then group by tenant: getShipmentStatuses takes an array, and Econt confirms each
+    // response entry carries its own `status.shipmentNumber` (not positional-only), so one
+    // call per tenant with all its shipment numbers safely replaces one call per shipment.
+    const eligible = rows.filter((r) => {
+      if (!r.tenantId) return false;
       const ui = uiShipmentStatus(r.econtShipmentNumber, r.status);
-      if (ui === 'delivered' || ui === 'returned' || ui === 'refused') continue;
-      try {
-        await this.refreshStatusForRow(r);
-        refreshed++;
-      } catch (err) {
-        this.logger.warn(
-          `[econt] refresh failed for shipment ${r.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+      return ui !== 'delivered' && ui !== 'returned' && ui !== 'refused';
+    });
+    const byTenant = new Map<string, (typeof shipments.$inferSelect)[]>();
+    for (const r of eligible) {
+      const list = byTenant.get(r.tenantId!);
+      if (list) list.push(r);
+      else byTenant.set(r.tenantId!, [r]);
+    }
+    let refreshed = 0;
+    for (const [tenantId, tenantRows] of byTenant) {
+      for (let i = 0; i < tenantRows.length; i += STATUS_BATCH_SIZE) {
+        const chunk = tenantRows.slice(i, i + STATUS_BATCH_SIZE);
+        let statusByNumber: Map<string, any>;
+        try {
+          const data = await this.callTenant(tenantId, 'Shipments/ShipmentService.getShipmentStatuses.json', {
+            shipmentNumbers: chunk.map((r) => r.econtShipmentNumber),
+          });
+          statusByNumber = new Map();
+          for (const entry of data?.shipmentStatuses ?? []) {
+            const st = entry?.status ?? entry;
+            if (st?.shipmentNumber) statusByNumber.set(st.shipmentNumber, st);
+          }
+        } catch (err) {
+          this.logger.warn(
+            `[econt] batch status fetch failed for tenant ${tenantId} (${chunk.length} shipments): ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+        for (const r of chunk) {
+          try {
+            await this.applyShipmentStatus(r, statusByNumber.get(r.econtShipmentNumber!) ?? null);
+            refreshed++;
+          } catch (err) {
+            this.logger.warn(
+              `[econt] refresh failed for shipment ${r.id}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
       }
     }
     return { refreshed };

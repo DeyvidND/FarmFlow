@@ -492,6 +492,11 @@ export const siteEvents = pgTable(
       t.eventType,
       t.createdAt,
     ),
+    // Purchase idempotency: one purchase row per (tenant, order). Lets recordPurchase
+    // use ON CONFLICT DO NOTHING instead of a racy, unindexed check-then-insert.
+    purchaseOrderUniq: uniqueIndex('site_events_purchase_order_uniq')
+      .on(t.tenantId, t.orderId)
+      .where(sql`${t.eventType} = 'purchase'`),
   }),
 );
 
@@ -563,6 +568,8 @@ export const shipments = pgTable(
     // cod-risk listCandidates: WHERE tenant_id=? AND report_status='candidate'.
     tenantReportIdx: index('shipments_tenant_report_idx').on(t.tenantId, t.reportStatus),
     tenantFarmerIdx: index('shipments_tenant_farmer_idx').on(t.tenantId, t.farmerId),
+    // Panel/dostavki shipments list keyset: WHERE tenant_id=? ORDER BY created_at desc, id desc.
+    tenantCreatedIdx: index('shipments_tenant_created_idx').on(t.tenantId, t.createdAt, t.id),
   }),
 );
 
@@ -694,6 +701,8 @@ export const auditLogs = pgTable(
     tenantIdx: index('audit_logs_tenant_idx').on(t.tenantId),
     // Producer drill-down: filter the audit feed to one farmer, newest-first.
     farmerIdx: index('audit_logs_farmer_idx').on(t.farmerId, t.createdAt),
+    // Unfiltered super-admin feed: ORDER BY created_at desc, id desc, no filter.
+    createdIdx: index('audit_logs_created_idx').on(t.createdAt, t.id),
   }),
 );
 

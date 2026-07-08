@@ -26,7 +26,9 @@ export interface ShipmentJoinRow {
   courierPrice: number | null;
   labelPdfUrl: string | null;
   codAmount: number | null;
-  trackingJson: unknown;
+  /** Not selected by the list query (dropped: heavy, and history is never rendered
+   *  in a list row) — undefined there; only populated by a single-shipment fetch. */
+  trackingJson?: unknown;
   /** Carrier recorded on the shipments row (set for Speedy; null for legacy Econt rows). */
   carrier: string | null;
   /** Carrier recorded on the order (the customer's choice at checkout). */
@@ -90,7 +92,9 @@ export interface ManualShipmentRow {
   courierPrice: number | null;
   labelPdfUrl: string | null;
   codAmount: number | null;
-  trackingJson: unknown;
+  /** Not selected by the list query (dropped: heavy, and history is never rendered
+   *  in a list row) — undefined there; only populated by a single-shipment fetch. */
+  trackingJson?: unknown;
   /** Carrier recorded on the shipments row (set for Speedy; null for legacy Econt rows). */
   carrier: string | null;
   /** Speedy barcode / tracking number from the shipments row. */

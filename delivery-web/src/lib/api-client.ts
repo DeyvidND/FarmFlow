@@ -172,8 +172,10 @@ const speedyMethodLabel = (m: SpeedyAdminShipment['deliveryMode']): string =>
   m === 'address' ? 'До адрес' : 'До офис';
 
 export const listEcontShipments = async (): Promise<ShipmentRow[]> => {
-  const rows: EcontAdminShipment[] = await (await bff('shipping/shipments')).json();
-  return rows.map((r) => ({
+  // First page only (server default limit) — bounded like every other list in the
+  // app; deep history beyond the first page is a follow-up "load more" UX task.
+  const page: { items: EcontAdminShipment[] } = await (await bff('shipping/shipments')).json();
+  return page.items.map((r) => ({
     carrier: 'econt' as const,
     rowKey: `econt:${r.shipmentId ?? r.orderId}`,
     shipmentId: r.shipmentId ?? null,
@@ -193,8 +195,9 @@ export const listEcontShipments = async (): Promise<ShipmentRow[]> => {
 };
 
 export const listSpeedyShipments = async (): Promise<ShipmentRow[]> => {
-  const rows: SpeedyAdminShipment[] = await (await bff('speedy/shipments')).json();
-  return rows.map((r) => ({
+  // First page only (server default limit) — see listEcontShipments.
+  const page: { items: SpeedyAdminShipment[] } = await (await bff('speedy/shipments')).json();
+  return page.items.map((r) => ({
     carrier: 'speedy' as const,
     rowKey: `speedy:${r.shipmentId}`,
     shipmentId: r.shipmentId,

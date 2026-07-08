@@ -575,6 +575,13 @@
       "when": 1783448616412,
       "tag": "0081_day_slots",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1783489533814,
+      "tag": "0082_audit_perf_indexes",
+      "breakpoints": true
     }
   ]
 }

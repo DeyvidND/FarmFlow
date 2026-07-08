@@ -7,7 +7,7 @@ import {
 import { and, eq, ne, gte, lte, sql, getTableColumns, inArray } from 'drizzle-orm';
 import { type Database, deliverySlots, orders, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
-import { PublicCacheService } from '../../common/cache/public-cache.service';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { UpdateSlotDto } from './dto/update-slot.dto';
 import { SlotRule, slotRuleSlots, normalizeRule, migrateRule, clampCapacity } from './slot-rule';
@@ -335,14 +335,20 @@ export class SlotsService {
     } catch (e) {
       throw new BadRequestException(e instanceof Error ? e.message : 'Невалидно правило');
     }
-    await this.db
+    const [row] = await this.db
       .update(tenants)
       .set({
         settings: sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['slotRule'], ${JSON.stringify(
           rule,
         )}::jsonb, true)`,
       })
-      .where(eq(tenants.id, tenantId));
+      .where(eq(tenants.id, tenantId))
+      .returning({ slug: tenants.slug });
+
+    // The public `tenant:{slug}` cache bakes `ownSlots` (the checkout self-delivery
+    // schedule text + active flag) from slotRule — bust it or the storefront shows
+    // the OLD delivery day/active-state for up to PUBLIC_CACHE_TTL after a save.
+    if (row) await this.publicCache.del(publicCacheKeys.tenant(row.slug));
 
     // A rule edit that only changes capacity (or anything else) must still reach
     // future days: delete-then-rebuild is how that propagates, since

@@ -19,6 +19,10 @@ export interface RoutePlan {
    * contents are a permutation of `0..stops.length-1`.
    */
   order: number[];
+  /** Road geometry (Google's default ENCODED_POLYLINE) for origin→…→destination
+   *  in the OPTIMIZED order. Lets a caller whose stop-set fits in one request skip
+   *  a second, redundant Routes call (routeFixed) just to get the polyline. */
+  polyline: string | null;
 }
 
 const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
@@ -385,7 +389,10 @@ export class MapsService {
     // The destination is part of the optimized solution (Google reorders stops
     // for THIS origin→dest), so it must be in the cache key — otherwise a "home"
     // loop and a "custom end" route over the same stops would collide.
-    const key = this.routeKey('route', [origin, ...stops, dest]);
+    // `route2`: v2 key namespace. v1 entries cached no polyline, so a fresh prefix
+    // forces a single recompute that also stores the road geometry, letting a
+    // caller whose stop-set fits in one request skip a second Routes call.
+    const key = this.routeKey('route2', [origin, ...stops, dest]);
     const cached = await this.cachedGet<RoutePlan>(key);
     if (cached) return cached;
 
@@ -407,7 +414,7 @@ export class MapsService {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': this.apiKey,
           'X-Goog-FieldMask':
-            'routes.distanceMeters,routes.duration,routes.optimizedIntermediateWaypointIndex',
+            'routes.distanceMeters,routes.duration,routes.optimizedIntermediateWaypointIndex,routes.polyline.encodedPolyline',
         },
         body: JSON.stringify(body),
       });
@@ -430,7 +437,8 @@ export class MapsService {
         raw.every((i: unknown) => Number.isInteger(i) && (i as number) >= 0 && (i as number) < stops.length) &&
         new Set(raw).size === stops.length;
       const order: number[] = isPermutation ? raw : identity;
-      const plan: RoutePlan = { distanceM, durationS, order };
+      const polyline = typeof r.polyline?.encodedPolyline === 'string' ? r.polyline.encodedPolyline : null;
+      const plan: RoutePlan = { distanceM, durationS, order, polyline };
       await this.cachedSet(key, plan);
       return plan;
     } catch (err) {

@@ -53,24 +53,23 @@ describe('AnalyticsService.track', () => {
 });
 
 describe('AnalyticsService.recordPurchase', () => {
-  /** `select().from().where().limit()` returns `guardResult` (the existing-row
-   *  guard); `insert().values()` is the spy under test. */
-  function makeService(guardResult: unknown[], insertSpy: jest.Mock) {
-    const db = {
-      select: () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve(guardResult) }) }) }),
-      insert: () => ({ values: insertSpy }),
-    } as any;
+  /** insert().values().onConflictDoNothing() — the dedup itself is a Postgres-side
+   *  partial unique index (site_events_purchase_order_uniq); a unit test can only
+   *  assert the query shape that makes that index do its job, not the DB behavior. */
+  function makeService(onConflictDoNothing: jest.Mock) {
+    const values = jest.fn().mockReturnValue({ onConflictDoNothing });
+    const db = { insert: jest.fn().mockReturnValue({ values }) } as any;
     const cache = { resolveTenant: jest.fn() } as any;
     const config = { get: (k: string, d?: string) => d } as any;
-    return new AnalyticsService(db, cache, config);
+    return { svc: new AnalyticsService(db, cache, config), values };
   }
 
-  it('inserts a purchase row when no prior purchase event exists for the order', async () => {
-    const insert = jest.fn().mockResolvedValue(undefined);
-    const svc = makeService([], insert);
+  it('inserts a purchase row with an ON CONFLICT DO NOTHING guard on (tenant, order)', async () => {
+    const onConflictDoNothing = jest.fn().mockResolvedValue(undefined);
+    const { svc, values } = makeService(onConflictDoNothing);
     await svc.recordPurchase({ tenantId: 't1', orderId: 'o1', visitorHash: 'h1', valueStotinki: 2500 });
-    expect(insert).toHaveBeenCalledTimes(1);
-    const row = insert.mock.calls[0][0];
+    expect(values).toHaveBeenCalledTimes(1);
+    const row = values.mock.calls[0][0];
     expect(row).toEqual({
       tenantId: 't1',
       visitorHash: 'h1',
@@ -79,18 +78,17 @@ describe('AnalyticsService.recordPurchase', () => {
       valueStotinki: 2500,
     });
     expect(row).not.toHaveProperty('device');
-  });
-
-  it('skips the insert when a purchase row already exists for this order', async () => {
-    const insert = jest.fn();
-    const svc = makeService([{ id: 1 }], insert);
-    await svc.recordPurchase({ tenantId: 't1', orderId: 'o1', visitorHash: 'h1', valueStotinki: 2500 });
-    expect(insert).not.toHaveBeenCalled();
+    // Conflict target must match the partial unique index's columns; a caller
+    // that races (Stripe's twin webhooks) relies on Postgres — not this JS layer
+    // — to silently drop the second insert.
+    expect(onConflictDoNothing).toHaveBeenCalledTimes(1);
+    const conflictConfig = onConflictDoNothing.mock.calls[0][0];
+    expect(conflictConfig.target).toHaveLength(2);
   });
 
   it('swallows an insert failure instead of throwing', async () => {
-    const insert = jest.fn().mockRejectedValue(new Error('db down'));
-    const svc = makeService([], insert);
+    const onConflictDoNothing = jest.fn().mockRejectedValue(new Error('db down'));
+    const { svc } = makeService(onConflictDoNothing);
     await expect(
       svc.recordPurchase({ tenantId: 't1', orderId: 'o1', visitorHash: 'h1', valueStotinki: 2500 }),
     ).resolves.toBeUndefined();

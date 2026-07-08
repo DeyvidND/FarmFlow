@@ -10,6 +10,7 @@ import { SpeedyCoreModule } from '../speedy/speedy-core.module';
 import { OrderEmailModule } from '../order-email/order-email.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { CodRiskModule } from '../cod-risk/cod-risk.module';
+import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { CodRiskModule } from '../cod-risk/cod-risk.module';
     OrderEmailModule,
     AnalyticsModule,
     CodRiskModule,
+    CatalogCacheModule,
   ],
   controllers: [OrdersController, PublicOrdersController, PublicCheckoutController],
   providers: [OrdersService, CheckoutService],

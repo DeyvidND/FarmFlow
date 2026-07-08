@@ -703,7 +703,13 @@ export class ProductsService {
       .update(products)
       .set({ salePercent: null, saleEndsAt: null })
       .where(and(isNotNull(products.saleEndsAt), lt(products.saleEndsAt, now)))
-      .returning({ id: products.id });
+      .returning({ id: products.id, tenantId: products.tenantId });
+    // The cached public catalog bakes the promo price in at build time (see
+    // findPublicBySlug's `now`), so a warm cache built before this expiry keeps
+    // showing the sale price — while intake reprices live and charges full price —
+    // until the catalog TTL elapses. Bust every affected tenant's catalog.
+    const tenantIds = new Set(rows.map((r) => r.tenantId).filter((id): id is string => id != null));
+    await Promise.all([...tenantIds].map((id) => this.cache.invalidate(id)));
     return rows.length;
   }
 }

@@ -403,8 +403,13 @@ describe('EcontService.estimateKeyFor', () => {
     {} as never,
     {} as never,
   );
-  const keyFor = (tenantId: string, order: Record<string, unknown>, weightKg: number, cod: number): string =>
-    (svc as any).estimateKeyFor(tenantId, order, weightKg, cod);
+  const keyFor = (
+    tenantId: string,
+    order: Record<string, unknown>,
+    weightKg: number,
+    cod: number,
+    sender?: Record<string, unknown>,
+  ): string => (svc as any).estimateKeyFor(tenantId, order, weightKg, cod, sender);
 
   const order = {
     customerName: '—', customerPhone: '—',
@@ -437,6 +442,17 @@ describe('EcontService.estimateKeyFor', () => {
     const key = keyFor('t1', officeOrder, 1, 0);
     expect(key).toContain('office:1234');
     expect(key).not.toContain('city:');
+  });
+
+  it('a sender change (different origin) produces a different key — saveSenders busts tenant:{slug}, not this 8h key', () => {
+    const senderA = { mode: 'office', officeCode: '111' };
+    const senderB = { mode: 'office', officeCode: '222' };
+    expect(keyFor('t1', order, 1, 0, senderA)).not.toEqual(keyFor('t1', order, 1, 0, senderB));
+  });
+
+  it('an address-mode sender keys on cityName', () => {
+    const sender = { mode: 'address', cityName: 'Бургас' };
+    expect(keyFor('t1', order, 1, 0, sender)).toContain('city:бургас');
   });
 });
 
@@ -485,7 +501,8 @@ describe('EcontService.listShipments (farmer-scoped)', () => {
         carrierShipmentId: null,
       },
     ];
-    const orderBy = jest.fn().mockResolvedValue(joined);
+    const limit = jest.fn().mockResolvedValue(joined);
+    const orderBy = jest.fn().mockReturnValue({ limit });
     const where = jest.fn().mockReturnValue({ orderBy });
     const leftJoin = jest.fn().mockReturnValue({ where });
     const from = jest.fn().mockReturnValue({ leftJoin });
@@ -493,12 +510,13 @@ describe('EcontService.listShipments (farmer-scoped)', () => {
     (svc as any).db = { select };
 
     const out = await svc.listShipments('t1', 'farmer-1');
-    expect(out).toHaveLength(1);
+    expect(out.items).toHaveLength(1);
+    expect(out.nextCursor).toBeNull();
     // Reuses mapShipmentRow → AdminShipment shape (draft has no waybill → pending).
-    expect(out[0].orderId).toBe('11111111-2222-3333-4444-555555555555');
-    expect(out[0].customerName).toBe('Иван');
-    expect(out[0].codAmountStotinki).toBe(2400);
-    expect(out[0].status).toBe('pending'); // draft, no number → uiShipmentStatus → pending
+    expect(out.items[0].orderId).toBe('11111111-2222-3333-4444-555555555555');
+    expect(out.items[0].customerName).toBe('Иван');
+    expect(out.items[0].codAmountStotinki).toBe(2400);
+    expect(out.items[0].status).toBe('pending'); // draft, no number → uiShipmentStatus → pending
     expect(select).toHaveBeenCalledTimes(1); // single query, NOT the admin's two-query Promise.all
   });
 });
@@ -789,15 +807,19 @@ function renderSqlAst(x: unknown, depth = 0): string {
 }
 
 describe('syncOrderCodOutcome (econt)', () => {
-  /** db whose update(orders).set(...).where(...) resolves immediately. Callers read
-   *  `set.mock.calls[0][0]` (the payload passed to .set()) after awaiting the call. */
-  function makeSvcWithDbSpy() {
-    const svc = new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
-    const where = jest.fn().mockResolvedValue(undefined);
+  /** db whose update(orders).set(...).where(...).returning(...) resolves to one
+   *  written row (the no-clobber guard matched) by default. Callers read
+   *  `set.mock.calls[0][0]` (the payload passed to .set()) after awaiting the call.
+   *  `cache.del` is a spy so the payments-cache-bust wiring can be asserted too. */
+  function makeSvcWithDbSpy(returningResult: unknown[] = [{ id: 'o1', tenantId: 't1' }]) {
+    const del = jest.fn().mockResolvedValue(undefined);
+    const svc = new EcontService({} as never, { get: () => '' } as never, { del } as never, {} as never, {} as never);
+    const returning = jest.fn().mockResolvedValue(returningResult);
+    const where = jest.fn((..._args: unknown[]) => ({ returning }));
     const set = jest.fn((_payload: Record<string, unknown>) => ({ where }));
     const update = jest.fn(() => ({ set }));
     (svc as any).db = { update };
-    return { svc, update, set, where };
+    return { svc, update, set, where, returning, del };
   }
 
   it('sets received when COD collected', async () => {
@@ -838,5 +860,19 @@ describe('syncOrderCodOutcome (econt)', () => {
     const { svc, update } = makeSvcWithDbSpy();
     await (svc as any).syncOrderCodOutcome({ orderId: null, tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date() } as any);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('busts the payments cache when the no-clobber guard actually wrote a row', async () => {
+    const { svc, del } = makeSvcWithDbSpy([{ id: 'o1', tenantId: 't1' }]);
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date(), status: 'доставена' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(del).toHaveBeenCalledWith('payments:totals:t1', 'payments:list:t1:all', 'payments:list:t1:cod');
+  });
+
+  it('does not bust the payments cache when the guard matched no row (already had an outcome)', async () => {
+    const { svc, del } = makeSvcWithDbSpy([]);
+    const shipment = { orderId: 'o1', tenantId: 't1', codAmountStotinki: 1000, codCollectedAt: new Date(), status: 'доставена' } as any;
+    await (svc as any).syncOrderCodOutcome(shipment);
+    expect(del).not.toHaveBeenCalled();
   });
 });

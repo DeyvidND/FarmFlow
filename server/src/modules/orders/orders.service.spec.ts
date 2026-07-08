@@ -277,6 +277,7 @@ describe('OrdersService.create() carrier persist', () => {
       {} as never,
       {} as never,
       {} as never,
+      { invalidate: jest.fn() } as never,
     );
 
     await svc.create(
@@ -302,6 +303,7 @@ describe('OrdersService.create() carrier persist', () => {
       {} as never,
       {} as never,
       {} as never,
+      { invalidate: jest.fn() } as never,
     );
 
     await svc.create(
@@ -326,6 +328,7 @@ describe('OrdersService.create() carrier persist', () => {
       {} as never,
       {} as never,
       {} as never,
+      { invalidate: jest.fn() } as never,
     );
 
     await svc.create(
@@ -359,6 +362,7 @@ describe('OrdersService.create() carrier persist', () => {
       {} as never,
       {} as never,
       {} as never,
+      { invalidate: jest.fn() } as never,
     );
 
     await expect(
@@ -397,6 +401,7 @@ describe('OrdersService.create() slot capacity', () => {
       {} as never,
       {} as never,
       {} as never,
+      { invalidate: jest.fn() } as never,
     );
 
     await svc.create('test-farm', SLOT_DTO as never, TENANT as never);
@@ -416,6 +421,7 @@ describe('OrdersService.create() slot capacity', () => {
       {} as never,
       {} as never,
       {} as never,
+      { invalidate: jest.fn() } as never,
     );
 
     await expect(svc.create('test-farm', SLOT_DTO as never, TENANT as never)).rejects.toThrow('Слотът е запълнен');
@@ -432,6 +438,7 @@ describe('OrdersService.create() slot capacity', () => {
       {} as never,
       {} as never,
       {} as never,
+      { invalidate: jest.fn() } as never,
     );
 
     await expect(svc.create('test-farm', SLOT_DTO as never, TENANT as never)).rejects.toThrow('Слотът е запълнен');

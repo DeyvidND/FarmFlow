@@ -881,8 +881,12 @@ export const listEcontCities = (q?: string) =>
 export const listEcontOffices = (cityId: number) =>
   apiFetch<EcontOfficeLive[]>(`econt/offices?cityId=${cityId}`);
 
-/** Unified shipment list — always fetched from the econt endpoint (returns all carriers). */
-export const listShipments = () => apiFetch<Shipment[]>('econt/shipments');
+/** Unified shipment list — always fetched from the econt endpoint (returns all carriers).
+ *  Keyset-paginated server-side; first page only (server default limit) for now. */
+export const listShipments = async () => {
+  const page = await apiFetch<{ items: Shipment[]; nextCursor: string | null }>('econt/shipments');
+  return page.items;
+};
 
 /**
  * Create a waybill for an order. Routes to the carrier endpoint based on which

@@ -86,8 +86,15 @@ export class EcontController {
   }
 
   @Get('shipments')
-  list(@CurrentTenant() tenantId: string) {
-    return this.econt.listShipments(tenantId);
+  list(
+    @CurrentTenant() tenantId: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.econt.listShipments(tenantId, undefined, {
+      cursor,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   // Opened to producers so the Плащания „Наложен платеж" tab shows real

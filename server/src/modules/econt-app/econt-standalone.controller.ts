@@ -159,11 +159,16 @@ export class EcontStandaloneController {
   // --- shipments ---
   @Roles('admin', 'farmer')
   @Get('shipments')
-  list(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+  list(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
     // Phase 3: Econt is the single source of the farmer's carrier-neutral courier queue —
     // listShipments returns the farmer's own courier orders + drafts when `f` is set,
     // and the tenant-wide admin list otherwise.
-    return this.econt.listShipments(t, f);
+    return this.econt.listShipments(t, f, { cursor, limit: limit ? Number(limit) : undefined });
   }
 
   @Roles('admin', 'farmer')

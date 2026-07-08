@@ -69,7 +69,7 @@ describe('MapsService.route destination handling', () => {
   it('no destination → optimizes a loop back to the origin', async () => {
     const calls = mockFetch(okRoute);
     const plan = await make('k').route(origin, stops);
-    expect(plan).toEqual({ distanceM: 1234, durationS: 600, order: [1, 0] });
+    expect(plan).toEqual({ distanceM: 1234, durationS: 600, order: [1, 0], polyline: null });
     const body = calls[0].body;
     expect(body.origin.location.latLng).toEqual({ latitude: 42.0, longitude: 23.0 });
     expect(body.destination.location.latLng).toEqual({ latitude: 42.0, longitude: 23.0 });

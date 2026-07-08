@@ -4,6 +4,8 @@ import { and, eq, desc, inArray, isNotNull, notInArray, sql } from 'drizzle-orm'
 import { type Database, tenants, shipments, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
+import { buildKeysetPage, clampLimit, cursorTs, keysetAfter, KEYSET_TS } from '../../common/pagination/keyset';
+import { decodeCursor } from '../../common/pagination/cursor';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
 import { deriveSenderFromFarm } from '../econt/econt.sender';
 import { readSenderBook, applySenderBook, type PickupPoint } from '../econt/sender-book';
@@ -29,6 +31,8 @@ const SPEEDY_BASE = 'https://api.speedy.bg/v1';
 const NOMENCLATURE_TTL = 60 * 60 * 24; // 1 day
 const EMPTY_TTL = 60; // negative-cache empty lookups for 60s
 const MAX_BULK_LABELS = 50;
+// Speedy's /track docs cap a single request at 10 parcels.
+const TRACK_BATCH_SIZE = 10;
 // Estimate cache: Speedy pricing is stable intraday; 8h balances freshness vs.
 // the latency of a live /calculate call. Weight is bucketed to 0.5kg so near-
 // identical parcels reuse one entry.
@@ -546,17 +550,26 @@ export class SpeedyService implements CarrierAdapter {
     return row;
   }
 
-  /** Speedy shipments for this tenant (order-less), newest first. */
-  async listShipments(tenantId: string, farmerId?: string): Promise<SpeedyShipment[]> {
+  /** One keyset page of Speedy shipments for this tenant (order-less), newest first. */
+  async listShipments(
+    tenantId: string,
+    farmerId?: string,
+    opts: { cursor?: string; limit?: number } = {},
+  ): Promise<{ items: SpeedyShipment[]; nextCursor: string | null }> {
     // Phase 3 single-source decision: a courier draft is carrier-NEUTRAL until the
     // farmer picks a carrier at ship time, so EVERY farmer courier draft is listed
     // exactly once — under Econt (the authoritative carrier-neutral source). Speedy
     // intentionally returns [] for a farmer; otherwise each draft would appear twice
     // in the dostavki UI (once per carrier tab). The tenant-wide admin path (no
     // farmerId) below is unchanged. See EcontService.listShipments' farmer branch.
-    if (farmerId) return [];
+    if (farmerId) return { items: [], nextCursor: null };
+    const lim = clampLimit(opts.limit);
+    const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
+    const conds = [eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')];
+    if (cur) conds.push(keysetAfter(shipments.createdAt, shipments.id, cur, 'desc'));
     const rows = await this.db
       .select({
+        id: shipments.id, // required by buildKeysetPage's cursor; mapped to shipmentId below
         shipmentId: shipments.id,
         receiverName: shipments.receiverName,
         deliveryMode: shipments.deliveryMode,
@@ -565,20 +578,26 @@ export class SpeedyService implements CarrierAdapter {
         priceStotinki: shipments.courierPriceStotinki,
         codAmountStotinki: shipments.codAmountStotinki,
         courierRequestStatus: shipments.courierRequestStatus,
+        [KEYSET_TS]: cursorTs(shipments.createdAt),
       })
       .from(shipments)
-      .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')))
-      .orderBy(desc(shipments.createdAt));
-    return rows.map((r) => ({
-      shipmentId: r.shipmentId,
-      receiverName: r.receiverName ?? '—',
-      deliveryMode: r.deliveryMode === 'address' ? 'address' : 'office',
-      status: (r.status as CanonicalStatus) ?? 'pending',
-      trackingNumber: r.trackingNumber,
-      priceStotinki: r.priceStotinki,
-      codAmountStotinki: r.codAmountStotinki,
-      courierRequestStatus: r.courierRequestStatus ?? null,
-    }));
+      .where(and(...conds))
+      .orderBy(desc(shipments.createdAt), desc(shipments.id))
+      .limit(lim + 1);
+    const { items, nextCursor } = buildKeysetPage(rows, lim);
+    return {
+      items: items.map((r) => ({
+        shipmentId: r.shipmentId,
+        receiverName: r.receiverName ?? '—',
+        deliveryMode: r.deliveryMode === 'address' ? 'address' : 'office',
+        status: (r.status as CanonicalStatus) ?? 'pending',
+        trackingNumber: r.trackingNumber,
+        priceStotinki: r.priceStotinki,
+        codAmountStotinki: r.codAmountStotinki,
+        courierRequestStatus: r.courierRequestStatus ?? null,
+      })),
+      nextCursor,
+    };
   }
 
   /** The farm's label-paper preference (A4/A6), applied to Speedy /print so the printed
@@ -739,6 +758,21 @@ export class SpeedyService implements CarrierAdapter {
     const creds = await this.resolveCreds(row.tenantId, farmerId);
     const data = await this.client.call(creds, 'track', { parcels: [{ id: row.trackingNumber }] });
     const parcel = Array.isArray(data?.parcels) ? data.parcels[0] : null;
+    return this.applyTrackedParcel(row, parcel);
+  }
+
+  /**
+   * Persist an already-fetched Speedy tracked-parcel onto a row and fire the
+   * shipped-email + COD-risk + COD-outcome side effects. Split out of
+   * {@link refreshStatusForRow} so {@link refreshActiveShipments} can batch the
+   * /track call per tenant (Speedy caps a request at 10 parcels, so still chunked,
+   * but N/10 calls instead of N) and still reuse this per-row persistence logic with
+   * the response entry correlated back to it via `parcelId`.
+   */
+  private async applyTrackedParcel(
+    row: typeof shipments.$inferSelect,
+    parcel: any,
+  ): Promise<typeof shipments.$inferSelect> {
     const operations: any[] = Array.isArray(parcel?.operations) ? parcel.operations : [];
     const status = parseTrackStatus(operations, true);
 
@@ -802,10 +836,21 @@ export class SpeedyService implements CarrierAdapter {
     if (isReturnedStatus(shipment.status)) outcome = 'refused';
     else if (shipment.codCollectedAt != null) outcome = 'received';
     if (!outcome) return;
-    await this.db
+    const written = await this.db
       .update(orders)
       .set({ codOutcome: outcome, codOutcomeAt: new Date(), codOutcomeSource: 'courier' })
-      .where(and(eq(orders.id, shipment.orderId), sql`${orders.codOutcome} is null`));
+      .where(and(eq(orders.id, shipment.orderId), sql`${orders.codOutcome} is null`))
+      .returning({ id: orders.id, tenantId: orders.tenantId });
+    // Плащания reads codOutcome from the cached payments list/totals — the manual
+    // setCodOutcome path busts them; this carrier-driven sync must too, or the COD
+    // badge lags up to PAYMENTS_CACHE_TTL (60s) after an auto-sync.
+    if (written[0]?.tenantId) {
+      await this.cache.del(
+        `payments:totals:${written[0].tenantId}`,
+        `payments:list:${written[0].tenantId}:all`,
+        `payments:list:${written[0].tenantId}:cod`,
+      );
+    }
   }
 
   // Speedy stores the canonical UI status (parseTrackStatus), so terminal states can
@@ -816,7 +861,7 @@ export class SpeedyService implements CarrierAdapter {
    *  Best-effort per shipment — one Speedy failure never aborts the batch. */
   async refreshActiveShipments(): Promise<{ refreshed: number }> {
     // Index-served (carrier, status) range scan over only live Speedy shipments;
-    // full rows so refreshStatusForRow runs without a per-shipment re-SELECT.
+    // full rows so applyTrackedParcel runs without a per-shipment re-SELECT.
     const rows = await this.db
       .select()
       .from(shipments)
@@ -827,14 +872,52 @@ export class SpeedyService implements CarrierAdapter {
           notInArray(shipments.status, SpeedyService.TERMINAL_STATUSES),
         ),
       );
-    let refreshed = 0;
+    // Group by tenant (creds are per-tenant) so /track can be called with up to
+    // TRACK_BATCH_SIZE parcels at once instead of one call per shipment. Speedy's
+    // TrackedParcel response carries a `parcelId` that echoes the requested `id` —
+    // confirmed via the published JSON schema — so results correlate back to rows
+    // safely even though the request is chunked.
+    const byTenant = new Map<string, (typeof shipments.$inferSelect)[]>();
     for (const r of rows) {
       if (!r.tenantId) continue;
+      const list = byTenant.get(r.tenantId);
+      if (list) list.push(r);
+      else byTenant.set(r.tenantId, [r]);
+    }
+    let refreshed = 0;
+    for (const [tenantId, tenantRows] of byTenant) {
+      let creds: SpeedyCreds;
       try {
-        await this.refreshStatusForRow(r);
-        refreshed++;
+        creds = await this.resolveCreds(tenantId);
       } catch (err) {
-        this.logger.warn(`[speedy] refresh failed for shipment ${r.id}: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(`[speedy] creds resolve failed for tenant ${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+      for (let i = 0; i < tenantRows.length; i += TRACK_BATCH_SIZE) {
+        const chunk = tenantRows.slice(i, i + TRACK_BATCH_SIZE);
+        let parcelById: Map<string, any>;
+        try {
+          const data = await this.client.call(creds, 'track', {
+            parcels: chunk.map((r) => ({ id: r.trackingNumber })),
+          });
+          parcelById = new Map();
+          for (const p of Array.isArray(data?.parcels) ? data.parcels : []) {
+            if (p?.parcelId) parcelById.set(p.parcelId, p);
+          }
+        } catch (err) {
+          this.logger.warn(
+            `[speedy] batch track failed for tenant ${tenantId} (${chunk.length} shipments): ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+        for (const r of chunk) {
+          try {
+            await this.applyTrackedParcel(r, parcelById.get(r.trackingNumber!) ?? null);
+            refreshed++;
+          } catch (err) {
+            this.logger.warn(`[speedy] refresh failed for shipment ${r.id}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       }
     }
     return { refreshed };

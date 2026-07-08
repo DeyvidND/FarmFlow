@@ -128,12 +128,17 @@ export class SpeedyStandaloneController {
   // --- shipments ---
   @Roles('admin', 'farmer')
   @Get('shipments')
-  list(@CurrentTenant() t: string, @CurrentFarmer() f: string | undefined) {
+  list(
+    @CurrentTenant() t: string,
+    @CurrentFarmer() f: string | undefined,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
     // Phase 3 single-source decision: Speedy is the NON-authoritative carrier for a
     // farmer's carrier-neutral courier drafts → returns [] when `f` is set (Econt owns
     // the farmer's courier queue; avoids double-listing per carrier tab). Admin path
     // (no `f`) is unchanged — tenant-wide Speedy shipments.
-    return this.speedy.listShipments(t, f);
+    return this.speedy.listShipments(t, f, { cursor, limit: limit ? Number(limit) : undefined });
   }
 
   @Roles('admin', 'farmer')
