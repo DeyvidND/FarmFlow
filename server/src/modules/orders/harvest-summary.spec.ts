@@ -22,4 +22,16 @@ describe('harvestSummary', () => {
   it('returns an empty array for no items', () => {
     expect(harvestSummary([])).toEqual([]);
   });
+
+  it('breaks equal-quantity ties alphabetically by product name', () => {
+    expect(
+      harvestSummary([
+        { productName: 'Ягоди', quantity: 2 },
+        { productName: 'Ананас', quantity: 2 },
+      ]),
+    ).toEqual([
+      { productName: 'Ананас', quantity: 2 },
+      { productName: 'Ягоди', quantity: 2 },
+    ]);
+  });
 });
