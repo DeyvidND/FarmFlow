@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, ConflictException } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { type Database, orders, shipments, farmers, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -136,7 +136,10 @@ export class ConsolidationService {
       const carrier = resolveCollectorCarrier(ns, input.carrier);
 
       await this.db.transaction(async (tx) => {
-        await tx
+        // Compare-and-set: re-assert the preconditions checked above (draft, not yet
+        // in a group) at write time, so a concurrent consolidate/waybill-creation call
+        // that raced past the pre-check can't also write — the loser aborts the tx.
+        const masterClaimed = await tx
           .update(shipments)
           .set({
             consolidationGroupId: plan.masterShipmentId,
@@ -144,16 +147,36 @@ export class ConsolidationService {
             carrier,
             updatedAt: new Date(),
           })
-          .where(eq(shipments.id, plan.masterShipmentId));
+          .where(
+            and(
+              eq(shipments.id, plan.masterShipmentId),
+              eq(shipments.status, 'draft'),
+              isNull(shipments.consolidationGroupId),
+            ),
+          )
+          .returning({ id: shipments.id });
+        if (masterClaimed.length === 0) {
+          throw new ConflictException('Една от пратките е променена междувременно — опитайте отново.');
+        }
         if (plan.childShipmentIds.length) {
-          await tx
+          const childrenClaimed = await tx
             .update(shipments)
             .set({
               consolidationGroupId: plan.masterShipmentId,
               status: 'consolidated',
               updatedAt: new Date(),
             })
-            .where(inArray(shipments.id, plan.childShipmentIds));
+            .where(
+              and(
+                inArray(shipments.id, plan.childShipmentIds),
+                eq(shipments.status, 'draft'),
+                isNull(shipments.consolidationGroupId),
+              ),
+            )
+            .returning({ id: shipments.id });
+          if (childrenClaimed.length !== plan.childShipmentIds.length) {
+            throw new ConflictException('Една от пратките е променена междувременно — опитайте отново.');
+          }
         }
       });
 
@@ -194,15 +217,31 @@ export class ConsolidationService {
     const ownCod = ord && ord.method === 'cod' && !ord.paidAt ? ord.total : null;
 
     const restored = await this.db.transaction(async (tx) => {
+      // The WHERE here (consolidationGroupId = masterShipmentId) is itself the
+      // compare-and-set for children: a concurrent unconsolidate would already have
+      // cleared it, so this simply matches zero rows — no separate guard needed.
       const children = await tx
         .update(shipments)
         .set({ consolidationGroupId: null, status: 'draft', updatedAt: new Date() })
         .where(and(eq(shipments.consolidationGroupId, masterShipmentId), sql`${shipments.id} <> ${masterShipmentId}`))
         .returning({ id: shipments.id });
-      await tx
+      // Compare-and-set on the master: re-assert it's still a master (not already
+      // unconsolidated by a concurrent call) and still has no waybill, at write time.
+      const masterClaimed = await tx
         .update(shipments)
         .set({ consolidationGroupId: null, codAmountStotinki: ownCod, updatedAt: new Date() })
-        .where(eq(shipments.id, masterShipmentId));
+        .where(
+          and(
+            eq(shipments.id, masterShipmentId),
+            eq(shipments.consolidationGroupId, masterShipmentId),
+            isNull(shipments.econtShipmentNumber),
+            isNull(shipments.trackingNumber),
+          ),
+        )
+        .returning({ id: shipments.id });
+      if (masterClaimed.length === 0) {
+        throw new ConflictException('Една от пратките е променена междувременно — опитайте отново.');
+      }
       return children.length;
     });
     return { restored };
