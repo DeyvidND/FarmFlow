@@ -23,10 +23,6 @@ function centroid(pts: Located[]): Pt {
   return { lat: s.lat / pts.length, lng: s.lng / pts.length };
 }
 
-/** Mean lat/lng of a group of located orders. */
-function groupCentroid(group: Located[]): Pt {
-  return centroid(group);
-}
 
 /**
  * Geography-first assignment of `orders` onto `days`. Reuses `sweepSplit` to
@@ -48,7 +44,13 @@ export function suggestDayAssignment(
     .map((o) => ({ id: o.id, lat: o.lat as number, lng: o.lng as number }));
   const unplaced = orders.filter((o) => o.lat == null || o.lng == null).map((o) => o.id);
 
-  if (sortedDays.length === 0 || located.length === 0) {
+  // Zero days: nothing can be placed, so all orders (geocoded and un-geocoded) are unplaced.
+  if (sortedDays.length === 0) {
+    return { assignment: {}, unplaced: orders.map((o) => o.id) };
+  }
+
+  // Zero geocoded orders: each day exists but is empty; un-geocoded orders stay unplaced.
+  if (located.length === 0) {
     return { assignment, unplaced };
   }
 
@@ -63,7 +65,7 @@ export function suggestDayAssignment(
     .filter((g) => g.length > 0)
     .map((g) => ({
       g,
-      dist: haversineKm(depotPt, groupCentroid(g)),
+      dist: haversineKm(depotPt, centroid(g)),
       size: g.length,
       minId: g.reduce((m, s) => (s.id < m ? s.id : m), g[0].id),
     }))

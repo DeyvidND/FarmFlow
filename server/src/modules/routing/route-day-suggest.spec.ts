@@ -61,4 +61,21 @@ describe('suggestDayAssignment', () => {
     expect(assignment).toEqual({ '2026-07-10': [] });
     expect(unplaced).toEqual(['x']);
   });
+
+  it('puts every order in unplaced when no days are given', () => {
+    const orders = [north1, south1];
+    const { assignment, unplaced } = suggestDayAssignment(orders, [], depot);
+    expect(assignment).toEqual({});
+    expect(unplaced).toEqual(['n1', 's1']);
+  });
+
+  it('leaves extra days empty when there are more days than orders', () => {
+    const orders = [north1, south1];
+    const { assignment, unplaced } = suggestDayAssignment(orders, ['2026-07-10', '2026-07-11', '2026-07-12'], depot);
+    expect(Object.keys(assignment).sort()).toEqual(['2026-07-10', '2026-07-11', '2026-07-12']);
+    const allPlaced = Object.values(assignment).flat().sort();
+    expect(allPlaced).toEqual(['n1', 's1']);
+    expect(Object.values(assignment).some((ids) => ids.length === 0)).toBe(true);
+    expect(unplaced).toEqual([]);
+  });
 });
