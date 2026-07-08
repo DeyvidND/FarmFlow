@@ -3,6 +3,7 @@ import {
   endPoint,
   ptOf,
   effectiveCourierCount,
+  resolveCourierModes,
   type RouteStop,
   type RouteEnd,
 } from './routing.service';
@@ -100,5 +101,18 @@ describe('effectiveCourierCount', () => {
   });
   it('falls back to 1 for NaN', () => {
     expect(effectiveCourierCount(Number.NaN)).toBe(1);
+  });
+});
+
+describe('resolveCourierModes', () => {
+  it('fills all couriers with the default when no per-courier array', () => {
+    expect(resolveCourierModes('home', undefined, 3)).toEqual(['home', 'home', 'home']);
+  });
+  it('applies per-courier overrides by index', () => {
+    expect(resolveCourierModes('home', ['last', undefined, 'home'], 3)).toEqual(['last', 'home', 'home']);
+  });
+  it('falls back to the default for missing / undefined slots and truncates extras', () => {
+    expect(resolveCourierModes('last', ['home'], 3)).toEqual(['home', 'last', 'last']);
+    expect(resolveCourierModes('home', ['last', 'last', 'last', 'last'], 2)).toEqual(['last', 'last']);
   });
 });

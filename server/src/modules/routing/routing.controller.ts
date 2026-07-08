@@ -20,21 +20,29 @@ export class RoutingController {
   @UseGuards(ActiveSubscriptionGuard)
   @ApiQuery({ name: 'date', required: false })
   @ApiQuery({ name: 'end', required: false, enum: ['home', 'last', 'custom'] })
-  @ApiQuery({ name: 'couriers', required: false, description: '1–10; default from settings.routing.courierCount' })
+  @ApiQuery({ name: 'ends', required: false, description: 'Per-courier end modes, csv e.g. home,last' })
+  @ApiQuery({ name: 'couriers', required: false, description: '1–10; default 1' })
   getRoute(
     @CurrentTenant() tenantId: string,
     @Query('date') date?: string,
     @Query('end') end?: string,
     @Query('couriers') couriers?: string,
+    @Query('ends') ends?: string,
   ) {
     const endMode: RouteEndMode | undefined =
       end === 'home' || end === 'last' || end === 'custom' ? end : undefined;
     const parsed = couriers ? parseInt(couriers, 10) : undefined;
+    const endModes: (RouteEndMode | undefined)[] | undefined = ends
+      ? ends
+          .split(',')
+          .map((e) => (e === 'home' || e === 'last' || e === 'custom' ? (e as RouteEndMode) : undefined))
+      : undefined;
     return this.routingService.getRoute(
       tenantId,
       date,
       endMode,
       Number.isFinite(parsed) ? parsed : undefined,
+      endModes,
     );
   }
 

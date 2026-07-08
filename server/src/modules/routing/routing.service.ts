@@ -56,6 +56,9 @@ export interface CourierRoute {
    * (client then falls back to straight segments between pins).
    */
   polyline: string[] | null;
+  /** This courier's own end mode: home = loop back to the depot, last = end at
+   *  the last stop. Set per leg from the per-courier ends. */
+  endMode: RouteEndMode;
 }
 
 export interface MultiRouteResult {
@@ -140,6 +143,18 @@ export function effectiveCourierCount(couriers: number | undefined): number {
   return Math.min(10, Math.max(1, Number.isFinite(n) ? n : 1));
 }
 
+/**
+ * Per-courier end modes, length `n`. `endModes[i]` (from the ?ends= csv) wins;
+ * a missing/undefined/invalid slot falls back to the single default mode.
+ */
+export function resolveCourierModes(
+  defaultMode: RouteEndMode,
+  endModes: readonly (RouteEndMode | undefined)[] | undefined,
+  n: number,
+): RouteEndMode[] {
+  return Array.from({ length: n }, (_, i) => endModes?.[i] ?? defaultMode);
+}
+
 @Injectable()
 export class RoutingService {
   private readonly logger = new Logger(RoutingService.name);
@@ -162,6 +177,7 @@ export class RoutingService {
     date?: string,
     endMode?: RouteEndMode,
     couriers?: number,
+    endModes?: (RouteEndMode | undefined)[],
   ): Promise<MultiRouteResult> {
     const day = date ?? bgToday();
 
@@ -295,8 +311,14 @@ export class RoutingService {
     // Groups are independent (pure inputs, key-isolated MapsService cache writes),
     // so optimize them concurrently — each courier's Google Routes call(s) no longer
     // wait on the previous courier's. Serial cost was ~2 round-trips × courier count.
+    // Per-courier end modes, indexed by resulting group. The split above balanced
+    // with the single default `mode`; here each leg is optimized + measured with
+    // ITS own end (home = return to base, last = end at last stop).
+    const modes = resolveCourierModes(mode, endModes, groups.length);
     const routes: CourierRoute[] = await Promise.all(
-      groups.map((group) => this.optimizeGroup(originPt, group, mode, end)),
+      groups.map((group, i) =>
+        this.optimizeGroup(originPt, group, modes[i], this.endForMode(modes[i], origin, end)),
+      ),
     );
 
     // Un-geocoded stops: tail of the least-loaded route (they can't be placed).
@@ -316,6 +338,19 @@ export class RoutingService {
     return { date: day, origin, end, couriers: routes.length, routes };
   }
 
+  /** The RouteEnd a single courier leg targets, from its own mode. `home` loops
+   *  to the depot; `last` is one-way (null coords); `custom` reuses the shared
+   *  saved end (legacy — no per-courier custom UI). */
+  private endForMode(mode: RouteEndMode, origin: RouteOrigin, shared: RouteEnd): RouteEnd {
+    if (mode === 'home') {
+      return { mode: 'home', address: origin.address, lat: origin.lat, lng: origin.lng };
+    }
+    if (mode === 'last') {
+      return { mode: 'last', address: null, lat: null, lng: null };
+    }
+    return shared; // custom
+  }
+
   /**
    * Optimize ONE courier's stop group: Google visit order (≤25) + greedy tail,
    * then measured road totals + polyline via pathTotal. Extracted verbatim from
@@ -328,7 +363,7 @@ export class RoutingService {
     end: RouteEnd,
   ): Promise<CourierRoute> {
     if (!group.length) {
-      return { stops: [], totalDistanceM: null, totalDurationS: null, optimized: false, polyline: null };
+      return { stops: [], totalDistanceM: null, totalDurationS: null, optimized: false, polyline: null, endMode: mode };
     }
 
     let orderedGroup: RouteStop[];
@@ -413,6 +448,7 @@ export class RoutingService {
       totalDurationS,
       optimized: orderedGroup.length > 0,
       polyline: routePolyline,
+      endMode: mode,
     };
   }
 
