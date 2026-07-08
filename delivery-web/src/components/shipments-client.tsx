@@ -3,13 +3,15 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { RefreshCw, FileDown, Package, Upload, FilePlus, Truck, CheckCircle2, Info, ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { RefreshCw, FileDown, Package, Upload, FilePlus, Truck, CheckCircle2, Info, ChevronDown, SlidersHorizontal, Layers } from 'lucide-react';
 import {
   ApiError, listEcontShipments, listSpeedyShipments, refreshShipment, downloadLabel,
   finalizeCourierDraft, requestCourier, carrierTrackUrl,
-  type ShipmentRow, type ShipmentStatus, type Carrier, type DraftOverrides,
+  listConsolidationSuggestions,
+  type ShipmentRow, type ShipmentStatus, type Carrier, type DraftOverrides, type ConsolidationSuggestion,
 } from '@/lib/api-client';
 import { SenderStrip } from './sender-strip';
+import { ConsolidationModal } from './consolidation-modal';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -87,6 +89,10 @@ export function ShipmentsClient() {
   // Rows the farmer has ticked for a batched courier pickup (keyed by rowKey).
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [requesting, setRequesting] = useState(false);
+  // Multi-farmer consolidation suggestions (admin-only server flag) + the one
+  // currently open in the merge modal, if any.
+  const [suggestions, setSuggestions] = useState<ConsolidationSuggestion[]>([]);
+  const [activeSuggestion, setActiveSuggestion] = useState<ConsolidationSuggestion | null>(null);
   // The handover tip starts collapsed (matches SSR), then auto-opens on a farmer's first
   // visit only — so a newcomer reads the print-vs-courier choice, but a returning farmer
   // isn't re-nagged. Marked seen the moment it auto-opens.
@@ -116,7 +122,14 @@ export function ShipmentsClient() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  // Consolidation suggestions are an optional, admin-only add-on to the shipments
+  // list — fetched separately from `load` so a failure (feature disabled, non-admin)
+  // never blocks or errors the main table. Fails silently to an empty list.
+  const loadSuggestions = useCallback(() => {
+    listConsolidationSuggestions().then(setSuggestions).catch(() => setSuggestions([]));
+  }, []);
+
+  useEffect(() => { void load(); loadSuggestions(); }, [load, loadSuggestions]);
 
   // Rows the farmer can request a pickup for, and the live selection over them.
   const shippable = useMemo(() => rows.filter(isShippable), [rows]);
@@ -415,6 +428,30 @@ export function ShipmentsClient() {
         </div>
       </details>
 
+      {/* Consolidation suggestions — same-address orders from ≥2 farmers, waiting on a
+          single courier draft each. Only appears when the server flag is on and there's
+          something to merge; clicking opens the collector/carrier picker modal. */}
+      {suggestions.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {suggestions.map((s) => (
+            <div key={s.key} className="flex items-center justify-between gap-3 rounded-xl border border-ff-green-100 bg-ff-green-50 px-3.5 py-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-ff-green-100 text-ff-green-700">
+                  <Layers size={15} />
+                </span>
+                <div className="min-w-0 text-[13px]">
+                  <div className="font-bold text-ff-ink">Обедини {s.members.length} пратки → 1 товарителница</div>
+                  <div className="truncate text-ff-muted">{s.customerName ?? 'Клиент'} · {s.deliveryCity ?? '—'} · {s.deliveryAddress ?? '—'}</div>
+                </div>
+              </div>
+              <button type="button" onClick={() => setActiveSuggestion(s)} className={ctaBtn + ' shrink-0'} title="Обедини в 1 товарителница">
+                <Layers size={14} /> Обедини
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading && rows.length === 0 ? (
         <p className="mt-6 text-[14px] text-ff-muted">Зареждам…</p>
       ) : rows.length === 0 ? (
@@ -604,6 +641,18 @@ export function ShipmentsClient() {
             </div>
           </div>
         </div>
+      )}
+
+      {activeSuggestion && (
+        <ConsolidationModal
+          suggestion={activeSuggestion}
+          onClose={() => setActiveSuggestion(null)}
+          onDone={() => {
+            setActiveSuggestion(null);
+            loadSuggestions();
+            void load(); // re-fetch shipments: master row's COD is summed, children flip to 'consolidated'.
+          }}
+        />
       )}
     </div>
   );
