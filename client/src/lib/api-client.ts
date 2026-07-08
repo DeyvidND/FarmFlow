@@ -18,6 +18,7 @@ import type {
   ProductOption,
   ProductVariant,
   ProductionSummary,
+  ReschedulableOrder,
   ReviewStatus,
   MultiRouteResult,
   Shipment,
@@ -567,6 +568,17 @@ export const updateOrderStatus = (id: string, status: string) =>
 
 export const updateOrder = (id: string, body: UpdateOrderInput) =>
   apiFetch<Order>(`orders/${id}`, { method: 'PATCH', ...json(body) }, 'Неуспешно записване на поръчката');
+
+/** Own-delivery orders eligible to be moved to another day (client groups by slotDate). */
+export const listReschedulable = () => apiFetch<ReschedulableOrder[]>('orders/reschedulable');
+
+/** Bulk-move the given orders onto `toDate` (YYYY-MM-DD). */
+export const rescheduleOrders = (orderIds: string[], toDate: string) =>
+  apiFetch<{ moved: number; toDate: string }>(
+    'orders/reschedule',
+    { method: 'POST', ...json({ orderIds, toDate }) },
+    'Неуспешно преместване на поръчките',
+  );
 
 export const setCodOutcome = (id: string, outcome: 'received' | 'refused', reason?: string) =>
   apiFetch<Order>(
