@@ -198,3 +198,66 @@ describe('ConsolidationService.unconsolidate race guards', () => {
     await expect(svc.unconsolidate('t1', 'master-1')).resolves.toEqual({ restored: 1 });
   });
 });
+
+/**
+ * Fake drizzle db for breakdown(): a single `select(...)` call
+ * (shipments join orders join farmers) that resolves directly on `.where(...)`.
+ */
+function makeBreakdownDb(rows: unknown[]) {
+  return {
+    select: () => ({
+      from: () => ({
+        innerJoin: () => ({
+          leftJoin: () => ({
+            where: async () => rows,
+          }),
+        }),
+      }),
+    }),
+  } as unknown as ConstructorParameters<typeof ConsolidationService>[0];
+}
+
+describe('ConsolidationService.breakdown', () => {
+  it('excludes the collector row from members and sums only the non-collector totals', async () => {
+    const rows = [
+      { shipmentId: 'master-1', farmerId: 'A-id', farmerName: 'Farmer A', totalStotinki: 1000, status: 'pending' },
+      { shipmentId: 'ship-2', farmerId: 'B-id', farmerName: 'Farmer B', totalStotinki: 500, status: 'pending' },
+      { shipmentId: 'ship-3', farmerId: 'C-id', farmerName: 'Farmer C', totalStotinki: 300, status: 'pending' },
+    ];
+    const svc = new ConsolidationService(makeBreakdownDb(rows));
+    await expect(svc.breakdown('t1', 'master-1')).resolves.toEqual({
+      collectorFarmerId: 'A-id',
+      members: [
+        { farmerId: 'B-id', farmerName: 'Farmer B', totalStotinki: 500 },
+        { farmerId: 'C-id', farmerName: 'Farmer C', totalStotinki: 300 },
+      ],
+      sumStotinki: 800,
+    });
+  });
+
+  it('excludes a cancelled member order from the debt breakdown', async () => {
+    const rows = [
+      { shipmentId: 'master-1', farmerId: 'A-id', farmerName: 'Farmer A', totalStotinki: 1000, status: 'pending' },
+      { shipmentId: 'ship-2', farmerId: 'B-id', farmerName: 'Farmer B', totalStotinki: 500, status: 'cancelled' },
+      { shipmentId: 'ship-3', farmerId: 'C-id', farmerName: 'Farmer C', totalStotinki: 300, status: 'pending' },
+    ];
+    const svc = new ConsolidationService(makeBreakdownDb(rows));
+    await expect(svc.breakdown('t1', 'master-1')).resolves.toEqual({
+      collectorFarmerId: 'A-id',
+      members: [{ farmerId: 'C-id', farmerName: 'Farmer C', totalStotinki: 300 }],
+      sumStotinki: 300,
+    });
+  });
+
+  it('returns an empty breakdown when only the master row is present', async () => {
+    const rows = [
+      { shipmentId: 'master-1', farmerId: 'A-id', farmerName: 'Farmer A', totalStotinki: 1000, status: 'pending' },
+    ];
+    const svc = new ConsolidationService(makeBreakdownDb(rows));
+    await expect(svc.breakdown('t1', 'master-1')).resolves.toEqual({
+      collectorFarmerId: 'A-id',
+      members: [],
+      sumStotinki: 0,
+    });
+  });
+});
