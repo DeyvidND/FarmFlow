@@ -107,6 +107,7 @@ const EMPTY_ROUTE: CourierRoute = {
   totalDurationS: null,
   optimized: false,
   polyline: null,
+  endMode: 'home',
 };
 
 export function RouteClient({
@@ -145,6 +146,11 @@ export function RouteClient({
   // whole day, not just whichever tab happens to be open.
   const allStops = useMemo(() => routes.flatMap((r) => r.stops), [routes]);
 
+  // Per-courier end modes, in courier (tab) order; the active tab's own mode
+  // drives the end toggle, the deep links, and the Waze return-home leg.
+  const modes = routes.map((r) => r.endMode);
+  const activeEndMode: RouteEndMode = modes[activeCourierIdx] ?? end.mode;
+
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
   // Switching courier tabs (or loading a new day) selects that leg's first stop
   // so the map/list don't keep highlighting a pin that belongs to another courier.
@@ -167,8 +173,15 @@ export function RouteClient({
   const [showWaze, setShowWaze] = useState(false);
   const [wazeIdx, setWazeIdx] = useState(0);
   const wazeTargets = useMemo(
-    () => buildWazeTargets(stops, end, origin),
-    [stops, end, origin],
+    () =>
+      buildWazeTargets(
+        stops,
+        activeEndMode === 'home'
+          ? { mode: 'home', address: origin.address, lat: origin.lat, lng: origin.lng }
+          : { mode: 'last', address: null, lat: null, lng: null },
+        origin,
+      ),
+    [stops, origin, activeEndMode],
   );
 
   // Restore Waze progress for THIS date AND courier (each courier walks their
@@ -205,22 +218,23 @@ export function RouteClient({
 
   // Where the van goes after the last delivery, for the Google Maps deep link
   // (null = end at last stop). Shared across all couriers.
+  // Deep-link end for the ACTIVE courier: home → back to base, last → open route.
   const endPoint: Point | null =
-    end.mode !== 'last' && (end.lat != null || end.address)
-      ? { address: end.address, lat: end.lat, lng: end.lng }
+    activeEndMode === 'home' && (origin.lat != null || origin.address)
+      ? { address: origin.address, lat: origin.lat, lng: origin.lng }
       : null;
 
-  // Navigate keeping the other options; override only what changed.
-  const go = (over: { end?: RouteEndMode; couriers?: number }) =>
-    router.push(
-      `/route?date=${route.date}&end=${over.end ?? end.mode}&couriers=${over.couriers ?? route.couriers}`,
-    );
-  const setEnd = (mode: RouteEndMode) => go({ end: mode });
-  const setCouriers = (n: number) => go({ couriers: n });
-  const setDate = (date: string) =>
-    router.push(`/route?date=${date}&end=${end.mode}&couriers=${route.couriers}`);
+  // The end toggle applies to the ACTIVE courier only; the ends csv carries all.
+  const setCourierEnd = (mode: RouteEndMode) => {
+    const next = routes.map((r, i) => (i === activeCourierIdx ? mode : r.endMode));
+    router.push(`/route?date=${route.date}&couriers=${route.couriers}&ends=${next.join(',')}`);
+  };
+  // Changing courier count or date re-splits everyone, so prior per-leg ends no
+  // longer map to the same legs — drop ends; all fall back to the saved default.
+  const setCouriers = (n: number) => router.push(`/route?date=${route.date}&couriers=${n}`);
+  const setDate = (date: string) => router.push(`/route?date=${date}&couriers=${route.couriers}`);
 
-  const endHint = END_OPTIONS.find((o) => o.mode === end.mode)?.hint ?? '';
+  const endHint = END_OPTIONS.find((o) => o.mode === activeEndMode)?.hint ?? '';
 
   const openRoute = () => {
     const urls = dirUrls(origin, stops, endPoint);
@@ -365,16 +379,21 @@ export function RouteClient({
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[14px] text-ff-muted">{summary}</p>
         <div className="flex flex-wrap items-center gap-2">
-          {/* where the van goes after the last delivery */}
+          {/* where the ACTIVE courier's van goes after its last delivery */}
+          {multi && (
+            <span className="text-[12px] font-bold text-ff-muted">
+              Край за Маршрут {activeCourierIdx + 1}:
+            </span>
+          )}
           <div className="flex items-center gap-1 rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
             {END_OPTIONS.map(({ mode, label, Icon }) => (
               <button
                 key={mode}
-                onClick={() => setEnd(mode)}
+                onClick={() => setCourierEnd(mode)}
                 title={label}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12.5px] font-bold transition',
-                  end.mode === mode
+                  activeEndMode === mode
                     ? 'bg-ff-green-100 text-ff-green-800'
                     : 'text-ff-ink-2 hover:bg-ff-surface-2',
                 )}
@@ -604,6 +623,7 @@ export function RouteClient({
                 Маршрут {i + 1} ({r.stops.length} {r.stops.length === 1 ? 'спирка' : 'спирки'}
                 {rDist ? ` · ${rDist}` : ''}
                 {rDur ? ` · ~${rDur}` : ''})
+                {r.endMode === 'home' ? <Home size={12} /> : <Flag size={12} />}
               </button>
             );
           })}

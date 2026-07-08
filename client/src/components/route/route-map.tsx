@@ -10,7 +10,7 @@ import {
   useMapsLibrary,
 } from '@vis.gl/react-google-maps';
 import { cn } from '@/lib/utils';
-import type { RouteStop, CourierRoute, MultiRouteResult, RouteEnd } from '@/lib/types';
+import type { RouteStop, CourierRoute, MultiRouteResult, RouteEnd, RouteEndMode } from '@/lib/types';
 
 /** One distinct color per courier route (cycles if there are more than 10). */
 export const ROUTE_COLORS = [
@@ -111,7 +111,7 @@ export function RouteMap({
             key={ri}
             origin={origin}
             stops={r.stops.filter(isLocated)}
-            end={end}
+            endMode={r.endMode}
             polyline={r.polyline}
             color={routeColor(ri)}
             opacity={ri === activeRoute ? 0.9 : 0.45}
@@ -227,14 +227,14 @@ function FitBounds({
 function RouteLine({
   origin,
   stops,
-  end,
+  endMode,
   polyline,
   color,
   opacity,
 }: {
   origin: Origin;
   stops: RouteStop[];
-  end: RouteEnd;
+  endMode: RouteEndMode;
   polyline?: string[] | null;
   color: string;
   opacity: number;
@@ -271,10 +271,8 @@ function RouteLine({
     const start = origin.lat != null && origin.lng != null ? { lat: origin.lat, lng: origin.lng } : null;
     if (start) path.push(start);
     stops.forEach((s) => path.push({ lat: s.lat as number, lng: s.lng as number }));
-    if (end.mode === 'home' && start) {
+    if (endMode === 'home' && start) {
       path.push(start);
-    } else if (end.mode === 'custom' && end.lat != null && end.lng != null) {
-      path.push({ lat: end.lat, lng: end.lng });
     }
     if (path.length < 2) return;
     const line = new maps.Polyline({
@@ -285,7 +283,7 @@ function RouteLine({
     });
     line.setMap(map);
     return () => line.setMap(null);
-  }, [map, maps, geometry, origin, stops, end, polyline, color, opacity]);
+  }, [map, maps, geometry, origin, stops, endMode, polyline, color, opacity]);
   return null;
 }
 

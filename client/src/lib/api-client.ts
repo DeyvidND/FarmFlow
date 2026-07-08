@@ -585,11 +585,12 @@ export const confirmPendingOrders = (date?: string) =>
 export const getProduction = (date?: string) =>
   apiFetch<ProductionSummary>(`orders/production${date ? `?date=${date}` : ''}`);
 
-export const getRoute = (opts?: { date?: string; end?: string; couriers?: number }) => {
+export const getRoute = (opts?: { date?: string; end?: string; couriers?: number; ends?: string[] }) => {
   const p = new URLSearchParams();
   if (opts?.date) p.set('date', opts.date);
   if (opts?.end) p.set('end', opts.end);
   if (opts?.couriers) p.set('couriers', String(opts.couriers));
+  if (opts?.ends && opts.ends.length) p.set('ends', opts.ends.join(','));
   const q = p.toString();
   return apiFetch<MultiRouteResult>(`orders/route${q ? `?${q}` : ''}`);
 };

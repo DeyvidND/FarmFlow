@@ -606,6 +606,8 @@ export interface CourierRoute {
    *  draws them so the route line follows streets. null → straight-segment
    *  fallback between pins. */
   polyline: string[] | null;
+  /** This courier's own end mode (home = back to base, last = end at last stop). */
+  endMode: RouteEndMode;
 }
 
 /** The day's route, split across 1+ couriers (GET /orders/route?date=&couriers=). */
