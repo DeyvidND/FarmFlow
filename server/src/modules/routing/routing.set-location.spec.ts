@@ -36,7 +36,7 @@ const TENANT = { farmLat: '43.1729', farmLng: '27.8456' };
 
 function makeService(db: any, geocode: jest.Mock) {
   const maps = { geocode } as any;
-  return new RoutingService(db, maps);
+  return new RoutingService(db, maps, {} as any);
 }
 
 describe('RoutingService.setStopLocation', () => {

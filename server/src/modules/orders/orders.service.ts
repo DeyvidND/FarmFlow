@@ -83,6 +83,9 @@ export interface ReschedulableOrder {
   totalStotinki: number;
   status: string;
   slotDate: string;
+  /** Delivery coordinates (null when the address was never geocoded). */
+  deliveryLat: string | null;
+  deliveryLng: string | null;
 }
 
 export type PaymentStatus = 'paid' | 'pending_online' | 'cash';
@@ -1122,6 +1125,8 @@ export class OrdersService {
         totalStotinki: orders.totalStotinki,
         status: orders.status,
         slotDate: deliverySlots.date,
+        deliveryLat: orders.deliveryLat,
+        deliveryLng: orders.deliveryLng,
       })
       .from(orders)
       .innerJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))

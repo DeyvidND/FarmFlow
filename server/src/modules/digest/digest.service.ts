@@ -5,6 +5,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { bgToday } from '../../common/time/bg-time';
 import { scheduledForDay } from '../orders/order-scheduling';
+import { harvestSummary } from '../orders/harvest-summary';
 
 interface DigestOrder {
   id: string;
@@ -506,15 +507,8 @@ export class DigestService {
     );
     const pickupOrders = orderList.filter((o) => o.deliveryType === 'pickup');
 
-    // Prep summary: total qty per product across the day.
-    const prepMap = new Map<string, number>();
-    for (const r of rows) {
-      const name = r.productName ?? '—';
-      prepMap.set(name, (prepMap.get(name) ?? 0) + r.quantity);
-    }
-    const prep: FarmerItem[] = [...prepMap.entries()]
-      .map(([productName, quantity]) => ({ productName, quantity }))
-      .sort((a, b) => b.quantity - a.quantity);
+    // Prep summary: total qty per product across the day (shared helper).
+    const prep: FarmerItem[] = harvestSummary(rows);
 
     const distinctCustomers = new Set(
       orderList.map((o) => o.customerName?.trim().toLowerCase()),

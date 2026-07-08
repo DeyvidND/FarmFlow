@@ -14,6 +14,19 @@ import { bgToday } from '../../common/time/bg-time';
 import { scheduledForDay } from '../orders/order-scheduling';
 import { sweepSplit, haversineKm, type Pt } from './route-split';
 import { humanizeStopOrder } from './route-humanize';
+import { OrdersService } from '../orders/orders.service';
+import {
+  assembleDaySuggestion,
+  type SuggestedDayOrder,
+  type SuggestedDay,
+  type UnplacedOrder,
+  type DaySuggestionResult,
+} from './route-day-assemble';
+
+// Re-exported so existing importers of these result shapes from this module
+// keep working — the types themselves now live alongside the pure assembly
+// logic in route-day-assemble.ts (see assembleDaySuggestion).
+export type { SuggestedDayOrder, SuggestedDay, UnplacedOrder, DaySuggestionResult };
 
 export interface RouteOrigin {
   address: string | null;
@@ -189,6 +202,7 @@ export class RoutingService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly maps: MapsService,
+    private readonly ordersService: OrdersService,
   ) {}
 
   /**
@@ -615,5 +629,48 @@ export class RoutingService {
   async reverseGeocode(lat: number, lng: number): Promise<{ address: string | null }> {
     const address = await this.maps.reverseGeocode(lat, lng);
     return { address };
+  }
+
+  /**
+   * Geography-first proposal: spread the tenant's pending address orders (the
+   * reschedulable pool) across `days`. Returns per-day orders + a harvest total
+   * + a spread hint, plus the un-geocoded orders the farmer must place by hand.
+   * Applying the proposal is the client's job (it calls the existing reschedule
+   * endpoint once per day) — this method never mutates.
+   */
+  async suggestDays(tenantId: string, days: string[]): Promise<DaySuggestionResult> {
+    const pool = await this.ordersService.reschedulable(tenantId);
+
+    // Depot = farm coords (null when the farm was never geocoded).
+    const [tenant] = await this.db
+      .select({ farmLat: tenants.farmLat, farmLng: tenants.farmLng })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const depot: Pt | null =
+      tenant?.farmLat != null && tenant?.farmLng != null
+        ? { lat: Number(tenant.farmLat), lng: Number(tenant.farmLng) }
+        : null;
+
+    // Per-order line items for the harvest readout (no N+1 — one query).
+    const poolIds = pool.map((o) => o.id);
+    const itemsByOrder = new Map<string, { productName: string | null; quantity: number }[]>();
+    if (poolIds.length) {
+      const items = await this.db
+        .select({
+          orderId: orderItems.orderId,
+          productName: orderItems.productName,
+          quantity: orderItems.quantity,
+        })
+        .from(orderItems)
+        .where(inArray(orderItems.orderId, poolIds));
+      for (const it of items) {
+        const list = itemsByOrder.get(it.orderId!) ?? [];
+        list.push({ productName: it.productName, quantity: it.quantity });
+        itemsByOrder.set(it.orderId!, list);
+      }
+    }
+
+    return assembleDaySuggestion(pool, itemsByOrder, depot, days);
   }
 }

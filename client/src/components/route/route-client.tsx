@@ -13,6 +13,7 @@ import {
   Settings,
   AlertTriangle,
   ArrowUpDown,
+  Wand2,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ import { buildWazeTargets, wazeUrl } from './waze';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { reconcileOrder } from './route-order';
 import { ReorderStopsModal } from './reorder-stops-modal';
+import { RouteDaySuggesterModal } from './route-day-suggester-modal';
 
 // Re-exported so callers only need to import from one place.
 export { ROUTE_COLORS };
@@ -217,6 +219,9 @@ export function RouteClient({
   // The compact reorder modal (single line per stop) — the full side-list cards
   // are too tall to reorder without heavy scrolling.
   const [showReorder, setShowReorder] = useState(false);
+  // The multi-day suggester — spreads pending address orders across N days by
+  // geography (a planning tool over ALL days, not just this leg).
+  const [showDaySuggest, setShowDaySuggest] = useState(false);
 
   const [showHelp, setShowHelp] = useState(false);
   const [showLoc, setShowLoc] = useState(false);
@@ -523,6 +528,13 @@ export function RouteClient({
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
           </label>
+          <button
+            onClick={() => setShowDaySuggest(true)}
+            title="Разпредели поръчките по няколко дни спрямо района на клиентите"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
+          >
+            <Wand2 size={16} /> Предложи по дни
+          </button>
           <button
             onClick={() => setShowLoc((v) => !v)}
             title="Адрес на базата и край на маршрута"
@@ -836,6 +848,17 @@ export function RouteClient({
             setShowReorder(false);
           }}
           onClose={() => setShowReorder(false)}
+        />
+      )}
+
+      {showDaySuggest && (
+        <RouteDaySuggesterModal
+          onClose={() => setShowDaySuggest(false)}
+          onApplied={() => {
+            setShowDaySuggest(false);
+            // Orders moved across days — reload so the current day's route reflects it.
+            router.refresh();
+          }}
         />
       )}
     </div>

@@ -4,6 +4,7 @@ import type {
   Article,
   AvailabilityWindow,
   DashboardSummary,
+  DaySuggestionResult,
   DeliveryConfig,
   EcontCity,
   EcontOfficeLive,
@@ -607,6 +608,14 @@ export const getRoute = (opts?: { date?: string; end?: string; couriers?: number
   const q = p.toString();
   return apiFetch<MultiRouteResult>(`orders/route${q ? `?${q}` : ''}`);
 };
+
+/** Geography-first proposal to spread pending address orders across `days` (YYYY-MM-DD). */
+export const suggestDays = (days: string[]) =>
+  apiFetch<DaySuggestionResult>(
+    'orders/suggest-days',
+    { method: 'POST', ...json({ days }) },
+    'Неуспешно предложение за разпределение',
+  );
 
 export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);

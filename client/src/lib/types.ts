@@ -752,3 +752,41 @@ export interface ReschedulableOrder {
   /** YYYY-MM-DD delivery day (its slot's date). */
   slotDate: string;
 }
+
+/** A crop/product line to harvest for a proposed delivery day. */
+export interface HarvestLine {
+  productName: string;
+  quantity: number;
+}
+
+/** One order as placed into a proposed delivery day by the suggester. */
+export interface SuggestedDayOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  lat: number | null;
+  lng: number | null;
+  totalStotinki: number;
+}
+
+/** One proposed delivery day from POST /orders/suggest-days. */
+export interface SuggestedDay {
+  date: string;
+  orders: SuggestedDayOrder[];
+  harvest: HarvestLine[];
+  spreadKm: number;
+}
+
+/** An order the suggester couldn't place geographically (no coords). */
+export interface UnplacedOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  totalStotinki: number;
+}
+
+/** Response shape of POST /orders/suggest-days. */
+export interface DaySuggestionResult {
+  days: SuggestedDay[];
+  unplaced: UnplacedOrder[];
+}

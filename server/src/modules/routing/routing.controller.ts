@@ -1,11 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { RoutingService, parseEndModes, type RouteEndMode } from './routing.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { SetStopLocationDto } from './dto/set-stop-location.dto';
 import { ReverseGeocodeQueryDto } from './dto/reverse-geocode-query.dto';
+import { SuggestDaysDto } from './dto/suggest-days.dto';
 
 // NOTE: RoutingModule is imported before OrdersModule in app.module so this
 // literal `/orders/route` route registers before OrdersModule's `/orders/:id`.
@@ -61,5 +63,14 @@ export class RoutingController {
   @UseGuards(ActiveSubscriptionGuard)
   reverseGeocode(@Query() dto: ReverseGeocodeQueryDto) {
     return this.routingService.reverseGeocode(dto.lat, dto.lng);
+  }
+
+  // Geography-first proposal to spread pending address orders across the given
+  // days. Read-only (no mutation) — the client applies it via /orders/reschedule.
+  @Post('suggest-days')
+  @UseGuards(ActiveSubscriptionGuard)
+  @Roles('admin')
+  suggestDays(@CurrentTenant() tenantId: string, @Body() dto: SuggestDaysDto) {
+    return this.routingService.suggestDays(tenantId, dto.days);
   }
 }
