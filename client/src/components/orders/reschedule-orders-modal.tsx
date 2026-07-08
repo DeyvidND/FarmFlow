@@ -112,6 +112,11 @@ export function RescheduleOrdersModal({
           </button>
         </div>
 
+        <p className="border-b border-ff-border bg-ff-surface-2 px-5 py-2.5 text-[12.5px] leading-relaxed text-ff-ink-2">
+          Тази стъпка е налична само защото е включена лична доставка. Ако я изключиш, преместването по
+          дни изчезва — важи само за тази конфигурация.
+        </p>
+
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
           {rows === null ? (
             <p className="py-8 text-center text-sm text-ff-muted">Зареждане…</p>
