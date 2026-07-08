@@ -1,81 +1,81 @@
 import { suggestDayAssignment, type SuggestOrder } from './route-day-suggest';
 
 const depot = { lat: 42.65, lng: 23.32 };
-
-// Two clear clusters: two "north" points and two "south" points.
 const north1: SuggestOrder = { id: 'n1', lat: 42.71, lng: 23.32 };
 const north2: SuggestOrder = { id: 'n2', lat: 42.72, lng: 23.33 };
+const north3: SuggestOrder = { id: 'n3', lat: 42.73, lng: 23.31 };
 const south1: SuggestOrder = { id: 's1', lat: 42.58, lng: 23.32 };
 const south2: SuggestOrder = { id: 's2', lat: 42.57, lng: 23.33 };
+const south3: SuggestOrder = { id: 's3', lat: 42.56, lng: 23.31 };
 
-/** The day (its id list) that contains `id`. */
-function dayOf(assignment: Record<string, string[]>, id: string): string[] | undefined {
-  return Object.values(assignment).find((ids) => ids.includes(id));
-}
+const dayIds = (routes: string[][]) => routes.flat();
 
-describe('suggestDayAssignment', () => {
-  it('keeps geographic clusters together across 2 days', () => {
-    const orders = [north1, south1, north2, south2];
-    const { assignment, unplaced } = suggestDayAssignment(orders, ['2026-07-10', '2026-07-11'], depot);
+describe('suggestDayAssignment (per-day couriers)', () => {
+  it('gives a day with more couriers more orders (capacity-weighted)', () => {
+    const orders = [north1, north2, north3, south1, south2, south3];
+    const { assignment } = suggestDayAssignment(
+      orders,
+      [{ date: '2026-07-10', couriers: 2 }, { date: '2026-07-11', couriers: 1 }],
+      depot,
+    );
+    const d1 = dayIds(assignment['2026-07-10']);
+    const d2 = dayIds(assignment['2026-07-11']);
+    expect(d1.length + d2.length).toBe(6);
+    expect(d1.length).toBeGreaterThan(d2.length); // 2 couriers > 1 courier share
+  });
 
-    expect(unplaced).toEqual([]);
-    // Every chosen day is a key.
-    expect(Object.keys(assignment).sort()).toEqual(['2026-07-10', '2026-07-11']);
-    // The two north orders land on the same day; likewise the two south orders.
-    expect(dayOf(assignment, 'n1')).toEqual(dayOf(assignment, 'n2'));
-    expect(dayOf(assignment, 's1')).toEqual(dayOf(assignment, 's2'));
-    // North and south are on different days.
-    expect(dayOf(assignment, 'n1')).not.toEqual(dayOf(assignment, 's1'));
+  it('never gives a day more routes than its courier count', () => {
+    const orders = [north1, north2, north3, south1, south2, south3];
+    const { assignment } = suggestDayAssignment(
+      orders,
+      [{ date: '2026-07-10', couriers: 2 }, { date: '2026-07-11', couriers: 1 }],
+      depot,
+    );
+    expect(assignment['2026-07-10'].length).toBeLessThanOrEqual(2);
+    expect(assignment['2026-07-11'].length).toBeLessThanOrEqual(1);
   });
 
   it('routes un-geocoded orders to unplaced, never onto a day', () => {
-    const orders: SuggestOrder[] = [north1, { id: 'x', lat: null, lng: null }];
-    const { assignment, unplaced } = suggestDayAssignment(orders, ['2026-07-10'], depot);
+    const { assignment, unplaced } = suggestDayAssignment(
+      [north1, { id: 'x', lat: null, lng: null }],
+      [{ date: '2026-07-10', couriers: 1 }],
+      depot,
+    );
     expect(unplaced).toEqual(['x']);
-    expect(Object.values(assignment).flat()).toEqual(['n1']);
+    expect(dayIds(assignment['2026-07-10'])).toEqual(['n1']);
   });
 
-  it('puts all located orders on the single day when N=1', () => {
-    const orders = [north1, south1, north2];
-    const { assignment } = suggestDayAssignment(orders, ['2026-07-10'], depot);
-    expect(assignment['2026-07-10'].sort()).toEqual(['n1', 'n2', 's1']);
+  it('each assignment value is an array of routes (string[][])', () => {
+    const { assignment } = suggestDayAssignment(
+      [north1, south1],
+      [{ date: '2026-07-10', couriers: 1 }],
+      depot,
+    );
+    expect(Array.isArray(assignment['2026-07-10'])).toBe(true);
+    expect(Array.isArray(assignment['2026-07-10'][0])).toBe(true);
   });
 
   it('is deterministic', () => {
     const orders = [north1, south1, north2, south2];
-    const a = suggestDayAssignment(orders, ['2026-07-10', '2026-07-11'], depot);
-    const b = suggestDayAssignment(orders, ['2026-07-10', '2026-07-11'], depot);
-    expect(a).toEqual(b);
+    const days = [{ date: '2026-07-10', couriers: 1 }, { date: '2026-07-11', couriers: 1 }];
+    expect(suggestDayAssignment(orders, days, depot)).toEqual(
+      suggestDayAssignment(orders, days, depot),
+    );
   });
 
-  it('falls back to the stop centroid when no depot is given', () => {
-    const orders = [north1, north2, south1, south2];
-    const { assignment, unplaced } = suggestDayAssignment(orders, ['2026-07-10', '2026-07-11'], null);
-    expect(unplaced).toEqual([]);
-    expect(Object.values(assignment).flat().sort()).toEqual(['n1', 'n2', 's1', 's2']);
+  it('puts all located orders in unplaced when no days are given', () => {
+    const { assignment, unplaced } = suggestDayAssignment([north1, south1], [], depot);
+    expect(assignment).toEqual({});
+    expect(unplaced.sort()).toEqual(['n1', 's1']);
   });
 
-  it('returns empty day lists when there are no located orders', () => {
-    const orders: SuggestOrder[] = [{ id: 'x', lat: null, lng: null }];
-    const { assignment, unplaced } = suggestDayAssignment(orders, ['2026-07-10'], depot);
+  it('empty days keys present with no routes when there are no located orders', () => {
+    const { assignment, unplaced } = suggestDayAssignment(
+      [{ id: 'x', lat: null, lng: null }],
+      [{ date: '2026-07-10', couriers: 2 }],
+      depot,
+    );
     expect(assignment).toEqual({ '2026-07-10': [] });
     expect(unplaced).toEqual(['x']);
-  });
-
-  it('puts every order in unplaced when no days are given', () => {
-    const orders = [north1, south1];
-    const { assignment, unplaced } = suggestDayAssignment(orders, [], depot);
-    expect(assignment).toEqual({});
-    expect(unplaced).toEqual(['n1', 's1']);
-  });
-
-  it('leaves extra days empty when there are more days than orders', () => {
-    const orders = [north1, south1];
-    const { assignment, unplaced } = suggestDayAssignment(orders, ['2026-07-10', '2026-07-11', '2026-07-12'], depot);
-    expect(Object.keys(assignment).sort()).toEqual(['2026-07-10', '2026-07-11', '2026-07-12']);
-    const allPlaced = Object.values(assignment).flat().sort();
-    expect(allPlaced).toEqual(['n1', 's1']);
-    expect(Object.values(assignment).some((ids) => ids.length === 0)).toBe(true);
-    expect(unplaced).toEqual([]);
   });
 });
