@@ -152,6 +152,14 @@ export function RouteClient({
   const activeEndMode: RouteEndMode = modes[activeCourierIdx] ?? end.mode;
 
   const [activeId, setActiveId] = useState<string | null>(stops[0]?.id ?? null);
+  // Bumped on every user stop-pick (list row or map pin) so the map pans+zooms
+  // onto that pin. Kept separate from `setActiveId` so courier-switch / initial
+  // selection (below) don't move the viewport.
+  const [focusNonce, setFocusNonce] = useState(0);
+  const pickStop = (id: string) => {
+    setActiveId(id);
+    setFocusNonce((n) => n + 1);
+  };
   // Switching courier tabs (or loading a new day) selects that leg's first stop
   // so the map/list don't keep highlighting a pin that belongs to another courier.
   useEffect(() => {
@@ -676,7 +684,7 @@ export function RouteClient({
           <StopList
             stops={stops}
             activeId={activeId}
-            onPick={setActiveId}
+            onPick={pickStop}
             onOpenMaps={onOpenMaps}
             onCall={onCall}
             onEmail={onEmail}
@@ -692,7 +700,8 @@ export function RouteClient({
             origin={origin}
             end={end}
             activeId={activeId}
-            onPick={setActiveId}
+            onPick={pickStop}
+            focusNonce={focusNonce}
             apiKey={mapsKey}
           />
         </div>

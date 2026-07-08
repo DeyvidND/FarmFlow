@@ -48,6 +48,9 @@ interface RouteMapProps {
   end: RouteEnd;
   activeId: string | null;
   onPick: (id: string) => void;
+  /** Bumped on every user stop-pick; drives a pan+zoom to the active pin. Left
+   *  undefined for callers that don't want the map to follow selection. */
+  focusNonce?: number;
   /** Maps key from the server (Dokploy runtime env); falls back to the build-time
    *  NEXT_PUBLIC_ constant when absent. */
   apiKey?: string;
@@ -66,6 +69,7 @@ export function RouteMap({
   end,
   activeId,
   onPick,
+  focusNonce,
   apiKey,
 }: RouteMapProps) {
   const key = apiKey || MAPS_KEY;
@@ -105,6 +109,7 @@ export function RouteMap({
         style={{ width: '100%', height: '100%' }}
       >
         <FitBounds origin={origin} stops={allLocated} end={customEnd} />
+        <PanToActive stops={allLocated} activeId={activeId} nonce={focusNonce ?? 0} />
 
         {routes.map((r, ri) => (
           <RouteLine
@@ -149,18 +154,20 @@ export function RouteMap({
   );
 }
 
-/** Pin marker content for a delivery stop — colored to match its courier route. */
+/** Pin marker content for a delivery stop — colored to match its courier route.
+ *  The active stop keeps its route color (no yellow — that read as a stray extra
+ *  route on a multi-courier map); it's emphasised with a white ring + scale. */
 function NumPin({ n, active, color }: { n: number; active: boolean; color: string }) {
   return (
     <span
       className={cn(
         'grid h-[30px] w-[30px] place-items-center rounded-[50%_50%_50%_2px] shadow-[0_4px_10px_rgba(0,0,0,0.25)]',
-        active && 'bg-ff-amber',
+        active && 'ring-2 ring-white',
       )}
-      style={{ transform: 'rotate(45deg)', ...(active ? {} : { backgroundColor: color }) }}
+      style={{ transform: `rotate(45deg) scale(${active ? 1.15 : 1})`, backgroundColor: color }}
     >
       <span
-        className={cn('text-[13.5px] font-extrabold', active ? 'text-[#3a2a08]' : 'text-white')}
+        className="text-[13.5px] font-extrabold text-white"
         style={{ transform: 'rotate(-45deg)' }}
       >
         {n}
@@ -183,6 +190,34 @@ function EndPin() {
       ⚑
     </span>
   );
+}
+
+/**
+ * Pan + zoom the map onto the active stop's pin whenever the user picks a stop.
+ * Keyed only on `nonce` (bumped per user pick) so it never fights the initial
+ * fit-all, nor fires when a courier switch auto-selects a leg's first stop.
+ */
+function PanToActive({
+  stops,
+  activeId,
+  nonce,
+}: {
+  stops: RouteStop[];
+  activeId: string | null;
+  nonce: number;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map || !nonce || !activeId) return;
+    const s = stops.find((x) => x.id === activeId);
+    if (!s || s.lat == null || s.lng == null) return;
+    map.panTo({ lat: s.lat, lng: s.lng });
+    map.setZoom(15);
+    // Only re-run on an explicit user pick — `activeId`/`stops` are read fresh
+    // from the render that produced this nonce.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nonce]);
+  return null;
 }
 
 /** Fit the viewport to the farm + every route's stops (+ custom end). */
