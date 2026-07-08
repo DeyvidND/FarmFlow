@@ -69,8 +69,11 @@ not used to move orders.
 
 2. **New pure module `routing/route-day-suggest.ts`** — no DB, no Maps calls, unit-testable.
    - Input: `{ orders: {id, lat, lng}[], days: string[], depot?: {lat,lng} }`.
-   - Algorithm: balanced geographic clustering (k-means on lat/lng with `k = days.length`, plus
-     a balance pass so no day is lopsided). Haversine distance only.
+   - Algorithm: **reuse the existing `sweepSplit(depot, stops, k, endPt)` partitioner**
+     (`route-split.ts`) with `k = days.length`. It already does balanced geographic clustering
+     (sweep + geographic k-means + radial seeds, makespan-balanced local search, deterministic,
+     Haversine-only) — no new clustering code. The new module only maps the returned groups onto
+     the chosen days.
    - Cluster → day assignment: **deterministic** — sort clusters by centroid distance from the
      depot ascending (nearest area first), tie-break by cluster size descending, then map onto
      the selected `days` in date order. (Each day is tight regardless of which date it lands on;
@@ -86,12 +89,12 @@ not used to move orders.
      ```
      {
        days: [{ date, orders: [{id, orderNumber, customerName, lat, lng, totalStotinki}],
-                harvest: [{ productName, quantity }], crowFlyMeters }],
+                harvest: [{ productName, quantity }], spreadKm }],
        unplaced: [{ id, orderNumber, customerName, totalStotinki }]
      }
      ```
-   - `crowFlyMeters` = rough sum of depot→stops→depot great-circle distance, for a cheap "how big
-     is this day" hint. No Maps calls.
+   - `spreadKm` = sum of straight-line depot→stop distances for the day — a cheap "how big/spread
+     is this day" hint, not a real route length. No Maps calls.
 
 4. **Harvest summary helper** — extract the per-product-total logic that already exists inline in
    `digest.service.ts` (`prepMap`, sum `quantity` by `productName`) into a shared pure helper so
