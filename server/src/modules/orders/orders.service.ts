@@ -1130,8 +1130,26 @@ export class OrdersService {
               ne(orders.status, 'cancelled'),
             ),
           )
-          .returning({ id: orders.id });
+          .returning({ id: orders.id, paymentMethod: orders.paymentMethod, codOutcome: orders.codOutcome });
         if (!claimed.length) return; // another concurrent cancel already restored
+
+        // Cancelling a наложен-платеж order also closes its money outcome, so the
+        // Плащания screen doesn't need a second, separate «Отказана» click. Not a
+        // fraud signal — an operator cancel (wrong address, out of stock, etc.) is
+        // not the customer's fault — so this skips codRisk.recordManualRefusal,
+        // unlike the manual setCodOutcome() path.
+        const [claim] = claimed;
+        if (claim.paymentMethod === 'cod' && claim.codOutcome !== 'refused') {
+          await tx
+            .update(orders)
+            .set({
+              codOutcome: 'refused',
+              codOutcomeAt: new Date(),
+              codOutcomeReason: null,
+              codOutcomeSource: 'auto-cancel',
+            })
+            .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
+        }
 
         const items = await tx
           .select()

@@ -1,12 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { Info } from 'lucide-react';
+import { Info, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ApiError,
   listAvailabilityWindows,
   deleteAvailabilityWindow,
+  createAvailabilityWindow,
+  updateAvailabilityWindow,
 } from '@/lib/api-client';
 import type { AvailabilityWindow } from '@/lib/types';
 import type { PickerProduct } from '@/app/(admin)/availability/page';
@@ -48,6 +50,9 @@ export function AvailabilityClient({
   // Owner + multiFarmer: client-side farmer filter (products already carry farmerId).
   const [selectedFarmerId, setSelectedFarmerId] = React.useState<string>('');
   const showFarmerPicker = role === 'admin' && multiFarmer && farmers.length > 0;
+  const [search, setSearch] = React.useState('');
+  const [statusFilter, setStatusFilter] = React.useState<'all' | 'out' | 'unset'>('all');
+  const [markingId, setMarkingId] = React.useState<string | null>(null);
 
   // Windows are server-rendered (initialWindows); reload() only re-pulls after an edit.
   const reload = React.useCallback(async () => {
@@ -58,13 +63,35 @@ export function AvailabilityClient({
     }
   }, []);
 
-  // Filter products client-side when the owner has a farmer selected.
-  const visibleProducts =
-    showFarmerPicker && selectedFarmerId
-      ? products.filter((p) => p.farmerId === selectedFarmerId)
-      : products;
+  const windowOf = (id: string) => windows.find((w) => w.productId === id);
 
-  const byProduct = (id: string) => windows.filter((w) => w.productId === id);
+  // A product's stock state — drives the row badge and the status-filter chips.
+  //  variants → managed per-variant elsewhere; in → has stock; out → sold out
+  //  (window at 0); unset → no window yet (unlimited / not tracked).
+  type Status = 'variants' | 'in' | 'out' | 'unset';
+  const statusOf = (p: PickerProduct): Status => {
+    if (p.hasVariants) return 'variants';
+    const w = windowOf(p.id);
+    if (!w) return 'unset';
+    return w.remaining > 0 ? 'in' : 'out';
+  };
+
+  // Farmer scope first (owner + multiFarmer only); chip counts read off this set
+  // so they stay stable while typing in the search box.
+  const farmerFiltered = products.filter(
+    (p) => !(showFarmerPicker && selectedFarmerId) || p.farmerId === selectedFarmerId,
+  );
+  const counts = {
+    all: farmerFiltered.length,
+    out: farmerFiltered.filter((p) => statusOf(p) === 'out').length,
+    unset: farmerFiltered.filter((p) => statusOf(p) === 'unset').length,
+  };
+
+  // Then free-text search + the active status chip → the rendered list.
+  const q = search.trim().toLowerCase();
+  const visibleProducts = farmerFiltered
+    .filter((p) => !q || [p.name, p.weight].filter(Boolean).join(' ').toLowerCase().includes(q))
+    .filter((p) => statusFilter === 'all' || statusOf(p) === statusFilter);
 
   const remove = async (id: string) => {
     setConfirming(null);
@@ -73,6 +100,27 @@ export function AvailabilityClient({
       await reload();
     } catch (e) {
       toast.error(errMsg(e));
+    }
+  };
+
+  // One-click «Изчерпано»: sets stock straight to 0 — no modal, no typing. Works
+  // both when the product has no window yet (creates one at 0) and when it
+  // already has stock (zeroes the existing window, preserving nothing since the
+  // product is being marked fully sold out).
+  const markSoldOut = async (productId: string, existingWindowId?: string) => {
+    setMarkingId(productId);
+    try {
+      if (existingWindowId) {
+        await updateAvailabilityWindow(existingWindowId, { quantity: 0 });
+      } else {
+        await createAvailabilityWindow({ productId, quantity: 0 });
+      }
+      toast.success('Отбелязано като изчерпано');
+      await reload();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setMarkingId(null);
     }
   };
 
@@ -104,9 +152,8 @@ export function AvailabilityClient({
           </div>
         </div>
 
-        {/* Owner + multiFarmer: farmer filter dropdown */}
-        {showFarmerPicker && (
-          <div className="mt-4 flex flex-wrap items-end gap-3">
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          {showFarmerPicker && (
             <label className="inline-flex items-center gap-2 text-[13px] font-bold text-ff-ink-2">
               Фермер:
               <select
@@ -122,12 +169,45 @@ export function AvailabilityClient({
                 ))}
               </select>
             </label>
+          )}
+          <label className="relative flex-1 min-w-[220px]">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ff-muted-2" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Търси продукт…"
+              className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface pl-9 pr-3 text-[13px] font-semibold text-ff-ink-2 shadow-ff-sm outline-none placeholder:font-normal placeholder:text-ff-muted-2 focus:border-ff-green-500"
+            />
+          </label>
+        </div>
+
+        {/* Status chips — jump straight to what needs attention. «Изчерпани» and
+            «Незададени» are the actionable buckets a farmer cares about. */}
+        {products.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {([
+              ['all', `Всички (${counts.all})`],
+              ['out', `Изчерпани (${counts.out})`],
+              ['unset', `Незададени (${counts.unset})`],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setStatusFilter(key)}
+                className={
+                  statusFilter === key
+                    ? 'rounded-full bg-ff-green-700 px-3 py-1.5 text-[12.5px] font-bold text-white'
+                    : 'rounded-full border border-ff-border bg-ff-surface px-3 py-1.5 text-[12.5px] font-bold text-ff-ink-2 hover:bg-ff-surface-2'
+                }
+              >
+                {label}
+              </button>
+            ))}
           </div>
         )}
 
       </div>
 
-      {visibleProducts.length === 0 && (
+      {products.length === 0 && (
         <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 text-sm text-ff-muted-2">
           <>
             Все още нямаш добавени активни продукти. Добави продукти от{' '}
@@ -143,74 +223,98 @@ export function AvailabilityClient({
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
-        {visibleProducts.map((p) => (
-          <div
-            key={p.id}
-            className="rounded-2xl border border-ff-border bg-ff-surface p-4"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="font-semibold text-ff-ink">
-                {[p.name, p.weight].filter(Boolean).join(' ')}
-              </div>
-              {!p.hasVariants && byProduct(p.id).length === 0 && (
-                <button
-                  onClick={() => setEditing({ productId: p.id })}
-                  className="shrink-0 rounded-lg bg-ff-green-50 px-3 py-1.5 text-sm font-bold text-ff-green-700 hover:bg-ff-green-100"
-                >
-                  + Задай наличност
-                </button>
-              )}
-            </div>
+      {products.length > 0 && visibleProducts.length === 0 && (
+        <div className="rounded-2xl border border-ff-border bg-ff-surface p-6 text-sm text-ff-muted-2">
+          Няма продукти в този изглед.
+        </div>
+      )}
 
-            {p.hasVariants ? (
-              <div className="mt-3 rounded-lg bg-ff-surface-2 px-3 py-2.5 text-sm">
-                <div className="font-semibold text-ff-ink">Управлява се чрез варианти</div>
-                <div className="mt-0.5 text-ff-muted-2">
-                  Този продукт има няколко вида/грамажа. Наличността се задава за всеки от тях в самия продукт.
+      {/* Dense one-row-per-product list. Each row: name · stock badge · actions.
+          Far more scannable than stacked cards when a farm has dozens of products. */}
+      {visibleProducts.length > 0 && (
+        <div className="divide-y divide-ff-border overflow-hidden rounded-2xl border border-ff-border bg-ff-surface">
+          {visibleProducts.map((p) => {
+            const w = windowOf(p.id);
+            const busy = markingId === p.id;
+            return (
+              <div
+                key={p.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3"
+              >
+                <div className="min-w-0 flex-1 font-semibold text-ff-ink">
+                  <span className="truncate">{[p.name, p.weight].filter(Boolean).join(' ')}</span>
                 </div>
-                <a href="/products" className="mt-1.5 inline-block font-semibold text-ff-green-700 hover:underline">
-                  Отвори продукта →
-                </a>
-              </div>
-            ) : (
-              <div className="mt-3 flex flex-col gap-1.5">
-                {byProduct(p.id).length === 0 && (
-                  <div className="text-sm text-ff-muted-2">
-                    Няма зададена наличност.
-                  </div>
+
+                {/* Stock badge */}
+                {p.hasVariants ? (
+                  <span className="rounded-full bg-ff-surface-2 px-2.5 py-1 text-[12px] font-bold text-ff-ink-2">
+                    Варианти
+                  </span>
+                ) : !w ? (
+                  <span className="text-[13px] font-semibold text-ff-muted-2">Не е зададена</span>
+                ) : w.remaining > 0 ? (
+                  <span className="text-[13px] font-semibold text-ff-ink">
+                    остават {w.remaining}/{w.quantity} бр.
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-red-50 px-2.5 py-1 text-[12px] font-bold text-red-700">
+                    Изчерпано
+                  </span>
                 )}
-                {byProduct(p.id).map((w) => (
-                  <div
-                    key={w.id}
-                    className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg bg-ff-surface-2 px-3 py-2 text-sm"
-                  >
-                    <span className="font-semibold text-ff-ink">
-                      остават {w.remaining}/{w.quantity} бр.
-                    </span>
-                    <span className="flex items-center gap-3">
+
+                {/* Actions */}
+                <div className="flex shrink-0 items-center gap-3 text-[13px] font-bold">
+                  {p.hasVariants ? (
+                    <a href="/products" className="text-ff-green-700 hover:underline">
+                      Отвори →
+                    </a>
+                  ) : !w ? (
+                    <>
                       <button
-                        onClick={() =>
-                          setEditing({ productId: p.id, existingWindow: w })
-                        }
+                        onClick={() => markSoldOut(p.id)}
+                        disabled={busy}
+                        className="text-red-700 hover:underline disabled:opacity-60"
+                      >
+                        Изчерпано
+                      </button>
+                      <button
+                        onClick={() => setEditing({ productId: p.id })}
+                        className="rounded-lg bg-ff-green-50 px-3 py-1.5 text-ff-green-700 hover:bg-ff-green-100"
+                      >
+                        Задай
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setEditing({ productId: p.id, existingWindow: w })}
                         className="text-ff-ink-2 hover:underline"
                       >
                         Промени
                       </button>
+                      {w.remaining > 0 && (
+                        <button
+                          onClick={() => markSoldOut(p.id, w.id)}
+                          disabled={busy}
+                          className="text-red-700 hover:underline disabled:opacity-60"
+                        >
+                          Изчерпано
+                        </button>
+                      )}
                       <button
                         onClick={() => setConfirming(w.id)}
                         className="text-red-600 hover:underline"
                       >
                         Изтрий
                       </button>
-                    </span>
-                  </div>
-                ))}
+                    </>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {editing && (
         <WindowEditor

@@ -33,8 +33,8 @@ export function WindowEditor({ productId, existingWindow, onClose, onSaved }: Pr
 
   const save = async () => {
     const qty = parseInt(quantity, 10);
-    if (!qty || qty < 1) {
-      toast.error('Въведи количество (поне 1)');
+    if (!Number.isInteger(qty) || qty < 0) {
+      toast.error('Въведи количество (0 или повече)');
       return;
     }
     setSaving(true);

@@ -5,6 +5,6 @@ export class UpdateWindowDto {
   @ApiPropertyOptional({ example: 10 })
   @IsOptional()
   @IsInt()
-  @Min(1)
+  @Min(0)
   quantity?: number;
 }

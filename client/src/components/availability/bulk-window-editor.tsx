@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError, createBulkAvailabilityWindows } from '@/lib/api-client';
 import type { PickerProduct } from '@/app/(admin)/availability/page';
@@ -28,6 +29,12 @@ export function BulkWindowEditor({
   const [qty, setQty] = React.useState<Record<string, string>>({});
   const [fillAll, setFillAll] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+
+  const q = search.trim().toLowerCase();
+  const visibleProducts = q
+    ? products.filter((p) => [p.name, p.weight].filter(Boolean).join(' ').toLowerCase().includes(q))
+    : products;
 
   const setOne = (id: string, v: string) => setQty((prev) => ({ ...prev, [id]: digits(v) }));
   const applyFill = () => {
@@ -105,7 +112,17 @@ export function BulkWindowEditor({
           </button>
         </div>
 
-        <div className="mt-4 flex items-center justify-between">
+        <label className="relative mt-4">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ff-muted-2" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Търси продукт…"
+            className={`${field} w-full pl-9`}
+          />
+        </label>
+
+        <div className="mt-3 flex items-center justify-between">
           <span className="text-[12.5px] font-bold text-ff-ink-2">
             Продукти ({items.length}/{products.length} с количество)
           </span>
@@ -120,8 +137,10 @@ export function BulkWindowEditor({
         <div className="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto rounded-xl border border-ff-border bg-ff-surface-2 p-2">
           {products.length === 0 ? (
             <p className="px-1 py-2 text-[13px] text-ff-muted-2">Няма активни продукти.</p>
+          ) : visibleProducts.length === 0 ? (
+            <p className="px-1 py-2 text-[13px] text-ff-muted-2">Няма продукти, отговарящи на търсенето.</p>
           ) : (
-            products.map((p) => (
+            visibleProducts.map((p) => (
               <div
                 key={p.id}
                 className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-ff-surface"

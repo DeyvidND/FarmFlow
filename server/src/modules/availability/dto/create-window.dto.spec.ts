@@ -14,8 +14,11 @@ describe('CreateWindowDto', () => {
   it('accepts a valid stock entry', async () => {
     expect(await validate(make({}))).toHaveLength(0);
   });
-  it('rejects quantity < 1', async () => {
-    expect((await validate(make({ quantity: 0 }))).length).toBeGreaterThan(0);
+  it('accepts quantity 0 (marks the product sold out)', async () => {
+    expect(await validate(make({ quantity: 0 }))).toHaveLength(0);
+  });
+  it('rejects quantity < 0', async () => {
+    expect((await validate(make({ quantity: -1 }))).length).toBeGreaterThan(0);
   });
   it('rejects a non-uuid productId', async () => {
     expect((await validate(make({ productId: 'x' as any }))).length).toBeGreaterThan(0);
@@ -27,8 +30,12 @@ describe('UpdateWindowDto', () => {
     const dto = plainToInstance(UpdateWindowDto, {});
     expect(await validate(dto)).toHaveLength(0);
   });
-  it('rejects quantity < 1', async () => {
+  it('accepts quantity 0 (marks the product sold out)', async () => {
     const dto = plainToInstance(UpdateWindowDto, { quantity: 0 });
+    expect(await validate(dto)).toHaveLength(0);
+  });
+  it('rejects quantity < 0', async () => {
+    const dto = plainToInstance(UpdateWindowDto, { quantity: -1 });
     expect((await validate(dto)).length).toBeGreaterThan(0);
   });
 });
