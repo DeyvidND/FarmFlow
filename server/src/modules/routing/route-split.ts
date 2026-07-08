@@ -110,6 +110,23 @@ function twoOpt(depot: Pt, ordered: Pt[], endPt: Pt | null): Pt[] {
 }
 
 /**
+ * Estimated route metrics for `stops` served from `depot`, returning to `endPt`
+ * after the last stop (null = one-way). Greedy NN order, 2-opt improved, at
+ * urban speed + fixed service time per stop. Pure. `estimateWorkloadS` is the
+ * seconds half of this — kept as a thin wrapper so existing callers are unchanged.
+ */
+export function estimateRoute(
+  depot: Pt,
+  stops: Pt[],
+  endPt: Pt | null = null,
+): { km: number; seconds: number } {
+  if (!stops.length) return { km: 0, seconds: 0 };
+  const ordered = twoOpt(depot, nnOrder(depot, stops), endPt);
+  const km = pathKm(depot, ordered, endPt);
+  return { km, seconds: kmToS(km) + stops.length * SERVICE_S };
+}
+
+/**
  * Estimated seconds to serve `stops` from `depot`, returning to `endPt` after
  * the last stop (null = one-way, no return leg). Greedy NN order, 2-opt
  * improved, at urban speed + fixed service time per stop. A comparable
@@ -122,9 +139,7 @@ function twoOpt(depot: Pt, ordered: Pt[], endPt: Pt | null): Pt[] {
  * estimate (and its direct unit tests depend on that behaviour).
  */
 export function estimateWorkloadS(depot: Pt, stops: Pt[], endPt: Pt | null = null): number {
-  if (!stops.length) return 0;
-  const ordered = twoOpt(depot, nnOrder(depot, stops), endPt);
-  return kmToS(pathKm(depot, ordered, endPt)) + stops.length * SERVICE_S;
+  return estimateRoute(depot, stops, endPt).seconds;
 }
 
 /**
