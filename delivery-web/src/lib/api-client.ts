@@ -108,7 +108,12 @@ export const templateUrl = '/bff/import/template.xlsx';
 
 export type Carrier = 'econt' | 'speedy';
 export type ShipmentStatus =
-  | 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused';
+  | 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused'
+  // A child row folded into a multi-farmer consolidation master — its own waybill will
+  // never be created (see shipping/consolidation), so it's a terminal, non-actionable
+  // status rather than a step toward one. Set server-side on the shared `shipments`
+  // table (see consolidation.service.ts), so it can appear under either carrier.
+  | 'consolidated';
 
 /** A single shipment row, normalised across both carriers. Econt returns the richer
  *  `AdminShipment` shape (server); Speedy returns a slimmer `SpeedyShipment`. We tag
@@ -135,6 +140,10 @@ export interface ShipmentRow {
   /** Set once a courier pickup has been requested for this waybill — drives the
    *  „Куриер заявен" pill and keeps the row out of a second pickup request. */
   courierRequestStatus?: string | null;
+  /** True when this row is a consolidation MASTER — its codAmountStotinki is the sum
+   *  of ≥1 other farmers' orders folded into this one waybill (see shipping/consolidation).
+   *  Drives the per-farmer debt breakdown + „Раздели" (undo) action in the table. */
+  isConsolidationMaster?: boolean;
 }
 
 /** Server `AdminShipment` (econt) — see econt.service.ts. */
@@ -143,7 +152,7 @@ interface EcontAdminShipment {
   orderNumber: string;
   customerName: string;
   method: 'econtOffice' | 'econtAddress';
-  status: 'pending' | 'created' | 'shipped' | 'delivered';
+  status: 'pending' | 'created' | 'shipped' | 'delivered' | 'consolidated';
   trackingNumber?: string;
   priceStotinki?: number;
   codAmountStotinki?: number;
@@ -151,6 +160,7 @@ interface EcontAdminShipment {
   shipmentId?: string;
   courierRequestStatus?: string | null;
   manual?: boolean;
+  isConsolidationMaster?: boolean;
   history: { at: string; label: string; location?: string }[];
 }
 
@@ -164,6 +174,7 @@ interface SpeedyAdminShipment {
   priceStotinki: number | null;
   codAmountStotinki: number | null;
   courierRequestStatus?: string | null;
+  isConsolidationMaster?: boolean;
 }
 
 const econtMethodLabel = (m: EcontAdminShipment['method']): string =>
@@ -191,6 +202,7 @@ export const listEcontShipments = async (): Promise<ShipmentRow[]> => {
     codAmountStotinki: r.codAmountStotinki ?? null,
     labelPdfUrl: r.labelPdfUrl ?? null,
     courierRequestStatus: r.courierRequestStatus ?? null,
+    isConsolidationMaster: r.isConsolidationMaster ?? false,
   }));
 };
 
@@ -209,6 +221,7 @@ export const listSpeedyShipments = async (): Promise<ShipmentRow[]> => {
     codAmountStotinki: r.codAmountStotinki,
     labelPdfUrl: null,
     courierRequestStatus: r.courierRequestStatus ?? null,
+    isConsolidationMaster: r.isConsolidationMaster ?? false,
   }));
 };
 
@@ -278,6 +291,61 @@ export const requestCourier = async (carrier: Carrier, shipmentIds: string[]): P
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shipmentIds }),
   }, 'Заявката за куриер се провали');
 };
+
+/* ---------------------------- consolidation ------------------------------- */
+
+export interface ConsolidationMember {
+  shipmentId: string;
+  orderId: string;
+  orderNumber: number | null;
+  farmerId: string;
+  farmerName: string | null;
+  totalStotinki: number;
+}
+export interface ConsolidationSuggestion {
+  key: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  deliveryCity: string | null;
+  deliveryAddress: string | null;
+  sumStotinki: number;
+  members: ConsolidationMember[];
+}
+
+export const listConsolidationSuggestions = async (): Promise<ConsolidationSuggestion[]> => {
+  const body: { suggestions: ConsolidationSuggestion[] } = await (await bff('shipping/consolidation/suggestions')).json();
+  return body.suggestions;
+};
+
+export const getConsolidationEnabled = async (): Promise<boolean> =>
+  (await (await bff('shipping/consolidation/settings')).json()).enabled;
+
+export const setConsolidationEnabled = async (enabled: boolean): Promise<boolean> =>
+  (await (await bff('shipping/consolidation/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
+  }, 'Запазването се провали')).json()).enabled;
+
+export const consolidateShipments = async (
+  input: { collectorFarmerId: string; memberOrderIds: string[]; carrier?: Carrier },
+): Promise<{ masterShipmentId: string; carrier: Carrier; sumStotinki: number; breakdown: Array<{ farmerId: string; farmerName: string | null; totalStotinki: number }> }> =>
+  (await bff('shipping/consolidation', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  }, 'Обединяването се провали')).json();
+
+export const unconsolidateShipment = async (masterId: string): Promise<{ restored: number }> =>
+  (await bff(`shipping/consolidation/${masterId}/undo`, { method: 'POST' }, 'Разделянето се провали')).json();
+
+/** Per-farmer debt breakdown for a consolidation MASTER shipment: who else's order
+ *  was folded into it, and how much of the collected COD is theirs (excludes the
+ *  collector's own order — `collectorFarmerId` is surfaced separately). Admin-only;
+ *  a farmer session gets a 403 here, same as the suggestions/settings endpoints. */
+export interface ConsolidationBreakdown {
+  collectorFarmerId: string | null;
+  members: Array<{ farmerId: string; farmerName: string | null; totalStotinki: number }>;
+  sumStotinki: number;
+}
+export const consolidationBreakdown = async (masterId: string): Promise<ConsolidationBreakdown> =>
+  (await bff(`shipping/consolidation/${masterId}`)).json();
 
 /* -------------------------------- COD risk -------------------------------- */
 

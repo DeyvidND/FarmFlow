@@ -26,6 +26,7 @@ import { SpeedyCourierRequestDto } from './dto/speedy-courier-request.dto';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { isReturnedStatus } from '../cod-risk/cod-risk.helpers';
 import type { CarrierAdapter } from '../orders/carrier-adapter';
+import { consolidatedCodOverride } from '../econt-app/consolidation.helpers';
 
 const SPEEDY_BASE = 'https://api.speedy.bg/v1';
 const NOMENCLATURE_TTL = 60 * 60 * 24; // 1 day
@@ -93,6 +94,9 @@ export interface SpeedyShipment {
   codAmountStotinki: number | null;
   /** Courier-pickup request status (null until a pickup is requested for this waybill). */
   courierRequestStatus: string | null;
+  /** True when this shipment is a consolidation MASTER (see econt.mappers.ts /
+   *  consolidation.service.ts) — drives the debt-breakdown + „Раздели" undo action. */
+  isConsolidationMaster?: boolean;
 }
 
 @Injectable()
@@ -506,7 +510,22 @@ export class SpeedyService implements CarrierAdapter {
     const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
     const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
     const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
-    const codAmount = input.codAmountStotinki && input.codAmountStotinki > 0 ? Math.round(input.codAmountStotinki) : null;
+    const [existingShipment] = await this.db
+      .select({
+        id: shipments.id,
+        consolidationGroupId: shipments.consolidationGroupId,
+        codAmountStotinki: shipments.codAmountStotinki,
+      })
+      .from(shipments)
+      .where(eq(shipments.orderId, orderId))
+      .limit(1);
+    const override = consolidatedCodOverride(existingShipment ?? null);
+    const codAmount =
+      override != null
+        ? override
+        : input.codAmountStotinki && input.codAmountStotinki > 0
+          ? Math.round(input.codAmountStotinki)
+          : null;
     // The owning farmer for a finalized waybill: prefer the order's own farmer_id (set
     // on a Phase-3 courier split) and fall back to the caller's farmerId arg. Stays null
     // for legacy tenant-level Speedy orders.
@@ -578,6 +597,7 @@ export class SpeedyService implements CarrierAdapter {
         priceStotinki: shipments.courierPriceStotinki,
         codAmountStotinki: shipments.codAmountStotinki,
         courierRequestStatus: shipments.courierRequestStatus,
+        consolidationGroupId: shipments.consolidationGroupId,
         [KEYSET_TS]: cursorTs(shipments.createdAt),
       })
       .from(shipments)
@@ -595,6 +615,8 @@ export class SpeedyService implements CarrierAdapter {
         priceStotinki: r.priceStotinki,
         codAmountStotinki: r.codAmountStotinki,
         courierRequestStatus: r.courierRequestStatus ?? null,
+        // Same self-referencing check as econt.mappers.ts's mapShipmentRow.
+        isConsolidationMaster: !!r.shipmentId && !!r.consolidationGroupId && r.consolidationGroupId === r.shipmentId,
       })),
       nextCursor,
     };

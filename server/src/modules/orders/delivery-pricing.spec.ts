@@ -8,6 +8,7 @@ import {
   buildPublicPickup,
   buildPublicOwnSlots,
   codEnabled,
+  consolidateCourierEnabled,
   DELIVERY_DEFAULTS,
   type DeliveryConfig,
   speedyEnabled,
@@ -103,6 +104,17 @@ describe('delivery-pricing', () => {
     it('respects an explicit flag', () => {
       expect(codEnabled({ cod: { enabled: false } })).toBe(false);
       expect(codEnabled({ cod: { enabled: true } })).toBe(true);
+    });
+  });
+
+  describe('consolidateCourierEnabled', () => {
+    it('defaults to false when unset', () => {
+      expect(consolidateCourierEnabled(null)).toBe(false);
+      expect(consolidateCourierEnabled({})).toBe(false);
+    });
+    it('reads the explicit flag', () => {
+      expect(consolidateCourierEnabled({ consolidateCourier: true })).toBe(true);
+      expect(consolidateCourierEnabled({ consolidateCourier: false })).toBe(false);
     });
   });
 

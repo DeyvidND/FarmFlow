@@ -39,6 +39,11 @@ export interface ShipmentJoinRow {
   carrierShipmentId: string | null;
   /** Courier-pickup request status persisted on the shipments row (null until requested). */
   courierRequestStatus?: string | null;
+  /** Self-referencing FK when this shipment collects a multi-farmer consolidation
+   *  (see consolidation.service.ts); null for an ordinary shipment. Compared against
+   *  shipmentId below to detect a MASTER row (as opposed to a 'consolidated' child,
+   *  which points here too but has its own distinct id). */
+  consolidationGroupId?: string | null;
 }
 
 /** Admin shipments-table row. */
@@ -47,7 +52,7 @@ export interface AdminShipment {
   orderNumber: string;
   customerName: string;
   method: 'econtOffice' | 'econtAddress';
-  status: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused';
+  status: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused' | 'consolidated';
   /** Which carrier owns this shipment — used by the panel to route print/void/refresh. */
   carrier: 'econt' | 'speedy';
   trackingNumber?: string;
@@ -62,6 +67,10 @@ export interface AdminShipment {
   // shipment id as a row key (there is no order) — consumers must NOT use it as a
   // navigable order id when `manual` is set.
   manual?: boolean;
+  /** True when this shipment is a consolidation MASTER — its codAmountStotinki holds
+   *  the summed COD of ≥1 other farmers' orders folded into this one waybill. Drives
+   *  the per-farmer debt breakdown + „Раздели" (undo) action in the dostavki UI. */
+  isConsolidationMaster?: boolean;
   history: { at: string; label: string; location?: string }[];
 }
 
@@ -145,6 +154,10 @@ export function mapShipmentRow(r: ShipmentJoinRow): AdminShipment {
     labelPdfUrl: r.labelPdfUrl ?? undefined,
     shipmentId: r.shipmentId ?? undefined,
     courierRequestStatus: r.courierRequestStatus ?? null,
+    // Self-referencing consolidationGroupId === own shipmentId is exactly how
+    // consolidation.service.ts's `consolidate()` marks the master row (a child gets
+    // the SAME groupId but a DIFFERENT id, plus status 'consolidated' — never this).
+    isConsolidationMaster: !!r.shipmentId && !!r.consolidationGroupId && r.consolidationGroupId === r.shipmentId,
     history: mapTrackingEvents(r.trackingJson),
   };
 }
@@ -249,7 +262,7 @@ export function mapTrackingEvents(status: unknown): TrackingEvent[] {
 /** Send the buyer the "shipped" email exactly once — when the parcel first reaches
  *  shipped/delivered and we haven't notified before. */
 export function shouldNotifyShipped(
-  uiStatus: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused',
+  uiStatus: 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused' | 'consolidated',
   customerNotifiedAt: Date | string | null,
 ): boolean {
   return !customerNotifiedAt && (uiStatus === 'shipped' || uiStatus === 'delivered');
@@ -343,11 +356,16 @@ export function buildCourierRequest(
 /** Collapse Econt's free-text status into the admin table's known status set.
  *  Returned/refused/cancelled parcels collapse to 'returned'/'refused' (matched by the
  *  same Bulgarian substrings as delivery-accounts.helpers.isDeadCodStatus) so they don't
- *  masquerade as delivered/shipped in the panel. */
+ *  masquerade as delivered/shipped in the panel.
+ *  A consolidation CHILD (migration 0083) is checked BEFORE the no-number fallback below:
+ *  it never gets its own waybill number, so without this check it would silently fall
+ *  into the `!number → 'pending'` branch and read as an ordinary unprocessed draft —
+ *  indistinguishable from a real draft in the admin/dostavki shipments list. */
 export function uiShipmentStatus(
   number: string | null,
   status: string | null,
-): 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused' {
+): 'pending' | 'created' | 'shipped' | 'delivered' | 'returned' | 'refused' | 'consolidated' {
+  if (status === 'consolidated') return 'consolidated';
   if (!number) return 'pending';
   const s = (status ?? '').toLowerCase();
   // Check terminal-failure states FIRST — a returned parcel may still carry a delivery word.
