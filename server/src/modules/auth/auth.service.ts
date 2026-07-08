@@ -161,10 +161,13 @@ export class AuthService {
    * never revealing whether the email exists.
    */
   async requestPasswordReset(email: string): Promise<{ ok: true }> {
+    // Normalize + case-insensitive match, mirroring login — a case mismatch
+    // (legacy row or a typo in casing) must not silently fail to find the user.
+    const normalized = email.trim().toLowerCase();
     const [user] = await this.db
       .select()
       .from(users)
-      .where(eq(users.email, email))
+      .where(sql`lower(${users.email}) = ${normalized}`)
       .limit(1);
 
     if (user && user.tenantId) {

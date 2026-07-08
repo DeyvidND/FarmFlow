@@ -308,6 +308,30 @@ describe('SlotsService.findPublicBySlug — same-day cutoff', () => {
   });
 });
 
+describe('SlotsService.findPublicBySlug — legacy ?date= floor', () => {
+  const publicCache = { resolveTenant: async () => ({ id: 't1', deliveryEnabled: true }) };
+
+  afterEach(() => jest.useRealTimers());
+
+  it('returns nothing for a past date (no history leak on the legacy single-day branch)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-02T06:00:00Z')); // 09:00 Sofia (UTC+3)
+    // Rows would match if the query actually ran — proves the floor short-circuits
+    // before hitting the db, not that the (unfiltered) stub happens to return [].
+    const rows = [{ id: 's-past', date: '2020-01-01', startTime: null, endTime: null }];
+    const svc = new SlotsService(publicSlotsDb(rows), publicCache as never);
+    const result = await svc.findPublicBySlug('chaika', { date: '2020-01-01' });
+    expect(result).toEqual([]);
+  });
+
+  it('still returns a future date (today itself is separately excluded by the same-day cutoff)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-02T06:00:00Z')); // 09:00 Sofia (UTC+3)
+    const rows = [{ id: 's-future', date: '2026-07-09', startTime: null, endTime: null }];
+    const svc = new SlotsService(publicSlotsDb(rows), publicCache as never);
+    const result = await svc.findPublicBySlug('chaika', { date: '2026-07-09' });
+    expect(result.map((r) => r.id)).toEqual(['s-future']);
+  });
+});
+
 describe('SlotsService.findPublicBySlug — day-row shape (no time windows)', () => {
   it('passes through null start/end times for a day-row slot', async () => {
     const rows = [{ id: 's1', date: '2099-01-01', startTime: null, endTime: null }];

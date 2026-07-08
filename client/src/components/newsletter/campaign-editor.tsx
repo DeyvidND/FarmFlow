@@ -191,6 +191,10 @@ export function CampaignEditor({ initial }: { initial: NewsletterCampaign }) {
           <iframe
             title="preview"
             srcDoc={previewHtml}
+            // Empty sandbox: previews never need script execution, and a `srcDoc`
+            // iframe otherwise inherits the panel's origin — defense-in-depth on
+            // top of the server-side sanitize-html pass.
+            sandbox=""
             className="h-[600px] w-full rounded-xl border border-ff-border bg-white shadow-ff-sm"
           />
         </div>

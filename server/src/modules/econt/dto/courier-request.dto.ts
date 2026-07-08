@@ -1,8 +1,9 @@
-import { IsArray, IsString, IsOptional, ArrayNotEmpty, Matches } from 'class-validator';
+import { IsArray, IsString, IsOptional, ArrayNotEmpty, ArrayMaxSize, IsUUID, Matches } from 'class-validator';
 
 export class CourierRequestDto {
-  // Shipment UUIDs (our ids) to attach to the pickup.
-  @IsArray() @ArrayNotEmpty() @IsString({ each: true })
+  // Shipment UUIDs (our ids) to attach to the pickup. Capped at 50 to match
+  // MAX_BULK_LABELS (econt.service.ts) — keeps the IN(...) query bounded.
+  @IsArray() @ArrayNotEmpty() @ArrayMaxSize(50) @IsUUID(undefined, { each: true })
   shipmentIds!: string[];
 
   // Pickup window — "YYYY-MM-DD HH:mm" style strings Econt accepts; optional.

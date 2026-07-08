@@ -50,6 +50,18 @@ describe('AnalyticsService.track', () => {
     await svc.track('ferma', { type: 'nonsense' as any, path: '/' }, '1.1.1.1', 'Mozilla/5.0 (iPhone)');
     expect(insert).not.toHaveBeenCalled();
   });
+
+  it('rejects a spoofed purchase event on the public beacon — purchases are server-only (recordPurchase)', async () => {
+    const insert = jest.fn();
+    const svc = makeService(insert);
+    await svc.track(
+      'ferma',
+      { type: 'purchase' as any, orderId: 'o1', value: 999999 },
+      '1.1.1.1',
+      'Mozilla/5.0 (iPhone)',
+    );
+    expect(insert).not.toHaveBeenCalled();
+  });
 });
 
 describe('AnalyticsService.recordPurchase', () => {

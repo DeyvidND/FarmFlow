@@ -250,7 +250,10 @@ export class SlotsService {
     const { date, from, to } = opts;
     const filters = [eq(deliverySlots.tenantId, tenant.id), eq(deliverySlots.isActive, true)];
     if (date) {
-      // Single-day (legacy `?date=`) request.
+      // Single-day (legacy `?date=`) request. Floor at today too — otherwise this
+      // branch leaks past slot history on this public, unauthenticated endpoint
+      // (the exact gap the ranged branch below was hardened against).
+      if (date < this.bgToday()) return [];
       filters.push(eq(deliverySlots.date, date));
     } else {
       // Ranged (or open) request: always bound below by today so the query can't

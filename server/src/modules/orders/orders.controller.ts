@@ -165,6 +165,7 @@ export class PublicOrdersController {
   }
 
   // Public order recap for the confirmation page (UUID + slug gated).
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Get(':id')
   getPublicSummary(
     @Param('slug') slug: string,

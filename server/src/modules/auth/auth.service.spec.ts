@@ -243,6 +243,31 @@ describe('AuthService', () => {
 
       await expect(service.requestPasswordReset(userRow.email)).resolves.toEqual({ ok: true });
     });
+
+    it('normalizes a mixed-case email before matching, mirroring login', async () => {
+      db.limit.mockResolvedValueOnce([userRow]);
+
+      await service.requestPasswordReset('  U@Farm.BG  ');
+
+      // db.where's arg is a drizzle SQL node (`sql\`lower(...) = ${param}\``);
+      // an interpolated plain value lands in queryChunks as a raw primitive
+      // string — walk the tree for it rather than deep-equalling (see
+      // orders.mine.spec.ts's extractEqPairs for the same "walk queryChunks"
+      // idiom, PgColumn variant).
+      const cond = db.where.mock.calls[0][0] as { getSQL?: () => unknown };
+      const sqlNode = cond?.getSQL ? cond.getSQL() : cond;
+      const params: unknown[] = [];
+      (function walk(n: any) {
+        if (n == null) return;
+        if (typeof n === 'string' || typeof n === 'number' || typeof n === 'boolean') {
+          params.push(n);
+          return;
+        }
+        if (typeof n === 'object' && Array.isArray(n.queryChunks)) n.queryChunks.forEach(walk);
+      })(sqlNode);
+
+      expect(params).toContain('u@farm.bg');
+    });
   });
 
   // ── resetPassword ────────────────────────────────────────────────────────────

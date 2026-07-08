@@ -110,7 +110,10 @@ export class AnalyticsService {
    *  must always get its 204 regardless of backend hiccups. */
   async track(slug: string, body: TrackBody, ip: string, ua: string): Promise<void> {
     if (isBot(ua)) return;
-    if (!body || !EVENT_TYPES.includes(body.type)) return;
+    // 'purchase' is a server-only event type (see recordPurchase) — the DTO
+    // already rejects it, but guard here too in case this is ever called
+    // directly with an unvalidated body.
+    if (!body || body.type === 'purchase' || !EVENT_TYPES.includes(body.type)) return;
 
     let tenantId: string;
     try {

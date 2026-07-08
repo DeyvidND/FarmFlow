@@ -1,6 +1,10 @@
 import { IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
-const TYPES = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'purchase'] as const;
+// 'purchase' is deliberately excluded: it must only ever be recorded server-side
+// via AnalyticsService.recordPurchase (checkout + Stripe webhook, idempotent per
+// order) — accepting it here would let anyone spoof conversion metrics via the
+// public, unauthenticated beacon.
+const TYPES = ['page_view', 'product_view', 'add_to_cart', 'checkout_start'] as const;
 
 export class TrackEventDto {
   @IsIn(TYPES)

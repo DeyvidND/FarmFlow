@@ -375,7 +375,6 @@ export interface PublicOrderSummary {
   status: string;
   paidAt: string | null;
   totalStotinki: number;
-  customerName: string | null;
   deliveryType: 'pickup' | 'address' | 'econt' | 'econt_address' | 'courier';
   econtOffice: string | null;
   slot: { date: string; startTime: string; endTime: string } | null;
@@ -2066,11 +2065,11 @@ export class OrdersService {
       status: row.status ?? 'pending',
       paidAt: row.paidAt ? row.paidAt.toISOString() : null,
       totalStotinki: row.totalStotinki,
-      customerName: row.customerName,
       deliveryType: row.deliveryType,
-      // Note: deliveryAddress is intentionally NOT returned — the customer already
-      // knows their own address, and the recap is reachable by anyone holding the
-      // order UUID (it can leak via history/Referer). Don't echo PII we don't need.
+      // Note: customerName/deliveryAddress are intentionally NOT returned — the
+      // customer already knows their own name/address, and the recap is reachable
+      // by anyone holding the order UUID (it can leak via history/Referer). Don't
+      // echo PII we don't need.
       econtOffice: row.econtOffice,
       // Day-rows (post migration 0081) carry a date but no time window — show the
       // date with blank times rather than dropping the slot line entirely.
