@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, gte, lt, sql, desc } from 'drizzle-orm';
-import { type Database, siteEvents } from '@fermeribg/db';
+import { type Database, siteEvents, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { bgToday, bgDayBounds, BG_TZ } from '../../common/time/bg-time';
@@ -75,8 +75,12 @@ export interface AnalyticsSummary {
   pageViews: number;
   /** Distinct page_view visitors in the equal-length prior window — for the delta arrow. */
   prevVisitors: number;
-  /** Distinct purchase-event visitors in the current window. */
+  /** Distinct purchase-event visitors in the current window (analytics-tracked, cookieless). */
   purchases: number;
+  /** Total real orders placed in the window (orders table, ground truth) — can exceed
+   *  `purchases` (repeat buyers, phone/manual orders, missed beacon) or fall short (bots
+   *  filtered out of `purchases` still placing real orders is rare but not impossible). */
+  orderCount: number;
   conversionPct: number;
   prevConversionPct: number;
   funnel: FunnelStep[];
@@ -369,15 +373,13 @@ export class AnalyticsService {
         and(eq(siteEvents.tenantId, tenantId), gte(siteEvents.createdAt, prevSince), lt(siteEvents.createdAt, toExcl)),
       );
 
-    const [funnelRows, sources, topPagesRaw, deviceRows, seriesRows, weekdayRows, visitorRows] = await Promise.all([
-      funnelP,
-      sourcesP,
-      topPagesRawP,
-      devicesP,
-      seriesP,
-      weekdayP,
-      visitorsP,
-    ]);
+    const ordersP = this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(orders)
+      .where(and(eq(orders.tenantId, tenantId), gte(orders.createdAt, since), lt(orders.createdAt, toExcl)));
+
+    const [funnelRows, sources, topPagesRaw, deviceRows, seriesRows, weekdayRows, visitorRows, orderRows] =
+      await Promise.all([funnelP, sourcesP, topPagesRawP, devicesP, seriesP, weekdayP, visitorsP, ordersP]);
     const topPages = buildTopPages(topPagesRaw);
 
     // funnelP is a whole-table aggregate over `per_visitor` (no GROUP BY) — one row.
@@ -427,6 +429,7 @@ export class AnalyticsService {
       pageViews: pageViewRows,
       prevVisitors,
       purchases: purchasesCur,
+      orderCount: orderRows[0]?.count ?? 0,
       conversionPct: conversionPct(purchasesCur, visitors),
       prevConversionPct: conversionPct(purchasesPrev, prevVisitors),
       funnel,

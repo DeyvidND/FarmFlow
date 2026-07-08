@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Users, Eye, MousePointerClick, Target, Smartphone, Monitor,
+  Users, Eye, MousePointerClick, Target, Smartphone, Monitor, Package,
   Globe, FileText, TrendingUp, CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -184,12 +184,13 @@ export function AnalyticsClient({ initial, role = 'admin' }: { initial: Analytic
         </div>
       ) : (
         <div className={cn('flex flex-col gap-5 transition-opacity', loading && 'opacity-50')}>
-          <div className="grid grid-cols-4 gap-4 max-[1024px]:grid-cols-2 max-[640px]:grid-cols-1">
+          <div className="grid grid-cols-5 gap-4 max-[1280px]:grid-cols-3 max-[640px]:grid-cols-2">
             <StatTile Icon={Users} label="Посетители" value={data.visitors} delta={pctDelta(data.visitors, data.prevVisitors)} index={0} />
             <StatTile Icon={Eye} label="Прегледи на страници" value={data.pageViews} sub="общо отваряния" index={1} />
             <StatTile Icon={MousePointerClick} label="Купили" value={data.purchases} sub="различни купувачи" index={2} />
+            <StatTile Icon={Package} label="Поръчки" value={data.orderCount} sub="общ брой" index={3} />
             <StatTile Icon={Target} label="Конверсия" value={`${data.conversionPct}%`}
-              delta={pctDelta(data.conversionPct, data.prevConversionPct)} index={3} />
+              delta={pctDelta(data.conversionPct, data.prevConversionPct)} index={4} />
           </div>
 
           <section className="rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm">
