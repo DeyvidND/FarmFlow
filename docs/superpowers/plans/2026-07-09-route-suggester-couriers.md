@@ -250,9 +250,10 @@ const capOf = (d: DaySpec) => Math.max(1, Math.floor(d.couriers));
 /**
  * Geography-first, capacity-weighted assignment. Sorts the geocoded orders into a
  * bearing sweep around the depot, then hands each day (in date order) a CONTIGUOUS
- * arc whose order COUNT is proportional to its share of the total couriers — so a
- * day with more couriers gets more orders, by construction (not as an emergent
- * side effect). Each day's arc is then cut into that day's courier routes via
+ * arc whose order COUNT is proportional to its courier share via largest-remainder
+ * apportionment — so a day with more couriers never gets fewer orders than a day
+ * with fewer (equal-courier days or very low totals may tie). Each day's arc is
+ * then cut into that day's courier routes via
  * `sweepSplit` (used only WITHIN a day, since it balances route workload, not
  * count). Un-geocoded orders go to `unplaced`. Pure & deterministic.
  */
@@ -296,16 +297,33 @@ export function suggestDayAssignment(
   );
 
   const total = swept.length;
-  let cum = 0;
+
+  // Largest-remainder (Hamilton) apportionment of order COUNTS to days,
+  // proportional to each day's courier share. Independent per-boundary rounding
+  // (round((cum/K)*total)) can INVERT the guarantee for low order counts
+  // (e.g. total=7, couriers=[6,5,6] → [2,3,2]); largest-remainder is monotone —
+  // floor of the proportional ideal is monotone in couriers, and leftover seats
+  // go to the largest remainders with ties broken toward MORE couriers — so a day
+  // with more couriers never gets fewer orders.
+  const ideal = sortedDays.map((d) => (capOf(d) / K) * total);
+  const counts = ideal.map((x) => Math.floor(x));
+  let leftover = total - counts.reduce((a, b) => a + b, 0);
+  const remainderRank = sortedDays
+    .map((d, i) => ({ i, rem: ideal[i] - counts[i], cour: capOf(d), date: d.date }))
+    .sort((a, b) => b.rem - a.rem || b.cour - a.cour || a.date.localeCompare(b.date));
+  for (let k = 0; k < remainderRank.length && leftover > 0; k++, leftover--) {
+    counts[remainderRank[k].i] += 1;
+  }
+
+  // Each day gets a contiguous arc of `counts[i]` orders (in the bearing sweep),
+  // then sweepSplit cuts that arc into the day's courier routes.
   let start = 0;
-  for (const d of sortedDays) {
-    cum += capOf(d);
-    const end = Math.round((cum / K) * total);
-    const dayOrders = swept.slice(start, end);
-    start = end;
+  sortedDays.forEach((d, i) => {
+    const dayOrders = swept.slice(start, start + counts[i]);
+    start += counts[i];
     const routes = dayOrders.length ? sweepSplit(depotPt, dayOrders, capOf(d), depotPt) : [];
     assignment[d.date] = routes.map((g) => g.map((s) => s.id));
-  }
+  });
 
   return { assignment, unplaced };
 }
