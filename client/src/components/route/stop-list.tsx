@@ -1,7 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, Check, Copy, Mail, MapPin, MapPinned, Navigation, Phone } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  GripVertical,
+  Mail,
+  MapPin,
+  MapPinned,
+  Navigation,
+  Phone,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { RouteStop } from '@/lib/types';
@@ -16,6 +28,12 @@ interface StopListProps {
   onEmail: (stop: RouteStop) => void;
   /** Open the „Смени адрес" modal for this stop. */
   onEditAddress: (stop: RouteStop) => void;
+  /** Move the stop at `index` up one slot (reorder controls hidden if omitted). */
+  onMoveUp?: (index: number) => void;
+  /** Move the stop at `index` down one slot. */
+  onMoveDown?: (index: number) => void;
+  /** Drag row `from` onto position `to` (native HTML5 DnD; desktop pointer). */
+  onDragReorder?: (from: number, to: number) => void;
 }
 
 /** A stop is "on the map" only when it has been geocoded (has both coords). */
@@ -76,7 +94,16 @@ export function StopList({
   onCall,
   onEmail,
   onEditAddress,
+  onMoveUp,
+  onMoveDown,
+  onDragReorder,
 }: StopListProps) {
+  // Row index currently being dragged (native HTML5 DnD), or null.
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  // Row the dragged item is hovering over — highlighted as the drop target.
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const reorderable = !!(onMoveUp && onMoveDown && onDragReorder);
+
   if (stops.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center text-ff-muted">
@@ -99,11 +126,75 @@ export function StopList({
             key={s.id}
             onClick={() => onPick(s.id)}
             data-on={on}
+            draggable={reorderable}
+            onDragStart={reorderable ? () => setDragIndex(i) : undefined}
+            onDragOver={
+              reorderable
+                ? (e) => {
+                    e.preventDefault();
+                    if (overIndex !== i) setOverIndex(i);
+                  }
+                : undefined
+            }
+            onDrop={
+              reorderable
+                ? (e) => {
+                    e.preventDefault();
+                    if (dragIndex != null && dragIndex !== i) onDragReorder!(dragIndex, i);
+                    setDragIndex(null);
+                    setOverIndex(null);
+                  }
+                : undefined
+            }
+            onDragEnd={
+              reorderable
+                ? () => {
+                    setDragIndex(null);
+                    setOverIndex(null);
+                  }
+                : undefined
+            }
             className={cn(
               'flex cursor-pointer gap-[13px] border-b border-ff-border-2 px-[18px] py-3.5 transition-colors',
               on ? 'bg-ff-green-50' : 'hover:bg-ff-surface-2',
+              reorderable && overIndex === i && dragIndex !== i && 'ring-2 ring-inset ring-ff-green-400',
+              reorderable && dragIndex === i && 'opacity-50',
             )}
           >
+            {/* reorder rail — up / drag-grip / down (arrows work on touch too) */}
+            {reorderable && (
+              <div className="-my-1 flex flex-col items-center justify-center gap-0.5">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMoveUp!(i);
+                  }}
+                  disabled={i === 0}
+                  title="Премести нагоре"
+                  className="grid h-6 w-6 place-items-center rounded-md text-ff-muted transition hover:bg-ff-surface-2 hover:text-ff-ink-2 disabled:opacity-30"
+                >
+                  <ChevronUp size={15} />
+                </button>
+                <span
+                  className="cursor-grab text-ff-muted active:cursor-grabbing"
+                  title="Плъзни, за да преместиш"
+                >
+                  <GripVertical size={15} />
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMoveDown!(i);
+                  }}
+                  disabled={i === stops.length - 1}
+                  title="Премести надолу"
+                  className="grid h-6 w-6 place-items-center rounded-md text-ff-muted transition hover:bg-ff-surface-2 hover:text-ff-ink-2 disabled:opacity-30"
+                >
+                  <ChevronDown size={15} />
+                </button>
+              </div>
+            )}
+
             {/* number bead + connector */}
             <div className="flex flex-col items-center">
               <span
