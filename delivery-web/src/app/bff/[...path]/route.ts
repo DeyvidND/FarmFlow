@@ -37,7 +37,30 @@ async function proxy(req: Request, { params }: Ctx) {
   const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
   const body = hasBody ? Buffer.from(await req.arrayBuffer()) : undefined;
 
-  const upstream = await fetch(url, { method: req.method, headers, body });
+  const init: RequestInit = { method: req.method, headers, body };
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, init);
+  } catch (err) {
+    // Transient upstream connectivity blip — e.g. the `api` service mid-recreate
+    // on deploy surfaces as `getaddrinfo EAI_AGAIN api`. The request never reached
+    // the API, so retry once; if it still fails, return a clean 502 rather than
+    // letting it throw into a 500 + Sentry event. A permanent misconfig
+    // (ENOTFOUND) is not transient, so it re-throws and stays visible.
+    const code = (err as { cause?: { code?: string } })?.cause?.code;
+    const transient =
+      code === 'EAI_AGAIN' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT' || code === 'ECONNRESET';
+    if (!transient) throw err;
+    await new Promise((r) => setTimeout(r, 400));
+    try {
+      upstream = await fetch(url, init);
+    } catch {
+      return Response.json(
+        { message: 'Upstream temporarily unavailable' },
+        { status: 502, headers: { 'cache-control': 'no-store' } },
+      );
+    }
+  }
   const buf = Buffer.from(await upstream.arrayBuffer());
   const resHeaders = new Headers();
   const upCt = upstream.headers.get('content-type');
