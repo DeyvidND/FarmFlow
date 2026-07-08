@@ -4,7 +4,7 @@
 
 **Goal:** Extend the multi-day route suggester so each day carries its own courier count (more couriers → more orders that day), and each proposed route/day shows an estimated drive time + distance plus a short reason for the grouping.
 
-**Architecture:** One `sweepSplit` at `K = Σ couriers` yields K balanced geographic groups (each ≈ one courier route); the K groups are sorted by bearing around the depot and filled into days in date order, each day taking its courier count of consecutive groups (contiguous region + capacity weighting for free). A new pure `estimateRoute` helper gives per-route km + seconds; the assembly rolls these into per-day makespan/total-km + a templated compass reason. The DTO, service, client types/api, and modal are threaded through with the new `{date, couriers}[]` shape. Couriers are advisory (not persisted); apply still reschedules per day, unchanged.
+**Architecture:** Two-level split. Day level: sort geocoded orders into a bearing sweep around the depot, then give each day (date order) a contiguous arc whose order **count** is proportional to its share of total couriers — a day with more couriers gets more orders, by construction. Within a day: `sweepSplit(depot, dayOrders, couriers[d])` cuts the arc into that day's courier routes (sweepSplit balances route workload, so it is used only inside a day, never for the count-weighted day allocation). A new pure `estimateRoute` helper gives per-route km + seconds; the assembly rolls these into per-day makespan/total-km + a templated compass reason. The DTO, service, client types/api, and modal are threaded through with the new `{date, couriers}[]` shape. Couriers are advisory (not persisted); apply still reschedules per day, unchanged.
 
 **Tech Stack:** NestJS + Drizzle + class-validator (server), Jest (server tests), Next.js + React + Tailwind + vitest (client).
 
@@ -248,13 +248,13 @@ function centroid(pts: Located[]): Pt {
 const capOf = (d: DaySpec) => Math.max(1, Math.floor(d.couriers));
 
 /**
- * Geography-first, capacity-weighted assignment. Splits the geocoded orders into
- * `K = Σ couriers` balanced groups via `sweepSplit` (each group ≈ one courier
- * route), sorts the groups by bearing around the depot, then fills days in date
- * order — each day taking its courier count of consecutive groups. A day with
- * more couriers therefore takes more consecutive (equal-workload) groups ⇒ more
- * orders, and each day's groups form a contiguous geographic arc. Un-geocoded
- * orders go to `unplaced`. Pure & deterministic.
+ * Geography-first, capacity-weighted assignment. Sorts the geocoded orders into a
+ * bearing sweep around the depot, then hands each day (in date order) a CONTIGUOUS
+ * arc whose order COUNT is proportional to its share of the total couriers — so a
+ * day with more couriers gets more orders, by construction (not as an emergent
+ * side effect). Each day's arc is then cut into that day's courier routes via
+ * `sweepSplit` (used only WITHIN a day, since it balances route workload, not
+ * count). Un-geocoded orders go to `unplaced`. Pure & deterministic.
  */
 export function suggestDayAssignment(
   orders: SuggestOrder[],
@@ -280,30 +280,31 @@ export function suggestDayAssignment(
   const depotPt: Pt = depot ?? centroid(located);
   const K = sortedDays.reduce((n, d) => n + capOf(d), 0);
 
-  const groups = sweepSplit(depotPt, located, K, depotPt).filter((g) => g.length > 0);
+  // Day-level split FIRST, capacity-weighted by order COUNT. Sort all located
+  // orders into a bearing sweep around the depot; then give each day (date order)
+  // a contiguous arc sized to its courier share. A running cumulative-courier
+  // boundary (`round((cum/K) * total)`) yields an exact partition — no gap, no
+  // overlap, last day ends at `total` — and guarantees a day with more couriers
+  // gets more orders. `sweepSplit` balances by workload (drive time), NOT count,
+  // so it is used only WITHIN each day to cut the arc into that day's routes.
+  const swept = [...located].sort(
+    (a, b) =>
+      Math.atan2(a.lat - depotPt.lat, a.lng - depotPt.lng) -
+        Math.atan2(b.lat - depotPt.lat, b.lng - depotPt.lng) ||
+      haversineKm(depotPt, a) - haversineKm(depotPt, b) ||
+      a.id.localeCompare(b.id),
+  );
 
-  // Sort groups into a contiguous sweep by bearing around the depot; tie-break by
-  // distance then lowest id for a fully stable, deterministic order.
-  const ranked = groups
-    .map((g) => {
-      const c = centroid(g);
-      return {
-        ids: g.map((s) => s.id),
-        bearing: Math.atan2(c.lat - depotPt.lat, c.lng - depotPt.lng),
-        dist: haversineKm(depotPt, c),
-        minId: g.reduce((m, s) => (s.id < m ? s.id : m), g[0].id),
-      };
-    })
-    .sort((a, b) => a.bearing - b.bearing || a.dist - b.dist || a.minId.localeCompare(b.minId));
-
-  // Fill days in date order, each taking up to its courier count of groups.
-  let gi = 0;
+  const total = swept.length;
+  let cum = 0;
+  let start = 0;
   for (const d of sortedDays) {
-    const cap = capOf(d);
-    for (let c = 0; c < cap && gi < ranked.length; c++) {
-      assignment[d.date].push(ranked[gi].ids);
-      gi++;
-    }
+    cum += capOf(d);
+    const end = Math.round((cum / K) * total);
+    const dayOrders = swept.slice(start, end);
+    start = end;
+    const routes = dayOrders.length ? sweepSplit(depotPt, dayOrders, capOf(d), depotPt) : [];
+    assignment[d.date] = routes.map((g) => g.map((s) => s.id));
   }
 
   return { assignment, unplaced };
