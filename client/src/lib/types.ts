@@ -740,3 +740,15 @@ export interface UpdateOrderInput {
   notes?: string | null;
   items?: { productId: string; quantity: number; variantId?: string }[];
 }
+
+/** A movable own-delivery order for the "Премести на друг ден" tool. */
+export interface ReschedulableOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  totalStotinki: number;
+  status: string;
+  /** YYYY-MM-DD delivery day (its slot's date). */
+  slotDate: string;
+}

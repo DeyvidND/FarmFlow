@@ -14,6 +14,7 @@ import { UpdateOrderDto } from './dto/update-order.dto';
 import { PaymentsQueryDto } from './dto/payments-query.dto';
 import { OrdersQueryDto } from './dto/orders-query.dto';
 import { MyOrdersQueryDto } from './dto/my-orders-query.dto';
+import { RescheduleOrdersDto } from './dto/reschedule-orders.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -95,6 +96,21 @@ export class OrdersController {
     const scope = effectiveFarmerId(user.role, user.farmerId, query.farmerId);
     if (!scope) throw new BadRequestException('farmerId required for admin');
     return this.ordersService.ordersForFarmer(user.tenantId, scope, query);
+  }
+
+  // Literal route — declared before `:id`. Own-delivery orders that can be moved to
+  // another day, grouped client-side by their slot date.
+  @Get('reschedulable')
+  @Roles('admin')
+  reschedulable(@CurrentTenant() tenantId: string) {
+    return this.ordersService.reschedulable(tenantId);
+  }
+
+  // Bulk-move the given own-delivery orders onto a target day.
+  @Post('reschedule')
+  @Roles('admin')
+  reschedule(@CurrentTenant() tenantId: string, @Body() dto: RescheduleOrdersDto) {
+    return this.ordersService.rescheduleOrders(tenantId, dto);
   }
 
   @Get(':id')

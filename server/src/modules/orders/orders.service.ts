@@ -31,6 +31,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
+import { RescheduleOrdersDto } from './dto/reschedule-orders.dto';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from './carrier-fulfillment.service';
@@ -72,6 +73,17 @@ const orderWithSlot = {
   // the Orders screen can show "ден + час", not just the time window.
   slotDate: deliverySlots.date,
 };
+
+/** One movable order for the "Премести на друг ден" tool (own-delivery orders on a future day). */
+export interface ReschedulableOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  totalStotinki: number;
+  status: string;
+  slotDate: string;
+}
 
 export type PaymentStatus = 'paid' | 'pending_online' | 'cash';
 
@@ -1082,6 +1094,144 @@ export class OrdersService {
     // to/from 0 here would otherwise show wrong for up to the catalog TTL.
     if (variantStockTouched) await this.catalogCache.invalidate(tenantId);
     return this.findOne(id, tenantId);
+  }
+
+  /**
+   * Own-delivery orders that can be moved: address delivery, still live
+   * (pending/confirmed), on a slot dated today-or-later. The client groups these
+   * by `slotDate` into the source-day picker + checkbox list.
+   */
+  async reschedulable(tenantId: string): Promise<ReschedulableOrder[]> {
+    const today = bgToday();
+    const rows = await this.db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        totalStotinki: orders.totalStotinki,
+        status: orders.status,
+        slotDate: deliverySlots.date,
+      })
+      .from(orders)
+      .innerJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(orders.deliveryType, 'address'),
+          inArray(orders.status, ['pending', 'confirmed']),
+          gte(deliverySlots.date, today),
+        ),
+      )
+      .orderBy(deliverySlots.date, orders.orderNumber);
+    return rows as ReschedulableOrder[];
+  }
+
+  /**
+   * Bulk-move own-delivery orders onto `toDate`. Finds-or-creates the target-day
+   * slot; a freshly created one is `isActive=false` so it never surfaces on the
+   * storefront picker (the farmer sees it; shoppers don't). Deliberately skips the
+   * capacity + same-day guards that `lockAndCheckSlot` enforces — the farmer is
+   * intentionally loading their own day. Emails each moved order's buyer.
+   */
+  async rescheduleOrders(
+    tenantId: string,
+    dto: RescheduleOrdersDto,
+  ): Promise<{ moved: number; toDate: string }> {
+    const { orderIds, toDate } = dto;
+    if (toDate < bgToday()) {
+      throw new BadRequestException('Не може да преместиш поръчки в минал ден.');
+    }
+
+    const moved: { id: string; fromDate: string | null }[] = [];
+    await this.db.transaction(async (tx) => {
+      // Serialize concurrent reschedules targeting the same (tenant, date) — a
+      // SELECT...FOR UPDATE below can't lock a target-slot row that doesn't exist
+      // yet, so two concurrent calls creating the SAME new day would otherwise both
+      // insert a duplicate delivery_slots row (there's no unique DB constraint on
+      // (tenant_id, date) to fall back on). Salt 1 keeps this in its own lock
+      // namespace, separate from the per-tenant order-number lock (salt 0) above.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId} || ${toDate}, 1))`);
+
+      // Read the candidate rows INSIDE the transaction (after the advisory lock) so
+      // the movable-order snapshot can't go stale between the read and the UPDATE
+      // below — e.g. a concurrent cancel changing status after an outside-tx read
+      // would otherwise silently re-slot a no-longer-movable order.
+      const rows = await tx
+        .select({
+          id: orders.id,
+          status: orders.status,
+          deliveryType: orders.deliveryType,
+          slotId: orders.slotId,
+          fromDate: deliverySlots.date,
+        })
+        .from(orders)
+        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+        .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)))
+        .limit(orderIds.length);
+
+      const movable = rows.filter(
+        (r) => r.deliveryType === 'address' && (r.status === 'pending' || r.status === 'confirmed'),
+      );
+      if (!movable.length) {
+        throw new BadRequestException('Няма поръчки за преместване.');
+      }
+
+      // find-or-create the target-day slot (one row per (tenant, date), like SlotsService.create).
+      const [existing] = await tx
+        .select({ id: deliverySlots.id })
+        .from(deliverySlots)
+        .where(and(eq(deliverySlots.tenantId, tenantId), eq(deliverySlots.date, toDate)))
+        .for('update')
+        .limit(1);
+      let targetSlotId = existing?.id;
+      if (!targetSlotId) {
+        const [created] = await tx
+          .insert(deliverySlots)
+          .values({
+            tenantId,
+            date: toDate,
+            isActive: false, // hidden from the storefront picker (findPublicBySlug filters isActive)
+            generated: false,
+            capacity: Math.max(1, movable.length),
+            driverNote: 'Преместени поръчки',
+          })
+          .returning({ id: deliverySlots.id });
+        targetSlotId = created.id;
+      }
+
+      for (const r of movable) {
+        if (r.slotId === targetSlotId) continue; // already on the target day
+        // Atomic claim, same pattern as updateStatus's into-cancelled transition
+        // above: the pre-read `movable` snapshot can go stale between the SELECT
+        // and this UPDATE (a concurrent status change could un-movable-ize the
+        // row in between). Re-check status/deliveryType IN the UPDATE's WHERE and
+        // gate on RETURNING actually matching a row — that's evaluated against the
+        // row's current state at write time, not the earlier read.
+        const claimed = await tx
+          .update(orders)
+          .set({ slotId: targetSlotId })
+          .where(
+            and(
+              eq(orders.id, r.id),
+              eq(orders.tenantId, tenantId),
+              inArray(orders.status, ['pending', 'confirmed']),
+              eq(orders.deliveryType, 'address'),
+            ),
+          )
+          .returning({ id: orders.id });
+        if (!claimed.length) continue; // raced by a concurrent status change — no longer movable
+        moved.push({ id: r.id, fromDate: r.fromDate ?? null });
+      }
+    });
+
+    await this.bustPayments(tenantId);
+
+    // Fire-and-forget per moved order (sendMoved self-guards when the buyer has no email).
+    for (const m of moved) {
+      void this.orderEmail.sendMoved(m.id, m.fromDate, toDate);
+    }
+    return { moved: moved.length, toDate };
   }
 
   /** Cancelling frees slot capacity automatically (booked is computed from non-cancelled orders). */
