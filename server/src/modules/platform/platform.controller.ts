@@ -19,6 +19,7 @@ import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto
 import { Throttle } from '@nestjs/throttler';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
+import { ProblemsService } from './problems.service';
 import { ProductExtractService } from './product-extract.service';
 import { OperatorDigestService } from './operator-digest.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
@@ -58,6 +59,7 @@ export class PlatformController {
   constructor(
     private readonly platform: PlatformService,
     private readonly insights: PlatformInsightsService,
+    private readonly problemsSvc: ProblemsService,
     private readonly productExtract: ProductExtractService,
     private readonly operatorDigest: OperatorDigestService,
   ) {}
@@ -73,6 +75,14 @@ export class PlatformController {
   @Get('insights')
   getInsights() {
     return this.insights.insights();
+  }
+
+  /** Unified, severity-ranked cross-farm problems feed for the «Проблеми» screen:
+   *  recent server errors, attention signals (empty shop/dormant/Stripe/Econt),
+   *  and delivery-ops issues (stuck товарителници, COD outstanding). */
+  @Get('problems')
+  getProblems() {
+    return this.problemsSvc.problems();
   }
 
   /** Orders/revenue time series for the trend chart (Sofia-local buckets). */

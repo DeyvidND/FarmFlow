@@ -550,3 +550,35 @@ export const enableDeliveryOnFarm = (id: string) =>
     { method: 'PATCH' },
     'Неуспешно включване на доставка',
   );
+
+// ── «Проблеми» (unified cross-farm problems feed) ──
+
+export type ProblemSeverity = 'high' | 'med' | 'low';
+
+/** One unified cross-farm problem row for the super-admin «Проблеми» feed.
+ *  Mirrors `server/src/modules/platform/problems.service.ts` — response shape is FIXED. */
+export interface PlatformProblem {
+  severity: ProblemSeverity;
+  /** Machine key, e.g. 'server_error' | 'stuck_shipment' | 'empty_shop' | 'no_orders' |
+   *  'dormant' | 'stripe_incomplete' | 'econt_incomplete' | 'dropping' | 'cod_outstanding'. */
+  kind: string;
+  tenantId: string | null;
+  tenantName: string | null;
+  /** Short BG label. */
+  title: string;
+  /** BG specifics. */
+  detail: string;
+  count?: number;
+  /** ISO timestamp. */
+  lastAt?: string;
+}
+
+export interface ProblemsResponse {
+  items: PlatformProblem[];
+  generatedAt: string;
+  notes?: string[];
+}
+
+/** Unified, severity-ranked cross-farm problems feed (client-side, via the BFF proxy). */
+export const getProblems = () =>
+  apiFetch<ProblemsResponse>('platform/problems', undefined, 'Неуспешно зареждане на проблемите');

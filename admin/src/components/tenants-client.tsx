@@ -29,8 +29,10 @@ import {
   deleteTenant,
   resetTenantPassword,
   listTenants,
+  getProblems,
   type PlatformTenant,
   type Paginated,
+  type ProblemSeverity,
 } from '@/lib/api-client';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
 
@@ -112,6 +114,35 @@ function DemoBadge({ expiresAt }: { expiresAt: string | null }) {
     <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2.5 py-1 text-[12px] font-bold text-[#3457B1]">
       <FlaskConical size={12} /> ДЕМО{expiresAt ? ` · ${d}д` : ''}
     </span>
+  );
+}
+
+// ── Per-farm problem badge (cheap enrichment: one extra /platform/problems
+// fetch on mount, grouped client-side by tenantId — NOT an N+1). ──
+const PROBLEM_SEVERITY_RANK: Record<ProblemSeverity, number> = { high: 0, med: 1, low: 2 };
+
+function worseProblemSeverity(a: ProblemSeverity, b: ProblemSeverity): ProblemSeverity {
+  return PROBLEM_SEVERITY_RANK[a] <= PROBLEM_SEVERITY_RANK[b] ? a : b;
+}
+
+function ProblemBadge({ count, severity }: { count: number; severity: ProblemSeverity }) {
+  const tone =
+    severity === 'high'
+      ? 'bg-[#FBE9E7] text-ff-red'
+      : severity === 'med'
+        ? 'bg-ff-amber-soft text-ff-amber-600'
+        : 'bg-ff-surface-2 text-ff-muted';
+  return (
+    <Link
+      href="/problems"
+      title={`${count} ${count === 1 ? 'проблем' : 'проблема'} — виж в „Проблеми"`}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold no-underline',
+        tone,
+      )}
+    >
+      <AlertTriangle size={11} /> {count}
+    </Link>
   );
 }
 
@@ -344,9 +375,21 @@ interface FarmTableProps {
   onReset: (t: PlatformTenant) => void;
   onDelete: (t: PlatformTenant) => void;
   emptyText: string;
+  problemMap: Record<string, { count: number; severity: ProblemSeverity }>;
 }
 
-function FarmTable({ rows, busyId, sort, onSort, onToggleAccess, onTogglePremium, onReset, onDelete, emptyText }: FarmTableProps) {
+function FarmTable({
+  rows,
+  busyId,
+  sort,
+  onSort,
+  onToggleAccess,
+  onTogglePremium,
+  onReset,
+  onDelete,
+  emptyText,
+  problemMap,
+}: FarmTableProps) {
   const sortTh = (k: SortKey, label: string) => {
     const active = sort.key === k;
     return (
@@ -420,6 +463,9 @@ function FarmTable({ rows, busyId, sort, onSort, onToggleAccess, onTogglePremium
                     <ChevronRight size={15} className="text-ff-muted-2" />
                   </Link>
                   {t.isDemo && <DemoBadge expiresAt={t.demoExpiresAt} />}
+                  {problemMap[t.id] && (
+                    <ProblemBadge count={problemMap[t.id].count} severity={problemMap[t.id].severity} />
+                  )}
                 </div>
                 <div className="text-xs text-ff-muted-2">/{t.slug}</div>
               </td>
@@ -466,7 +512,14 @@ function FarmTable({ rows, busyId, sort, onSort, onToggleAccess, onTogglePremium
                   <ChevronRight size={16} className="text-ff-muted-2" />
                 </Link>
                 <div className="text-[12.5px] text-ff-muted">{t.email ?? '—'}</div>
-                {t.isDemo && <div className="mt-1"><DemoBadge expiresAt={t.demoExpiresAt} /></div>}
+                {(t.isDemo || problemMap[t.id]) && (
+                  <div className="mt-1 flex items-center gap-1.5">
+                    {t.isDemo && <DemoBadge expiresAt={t.demoExpiresAt} />}
+                    {problemMap[t.id] && (
+                      <ProblemBadge count={problemMap[t.id].count} severity={problemMap[t.id].severity} />
+                    )}
+                  </div>
+                )}
               </div>
               <StatusBadge t={t} />
             </div>
@@ -524,6 +577,30 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
   const [resetCreds, setResetCreds] = useState<{ name: string; email: string; tempPassword: string } | null>(null);
   const [sort, setSort] = useState<SortState>({ key: 'created', dir: 'desc' });
   const [tab, setTab] = useState<'real' | 'demo'>('real');
+  const [problemMap, setProblemMap] = useState<Record<string, { count: number; severity: ProblemSeverity }>>({});
+
+  // Cheap enrichment: one extra /platform/problems fetch, grouped by tenantId
+  // client-side. Best-effort — a failure here must never break the farm list.
+  useEffect(() => {
+    let cancelled = false;
+    void getProblems()
+      .then((res) => {
+        if (cancelled) return;
+        const map: Record<string, { count: number; severity: ProblemSeverity }> = {};
+        for (const p of res.items) {
+          if (!p.tenantId) continue;
+          const prev = map[p.tenantId];
+          map[p.tenantId] = prev
+            ? { count: prev.count + 1, severity: worseProblemSeverity(prev.severity, p.severity) }
+            : { count: 1, severity: p.severity };
+        }
+        setProblemMap(map);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function onSort(key: SortKey) {
     setSort((s) =>
@@ -727,6 +804,7 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
             onReset={(t) => setConfirmReset(t)}
             onDelete={openDelete}
             emptyText={needle ? 'Няма намерени ферми.' : 'Все още няма ферми.'}
+            problemMap={problemMap}
           />
         ) : (
           <FarmTable
@@ -739,6 +817,7 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
             onReset={(t) => setConfirmReset(t)}
             onDelete={openDelete}
             emptyText={needle ? 'Няма намерени демо ферми.' : 'Няма активни демо акаунти.'}
+            problemMap={problemMap}
           />
         )}
       </div>

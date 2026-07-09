@@ -8,6 +8,7 @@ import { SubcategoriesModule } from '../subcategories/subcategories.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
+import { ProblemsService } from './problems.service';
 import { PlatformController, PlatformAuthController } from './platform.controller';
 import { ProductExtractService } from './product-extract.service';
 import { OperatorDigestService } from './operator-digest.service';
@@ -50,6 +51,7 @@ import { RUN_WORKERS } from '../../config/app-role';
   providers: [
     PlatformService,
     PlatformInsightsService,
+    ProblemsService,
     ProductExtractService,
     OperatorDigestService,
     ...(RUN_WORKERS ? [DemoCleanupProcessor, OperatorDigestProcessor] : []),

@@ -716,6 +716,30 @@ export const auditLogs = pgTable(
   }),
 );
 
+// Server-side 5xx failures, written fire-and-forget by GlobalExceptionFilter. Backs
+// the super-admin cross-tenant "Проблеми" feed (recent errors grouped by farm/path).
+export const errorEvents = pgTable(
+  'error_events',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    userId: uuid('user_id').references(() => users.id),
+    adminId: uuid('admin_id').references(() => platformAdmins.id),
+    method: text('method').notNull(),
+    path: text('path').notNull(),
+    statusCode: integer('status_code').notNull(),
+    message: text('message'),
+    stack: text('stack'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    // Unfiltered feed / 24-48h window scans: ORDER BY created_at desc, id desc.
+    createdIdx: index('error_events_created_idx').on(t.createdAt, t.id),
+    // Per-farm drill-down, newest-first.
+    tenantIdx: index('error_events_tenant_idx').on(t.tenantId, t.createdAt),
+  }),
+);
+
 export const articleStatusEnum = pgEnum('article_status', ['draft', 'published']);
 export const articleMediaTypeEnum = pgEnum('article_media_type', [
   'image',
@@ -1038,6 +1062,7 @@ export const schema = {
   importBatches,
   importRows,
   auditLogs,
+  errorEvents,
   platformAdmins,
   articles,
   articleMedia,

@@ -589,6 +589,13 @@
       "when": 1783500507857,
       "tag": "0083_courier_consolidation",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1783510000000,
+      "tag": "0084_error_events",
+      "breakpoints": true
     }
   ]
 }
