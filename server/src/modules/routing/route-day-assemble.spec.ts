@@ -2,85 +2,67 @@ import { assembleDaySuggestion } from './route-day-assemble';
 import type { ReschedulableOrder } from '../orders/orders.service';
 
 const depot = { lat: 42.65, lng: 23.32 };
+const mk = (
+  id: string,
+  lat: number | null,
+  lng: number | null,
+  overrides: Partial<ReschedulableOrder> = {},
+): ReschedulableOrder => ({
+  id,
+  orderNumber: Number(id.replace(/\D/g, '')) || null,
+  customerName: `C${id}`,
+  customerPhone: null,
+  totalStotinki: 1000,
+  status: 'confirmed',
+  slotDate: '2026-07-10',
+  deliveryLat: lat == null ? null : String(lat),
+  deliveryLng: lng == null ? null : String(lng),
+  ...overrides,
+});
 
-/** Minimal ReschedulableOrder fixture with sane defaults. */
-function order(overrides: Partial<ReschedulableOrder> & { id: string }): ReschedulableOrder {
-  return {
-    orderNumber: null,
-    customerName: null,
-    customerPhone: null,
-    totalStotinki: 0,
-    status: 'confirmed',
-    slotDate: '2026-07-10',
-    deliveryLat: null,
-    deliveryLng: null,
-    ...overrides,
-  };
-}
-
-describe('assembleDaySuggestion', () => {
-  it('returns each requested day empty and no unplaced when the pool is empty', () => {
-    const result = assembleDaySuggestion([], new Map(), depot, ['2026-07-10', '2026-07-11']);
-
-    expect(result.unplaced).toEqual([]);
-    expect(result.days.map((d) => d.date).sort()).toEqual(['2026-07-10', '2026-07-11']);
-    for (const day of result.days) {
-      expect(day.orders).toEqual([]);
-      expect(day.harvest).toEqual([]);
-      expect(day.spreadKm).toBe(0);
-    }
+describe('assembleDaySuggestion (couriers + time + reason)', () => {
+  it('echoes the requested courier count even when there are fewer routes', () => {
+    const pool = [mk('1', 42.71, 23.32)];
+    const res = assembleDaySuggestion(pool, new Map(), depot, [{ date: '2026-07-10', couriers: 3 }]);
+    const day = res.days.find((d) => d.date === '2026-07-10')!;
+    expect(day.couriers).toBe(3);
+    expect(day.routes.length).toBeLessThanOrEqual(3);
+    expect(day.routes.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('has spreadKm === 0 for every day when there is no depot, even with geocoded orders', () => {
-    const pool: ReschedulableOrder[] = [
-      order({ id: 'o1', deliveryLat: '42.71', deliveryLng: '23.32', totalStotinki: 1000 }),
-      order({ id: 'o2', deliveryLat: '42.58', deliveryLng: '23.32', totalStotinki: 2000 }),
-    ];
-    const result = assembleDaySuggestion(pool, new Map(), null, ['2026-07-10', '2026-07-11']);
-
-    expect(result.unplaced).toEqual([]);
-    for (const day of result.days) {
-      expect(day.spreadKm).toBe(0);
-    }
+  it('populates per-route km + driveMinutes and rolls up makespan + totalKm', () => {
+    const pool = [mk('1', 42.71, 23.32), mk('2', 42.72, 23.33)];
+    const res = assembleDaySuggestion(pool, new Map(), depot, [{ date: '2026-07-10', couriers: 1 }]);
+    const day = res.days[0];
+    expect(day.routes[0].km).toBeGreaterThan(0);
+    expect(day.routes[0].driveMinutes).toBeGreaterThan(0);
+    expect(day.driveMinutesMakespan).toBe(Math.max(...day.routes.map((r) => r.driveMinutes)));
+    expect(day.totalKm).toBeCloseTo(Math.round(day.routes.reduce((s, r) => s + r.km, 0) * 10) / 10, 5);
   });
 
-  it('routes an un-geocoded order to unplaced with the right fields, never onto a day', () => {
-    const pool: ReschedulableOrder[] = [
-      order({ id: 'geo', deliveryLat: '42.71', deliveryLng: '23.32', totalStotinki: 500 }),
-      order({
-        id: 'nogeo',
-        orderNumber: 42,
-        customerName: 'Иван Иванов',
-        totalStotinki: 1234,
-        deliveryLat: null,
-        deliveryLng: null,
-      }),
-    ];
-    const result = assembleDaySuggestion(pool, new Map(), depot, ['2026-07-10']);
+  it('gives a non-empty reason with a compass region when a depot exists', () => {
+    const pool = [mk('1', 42.85, 23.32)]; // due north of depot
+    const res = assembleDaySuggestion(pool, new Map(), depot, [{ date: '2026-07-10', couriers: 1 }]);
+    expect(res.days[0].reason).toContain('север');
+  });
 
-    expect(result.unplaced).toEqual([
-      { id: 'nogeo', orderNumber: 42, customerName: 'Иван Иванов', totalStotinki: 1234 },
+  it('falls back to zeros + generic reason when the farm has no depot', () => {
+    const pool = [mk('1', 42.71, 23.32)];
+    const res = assembleDaySuggestion(pool, new Map(), null, [{ date: '2026-07-10', couriers: 1 }]);
+    const day = res.days[0];
+    expect(day.totalKm).toBe(0);
+    expect(day.driveMinutesMakespan).toBe(0);
+    expect(day.reason).toBe('Съседни клиенти заедно — по-малко километри');
+  });
+
+  it('merges the day harvest across all its routes and maps un-geocoded to unplaced', () => {
+    const pool = [mk('1', 42.71, 23.32), mk('2', 42.72, 23.33), mk('9', null, null)];
+    const items = new Map<string, { productName: string | null; quantity: number }[]>([
+      ['1', [{ productName: 'Кайсии', quantity: 2 }]],
+      ['2', [{ productName: 'Кайсии', quantity: 3 }]],
     ]);
-    const allDayOrderIds = result.days.flatMap((d) => d.orders.map((o) => o.id));
-    expect(allDayOrderIds).not.toContain('nogeo');
-    expect(allDayOrderIds).toContain('geo');
-  });
-
-  it('merges harvest lines for the same product across two orders landing on the same day', () => {
-    // A single requested day forces both geocoded orders onto it.
-    const pool: ReschedulableOrder[] = [
-      order({ id: 'o1', deliveryLat: '42.71', deliveryLng: '23.32', totalStotinki: 1000 }),
-      order({ id: 'o2', deliveryLat: '42.58', deliveryLng: '23.32', totalStotinki: 2000 }),
-    ];
-    const itemsByOrder = new Map<string, { productName: string | null; quantity: number }[]>([
-      ['o1', [{ productName: 'Домати', quantity: 3 }]],
-      ['o2', [{ productName: 'Домати', quantity: 5 }]],
-    ]);
-    const result = assembleDaySuggestion(pool, itemsByOrder, depot, ['2026-07-10']);
-
-    expect(result.days).toHaveLength(1);
-    const [day] = result.days;
-    expect(day.orders.map((o) => o.id).sort()).toEqual(['o1', 'o2']);
-    expect(day.harvest).toEqual([{ productName: 'Домати', quantity: 8 }]);
+    const res = assembleDaySuggestion(pool, items, depot, [{ date: '2026-07-10', couriers: 1 }]);
+    expect(res.days[0].harvest).toEqual([{ productName: 'Кайсии', quantity: 5 }]);
+    expect(res.unplaced.map((o) => o.id)).toEqual(['9']);
   });
 });

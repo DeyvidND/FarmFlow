@@ -609,8 +609,9 @@ export const getRoute = (opts?: { date?: string; end?: string; couriers?: number
   return apiFetch<MultiRouteResult>(`orders/route${q ? `?${q}` : ''}`);
 };
 
-/** Geography-first proposal to spread pending address orders across `days` (YYYY-MM-DD). */
-export const suggestDays = (days: string[]) =>
+/** Geography-first proposal: spread pending address orders across the given days,
+ *  each with its own courier count. */
+export const suggestDays = (days: { date: string; couriers: number }[]) =>
   apiFetch<DaySuggestionResult>(
     'orders/suggest-days',
     { method: 'POST', ...json({ days }) },

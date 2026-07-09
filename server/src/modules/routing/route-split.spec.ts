@@ -1,4 +1,4 @@
-import { estimateWorkloadS, sweepSplit, type Pt, __test } from './route-split';
+import { estimateWorkloadS, estimateRoute, sweepSplit, type Pt, __test } from './route-split';
 
 const depot: Pt = { lat: 42.5, lng: 25.0 };
 
@@ -43,6 +43,23 @@ describe('estimateWorkloadS', () => {
     // Service time is 4 * 300 = 1200s; drive time is positive on top.
     expect(w).toBeGreaterThan(1200);
     expect(Number.isFinite(w)).toBe(true);
+  });
+});
+
+describe('estimateRoute', () => {
+  const depot = { lat: 42.5, lng: 27.46 };
+  it('returns zero km and seconds for no stops', () => {
+    expect(estimateRoute(depot, [], depot)).toEqual({ km: 0, seconds: 0 });
+  });
+  it('gives positive km and seconds for real stops', () => {
+    const r = estimateRoute(depot, [{ lat: 42.6, lng: 27.5 }, { lat: 42.55, lng: 27.48 }], depot);
+    expect(r.km).toBeGreaterThan(0);
+    expect(r.seconds).toBeGreaterThan(0);
+  });
+  it('is monotonic — a farther stop set costs more km', () => {
+    const near = estimateRoute(depot, [{ lat: 42.51, lng: 27.47 }], depot);
+    const far = estimateRoute(depot, [{ lat: 43.2, lng: 27.9 }], depot);
+    expect(far.km).toBeGreaterThan(near.km);
   });
 });
 

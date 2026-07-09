@@ -769,12 +769,22 @@ export interface SuggestedDayOrder {
   totalStotinki: number;
 }
 
+/** One courier's leg within a proposed delivery day. */
+export interface RouteEstimate {
+  stops: SuggestedDayOrder[];
+  km: number;
+  driveMinutes: number;
+}
+
 /** One proposed delivery day from POST /orders/suggest-days. */
 export interface SuggestedDay {
   date: string;
-  orders: SuggestedDayOrder[];
+  couriers: number;
+  routes: RouteEstimate[];
+  driveMinutesMakespan: number;
+  totalKm: number;
   harvest: HarvestLine[];
-  spreadKm: number;
+  reason: string;
 }
 
 /** An order the suggester couldn't place geographically (no coords). */

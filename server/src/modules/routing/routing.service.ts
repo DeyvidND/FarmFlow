@@ -638,7 +638,10 @@ export class RoutingService {
    * Applying the proposal is the client's job (it calls the existing reschedule
    * endpoint once per day) — this method never mutates.
    */
-  async suggestDays(tenantId: string, days: string[]): Promise<DaySuggestionResult> {
+  async suggestDays(
+    tenantId: string,
+    days: { date: string; couriers: number }[],
+  ): Promise<DaySuggestionResult> {
     const pool = await this.ordersService.reschedulable(tenantId);
 
     // Depot = farm coords (null when the farm was never geocoded).
