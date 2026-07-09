@@ -13,6 +13,9 @@ const todayStr = () => new Date().toLocaleDateString('en-CA');
 const orderNo = (o: { orderNumber: number | null; id: string }) =>
   o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(0, 8)}`;
 
+/** Bulgarian count + noun with singular/plural agreement (1 → singular). */
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
 /** Per-order target-day override the farmer can change before applying. */
 type Choice = { day: string | null }; // null = excluded from the move
 
@@ -120,14 +123,18 @@ export function RouteDaySuggesterModal({
         const res = await rescheduleOrders(ids, date);
         moved += res.moved;
       }
-      toast.success(`Разпределени ${moved} поръчки по ${groupedForApply.size} дни`);
+      toast.success(
+        `Разпределени ${plural(moved, 'поръчка', 'поръчки')} по ${plural(groupedForApply.size, 'ден', 'дни')}`,
+      );
       onApplied();
       onClose();
     } catch (e) {
       if (moved > 0) {
         // Some days already moved before the failure — refresh so the route
         // reflects them, and tell the farmer it was partial.
-        toast.error(`Преместени ${moved} поръчки, но възникна грешка при останалите`);
+        toast.error(
+          `Преместени ${plural(moved, 'поръчка', 'поръчки')}, но възникна грешка при останалите`,
+        );
         onApplied();
         onClose();
       } else {
@@ -199,7 +206,9 @@ export function RouteDaySuggesterModal({
                   aria-label={`Куриери за ${relDayLabel(d)}`}
                   className="w-11 rounded-md border border-ff-green-300 bg-ff-surface px-1 py-0.5 text-center text-[12.5px] font-bold text-ff-ink outline-none"
                 />
-                <span className="text-[11px] font-semibold text-ff-green-700">куриери</span>
+                <span className="text-[11px] font-semibold text-ff-green-700">
+                  {(dayCouriers[d] ?? 1) === 1 ? 'куриер' : 'куриери'}
+                </span>
                 <button onClick={() => removeDay(d)} aria-label={`Махни ${d}`}>
                   <X size={13} />
                 </button>
@@ -227,10 +236,10 @@ export function RouteDaySuggesterModal({
                 <div key={day.date} className="rounded-xl border border-ff-border-2">
                   <div className="flex items-center justify-between border-b border-ff-border-2 bg-ff-surface-2 px-3 py-2">
                     <span className="text-[14px] font-extrabold capitalize text-ff-ink">
-                      {relDayLabel(day.date)} · {day.couriers} куриера
+                      {relDayLabel(day.date)} · {plural(day.couriers, 'куриер', 'куриери')}
                     </span>
                     <span className="text-[12px] font-semibold text-ff-muted">
-                      ~{day.driveMinutesMakespan} мин · {day.totalKm} км
+                      ~{day.driveMinutesMakespan} мин · ~{day.totalKm} км
                     </span>
                   </div>
                   <p className="border-b border-ff-border-2 px-3 py-1.5 text-[12px] italic text-ff-muted">
@@ -251,8 +260,8 @@ export function RouteDaySuggesterModal({
                   {day.routes.map((route, ri) => (
                     <div key={ri}>
                       <div className="flex items-center justify-between bg-ff-surface px-3 py-1.5 text-[12px] font-bold text-ff-ink-2">
-                        <span>Маршрут {ri + 1} · {route.stops.length} спирки</span>
-                        <span className="text-ff-muted">{route.km} км · ~{route.driveMinutes} мин</span>
+                        <span>Маршрут {ri + 1} · {plural(route.stops.length, 'спирка', 'спирки')}</span>
+                        <span className="text-ff-muted">~{route.km} км · ~{route.driveMinutes} мин</span>
                       </div>
                       {route.stops.map(orderRow)}
                     </div>
