@@ -296,6 +296,49 @@ describe('SlotsService.closeDay', () => {
   });
 });
 
+describe('SlotsService.saveRule', () => {
+  it('deactivates a leftover generated slot on a day the new rule no longer produces', async () => {
+    const setPatches: Record<string, unknown>[] = [];
+    const db: any = {
+      update: () => ({
+        set: (patch: Record<string, unknown>) => {
+          setPatches.push(patch);
+          // tenants persist reads .returning(); the deliverySlots deactivation just awaits .where().
+          return { where: () => ({ returning: async () => [{ slug: 'farm' }] }) };
+        },
+      }),
+    };
+    const publicCache = { del: jest.fn() };
+    const svc = new SlotsService(db, publicCache as never);
+    jest.spyOn(svc, 'getRule').mockResolvedValue(null);
+    // Isolate saveRule from the delete/materialize DB chains — covered separately.
+    jest
+      .spyOn(
+        svc as unknown as { deleteFutureUnbookedGenerated: () => Promise<void> },
+        'deleteFutureUnbookedGenerated',
+      )
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(svc as unknown as { materializeRule: () => Promise<number> }, 'materializeRule')
+      .mockResolvedValue(0);
+    jest.spyOn(svc as unknown as { bgToday: () => string }, 'bgToday').mockReturnValue('2026-07-09');
+
+    await svc.saveRule('t1', {
+      active: true,
+      repeat: 'weekdays',
+      days: [{ dow: 4, capacity: 48 }], // Thursday only — Friday is dropped
+      intervalDays: 1,
+      intervalCapacity: 1,
+      anchorDate: '2026-07-09',
+      horizonDays: 30,
+      skipDates: [],
+    } as never);
+
+    // Besides the tenants rule-persist update, the off-rule deactivation ran.
+    expect(setPatches).toContainEqual({ isActive: false });
+  });
+});
+
 /** db stub for findPublicBySlug: the whole select chain resolves to `rows`. */
 function publicSlotsDb(
   rows: { id: string; date: string; startTime: string | null; endTime: string | null }[],

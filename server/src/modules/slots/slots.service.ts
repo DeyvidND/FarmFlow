@@ -4,7 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { and, eq, ne, gte, lte, sql, getTableColumns, inArray } from 'drizzle-orm';
+import { and, eq, ne, gte, lte, sql, getTableColumns, inArray, notInArray } from 'drizzle-orm';
 import { type Database, deliverySlots, orders, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
@@ -369,6 +369,25 @@ export class SlotsService {
     // capacity is left as-is; the farmer edits that one day manually if needed.
     await this.deleteFutureUnbookedGenerated(tenantId, this.bgToday());
     await this.materializeRule(tenantId, this.bgToday(), true); // force rebuild
+
+    // Drop a weekday (or otherwise stop producing a date) and its GENERATED slot may
+    // still exist because it holds a live order — deleteFutureUnbookedGenerated skips
+    // those, and they'd keep the day on the storefront (findPublicBySlug shows every
+    // is_active row). Deactivate the leftovers the new rule no longer produces so the
+    // day leaves the storefront; the order keeps its slot for the route/prep. Rule
+    // days (in `wanted`, incl. the ones materializeRule just re-created) stay active.
+    const wanted = slotRuleSlots(rule, this.bgToday()).map((s) => s.date);
+    await this.db
+      .update(deliverySlots)
+      .set({ isActive: false })
+      .where(
+        and(
+          eq(deliverySlots.tenantId, tenantId),
+          eq(deliverySlots.generated, true),
+          gte(deliverySlots.date, this.bgToday()),
+          wanted.length ? notInArray(deliverySlots.date, wanted) : sql`true`,
+        ),
+      );
     return rule;
   }
 
