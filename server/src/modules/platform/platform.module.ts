@@ -14,10 +14,13 @@ import { PlatformController, PlatformAuthController } from './platform.controlle
 import { ProductExtractService } from './product-extract.service';
 import { OperatorDigestService } from './operator-digest.service';
 import { OperatorDigestProcessor } from './operator-digest.processor';
+import { CriticalAlertService } from './critical-alert.service';
+import { CriticalAlertProcessor } from './critical-alert.processor';
 import { DemoCleanupProcessor } from './demo-cleanup.processor';
 import {
   CLEANUP_QUEUE,
   OPERATOR_DIGEST_QUEUE,
+  CRITICAL_ALERT_QUEUE,
   EMAIL_QUEUE,
   ECONT_QUEUE,
   SPEEDY_QUEUE,
@@ -57,6 +60,15 @@ import { RUN_WORKERS } from '../../config/app-role';
         removeOnFail: 100,
       },
     }),
+    BullModule.registerQueue({
+      name: CRITICAL_ALERT_QUEUE,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: true,
+        removeOnFail: 100,
+      },
+    }),
     // Read-only queue handles for the «Здраве» health board (HealthBoardService) —
     // this module only reads job counts from these, never produces/processes jobs
     // on them (each already has its own owning module elsewhere for that).
@@ -76,7 +88,8 @@ import { RUN_WORKERS } from '../../config/app-role';
     HealthBoardService,
     ProductExtractService,
     OperatorDigestService,
-    ...(RUN_WORKERS ? [DemoCleanupProcessor, OperatorDigestProcessor] : []),
+    CriticalAlertService,
+    ...(RUN_WORKERS ? [DemoCleanupProcessor, OperatorDigestProcessor, CriticalAlertProcessor] : []),
   ],
 })
 export class PlatformModule {}

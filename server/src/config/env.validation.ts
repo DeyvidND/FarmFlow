@@ -12,6 +12,10 @@ export const envValidationSchema = Joi.object({
   // `tlds:false` → validate email SHAPE only, not the TLD against the IANA list,
   // so dev/internal admin addresses (e.g. admin@local.test) aren't rejected.
   SUPER_ADMIN_EMAIL: Joi.string().email({ tlds: false }).optional().allow(''),
+  // Recipient for the critical-problem alert cron (CriticalAlertService) — kept
+  // SEPARATE from SUPER_ADMIN_EMAIL so it can be routed differently later (e.g.
+  // a Telegram bridge) without touching the daily-digest recipient.
+  CRITICAL_ALERT_EMAIL: Joi.string().email({ tlds: false }).optional().allow(''),
   // Min 12 chars when set: this seeds the single most-privileged account, so a
   // trivially weak bootstrap password must not ship. Empty is still allowed (it
   // just skips the seed on an already-provisioned DB).
@@ -92,6 +96,11 @@ export const envValidationSchema = Joi.object({
   // Used ONLY for the super-admin margin view — never charges anything.
   EMAIL_COST_PER_RECIPIENT_MICRO: Joi.number().default(370),
   PUBLIC_APP_URL: Joi.string().default('http://localhost:3000'),
+  // Public origin of the admin (super-admin) app, e.g. https://admin.fermeribg.com —
+  // used to link into the critical-problem alert email. Falls back to that literal
+  // default in code when unset (mirrors the PUBLIC_APP_URL/DELIVERY_PUBLIC_URL
+  // fallback pattern elsewhere in this file).
+  ADMIN_PANEL_URL: Joi.string().optional().allow(''),
   // Public origin of the standalone DELIVERY-WEB app (dostavki.fermeribg.com).
   // Used to target the set-password ("invite") link minted when a super-admin
   // creates a delivery account — that link must open the delivery panel, NOT the

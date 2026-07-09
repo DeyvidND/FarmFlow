@@ -23,6 +23,7 @@ import { ProblemsService } from './problems.service';
 import { HealthBoardService } from './health-board.service';
 import { ProductExtractService } from './product-extract.service';
 import { OperatorDigestService } from './operator-digest.service';
+import { CriticalAlertService } from './critical-alert.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 import { UpdateTenantStatusDto } from './dto/update-tenant-status.dto';
 import { SetPremiumDto } from './dto/set-premium.dto';
@@ -64,6 +65,7 @@ export class PlatformController {
     private readonly healthBoardSvc: HealthBoardService,
     private readonly productExtract: ProductExtractService,
     private readonly operatorDigest: OperatorDigestService,
+    private readonly criticalAlert: CriticalAlertService,
   ) {}
 
   /** Current super-admin identity — backs the panel's server-side auth gate. */
@@ -216,6 +218,13 @@ export class PlatformController {
   @Post('digest/operator-test')
   runOperatorDigest() {
     return this.operatorDigest.runDaily();
+  }
+
+  /** Manual trigger: run the critical-problem alert check now (to CRITICAL_ALERT_EMAIL). */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('critical-alert-test')
+  runCriticalAlertCheck() {
+    return this.criticalAlert.checkAndAlert();
   }
 
   /** Super-admin onboarding seed — bulk-create catalog (products/farmers/categories)
