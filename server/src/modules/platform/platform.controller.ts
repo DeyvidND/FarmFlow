@@ -20,6 +20,7 @@ import { Throttle } from '@nestjs/throttler';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
 import { ProblemsService } from './problems.service';
+import { HealthBoardService } from './health-board.service';
 import { ProductExtractService } from './product-extract.service';
 import { OperatorDigestService } from './operator-digest.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
@@ -60,6 +61,7 @@ export class PlatformController {
     private readonly platform: PlatformService,
     private readonly insights: PlatformInsightsService,
     private readonly problemsSvc: ProblemsService,
+    private readonly healthBoardSvc: HealthBoardService,
     private readonly productExtract: ProductExtractService,
     private readonly operatorDigest: OperatorDigestService,
   ) {}
@@ -83,6 +85,13 @@ export class PlatformController {
   @Get('problems')
   getProblems() {
     return this.problemsSvc.problems();
+  }
+
+  /** Live platform technical pulse for the «Здраве» screen: DB/Redis reachability,
+   *  BullMQ queue depths, and the 24h error-rate summary. */
+  @Get('health-board')
+  getHealthBoard() {
+    return this.healthBoardSvc.healthBoard();
   }
 
   /** Orders/revenue time series for the trend chart (Sofia-local buckets). */

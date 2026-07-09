@@ -582,3 +582,34 @@ export interface ProblemsResponse {
 /** Unified, severity-ranked cross-farm problems feed (client-side, via the BFF proxy). */
 export const getProblems = () =>
   apiFetch<ProblemsResponse>('platform/problems', undefined, 'Неуспешно зареждане на проблемите');
+
+// ── «Здраве» (system health board) ──
+
+export type ServiceStatus = 'up' | 'down';
+
+/** One BullMQ queue's live depth + a derived triage status.
+ *  Mirrors `server/src/modules/platform/health-board.service.ts` — response shape is FIXED. */
+export interface QueueHealth {
+  name: string;
+  waiting: number;
+  active: number;
+  delayed: number;
+  failed: number;
+  status: 'ok' | 'backlog' | 'error';
+}
+
+export interface HealthBoard {
+  generatedAt: string;
+  services: { db: ServiceStatus; redis: ServiceStatus };
+  queues: QueueHealth[];
+  errors: {
+    last24h: number;
+    topPaths: { path: string; count: number }[];
+    topTenants: { tenantId: string | null; tenantName: string | null; count: number }[];
+  };
+  notes?: string[];
+}
+
+/** Cross-tenant system health snapshot — services, queues, 24h error digest (client-side, via the BFF proxy). */
+export const getHealthBoard = () =>
+  apiFetch<HealthBoard>('platform/health-board', undefined, 'Неуспешно зареждане на здравето');
