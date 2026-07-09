@@ -3,6 +3,24 @@ import { redirect } from 'next/navigation';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 import { AdminShell } from '@/components/layout/admin-shell';
 
+/**
+ * Decode the JWT payload without verifying the signature — display-only, to
+ * read the `actingAdminId` claim a super-admin "full-panel impersonation"
+ * session carries. The API already verified the token; this just surfaces the
+ * claim so the shell can show the impersonation banner. Mirrors the decode
+ * logic in `middleware.ts` (kept separate since middleware runs on the edge
+ * runtime and this is a plain Node.js server component).
+ */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
 // Reads the session cookie + validates it against the API on every load.
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +68,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const subscriptionActive = me.subscriptionStatus !== 'inactive';
   const mustChangePassword = account?.mustChangePassword === true;
 
+  // Present only on a super-admin "full-panel impersonation" session (minted by
+  // /auth/panel-handoff) — drives the persistent impersonation banner in the shell.
+  const payload = decodeJwtPayload(token);
+  const actingAdminId =
+    typeof payload?.actingAdminId === 'string' ? payload.actingAdminId : undefined;
+
   return (
     <AdminShell
       subscriptionActive={subscriptionActive}
@@ -59,6 +83,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       hiddenNav={account?.hiddenNav ?? []}
       mustChangePassword={mustChangePassword}
       role={account?.role ?? 'admin'}
+      actingAdminId={actingAdminId}
     >
       {children}
     </AdminShell>

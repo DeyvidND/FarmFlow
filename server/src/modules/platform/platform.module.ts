@@ -8,12 +8,24 @@ import { SubcategoriesModule } from '../subcategories/subcategories.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
+import { ProblemsService } from './problems.service';
+import { HealthBoardService } from './health-board.service';
 import { PlatformController, PlatformAuthController } from './platform.controller';
 import { ProductExtractService } from './product-extract.service';
 import { OperatorDigestService } from './operator-digest.service';
 import { OperatorDigestProcessor } from './operator-digest.processor';
 import { DemoCleanupProcessor } from './demo-cleanup.processor';
-import { CLEANUP_QUEUE, OPERATOR_DIGEST_QUEUE } from '../../common/queue/queue.constants';
+import {
+  CLEANUP_QUEUE,
+  OPERATOR_DIGEST_QUEUE,
+  EMAIL_QUEUE,
+  ECONT_QUEUE,
+  SPEEDY_QUEUE,
+  NEWSLETTER_DRAFT_QUEUE,
+  IMAGE_QUEUE,
+  BILLING_QUEUE,
+  ANALYTICS_QUEUE,
+} from '../../common/queue/queue.constants';
 import { RUN_WORKERS } from '../../config/app-role';
 
 @Module({
@@ -45,11 +57,23 @@ import { RUN_WORKERS } from '../../config/app-role';
         removeOnFail: 100,
       },
     }),
+    // Read-only queue handles for the «Здраве» health board (HealthBoardService) —
+    // this module only reads job counts from these, never produces/processes jobs
+    // on them (each already has its own owning module elsewhere for that).
+    BullModule.registerQueue({ name: EMAIL_QUEUE }),
+    BullModule.registerQueue({ name: ECONT_QUEUE }),
+    BullModule.registerQueue({ name: SPEEDY_QUEUE }),
+    BullModule.registerQueue({ name: NEWSLETTER_DRAFT_QUEUE }),
+    BullModule.registerQueue({ name: IMAGE_QUEUE }),
+    BullModule.registerQueue({ name: BILLING_QUEUE }),
+    BullModule.registerQueue({ name: ANALYTICS_QUEUE }),
   ],
   controllers: [PlatformAuthController, PlatformController],
   providers: [
     PlatformService,
     PlatformInsightsService,
+    ProblemsService,
+    HealthBoardService,
     ProductExtractService,
     OperatorDigestService,
     ...(RUN_WORKERS ? [DemoCleanupProcessor, OperatorDigestProcessor] : []),

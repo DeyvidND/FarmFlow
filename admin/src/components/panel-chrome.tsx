@@ -1,7 +1,7 @@
 'use client';
 
 import { Toaster } from 'sonner';
-import { Leaf, LogOut, Settings, Users, Mail, CreditCard, LineChart, Truck, Sprout, ScrollText } from 'lucide-react';
+import { Leaf, LogOut, Settings, Users, Mail, CreditCard, LineChart, Truck, Sprout, ScrollText, AlertTriangle, Activity } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -41,6 +41,12 @@ export function PanelChrome({ children }: { children: React.ReactNode }) {
           </Link>
           <Link href="/insights" className={NAV_LINK}>
             <LineChart size={17} /> <span className="max-sm:hidden">Анализ</span>
+          </Link>
+          <Link href="/problems" className={NAV_LINK}>
+            <AlertTriangle size={17} /> <span className="max-sm:hidden">Проблеми</span>
+          </Link>
+          <Link href="/health" className={NAV_LINK}>
+            <Activity size={17} /> <span className="max-sm:hidden">Здраве</span>
           </Link>
           <Link href="/audit" className={NAV_LINK}>
             <ScrollText size={17} /> <span className="max-sm:hidden">Одит</span>

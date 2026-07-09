@@ -319,6 +319,44 @@ export class AuthService {
   }
 
   /**
+   * Mint a short-TTL, single-purpose token to hand a super-admin into the FULL farmer
+   * panel (client app) AS the farm's owner — for support/debug. Distinct type + secret
+   * from the delivery handoff so it can never cross paths. Carries the acting admin id
+   * for attribution. Exchanged server-side via `panelHandoffLogin`.
+   */
+  async issuePanelHandoff(adminId: string, targetUserId: string, tenantId: string): Promise<{ token: string }> {
+    const token = await this.jwt.signAsync(
+      { sub: targetUserId, tid: tenantId, aid: adminId, type: 'panel-handoff' },
+      { secret: this.panelHandoffSecret(), expiresIn: '120s', jwtid: randomUUID() },
+    );
+    return { token };
+  }
+
+  /**
+   * Exchange a valid panel-handoff token for a real farmer-panel session, minted as an
+   * IMPERSONATION (short TTL, carries the acting admin id, mustChangePassword forced off).
+   * No package gate — works for any farm. Backs the client `?handoff=` panel login.
+   */
+  async panelHandoffLogin(token: string): Promise<{ accessToken: string }> {
+    let payload: { sub?: string; tid?: string; aid?: string; type?: string; jti?: string };
+    try {
+      payload = await this.jwt.verifyAsync(token, { secret: this.panelHandoffSecret() });
+    } catch {
+      throw new UnauthorizedException('Връзката е невалидна или изтекла');
+    }
+    if (payload?.type !== 'panel-handoff' || !payload.sub || !payload.jti || !payload.aid) {
+      throw new UnauthorizedException('Връзката е невалидна или изтекла');
+    }
+    const claimed = await this.redis.set(`panel-handoff:used:${payload.jti}`, '1', 'PX', 130_000, 'NX');
+    if (claimed !== 'OK') {
+      throw new UnauthorizedException('Връзката вече е използвана');
+    }
+    const [user] = await this.db.select().from(users).where(eq(users.id, payload.sub)).limit(1);
+    if (!user || !user.tenantId) throw new UnauthorizedException();
+    return this.signImpersonation(user.id, user.tenantId, user.role, user.tokenVersion, user.farmerId, payload.aid);
+  }
+
+  /**
    * Exchange a valid delivery-handoff token for a real delivery session — and gate
    * on the tenant's „пакет Доставки". This is the authoritative dostavki access gate
    * for FarmFlow shop accounts (standalone delivery-only accounts use their own
@@ -371,6 +409,12 @@ export class AuthService {
     return `${this.config.getOrThrow<string>('JWT_SECRET')}::handoff`;
   }
 
+  /** Panel-handoff tokens use their own derived secret — never valid as an auth token
+   *  or on the delivery-handoff path. */
+  private panelHandoffSecret(): string {
+    return `${this.config.getOrThrow<string>('JWT_SECRET')}::panel-handoff`;
+  }
+
   /** Short fingerprint of the password hash — binds a reset token to one password. */
   private pwFingerprint(passwordHash: string): string {
     return createHash('sha256').update(passwordHash).digest('hex').slice(0, 16);
@@ -394,6 +438,32 @@ export class AuthService {
       ...(farmerId ? { farmerId } : {}),
     };
     return { accessToken: this.jwt.sign(payload) };
+  }
+
+  /**
+   * Sign an impersonation session: like `sign()` but short-lived (60m), never forces a
+   * password change (the admin isn't resetting the farmer's password), and stamps
+   * `actingAdminId` so every request/audit row is attributable to the acting super-admin.
+   */
+  private signImpersonation(
+    sub: string,
+    tenantId: string,
+    role: Role,
+    tokenVersion = 0,
+    farmerId?: string | null,
+    actingAdminId?: string,
+  ): { accessToken: string } {
+    const payload: JwtPayload = {
+      sub,
+      type: 'tenant',
+      tenantId,
+      role,
+      mustChangePassword: false,
+      tv: tokenVersion,
+      ...(farmerId ? { farmerId } : {}),
+      ...(actingAdminId ? { actingAdminId } : {}),
+    };
+    return { accessToken: this.jwt.sign(payload, { expiresIn: '60m' }) };
   }
 }
 

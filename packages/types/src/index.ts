@@ -171,6 +171,8 @@ export type JwtPayload = {
   // else the token has been revoked (password change/reset). Absent on legacy
   // pre-feature tokens; treated as 0.
   tv?: number;
+  /** Set only on an impersonation session minted by a platform admin — the acting super-admin's id, for attribution. */
+  actingAdminId?: string;
   iat?: number;
   exp?: number;
 };
@@ -182,6 +184,8 @@ export type TenantRequestUser = {
   role: TenantRole;
   /** Producer scope for role='farmer' (else undefined). */
   farmerId?: string;
+  /** Present only on an impersonation session — the acting super-admin's id. */
+  actingAdminId?: string;
 };
 
 export type PlatformRequestUser = {

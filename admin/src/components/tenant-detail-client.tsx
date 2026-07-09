@@ -22,6 +22,7 @@ import {
 import { toast } from 'sonner';
 import { cn, dmy, eur } from '@/lib/utils';
 import { ApiError, enableDeliveryOnFarm, type PlatformTenantDetail } from '@/lib/api-client';
+import { EnterPanelButton } from '@/components/enter-panel-button';
 
 const ORDER_STATUS: Record<string, { label: string; tone: string }> = {
   pending: { label: 'Чака', tone: 'bg-ff-amber-soft text-ff-amber-600' },
@@ -272,6 +273,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
               <Truck size={14} /> {enabling ? 'Включване…' : 'Включи доставка'}
             </button>
           )}
+          <EnterPanelButton tenantId={d.id} />
           <div className="flex flex-wrap justify-end gap-2">
             <Flag on={d.deliveryEnabled} label="Доставка" icon={<Truck size={13} />} />
             <Flag on={d.deliveriesPackageEnabled} label="Пакет Доставки" icon={<Truck size={13} />} />

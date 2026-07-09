@@ -995,6 +995,35 @@ export class PlatformService {
     return { url: `${base}/api/session/handoff?token=${encodeURIComponent(token)}` };
   }
 
+  /**
+   * Mint a one-click SSO link that opens the farm's FULL farmer panel AS its owner —
+   * for super-admin support/debug. Resolves the tenant's owner (role='admin'), mints a
+   * short-TTL panel handoff carrying the acting admin id, audit-logs it, and returns the
+   * client-app handoff URL. 400 if the farm has no owner login.
+   */
+  async impersonatePanel(tenantId: string, adminId: string): Promise<{ url: string }> {
+    const [owner] = await this.db
+      .select({ id: users.id, tokenVersion: users.tokenVersion })
+      .from(users)
+      .where(and(eq(users.tenantId, tenantId), eq(users.role, 'admin')))
+      .limit(1);
+    if (!owner?.id) throw new BadRequestException('Фермата няма собственик за вход');
+
+    const { token } = await this.auth.issuePanelHandoff(adminId, owner.id, tenantId);
+    await this.db.insert(auditLogs).values({
+      adminId,
+      tenantId,
+      action: 'IMPERSONATE_PANEL',
+      path: `/platform/impersonate-panel/${tenantId}`,
+      statusCode: 200,
+    });
+
+    // PUBLIC_APP_URL is the established, validated env var for the farmer-panel
+    // origin (see env.validation.ts) — not a new CLIENT_URL.
+    const panelBase = this.config.get<string>('PUBLIC_APP_URL') ?? 'https://app.fermeribg.com';
+    return { url: `${panelBase}/api/session/handoff?token=${encodeURIComponent(token)}` };
+  }
+
   /** Toggle a farm's subscription (active/inactive). */
   async setStatus(id: string, status: 'active' | 'inactive') {
     const [row] = await this.db
