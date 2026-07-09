@@ -12,7 +12,7 @@ import type {
   DeliveryMethodKey,
   PricingType,
 } from '@/lib/types';
-import { DSection, DLabel, Segmented, LvInput, InfoNote, fieldCls } from './ui';
+import { DSection, DLabel, Segmented, LvInput, fieldCls } from './ui';
 
 type Mut = (fn: (d: DeliveryConfig) => void) => void;
 
@@ -82,14 +82,6 @@ export function MethodsSection({
         </div>
       )}
 
-      {/* In manual Econt mode „До офис" can't be offered — say so, or the farmer
-          wonders why office-pickup never appears for customers. */}
-      {cfg.methods.econtAddress.enabled && econtMode === 'manual' && (
-        <div className="mt-2.5 rounded-[10px] border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-3 text-[13px] leading-relaxed text-ff-ink-2">
-          „До офис на Еконт“ се показва на клиента само в <b>автоматичен режим</b>. В ръчен
-          режим работи единствено доставка „До адрес“. Превключи режима от секцията „Еконт“ по-долу.
-        </div>
-      )}
     </DSection>
   );
 }
@@ -201,59 +193,53 @@ function MethodCard({
         ) : (
           <>
             {mkey === 'ownSlots' && (
-              <div className="sm:col-span-2">
-                <InfoNote tone="green">
-                  Личната доставка <b>не минава през Еконт</b>. Клиентът избира свободен час от твоите
-                  часове, а ти доставяш сам.
-                </InfoNote>
-
-                <div className="mt-3 flex flex-col gap-3">
+              <div className="sm:col-span-2 flex flex-col gap-2.5">
+                {/* Status strip — tinted, NO border, so it reads as live status and
+                    stays visually distinct from the bordered „calendar“ action below
+                    (avoids the box-in-box-in-box look). */}
+                <div
+                  className={cn(
+                    'rounded-[10px] px-3.5 py-2.5',
+                    slotStatus.state === 'configuredWithFree' ? 'bg-ff-green-50' : 'bg-ff-amber-softer',
+                  )}
+                >
                   <div
                     className={cn(
-                      'rounded-[10px] border px-3.5 py-3',
-                      slotStatus.state === 'configuredWithFree'
-                        ? 'border-ff-border bg-ff-surface-2'
-                        : 'border-ff-amber-soft bg-ff-amber-softer',
+                      'text-[14px] font-extrabold',
+                      slotStatus.state === 'configuredWithFree' ? 'text-ff-green-800' : 'text-ff-amber',
                     )}
                   >
-                    <div
-                      className={cn(
-                        'text-[14.5px] font-extrabold',
-                        slotStatus.state === 'configuredWithFree' ? 'text-ff-ink' : 'text-ff-amber',
-                      )}
-                    >
-                      {slotStatus.state === 'none' && 'Още нямаш зададени часове за доставка'}
-                      {slotStatus.state === 'configuredNoneFree' &&
-                        'Часовете ти са зададени, но тази седмица няма свободни'}
-                      {slotStatus.state === 'configuredWithFree' && (
-                        <>
-                          <span className="ff-fig">{slotStatus.freeThisWeek}</span> свободни часа тази седмица
-                        </>
-                      )}
-                    </div>
-                    <div className="mt-px text-[12.5px] text-ff-muted">
-                      {slotStatus.state === 'none' &&
-                        'Отвори „Часове за доставка“ по-долу и задай повтарящите се дни — иначе клиентите не могат да изберат час за лична доставка.'}
-                      {slotStatus.state === 'configuredNoneFree' &&
-                        'Всички часове за тази седмица са заети или затворени. Клиентите ще виждат следващите свободни часове напред.'}
-                      {slotStatus.state === 'configuredWithFree' && 'Клиентите избират от тези часове при поръчка.'}
-                    </div>
+                    {slotStatus.state === 'none' && 'Още нямаш зададени часове за доставка'}
+                    {slotStatus.state === 'configuredNoneFree' &&
+                      'Часовете ти са зададени, но тази седмица няма свободни'}
+                    {slotStatus.state === 'configuredWithFree' && (
+                      <>
+                        <span className="ff-fig">{slotStatus.freeThisWeek}</span> свободни часа тази седмица
+                      </>
+                    )}
                   </div>
-
-                  <Link
-                    href="/settings?config=slots"
-                    className="flex items-center gap-3 rounded-[10px] border border-ff-border bg-ff-surface-2 px-3.5 py-3 text-[13px] leading-snug text-ff-ink-2 transition-colors hover:border-ff-green-100 hover:bg-ff-green-50"
-                  >
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
-                      <CalendarDays size={17} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <b className="text-ff-ink">Отвори календара с часове</b> — задай повтарящите се дни,
-                      добави единичен час или затвори отделен ден (напр. отпуск).
-                    </span>
-                    <span className="shrink-0 text-[13px] font-bold text-ff-green-700">→</span>
-                  </Link>
+                  <div className="mt-px text-[12.5px] leading-snug text-ff-muted">
+                    {slotStatus.state === 'none' &&
+                      'Отвори „Часове за доставка“ по-долу и задай дните, в които доставяш — иначе клиентите не могат да изберат час.'}
+                    {slotStatus.state === 'configuredNoneFree' &&
+                      'Всички часове за тази седмица са заети или затворени. Клиентите ще виждат следващите свободни часове напред.'}
+                    {slotStatus.state === 'configuredWithFree' && 'Клиентите избират от тези часове при поръчка.'}
+                  </div>
                 </div>
+
+                <Link
+                  href="/settings?config=slots"
+                  className="flex items-center gap-3 rounded-[10px] border border-ff-border bg-ff-surface-2 px-3.5 py-3 text-[13px] leading-snug text-ff-ink-2 transition-colors hover:border-ff-green-500 hover:bg-ff-green-50"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
+                    <CalendarDays size={17} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <b className="text-ff-ink">Отвори „Часове за доставка“</b> — задай дните, в които доставяш,
+                    добави единичен час или затвори отделен ден (напр. отпуск).
+                  </span>
+                  <span className="shrink-0 text-[13px] font-bold text-ff-green-700">→</span>
+                </Link>
               </div>
             )}
 
@@ -336,8 +322,13 @@ export function GlobalRulesSection({ cfg, mut }: { cfg: DeliveryConfig; mut: Mut
   return (
     <DSection
       title="Общи правила"
-      helper="Важат за всички методи наведнъж."
-      info={<>„Безплатно над сума“ важи за всички методи — задаваш го веднъж тук.</>}
+      helper="Важат за всеки метод — и лична доставка, и куриер."
+      info={
+        <>
+          „Безплатно над сума“ важи за всеки метод — и за личната ти доставка, и за куриерската.
+          Това е единственото тук, което влияе и на куриера.
+        </>
+      }
     >
       <div className="grid grid-cols-1 gap-3.5">
         <div>

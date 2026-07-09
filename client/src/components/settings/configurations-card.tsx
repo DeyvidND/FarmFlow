@@ -37,7 +37,7 @@ const GROUPS: { title: string; desc: string; items: ConfigItem[] }[] = [
     desc: 'Как клиентът плаща и получава поръчката.',
     items: [
       { key: 'setup', label: 'Методи и цени', Icon: SlidersHorizontal, desc: 'Активирай наложен платеж или плащане с карта и включи начините на доставка.' },
-      { key: 'delivery', label: 'Цени и правила', Icon: Truck, desc: 'Цени на методите за доставка, работно време и избор между Еконт/Speedy.' },
+      { key: 'delivery', label: 'Цени и правила', Icon: Truck, desc: 'Цени, срок и работно време за всеки включен метод на доставка.' },
       { key: 'slots', label: 'Часове за доставка', Icon: CalendarDays, desc: 'Часове и дни за лична доставка, които клиентът избира.', requiresDelivery: true },
     ],
   },
