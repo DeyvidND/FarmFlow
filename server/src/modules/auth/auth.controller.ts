@@ -7,6 +7,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateNavDto } from './dto/update-nav.dto';
+import { HandoffDto } from './dto/handoff.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user-id.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -90,5 +91,17 @@ export class AuthController {
     @CurrentFarmer() farmerId?: string,
   ) {
     return this.authService.issueDeliveryHandoff(userId, tenantId, farmerId);
+  }
+
+  // SSO landing for super-admin full-panel impersonation: exchange the short-TTL
+  // panel-handoff token (minted by the platform module) for a real farmer-panel
+  // session. Public — the signed, single-use token IS the proof, like the
+  // dostavki delivery-handoff exchange.
+  @ApiOperation({ summary: 'Exchange a panel-handoff token for a farmer-panel session (super-admin impersonation)' })
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('panel-handoff')
+  @HttpCode(200)
+  panelHandoff(@Body() dto: HandoffDto) {
+    return this.authService.panelHandoffLogin(dto.token);
   }
 }

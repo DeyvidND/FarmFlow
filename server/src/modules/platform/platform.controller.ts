@@ -154,6 +154,14 @@ export class PlatformController {
     return this.platform.impersonate(farmerId, (user as { type: 'platform'; adminId: string }).adminId);
   }
 
+  /** SSO into the FULL farmer panel AS the farm's owner, for super-admin support. Audit-logged. */
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('impersonate-panel/:tenantId')
+  @HttpCode(200)
+  impersonatePanel(@Param('tenantId', ParseUUIDPipe) tenantId: string, @CurrentUser() user: RequestUser) {
+    return this.platform.impersonatePanel(tenantId, (user as { type: 'platform'; adminId: string }).adminId);
+  }
+
   @Post('tenants')
   @HttpCode(201)
   createTenant(@Body() dto: CreateTenantDto) {

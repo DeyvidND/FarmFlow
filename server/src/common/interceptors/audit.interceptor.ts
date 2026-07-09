@@ -37,7 +37,8 @@ export class AuditInterceptor implements NestInterceptor {
             // columns (writing an adminId into user_id violates the users FK and
             // the row would be silently dropped by the catch below).
             userId: user.userId ?? null,
-            adminId: user.adminId ?? null,
+            // Impersonation session → attribute to the acting super-admin (actingAdminId).
+            adminId: user.adminId ?? user.actingAdminId ?? null,
             // Producer drill-down: present only on farmer-role tokens (jwt.strategy
             // copies payload.farmerId into req.user). Null for owner/admin/system.
             farmerId: user.farmerId ?? null,

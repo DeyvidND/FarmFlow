@@ -147,6 +147,10 @@ export const listAuditLogs = (cursor?: string, opts?: { tenantId?: string; farme
 export const impersonateFarmer = (farmerId: string) =>
   apiFetch<{ url: string }>(`platform/impersonate/${farmerId}`, { method: 'POST' }, 'Неуспешно влизане като фермер');
 
+/** Mint a one-click SSO link to open the farm's FULL farmer panel as its owner (super-admin support). */
+export const impersonateOwner = (tenantId: string) =>
+  apiFetch<{ url: string }>(`platform/impersonate-panel/${tenantId}`, { method: 'POST' }, 'Неуспешно влизане в панела');
+
 /** Cross-tenant delivery operations snapshot (super-admin ops board). */
 export interface DeliveryOps {
   shipments: { total: number; drafts: number; created: number; shipped: number; delivered: number; returned: number; refused: number };
