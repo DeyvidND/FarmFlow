@@ -1,10 +1,23 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, Matches, Max, Min, ValidateNested } from 'class-validator';
 
-/** Days (YYYY-MM-DD) to spread the tenant's pending address orders across. */
+export class SuggestDayDto {
+  /** Delivery day (YYYY-MM-DD). */
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date трябва да е YYYY-MM-DD' })
+  date!: string;
+
+  /** Couriers running this day (1..10). */
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  couriers!: number;
+}
+
 export class SuggestDaysDto {
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(14)
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { each: true, message: 'всяка дата трябва да е YYYY-MM-DD' })
-  days!: string[];
+  @ValidateNested({ each: true })
+  @Type(() => SuggestDayDto)
+  days!: SuggestDayDto[];
 }
