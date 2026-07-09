@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { ApiError, saveDelivery, requestDeliveryHandoff } from '@/lib/api-client';
 import { DBadge } from './ui';
 import { hydrateDelivery, type SlotStatus } from '@/lib/delivery-data';
-import type { DeliveryConfig, SlotRule } from '@/lib/types';
+import type { DeliveryConfig } from '@/lib/types';
 import { MethodsSection, GlobalRulesSection } from './methods-section';
 import { CarrierPolicySection } from './carrier-policy-section';
 import { HandlingSection } from './handling-section';
@@ -28,20 +28,13 @@ const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възни�
 export function DeliveryClient({
   initialEnabled,
   initialDelivery,
-  initialRule,
   slotStatus,
-  onSlotRuleSaved,
 }: {
   initialEnabled: boolean;
   initialDelivery: DeliveryConfig | null;
-  initialRule: SlotRule | null;
   slotStatus: SlotStatus;
-  /** Refetch the rule/status after the embedded schedule card saves. Falls back
-   *  to a server refresh (standalone `/delivery` route re-fetches its props). */
-  onSlotRuleSaved?: () => void;
 }) {
   const router = useRouter();
-  const handleSlotRuleSaved = onSlotRuleSaved ?? (() => router.refresh());
   const base = React.useMemo(() => hydrateDelivery(initialDelivery), [initialDelivery]);
 
   // deliveryEnabled is owned by the panel — keep it as loaded and send it back
@@ -121,8 +114,6 @@ export function DeliveryClient({
           cfg={cfg}
           mut={mut}
           slotStatus={slotStatus}
-          rule={initialRule}
-          onSlotRuleSaved={handleSlotRuleSaved}
         />
         <GlobalRulesSection cfg={cfg} mut={mut} />
         {courierOn && <HandlingSection cfg={cfg} mut={mut} />}

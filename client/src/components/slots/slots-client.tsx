@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, Info, Truck, X, CalendarCog } from 'lucide-react';
+import { Plus, Info, Truck, X, CalendarCog, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, bgWeekdayShort, ddmm } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -167,32 +167,32 @@ export function SlotsClient({
         </div>
       </div>
 
+      {!delivery && (
+        <div className="mb-4 flex items-start gap-3 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3.5">
+          <Lock size={18} className="mt-0.5 shrink-0 text-ff-amber-600" />
+          <div className="text-[13.5px] leading-relaxed text-ff-amber">
+            <b className="font-extrabold">Заключено — това е добавка към „Лична доставка“.</b>{' '}
+            Тук задаваш дните и часовете, в които разнасяш сам. Първо включи „Лична доставка +
+            часове“ от{' '}
+            <Link href="/settings?config=setup" className="font-bold underline">
+              „Методи и цени“
+            </Link>{' '}
+            — след това този екран се отключва.
+          </div>
+        </div>
+      )}
+
       <InfoNote tone="green">
         Това са дните за <b>личната ти доставка</b> — ти доставяш сам, без куриер. Клиентът избира
         свободен ден при поръчка. За доставка с куриер виж „Цени и правила за доставка → Еконт“.
       </InfoNote>
 
-      <div className="mt-4">
-        <RecurrenceCard initial={initialRule} onSaved={() => router.refresh()} />
-      </div>
-
-      {!delivery && (
-        <div className="mb-4 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3 text-[13.5px] font-semibold text-ff-amber-600">
-          Доставката е изключена — дните не се показват в онлайн магазина. Включи
-          „Лична доставка + часове“ от{' '}
-          <Link href="/settings?config=setup" className="underline">
-            „Методи и цени“
-          </Link>
-          , за да ги активираш.
+      <div className={cn(!delivery && 'pointer-events-none select-none opacity-50')}>
+        <div className="mt-4">
+          <RecurrenceCard initial={initialRule} onSaved={() => router.refresh()} />
         </div>
-      )}
 
-      <div
-        className={cn(
-          'grid grid-cols-7 items-start gap-3 max-lg:flex max-lg:snap-x max-lg:overflow-x-auto max-lg:pb-2',
-          !delivery && 'pointer-events-none opacity-50',
-        )}
-      >
+        <div className="mt-4 grid grid-cols-7 items-start gap-3 max-lg:flex max-lg:snap-x max-lg:overflow-x-auto max-lg:pb-2">
         {days.map((d) => {
           const isToday = d === today;
           const isClosed = closedDates.has(d);
@@ -250,17 +250,24 @@ export function SlotsClient({
             </div>
           );
         })}
+        </div>
       </div>
 
-      <AddSlotDialog
-        date={editSlot ? null : addDate}
-        slot={editSlot}
-        onClose={() => {
-          setAddDate(null);
-          setEditSlot(null);
-        }}
-        onSubmit={onSubmit}
-      />
+      {/* Mount only while open — the dialog seeds its capacity/notes from `slot`
+          via useState, which runs once per mount. Kept permanently mounted it
+          would freeze on the first slot's values (edit showed capacity 1 for a
+          100-cap day); remounting per open reads the real slot each time. */}
+      {(addDate || editSlot) && (
+        <AddSlotDialog
+          date={editSlot ? null : addDate}
+          slot={editSlot}
+          onClose={() => {
+            setAddDate(null);
+            setEditSlot(null);
+          }}
+          onSubmit={onSubmit}
+        />
+      )}
 
       {dayDialog && (
         <DayScheduleDialog

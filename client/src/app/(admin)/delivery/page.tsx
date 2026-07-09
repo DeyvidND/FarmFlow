@@ -94,7 +94,6 @@ export default async function DeliveryPage() {
     <DeliveryClient
       initialEnabled={enabled}
       initialDelivery={delivery}
-      initialRule={rule}
       slotStatus={computeSlotStatus(rule, freeThisWeek)}
     />
   );

@@ -3,9 +3,10 @@
 import * as React from 'react';
 import {
   SlidersHorizontal, Truck, CalendarDays, ToggleRight, Megaphone, ChevronRight,
-  TrendingUp, Home,
+  TrendingUp, Home, Lock,
   type LucideIcon,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { getTenant } from '@/lib/api-client';
 
 /** The configuration sub-screens, opened inline inside Настройки. */
@@ -23,7 +24,7 @@ interface ConfigItem {
   label: string;
   Icon: LucideIcon;
   desc: string;
-  /** Only relevant when the farm does personal delivery — hidden otherwise. */
+  /** Only usable when the farm does personal delivery — shown locked otherwise. */
   requiresDelivery?: boolean;
 }
 
@@ -59,9 +60,10 @@ const GROUPS: { title: string; desc: string; items: ConfigItem[] }[] = [
 ];
 
 export function ConfigurationsCard({ onOpen }: { onOpen: (key: ConfigKey) => void }) {
-  // Personal-delivery flag — when off, the «Часове за доставка» tile is useless
-  // (the farm doesn't run delivery slots), so it's hidden until delivery is on.
-  // Default true so the tile isn't flashed away before the tenant loads.
+  // Personal-delivery flag — when off, the «Часове за доставка» tile is an add-on
+  // that can't be configured yet, so it's shown LOCKED (not hidden) — the farmer
+  // sees it exists and the screen explains how to switch delivery on.
+  // Default true so the tile isn't flashed locked before the tenant loads.
   const [deliveryEnabled, setDeliveryEnabled] = React.useState(true);
   React.useEffect(() => {
     let on = true;
@@ -79,39 +81,54 @@ export function ConfigurationsCard({ onOpen }: { onOpen: (key: ConfigKey) => voi
         Тук активираш и настройваш магазина — плащане, доставка, функции и реклама.
         Текстовете, снимките и контактите на сайта се променят от „Съдържание и сайт“ в менюто вляво.
       </p>
-      {GROUPS.map((g) => {
-        const items = g.items.filter((it) => !it.requiresDelivery || deliveryEnabled);
-        if (items.length === 0) return null;
-        return (
+      {GROUPS.map((g) => (
         <section key={g.title}>
           <h2 className="text-[15px] font-extrabold text-ff-ink">{g.title}</h2>
           <p className="mb-3 mt-0.5 text-[13px] text-ff-muted">{g.desc}</p>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            {items.map((it) => (
-              <button
-                key={it.key}
-                type="button"
-                onClick={() => onOpen(it.key)}
-                className="group flex items-start gap-3 rounded-xl border border-ff-border bg-ff-surface p-4 text-left shadow-ff-sm transition hover:border-ff-green-500 hover:bg-ff-green-50"
-              >
-                <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-ff-green-50 text-ff-green-700 transition group-hover:bg-ff-green-100">
-                  <it.Icon size={18} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1 text-[14px] font-bold text-ff-ink">
-                    {it.label}
-                    <ChevronRight size={15} className="text-ff-muted-2 transition group-hover:translate-x-0.5" />
+            {g.items.map((it) => {
+              const locked = !!it.requiresDelivery && !deliveryEnabled;
+              return (
+                <button
+                  key={it.key}
+                  type="button"
+                  onClick={() => onOpen(it.key)}
+                  className={cn(
+                    'group flex items-start gap-3 rounded-xl border border-ff-border bg-ff-surface p-4 text-left shadow-ff-sm transition hover:border-ff-green-500 hover:bg-ff-green-50',
+                    locked && 'opacity-70',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg transition',
+                      locked
+                        ? 'bg-ff-amber-softer text-ff-amber-600'
+                        : 'bg-ff-green-50 text-ff-green-700 group-hover:bg-ff-green-100',
+                    )}
+                  >
+                    <it.Icon size={18} />
                   </span>
-                  <span className="mt-0.5 block text-[12.5px] leading-snug text-ff-muted">
-                    {it.desc}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1 text-[14px] font-bold text-ff-ink">
+                      {it.label}
+                      {locked ? (
+                        <Lock size={13} className="text-ff-amber-600" />
+                      ) : (
+                        <ChevronRight size={15} className="text-ff-muted-2 transition group-hover:translate-x-0.5" />
+                      )}
+                    </span>
+                    <span className="mt-0.5 block text-[12.5px] leading-snug text-ff-muted">
+                      {locked
+                        ? 'Заключено — включи „Лична доставка“ от „Методи и цени“, за да настройваш часове.'
+                        : it.desc}
+                    </span>
                   </span>
-                </span>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         </section>
-        );
-      })}
+      ))}
     </div>
   );
 }

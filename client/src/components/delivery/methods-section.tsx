@@ -5,13 +5,12 @@ import Link from 'next/link';
 import { Building2, Home, CalendarDays, MapPin, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { METHOD_META, type SlotStatus } from '@/lib/delivery-data';
-import { RecurrenceCard, WD, WindowFields } from '@/components/slots/recurrence-card';
+import { WD, WindowFields } from '@/components/slots/recurrence-card';
 import type {
   DeliveryConfig,
   DeliveryMethod,
   DeliveryMethodKey,
   PricingType,
-  SlotRule,
 } from '@/lib/types';
 import { DSection, DLabel, Segmented, LvInput, InfoNote, fieldCls } from './ui';
 
@@ -38,14 +37,10 @@ export function MethodsSection({
   cfg,
   mut,
   slotStatus,
-  rule,
-  onSlotRuleSaved,
 }: {
   cfg: DeliveryConfig;
   mut: Mut;
   slotStatus: SlotStatus;
-  rule: SlotRule | null;
-  onSlotRuleSaved: () => void;
 }) {
   const econtMode = cfg.econt.mode ?? (cfg.econt.configured ? 'auto' : 'off');
   const order = cfg.methods.order.filter((k) => {
@@ -82,8 +77,6 @@ export function MethodsSection({
               m={cfg.methods[key]}
               mut={mut}
               slotStatus={slotStatus}
-              rule={rule}
-              onSlotRuleSaved={onSlotRuleSaved}
             />
           ))}
         </div>
@@ -106,15 +99,11 @@ function MethodCard({
   m,
   mut,
   slotStatus,
-  rule,
-  onSlotRuleSaved,
 }: {
   mkey: DeliveryMethodKey;
   m: DeliveryMethod;
   mut: Mut;
   slotStatus: SlotStatus;
-  rule: SlotRule | null;
-  onSlotRuleSaved: () => void;
 }) {
   const meta = METHOD_META[mkey];
   const Icon = METHOD_ICON[mkey];
@@ -244,14 +233,12 @@ function MethodCard({
                     </div>
                     <div className="mt-px text-[12.5px] text-ff-muted">
                       {slotStatus.state === 'none' &&
-                        'Задай повтарящите се часове по-долу — иначе клиентите не могат да изберат час за лична доставка.'}
+                        'Отвори „Часове за доставка“ по-долу и задай повтарящите се дни — иначе клиентите не могат да изберат час за лична доставка.'}
                       {slotStatus.state === 'configuredNoneFree' &&
                         'Всички часове за тази седмица са заети или затворени. Клиентите ще виждат следващите свободни часове напред.'}
                       {slotStatus.state === 'configuredWithFree' && 'Клиентите избират от тези часове при поръчка.'}
                     </div>
                   </div>
-
-                  <RecurrenceCard initial={rule} onSaved={onSlotRuleSaved} />
 
                   <Link
                     href="/settings?config=slots"
@@ -261,8 +248,8 @@ function MethodCard({
                       <CalendarDays size={17} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <b className="text-ff-ink">Отвори календара с часове</b> — седмичен изглед, добавяне на
-                      единичен час и затваряне на отделен ден (напр. отпуск).
+                      <b className="text-ff-ink">Отвори календара с часове</b> — задай повтарящите се дни,
+                      добави единичен час или затвори отделен ден (напр. отпуск).
                     </span>
                     <span className="shrink-0 text-[13px] font-bold text-ff-green-700">→</span>
                   </Link>

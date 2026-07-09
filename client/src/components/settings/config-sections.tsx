@@ -120,9 +120,7 @@ export function DeliverySection() {
     <DeliveryClient
       initialEnabled={s.enabled}
       initialDelivery={s.delivery}
-      initialRule={s.rule}
       slotStatus={s.slotStatus}
-      onSlotRuleSaved={load}
     />
   );
 }
