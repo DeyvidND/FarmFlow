@@ -5,6 +5,7 @@ import {
   clampCapacity,
   slotIsFull,
   slotUnavailableReason,
+  ruleProducesDate,
   isoAddDays,
   type SlotRule,
 } from './slot-rule';
@@ -73,6 +74,44 @@ describe('slotUnavailableReason', () => {
     expect(
       slotUnavailableReason({ date: TODAY, isActive: false }, { today: TODAY, requireActive: true }),
     ).toBe('today');
+  });
+});
+
+describe('ruleProducesDate', () => {
+  const thu: SlotRule = {
+    active: true,
+    repeat: 'weekdays',
+    days: [{ dow: 4, capacity: 48 }], // Thursday only
+    intervalDays: 1,
+    intervalCapacity: 1,
+    anchorDate: '2026-07-01',
+    horizonDays: 30,
+    skipDates: [],
+  };
+
+  it('weekdays: a Thursday is produced, a Friday is not (the reschedule-leftover case)', () => {
+    expect(ruleProducesDate(thu, '2026-07-16')).toBe(true); // Thursday
+    expect(ruleProducesDate(thu, '2026-07-10')).toBe(false); // Friday
+  });
+  it('respects horizon-independence — a far Thursday still counts as produced, a far Friday does not', () => {
+    expect(ruleProducesDate(thu, '2027-01-07')).toBe(true); // Thursday, far beyond horizon
+    expect(ruleProducesDate(thu, '2027-01-08')).toBe(false); // Friday, far beyond horizon
+  });
+  it('a date before the anchor is not produced', () => {
+    expect(ruleProducesDate({ ...thu, anchorDate: '2026-07-20' }, '2026-07-16')).toBe(false);
+  });
+  it('a skipDate is not produced even on a matching weekday', () => {
+    expect(ruleProducesDate({ ...thu, skipDates: ['2026-07-16'] }, '2026-07-16')).toBe(false);
+  });
+  it('inactive rule produces nothing', () => {
+    expect(ruleProducesDate({ ...thu, active: false }, '2026-07-16')).toBe(false);
+  });
+  it('interval: only exact anchor + k·interval steps are produced', () => {
+    const every3: SlotRule = { ...thu, repeat: 'interval', days: [], intervalDays: 3, anchorDate: '2026-07-09' };
+    expect(ruleProducesDate(every3, '2026-07-09')).toBe(true); // step 0
+    expect(ruleProducesDate(every3, '2026-07-12')).toBe(true); // step 1
+    expect(ruleProducesDate(every3, '2026-07-10')).toBe(false); // off-step (the moved day)
+    expect(ruleProducesDate(every3, '2026-07-11')).toBe(false);
   });
 });
 

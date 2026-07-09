@@ -42,7 +42,7 @@ import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibili
 import { scheduledForDay } from './order-scheduling';
 import { subtotalStotinki, recomputeTotalStotinki } from './order-total.util';
 import { decideDecrement, decideDecrementPooled, restoreRemaining } from '../availability/availability.util';
-import { slotIsFull, slotUnavailableReason } from '../slots/slot-rule';
+import { slotIsFull, slotUnavailableReason, migrateRule, ruleProducesDate } from '../slots/slot-rule';
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
@@ -1159,6 +1159,7 @@ export class OrdersService {
     }
 
     const moved: { id: string; fromDate: string | null }[] = [];
+    let targetSlotId: string | undefined;
     await this.db.transaction(async (tx) => {
       // Serialize concurrent reschedules targeting the same (tenant, date) — a
       // SELECT...FOR UPDATE below can't lock a target-slot row that doesn't exist
@@ -1199,7 +1200,7 @@ export class OrdersService {
         .where(and(eq(deliverySlots.tenantId, tenantId), eq(deliverySlots.date, toDate)))
         .for('update')
         .limit(1);
-      let targetSlotId = existing?.id;
+      targetSlotId = existing?.id;
       if (!targetSlotId) {
         const [created] = await tx
           .insert(deliverySlots)
@@ -1240,6 +1241,22 @@ export class OrdersService {
       }
     });
 
+    // A moved-orders day must not become publicly bookable: reschedule is a routing/
+    // fulfillment step, not a storefront offer. A freshly created target is already
+    // is_active=false, but a REUSED existing slot (e.g. a day the farmer once opened,
+    // or an earlier move-day) may still be active — hide it unless the recurring rule
+    // genuinely produces this date (a real offered day stays public). The order keeps
+    // its slot for the route/prep; findPublicBySlug only surfaces is_active rows.
+    if (targetSlotId && moved.length) {
+      const rule = await this.getSlotRule(tenantId);
+      if (!rule || !ruleProducesDate(rule, toDate)) {
+        await this.db
+          .update(deliverySlots)
+          .set({ isActive: false })
+          .where(and(eq(deliverySlots.id, targetSlotId), eq(deliverySlots.tenantId, tenantId)));
+      }
+    }
+
     await this.bustPayments(tenantId);
 
     // Fire-and-forget per moved order (sendMoved self-guards when the buyer has no email).
@@ -1247,6 +1264,18 @@ export class OrdersService {
       void this.orderEmail.sendMoved(m.id, m.fromDate, toDate);
     }
     return { moved: moved.length, toDate };
+  }
+
+  /** The tenant's recurring slot rule (settings.slotRule) or null — read-only helper
+   *  for reschedule's "is this date a genuinely offered day?" check. Mirrors
+   *  SlotsService.getRule without pulling in a cross-module dependency. */
+  private async getSlotRule(tenantId: string) {
+    const [t] = await this.db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    return migrateRule((t?.settings as { slotRule?: unknown } | null)?.slotRule ?? null);
   }
 
   /** Cancelling frees slot capacity automatically (booked is computed from non-cancelled orders). */

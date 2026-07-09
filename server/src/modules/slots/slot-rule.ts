@@ -75,6 +75,26 @@ export function slotUnavailableReason(
   return null;
 }
 
+/** Does the recurring rule genuinely offer this exact date? Weekday/interval
+ *  membership + anchor lower-bound + skipDates, independent of the materialization
+ *  horizon. Used to decide whether a reschedule target is a real offered day (leave
+ *  it public) or just a holding day for moved orders (hide it). Inactive rule →
+ *  false. `date` is YYYY-MM-DD. */
+export function ruleProducesDate(rule: SlotRule, date: string): boolean {
+  if (!rule.active) return false;
+  if (rule.anchorDate && date < rule.anchorDate) return false;
+  if ((rule.skipDates ?? []).includes(date)) return false;
+  if (rule.repeat === 'weekdays') {
+    const dow = new Date(`${date}T00:00:00Z`).getUTCDay();
+    return (rule.days ?? []).some((d) => d.dow === dow);
+  }
+  // interval mode: date must sit exactly on an anchor + k·intervalDays step.
+  const ms = Date.parse(`${date}T00:00:00Z`) - Date.parse(`${rule.anchorDate}T00:00:00Z`);
+  if (!Number.isFinite(ms) || ms < 0) return false;
+  const n = Math.max(1, Math.floor(rule.intervalDays || 1));
+  return Math.round(ms / 86_400_000) % n === 0;
+}
+
 /** Windowed-era day shape (pre day-capacity): hours per weekday. */
 interface WindowedDay {
   dow: number;

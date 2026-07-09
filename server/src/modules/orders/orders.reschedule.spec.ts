@@ -26,9 +26,15 @@ function makeSvc(opts: {
    *  always returning a claimed row (i.e. no race). Pass `[]` for a given call to
    *  simulate a concurrent status change that un-movable-ized the row first. */
   updateReturns?: Record<string, unknown>[][];
+  /** tenant.settings for the post-move getSlotRule() lookup (drives whether the
+   *  target date is a genuinely-offered rule day → left public → not deactivated). */
+  settings?: Record<string, unknown> | null;
 }) {
   const setCalls: Record<string, unknown>[] = [];
   const inserted: Record<string, unknown>[] = [];
+  // Top-level db.update(deliverySlots).set({isActive:false}) calls — the post-move
+  // "hide a non-rule target day" deactivation (outside the transaction).
+  const deactivations: Record<string, unknown>[] = [];
   const sendMoved = jest.fn().mockResolvedValue(undefined);
 
   const db: any = {
@@ -74,6 +80,18 @@ function makeSvc(opts: {
       };
       return fn(tx);
     }),
+    // Post-move getSlotRule() reads tenant.settings (top-level, outside the tx).
+    select: () => ({
+      from: () => ({ where: () => ({ limit: async () => [{ settings: opts.settings ?? null }] }) }),
+    }),
+    // Post-move deactivation of a non-rule target day (top-level, outside the tx).
+    update: () => ({
+      set: (v: Record<string, unknown>) => ({
+        where: async () => {
+          deactivations.push(v);
+        },
+      }),
+    }),
   };
 
   // Constructor order: db, maps, orderEmail, econt, cache, carrierFulfillment, codRisk, catalogCache
@@ -88,7 +106,7 @@ function makeSvc(opts: {
     {} as any,
   );
   jest.spyOn(svc as any, 'bustPayments').mockResolvedValue(undefined);
-  return { svc, setCalls, inserted, sendMoved };
+  return { svc, setCalls, inserted, sendMoved, deactivations };
 }
 
 describe('OrdersService.rescheduleOrders', () => {
@@ -112,6 +130,42 @@ describe('OrdersService.rescheduleOrders', () => {
     await svc.rescheduleOrders(TENANT, { orderIds: [UUID(1)], toDate: '2026-12-31' });
     expect(inserted).toHaveLength(0);
     expect(setCalls).toEqual([{ slotId: 'exists' }]);
+  });
+
+  // Thursday-only recurring rule — Friday is NOT an offered day.
+  const thuRule = {
+    slotRule: {
+      active: true,
+      repeat: 'weekdays',
+      days: [{ dow: 4, capacity: 48 }],
+      intervalDays: 1,
+      intervalCapacity: 1,
+      anchorDate: '2026-07-01',
+      horizonDays: 30,
+      skipDates: [],
+    },
+  };
+
+  it('hides a REUSED active slot on a non-rule day so the moved-orders day leaves the storefront', async () => {
+    // The exact live bug: rule is Thursday-only but orders were moved onto Friday and
+    // the reused (active) Friday slot kept showing on the storefront.
+    const { svc, deactivations } = makeSvc({
+      loadRows: [addr()],
+      existingSlot: { id: 'friday' },
+      settings: thuRule,
+    });
+    await svc.rescheduleOrders(TENANT, { orderIds: [UUID(1)], toDate: '2026-07-10' }); // Friday
+    expect(deactivations).toEqual([{ isActive: false }]);
+  });
+
+  it('leaves a rule day (Thursday) public when orders are consolidated onto it', async () => {
+    const { svc, deactivations } = makeSvc({
+      loadRows: [addr()],
+      existingSlot: { id: 'thursday' },
+      settings: thuRule,
+    });
+    await svc.rescheduleOrders(TENANT, { orderIds: [UUID(1)], toDate: '2026-07-16' }); // Thursday
+    expect(deactivations).toEqual([]); // rule offers this day → stays active/public
   });
 
   it('skips non-address / delivered / cancelled orders', async () => {
