@@ -4,6 +4,7 @@ import {
   slotRuleSlots,
   clampCapacity,
   slotIsFull,
+  slotUnavailableReason,
   isoAddDays,
   type SlotRule,
 } from './slot-rule';
@@ -33,6 +34,45 @@ describe('slotIsFull', () => {
     expect(slotIsFull(2, 2)).toBe(true);
     // capacity 0 clamps to 1 → one booked fills it
     expect(slotIsFull(1, 0)).toBe(true);
+  });
+});
+
+describe('slotUnavailableReason', () => {
+  const TODAY = '2026-07-09';
+  it('today is never publicly bookable', () => {
+    expect(
+      slotUnavailableReason({ date: TODAY, isActive: true }, { today: TODAY, requireActive: true }),
+    ).toBe('today');
+  });
+  it('a hidden slot is not publicly bookable when active is required', () => {
+    // A rescheduled/closed day (is_active=false) submitted by a stale storefront tab.
+    expect(
+      slotUnavailableReason(
+        { date: '2026-07-11', isActive: false },
+        { today: TODAY, requireActive: true },
+      ),
+    ).toBe('inactive');
+  });
+  it('admin paths (requireActive=false) may still touch a hidden slot', () => {
+    expect(
+      slotUnavailableReason(
+        { date: '2026-07-11', isActive: false },
+        { today: TODAY, requireActive: false },
+      ),
+    ).toBeNull();
+  });
+  it('an active future slot is bookable', () => {
+    expect(
+      slotUnavailableReason(
+        { date: '2026-07-11', isActive: true },
+        { today: TODAY, requireActive: true },
+      ),
+    ).toBeNull();
+  });
+  it('today takes precedence over inactive', () => {
+    expect(
+      slotUnavailableReason({ date: TODAY, isActive: false }, { today: TODAY, requireActive: true }),
+    ).toBe('today');
   });
 });
 

@@ -204,6 +204,14 @@ export class SlotsService {
         ),
       )
       .returning({ id: deliverySlots.id });
+    // Any slot that survived the delete still holds a live order (dropping a booked
+    // delivery isn't this button's job). Deactivate those so the day also leaves the
+    // storefront — findPublicBySlug only returns is_active rows — instead of lingering
+    // as a publicly bookable day; the order keeps its slot for the route/prep.
+    await this.db
+      .update(deliverySlots)
+      .set({ isActive: false })
+      .where(and(eq(deliverySlots.tenantId, tenantId), eq(deliverySlots.date, date)));
     const [keptRow] = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(deliverySlots)

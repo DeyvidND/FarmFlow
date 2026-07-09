@@ -187,7 +187,7 @@ function buildDb(valuesCapture: unknown[], tenantDeliveryCfg = DELIVERY_CFG) {
  */
 function buildDbForSlotBooking(
   valuesCapture: unknown[],
-  slotRow: { id: string; date: string; capacity: number },
+  slotRow: { id: string; date: string; capacity: number; isActive?: boolean },
   bookedCount: number,
 ) {
   const txMock: any = {
@@ -388,7 +388,8 @@ describe('OrdersService.create() slot capacity', () => {
     deliveryLng: 27.0,
     slotId: 'slot-1',
   };
-  const SLOT_ROW = { id: 'slot-1', date: '2099-01-01' };
+  // A slot the storefront offers is is_active=true (findPublicBySlug only returns those).
+  const SLOT_ROW = { id: 'slot-1', date: '2099-01-01', isActive: true };
 
   it('allows a second order on a capacity-2 slot', async () => {
     const captured: unknown[] = [];
@@ -442,5 +443,26 @@ describe('OrdersService.create() slot capacity', () => {
     );
 
     await expect(svc.create('test-farm', SLOT_DTO as never, TENANT as never)).rejects.toThrow('Слотът е запълнен');
+  });
+
+  it('rejects booking a hidden slot on public intake (rescheduled/closed day never surfaces)', async () => {
+    // A day that only holds moved orders — or one the farmer closed — is is_active=false.
+    // The storefront never shows it, but a stale/crafted client could submit its id.
+    const captured: unknown[] = [];
+    const db = buildDbForSlotBooking(captured, { ...SLOT_ROW, isActive: false, capacity: 5 }, 0);
+    const svc = new OrdersService(
+      db as never,
+      { geocode: jest.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { invalidate: jest.fn() } as never,
+    );
+
+    await expect(svc.create('test-farm', SLOT_DTO as never, TENANT as never)).rejects.toThrow(
+      'Слотът вече не е достъпен',
+    );
   });
 });

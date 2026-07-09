@@ -268,6 +268,34 @@ describe('SlotsService.remove', () => {
   });
 });
 
+describe('SlotsService.closeDay', () => {
+  it('deactivates the slots it cannot delete (they hold a live order) so the day leaves the storefront', async () => {
+    const updates: Record<string, unknown>[] = [];
+    const db: any = {
+      // delete: order-free slots removed; returns the removed ids.
+      delete: () => ({ where: () => ({ returning: async () => [{ id: 'free-slot' }] }) }),
+      // update: the new deactivation of the survivors — capture its patch.
+      update: () => ({
+        set: (patch: Record<string, unknown>) => {
+          updates.push(patch);
+          return { where: async () => undefined };
+        },
+      }),
+      // select: the kept-count query.
+      select: () => ({ from: () => ({ where: async () => [{ count: 1 }] }) }),
+    };
+    const svc = new SlotsService(db, {} as never);
+    // No rule → addSkipDate is skipped (that path is covered elsewhere).
+    jest.spyOn(svc as unknown as { getRule: () => Promise<null> }, 'getRule').mockResolvedValue(null);
+
+    const res = await svc.closeDay('t1', '2026-07-11');
+
+    expect(res).toEqual({ date: '2026-07-11', removed: 1, kept: 1 });
+    // The kept (order-holding) slots on that date are set is_active=false.
+    expect(updates).toContainEqual({ isActive: false });
+  });
+});
+
 /** db stub for findPublicBySlug: the whole select chain resolves to `rows`. */
 function publicSlotsDb(
   rows: { id: string; date: string; startTime: string | null; endTime: string | null }[],

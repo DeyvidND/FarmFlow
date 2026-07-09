@@ -41,8 +41,8 @@ import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econ
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay } from './order-scheduling';
 import { subtotalStotinki, recomputeTotalStotinki } from './order-total.util';
-import { decideDecrement, restoreRemaining } from '../availability/availability.util';
-import { slotIsFull } from '../slots/slot-rule';
+import { decideDecrement, decideDecrementPooled, restoreRemaining } from '../availability/availability.util';
+import { slotIsFull, slotUnavailableReason } from '../slots/slot-rule';
 
 type OrderRow = typeof orders.$inferSelect;
 type ItemRow = typeof orderItems.$inferSelect;
@@ -1568,6 +1568,11 @@ export class OrdersService {
     tenantId: string,
     slotId: string,
     excludeOrderId?: string,
+    // Public storefront intake passes true: a hidden slot (is_active=false — a day
+    // that only holds rescheduled orders, or one the farmer closed) must never
+    // accept a public booking, even if a stale/crafted client submits its id.
+    // Admin paths (order edit) pass false so they can still reassign onto such a slot.
+    requireActive = false,
   ): Promise<{ date: string; capacity: number }> {
     const [slot] = await tx
       .select()
@@ -1577,11 +1582,16 @@ export class OrdersService {
       .limit(1);
     if (!slot) throw new BadRequestException('Слотът не е намерен');
 
-    // Backstop for a stale checkout page open past the picker's same-day
-    // cutoff (SlotsService.findPublicBySlug hides today's slots entirely;
-    // this rejects the booking too, in case an old tab/replay still tries it).
-    if (slot.date === bgToday()) {
+    // Backstop for a stale checkout page open past the picker's same-day cutoff
+    // (SlotsService.findPublicBySlug hides today's slots entirely + only ever returns
+    // is_active rows; this rejects the booking too, in case an old tab/replay still
+    // tries it, or submits a hidden slot's id).
+    const reason = slotUnavailableReason(slot, { today: bgToday(), requireActive });
+    if (reason === 'today') {
       throw new BadRequestException('Слотът вече не е достъпен за днес');
+    }
+    if (reason === 'inactive') {
+      throw new BadRequestException('Слотът вече не е достъпен');
     }
 
     const conds = [eq(orders.slotId, slotId), ne(orders.status, 'cancelled')];
@@ -1688,6 +1698,9 @@ export class OrdersService {
     // cart is rejected: it must never end up on a waybill. Self-delivery + pickup
     // pass false here, so those products still sell through those channels.
     carrierDelivery = false,
+    // Public storefront intake passes true so lockAndCheckSlot rejects a hidden
+    // (is_active=false) slot. Admin edits leave it false (they may touch such slots).
+    requireActiveSlot = false,
   ): Promise<{
     items: PreparedItem[];
     slotFrom: string | null;
@@ -1764,7 +1777,7 @@ export class OrdersService {
     let slotTo: string | null = null;
     let slotDate: string | null = null;
     if (slotId) {
-      const s = await this.lockAndCheckSlot(tx, tenantId, slotId);
+      const s = await this.lockAndCheckSlot(tx, tenantId, slotId, undefined, requireActiveSlot);
       slotDate = s.date;
     }
 
@@ -1787,15 +1800,32 @@ export class OrdersService {
           .for('update')
           .orderBy(asc(productAvailabilityWindows.productId))
       : [];
-    const winByProduct = new Map(activeWindows.map((w) => [w.productId, w]));
+    // Pool a product's active windows (there can, in edge cases, be more than one —
+    // e.g. a legacy dated window overlapping the open-ended stock window; product_id
+    // has no unique constraint). Enforcing against the SUM means a sold-out
+    // ("изчерпано", remaining 0) window can't be bypassed via a second window that
+    // still has stock — the exact display-vs-order divergence a plain last-wins Map
+    // would allow. `winsByProduct` values reference the same window objects as
+    // `activeWindows`, so mutating `remaining` below is picked up by the persist loop.
+    const winsByProduct = new Map<string, typeof activeWindows>();
+    for (const w of activeWindows) {
+      if (!w.productId) continue; // windows here are queried by product_id → always set
+      const list = winsByProduct.get(w.productId) ?? [];
+      list.push(w);
+      winsByProduct.set(w.productId, list);
+    }
     for (const it of dtoItems) {
-      const active = winByProduct.get(it.productId) ?? null;
-      const decision = decideDecrement(active, it.quantity);
+      const wins = winsByProduct.get(it.productId) ?? [];
+      const decision = decideDecrementPooled(wins, it.quantity);
       if (!decision.ok) {
         const p = byId.get(it.productId);
         throw new ConflictException(`Няма достатъчна наличност: ${p?.name ?? 'продукт'}`);
       }
-      if (active && decision.newRemaining != null) active.remaining = decision.newRemaining;
+      if (decision.newRemaining) {
+        wins.forEach((w, i) => {
+          w.remaining = decision.newRemaining![i];
+        });
+      }
     }
     for (const w of activeWindows) {
       await tx
@@ -1984,7 +2014,7 @@ export class OrdersService {
         slotTo,
         slotDate,
         variantStockTouched: touched,
-      } = await this.reserveCartItems(tx, tenant.id, dto.items, slotId, carrierDelivery);
+      } = await this.reserveCartItems(tx, tenant.id, dto.items, slotId, carrierDelivery, true);
       variantStockTouched = touched;
       const total = prepared.reduce((s, i) => s + i.priceStotinki * i.quantity, 0);
       // order_items has no farmer_id column — strip it before insert.

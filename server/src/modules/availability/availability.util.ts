@@ -40,6 +40,31 @@ export function decideDecrement(
   return { ok: true, newRemaining: active.remaining - qty };
 }
 
+/** Checkout decision for one ordered item against ALL its active windows pooled
+ *  together. A product can, in edge cases, carry more than one active window (a
+ *  legacy dated window alongside the open-ended stock window — there is no unique
+ *  constraint on `product_id`, only an application-level overlap guard). Enforcing
+ *  against the SUM means an exhausted (`remaining 0`, i.e. "изчерпано") window can't
+ *  be bypassed via a second window, so a sold-out product stays un-orderable.
+ *  Returns each window's `remaining` after draining `qty` from them in order, or
+ *  `ok:false` when the pooled stock is short. No windows → unlimited (unchanged
+ *  "no stock check" behaviour, matching {@link decideDecrement}). */
+export function decideDecrementPooled(
+  windows: { remaining: number }[],
+  qty: number,
+): { ok: boolean; newRemaining: number[] | null } {
+  if (windows.length === 0) return { ok: true, newRemaining: null };
+  const pooled = windows.reduce((sum, w) => sum + w.remaining, 0);
+  if (pooled < qty) return { ok: false, newRemaining: null };
+  let need = qty;
+  const newRemaining = windows.map((w) => {
+    const take = Math.min(w.remaining, need);
+    need -= take;
+    return w.remaining - take;
+  });
+  return { ok: true, newRemaining };
+}
+
 /** New `remaining` after returning `qty` to a still-active window on cancel,
  *  capped at the window's `quantity` so it can't exceed the original stock. */
 export function restoreRemaining(w: { quantity: number; remaining: number }, qty: number): number {

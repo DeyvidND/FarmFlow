@@ -58,6 +58,23 @@ export function slotIsFull(booked: number, capacity: number): boolean {
   return booked >= clampCapacity(capacity);
 }
 
+/** Why a slot can't accept a *public* booking, or null when it can (capacity is
+ *  checked separately by the caller once it has the live booked count). `today` is
+ *  BG-local YYYY-MM-DD. Today is never bookable (the farm needs a day's lead time).
+ *  A hidden slot (`is_active=false` — e.g. a day that only holds rescheduled orders,
+ *  or a day the farmer closed) is never publicly bookable when `requireActive` is
+ *  set; admin paths pass `requireActive=false` so they can still reassign onto it. */
+export function slotUnavailableReason(
+  slot: { date: string; isActive: boolean | null },
+  opts: { today: string; requireActive: boolean },
+): 'today' | 'inactive' | null {
+  if (slot.date === opts.today) return 'today';
+  // Mirror findPublicBySlug's `is_active = true` filter: only an explicitly active
+  // slot is publicly bookable (null/false are hidden).
+  if (opts.requireActive && slot.isActive !== true) return 'inactive';
+  return null;
+}
+
 /** Windowed-era day shape (pre day-capacity): hours per weekday. */
 interface WindowedDay {
   dow: number;
