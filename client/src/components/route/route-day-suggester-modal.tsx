@@ -24,7 +24,9 @@ export function RouteDaySuggesterModal({
   /** Called after a successful apply so the route page can reload. */
   onApplied: () => void;
 }) {
-  const [days, setDays] = useState<string[]>([]);
+  // date → courier count (default 1). The picker order is the sorted dates.
+  const [dayCouriers, setDayCouriers] = useState<Record<string, number>>({});
+  const days = Object.keys(dayCouriers).sort();
   const [newDay, setNewDay] = useState('');
   const [result, setResult] = useState<DaySuggestionResult | null>(null);
   const [choices, setChoices] = useState<Record<string, Choice>>({});
@@ -32,11 +34,15 @@ export function RouteDaySuggesterModal({
   const [busy, setBusy] = useState(false);
 
   const addDay = () => {
-    if (newDay && !days.includes(newDay)) setDays([...days, newDay].sort());
+    if (newDay && dayCouriers[newDay] == null) setDayCouriers((m) => ({ ...m, [newDay]: 1 }));
     setNewDay('');
   };
   const removeDay = (d: string) => {
-    setDays(days.filter((x) => x !== d));
+    setDayCouriers((m) => {
+      const next = { ...m };
+      delete next[d];
+      return next;
+    });
     // Any orders currently assigned to the removed day become excluded — so
     // apply() never reschedules onto a day the farmer just took off the list
     // (and their per-order picker doesn't show a now-missing option).
@@ -48,15 +54,18 @@ export function RouteDaySuggesterModal({
       return next;
     });
   };
+  const setCouriers = (d: string, n: number) =>
+    setDayCouriers((m) => ({ ...m, [d]: Math.min(10, Math.max(1, n)) }));
 
   // Pre-seed the picker with the farm's upcoming delivery days (distinct
-  // slotDate values from the reschedulable pool) — the farmer can still add
-  // or remove any date afterward.
+  // slotDate values from the reschedulable pool), each with 1 courier — the
+  // farmer can still add/remove dates or change courier counts afterward.
   useEffect(() => {
     listReschedulable()
       .then((rows) => {
-        const distinct = [...new Set(rows.map((r) => r.slotDate))].sort();
-        setDays(distinct);
+        const seeded: Record<string, number> = {};
+        for (const d of [...new Set(rows.map((r) => r.slotDate))].sort()) seeded[d] = 1;
+        setDayCouriers(seeded);
       })
       .catch(() => {
         // Non-fatal — the farmer can still add days by hand.
@@ -68,11 +77,12 @@ export function RouteDaySuggesterModal({
     setLoading(true);
     setResult(null);
     try {
-      const res = await suggestDays(days);
+      const res = await suggestDays(days.map((d) => ({ date: d, couriers: dayCouriers[d] ?? 1 })));
       setResult(res);
       // Seed each order's choice with the day the engine proposed.
       const seeded: Record<string, Choice> = {};
-      for (const day of res.days) for (const o of day.orders) seeded[o.id] = { day: day.date };
+      for (const day of res.days)
+        for (const route of day.routes) for (const o of route.stops) seeded[o.id] = { day: day.date };
       setChoices(seeded);
     } catch (e) {
       toast.error(errMsg(e));
@@ -174,8 +184,22 @@ export function RouteDaySuggesterModal({
           <label className="mb-1.5 block text-[13px] font-bold text-ff-ink-2">За кои дни</label>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             {days.map((d) => (
-              <span key={d} className="inline-flex items-center gap-1.5 rounded-lg bg-ff-green-100 px-2.5 py-1 text-[13px] font-bold text-ff-green-800">
+              <span
+                key={d}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-ff-green-100 px-2.5 py-1 text-[13px] font-bold text-ff-green-800"
+              >
                 {relDayLabel(d)}
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={dayCouriers[d] ?? 1}
+                  onChange={(e) => setCouriers(d, parseInt(e.target.value, 10) || 1)}
+                  title="Брой куриери за деня"
+                  aria-label={`Куриери за ${relDayLabel(d)}`}
+                  className="w-11 rounded-md border border-ff-green-300 bg-ff-surface px-1 py-0.5 text-center text-[12.5px] font-bold text-ff-ink outline-none"
+                />
+                <span className="text-[11px] font-semibold text-ff-green-700">куриери</span>
                 <button onClick={() => removeDay(d)} aria-label={`Махни ${d}`}>
                   <X size={13} />
                 </button>
@@ -203,10 +227,15 @@ export function RouteDaySuggesterModal({
                 <div key={day.date} className="rounded-xl border border-ff-border-2">
                   <div className="flex items-center justify-between border-b border-ff-border-2 bg-ff-surface-2 px-3 py-2">
                     <span className="text-[14px] font-extrabold capitalize text-ff-ink">
-                      {relDayLabel(day.date)} · {day.orders.length} поръчки
+                      {relDayLabel(day.date)} · {day.couriers} куриера
                     </span>
-                    <span className="text-[12px] font-semibold text-ff-muted">~{day.spreadKm} км</span>
+                    <span className="text-[12px] font-semibold text-ff-muted">
+                      ~{day.driveMinutesMakespan} мин · {day.totalKm} км
+                    </span>
                   </div>
+                  <p className="border-b border-ff-border-2 px-3 py-1.5 text-[12px] italic text-ff-muted">
+                    {day.reason}
+                  </p>
                   {day.harvest.length > 0 && (
                     <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-ff-border-2 px-3 py-2 text-[12.5px] text-ff-ink-2">
                       <span className="inline-flex items-center gap-1 font-bold text-ff-green-700">
@@ -219,7 +248,15 @@ export function RouteDaySuggesterModal({
                       ))}
                     </div>
                   )}
-                  {day.orders.map(orderRow)}
+                  {day.routes.map((route, ri) => (
+                    <div key={ri}>
+                      <div className="flex items-center justify-between bg-ff-surface px-3 py-1.5 text-[12px] font-bold text-ff-ink-2">
+                        <span>Маршрут {ri + 1} · {route.stops.length} спирки</span>
+                        <span className="text-ff-muted">{route.km} км · ~{route.driveMinutes} мин</span>
+                      </div>
+                      {route.stops.map(orderRow)}
+                    </div>
+                  ))}
                 </div>
               ))}
 
