@@ -48,6 +48,8 @@ export interface HealthBoard {
 // if a legitimately bursty queue (e.g. a bulk import) trips it under normal use.
 const QUEUE_BACKLOG_THRESHOLD = 100;
 const ERROR_WINDOW_HOURS = 24;
+// Bounded fetch for the recent-failures scan — see `recentFailedCount`.
+const FAILED_SAMPLE_SIZE = 100;
 
 /**
  * Live system health for the super-admin «Здраве» board: DB/Redis reachability,
@@ -135,19 +137,41 @@ export class HealthBoardService {
     }
   }
 
+  /**
+   * `failed` reports failures in the last `ERROR_WINDOW_HOURS` — NOT BullMQ's raw
+   * failed-set size. A queue has no default TTL/cleanup on failed jobs (this
+   * platform sends most jobs with a single attempt, no retry), so old, already-
+   * resolved incidents sit in Redis indefinitely; counting them as-is would flag
+   * a queue as unhealthy forever after one long-past blip (confirmed live: 4 dead
+   * jobs from a 2026-06-25 SMTP misconfig, already fixed, still showed as a
+   * "backlog" two weeks later until cleared). Fetches only the most recent
+   * `FAILED_SAMPLE_SIZE` failed jobs (bounded cost) and counts those still inside
+   * the window — sufficient unless a queue fails more than that many times a day,
+   * in which case the waiting/delayed backlog threshold below already catches it.
+   */
   private async queueHealth(name: string, queue: Queue): Promise<QueueHealth> {
     try {
-      const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
+      const [counts, recentFailed] = await Promise.all([
+        queue.getJobCounts('waiting', 'active', 'delayed'),
+        this.recentFailedCount(queue),
+      ]);
       const waiting = counts.waiting ?? 0;
       const active = counts.active ?? 0;
       const delayed = counts.delayed ?? 0;
-      const failed = counts.failed ?? 0;
       const status: QueueHealth['status'] =
-        waiting + delayed > QUEUE_BACKLOG_THRESHOLD || failed > 0 ? 'backlog' : 'ok';
-      return { name, waiting, active, delayed, failed, status };
+        waiting + delayed > QUEUE_BACKLOG_THRESHOLD || recentFailed > 0 ? 'backlog' : 'ok';
+      return { name, waiting, active, delayed, failed: recentFailed, status };
     } catch {
       return { name, waiting: 0, active: 0, delayed: 0, failed: 0, status: 'error' };
     }
+  }
+
+  /** Most-recent-first failed jobs, capped, counted against the same 24h window
+   *  `errors` uses — keeps the whole board on one consistent notion of "recent". */
+  private async recentFailedCount(queue: Queue): Promise<number> {
+    const since = Date.now() - ERROR_WINDOW_HOURS * 60 * 60 * 1000;
+    const jobs = await queue.getJobs(['failed'], 0, FAILED_SAMPLE_SIZE - 1, false);
+    return jobs.filter((j) => (j.finishedOn ?? j.timestamp ?? 0) >= since).length;
   }
 
   /** 24h error-rate summary from `error_events`: total + top-5 paths + top-5 tenants
