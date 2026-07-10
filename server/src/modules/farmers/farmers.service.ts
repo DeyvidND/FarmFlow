@@ -472,12 +472,19 @@ export class FarmersService {
     // official contact (footer/header/contact page) stays the tenant's, unaffected.
     // (Previously stripped after leak 248c330 — that fix walked back an
     // *unintentional* exposure; this is a deliberate, reviewed re-expose.)
-    const result: PublicFarmer[] = rows.map(({ tenantId: _tenantId, ...rest }) => {
-      const urls = mediaByFarmer.get(rest.id) ?? [];
-      const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
-      const courierReady = farmerCourierReady(farmerDeliveryNamespace(settings, rest.id));
-      return { ...rest, images, courierReady };
-    });
+    //
+    // commissionRateBps / subscriptionFeeStotinki are the operator's commercial
+    // terms with this farmer — owner/admin-only (Task 11's panel reads them via
+    // the tenant-scoped findAll/findOne, unstripped). They must NEVER reach the
+    // storefront, so they're dropped here, before the result is cached.
+    const result: PublicFarmer[] = rows.map(
+      ({ tenantId: _tenantId, commissionRateBps: _commissionRateBps, subscriptionFeeStotinki: _subscriptionFeeStotinki, ...rest }) => {
+        const urls = mediaByFarmer.get(rest.id) ?? [];
+        const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
+        const courierReady = farmerCourierReady(farmerDeliveryNamespace(settings, rest.id));
+        return { ...rest, images, courierReady };
+      },
+    );
     await this.publicCache.set(key, result);
     return result;
   }
