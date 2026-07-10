@@ -19,7 +19,7 @@ import {
   PackageCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getOrder, updateOrderStatus } from '@/lib/api-client';
+import { getOrder, updateOrderStatus, updateTenant } from '@/lib/api-client';
 import type { MultiRouteResult, CourierRoute, RouteStop, RouteEndMode } from '@/lib/types';
 import type { Order } from '@/lib/types';
 import type { OrderStatus } from '@/lib/utils';
@@ -340,15 +340,22 @@ export function RouteClient({
         : null;
 
   // The end toggle applies to the ACTIVE courier only; the ends csv carries all.
+  // The chosen mode is also saved as the tenant's default (fire-and-forget) so a
+  // fresh visit reopens with it instead of resetting — the farmer doesn't have to
+  // re-pick every time.
   const setCourierEnd = (mode: RouteEndMode) => {
     const next = routes.map((r, i) => (i === activeCourierIdx ? mode : r.endMode));
     router.push(`/route?date=${route.date}&couriers=${route.couriers}&ends=${next.join(',')}`);
+    void updateTenant({ routing: { endMode: mode } }).catch(() => {});
   };
   // Changing courier count or date re-splits everyone, so prior per-leg ends no
   // longer map to the same legs — drop ?ends= but carry the active mode forward as
-  // the new single default (?end=) so the choice isn't silently reset.
-  const setCouriers = (n: number) =>
+  // the new single default (?end=) so the choice isn't silently reset. The count is
+  // also persisted as the tenant default (like the end mode above).
+  const setCouriers = (n: number) => {
     router.push(`/route?date=${route.date}&end=${activeEndMode}&couriers=${n}`);
+    void updateTenant({ routing: { courierCount: n } }).catch(() => {});
+  };
   const setDate = (date: string) =>
     router.push(`/route?date=${date}&end=${activeEndMode}&couriers=${route.couriers}`);
 
@@ -747,13 +754,12 @@ export function RouteClient({
             </li>
             <li>
               <b>Куриери</b> — раздели маршрута между няколко души — всеки получава балансирана част от
-              спирките, всички тръгват от базата.
+              спирките, всички тръгват от базата. Броят се <b>помни</b> за следващия път.
             </li>
             <li>
-              <b>Към дома / Край при клиента / По избор</b> — къде свършваш след последната доставка: при
-              базата, при последния клиент, или на друг адрес. Изборът тук важи{' '}
-              <b>само за този преглед</b>; стойността по подразбиране се задава от бутона{' '}
-              <b>Локация</b> горе.
+              <b>Към дома / Край при клиента</b> — къде свършваш след последната доставка: при базата
+              или при последния клиент. Изборът се <b>помни</b> — следващия път маршрутът се отваря
+              както си го оставил.
             </li>
             <li>
               <b>Google Maps</b> — отваря маршрута в Google Maps за навигация. Щом завършиш първата
