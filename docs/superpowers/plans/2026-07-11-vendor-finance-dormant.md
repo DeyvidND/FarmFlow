@@ -256,30 +256,34 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { FarmersService } from './farmers.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
-/** Thenable chainable Drizzle mock: builder methods return `this`; awaiting the
- *  chain resolves the next queued value (FIFO). `calls` records values() and
- *  set() payloads for assertions. (Same helper later tasks use.) */
+const CHAIN_METHODS = [
+  'select', 'from', 'where', 'innerJoin', 'leftJoin', 'limit', 'orderBy',
+  'update', 'insert', 'onConflictDoNothing', 'returning', 'delete',
+] as const;
+
+/** Thenable chainable Drizzle mock. `db` (the DI-injected root) is NOT itself
+ *  thenable — only `step` (what every builder method returns) is, so
+ *  NestJS's TestingModule.compile() never auto-unwraps the provider (a
+ *  thenable `useValue` gets auto-awaited during compile(), corrupting the
+ *  queue before the service ever runs). Awaiting any chain built from `db`
+ *  resolves the next queued value (FIFO). `calls` records values() and set()
+ *  payloads for assertions. (Same helper later tasks use.) */
 function makeDb() {
   const queue: unknown[] = [];
   const calls: { values: unknown[]; set: unknown[] } = { values: [], set: [] };
-  const db: any = {
-    queue: (v: unknown) => queue.push(v),
-    calls,
-  };
-  const chain = () => db;
-  for (const m of [
-    'select', 'from', 'where', 'innerJoin', 'leftJoin', 'limit', 'orderBy',
-    'update', 'insert', 'onConflictDoNothing', 'returning', 'delete',
-  ]) {
-    db[m] = jest.fn(chain);
-  }
-  db.values = jest.fn((v: unknown) => { calls.values.push(v); return db; });
-  db.set = jest.fn((v: unknown) => { calls.set.push(v); return db; });
-  db.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
+
+  const step: any = {};
+  for (const m of CHAIN_METHODS) step[m] = jest.fn(() => step);
+  step.values = jest.fn((v: unknown) => { calls.values.push(v); return step; });
+  step.set = jest.fn((v: unknown) => { calls.set.push(v); return step; });
+  step.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
     const v = queue.shift();
     if (v instanceof Error) reject(v);
     else resolve(v);
   };
+
+  const db: any = { queue: (v: unknown) => queue.push(v), calls };
+  for (const m of CHAIN_METHODS) db[m] = jest.fn(() => step);
   return db;
 }
 
@@ -460,37 +464,41 @@ git commit -m "feat(server): vendor-finance settings reader (dormant defaults)"
 - Consumes: `readVendorFinance` (Task 3), tables from Task 1, `DB_TOKEN` from `server/src/common/drizzle/drizzle.constants`.
 - Produces: `CommissionService` with `accrueForOrder(orderId: string, tenantId: string): Promise<void>`, `voidForOrder(orderId: string, tenantId: string): Promise<void>`, `summary(tenantId: string, opts?: { farmerId?: string; from?: Date; to?: Date }): Promise<CommissionSummary>` where `CommissionSummary = { commissionEnabled: boolean; defaultRateBps: number; farmers: CommissionFarmerSummary[]; totalGrossStotinki: number; totalCommissionStotinki: number }` and `CommissionFarmerSummary = { farmerId: string; farmerName: string | null; orderCount: number; grossStotinki: number; commissionStotinki: number; settledCommissionStotinki: number }`. Tasks 6, 7, 10, 11 rely on these exact names.
 
-- [ ] **Step 1: Write the failing spec.** The mock DB is a **thenable chain**: every builder method returns the same object; `await`-ing any chain pops the next queued result (FIFO). Queue order = the order the service awaits queries.
+- [ ] **Step 1: Write the failing spec.** The mock DB is a **thenable chain**: every builder method returns a shared chain-step object; `await`-ing that step pops the next queued result (FIFO). Queue order = the order the service awaits queries.
+
+**CRITICAL:** the root `db` object itself (the one passed as the provider's `useValue`) must NOT have a `.then` property. NestJS's `TestingModule.compile()` auto-awaits any provider `useValue` that is itself thenable, silently consuming the FIFO's first queued item during `compile()` — before the service ever runs — and replacing the injected `this.db` with that resolved value instead of the mock. Keep `.then` only on the object returned BY calling a builder method (the "step"), never on `db` directly:
 
 ```ts
 import { Test, TestingModule } from '@nestjs/testing';
 import { CommissionService } from './commission.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
-/** Thenable chainable Drizzle mock: builder methods return `this`; awaiting the
- *  chain resolves the next queued value (FIFO). `calls` records values() and
- *  set() payloads for assertions. */
+const CHAIN_METHODS = [
+  'select', 'from', 'where', 'innerJoin', 'leftJoin', 'limit', 'orderBy',
+  'update', 'insert', 'onConflictDoNothing', 'returning', 'delete',
+] as const;
+
+/** Thenable chainable Drizzle mock. `db` (the DI-injected root) is NOT itself
+ *  thenable — only `step` (what every builder method returns) is, so
+ *  NestJS's TestingModule.compile() never auto-unwraps the provider. Awaiting
+ *  any chain built from `db` resolves the next queued value (FIFO). `calls`
+ *  records values() and set() payloads for assertions. */
 function makeDb() {
   const queue: unknown[] = [];
   const calls: { values: unknown[]; set: unknown[] } = { values: [], set: [] };
-  const db: any = {
-    queue: (v: unknown) => queue.push(v),
-    calls,
-  };
-  const chain = () => db;
-  for (const m of [
-    'select', 'from', 'where', 'innerJoin', 'leftJoin', 'limit', 'orderBy',
-    'update', 'insert', 'onConflictDoNothing', 'returning', 'delete',
-  ]) {
-    db[m] = jest.fn(chain);
-  }
-  db.values = jest.fn((v: unknown) => { calls.values.push(v); return db; });
-  db.set = jest.fn((v: unknown) => { calls.set.push(v); return db; });
-  db.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
+
+  const step: any = {};
+  for (const m of CHAIN_METHODS) step[m] = jest.fn(() => step);
+  step.values = jest.fn((v: unknown) => { calls.values.push(v); return step; });
+  step.set = jest.fn((v: unknown) => { calls.set.push(v); return step; });
+  step.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
     const v = queue.shift();
     if (v instanceof Error) reject(v);
     else resolve(v);
   };
+
+  const db: any = { queue: (v: unknown) => queue.push(v), calls };
+  for (const m of CHAIN_METHODS) db[m] = jest.fn(() => step);
   return db;
 }
 
