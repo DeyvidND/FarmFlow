@@ -405,7 +405,10 @@ export function RouteClient({
       setFinishedIds(next);
       const nextId = nextUnfinishedId(orderedStops, next);
       setActiveId(nextId ?? cur.id);
-      const remaining = orderedStops.length - next.size;
+      // Count by live membership, not set size — a stop finished here can later
+      // drop out of orderedStops via an unrelated refresh, leaving a stale id in
+      // `next` that would otherwise undercount (or go negative).
+      const remaining = orderedStops.filter((s) => !next.has(s.id)).length;
       toast.success(`${cur.customer ?? 'Клиент'} завършена · остават ${remaining}`);
       if (nextId == null) router.refresh(); // all done — reconcile with the server
     } catch {
@@ -846,7 +849,7 @@ export function RouteClient({
                 disabled={!currentFinishId || finishingOne}
                 title={
                   currentFinishId
-                    ? `Завърши текущата поръчка (остават ${orderedStops.length - finishedIds.size})`
+                    ? `Завърши текущата поръчка (остават ${orderedStops.filter((s) => !finishedIds.has(s.id)).length})`
                     : 'Всички поръчки в маршрута са завършени'
                 }
                 aria-label="Завърши текущата поръчка"
