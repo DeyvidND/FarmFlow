@@ -249,14 +249,39 @@ git commit -m "feat(db): migration for dormant vendor-finance tables"
 - Consumes: `farmers.commissionRateBps` / `farmers.subscriptionFeeStotinki` (Task 1).
 - Produces: guarantee that no public farmers payload contains `commissionRateBps` or `subscriptionFeeStotinki`. Admin/owner endpoints keep returning them (the panel needs them in Task 11).
 
-- [ ] **Step 1: Write the failing test.** Locate the public method(s) in `farmers.service.ts` that `public-bootstrap.controller.ts` calls (`findPublicBySlug`). Test with the thenable mock DB from Task 4 (copy `makeDb()`), queueing a farmer row that INCLUDES the two fields, and assert the public return strips them:
+- [ ] **Step 1: Write the failing test.** Locate the public method(s) in `farmers.service.ts` that `public-bootstrap.controller.ts` calls (`findPublicBySlug`). Test with the thenable mock DB below, queueing a farmer row that INCLUDES the two fields, and assert the public return strips them. Mock the service's OTHER constructor deps the way `farmers.access.spec.ts` already mocks them — read that spec and reuse its builders.
 
 ```ts
 import { Test, TestingModule } from '@nestjs/testing';
 import { FarmersService } from './farmers.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
-// [copy makeDb() + the service's other constructor deps mocked the way
-//  farmers.access.spec.ts already mocks them — reuse that spec's builder]
+
+/** Thenable chainable Drizzle mock: builder methods return `this`; awaiting the
+ *  chain resolves the next queued value (FIFO). `calls` records values() and
+ *  set() payloads for assertions. (Same helper later tasks use.) */
+function makeDb() {
+  const queue: unknown[] = [];
+  const calls: { values: unknown[]; set: unknown[] } = { values: [], set: [] };
+  const db: any = {
+    queue: (v: unknown) => queue.push(v),
+    calls,
+  };
+  const chain = () => db;
+  for (const m of [
+    'select', 'from', 'where', 'innerJoin', 'leftJoin', 'limit', 'orderBy',
+    'update', 'insert', 'onConflictDoNothing', 'returning', 'delete',
+  ]) {
+    db[m] = jest.fn(chain);
+  }
+  db.values = jest.fn((v: unknown) => { calls.values.push(v); return db; });
+  db.set = jest.fn((v: unknown) => { calls.set.push(v); return db; });
+  db.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
+    const v = queue.shift();
+    if (v instanceof Error) reject(v);
+    else resolve(v);
+  };
+  return db;
+}
 
 it('public farmers payload never exposes vendor finance fields', async () => {
   // queue tenant-by-slug + farmers rows as the real call sequence requires
