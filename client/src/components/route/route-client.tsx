@@ -456,9 +456,28 @@ export function RouteClient({
   // target and disabled state. Recomputed each render from the current order.
   const currentFinishId = nextUnfinishedId(orderedStops, finishedIds);
 
+  // Revert an accidental finish: flip the order back to confirmed, un-hide it,
+  // and re-select it. Wired to the „Отмени" action on the finish toast.
+  const undoFinish = async (stop: RouteStop) => {
+    try {
+      await updateOrderStatus(stop.id, 'confirmed');
+      setFinishedIds((prev) => {
+        const n = new Set(prev);
+        n.delete(stop.id);
+        return n;
+      });
+      setActiveId(stop.id);
+      toast.success(`„${stop.customer ?? 'Клиент'}" върната в маршрута`, { position: 'top-right' });
+    } catch {
+      toast.error('Неуспешно връщане — опитай пак', { position: 'top-right' });
+    }
+  };
+
   // Mark the current (first unfinished) stop delivered and advance the highlight.
-  // One click, no dialog. Refresh once when the whole leg is done (delivered
-  // orders then drop out of the route on the server).
+  // One click, no dialog — but a generous „Отмени" toast (top-right, 10s) makes an
+  // accidental tap a one-touch revert. No router.refresh: the finished stop stays
+  // hidden via `finishedIds`, and refreshing would drop the now-delivered order
+  // from the list so „Отмени" couldn't bring it back.
   const finishCurrent = async () => {
     if (!currentFinishId) return;
     const cur = orderedStops.find((s) => s.id === currentFinishId);
@@ -474,8 +493,15 @@ export function RouteClient({
       // drop out of orderedStops via an unrelated refresh, leaving a stale id in
       // `next` that would otherwise undercount (or go negative).
       const remaining = orderedStops.filter((s) => !next.has(s.id)).length;
-      toast.success(`${cur.customer ?? 'Клиент'} завършена · остават ${remaining}`);
-      if (nextId == null) router.refresh(); // all done — reconcile with the server
+      // Top-right (per the request) + a generous 10s window so an accidental tap
+      // is one „Отмени" away. The global Toaster stays bottom-right for the rest
+      // of the app; sonner renders this one in its own top-right stack.
+      toast.success(`Махнах „${cur.customer ?? 'Клиент'}"`, {
+        description: remaining > 0 ? `Остават ${remaining}` : 'Всички завършени',
+        duration: 10000,
+        position: 'top-right',
+        action: { label: 'Отмени', onClick: () => void undoFinish(cur) },
+      });
     } catch {
       toast.error('Неуспешно маркиране — опитай пак');
     } finally {
@@ -820,8 +846,8 @@ export function RouteClient({
               <b>Готово</b> (иконата с кутия и отметка) — маркира текущата поръчка като доставена,
               изчезва от списъка и картата, и се минава на следващата, една по една. Останалият
               маршрут продължава от <b>текущата ти позиция</b> (GPS), не от базата — синята точка на
-              картата показва къде си. За разлика от „Завърших доставките&quot;, което маркира всички
-              наведнъж.
+              картата показва къде си. Сгрешил? Горе вдясно излиза „Отмени&quot; за 10 секунди —
+              връща поръчката. За разлика от „Завърших доставките&quot;, което маркира всички наведнъж.
             </li>
             <li>
               <b>Waze</b> — навигация спирка по спирка. За разлика от Google Maps, Waze{' '}
