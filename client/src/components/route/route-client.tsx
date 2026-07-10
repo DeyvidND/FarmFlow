@@ -204,6 +204,26 @@ export function RouteClient({
 
   const isManualOrder = manualIds != null;
 
+  // Per-order finish: ids marked delivered this session (drive the "next"
+  // pointer, drop finished stops from the list/map, and shift the route's start).
+  const [finishedIds, setFinishedIds] = useState<Set<string>>(new Set());
+  // Stops still to visit — finished ones fall off the list, map, and Google Maps.
+  const remainingStops = useMemo(
+    () => orderedStops.filter((s) => !finishedIds.has(s.id)),
+    [orderedStops, finishedIds],
+  );
+  // The most recently finished drop (last in visit order). Once en route the map
+  // draws the remaining line from here instead of the farm — the courier is
+  // physically at their last delivery, not back at base. Null until the first
+  // finish, or when that drop has no coordinates (falls back to the farm).
+  const lastFinishedStop = useMemo(() => {
+    for (let i = orderedStops.length - 1; i >= 0; i--) {
+      const s = orderedStops[i];
+      if (finishedIds.has(s.id) && s.lat != null && s.lng != null) return s;
+    }
+    return null;
+  }, [orderedStops, finishedIds]);
+
   const persistOrder = (ids: string[]) => {
     setManualIds(ids);
     try {
@@ -285,7 +305,7 @@ export function RouteClient({
   // is already visible on each tab below.
   const summary = multi
     ? `${allStops.length} ${allStops.length === 1 ? 'спирка' : 'спирки'} общо · ${routes.length} куриера`
-    : `${orderedStops.length} ${orderedStops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`;
+    : `${remainingStops.length} ${remainingStops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`;
 
   // Routes fed to the map: the active courier's leg reflects the (possibly
   // manual) order, and drops the server polyline when overridden — the road
@@ -295,10 +315,17 @@ export function RouteClient({
     () =>
       routes.map((r, i) =>
         i === activeCourierIdx
-          ? { ...r, stops: orderedStops, polyline: isManualOrder ? null : r.polyline }
+          ? {
+              ...r,
+              stops: remainingStops,
+              // Drop the server road geometry once the order is overridden OR any
+              // stop is finished — it was drawn for the full farm→all-stops auto
+              // route and no longer matches the remaining line from the last drop.
+              polyline: isManualOrder || finishedIds.size > 0 ? null : r.polyline,
+            }
           : r,
       ),
-    [routes, activeCourierIdx, orderedStops, isManualOrder],
+    [routes, activeCourierIdx, remainingStops, isManualOrder, finishedIds],
   );
 
   // Where the van goes after the last delivery, for the Google Maps deep link
@@ -328,7 +355,13 @@ export function RouteClient({
   const endHint = END_OPTIONS.find((o) => o.mode === activeEndMode)?.hint ?? '';
 
   const openRoute = () => {
-    const urls = dirUrls(origin, orderedStops, endPoint);
+    // Once any stop is finished the courier is en route, not at the farm — omit
+    // the origin so Google Maps navigates from the phone's live GPS. Before that
+    // (planning the day) keep the farm as the start. Always route the REMAINING
+    // stops only.
+    const navOrigin: Point =
+      finishedIds.size > 0 ? { address: null, lat: null, lng: null } : origin;
+    const urls = dirUrls(navOrigin, remainingStops, endPoint);
     if (!urls.length) {
       toast.error('Няма спирки за маршрут');
       return;
@@ -364,8 +397,6 @@ export function RouteClient({
   // Does not touch payment/COD fields — those are a separate, existing flow.
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [finishing, setFinishing] = useState(false);
-  // Per-order finish: ids marked delivered this session (drive the "next" pointer).
-  const [finishedIds, setFinishedIds] = useState<Set<string>>(new Set());
   const [finishingOne, setFinishingOne] = useState(false);
   // Order side panel opened from the route card for the current stop.
   const [panelOrder, setPanelOrder] = useState<Order | null>(null);
@@ -725,7 +756,9 @@ export function RouteClient({
               <b>Локация</b> горе.
             </li>
             <li>
-              <b>Google Maps</b> — отваря целия маршрут в Google Maps, за да го видиш на картата.
+              <b>Google Maps</b> — отваря маршрута в Google Maps за навигация. Щом завършиш първата
+              поръчка, тръгва от <b>твоята GPS позиция</b> (където си в момента), не от базата, и води
+              само до останалите спирки.
             </li>
             <li>
               <b>Завърших доставките</b> — маркира всички спирки за деня (при всички куриери) като
@@ -738,8 +771,9 @@ export function RouteClient({
             </li>
             <li>
               <b>Готово</b> (иконата с кутия и отметка) — маркира текущата поръчка като доставена,
-              изчезва от списъка и се минава на следващата, една по една. За разлика от „Завърших
-              доставките&quot;, което маркира всички наведнъж.
+              изчезва от списъка и картата, и се минава на следващата, една по една. Останалият
+              маршрут се преначертава от последната завършена спирка (там си сега), не от базата. За
+              разлика от „Завърших доставките&quot;, което маркира всички наведнъж.
             </li>
             <li>
               <b>Waze</b> — навигация спирка по спирка. За разлика от Google Maps, Waze{' '}
@@ -892,7 +926,7 @@ export function RouteClient({
             </div>
           )}
           <StopList
-            stops={orderedStops.filter((s) => !finishedIds.has(s.id))}
+            stops={remainingStops}
             activeId={activeId}
             onPick={pickStop}
             onOpenMaps={onOpenMaps}
@@ -911,6 +945,7 @@ export function RouteClient({
             end={end}
             activeId={activeId}
             onPick={pickStop}
+            start={lastFinishedStop ? { lat: lastFinishedStop.lat, lng: lastFinishedStop.lng } : undefined}
             focusNonce={focusNonce}
             apiKey={mapsKey}
           />

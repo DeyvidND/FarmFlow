@@ -48,6 +48,12 @@ interface RouteMapProps {
   end: RouteEnd;
   activeId: string | null;
   onPick: (id: string) => void;
+  /** Where the ACTIVE courier's remaining line starts, when that isn't the farm
+   *  — e.g. the last delivery already finished this session, so the courier is
+   *  there now, not back at base. The farm ★ and the „home" return stay anchored
+   *  to `origin`; only the drawn line's first point moves. Null / undefined =
+   *  start from the farm as before. */
+  start?: { lat: number | null; lng: number | null } | null;
   /** Bumped on every user stop-pick; drives a pan+zoom to the active pin. Left
    *  undefined for callers that don't want the map to follow selection. */
   focusNonce?: number;
@@ -69,6 +75,7 @@ export function RouteMap({
   end,
   activeId,
   onPick,
+  start,
   focusNonce,
   apiKey,
 }: RouteMapProps) {
@@ -120,6 +127,7 @@ export function RouteMap({
             polyline={r.polyline}
             color={routeColor(ri)}
             opacity={ri === activeRoute ? 0.9 : 0.45}
+            start={ri === activeRoute ? start : undefined}
           />
         ))}
 
@@ -266,6 +274,7 @@ function RouteLine({
   polyline,
   color,
   opacity,
+  start,
 }: {
   origin: Origin;
   stops: RouteStop[];
@@ -273,6 +282,7 @@ function RouteLine({
   polyline?: string[] | null;
   color: string;
   opacity: number;
+  start?: { lat: number | null; lng: number | null } | null;
 }) {
   const map = useMap();
   const maps = useMapsLibrary('maps');
@@ -301,13 +311,16 @@ function RouteLine({
       }
     }
 
-    // Fallback: straight segments through the ordered pins.
+    // Fallback: straight segments through the ordered pins. The line starts from
+    // `start` when given (the courier's last finished drop — they're there now),
+    // else from the farm; the „home" return always goes back to the farm.
     const path: { lat: number; lng: number }[] = [];
-    const start = origin.lat != null && origin.lng != null ? { lat: origin.lat, lng: origin.lng } : null;
-    if (start) path.push(start);
+    const home = origin.lat != null && origin.lng != null ? { lat: origin.lat, lng: origin.lng } : null;
+    const from = start && start.lat != null && start.lng != null ? { lat: start.lat, lng: start.lng } : home;
+    if (from) path.push(from);
     stops.forEach((s) => path.push({ lat: s.lat as number, lng: s.lng as number }));
-    if (endMode === 'home' && start) {
-      path.push(start);
+    if (endMode === 'home' && home) {
+      path.push(home);
     }
     if (path.length < 2) return;
     const line = new maps.Polyline({
@@ -318,7 +331,7 @@ function RouteLine({
     });
     line.setMap(map);
     return () => line.setMap(null);
-  }, [map, maps, geometry, origin, stops, endMode, polyline, color, opacity]);
+  }, [map, maps, geometry, origin, stops, endMode, polyline, color, opacity, start]);
   return null;
 }
 
