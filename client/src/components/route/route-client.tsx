@@ -733,14 +733,13 @@ export function RouteClient({
               отделно.
             </li>
             <li>
-              <b>Отвори поръчката</b> (иконата с листа) — отваря панела на текущата (маркираната)
-              спирка: детайли, продукти, потвърждение, отказ и промяна на статус — без да излизаш от
-              маршрута.
+              <b>Поръчка</b> (иконата с листа) — отваря панела на текущата (маркираната) спирка:
+              детайли, продукти, потвърждение, отказ и промяна на статус — без да излизаш от маршрута.
             </li>
             <li>
-              <b>Завърши поръчката</b> (иконата с кутия и отметка) — маркира текущата поръчка като
-              доставена и минава на следващата, една по една. За разлика от „Завърших доставките&quot;, което
-              маркира всички наведнъж.
+              <b>Готово</b> (иконата с кутия и отметка) — маркира текущата поръчка като доставена,
+              изчезва от списъка и се минава на следващата, една по една. За разлика от „Завърших
+              доставките&quot;, което маркира всички наведнъж.
             </li>
             <li>
               <b>Waze</b> — навигация спирка по спирка. За разлика от Google Maps, Waze{' '}
@@ -840,9 +839,9 @@ export function RouteClient({
                 disabled={!orderedStops.length || openingId != null}
                 title="Отвори поръчката (детайли, потвърди, откажи)"
                 aria-label="Отвори поръчката"
-                className="inline-flex items-center justify-center rounded-[9px] border border-ff-border bg-ff-surface px-[11px] py-[7px] text-ff-ink-2 transition hover:bg-ff-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-[9px] border border-ff-border bg-ff-surface px-[11px] py-[7px] text-[13px] font-bold text-ff-ink-2 transition hover:bg-ff-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <ClipboardList size={16} />
+                <ClipboardList size={15} /> Поръчка
               </button>
               <button
                 onClick={() => void finishCurrent()}
@@ -853,9 +852,9 @@ export function RouteClient({
                     : 'Всички поръчки в маршрута са завършени'
                 }
                 aria-label="Завърши текущата поръчка"
-                className="inline-flex items-center justify-center rounded-[9px] bg-ff-green-100 px-[11px] py-[7px] text-ff-green-800 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-[9px] bg-ff-green-100 px-[11px] py-[7px] text-[13px] font-bold text-ff-green-800 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <PackageCheck size={16} />
+                <PackageCheck size={15} /> Готово
               </button>
               <button
                 onClick={() => setShowWaze((v) => !v)}
@@ -893,7 +892,7 @@ export function RouteClient({
             </div>
           )}
           <StopList
-            stops={orderedStops}
+            stops={orderedStops.filter((s) => !finishedIds.has(s.id))}
             activeId={activeId}
             onPick={pickStop}
             onOpenMaps={onOpenMaps}
