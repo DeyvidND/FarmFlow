@@ -46,7 +46,12 @@ export class CriticalAlertService {
     }
 
     const { items } = await this.problems.problems();
-    const critical = items.filter((p) => p.severity === 'high');
+    // `empty_shop` (a farm with zero active products) is severity:'high' in the
+    // Проблеми panel, but it's a slow-moving onboarding issue, not an acute
+    // failure — it's already surfaced in the daily operator digest, so emailing
+    // it here would just be a redundant, lower-urgency duplicate. Only genuinely
+    // acute problems (server errors) page immediately.
+    const critical = items.filter((p) => p.severity === 'high' && p.kind !== 'empty_shop');
     if (!critical.length) return { sent: false, reason: 'none-critical' };
 
     const fresh: PlatformProblem[] = [];
