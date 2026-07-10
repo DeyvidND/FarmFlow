@@ -146,6 +146,18 @@ export function RouteMap({
           </AdvancedMarker>
         )}
 
+        {/* „You are here" — where the remaining route now starts once the courier
+            is en route (live GPS or the last finished drop), so the line no longer
+            reads as starting from the farm. */}
+        {start && start.lat != null && start.lng != null && (
+          <AdvancedMarker
+            position={{ lat: start.lat as number, lng: start.lng as number }}
+            title="Ти си тук — маршрутът продължава оттук"
+          >
+            <SelfPin />
+          </AdvancedMarker>
+        )}
+
         {routes.map((r, ri) =>
           r.stops.filter(isLocated).map((s, i) => (
             <AdvancedMarker
@@ -196,6 +208,17 @@ function EndPin() {
   return (
     <span className="grid h-[28px] w-[28px] place-items-center rounded-full bg-white text-[14px] font-bold text-ff-amber-600 shadow-ff-md ring-2 ring-ff-amber">
       ⚑
+    </span>
+  );
+}
+
+/** „You are here" marker — the courier's current start once en route. A filled
+ *  blue dot with a white ring, visually distinct from the farm ★ and the numbered
+ *  stop pins. */
+function SelfPin() {
+  return (
+    <span className="grid h-[20px] w-[20px] place-items-center rounded-full bg-[#2563eb] shadow-ff-md ring-[3px] ring-white">
+      <span className="h-[7px] w-[7px] rounded-full bg-white" />
     </span>
   );
 }

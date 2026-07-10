@@ -224,6 +224,33 @@ export function RouteClient({
     return null;
   }, [orderedStops, finishedIds]);
 
+  // The phone's live position, once the courier is en route (has finished ≥1
+  // drop). This is the real „where I am now" — same GPS start Google Maps/Waze
+  // use — and, unlike the last-finished-stop fallback, it works even when that
+  // stop had no coordinates. Re-requested on every finish (position moves as the
+  // courier drives). Cleared back to null when nothing is finished.
+  const [selfPos, setSelfPos] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    if (finishedIds.size === 0) {
+      setSelfPos(null);
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (p) => setSelfPos({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => {}, // denied / unavailable → the last-finished-stop fallback stands
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+    );
+  }, [finishedIds]);
+
+  // Where the remaining route line starts on the in-app map once en route: the
+  // phone's real position if we have it, else the last finished drop, else null
+  // (start from the farm, as before finishing anything).
+  const mapStart: { lat: number | null; lng: number | null } | null =
+    finishedIds.size === 0
+      ? null
+      : selfPos ?? (lastFinishedStop ? { lat: lastFinishedStop.lat, lng: lastFinishedStop.lng } : null);
+
   const persistOrder = (ids: string[]) => {
     setManualIds(ids);
     try {
@@ -684,6 +711,20 @@ export function RouteClient({
       {/* plain-language hint for the active choice */}
       <p className="mb-3 text-[12.5px] text-ff-muted">{endHint}</p>
 
+      {/* en route: make it explicit the remaining route no longer starts from the
+          base — the courier is out delivering. Also an observable signal that the
+          "start from where you are" shift is active. */}
+      {finishedIds.size > 0 && (
+        <p className="mb-3 -mt-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-ff-green-800">
+          <Navigation size={13} />
+          {selfPos
+            ? 'Маршрутът продължава от текущата ти позиция (GPS), не от базата.'
+            : lastFinishedStop
+              ? 'Маршрутът продължава от последната завършена спирка, не от базата.'
+              : 'Маршрутът продължава напред — навигацията тръгва от текущата ти позиция.'}
+        </p>
+      )}
+
       {/* long route: open each remaining leg one-by-one (avoids popup blocking) */}
       {extraLegs.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-3.5 py-2.5">
@@ -778,8 +819,9 @@ export function RouteClient({
             <li>
               <b>Готово</b> (иконата с кутия и отметка) — маркира текущата поръчка като доставена,
               изчезва от списъка и картата, и се минава на следващата, една по една. Останалият
-              маршрут се преначертава от последната завършена спирка (там си сега), не от базата. За
-              разлика от „Завърших доставките&quot;, което маркира всички наведнъж.
+              маршрут продължава от <b>текущата ти позиция</b> (GPS), не от базата — синята точка на
+              картата показва къде си. За разлика от „Завърших доставките&quot;, което маркира всички
+              наведнъж.
             </li>
             <li>
               <b>Waze</b> — навигация спирка по спирка. За разлика от Google Maps, Waze{' '}
@@ -951,7 +993,7 @@ export function RouteClient({
             end={end}
             activeId={activeId}
             onPick={pickStop}
-            start={lastFinishedStop ? { lat: lastFinishedStop.lat, lng: lastFinishedStop.lng } : undefined}
+            start={mapStart ?? undefined}
             focusNonce={focusNonce}
             apiKey={mapsKey}
           />
