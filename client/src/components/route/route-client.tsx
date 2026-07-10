@@ -15,10 +15,16 @@ import {
   ArrowUpDown,
   Wand2,
   X,
+  ClipboardList,
+  PackageCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { updateOrderStatus } from '@/lib/api-client';
+import { getOrder, updateOrderStatus } from '@/lib/api-client';
 import type { MultiRouteResult, CourierRoute, RouteStop, RouteEndMode } from '@/lib/types';
+import type { Order } from '@/lib/types';
+import type { OrderStatus } from '@/lib/utils';
+import { OrderPanel } from '@/components/orders/order-panel';
+import { nextUnfinishedId } from './route-finish';
 import { StopList } from './stop-list';
 import { EditAddressModal } from './edit-address-modal';
 import { RouteMap, ROUTE_COLORS } from './route-map';
@@ -169,6 +175,7 @@ export function RouteClient({
   // so the map/list don't keep highlighting a pin that belongs to another courier.
   useEffect(() => {
     setActiveId(active.stops[0]?.id ?? null);
+    setFinishedIds(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCourierIdx, route.date, route.couriers]);
 
@@ -357,6 +364,13 @@ export function RouteClient({
   // Does not touch payment/COD fields — those are a separate, existing flow.
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  // Per-order finish: ids marked delivered this session (drive the "next" pointer).
+  const [finishedIds, setFinishedIds] = useState<Set<string>>(new Set());
+  const [finishingOne, setFinishingOne] = useState(false);
+  // Order side panel opened from the route card for the current stop.
+  const [panelOrder, setPanelOrder] = useState<Order | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [panelBusy, setPanelBusy] = useState(false);
   const finishDay = async () => {
     setFinishing(true);
     const results = await Promise.allSettled(
@@ -371,6 +385,63 @@ export function RouteClient({
       toast.error(`${allStops.length - failed}/${allStops.length} маркирани, ${failed} неуспешни — опитай пак`);
     }
     router.refresh();
+  };
+
+  // The first stop not yet finished this session — drives the finish button's
+  // target and disabled state. Recomputed each render from the current order.
+  const currentFinishId = nextUnfinishedId(orderedStops, finishedIds);
+
+  // Mark the current (first unfinished) stop delivered and advance the highlight.
+  // One click, no dialog. Refresh once when the whole leg is done (delivered
+  // orders then drop out of the route on the server).
+  const finishCurrent = async () => {
+    if (!currentFinishId) return;
+    const cur = orderedStops.find((s) => s.id === currentFinishId);
+    if (!cur) return;
+    setFinishingOne(true);
+    try {
+      await updateOrderStatus(cur.id, 'delivered');
+      const next = new Set(finishedIds).add(cur.id);
+      setFinishedIds(next);
+      const nextId = nextUnfinishedId(orderedStops, next);
+      setActiveId(nextId ?? cur.id);
+      const remaining = orderedStops.length - next.size;
+      toast.success(`${cur.customer ?? 'Клиент'} завършена · остават ${remaining}`);
+      if (nextId == null) router.refresh(); // all done — reconcile with the server
+    } catch {
+      toast.error('Неуспешно маркиране — опитай пак');
+    } finally {
+      setFinishingOne(false);
+    }
+  };
+
+  // Open the full order side panel for a stop (fetch the order first).
+  const openStopPanel = async (stopId: string) => {
+    setOpeningId(stopId);
+    try {
+      setPanelOrder(await getOrder(stopId));
+    } catch {
+      toast.error('Неуспешно зареждане на поръчката');
+    } finally {
+      setOpeningId(null);
+    }
+  };
+
+  // Status action from inside the panel (Потвърди / Маркирай доставена / Откажи /
+  // Промени статус) — updates the panel copy and refreshes the route.
+  const panelAction = async (status: OrderStatus) => {
+    if (!panelOrder) return;
+    setPanelBusy(true);
+    try {
+      const updated = await updateOrderStatus(panelOrder.id, status);
+      setPanelOrder(updated);
+      toast.success('Статусът е обновен');
+      router.refresh();
+    } catch {
+      toast.error('Неуспешна промяна на статуса');
+    } finally {
+      setPanelBusy(false);
+    }
   };
 
   const onOpenMaps = (s: RouteStop) => {
@@ -749,6 +820,31 @@ export function RouteClient({
                 <Navigation size={15} /> Google Maps
               </button>
               <button
+                onClick={() => {
+                  const id = activeId ?? orderedStops[0]?.id;
+                  if (id) void openStopPanel(id);
+                }}
+                disabled={!orderedStops.length || openingId != null}
+                title="Отвори поръчката (детайли, потвърди, откажи)"
+                aria-label="Отвори поръчката"
+                className="inline-flex items-center justify-center rounded-[9px] border border-ff-border bg-ff-surface px-[11px] py-[7px] text-ff-ink-2 transition hover:bg-ff-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ClipboardList size={16} />
+              </button>
+              <button
+                onClick={() => void finishCurrent()}
+                disabled={!currentFinishId || finishingOne}
+                title={
+                  currentFinishId
+                    ? `Завърши текущата поръчка (остават ${orderedStops.length - finishedIds.size})`
+                    : 'Всички поръчки в маршрута са завършени'
+                }
+                aria-label="Завърши текущата поръчка"
+                className="inline-flex items-center justify-center rounded-[9px] bg-ff-green-100 px-[11px] py-[7px] text-ff-green-800 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <PackageCheck size={16} />
+              </button>
+              <button
                 onClick={() => setShowWaze((v) => !v)}
                 disabled={!stops.length}
                 title="Навигирай маршрута спирка по спирка с Waze"
@@ -817,6 +913,19 @@ export function RouteClient({
           busy={finishing}
           onCancel={() => setConfirmFinish(false)}
           onConfirm={finishDay}
+        />
+      )}
+
+      {panelOrder && (
+        <OrderPanel
+          order={panelOrder}
+          busy={panelBusy}
+          onClose={() => setPanelOrder(null)}
+          onAction={(s) => void panelAction(s)}
+          onSaved={(updated) => {
+            setPanelOrder(updated);
+            router.refresh();
+          }}
         />
       )}
 
