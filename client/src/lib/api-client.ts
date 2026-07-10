@@ -571,6 +571,9 @@ export const updateOrderStatus = (id: string, status: string) =>
 export const updateOrder = (id: string, body: UpdateOrderInput) =>
   apiFetch<Order>(`orders/${id}`, { method: 'PATCH', ...json(body) }, 'Неуспешно записване на поръчката');
 
+/** Full single order (items + payment) — hydrates the order side panel. */
+export const getOrder = (id: string) => apiFetch<Order>(`orders/${id}`);
+
 /** Own-delivery orders eligible to be moved to another day (client groups by slotDate). */
 export const listReschedulable = () => apiFetch<ReschedulableOrder[]>('orders/reschedulable');
 
