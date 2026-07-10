@@ -172,6 +172,15 @@ public payload additions (counts, product createdAt, farmer place/slug/media).
 
 ### D. Farmer panel (client/) changes
 
+**Management model (approved): unchanged from Чайка today.** The tenant owner
+(role `admin` — Васил) runs the market: creates/edits vendor profiles, manages
+products, orders, finance, settings. Producer sub-accounts (role `farmer`)
+stay optional and owner-issued exactly as now — scoped to their own
+products/orders/report; the owner may equally run everything himself with no
+producer logins at all. NO new roles, NO vendor self-signup, NO separate
+marketplace admin. Buyer accounts (workstream B) live outside the panel
+entirely. Any richer hierarchy is a later, separate decision.
+
 1. **Owner screens** (role admin):
    - «Финанси на пазара» page: commission summary table (per farmer, period
      filter) + subscriptions ledger (generate month, mark paid/waived, notes).
