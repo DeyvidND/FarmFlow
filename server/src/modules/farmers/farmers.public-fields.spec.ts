@@ -99,4 +99,21 @@ describe('FarmersService public payload', () => {
     expect(out).toBe(cachedPayload);
     expect(publicCache.set).not.toHaveBeenCalled();
   });
+
+  it('leaves the admin/owner path (findAll) unstripped — the panel still needs the finance fields', async () => {
+    const db = makeDb();
+    const row = {
+      id: 'f1', tenantId: TENANT, name: 'Васил', role: 'Ягодоплодни',
+      commissionRateBps: 500, subscriptionFeeStotinki: 1200,
+    };
+    db.queue([row]);
+
+    const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+
+    const out = await svc.findAll(TENANT);
+
+    expect(out).toEqual([row]);
+    expect(out[0]).toHaveProperty('commissionRateBps', 500);
+    expect(out[0]).toHaveProperty('subscriptionFeeStotinki', 1200);
+  });
 });
