@@ -26,9 +26,13 @@ support it.
 **Architecture decision (approved):** the marketplace stays **one tenant**;
 farmers are vendors inside it. NOT one-tenant-per-farmer: a mixed cart would
 cross N slot/delivery/billing configs, and logistics (Friday market + one local
-delivery operation) is genuinely shared. Tier-3 "own site" later = copying a
-vendor into a fresh tenant (storefront factory already exists) — out of scope
-here.
+delivery operation) is genuinely shared. **Tier-3 "own site" (approved): a
+farmer-scoped storefront over the SAME tenant** — another storefront instance
+(storefront factory already provisions these) bound to tenant + farmerId,
+showing only that farmer's catalog on its own domain. No new tenant, no data
+copying, no second panel — the owner keeps managing everything in one place,
+so tier-3 needs zero additional backend infrastructure. Build of the
+farmer-filter storefront mode itself is out of scope here.
 
 **Buyer model (approved):** guest checkout stays; accounts are optional
 (post-purchase "запази данните си" + normal signup). Accounts give order

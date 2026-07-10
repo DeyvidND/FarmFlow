@@ -13,6 +13,9 @@
 ## Global Constraints
 
 - **Auto-deploy:** push to main deploys production. COMMIT per task; do NOT push. The human pushes when the phase is done.
+- **Deploy does NOT run migrations** (`deploy.yml` = compose pull + up only). Drizzle's bare `.select()` enumerates schema columns → shipping code whose schema has columns the prod DB lacks 500s every `farmers` query and takes down ALL storefronts. The migration MUST be applied to the prod DB BEFORE the code is pushed (additive DDL is invisible to the old code). See Task 12's pre-push runbook.
+- **Public payloads must NOT carry the finance columns.** `farmers.service.ts` uses bare `.select()` and feeds the public storefront bootstrap — Task 2b strips `commissionRateBps`/`subscriptionFeeStotinki` from every public farmers path (phone/email stay: they are public on purpose).
+- **Non-marketplace tenants must see ZERO panel change.** The «Финанси на пазара» nav item is gated on the tenant's `multiFarmer` flag (Task 9); the farmer-form fields live on the Фермери screen, which only multi-farmer tenants use.
 - **Dormant by construction:** no code path may charge or change user-visible behavior unless `tenants.settings.vendorFinance.commissionEnabled` / `.subscriptionEnabled` is true. Neither flag is ever set by this plan.
 - Money: integers in the same minor unit as order totals (`*_stotinki` = eurocents; €12 = 1200). Rates in basis points (500 = 5%). Rounding: `Math.round(gross * rateBps / 10000)`.
 - Existing test suites must stay green WITHOUT edits (the `@Optional()` injection guarantees OrdersService/StripeService spec harnesses keep working).
@@ -232,6 +235,71 @@ Expected: applies cleanly, exit 0. Verify: `psql -p 5433 -c "\d commission_entri
 ```bash
 git add packages/db/drizzle
 git commit -m "feat(db): migration for dormant vendor-finance tables"
+```
+
+---
+
+### Task 2b: Keep the finance columns OUT of public farmers payloads
+
+**Files:**
+- Modify: `server/src/modules/farmers/farmers.service.ts` (the public read path — `findPublicBySlug` and any other method whose rows reach `public-bootstrap` / public farmers endpoints)
+- Test: `server/src/modules/farmers/farmers.public-fields.spec.ts` (new)
+
+**Interfaces:**
+- Consumes: `farmers.commissionRateBps` / `farmers.subscriptionFeeStotinki` (Task 1).
+- Produces: guarantee that no public farmers payload contains `commissionRateBps` or `subscriptionFeeStotinki`. Admin/owner endpoints keep returning them (the panel needs them in Task 11).
+
+- [ ] **Step 1: Write the failing test.** Locate the public method(s) in `farmers.service.ts` that `public-bootstrap.controller.ts` calls (`findPublicBySlug`). Test with the thenable mock DB from Task 4 (copy `makeDb()`), queueing a farmer row that INCLUDES the two fields, and assert the public return strips them:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { FarmersService } from './farmers.service';
+import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+// [copy makeDb() + the service's other constructor deps mocked the way
+//  farmers.access.spec.ts already mocks them — reuse that spec's builder]
+
+it('public farmers payload never exposes vendor finance fields', async () => {
+  // queue tenant-by-slug + farmers rows as the real call sequence requires
+  const row = {
+    id: 'f1', tenantId: 't1', name: 'Васил', role: 'Ягодоплодни', bio: null,
+    phone: '0888', email: 'v@x.bg', since: '2023', tint: null, imageUrl: null,
+    coverCrop: null, position: 0, createdAt: new Date(),
+    commissionRateBps: 500, subscriptionFeeStotinki: 1200,
+  };
+  // ...queue per the method's awaits...
+  const out = await service.findPublicBySlug('chaika');
+  for (const f of out) {
+    expect(f).not.toHaveProperty('commissionRateBps');
+    expect(f).not.toHaveProperty('subscriptionFeeStotinki');
+    expect(f).toHaveProperty('phone'); // public on purpose — must survive
+  }
+});
+```
+
+(Adapt the queue order to the actual method body — read it first; if the public list is served from the Redis public cache, strip BEFORE caching so stale cached payloads can't leak either.)
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `cd server && npx jest src/modules/farmers/farmers.public-fields.spec.ts`
+Expected: FAIL — properties present.
+
+- [ ] **Step 3: Implement the strip** — in the public method, before returning (and before writing to the public cache):
+
+```ts
+    // Vendor finance terms are owner-only — never serve them to the storefront.
+    return rows.map(({ commissionRateBps, subscriptionFeeStotinki, ...pub }) => pub);
+```
+
+- [ ] **Step 4: Run the new spec + the existing farmers suite**
+
+Run: `cd server && npx jest src/modules/farmers`
+Expected: all green (existing access/image/reorder specs untouched).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add server/src/modules/farmers
+git commit -m "fix(server): strip vendor-finance fields from public farmers payloads"
 ```
 
 ---
@@ -1372,13 +1440,26 @@ git commit -m "feat(client): vendor-finance api-client methods + types"
 - Consumes: Task 8 client methods.
 - Produces: owner-only page at `/marketplace-finance` with two sections: Комисиона (summary table) and Абонаменти (ledger + generate + mark paid/waived).
 
-- [ ] **Step 1: Sidebar entry** — after the `/payments` line in the admin nav array:
+- [ ] **Step 1: Sidebar entry — GATED on `multiFarmer`** — after the `/payments` line in the admin nav array:
 
 ```ts
       { href: '/marketplace-finance', label: 'Финанси на пазара', Icon: HandCoins, desc: 'Комисиона по производители и месечни такси — води кой колко дължи.' },
 ```
 
 Add `HandCoins` to the existing `lucide-react` import in the same file.
+
+Then gate it exactly like `/articles` and `/route` are gated: `sidebar.tsx`'s
+`visibleItems` filter already switches per-href on flags passed in as props
+(`articlesEnabled`, `deliveryEnabled`). Trace where those props are populated
+(the shell/layout that renders `<Sidebar>` — it reads the tenant bootstrap),
+add a `multiFarmer: boolean` prop through the same path, and extend the filter:
+
+```ts
+        (i.href === '/marketplace-finance' ? multiFarmer : true) &&
+```
+
+Result: a normal single-farm tenant NEVER sees the item — zero panel change
+for every non-marketplace farm.
 
 - [ ] **Step 2: Server page** (`page.tsx`) — mirror the payments page pattern (force-dynamic, token fetch, fallbacks):
 
@@ -1836,10 +1917,38 @@ git commit -m "feat: per-farmer finance overrides — % and monthly fee fields (
   5. Open `/marketplace-finance` as owner → commission badge shows «изключена», ledger shows the gross; «Генерирай месеца» returns the 409 message about изключено таксуване.
   6. Open `/my-report` as a producer login → own turnover visible.
   7. Confirm NOTHING changed for buyers: storefront checkout flow untouched.
-- [ ] **Step 4: Final commit if any fixups**
+- [ ] **Step 4: Compatibility sweep for existing tenants** (the "will the current
+  sites keep working" check):
+  1. `cd server && npx jest src/modules/farmers src/modules/public-bootstrap` → green.
+  2. With dev server running, hit the public bootstrap of the seeded tenant
+     (`curl http://localhost:<api-port>/public/bootstrap/<slug>` — copy the exact
+     path chaika uses) and confirm the farmers array has NO
+     `commissionRateBps`/`subscriptionFeeStotinki` keys.
+  3. Log into the panel as a NON-multiFarmer tenant → sidebar has no «Финанси
+     на пазара»; as the marketplace tenant → item present.
+- [ ] **Step 5: Final commit if any fixups**
 
 ```bash
 git add -A && git commit -m "test: vendor-finance dormancy verification fixups"
 ```
 
-**DO NOT PUSH.** The human reviews and pushes (push = production deploy; the feature is dormant-safe but the human pulls the trigger).
+**DO NOT PUSH YET — pre-push runbook (the human executes, in this order):**
+
+1. **Apply the migration to prod FIRST.** Deploy does not run migrations, and
+   new code against an unmigrated DB 500s every farmers query (storefronts go
+   down). The DDL is additive — old code ignores it completely, so migrating
+   first is zero-risk. From the local machine, tunnel to the prod DB через the
+   app box (postgres lives on the DB box's private IP):
+
+```bash
+ssh -L 15432:10.0.0.3:5432 root@<app-box>   # keep open
+# in a second shell, with the prod credentials from the box's .env:
+DATABASE_URL='postgres://<user>:<pass>@localhost:15432/<db>' pnpm db:migrate
+# verify:
+psql 'postgres://<user>:<pass>@localhost:15432/<db>' -c '\d commission_entries'
+```
+
+2. **Then** `git push` → auto-deploy ships the code.
+3. **Post-deploy smoke:** open farmmarket.bg/фермери + one other tenant
+   storefront → farmers render; open the panel of a normal farm → no new nav
+   item; open the marketplace tenant panel → «Финанси на пазара» loads.
