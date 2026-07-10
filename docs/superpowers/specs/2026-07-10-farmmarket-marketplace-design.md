@@ -144,6 +144,32 @@ current chaika-based farmmarket.bg. Marketplace chrome per the approved design
 SEO/API note: public catalog endpoints already exist (chaika consumes them);
 the new front adds buyer-auth endpoints only.
 
+#### C.1 Feature → backend → panel matrix (what feeds every storefront feature)
+
+| Storefront feature | Backend today | To build | Panel control |
+|---|---|---|---|
+| Announcement bar | — | `settings.marketplace.announcement` {enabled, text} + public expose | Settings: text + on/off |
+| Search (product/farmer) | public catalog | nothing (client-side; hundreds of products) | — |
+| City pill (Варна ▾) | — | `settings.marketplace.cities` | Settings: city list |
+| Honest counters (farmers/products/cities) | data exists | counts in public bootstrap | — (automatic) |
+| Hero collage photos | site-media screen exists | nothing | existing Сайт-медия |
+| Farmer rail (avatar, specialty, place, since, product count) | farmers list, role+since exist | **`farmers.place`** column + product count in payload | farmer form: new „Място" field |
+| **Featured farmer (Фермер на седмицата)** | ❌ only productOfWeek exists | mirror it: `settings.marketplace.farmerOfWeek` {enabled, mode manual/auto (ISO-week like productOfWeek), farmerId, quote} + public expose | «Функции на магазина»: farmer picker + quote + mode |
+| Category tiles + chip filter | categories/subcategories exist | nothing | existing Подкатегории |
+| Farmer-first product cards | product→farmer attribution exists | nothing (front layout) | — |
+| „Ново тази седмица" rail | products.createdAt | expose createdAt/isNew publicly | — (automatic) |
+| Weekly-box email capture | newsletterSubscribers exists | `source: 'box'` tag on subscribe | existing Бюлетини |
+| Cart grouped by farmer + checkout breakdown | order stays ONE | nothing backend; front grouping | — |
+| Tier-2 `/ferma/[slug]` page | farmer pages exist but UUID URLs; farmerMedia galleries exist | **`farmers.slug`** column (from name, unique per tenant, backfilled) | slug field (auto, editable) on farmer form |
+| „Проверен фермер" badge | — | nothing: vendors are operator-curated → static badge. A `verified` column only if self-signup ever opens | — |
+| Buyer account/history/favorites | ❌ | workstream B | — (panel untouched) |
+| Commission + subscriptions (dormant) | ❌ | workstream A | «Финанси на пазара», «Моят отчет», override fields |
+
+Net-new backend beyond workstreams A+B: one small migration
+(`farmers.place`, `farmers.slug` + backfill), the `settings.marketplace`
+block (announcement, cities, farmerOfWeek) exposed via public bootstrap, and
+public payload additions (counts, product createdAt, farmer place/slug/media).
+
 ### D. Farmer panel (client/) changes
 
 1. **Owner screens** (role admin):
@@ -155,7 +181,15 @@ the new front adds buyer-auth endpoints only.
 2. **Producer screens** (role farmer): «Моят отчет» — own gross/commission
    summary (reuses the same endpoint, IDOR-scoped). While commission is
    dormant this reads as the farmer's collected turnover — useful on day one.
-3. No changes to existing orders/products/my-orders flows.
+3. **Farmer form** gains four fields total: „Място" (place), slug
+   (auto-generated from name, editable), and the two finance overrides above.
+4. **«Функции на магазина» / Settings** gains the marketplace-content block:
+   featured farmer (picker + quote + manual/auto mode — mirrors Продукт на
+   седмицата), announcement-bar text, city list.
+5. No changes to existing orders/products/my-orders flows. Everything else on
+   the storefront is fed by screens the panel already has: products
+   (farmer-scoped), availability, Сайт-медия (hero photos), Подкатегории
+   (category tiles), Бюлетини (weekly-box list), my-orders.
 
 ## 3. Order flow (unchanged core, one addition)
 
@@ -170,10 +204,14 @@ checkout stamps `buyer_id` when a buyer token is present.
    already drafted; ships dormant, zero user-visible change.
 2. **Panel screens** for A (owner finance page, producer report, farmer form
    overrides).
-3. **Buyer accounts backend** (buyers table + auth + order stamping + history).
-4. **farmmarket-web** repo (marketplace chrome, tier-2 pages, buyer UI, cart
+3. **Marketplace content backend** (farmers.place/slug migration + backfill,
+   `settings.marketplace` block, public bootstrap additions: counts, createdAt,
+   farmerOfWeek/announcement/cities) + the matching panel controls (farmer form
+   fields, «Функции на магазина» block).
+4. **Buyer accounts backend** (buyers table + auth + order stamping + history).
+5. **farmmarket-web** repo (marketplace chrome, tier-2 pages, buyer UI, cart
    grouping) + DNS cutover from the chaika instance.
-5. Later / out of scope here: subscription veggie boxes, tier-3 graduation
+6. Later / out of scope here: subscription veggie boxes, tier-3 graduation
    tooling, settlement payouts (marking settled + statements), enabling
    commission for real.
 
