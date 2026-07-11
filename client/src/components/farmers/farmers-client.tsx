@@ -274,6 +274,7 @@ export function FarmersClient({
           farmer={edit}
           products={productList}
           subcategories={subcategories}
+          multiFarmer={multi}
           access={edit.id ? access[edit.id] : undefined}
           focusInvite={inviteIntent}
           onClose={() => {

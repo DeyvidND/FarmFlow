@@ -28,6 +28,7 @@ export function FarmerPanel({
   subcategories = [],
   access,
   focusInvite = false,
+  multiFarmer = false,
   onClose,
   onSaved,
   onProductsChanged,
@@ -35,6 +36,9 @@ export function FarmerPanel({
 }: {
   farmer: Partial<Farmer>;
   products?: ProductOption[];
+  /** Marketplace tenant — only then are the per-producer finance override inputs
+   *  (комисиона % / месечна такса) shown. Single-farm tenants see zero change. */
+  multiFarmer?: boolean;
   /** Categories, so the product picker can group products by category and float
    *  the one you're picking from to the top. */
   subcategories?: { id: string; name: string }[];
@@ -261,16 +265,18 @@ export function FarmerPanel({
               <input value={since} onChange={(e) => setSince(e.target.value)} className={field} />
             </label>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <label className={labelCls}>
-              Комисиона % (празно = по подразбиране)
-              <input value={commissionPct} onChange={(e) => setCommissionPct(e.target.value)} inputMode="decimal" placeholder="5" className={field} />
-            </label>
-            <label className={labelCls}>
-              Месечна такса € (празно = по подразбиране)
-              <input value={monthlyFee} onChange={(e) => setMonthlyFee(e.target.value)} inputMode="decimal" placeholder="12" className={field} />
-            </label>
-          </div>
+          {multiFarmer && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className={labelCls}>
+                Комисиона % (празно = по подразбиране)
+                <input value={commissionPct} onChange={(e) => setCommissionPct(e.target.value)} inputMode="decimal" placeholder="5" className={field} />
+              </label>
+              <label className={labelCls}>
+                Месечна такса € (празно = по подразбиране)
+                <input value={monthlyFee} onChange={(e) => setMonthlyFee(e.target.value)} inputMode="decimal" placeholder="12" className={field} />
+              </label>
+            </div>
+          )}
           <label className={labelCls}>
             Имейл
             <input
