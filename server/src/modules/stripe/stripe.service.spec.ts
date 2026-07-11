@@ -289,6 +289,98 @@ describe('StripeService webhook — checkout.session.expired frees the slot', ()
   });
 });
 
+// Regression: a full card refund cancels the order via a DIRECT db.update that
+// bypasses orders.updateStatus, so its cancel-branch commission void never runs.
+// markOrderRefunded must void the (dormant) accrual itself — otherwise a paid→
+// accrued→refunded card order stays 'accrued' and the farmer is billed commission
+// on refunded money. The order id is resolved from the update's RETURNING (it may
+// be absent from the charge metadata on the payment-intent-only branch).
+describe('StripeService webhook — full refund voids the commission accrual', () => {
+  const config = {
+    get: (key: string, def?: unknown) =>
+      key === 'STRIPE_WEBHOOK_SECRET' ? 'whsec_test' : key === 'STRIPE_SECRET_KEY' ? '' : def,
+  } as unknown as ConfigService;
+
+  function build(chargeObject: Record<string, unknown>) {
+    const db = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoNothing: () => ({ returning: () => Promise.resolve([{ id: 'evt_r' }]) }),
+        }),
+      }),
+      select: () => {
+        let table: unknown;
+        const c: Record<string, unknown> = {
+          from: (t: unknown) => {
+            table = t;
+            return c;
+          },
+          where: () => c,
+          // Refund path only reads the tenant (account → tenant). The order id
+          // comes from the update RETURNING, not a select.
+          limit: () => Promise.resolve(table === tenants ? [{ id: 'tenant-A' }] : []),
+        };
+        return c;
+      },
+      update: () => ({
+        set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 'order-99' }]) }) }),
+      }),
+    };
+    const commission = { accrueForOrder: jest.fn(), voidForOrder: jest.fn() };
+    const svc = new StripeService(
+      db as never,
+      config,
+      { handleBillingEvent: jest.fn() } as never,
+      { autoCreateForOrder: jest.fn() } as never,
+      { sendForOrder: jest.fn() } as never,
+      { del: jest.fn() } as never,
+      { autoCreateForOrder: jest.fn() } as never,
+      { recordPurchase: jest.fn() } as never,
+      commission as never,
+    );
+    const event = {
+      id: 'evt_r',
+      type: 'charge.refunded',
+      account: 'acct_farm',
+      data: { object: chargeObject },
+    };
+    (svc as unknown as { client: unknown }).client = { webhooks: { constructEvent: () => event } };
+    return { svc, commission };
+  }
+
+  it('voids the resolved order id when the charge carries the orderId', async () => {
+    const { svc, commission } = build({
+      refunded: true,
+      payment_intent: 'pi_1',
+      metadata: { orderId: 'order-99' },
+    });
+    await svc.handleWebhook(Buffer.from('{}'), 'sig');
+    expect(commission.voidForOrder).toHaveBeenCalledWith('order-99', 'tenant-A');
+  });
+
+  it('voids via the RETURNING id even when the charge has no orderId (PI-only branch)', async () => {
+    const { svc, commission } = build({
+      refunded: true,
+      payment_intent: 'pi_1',
+      metadata: {},
+    });
+    await svc.handleWebhook(Buffer.from('{}'), 'sig');
+    expect(commission.voidForOrder).toHaveBeenCalledWith('order-99', 'tenant-A');
+  });
+
+  it('does not void on a partial refund (order stays confirmed)', async () => {
+    const { svc, commission } = build({
+      refunded: false,
+      amount: 1000,
+      amount_refunded: 400,
+      payment_intent: 'pi_1',
+      metadata: { orderId: 'order-99' },
+    });
+    await svc.handleWebhook(Buffer.from('{}'), 'sig');
+    expect(commission.voidForOrder).not.toHaveBeenCalled();
+  });
+});
+
 // Regression: the idempotency ledger records the event id BEFORE the handler runs,
 // so if a handler throws mid-way (e.g. a transient DB error) the recorded row must
 // be released — otherwise Stripe's retry would see the event already recorded and

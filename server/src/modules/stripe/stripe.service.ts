@@ -788,7 +788,16 @@ export class StripeService {
       this.logger.warn('Stripe refund webhook with no order linkage — ignoring');
       return;
     }
-    await this.db.update(orders).set({ status: 'cancelled', paidAt: null }).where(cond);
+    const cancelled = await this.db
+      .update(orders)
+      .set({ status: 'cancelled', paidAt: null })
+      .where(cond)
+      .returning({ id: orders.id });
+    // A refund reverses the collected card money — void the (dormant) commission
+    // accrual, mirroring orders.updateStatus's cancel branch. This direct update
+    // bypasses updateStatus, so the void must be fired here explicitly. The order
+    // id comes from RETURNING (the PI-only branch has no orderId in scope).
+    for (const { id } of cancelled) void this.commission?.voidForOrder(id, tenantId);
     // Bust payments cache за tenant — анулираният ред изчезва от Плащания.
     await this.bustPaymentsCache(tenantId);
     // Bust connectSummary cache — charge е refunded, balance/recent-payments са се променили.

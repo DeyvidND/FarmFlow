@@ -27,7 +27,10 @@ export function readVendorFinance(settings: unknown): VendorFinanceSettings {
     typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0;
   return {
     commissionEnabled: raw?.commissionEnabled === true,
-    defaultCommissionRateBps: num(raw?.defaultCommissionRateBps),
+    // Cap the tenant default at 10000 bps (100%) for parity with the per-farmer
+    // override (`create-farmer.dto` @Max(10000)) — a settings typo like 50000
+    // can't produce 5×-gross commission when the feature goes live.
+    defaultCommissionRateBps: Math.min(num(raw?.defaultCommissionRateBps), 10_000),
     subscriptionEnabled: raw?.subscriptionEnabled === true,
     defaultSubscriptionFeeStotinki: num(raw?.defaultSubscriptionFeeStotinki),
   };

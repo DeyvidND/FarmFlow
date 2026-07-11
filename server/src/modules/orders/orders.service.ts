@@ -1008,9 +1008,15 @@ export class OrdersService {
     if (current.status !== 'pending' && current.status !== 'confirmed') {
       throw new BadRequestException('Само поръчки в статус "чакаща" или "потвърдена" могат да се редактират.');
     }
-    // Guard: a card-paid order's money is fixed — no item/total changes.
-    if (dto.items && current.paidAt) {
-      throw new BadRequestException('Платена поръчка — артикулите не могат да се променят.');
+    // Guard: once money is collected the item total (and the commission accrual
+    // snapshotted at collection) is fixed — no item changes. Card: paidAt is set.
+    // COD: outcome 'received' is the collected-money signal that accrues commission
+    // (it never sets paidAt); editing items after it would recompute the total but
+    // leave the accrual's gross snapshot stale (accrueForOrder is onConflictDoNothing).
+    if (dto.items && (current.paidAt || current.codOutcome === 'received')) {
+      throw new BadRequestException(
+        'Поръчка с прибрано плащане — артикулите не могат да се променят.',
+      );
     }
 
     // Geocode a changed address OUTSIDE the transaction (no network under a lock).

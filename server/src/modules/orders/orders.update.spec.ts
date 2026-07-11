@@ -55,6 +55,16 @@ describe('updateOrder guards', () => {
       svc.updateOrder('order-1', 'tenant-1', { items: [{ productId: '11111111-1111-1111-1111-111111111111', quantity: 1 }] }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+  // COD money is collected at codOutcome='received' (never sets paidAt) — that is
+  // the signal the commission ledger accrues its gross snapshot on. Editing items
+  // afterwards would recompute the total but leave the accrual stale (accrue is
+  // onConflictDoNothing), so item edits must be blocked once the cash is in.
+  it('rejects item edits on a COD order already marked received', async () => {
+    const svc = serviceWithOrder({ ...BASE, paidAt: null, codOutcome: 'received' });
+    await expect(
+      svc.updateOrder('order-1', 'tenant-1', { items: [{ productId: '11111111-1111-1111-1111-111111111111', quantity: 1 }] }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 });
 
 /**

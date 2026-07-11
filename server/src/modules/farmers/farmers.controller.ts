@@ -34,9 +34,16 @@ export class FarmersController {
   // connection status reaches the products screens.
   @Get()
   @Roles('admin', 'farmer')
-  findAll(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
+  async findAll(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
     const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
-    return this.farmersService.findAll(tenantId, scope);
+    const rows = await this.farmersService.findAll(tenantId, scope);
+    // commissionRateBps / subscriptionFeeStotinki are the operator's commercial
+    // terms — owner/admin-only. A producer sub-account may read its own row here,
+    // so strip them for the farmer role (the panel calls this as admin, unstripped).
+    if (user.role === 'farmer') {
+      return rows.map(({ commissionRateBps: _c, subscriptionFeeStotinki: _s, ...rest }) => rest);
+    }
+    return rows;
   }
 
   // Literal route — must precede `:id` so "access" isn't captured as a farmer id.

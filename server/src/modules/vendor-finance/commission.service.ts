@@ -99,7 +99,9 @@ export class CommissionService {
       const overrides: { id: string; commissionRateBps: number | null }[] = await this.db
         .select({ id: farmers.id, commissionRateBps: farmers.commissionRateBps })
         .from(farmers)
-        .where(inArray(farmers.id, [...grossByFarmer.keys()]));
+        .where(
+          and(eq(farmers.tenantId, tenantId), inArray(farmers.id, [...grossByFarmer.keys()])),
+        );
       const overrideByFarmer = new Map(overrides.map((f) => [f.id, f.commissionRateBps]));
 
       const rows = [...grossByFarmer.entries()].map(([farmerId, grossStotinki]) => {
@@ -126,7 +128,13 @@ export class CommissionService {
       await this.db
         .update(commissionEntries)
         .set({ status: 'accrued' })
-        .where(and(eq(commissionEntries.orderId, orderId), eq(commissionEntries.status, 'voided')));
+        .where(
+          and(
+            eq(commissionEntries.orderId, orderId),
+            eq(commissionEntries.tenantId, tenantId),
+            eq(commissionEntries.status, 'voided'),
+          ),
+        );
     } catch (e) {
       this.logger.warn(`commission accrue failed for order ${orderId}: ${(e as Error).message}`);
     }
