@@ -838,6 +838,62 @@ export const openBillingPortal = () =>
     'Неуспешно отваряне на портала',
   );
 
+// ---- Vendor finance (дремещ модул: комисиона + месечни такси на производители) ----
+export interface CommissionFarmerSummary {
+  farmerId: string;
+  farmerName: string | null;
+  orderCount: number;
+  grossStotinki: number;
+  commissionStotinki: number;
+  settledCommissionStotinki: number;
+}
+export interface CommissionSummary {
+  commissionEnabled: boolean;
+  defaultRateBps: number;
+  farmers: CommissionFarmerSummary[];
+  totalGrossStotinki: number;
+  totalCommissionStotinki: number;
+}
+export const getCommissionSummary = (opts?: { farmerId?: string; from?: string; to?: string }) => {
+  const p = new URLSearchParams();
+  if (opts?.farmerId) p.set('farmerId', opts.farmerId);
+  if (opts?.from) p.set('from', opts.from);
+  if (opts?.to) p.set('to', opts.to);
+  const query = p.toString();
+  return apiFetch<CommissionSummary>(`vendor-finance/commission/summary${query ? `?${query}` : ''}`);
+};
+
+export interface VendorCharge {
+  id: string;
+  farmerId: string | null;
+  farmerName: string | null;
+  period: string;
+  feeStotinki: number;
+  status: 'due' | 'paid' | 'waived';
+  paidAt: string | null;
+  note: string | null;
+}
+export const listVendorCharges = (period?: string) =>
+  apiFetch<VendorCharge[]>(`vendor-finance/subscriptions${period ? `?period=${period}` : ''}`);
+
+/** Explicit owner action (no cron). Refuses (409) while subscriptionEnabled is off. */
+export const generateVendorCharges = (period: string) =>
+  apiFetch<{ created: number; skipped: number }>(
+    'vendor-finance/subscriptions/generate',
+    { method: 'POST', ...json({ period }) },
+    'Неуспешно генериране на такси',
+  );
+
+export const updateVendorCharge = (
+  id: string,
+  data: { status: 'due' | 'paid' | 'waived'; note?: string },
+) =>
+  apiFetch<VendorCharge>(
+    `vendor-finance/subscriptions/${id}`,
+    { method: 'PATCH', ...json(data) },
+    'Неуспешно записване',
+  );
+
 // ---- Tenant ----
 export const setDeliveryEnabled = (enabled: boolean) =>
   apiFetch<{ deliveryEnabled: boolean }>(
