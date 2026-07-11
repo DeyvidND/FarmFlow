@@ -126,6 +126,7 @@ export const FARMER_NAV: NavItem[] = [
   { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоите продукти — добавяй, променяй цени, снимки и наличност.' },
   { href: '/my-orders', label: 'Моите поръчки', Icon: ClipboardList, desc: 'Какво трябва да приготвиш — по поръчка и статус.' },
   { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Плащанията за твоите продукти.' },
+  { href: '/my-report', label: 'Моят отчет', Icon: BarChart3, desc: 'Твоят оборот от пазара и комисионата (ако е включена).' },
   { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, desc: 'Колко имаш налично от всеки продукт — намалява при поръчка.' },
   { href: '/farmer-delivery', label: 'Доставки', Icon: Truck, desc: 'Свържи Speedy/Econt и пращай куриерски поръчки.' },
 ];
