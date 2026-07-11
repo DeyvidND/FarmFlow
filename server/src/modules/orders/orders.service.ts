@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
@@ -37,6 +38,7 @@ import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from './carrier-fulfillment.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
+import { CommissionService } from '../vendor-finance/commission.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay } from './order-scheduling';
@@ -448,6 +450,9 @@ export class OrdersService {
     private readonly carrierFulfillment: CarrierFulfillmentService,
     private readonly codRisk: CodRiskService,
     private readonly catalogCache: CatalogCacheService,
+    // DORMANT commission ledger. @Optional() keeps the existing OrdersService
+    // test harnesses valid; in the app the module is always wired.
+    @Optional() private readonly commission?: CommissionService,
   ) {}
 
   /**
@@ -1352,6 +1357,9 @@ export class OrdersService {
         await this.restoreAvailabilityWindows(tx, tenantId, items);
         variantStockTouched = await this.restoreVariantStock(tx, items);
       });
+      // Cancelled order collects no money — void its (dormant) commission entries.
+      // Fire-and-forget: the ledger must never block or fail an order write.
+      void this.commission?.voidForOrder(id, tenantId);
     }
     // Status change moves the order in/out of the counted set (and flips collected
     // for COD) — refresh the Плащания cache.
@@ -1443,6 +1451,11 @@ export class OrdersService {
         /* best-effort: leave the outcome recorded even if the strike fails */
       }
     }
+    // COD money outcome IS the collected-money signal the (dormant) commission
+    // ledger accrues on: received → accrue (revives a voided re-mark), refused →
+    // void. Fire-and-forget — must never block the outcome write.
+    if (dto.outcome === 'received') void this.commission?.accrueForOrder(id, tenantId);
+    else void this.commission?.voidForOrder(id, tenantId);
     await this.bustPayments(tenantId);
     return row;
   }

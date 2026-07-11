@@ -4,6 +4,7 @@ import {
   Logger,
   BadRequestException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
@@ -20,6 +21,7 @@ import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from '../orders/carrier-fulfillment.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { AnalyticsService } from '../analytics/analytics.service';
+import { CommissionService } from '../vendor-finance/commission.service';
 
 // stripe@22 ships `export = StripeConstructor`, so the rich `Stripe.*` type
 // namespace isn't reachable through the default import under `moduleResolution:
@@ -108,6 +110,7 @@ export class StripeService {
     private readonly publicCache: PublicCacheService,
     private readonly carrierFulfillment: CarrierFulfillmentService,
     private readonly analytics: AnalyticsService,
+    @Optional() private readonly commission?: CommissionService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
@@ -737,6 +740,8 @@ export class StripeService {
       )
       .returning({ id: orders.id });
     if (!flipped.length) return; // already confirmed by the sibling event
+    // Card money is collected at this exact flip — accrue the (dormant) commission.
+    void this.commission?.accrueForOrder(orderId, tenantId);
 
     // Bust payments cache за този tenant — Плащания показва потвърдения превод веднага.
     await this.bustPaymentsCache(tenantId);
