@@ -9,6 +9,7 @@ import { AvailabilityService } from '../availability/availability.service';
 import { RecommendationsService } from '../recommendations/recommendations.service';
 import { PublicCacheService, publicCacheKeys, BOOTSTRAP_BUNDLE_TTL } from '../../common/cache/public-cache.service';
 import { resolveProductOfWeek } from './product-of-week';
+import { resolveFarmerOfWeek } from './farmer-of-week';
 
 /**
  * One-shot storefront bootstrap: profile + catalog + farmers + sections in a
@@ -61,12 +62,14 @@ export class PublicBootstrapController {
     // Resolve the optional «Продукт на седмицата» highlight from the tenant config
     // against the (already active, ordered) public catalog.
     const productOfWeek = resolveProductOfWeek(storefront, products, new Date());
+    const farmerOfWeek = resolveFarmerOfWeek(storefront.farmerOfWeek, farmers);
     const json = JSON.stringify({
       storefront,
       products,
       farmers,
       subcategories,
       productOfWeek,
+      farmerOfWeek,
       homeReviews,
       availability,
       bestSellerIds,

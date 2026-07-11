@@ -112,6 +112,9 @@ export interface TenantMeta {
   // Merchandising toggles (settings.merchandising) — the „Най-продавани" shop chip
   // and the „Често купувано заедно" cart picks. Resolved, always present.
   merchandising: PublicMerchandising;
+  // «Фермер на седмицата» pointer (settings.farmerOfWeek). Raw pointer; the
+  // bootstrap endpoint validates it against the public farmer list.
+  farmerOfWeek: { farmerId?: string | null; note?: string | null } | null;
   // Per-vendor ad/analytics tracking IDs (settings.marketing). Derived here so a
   // warm storefront render needs no extra read; empty → all-null.
   marketing: PublicMarketing;
@@ -258,6 +261,7 @@ export class PublicCacheService {
           brand?: { favicon?: { url?: unknown }; themeColor?: unknown };
           landing?: unknown;
           merchandising?: unknown;
+          farmerOfWeek?: unknown;
           marketing?: unknown;
           copy?: unknown;
           faq?: unknown;
@@ -308,6 +312,11 @@ export class PublicCacheService {
       themeColor,
       landing: resolveLanding(settingsObj?.landing),
       merchandising: resolveMerchandising(settingsObj?.merchandising),
+      // «Фермер на седмицата» pointer (settings.farmerOfWeek). Raw pointer; the
+      // bootstrap endpoint validates it against the public farmer list.
+      farmerOfWeek:
+        (settingsObj?.farmerOfWeek as { farmerId?: string | null; note?: string | null } | undefined) ??
+        null,
       marketing: buildPublicMarketing(settingsObj?.marketing),
       copy: buildPublicCopy(settingsObj?.copy),
       faq: buildPublicFaq(settingsObj?.faq),

@@ -72,6 +72,9 @@ export interface PublicStorefront {
   productOfWeekId: string | null;
   productOfWeekNote: string | null;
   productOfWeekPlacement: string;
+  // «Фермер на седмицата» pointer (settings.farmerOfWeek). Null when unset. The
+  // bootstrap endpoint validates the id against the public farmer list.
+  farmerOfWeek: { farmerId?: string | null; note?: string | null } | null;
   delivery: PublicDelivery;
   methods: PublicMethods;
   pickup: PublicPickup;
