@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsInt, IsUrl, IsEmail, Min, MaxLength, ValidateNested,
+  IsString, IsOptional, IsInt, IsUrl, IsEmail, Min, Max, MaxLength, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -64,4 +64,19 @@ export class CreateFarmerDto {
   @IsInt()
   @Min(0)
   position?: number;
+
+  /** Комисиона override в базисни точки (500 = 5%). NULL = наследява настройката на фермата. */
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10000)
+  commissionRateBps?: number | null;
+
+  /** Месечна такса override в стотинки/евроценти (1200 = 12 €). NULL = наследява настройката. */
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  subscriptionFeeStotinki?: number | null;
 }

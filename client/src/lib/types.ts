@@ -114,6 +114,10 @@ export interface Farmer {
   coverCrop: CoverCrop | null;
   position: number;
   createdAt: string;
+  /** Commission override in basis points (500 = 5%). NULL = inherits the tenant default. */
+  commissionRateBps?: number | null;
+  /** Monthly subscription fee override in stotinki/eurocents. NULL = inherits the tenant default. */
+  subscriptionFeeStotinki?: number | null;
 }
 
 export interface FarmerAccess {
