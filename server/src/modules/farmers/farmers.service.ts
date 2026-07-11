@@ -186,27 +186,33 @@ export class FarmersService {
   }
 
   async update(id: string, tenantId: string, dto: UpdateFarmerDto): Promise<Farmer> {
-    const [existing] = await this.db
-      .select({ tier: farmers.tier, branding: farmers.branding })
-      .from(farmers)
-      .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
-      .limit(1);
-    if (!existing) throw new NotFoundException('Фермерът не е намерен');
+    // Read (current tier + branding) and write are wrapped in one transaction so two
+    // concurrent PATCHes for the same farmer can't both read the same stale state and
+    // have the second write silently clobber the first's tier decision (TOCTOU).
+    const row = await this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ tier: farmers.tier, branding: farmers.branding })
+        .from(farmers)
+        .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
+        .limit(1);
+      if (!existing) throw new NotFoundException('Фермерът не е намерен');
 
-    const brandingEnabled =
-      (dto.branding !== undefined ? dto.branding : existing.branding)?.enabled ?? false;
-    const tier = effectiveTier({
-      currentTier: existing.tier,
-      brandingEnabled,
-      explicitTier: dto.tier,
+      const brandingEnabled =
+        (dto.branding !== undefined ? dto.branding : existing.branding)?.enabled ?? false;
+      const tier = effectiveTier({
+        currentTier: existing.tier,
+        brandingEnabled,
+        explicitTier: dto.tier,
+      });
+
+      const [updated] = await tx
+        .update(farmers)
+        .set({ ...dto, tier })
+        .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
+        .returning();
+      if (!updated) throw new NotFoundException('Фермерът не е намерен');
+      return updated;
     });
-
-    const [row] = await this.db
-      .update(farmers)
-      .set({ ...dto, tier })
-      .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
-      .returning();
-    if (!row) throw new NotFoundException('Фермерът не е намерен');
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
     return row;
