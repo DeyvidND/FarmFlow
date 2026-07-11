@@ -2,7 +2,7 @@ import { Injectable, Inject, NotFoundException, ConflictException, Logger } from
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
-import { and, eq, asc, inArray, sql } from 'drizzle-orm';
+import { and, eq, asc, desc, inArray, sql } from 'drizzle-orm';
 import { type Database, farmers, farmerMedia, users, auditLogs, orders, tenants } from '@fermeribg/db';
 import * as argon2 from 'argon2';
 import { AuthService } from '../auth/auth.service';
@@ -23,6 +23,7 @@ import { optimizeImage } from '../storage/image.util';
 import { smartFocal, smartFocalFromUrl } from '../storage/smart-crop.util';
 import { tenantSlug } from '../../common/tenant-slug.util';
 import { farmerCourierReady, farmerDeliveryNamespace } from '../orders/courier-eligibility';
+import { effectiveTier } from './tier-autolink';
 
 @Injectable()
 export class FarmersService {
@@ -185,9 +186,24 @@ export class FarmersService {
   }
 
   async update(id: string, tenantId: string, dto: UpdateFarmerDto): Promise<Farmer> {
+    const [existing] = await this.db
+      .select({ tier: farmers.tier, branding: farmers.branding })
+      .from(farmers)
+      .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
+      .limit(1);
+    if (!existing) throw new NotFoundException('Фермерът не е намерен');
+
+    const brandingEnabled =
+      (dto.branding !== undefined ? dto.branding : existing.branding)?.enabled ?? false;
+    const tier = effectiveTier({
+      currentTier: existing.tier,
+      brandingEnabled,
+      explicitTier: dto.tier,
+    });
+
     const [row] = await this.db
       .update(farmers)
-      .set({ ...dto })
+      .set({ ...dto, tier })
       .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Фермерът не е намерен');
@@ -481,12 +497,13 @@ export class FarmersService {
         // Tier-2 branding is presentational only (no finance) → safe to expose. When
         // enabled, the marketplace renders the branded farmer subpage.
         branding: farmers.branding,
+        tier: farmers.tier,
         position: farmers.position,
         createdAt: farmers.createdAt,
       })
       .from(farmers)
       .where(eq(farmers.tenantId, tenant.id))
-      .orderBy(asc(farmers.position), asc(farmers.createdAt));
+      .orderBy(desc(farmers.tier), asc(farmers.position), asc(farmers.createdAt));
     const mediaByFarmer = await this.mediaUrlsByFarmer(rows.map((r) => r.id));
     const [tRow] = await this.db
       .select({ settings: tenants.settings })

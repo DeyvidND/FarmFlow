@@ -72,6 +72,16 @@ export class CreateFarmerDto {
   @Min(0)
   position?: number;
 
+  /** Marketplace ranking tier: 1 = Базов, 2 = Бранд идентичност, 3 = Собствен сайт.
+   *  Operator-set. When omitted, the service keeps the current tier (auto-bumped
+   *  to >=2 if branding is enabled). */
+  @ApiPropertyOptional({ minimum: 1, maximum: 3 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3)
+  tier?: number;
+
   // Tier-2 branding control layer. The service spreads this straight into the row,
   // so the `branding` jsonb column follows it. Admin-only route (no @Roles on PATCH).
   @ApiPropertyOptional({ type: BrandingDto, nullable: true })
