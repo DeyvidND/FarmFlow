@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, lt, or } from 'drizzle-orm';
+import { and, eq, gte, isNull, lt, lte, or } from 'drizzle-orm';
 import { orders, deliverySlots } from '@fermeribg/db';
 import { bgDayBounds } from '../../common/time/bg-time';
 
@@ -19,5 +19,20 @@ export function scheduledForDay(day: string) {
   return or(
     eq(deliverySlots.date, day),
     and(isNull(orders.slotId), gte(orders.createdAt, from), lt(orders.createdAt, to)),
+  )!;
+}
+
+/**
+ * Range variant of {@link scheduledForDay}. Selects orders "scheduled for" any
+ * BG calendar day in [from, to] (inclusive). A slotted order counts on its slot
+ * date; a slotless order falls back to its creation day. Same leftJoin
+ * requirement as scheduledForDay.
+ */
+export function scheduledForRange(from: string, to: string) {
+  const lo = bgDayBounds(from).from; // start of `from` day
+  const hi = bgDayBounds(to).to; // end (exclusive) of `to` day
+  return or(
+    and(gte(deliverySlots.date, from), lte(deliverySlots.date, to)),
+    and(isNull(orders.slotId), gte(orders.createdAt, lo), lt(orders.createdAt, hi)),
   )!;
 }
