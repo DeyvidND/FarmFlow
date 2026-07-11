@@ -1,11 +1,16 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
-import { and, eq, isNotNull, or } from 'drizzle-orm';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
+import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import { type Database, orders, orderItems, products, deliverySlots, tenants, farmers } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { bgToday } from '../../common/time/bg-time';
-import { scheduledForDay } from '../orders/order-scheduling';
+import { scheduledForDay, scheduledForRange } from '../orders/order-scheduling';
 import { harvestSummary } from '../orders/harvest-summary';
+
+/** Statuses an organizer may pick for a manual farmer-orders send. */
+const ALLOWED_STATUSES = ['pending', 'confirmed', 'delivered'] as const;
+/** Widest [from,to] span accepted by {@link DigestService.sendFarmerOrderEmails}. */
+const MAX_RANGE_DAYS = 31;
 
 interface DigestOrder {
   id: string;
@@ -754,6 +759,137 @@ export class DigestService {
     });
 
     return { sent: true, farmersSent };
+  }
+
+  /**
+   * Organizer-triggered: email each SELECTED farmer their own orders for the
+   * [from,to] BG-day range, limited to the chosen statuses. Reuses the range
+   * assembler. One batch line-item query (no N+1). Per-farmer try/catch so a
+   * single failed send doesn't abort the rest. Returns how many farmers were
+   * emailed vs skipped (selected, has email, but no orders / send failed).
+   */
+  async sendFarmerOrderEmails(
+    tenantId: string,
+    opts: { from: string; to: string; farmerIds: string[]; statuses: string[] },
+  ): Promise<{ sent: number; skipped: number }> {
+    const { from, to } = opts;
+
+    const [tenant] = await this.db
+      .select({ multiFarmer: tenants.multiFarmer })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!tenant?.multiFarmer) {
+      throw new BadRequestException('Тази функция е само за магазини с няколко фермери.');
+    }
+    if (from > to) {
+      throw new BadRequestException('Началната дата е след крайната.');
+    }
+    // Inclusive day span. (Both are YYYY-MM-DD; parse as UTC midnight.)
+    const spanDays =
+      Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+    if (spanDays > MAX_RANGE_DAYS) {
+      throw new BadRequestException(`Периодът е твърде голям (макс. ${MAX_RANGE_DAYS} дни).`);
+    }
+
+    const statuses = opts.statuses.filter((s): s is (typeof ALLOWED_STATUSES)[number] =>
+      (ALLOWED_STATUSES as readonly string[]).includes(s),
+    );
+    if (statuses.length === 0) {
+      throw new BadRequestException('Изберете поне един валиден статус.');
+    }
+    if (opts.farmerIds.length === 0) {
+      throw new BadRequestException('Изберете поне един фермер.');
+    }
+
+    // Selected farmers that actually belong to this tenant AND have an email.
+    const farmerRows = await this.db
+      .select({ id: farmers.id, name: farmers.name, email: farmers.email })
+      .from(farmers)
+      .where(
+        and(
+          eq(farmers.tenantId, tenantId),
+          inArray(farmers.id, opts.farmerIds),
+          isNotNull(farmers.email),
+        )!,
+      );
+    if (farmerRows.length === 0) {
+      throw new BadRequestException('Няма избран фермер с имейл адрес.');
+    }
+
+    // One batch query for every selected farmer's line items across the range.
+    const rows = await this.db
+      .select({
+        farmerId: products.farmerId,
+        orderId: orders.id,
+        deliveryType: orders.deliveryType,
+        customerName: orders.customerName,
+        deliveryAddress: orders.deliveryAddress,
+        deliveryCity: orders.deliveryCity,
+        econtOffice: orders.econtOffice,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+        slotDate: deliverySlots.date,
+        productName: orderItems.productName,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .innerJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          inArray(orders.status, statuses),
+          scheduledForRange(from, to),
+          inArray(products.farmerId, farmerRows.map((f) => f.id)),
+        )!,
+      )
+      .orderBy(orders.createdAt);
+
+    // Group rows: farmerId → (slotDate-or-null bucketed to a day) → rows.
+    // Slotless orders count on their scheduled day; for range display we bucket
+    // them under `from` day when slotDate is null (they were selected by the
+    // createdAt fallback in scheduledForRange, so their exact day isn't in the
+    // slot column — group them under the range start so they still appear).
+    const byFarmer = new Map<string, Map<string, typeof rows>>();
+    for (const r of rows) {
+      const fid = r.farmerId;
+      if (!fid) continue;
+      const day = (r.slotDate as string | null) ?? from;
+      const farmerMap = byFarmer.get(fid) ?? new Map();
+      const dayRows = farmerMap.get(day) ?? [];
+      dayRows.push(r);
+      farmerMap.set(day, dayRows);
+      byFarmer.set(fid, farmerMap);
+    }
+
+    let sent = 0;
+    let skipped = 0;
+    for (const f of farmerRows) {
+      const byDay = byFarmer.get(f.id);
+      const email = assembleFarmerRangeEmail(from, to, f.name, byDay ?? new Map());
+      if (!email) {
+        skipped++;
+        continue;
+      }
+      try {
+        await this.email.sendMail({
+          to: f.email!,
+          subject: `Твоите поръчки за ${periodLabel(from, to)} — ФермериБГ`,
+          html: email.html,
+          text: email.text,
+        });
+        sent++;
+        this.logger.log(`[digest] farmer-orders sent tenant=${tenantId} farmer=${f.id}`);
+      } catch (err) {
+        skipped++;
+        this.logger.error(
+          `[digest] farmer-orders failed tenant=${tenantId} farmer=${f.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { sent, skipped };
   }
 }
 
