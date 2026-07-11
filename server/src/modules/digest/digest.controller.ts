@@ -1,8 +1,9 @@
-import { Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { DigestService } from './digest.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { SendFarmerOrdersDto } from './dto/send-farmer-orders.dto';
 
 @ApiTags('digest')
 @ApiBearerAuth()
@@ -17,5 +18,14 @@ export class DigestController {
     @CurrentTenant() tenantId: string,
   ): Promise<{ sent: boolean; reason?: string; farmersSent: number }> {
     return this.digestService.sendTestDigest(tenantId);
+  }
+
+  /** Organizer manually emails selected farmers their orders for a date range. */
+  @Post('farmers/send')
+  sendFarmerOrders(
+    @CurrentTenant() tenantId: string,
+    @Body() dto: SendFarmerOrdersDto,
+  ): Promise<{ sent: number; skipped: number }> {
+    return this.digestService.sendFarmerOrderEmails(tenantId, dto);
   }
 }
