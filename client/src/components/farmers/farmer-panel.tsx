@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Check, Send, KeyRound } from 'lucide-react';
+import { X, Check, Send, KeyRound, Sparkles, Images } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar } from './avatar';
@@ -62,12 +62,26 @@ export function FarmerPanel({
   const [phone, setPhone] = useState(farmer.phone ?? '+359 ');
   const [email, setEmail] = useState(farmer.email ?? '');
   const [since, setSince] = useState(farmer.since ?? '2026');
+  const [city, setCity] = useState(farmer.city ?? '');
   const [commissionPct, setCommissionPct] = useState(
     farmer.commissionRateBps != null ? String(farmer.commissionRateBps / 100) : '',
   );
   const [monthlyFee, setMonthlyFee] = useState(
     farmer.subscriptionFeeStotinki != null ? String(farmer.subscriptionFeeStotinki / 100) : '',
   );
+  // Tier-2 „Бранд идентичност" — operator-controlled paid branding. `brandingEnabled`
+  // is the gate; when on, the marketplace renders the branded subpage and the panel
+  // raises the photo cap so the gallery has more than one image. Primary brand color
+  // reuses `tint` (re-editable only inside this section). See tier2-brand-identity-spec.
+  const [brandingEnabled, setBrandingEnabled] = useState(farmer.branding?.enabled ?? false);
+  const [brandColor, setBrandColor] = useState(farmer.tint ?? '#2C5530');
+  const [accent, setAccent] = useState(farmer.branding?.accent ?? '');
+  const [gallery, setGallery] = useState<'wide' | 'mosaic' | 'row' | 'grid'>(
+    farmer.branding?.gallery ?? 'mosaic',
+  );
+  const [badges, setBadges] = useState<string[]>(farmer.branding?.badges ?? []);
+  const toggleBadge = (k: string) =>
+    setBadges((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
   // Panel-login state — one email field below feeds both the daily-delivery digest
   // and (when access is granted) the producer's login.
   const [acc, setAcc] = useState<FarmerAccess | undefined>(access);
@@ -111,9 +125,27 @@ export function FarmerPanel({
         phone: phone.trim(),
         email: email.trim() || null,
         since: since.trim(),
+        city: city.trim() || null,
         coverCrop,
         commissionRateBps: commissionPct.trim() === '' ? null : Math.round(parseFloat(commissionPct) * 100),
         subscriptionFeeStotinki: monthlyFee.trim() === '' ? null : Math.round(parseFloat(monthlyFee) * 100),
+        // Tier-2: when branding is on, the primary brand color (tint) is editable here
+        // and the branding control layer persists. Off → keep any prior config but flip
+        // the gate closed, so re-enabling restores the operator's settings.
+        ...(brandingEnabled ? { tint: brandColor } : {}),
+        branding: brandingEnabled
+          ? {
+              enabled: true as const,
+              plan: 'tier2' as const,
+              accent: accent.trim() || undefined,
+              gallery,
+              badges,
+              unlockedAt: farmer.branding?.unlockedAt ?? new Date().toISOString(),
+              unlockedBy: farmer.branding?.unlockedBy,
+            }
+          : farmer.branding
+            ? { ...farmer.branding, enabled: false as const }
+            : null,
       };
       const saved = isNew ? await createFarmer(data) : await updateFarmer(farmer.id!, data);
       // New farmer + "give panel access" ticked → invite right away with the same
@@ -236,7 +268,7 @@ export function FarmerPanel({
           {isNew ? (
             <p className="text-[12.5px] text-ff-muted-2">Първо запази фермера, после добави снимка.</p>
           ) : (
-            <MediaManager resource="farmers" ownerId={farmer.id!} onCoverChange={onCoverChange} maxPhotos={1} />
+            <MediaManager resource="farmers" ownerId={farmer.id!} onCoverChange={onCoverChange} maxPhotos={brandingEnabled ? 6 : 1} />
           )}
 
           {!isNew && imageUrl && (
@@ -247,10 +279,16 @@ export function FarmerPanel({
             Име
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="напр. Петър Петров" className={field} autoFocus={!focusInvite} />
           </label>
-          <label className={labelCls}>
-            Специалност / роля
-            <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="напр. Пчелар — мед" className={field} />
-          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className={labelCls}>
+              Специалност / роля
+              <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="напр. Пчелар — мед" className={field} />
+            </label>
+            <label className={labelCls}>
+              Град
+              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="напр. Варна" className={field} />
+            </label>
+          </div>
           <label className={labelCls}>
             Кратко описание
             <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} placeholder="Какво произвежда този фермер…" className={`${field} resize-y leading-relaxed`} />
@@ -277,6 +315,123 @@ export function FarmerPanel({
               </label>
             </div>
           )}
+          {multiFarmer && !isNew && (
+            <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+                    <Sparkles size={14} /> Бранд идентичност · Tier 2
+                  </div>
+                  <p className="mt-1.5 text-[12px] leading-snug text-ff-muted">
+                    Платена. Едър портрет, галерия и собствен цвят на страницата на фермера в пазара.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={brandingEnabled}
+                  onClick={() => setBrandingEnabled((v) => !v)}
+                  className={`relative mt-0.5 h-8 w-[54px] shrink-0 rounded-full transition-colors ${
+                    brandingEnabled ? 'bg-ff-green-600' : 'bg-ff-border'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${
+                      brandingEnabled ? 'left-[25px]' : 'left-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {brandingEnabled && (
+                <div className="mt-4 flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className={labelCls}>
+                      Основен цвят
+                      <span className="flex items-center gap-2 rounded-sm border border-ff-border bg-ff-surface px-2.5 py-2">
+                        <input
+                          type="color"
+                          value={brandColor}
+                          onChange={(e) => setBrandColor(e.target.value)}
+                          className="h-7 w-7 shrink-0 cursor-pointer rounded border-0 bg-transparent p-0"
+                          aria-label="Основен цвят"
+                        />
+                        <span className="text-[13px] font-bold uppercase text-ff-ink">{brandColor}</span>
+                      </span>
+                    </label>
+                    <label className={labelCls}>
+                      Акцент (по избор)
+                      <span className="flex items-center gap-2 rounded-sm border border-ff-border bg-ff-surface px-2.5 py-2">
+                        <input
+                          type="color"
+                          value={accent || '#E7A33E'}
+                          onChange={(e) => setAccent(e.target.value)}
+                          className="h-7 w-7 shrink-0 cursor-pointer rounded border-0 bg-transparent p-0"
+                          aria-label="Акцент"
+                        />
+                        <span className="text-[13px] font-bold uppercase text-ff-ink">{accent || '—'}</span>
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className={labelCls}>
+                    Оформление на галерията
+                    <div className="grid grid-cols-4 gap-2">
+                      {([
+                        ['wide', 'Едра'],
+                        ['mosaic', 'Мозайка'],
+                        ['row', 'Три в ред'],
+                        ['grid', 'Решетка'],
+                      ] as const).map(([key, label]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setGallery(key)}
+                          className={`rounded-lg border px-2 py-2 text-[11.5px] font-bold transition-colors ${
+                            gallery === key
+                              ? 'border-ff-green-500 bg-ff-green-100 text-ff-green-700'
+                              : 'border-ff-border bg-ff-surface text-ff-ink-2'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className={labelCls}>
+                    Значки
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        ['verified', 'Проверен фермер'],
+                        ['bio', 'Био'],
+                        ['awarded', 'Награждаван'],
+                      ] as const).map(([key, label]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => toggleBadge(key)}
+                          className={`rounded-full border px-3 py-1.5 text-[12.5px] font-bold transition-colors ${
+                            badges.includes(key)
+                              ? 'border-ff-green-600 bg-ff-green-600 text-white'
+                              : 'border-ff-border bg-ff-surface text-ff-ink-2'
+                          }`}
+                        >
+                          {badges.includes(key) ? '✓ ' : '＋ '}
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <p className="flex items-center gap-1.5 text-[12px] font-semibold text-ff-muted">
+                    <Images size={14} /> Качи до 6 снимки горе — първата е портретът, останалите стават галерията.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <label className={labelCls}>
             Имейл
             <input

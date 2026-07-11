@@ -4,6 +4,7 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
+import { BrandingDto } from './branding.dto';
 
 export class CreateFarmerDto {
   @ApiProperty()
@@ -40,6 +41,12 @@ export class CreateFarmerDto {
   @MaxLength(40)
   since?: string;
 
+  @ApiPropertyOptional({ example: 'Варна' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  city?: string;
+
   @ApiPropertyOptional({ example: '#2C5530' })
   @IsOptional()
   @IsString()
@@ -64,6 +71,14 @@ export class CreateFarmerDto {
   @IsInt()
   @Min(0)
   position?: number;
+
+  // Tier-2 branding control layer. The service spreads this straight into the row,
+  // so the `branding` jsonb column follows it. Admin-only route (no @Roles on PATCH).
+  @ApiPropertyOptional({ type: BrandingDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BrandingDto)
+  branding?: BrandingDto | null;
 
   /** Комисиона override в базисни точки (500 = 5%). NULL = наследява настройката на фермата. */
   @ApiPropertyOptional({ nullable: true })

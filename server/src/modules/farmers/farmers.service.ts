@@ -474,9 +474,13 @@ export class FarmersService {
         phone: farmers.phone,
         email: farmers.email,
         since: farmers.since,
+        city: farmers.city,
         tint: farmers.tint,
         imageUrl: farmers.imageUrl,
         coverCrop: farmers.coverCrop,
+        // Tier-2 branding is presentational only (no finance) → safe to expose. When
+        // enabled, the marketplace renders the branded farmer subpage.
+        branding: farmers.branding,
         position: farmers.position,
         createdAt: farmers.createdAt,
       })

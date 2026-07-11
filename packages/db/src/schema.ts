@@ -953,6 +953,10 @@ export const farmers = pgTable(
     phone: text('phone'),
     email: text('email'),
     since: text('since'),
+    // Home settlement of the farm (free text, e.g. "Варна"). Public — surfaced on
+    // the marketplace so shoppers see where a producer is based and can filter by
+    // delivery area. NULL = not set.
+    city: text('city'),
     // Vendor finance overrides (DORMANT): NULL = inherit the tenant default from
     // tenants.settings.vendorFinance. Rate in basis points (500 = 5%); fee in the
     // same minor unit as order totals.
@@ -963,6 +967,22 @@ export const farmers = pgTable(
     // How the cover image is framed in storefront cards: focal point (x/y, 0..1)
     // + zoom (1..3). NULL = legacy behavior (centered, no zoom). See CoverCrop.
     coverCrop: jsonb('cover_crop').$type<{ x: number; y: number; zoom: number; shape?: 'wide' | 'square' | 'tall' }>(),
+    // Tier-2 „Бранд идентичност" — paid, operator-unlocked per-farmer branding for the
+    // farmer's marketplace subpage. NULL / enabled:false = default compact card (today's
+    // behavior, zero blast radius). Primary brand color reuses `tint`; portrait reuses
+    // `imageUrl`; gallery reuses `farmer_media`. Only the control layer lives here.
+    // `enabled` is the paid gate (billing/collection is a separate seam, like vendorFinance
+    // dormant). `gallery` picks the photo-grid layout; `badges` render as chips.
+    branding: jsonb('branding').$type<{
+      enabled: boolean;
+      plan?: 'tier2';
+      accent?: string;
+      headingFont?: string;
+      gallery?: 'wide' | 'mosaic' | 'row' | 'grid';
+      badges?: string[];
+      unlockedAt?: string;
+      unlockedBy?: string;
+    }>(),
     position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
   },

@@ -101,6 +101,20 @@ export interface CoverCrop {
   shape?: 'wide' | 'square' | 'tall';
 }
 
+/** Tier-2 „Бранд идентичност" control layer. Mirrors @fermeribg/types Tier2Branding.
+ *  Operator-unlocked, paid. `enabled` gates the branded marketplace subpage; primary
+ *  color reuses `Farmer.tint`, portrait reuses `imageUrl`, gallery reuses farmer media. */
+export interface Tier2Branding {
+  enabled: boolean;
+  plan?: 'tier2';
+  accent?: string;
+  headingFont?: string;
+  gallery?: 'wide' | 'mosaic' | 'row' | 'grid';
+  badges?: string[];
+  unlockedAt?: string;
+  unlockedBy?: string;
+}
+
 export interface Farmer {
   id: string;
   name: string;
@@ -109,9 +123,13 @@ export interface Farmer {
   phone: string | null;
   email: string | null;
   since: string | null;
+  /** Home settlement of the farm (free text, e.g. "Варна"). NULL = not set. */
+  city: string | null;
   tint: string | null;
   imageUrl: string | null;
   coverCrop: CoverCrop | null;
+  /** Tier-2 „Бранд идентичност" control layer. NULL / enabled:false = default card. */
+  branding: Tier2Branding | null;
   position: number;
   createdAt: string;
   /** Commission override in basis points (500 = 5%). NULL = inherits the tenant default. */
