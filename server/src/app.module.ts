@@ -31,6 +31,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { VendorFinanceModule } from './modules/vendor-finance/vendor-finance.module';
 import { IntakeModule } from './modules/intake/intake.module';
 import { DemoRequestModule } from './modules/demo-request/demo-request.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
@@ -120,6 +121,7 @@ import { ImageQueueModule } from './modules/image-queue/image-queue.module';
     PlatformModule,
     StripeModule,
     BillingModule,
+    VendorFinanceModule,
     IntakeModule,
     DemoRequestModule,
     ReviewsModule,

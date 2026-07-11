@@ -455,8 +455,31 @@ export class FarmersService {
     const cached = await this.publicCache.get<PublicFarmer[]>(key);
     if (cached) return cached;
 
+    // Explicit column projection — NOT bare `.select()`. Two of the farmers
+    // columns (commission_rate_bps / subscription_fee_stotinki) are the operator's
+    // owner-only commercial terms and must never reach the storefront; projecting
+    // only the public columns strips them at the SQL level. It also keeps this
+    // storefront-critical query immune to the schema-ahead-of-migration window
+    // (deploy self-heals the schema, but a bare select enumerating a not-yet-
+    // migrated column would 500 every multiFarmer bootstrap). email + phone ARE
+    // included on purpose — the farmer subpage shows each farmer's own contact
+    // (product decision 2026-07-02); the site-wide official contact stays the
+    // tenant's.
     const rows = await this.db
-      .select()
+      .select({
+        id: farmers.id,
+        name: farmers.name,
+        role: farmers.role,
+        bio: farmers.bio,
+        phone: farmers.phone,
+        email: farmers.email,
+        since: farmers.since,
+        tint: farmers.tint,
+        imageUrl: farmers.imageUrl,
+        coverCrop: farmers.coverCrop,
+        position: farmers.position,
+        createdAt: farmers.createdAt,
+      })
       .from(farmers)
       .where(eq(farmers.tenantId, tenant.id))
       .orderBy(asc(farmers.position), asc(farmers.createdAt));
@@ -467,12 +490,22 @@ export class FarmersService {
       .where(eq(tenants.id, tenant.id))
       .limit(1);
     const settings = tRow?.settings ?? null;
-    // email + phone ARE included here on purpose — the farmer subpage shows each
-    // farmer's own contact now (product decision 2026-07-02); the site-wide
-    // official contact (footer/header/contact page) stays the tenant's, unaffected.
-    // (Previously stripped after leak 248c330 — that fix walked back an
-    // *unintentional* exposure; this is a deliberate, reviewed re-expose.)
-    const result: PublicFarmer[] = rows.map(({ tenantId: _tenantId, ...rest }) => {
+    // Defense-in-depth: the projection above already omits the owner-only finance
+    // columns and tenantId, but strip them again here so a future bare-select
+    // regression (or a join that re-introduces them) can never leak the operator's
+    // commercial terms to the storefront. The cast widens the row type so the
+    // omit type-checks against the narrow projection.
+    const result: PublicFarmer[] = rows.map((row) => {
+      const {
+        tenantId: _tenantId,
+        commissionRateBps: _commissionRateBps,
+        subscriptionFeeStotinki: _subscriptionFeeStotinki,
+        ...rest
+      } = row as typeof row & {
+        tenantId?: string | null;
+        commissionRateBps?: number | null;
+        subscriptionFeeStotinki?: number | null;
+      };
       const urls = mediaByFarmer.get(rest.id) ?? [];
       const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
       const courierReady = farmerCourierReady(farmerDeliveryNamespace(settings, rest.id));

@@ -142,8 +142,13 @@ export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
  *  (cover first), fallback [imageUrl] for legacy single-image rows, else []).
  *  `email`/`phone` ARE included deliberately — the farmer subpage shows each
  *  farmer's own contact (site-wide official contact stays the tenant's, kept
- *  separate). Product decision made 2026-07-02; see farmers.service.ts. */
-export type PublicFarmer = Omit<Farmer, 'tenantId'> & {
+ *  separate). Product decision made 2026-07-02; see farmers.service.ts.
+ *  `commissionRateBps`/`subscriptionFeeStotinki` (the operator's commercial
+ *  terms with this farmer) are owner/admin-only — NEVER the storefront's. */
+export type PublicFarmer = Omit<
+  Farmer,
+  'tenantId' | 'commissionRateBps' | 'subscriptionFeeStotinki'
+> & {
   images: string[];
   /** Phase 2: farmer offers nationwide courier (≥1 carrier connected). */
   courierReady: boolean;

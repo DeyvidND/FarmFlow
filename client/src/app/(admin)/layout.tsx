@@ -80,6 +80,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       tenantName={me.name ?? undefined}
       articlesEnabled={me.articlesEnabled ?? true}
       deliveryEnabled={me.deliveryEnabled ?? false}
+      multiFarmer={me.multiFarmer ?? false}
       hiddenNav={account?.hiddenNav ?? []}
       mustChangePassword={mustChangePassword}
       role={account?.role ?? 'admin'}

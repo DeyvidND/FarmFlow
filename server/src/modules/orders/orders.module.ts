@@ -11,6 +11,7 @@ import { OrderEmailModule } from '../order-email/order-email.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { CodRiskModule } from '../cod-risk/cod-risk.module';
 import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
+import { VendorFinanceModule } from '../vendor-finance/vendor-finance.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
     AnalyticsModule,
     CodRiskModule,
     CatalogCacheModule,
+    VendorFinanceModule,
   ],
   controllers: [OrdersController, PublicOrdersController, PublicCheckoutController],
   providers: [OrdersService, CheckoutService],

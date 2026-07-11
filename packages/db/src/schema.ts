@@ -28,6 +28,17 @@ export const orderStatusEnum = pgEnum('order_status', [
 ]);
 export const codOutcomeEnum = pgEnum('cod_outcome', ['received', 'refused']);
 export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', 'past_due', 'inactive']);
+// Vendor finance (DORMANT until enabled per tenant — see tenants.settings.vendorFinance).
+// commission_entries lifecycle: accrued (money collected) → settled (paid out) or
+// voided (order cancelled / COD refused). Settled is final.
+export const commissionEntryStatusEnum = pgEnum('commission_entry_status', [
+  'accrued',
+  'voided',
+  'settled',
+]);
+// Vendor monthly subscription charges (the operator collects the fee off-platform
+// today; these rows only track who owes what per month).
+export const vendorChargeStatusEnum = pgEnum('vendor_charge_status', ['due', 'paid', 'waived']);
 // Delivery methods:
 //  - `address`       → the farm's own (local) delivery to a street address: slots,
 //                      route optimization, flat regional fee. Local only.
@@ -942,6 +953,11 @@ export const farmers = pgTable(
     phone: text('phone'),
     email: text('email'),
     since: text('since'),
+    // Vendor finance overrides (DORMANT): NULL = inherit the tenant default from
+    // tenants.settings.vendorFinance. Rate in basis points (500 = 5%); fee in the
+    // same minor unit as order totals.
+    commissionRateBps: integer('commission_rate_bps'),
+    subscriptionFeeStotinki: integer('subscription_fee_stotinki'),
     tint: text('tint'),
     imageUrl: text('image_url'),
     // How the cover image is framed in storefront cards: focal point (x/y, 0..1)
@@ -1042,6 +1058,68 @@ export const subcategoryMedia = pgTable(
   }),
 );
 
+// Commission ledger (DORMANT until tenants.settings.vendorFinance.commissionEnabled).
+// One row per (order, farmer): the farmer's item-only gross (delivery fee excluded,
+// matching the turnover rule) and the commission at the rate SNAPSHOTTED at accrual
+// time — enabling commission later must never retro-charge old orders. Accrual fires
+// on the collected-money signal (COD received / Stripe paid), void on cancel/refusal.
+export const commissionEntries = pgTable(
+  'commission_entries',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }),
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'cascade' }),
+    grossStotinki: integer('gross_stotinki').notNull(),
+    rateBps: integer('rate_bps').notNull(),
+    commissionStotinki: integer('commission_stotinki').notNull(),
+    status: commissionEntryStatusEnum('status').notNull().default('accrued'),
+    settledAt: timestamp('settled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    // Idempotent accrual: re-running accrueForOrder must not duplicate rows.
+    orderFarmerUniq: uniqueIndex('commission_entries_order_farmer_uniq').on(t.orderId, t.farmerId),
+    // Farmer statement + owner summary: tenant-scoped, per farmer, by period.
+    tenantFarmerCreatedIdx: index('commission_entries_tenant_farmer_created_idx').on(
+      t.tenantId,
+      t.farmerId,
+      t.createdAt,
+    ),
+  }),
+);
+
+// Vendor monthly subscription charges (DORMANT until
+// tenants.settings.vendorFinance.subscriptionEnabled). Generated per farmer per
+// 'YYYY-MM' period; the operator collects the money off-platform and marks rows
+// paid/waived. No auto-charging anywhere.
+export const vendorSubscriptionCharges = pgTable(
+  'vendor_subscription_charges',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'cascade' }),
+    // Billing month as 'YYYY-MM' (Europe/Sofia semantics decided by the caller).
+    period: text('period').notNull(),
+    feeStotinki: integer('fee_stotinki').notNull(),
+    status: vendorChargeStatusEnum('status').notNull().default('due'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    note: text('note'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    // Idempotent generation: one charge per farmer per month.
+    farmerPeriodUniq: uniqueIndex('vendor_subscription_charges_farmer_period_uniq').on(
+      t.farmerId,
+      t.period,
+    ),
+    tenantPeriodIdx: index('vendor_subscription_charges_tenant_period_idx').on(
+      t.tenantId,
+      t.period,
+    ),
+  }),
+);
+
 export const schema = {
   tenants,
   users,
@@ -1056,6 +1134,8 @@ export const schema = {
   deliverySlots,
   orders,
   orderItems,
+  commissionEntries,
+  vendorSubscriptionCharges,
   siteEvents,
   stripeEvents,
   shipments,
@@ -1074,6 +1154,8 @@ export const schema = {
   orderStatusEnum,
   codOutcomeEnum,
   subscriptionStatusEnum,
+  commissionEntryStatusEnum,
+  vendorChargeStatusEnum,
   articleStatusEnum,
   articleMediaTypeEnum,
 };
