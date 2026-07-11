@@ -107,6 +107,36 @@ describe('DigestService.sendFarmerOrderEmails', () => {
     expect(email.sendMail.mock.calls[0][0].subject).toContain('Твоите поръчки за');
   });
 
+  it('strips a disallowed status from a mixed list and proceeds with the rest', async () => {
+    const { service, email } = makeService({
+      tenant: { multiFarmer: true },
+      farmers: [
+        { id: 'f1', name: 'Иван', email: 'ivan@x.bg' },
+        { id: 'f2', name: 'Мария', email: 'maria@x.bg' },
+      ],
+      lineItems: [
+        {
+          farmerId: 'f1',
+          orderId: 'o1',
+          deliveryType: 'pickup',
+          customerName: 'Клиент',
+          deliveryAddress: null,
+          deliveryCity: null,
+          econtOffice: null,
+          slotFrom: null,
+          slotTo: null,
+          slotDate: '2026-07-10',
+          productName: 'Домати',
+          quantity: 2,
+        },
+      ],
+    });
+    const res = await service.sendFarmerOrderEmails('t', { ...OPTS, statuses: ['confirmed', 'cancelled'] });
+    expect(res).toEqual({ sent: 1, skipped: 1 });
+    expect(email.sendMail).toHaveBeenCalledTimes(1);
+    expect(email.sendMail.mock.calls[0][0].to).toBe('ivan@x.bg');
+  });
+
   it('does not abort remaining farmers when one sendMail throws', async () => {
     const { service, email } = makeService({
       tenant: { multiFarmer: true },
