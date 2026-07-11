@@ -1,8 +1,22 @@
 import { BadRequestException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
+import { bgToday } from '../../common/time/bg-time';
 
 const TENANT = 'tenant-1';
 const UUID = (n: number) => `${n}`.padStart(8, '0') + '-0000-0000-0000-000000000000';
+
+/** The first date strictly after today (BG) whose weekday === `dow` (0=Sun..6=Sat),
+ *  as YYYY-MM-DD. Weekday is computed with getUTCDay() to match ruleProducesDate,
+ *  which reads the dow off `${date}T00:00:00Z`. Being always in the future, the
+ *  result clears rescheduleOrders' past-day guard on any calendar day — so these
+ *  weekday-sensitive tests stay green over time instead of rotting on a fixed date. */
+const nextDow = (dow: number): string => {
+  const d = new Date(`${bgToday()}T00:00:00Z`);
+  do {
+    d.setUTCDate(d.getUTCDate() + 1);
+  } while (d.getUTCDay() !== dow);
+  return d.toISOString().slice(0, 10);
+};
 
 /**
  * Build a service whose `db.transaction` runs the callback against a tx that:
@@ -154,7 +168,7 @@ describe('OrdersService.rescheduleOrders', () => {
       existingSlot: { id: 'friday' },
       settings: thuRule,
     });
-    await svc.rescheduleOrders(TENANT, { orderIds: [UUID(1)], toDate: '2026-07-10' }); // Friday
+    await svc.rescheduleOrders(TENANT, { orderIds: [UUID(1)], toDate: nextDow(5) }); // a future Friday (non-rule day)
     expect(deactivations).toEqual([{ isActive: false }]);
   });
 
@@ -164,7 +178,7 @@ describe('OrdersService.rescheduleOrders', () => {
       existingSlot: { id: 'thursday' },
       settings: thuRule,
     });
-    await svc.rescheduleOrders(TENANT, { orderIds: [UUID(1)], toDate: '2026-07-16' }); // Thursday
+    await svc.rescheduleOrders(TENANT, { orderIds: [UUID(1)], toDate: nextDow(4) }); // a future Thursday (rule day)
     expect(deactivations).toEqual([]); // rule offers this day → stays active/public
   });
 
