@@ -78,6 +78,7 @@ export interface GlobalFarmer {
   draftShipments: number;
   codPendingStotinki: number;
   createdAt: string | null;
+  tier: number;
 }
 
 /** Next page of the cross-tenant farmer directory (client-side "load more"). */
@@ -117,6 +118,9 @@ export interface FarmerDetail {
     status: string | null;
     createdAt: string | null;
   }[];
+  tier: number;
+  isFarmerOfWeek: boolean;
+  products: { id: string; name: string; imageUrl: string | null; featured: boolean }[];
 }
 
 /** One enriched audit-log row for the super-admin audit viewer. */
@@ -348,6 +352,27 @@ export const setTenantPremium = (id: string, premium: boolean) =>
       body: JSON.stringify({ premium }),
     },
     'Неуспешна промяна на плана',
+  );
+
+export const setProductFeatured = (id: string, featured: boolean) =>
+  apiFetch<{ id: string; featured: boolean }>(
+    `platform/products/${id}/featured`,
+    { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ featured }) },
+    'Неуспешна промяна на „Хит"',
+  );
+
+export const setFarmerTier = (id: string, tier: number) =>
+  apiFetch<{ id: string; tier: number }>(
+    `platform/farmers/${id}/tier`,
+    { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tier }) },
+    'Неуспешна промяна на тиър',
+  );
+
+export const setFarmerOfWeek = (id: string, enabled: boolean) =>
+  apiFetch<{ id: string; farmerOfWeek: string | null }>(
+    `platform/farmers/${id}/farmer-of-week`,
+    { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) },
+    'Неуспешна промяна на „Фермер на седмицата"',
   );
 
 export const createTenant = (data: {
