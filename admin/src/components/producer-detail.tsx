@@ -4,6 +4,7 @@ import { cn, eur, dmy } from '@/lib/utils';
 import type { FarmerDetail } from '@/lib/api-client';
 import { ImpersonateButton } from './impersonate-button';
 import { ProductImportDialog } from './product-import-dialog';
+import { ProducerCuration } from './producer-curation';
 
 const SHIP_STATUS: Record<string, { label: string; tone: string }> = {
   pending: { label: 'Чакаща', tone: 'bg-ff-surface-2 text-ff-ink-2' },
@@ -98,6 +99,8 @@ export function ProducerDetail({ farmer: f }: { farmer: FarmerDetail }) {
           </div>
         </div>
       </div>
+
+      <ProducerCuration farmer={f} />
 
       {/* stat cards */}
       <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">
