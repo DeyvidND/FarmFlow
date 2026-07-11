@@ -248,6 +248,7 @@ function renderText(
 /** Pure grouping of a farmer's day rows into delivery-type buckets + prep list.
  *  Shared by the single-day digest and the range email. */
 function groupFarmerRows(rows: FarmerDigestRow[]): {
+  orderList: FarmerOrder[];
   addressOrders: FarmerOrder[];
   econtOrders: FarmerOrder[];
   pickupOrders: FarmerOrder[];
@@ -274,8 +275,12 @@ function groupFarmerRows(rows: FarmerDigestRow[]): {
     }
     o.items.push({ productName: r.productName ?? '—', quantity: r.quantity });
   }
+  // orderList = every distinct order from the input rows, regardless of
+  // deliveryType (includes e.g. 'courier' split-leg orders, which have no
+  // section of their own in the rendered email — see the three buckets below).
   const orderList = [...byOrder.values()];
   return {
+    orderList,
     addressOrders: orderList.filter((o) => o.deliveryType === 'address'),
     econtOrders: orderList.filter(
       (o) => o.deliveryType === 'econt' || o.deliveryType === 'econt_address',
@@ -364,8 +369,10 @@ function assembleFarmerRangeEmail(
   const htmlSections: string[] = [];
   const textSections: string[] = [];
   for (const [date, rows] of days) {
-    const { addressOrders, econtOrders, pickupOrders, prep } = groupFarmerRows(rows);
-    totalOrders += addressOrders.length + econtOrders.length + pickupOrders.length;
+    const { orderList, addressOrders, econtOrders, pickupOrders, prep } = groupFarmerRows(rows);
+    // Full order count for the day (includes deliveryType values like 'courier'
+    // that don't get their own rendered section — see groupFarmerRows).
+    totalOrders += orderList.length;
     htmlSections.push(
       `<h2 style="font-size:18px;color:#2d6a4f;margin:28px 0 4px;border-bottom:1px solid #cde">${date}</h2>` +
         renderFarmerSectionsHtml(prep, addressOrders, econtOrders, pickupOrders),
@@ -576,11 +583,12 @@ export class DigestService {
     rows: FarmerDigestRow[],
   ): DigestResult | null {
     if (rows.length === 0) return null;
-    const { addressOrders, econtOrders, pickupOrders, prep } = groupFarmerRows(rows);
+    const { orderList, addressOrders, econtOrders, pickupOrders, prep } = groupFarmerRows(rows);
+    // Full order list (not just the three rendered buckets) — deliveryType
+    // values like 'courier' are real confirmed orders with no section of their
+    // own, but must still count toward the summary totals.
     const distinctCustomers = new Set(
-      [...addressOrders, ...econtOrders, ...pickupOrders].map((o) =>
-        o.customerName?.trim().toLowerCase(),
-      ),
+      orderList.map((o) => o.customerName?.trim().toLowerCase()),
     ).size;
     return {
       html: renderFarmerHtml(date, farmerName, prep, addressOrders, econtOrders, pickupOrders),
@@ -588,7 +596,7 @@ export class DigestService {
       summary: {
         selfDeliveryCount: addressOrders.length,
         econtCount: econtOrders.length,
-        totalOrders: addressOrders.length + econtOrders.length + pickupOrders.length,
+        totalOrders: orderList.length,
         distinctCustomers,
       },
     };

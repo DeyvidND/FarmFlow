@@ -40,4 +40,22 @@ describe('assembleFarmerRangeEmail', () => {
     expect(res.html).toContain('Иван'); // farmer name in header
     expect(res.text).toContain('Домати');
   });
+
+  it('counts courier-split-leg orders toward summary.totalOrders even though they render no section', () => {
+    // 'courier' deliveryType rows (split-leg orders from orders.service's
+    // createCourierOrders) have no dedicated rendered block, but are still
+    // real confirmed orders for the day and must count toward totalOrders.
+    const byDay = new Map<string, any[]>([
+      [
+        '2026-07-10',
+        [
+          row({ orderId: 'a' }),
+          row({ orderId: 'b', deliveryType: 'courier', customerName: 'Мария', deliveryCity: 'Пловдив' }),
+        ],
+      ],
+    ]);
+    const res = assembleFarmerRangeEmail('2026-07-10', '2026-07-10', 'Иван', byDay)!;
+    expect(res).not.toBeNull();
+    expect(res.summary.totalOrders).toBe(2);
+  });
 });
