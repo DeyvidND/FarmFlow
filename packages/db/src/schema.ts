@@ -6,6 +6,7 @@ import {
   jsonb,
   timestamp,
   integer,
+  smallint,
   boolean,
   date,
   time,
@@ -983,6 +984,11 @@ export const farmers = pgTable(
       unlockedAt?: string;
       unlockedBy?: string;
     }>(),
+    // Marketplace ranking tier (operator-assigned). 1 = базов листинг, 2 = Бранд
+    // идентичност, 3 = собствен сайт. The marketplace sorts farmers by tier DESC
+    // (tier 3 on top, tier 1 at the bottom), then position. Auto-bumps to >=2 when
+    // branding.enabled (in farmers.service.update), operator can override.
+    tier: smallint('tier').notNull().default(1),
     position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
   },
