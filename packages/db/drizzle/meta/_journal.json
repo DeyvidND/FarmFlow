@@ -603,6 +603,27 @@
       "when": 1783800000000,
       "tag": "0085_vendor_finance",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1783886400000,
+      "tag": "0086_farmer_city",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1783886401000,
+      "tag": "0087_farmer_branding",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1783886402000,
+      "tag": "0088_farmer_tier",
+      "breakpoints": true
     }
   ]
 }
