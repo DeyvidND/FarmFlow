@@ -17,44 +17,52 @@ export function ProducerCuration({ farmer: f }: { farmer: FarmerDetail }) {
   const [feat, setFeat] = useState<Record<string, boolean>>(
     Object.fromEntries(f.products.map((p) => [p.id, p.featured])),
   );
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<Set<string>>(new Set());
+
+  const addBusy = (key: string) => setBusy((s) => new Set(s).add(key));
+  const removeBusy = (key: string) =>
+    setBusy((s) => {
+      const next = new Set(s);
+      next.delete(key);
+      return next;
+    });
 
   const onTier = async (v: number) => {
     const prev = tier;
     setTier(v);
-    setBusy('tier');
+    addBusy('tier');
     try {
       await setFarmerTier(f.id, v);
     } catch {
       setTier(prev);
     } finally {
-      setBusy(null);
+      removeBusy('tier');
     }
   };
 
   const onFow = async () => {
     const next = !fow;
     setFow(next);
-    setBusy('fow');
+    addBusy('fow');
     try {
       await setFarmerOfWeek(f.id, next);
     } catch {
       setFow(!next);
     } finally {
-      setBusy(null);
+      removeBusy('fow');
     }
   };
 
   const onFeat = async (id: string) => {
     const next = !feat[id];
     setFeat((s) => ({ ...s, [id]: next }));
-    setBusy(id);
+    addBusy(id);
     try {
       await setProductFeatured(id, next);
     } catch {
       setFeat((s) => ({ ...s, [id]: !next }));
     } finally {
-      setBusy(null);
+      removeBusy(id);
     }
   };
 
@@ -71,7 +79,7 @@ export function ProducerCuration({ farmer: f }: { farmer: FarmerDetail }) {
               <button
                 key={t.value}
                 type="button"
-                disabled={busy === 'tier'}
+                disabled={busy.has('tier')}
                 onClick={() => onTier(t.value)}
                 className={cn(
                   'rounded-md px-3 py-1.5 text-[12.5px] font-bold transition-colors disabled:opacity-60',
@@ -86,7 +94,7 @@ export function ProducerCuration({ farmer: f }: { farmer: FarmerDetail }) {
 
         <button
           type="button"
-          disabled={busy === 'fow'}
+          disabled={busy.has('fow')}
           onClick={onFow}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[13px] font-bold transition-colors disabled:opacity-60',
@@ -110,7 +118,7 @@ export function ProducerCuration({ farmer: f }: { farmer: FarmerDetail }) {
               <button
                 key={p.id}
                 type="button"
-                disabled={busy === p.id}
+                disabled={busy.has(p.id)}
                 onClick={() => onFeat(p.id)}
                 className={cn(
                   'flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-[13px] font-semibold transition-colors disabled:opacity-60',
