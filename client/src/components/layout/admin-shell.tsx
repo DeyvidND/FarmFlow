@@ -19,6 +19,7 @@ export function AdminShell({
   tenantName,
   articlesEnabled = true,
   deliveryEnabled = true,
+  multiFarmer = false,
   hiddenNav = [],
   mustChangePassword = false,
   role = 'admin',
@@ -31,6 +32,8 @@ export function AdminShell({
   articlesEnabled?: boolean;
   /** Personal-delivery flag — hides «Маршрут» when the farm doesn't deliver. */
   deliveryEnabled?: boolean;
+  /** Multi-producer marketplace tenant — gates «Финанси на пазара». */
+  multiFarmer?: boolean;
   /** Per-user hidden side-nav keys (users.hiddenNav). */
   hiddenNav?: string[];
   /** First login with the temporary password → block the panel with the modal. */
@@ -52,6 +55,7 @@ export function AdminShell({
           subscriptionActive={subscriptionActive}
           articlesEnabled={articlesEnabled}
           deliveryEnabled={deliveryEnabled}
+          multiFarmer={multiFarmer}
           hiddenNav={hiddenNav}
           role={role}
         />
