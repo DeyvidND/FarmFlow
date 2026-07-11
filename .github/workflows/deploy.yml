@@ -47,10 +47,10 @@ jobs:
             image: ghcr.io/deyvidnd/farmflow-delivery-web
             dockerfile: delivery-web/Dockerfile
             build_args: ''
-          # NOTE: the monorepo Next.js storefront is NOT deployed — the public
-          # shop is the separate Astro repo (fermerski-pazar-chaika), which has
-          # its own build → GHCR → Dokploy pipeline. The storefront/ workspace is
-          # kept for local dev only.
+          # NOTE: no public storefront is built here. The shops live in their own
+          # repos with their own pipelines: the chaika shop (Astro → CF) and the
+          # marketplace (farmflow-marketplace-next → CF). This compose ships only
+          # api + web + admin + delivery-web.
     steps:
       - uses: actions/checkout@v4
 

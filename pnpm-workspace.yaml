@@ -3,5 +3,4 @@ packages:
   - "client"
   - "admin"
   - "delivery-web"
-  - "storefront"
   - "packages/*"
