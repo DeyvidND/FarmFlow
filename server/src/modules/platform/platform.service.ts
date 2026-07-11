@@ -11,7 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
-import { and, asc, eq, ne, sql, desc, inArray } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, sql, desc, inArray } from 'drizzle-orm';
 import { AuthService } from '../auth/auth.service';
 import { BillingService } from '../billing/billing.service';
 import { emailCostStotinki } from '../billing/billing.pricing';
@@ -20,6 +20,7 @@ import { FarmersService } from '../farmers/farmers.service';
 import { SubcategoriesService } from '../subcategories/subcategories.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { StorageService } from '../storage/storage.service';
+import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { PlatformImportDto } from './dto/platform-import.dto';
 import {
   type Database,
@@ -262,6 +263,14 @@ export interface FarmerDetail {
   invitePending: boolean;
   econtConnected: boolean;
   speedyConnected: boolean;
+  // Marketplace ranking tier (1..3) — mirrors farmers.tier. For the curation screen's
+  // tier picker.
+  tier: number;
+  // Whether this farmer is currently the tenant's «Фермер на седмицата»
+  // (settings.farmerOfWeek.farmerId === this farmer's id).
+  isFarmerOfWeek: boolean;
+  // Lean product list (active, non-deleted) for the «Хит» toggle grid.
+  products: { id: string; name: string; imageUrl: string | null; featured: boolean }[];
   counts: { products: number; courierOrders: number; shipments: number; draftShipments: number };
   cod: { pendingStotinki: number; collectedStotinki: number };
   recentShipments: {
@@ -305,6 +314,7 @@ export class PlatformService {
     private readonly subcategoriesSvc: SubcategoriesService,
     private readonly tenantsSvc: TenantsService,
     private readonly storage: StorageService,
+    private readonly catalogCache: CatalogCacheService,
   ) {}
 
   /** Origin the delivery set-password ("invite") link is aimed at. */
@@ -826,6 +836,7 @@ export class PlatformService {
         id: farmers.id,
         name: farmers.name,
         role: farmers.role,
+        tier: farmers.tier,
         tenantId: tenants.id,
         tenantName: tenants.name,
         tenantSlug: tenants.slug,
@@ -879,15 +890,34 @@ export class PlatformService {
       .orderBy(desc(orders.createdAt))
       .limit(10);
 
-    const [[prod], [orderCount], [shipAgg], recentShipments, recentOrders] = await Promise.all([
+    // Lean product list for the super-admin «Хит» toggle grid — active (non-deleted),
+    // farmer's own display order.
+    const productRowsP = this.db
+      .select({
+        id: products.id,
+        name: products.name,
+        imageUrl: products.imageUrl,
+        featured: products.featured,
+      })
+      .from(products)
+      .where(and(eq(products.farmerId, farmerId), isNull(products.deletedAt)))
+      .orderBy(asc(products.position), asc(products.createdAt))
+      .limit(200);
+
+    const [[prod], [orderCount], [shipAgg], recentShipments, recentOrders, productRows] = await Promise.all([
       prodP,
       orderCountP,
       shipAggP,
       recentShipP,
       recentOrdP,
+      productRowsP,
     ]);
 
     const ns = ((base.settings as any)?.delivery?.farmers?.[base.id] ?? {}) as Record<string, any>;
+    // «Фермер на седмицата» pointer already lives on the tenant row we loaded above
+    // (base.settings) — no extra query needed.
+    const fow = (base.settings as { farmerOfWeek?: { farmerId?: string } } | null)?.farmerOfWeek;
+    const isFarmerOfWeek = fow?.farmerId === base.id;
     return {
       id: base.id,
       name: base.name,
@@ -900,6 +930,9 @@ export class PlatformService {
       invitePending: !!base.userId && !!base.mustChange,
       econtConnected: !!ns?.econt?.configured,
       speedyConnected: !!ns?.speedy?.configured,
+      tier: base.tier,
+      isFarmerOfWeek,
+      products: productRows,
       counts: {
         products: prod?.n ?? 0,
         courierOrders: orderCount?.n ?? 0,
@@ -1039,6 +1072,71 @@ export class PlatformService {
   async setPremium(id: string, premium: boolean): Promise<{ id: string; premium: boolean }> {
     await this.billing.setPremium(id, premium);
     return { id, premium };
+  }
+
+  /** Look up a farmer's tenant id + slug (for cache busting). */
+  private async farmerTenant(id: string): Promise<{ tenantId: string; slug: string }> {
+    const [row] = await this.db
+      .select({ tenantId: farmers.tenantId, slug: tenants.slug })
+      .from(farmers)
+      .innerJoin(tenants, eq(farmers.tenantId, tenants.id))
+      .where(eq(farmers.id, id))
+      .limit(1);
+    if (!row?.tenantId || !row.slug) throw new NotFoundException('Фермерът не е намерен');
+    return { tenantId: row.tenantId, slug: row.slug };
+  }
+
+  /** Mark/unmark a product as „Хит" (products.featured) for the marketplace curation
+   *  screen. Busts the product catalog cache (`catalog:{tenantId}`, owned by
+   *  CatalogCacheService — the same one ProductsService.findPublicBySlug reads; there
+   *  is no `publicCacheKeys.products` builder) and the assembled bootstrap bundle. */
+  async setProductFeatured(id: string, featured: boolean): Promise<{ id: string; featured: boolean }> {
+    const [row] = await this.db
+      .update(products)
+      .set({ featured })
+      .where(eq(products.id, id))
+      .returning({ id: products.id, featured: products.featured, tenantId: products.tenantId });
+    if (!row) throw new NotFoundException('Продуктът не е намерен');
+    if (row.tenantId) {
+      const [t] = await this.db
+        .select({ slug: tenants.slug })
+        .from(tenants)
+        .where(eq(tenants.id, row.tenantId))
+        .limit(1);
+      await this.catalogCache.invalidate(row.tenantId);
+      if (t?.slug) await this.publicCache.del(publicCacheKeys.bootstrap(t.slug));
+    }
+    return { id: row.id, featured: row.featured };
+  }
+
+  /** Assign a farmer's marketplace ranking tier (1..3). Busts the farmers list
+   *  cache + bootstrap bundle for the farmer's tenant. */
+  async setFarmerTier(id: string, tier: number): Promise<{ id: string; tier: number }> {
+    const { tenantId, slug } = await this.farmerTenant(id);
+    const [row] = await this.db
+      .update(farmers)
+      .set({ tier })
+      .where(eq(farmers.id, id))
+      .returning({ id: farmers.id, tier: farmers.tier });
+    if (!row) throw new NotFoundException('Фермерът не е намерен');
+    await this.publicCache.del(publicCacheKeys.farmers(tenantId), publicCacheKeys.bootstrap(slug));
+    return { id: row.id, tier: row.tier };
+  }
+
+  /** Make (or clear) this farmer as their tenant's «Фермер на седмицата»
+   *  (settings.farmerOfWeek — write path; resolveFarmerOfWeek validates it at read
+   *  time). Busts the tenant profile cache + bootstrap bundle. */
+  async setFarmerOfWeek(id: string, enabled: boolean): Promise<{ id: string; farmerOfWeek: string | null }> {
+    const { tenantId, slug } = await this.farmerTenant(id);
+    const value = enabled ? JSON.stringify({ farmerId: id }) : 'null';
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['farmerOfWeek'], ${value}::jsonb, true)`,
+      })
+      .where(eq(tenants.id, tenantId));
+    await this.publicCache.del(publicCacheKeys.tenant(slug), publicCacheKeys.bootstrap(slug));
+    return { id, farmerOfWeek: enabled ? id : null };
   }
 
   /** Activate/deactivate a standalone Econt account (one-time payment gate). */

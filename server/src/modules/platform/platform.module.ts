@@ -6,6 +6,7 @@ import { ProductsModule } from '../products/products.module';
 import { FarmersModule } from '../farmers/farmers.module';
 import { SubcategoriesModule } from '../subcategories/subcategories.module';
 import { TenantsModule } from '../tenants/tenants.module';
+import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
 import { ProblemsService } from './problems.service';
@@ -42,6 +43,9 @@ import { RUN_WORKERS } from '../../config/app-role';
     FarmersModule,
     SubcategoriesModule,
     TenantsModule,
+    // Product public-catalog Redis cache (`catalog:{tenantId}`) — busted by
+    // setProductFeatured (matches ProductsService's own invalidate-on-write pattern).
+    CatalogCacheModule,
     BullModule.registerQueue({
       name: CLEANUP_QUEUE,
       defaultJobOptions: {

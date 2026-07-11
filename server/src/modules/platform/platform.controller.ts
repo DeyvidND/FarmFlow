@@ -34,6 +34,7 @@ import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { PlatformChangePasswordDto } from './dto/platform-change-password.dto';
 import { CreateDeliveryAccountDto } from './dto/create-delivery-account.dto';
 import { SetDeliveryActiveDto } from './dto/set-delivery-active.dto';
+import { SetProductFeaturedDto, SetFarmerTierDto, SetFarmerOfWeekDto } from './dto/marketplace-curation.dto';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { RequestUser } from '@fermeribg/types';
@@ -249,6 +250,24 @@ export class PlatformController {
   @Patch('tenants/:id/premium')
   setPremium(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetPremiumDto) {
     return this.platform.setPremium(id, dto.premium);
+  }
+
+  /** Mark/unmark a product as „Хит" (reuses products.featured). */
+  @Patch('products/:id/featured')
+  setProductFeatured(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetProductFeaturedDto) {
+    return this.platform.setProductFeatured(id, dto.featured);
+  }
+
+  /** Assign a farmer's marketplace tier (1..3). */
+  @Patch('farmers/:id/tier')
+  setFarmerTier(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetFarmerTierDto) {
+    return this.platform.setFarmerTier(id, dto.tier);
+  }
+
+  /** Make (or clear) this farmer as their tenant's «Фермер на седмицата». */
+  @Patch('farmers/:id/farmer-of-week')
+  setFarmerOfWeek(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetFarmerOfWeekDto) {
+    return this.platform.setFarmerOfWeek(id, dto.enabled);
   }
 
   /** Activate/deactivate a standalone Econt account after one-time payment. */
