@@ -64,7 +64,7 @@ export class ProductsService {
    *  own products; null = owner, whole tenant. */
   async findAll(
     tenantId: string,
-    opts: { cursor?: string; limit?: number } = {},
+    opts: { cursor?: string; limit?: number; review?: boolean } = {},
     farmerScope: string | null = null,
   ): Promise<Paginated<Product>> {
     const lim = clampLimit(opts.limit);
@@ -73,6 +73,7 @@ export class ProductsService {
     // hidden/inactive one, must disappear from the admin list — see remove()).
     const conds = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
     if (farmerScope !== null) conds.push(eq(products.farmerId, farmerScope));
+    if (opts.review) conds.push(eq(products.needsReview, true));
     if (cur) conds.push(keysetAfter(products.createdAt, products.id, cur, 'asc'));
 
     const rows = await this.db
@@ -86,6 +87,7 @@ export class ProductsService {
     if (!cur) {
       const totalConds = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
       if (farmerScope !== null) totalConds.push(eq(products.farmerId, farmerScope));
+      if (opts.review) totalConds.push(eq(products.needsReview, true));
       const [{ total }] = await this.db
         .select({ total: sql<number>`count(*)::int` })
         .from(products)
@@ -184,6 +186,7 @@ export class ProductsService {
     tenantId: string,
     dto: CreateProductDto,
     farmerScope: string | null = null,
+    opts: { needsReview?: boolean } = {},
   ): Promise<Product> {
     // `stock` is virtual — it drives the availability window, not a products
     // column — so strip it before the row is written.
@@ -202,7 +205,7 @@ export class ProductsService {
     const slug = await this.uniqueSlug(tenantId, slugify(dto.name) || 'produkt');
     const [row] = await this.db
       .insert(products)
-      .values({ ...values, tenantId, slug })
+      .values({ ...values, tenantId, slug, needsReview: opts.needsReview ?? false })
       .returning();
     // A stock number sets the product's availability window straight away; null /
     // absent leaves it unlimited (no window).
@@ -284,6 +287,32 @@ export class ProductsService {
 
     await this.cache.invalidate(tenantId);
     return { id };
+  }
+
+  /** Admin sign-off: the product leaves the review queue and becomes publicly
+   *  visible (subject to the usual isActive/stock rules). Idempotent. */
+  async approve(id: string, tenantId: string): Promise<Product> {
+    const [row] = await this.db
+      .update(products)
+      .set({ needsReview: false })
+      .where(and(eq(products.id, id), eq(products.tenantId, tenantId), isNull(products.deletedAt)))
+      .returning();
+    if (!row) throw new NotFoundException('Продуктът не е намерен');
+    await this.cache.invalidate(tenantId);
+    return row;
+  }
+
+  /** Size of the review queue — drives the «Провери продукти» badge. */
+  async pendingReviewCount(tenantId: string): Promise<{ count: number }> {
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(products)
+      .where(and(
+        eq(products.tenantId, tenantId),
+        eq(products.needsReview, true),
+        isNull(products.deletedAt),
+      ));
+    return { count };
   }
 
   /** Batch-update the `courierDisabled` flag for multiple products in one query.
@@ -656,7 +685,11 @@ export class ProductsService {
     const rows = await this.db
       .select()
       .from(products)
-      .where(and(eq(products.tenantId, tenant.id), eq(products.isActive, true)))
+      .where(and(
+        eq(products.tenantId, tenant.id),
+        eq(products.isActive, true),
+        eq(products.needsReview, false),
+      ))
       .orderBy(asc(products.position), asc(products.createdAt), asc(products.id));
 
     const ids = rows.map((r) => r.id);
