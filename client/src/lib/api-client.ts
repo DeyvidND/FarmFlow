@@ -92,9 +92,8 @@ export const listProducts = (cursor?: string) =>
   apiFetch<Paginated<Product>>(`products${qs(cursor)}`);
 
 export const listPendingProducts = (cursor?: string) =>
-  apiFetch<Paginated<Product>>(
-    `products?review=pending${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
-  );
+  apiFetch<Paginated<Product>>(`products?review=pending${qs(cursor).replace('?', '&')}`);
+
 
 export const approveProduct = (id: string) =>
   apiFetch<Product>(`products/${id}/approve`, { method: 'POST' });
