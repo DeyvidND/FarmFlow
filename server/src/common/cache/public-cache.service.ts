@@ -122,6 +122,9 @@ export interface TenantMeta {
   // a warm storefront render needs no extra read. Empty → storefront defaults.
   copy: Record<string, string>;
   faq: PublicFaqItem[];
+  // Weekly order-intake cutoff for the storefront banner (settings.routing.cutoff)
+  // — weekday 0=Sun..6=Sat, hour 0-23, Europe/Sofia. Null if unset.
+  orderCutoff: { weekday: number; hour: number } | null;
 }
 
 /**
@@ -267,6 +270,7 @@ export class PublicCacheService {
           faq?: unknown;
           siteTheme?: unknown;
           slotRule?: unknown;
+          routing?: { cutoff?: { weekday?: number; hour?: number } };
         }
       | null;
     const delivery = settingsObj?.delivery;
@@ -289,6 +293,13 @@ export class PublicCacheService {
       typeof brand?.favicon?.url === 'string' && brand.favicon.url ? brand.favicon.url : null;
     const themeColor =
       typeof brand?.themeColor === 'string' && brand.themeColor ? brand.themeColor : null;
+    const rawCutoff = settingsObj?.routing?.cutoff;
+    const orderCutoff =
+      rawCutoff &&
+      Number.isInteger(rawCutoff.weekday) && rawCutoff.weekday! >= 0 && rawCutoff.weekday! <= 6 &&
+      Number.isInteger(rawCutoff.hour) && rawCutoff.hour! >= 0 && rawCutoff.hour! <= 23
+        ? { weekday: rawCutoff.weekday as number, hour: rawCutoff.hour as number }
+        : null;
     const meta: TenantMeta = {
       ...rest,
       econtEnabled: mode !== 'off',
@@ -320,6 +331,7 @@ export class PublicCacheService {
       marketing: buildPublicMarketing(settingsObj?.marketing),
       copy: buildPublicCopy(settingsObj?.copy),
       faq: buildPublicFaq(settingsObj?.faq),
+      orderCutoff,
     };
 
     await this.set(key, meta);

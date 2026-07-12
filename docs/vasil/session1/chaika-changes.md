@@ -9,10 +9,10 @@ The storefront **farmmarket.bg** lives in the separate **chaika** repo (Cloudfla
 **Requirement (Vasil):** "след като затворим приемът на поръчки в сряда в 17ч. (това трябва да го има на видни места в сайта)."
 Show the weekly intake cutoff **prominently** on the storefront, and (recommended) stop accepting orders for the upcoming delivery cycle after it passes.
 
-### Data source (already exposed by FarmFlow)
-FarmFlow stores the cutoff in `tenants.settings.routing.cutoff = { weekday, hour }` where `weekday` is 0–6 (0=Sunday … 3=Wednesday) and `hour` is 0–23 local (Europe/Sofia). Default `{ weekday: 3, hour: 17 }` (Wednesday 17:00).
+### Data source (exposed by FarmFlow this session)
+The operator sets the cutoff on the **Маршрути** screen (the „Часове за доставка" dialog): `tenants.settings.routing.cutoff = { weekday, hour }` where `weekday` is 0–6 (**0=Sunday, 1=Monday … 3=Wednesday … 6=Saturday**) and `hour` is 0–23 local (Europe/Sofia). Default `{ weekday: 3, hour: 17 }` (Wednesday 17:00).
 
-This is surfaced on the **public tenant/storefront config payload** (the same public endpoint chaika already reads for storefront settings — e.g. `GET /public/:slug` / storefront bootstrap). Field path on the public payload: `settings.ordering.cutoff` (mirrored from `settings.routing.cutoff`; see FarmFlow public-config mapping). If absent, chaika should default to Wed 17:00.
+This is now surfaced on the **public storefront profile payload** — the same public endpoint chaika already reads (`GET /public/:slug` → `PublicStorefront`). Field on the public payload: **`orderCutoff: { weekday: number; hour: number } | null`** (added this session in `public-cache.service.ts`'s `TenantMeta` + `tenants.service.ts`'s `PublicStorefront`; server validates weekday 0–6 / hour 0–23, else `null`). If `orderCutoff` is `null`/absent, chaika should default to Wed 17:00. Note the weekday convention (0=**Sunday**) — map to Bulgarian day names accordingly (`['Неделя','Понеделник','Вторник','Сряда','Четвъртък','Петък','Събота'][weekday]`).
 
 > ⚠️ Redis caches the public payload ~300 s (TTL). After an operator edits the cutoff, chaika sees the new value only after the cache TTL. Acceptable — the cutoff changes rarely.
 

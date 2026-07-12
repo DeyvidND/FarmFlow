@@ -103,6 +103,9 @@ export interface PublicStorefront {
   copy: Record<string, string>;
   // Editable FAQ list (settings.faq). Empty → storefront falls back to DEFAULT_FAQ.
   faq: PublicFaqItem[];
+  // Weekly order-intake cutoff for the storefront banner (settings.routing.cutoff),
+  // carried through from TenantMeta. Null if unset.
+  orderCutoff: { weekday: number; hour: number } | null;
 }
 
 @Injectable()
