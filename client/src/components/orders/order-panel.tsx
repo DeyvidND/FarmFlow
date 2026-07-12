@@ -267,6 +267,10 @@ function codOutcomeBadge(outcome: 'received' | 'refused' | null): { label: strin
 function CodOutcomeSection({ order }: { order: Order }) {
   const isCourier =
     order.deliveryType === 'econt' || order.deliveryType === 'econt_address' || order.deliveryType === 'courier';
+  // Отказана поръчка не събира наложен платеж — cancel-ът вече е сложил
+  // codOutcome='refused' в същата транзакция, така че показваме само баджа
+  // «Отказана» без action бутони («Получих парите» тук няма смисъл).
+  const isCancelled = order.status === 'cancelled';
 
   const [codOutcome, setCodOutcomeState] = useState(order.codOutcome);
   const [codOutcomeReason, setCodOutcomeReasonState] = useState(order.codOutcomeReason);
@@ -304,7 +308,7 @@ function CodOutcomeSection({ order }: { order: Order }) {
         <div className="mb-2 text-[12.5px] text-ff-muted">Причина: {codOutcomeReason}</div>
       )}
 
-      {isCourier && !showActions && (
+      {isCourier && !showActions && !isCancelled && (
         <button
           type="button"
           onClick={() => setShowActions(true)}
@@ -314,7 +318,7 @@ function CodOutcomeSection({ order }: { order: Order }) {
         </button>
       )}
 
-      {showActions && (
+      {showActions && !isCancelled && (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
             <Button
