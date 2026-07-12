@@ -16,6 +16,7 @@ import { ProblemsService } from './problems.service';
 import { HealthBoardService } from './health-board.service';
 import { PlatformController, PlatformAuthController } from './platform.controller';
 import { AiImportModule } from '../ai-import/ai-import.module';
+import { ProducerOnboardService } from './producer-onboard.service';
 import { OperatorDigestService } from './operator-digest.service';
 import { OperatorDigestProcessor } from './operator-digest.processor';
 import { CriticalAlertService } from './critical-alert.service';
@@ -98,6 +99,7 @@ import { RUN_WORKERS } from '../../config/app-role';
     PlatformInsightsService,
     ProblemsService,
     HealthBoardService,
+    ProducerOnboardService,
     OperatorDigestService,
     CriticalAlertService,
     ...(RUN_WORKERS ? [DemoCleanupProcessor, OperatorDigestProcessor, CriticalAlertProcessor] : []),

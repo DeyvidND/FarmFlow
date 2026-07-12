@@ -22,6 +22,7 @@ import { PlatformInsightsService } from './insights.service';
 import { ProblemsService } from './problems.service';
 import { HealthBoardService } from './health-board.service';
 import { ProductExtractService } from '../ai-import/product-extract.service';
+import { ProducerOnboardService } from './producer-onboard.service';
 import { OperatorDigestService } from './operator-digest.service';
 import { CriticalAlertService } from './critical-alert.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
@@ -35,6 +36,7 @@ import { PlatformChangePasswordDto } from './dto/platform-change-password.dto';
 import { CreateDeliveryAccountDto } from './dto/create-delivery-account.dto';
 import { SetDeliveryActiveDto } from './dto/set-delivery-active.dto';
 import { SetProductFeaturedDto, SetFarmerTierDto, SetFarmerOfWeekDto } from './dto/marketplace-curation.dto';
+import { OnboardProducerDto } from './dto/onboard-producer.dto';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { RequestUser } from '@fermeribg/types';
@@ -65,6 +67,7 @@ export class PlatformController {
     private readonly problemsSvc: ProblemsService,
     private readonly healthBoardSvc: HealthBoardService,
     private readonly productExtract: ProductExtractService,
+    private readonly producerOnboard: ProducerOnboardService,
     private readonly operatorDigest: OperatorDigestService,
     private readonly criticalAlert: CriticalAlertService,
   ) {}
@@ -211,6 +214,17 @@ export class PlatformController {
     const content = await this.productExtract.parseToText(file, text);
     const products = await this.productExtract.extract(content);
     return { products };
+  }
+
+  /** One-shot producer onboarding: create + AI-import price list + invite link. */
+  @Post('tenants/:id/producers/onboard')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  onboardProducer(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: OnboardProducerDto,
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ) {
+    return this.producerOnboard.onboard(id, dto, file);
   }
 
   /** Manual trigger: build + send today's operator digest now (to SUPER_ADMIN_EMAIL).
