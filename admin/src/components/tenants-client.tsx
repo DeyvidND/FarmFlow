@@ -888,7 +888,12 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
     }
   }
 
-  const activeCount = tenants.filter((t) => t.subscriptionStatus === 'active').length;
+  // Real vs demo are counted apart — demo accounts are sandbox data and must not
+  // inflate the „real farms" headline (was: `tenants.length` lumped both, so 1
+  // real + 2 demo read as „3 ферми").
+  const realTotal = tenants.filter((t) => !t.isDemo).length;
+  const demoTotal = tenants.filter((t) => t.isDemo).length;
+  const activeRealTotal = tenants.filter((t) => !t.isDemo && t.subscriptionStatus === 'active').length;
   const delReady = !confirmDel || confirmDel.isDemo || delText.trim() === confirmDel.slug;
 
   return (
@@ -897,7 +902,9 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
         <div>
           <h1 className="font-display text-[24px] font-extrabold tracking-[-0.015em]">Фермери</h1>
           <p className="mt-0.5 text-[13.5px] text-ff-muted">
-            {tenants.length} {tenants.length === 1 ? 'ферма' : 'ферми'} · {activeCount} активни
+            {realTotal} {realTotal === 1 ? 'реална ферма' : 'реални ферми'} ·{' '}
+            {activeRealTotal} {activeRealTotal === 1 ? 'активна' : 'активни'}
+            {demoTotal > 0 && ` · ${demoTotal} демо`}
           </p>
         </div>
         <div className="flex items-center gap-2.5">

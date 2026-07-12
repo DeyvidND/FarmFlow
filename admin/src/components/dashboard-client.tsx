@@ -170,9 +170,12 @@ export function DashboardClient({
   insights: PlatformInsights | null;
   problems: ProblemsResponse | null;
 }) {
-  const total = insights?.totalFarms ?? tenants.filter((t) => !t.isDemo).length;
+  // Count real vs demo straight from the live tenants list (same source as the
+  // Ферми screen) — never lump demos into the „real farms" figure, and don't
+  // depend on the separately-cached insights.totalFarms which can drift.
+  const total = tenants.filter((t) => !t.isDemo).length;
   const active = tenants.filter((t) => t.subscriptionStatus === 'active' && !t.isDemo).length;
-  const pastDue = tenants.filter((t) => t.subscriptionStatus === 'past_due').length;
+  const pastDue = tenants.filter((t) => t.subscriptionStatus === 'past_due' && !t.isDemo).length;
   const demo = tenants.filter((t) => t.isDemo).length;
 
   const problemItems = problems?.items ?? [];
