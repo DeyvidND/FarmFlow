@@ -273,11 +273,19 @@ export function ProductsClient({
         }
       }
       patchLocal(created.id, { imageUrl: cover });
-      toast.success('Продуктът е създаден');
+      toast.success(
+        created.needsReview
+          ? 'Изпратен за проверка — операторът ще го одобри преди да се покаже в магазина.'
+          : 'Продуктът е създаден',
+      );
     } else {
       // No photos picked — reopen in the edit dialog so the gallery is one tap away.
       setFullEdit(created);
-      toast.success('Продуктът е създаден — добави снимки');
+      toast.success(
+        created.needsReview
+          ? 'Изпратен за проверка — добави снимки, операторът ще го одобри преди да се покаже.'
+          : 'Продуктът е създаден — добави снимки',
+      );
     }
   }
 

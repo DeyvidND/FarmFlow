@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, Info, Truck, Settings, Users } from 'lucide-react';
+import { Package, Coins, Hourglass, Clock, CheckCheck, Route as RouteIcon, AlertTriangle, CreditCard, ClipboardCheck, Info, Truck, Settings, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, moneyFromStotinki, hhmm, type OrderStatus } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import { OnboardingModal } from './onboarding-modal';
 import { OrdersFeed } from './orders-feed';
 import { OrderPanel } from '@/components/orders/order-panel';
 import { CodReviewDrawer } from '@/components/orders/cod-review-drawer';
-import { ApiError, getDashboard, updateOrderStatus } from '@/lib/api-client';
+import { ApiError, getDashboard, pendingReviewCount, updateOrderStatus } from '@/lib/api-client';
 import type { DashboardSummary, Order } from '@/lib/types';
 
 const WEEKDAYS = ['неделя', 'понеделник', 'вторник', 'сряда', 'четвъртък', 'петък', 'събота'];
@@ -48,6 +48,21 @@ export function DashboardClient({
   const [busy, setBusy] = useState(false);
   const [help, setHelp] = useState(false);
   const [codReviewOpen, setCodReviewOpen] = useState(false);
+  // Surfaced up front so a farmer-submitted product doesn't sit invisible until
+  // the operator happens to open Продукти — the review queue itself has no other
+  // proactive nudge (products-client.tsx's badge only shows once you're already there).
+  const [pendingProducts, setPendingProducts] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    pendingReviewCount()
+      .then((r) => {
+        if (alive) setPendingProducts(r.count);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const feed = orders.filter((o) => o.createdAt.slice(0, 10) === summary.date);
   const codPending = feed.filter((o) => o.status === 'pending' && o.paymentStatus === 'cash');
@@ -216,6 +231,24 @@ export function DashboardClient({
             За да продължи магазинът да работи без прекъсване, добави карта за плащане.
           </div>
           <span className="shrink-0 text-[12.5px] font-extrabold text-ff-green-700">Добави →</span>
+        </Link>
+      )}
+
+      {pendingProducts > 0 && (
+        <Link
+          href="/products"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3 no-underline transition-colors hover:brightness-[0.97]"
+        >
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-ff-amber-soft text-ff-amber-600">
+            <ClipboardCheck size={18} />
+          </span>
+          <div className="flex-1 text-[13px] leading-[1.45] text-ff-ink-2">
+            <span className="font-bold text-ff-amber-600">
+              {pendingProducts} {pendingProducts === 1 ? 'продукт чака' : 'продукта чакат'} проверка.
+            </span>{' '}
+            Фермер добави продукт — прегледай и одобри, за да се появи в магазина.
+          </div>
+          <span className="shrink-0 text-[12.5px] font-extrabold text-ff-amber-600">Провери →</span>
         </Link>
       )}
 
