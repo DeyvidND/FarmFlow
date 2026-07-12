@@ -1,6 +1,7 @@
 /**
- * Guard tests for OrdersService.updateOrder — these all short-circuit BEFORE the
- * transaction, so the DB mock only needs to answer the initial order load.
+ * Guard tests for OrdersService.updateOrder. Status no longer gates edits (an
+ * order is editable regardless of status); the remaining guard blocks item
+ * edits once money has been collected (paidAt / codOutcome='received').
  */
 import { BadRequestException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
@@ -33,21 +34,18 @@ const BASE = {
 };
 
 describe('updateOrder guards', () => {
-  it('rejects editing a delivered order', async () => {
-    const svc = serviceWithOrder({ ...BASE, status: 'delivered' });
-    await expect(svc.updateOrder('order-1', 'tenant-1', { customerName: 'Х' })).rejects.toBeInstanceOf(BadRequestException);
-  });
-  it('rejects editing a cancelled order', async () => {
-    const svc = serviceWithOrder({ ...BASE, status: 'cancelled' });
-    await expect(svc.updateOrder('order-1', 'tenant-1', { customerName: 'Х' })).rejects.toBeInstanceOf(BadRequestException);
-  });
-  it('rejects editing a preparing order (allowlist, not just delivered/cancelled)', async () => {
-    const svc = serviceWithOrder({ ...BASE, status: 'preparing' });
-    await expect(svc.updateOrder('order-1', 'tenant-1', { customerName: 'Х' })).rejects.toBeInstanceOf(BadRequestException);
-  });
-  it('rejects editing an out_for_delivery order', async () => {
-    const svc = serviceWithOrder({ ...BASE, status: 'out_for_delivery' });
-    await expect(svc.updateOrder('order-1', 'tenant-1', { customerName: 'Х' })).rejects.toBeInstanceOf(BadRequestException);
+  it('allows editing an order regardless of status (delivered/cancelled/preparing/out_for_delivery)', async () => {
+    for (const status of ['delivered', 'cancelled', 'preparing', 'out_for_delivery']) {
+      const svc = serviceWithOrder({ ...BASE, status });
+      jest.spyOn(svc, 'findOne').mockResolvedValue({} as any);
+      (svc as any).db.transaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({
+          update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+        }),
+      );
+      (svc as any).cache = { del: jest.fn().mockResolvedValue(undefined) };
+      await expect(svc.updateOrder('order-1', 'tenant-1', { customerName: 'Х' })).resolves.not.toThrow();
+    }
   });
   it('rejects item edits on a card-paid order', async () => {
     const svc = serviceWithOrder({ ...BASE, paidAt: new Date() });

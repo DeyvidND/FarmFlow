@@ -30,7 +30,7 @@ export function OrderPanel({
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const editable = order.status === 'pending' || order.status === 'confirmed';
+  const editable = true;
 
   return (
     <>

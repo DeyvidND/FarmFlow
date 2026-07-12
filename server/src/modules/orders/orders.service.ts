@@ -1002,12 +1002,6 @@ export class OrdersService {
       .limit(1);
     if (!current) throw new NotFoundException('Поръчката не е намерена');
 
-    // Guard: only live (pending/confirmed) orders are editable — an allowlist,
-    // not a blocklist, since the status enum has more than two closed states
-    // (preparing/out_for_delivery are also non-editable here).
-    if (current.status !== 'pending' && current.status !== 'confirmed') {
-      throw new BadRequestException('Само поръчки в статус "чакаща" или "потвърдена" могат да се редактират.');
-    }
     // Guard: once money is collected the item total (and the commission accrual
     // snapshotted at collection) is fixed — no item changes. Card: paidAt is set.
     // COD: outcome 'received' is the collected-money signal that accrues commission
@@ -1122,11 +1116,11 @@ export class OrdersService {
 
   /**
    * Own-delivery orders that can be moved: address delivery, still live
-   * (pending/confirmed), on a slot dated today-or-later. The client groups these
-   * by `slotDate` into the source-day picker + checkbox list.
+   * (pending/confirmed) — including ones stuck on a PAST slot date (never
+   * fulfilled), so they can be caught up onto a future day. The client
+   * groups these by `slotDate` into the source-day picker + checkbox list.
    */
   async reschedulable(tenantId: string): Promise<ReschedulableOrder[]> {
-    const today = bgToday();
     const rows = await this.db
       .select({
         id: orders.id,
@@ -1146,7 +1140,6 @@ export class OrdersService {
           eq(orders.tenantId, tenantId),
           eq(orders.deliveryType, 'address'),
           inArray(orders.status, ['pending', 'confirmed']),
-          gte(deliverySlots.date, today),
         ),
       )
       .orderBy(deliverySlots.date, orders.orderNumber);
