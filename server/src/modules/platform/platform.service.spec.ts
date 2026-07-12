@@ -10,6 +10,7 @@ import { SubcategoriesService } from '../subcategories/subcategories.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { StorageService } from '../storage/storage.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
+import { MapsService } from '../../common/maps/maps.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ConfigService } from '@nestjs/config';
@@ -97,6 +98,7 @@ describe('PlatformService', () => {
         { provide: TenantsService, useValue: { updateSiteContact: jest.fn(), setFavicon: jest.fn() } },
         { provide: StorageService, useValue: { deleteByPrefix: storageDeleteByPrefix } },
         { provide: CatalogCacheService, useValue: { invalidate: jest.fn().mockResolvedValue(undefined) } },
+        { provide: MapsService, useValue: { enabled: false, geocodeApprox: jest.fn().mockResolvedValue(null) } },
       ],
     }).compile();
 
