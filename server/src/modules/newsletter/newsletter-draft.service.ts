@@ -96,7 +96,12 @@ export class NewsletterDraftService {
       priceStotinki: products.priceStotinki,
       imageUrl: products.imageUrl,
     };
-    const live = and(eq(products.tenantId, tenantId), eq(products.isActive, true), isNull(products.deletedAt));
+    const live = and(
+      eq(products.tenantId, tenantId),
+      eq(products.isActive, true),
+      eq(products.needsReview, false),
+      isNull(products.deletedAt),
+    );
 
     const fresh = await this.db
       .select(cols)
