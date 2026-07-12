@@ -20,6 +20,7 @@ import { AppController } from './app.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { ProductsModule } from './modules/products/products.module';
+import { AiImportModule } from './modules/ai-import/ai-import.module';
 import { FarmersModule } from './modules/farmers/farmers.module';
 import { SubcategoriesModule } from './modules/subcategories/subcategories.module';
 import { SlotsModule } from './modules/slots/slots.module';
@@ -109,6 +110,7 @@ import { ImageQueueModule } from './modules/image-queue/image-queue.module';
     AuthModule,
     TenantsModule,
     ProductsModule,
+    AiImportModule,
     FarmersModule,
     SubcategoriesModule,
     SlotsModule,

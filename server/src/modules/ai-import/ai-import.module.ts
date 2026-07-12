@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
+import { ProductsModule } from '../products/products.module';
 import { ProductExtractService } from './product-extract.service';
+import { AiImportController } from './ai-import.controller';
 
-/**
- * AI product import: turns a pasted price list, an uploaded file, or (vision) a
- * PHOTO of a price list into clean product rows. Shared by the super-admin
- * onboarding import and the tenant-facing "add from photo" flow.
- */
 @Module({
+  imports: [ProductsModule],
+  controllers: [AiImportController],
   providers: [ProductExtractService],
   exports: [ProductExtractService],
 })
