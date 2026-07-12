@@ -17,6 +17,7 @@ import {
   X,
   ClipboardList,
   PackageCheck,
+  Clock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getOrder, measureRoute, setOrderCourier, updateOrderStatus, updateTenant } from '@/lib/api-client';
@@ -37,6 +38,8 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { reconcileOrder } from './route-order';
 import { ReorderStopsModal } from './reorder-stops-modal';
 import { RouteDaySuggesterModal } from './route-day-suggester-modal';
+import { CourierHomesModal } from './courier-homes-modal';
+import { DeliveryWindowsModal } from './delivery-windows-modal';
 
 // Re-exported so callers only need to import from one place.
 export { ROUTE_COLORS };
@@ -288,6 +291,8 @@ export function RouteClient({
 
   const [showHelp, setShowHelp] = useState(false);
   const [showLoc, setShowLoc] = useState(false);
+  const [showHomes, setShowHomes] = useState(false);
+  const [showWindows, setShowWindows] = useState(false);
   // The stop whose address is being edited (drives the „Смени адрес" modal).
   const [editStop, setEditStop] = useState<RouteStop | null>(null);
   // Remaining legs of a long (>9-waypoint) route — opened one-by-one on click so
@@ -787,6 +792,20 @@ export function RouteClient({
             <Settings size={16} /> Локация
           </button>
           <button
+            onClick={() => setShowHomes(true)}
+            title="Задай дом за всеки куриер (край на маршрута)"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
+          >
+            <Home size={16} /> Домове
+          </button>
+          <button
+            onClick={() => setShowWindows(true)}
+            title="Часове за доставка + известия до клиентите"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
+          >
+            <Clock size={16} /> Часове
+          </button>
+          <button
             onClick={() => setShowHelp((v) => !v)}
             title="Какво правят бутоните?"
             className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
@@ -1174,6 +1193,27 @@ export function RouteClient({
             // Orders moved across days — reload so the current day's route reflects it.
             router.refresh();
           }}
+        />
+      )}
+
+      {showHomes && (
+        <CourierHomesModal
+          courierCount={route.couriers}
+          placesKey={placesKey}
+          onClose={() => setShowHomes(false)}
+          onSaved={() => {
+            setShowHomes(false);
+            router.refresh();
+          }}
+        />
+      )}
+      {showWindows && (
+        <DeliveryWindowsModal
+          date={route.date}
+          couriers={route.couriers}
+          ends={routes.map((r) => r.endMode).join(',')}
+          onClose={() => setShowWindows(false)}
+          onChanged={() => router.refresh()}
         />
       )}
     </div>

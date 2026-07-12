@@ -227,6 +227,20 @@ export interface RoutingConfig {
   endLng?: string | null;
   /** Default number of couriers to split the route between (1-10). */
   courierCount?: number;
+  /** Per-courier config (task #7 home „У дома" + name/end). Index-aligned. */
+  couriers?: {
+    name?: string | null;
+    endMode?: RouteEndMode;
+    homeAddress?: string | null;
+    homeLat?: string | null;
+    homeLng?: string | null;
+  }[];
+  /** Delivery day-plan tuning (task #13 window generation). */
+  dayStartHour?: number;
+  slotSizeMin?: number;
+  serviceMin?: number;
+  /** Weekly order-intake cutoff (task #13): weekday 0=Sun..6=Sat, hour 0-23 (Europe/Sofia). */
+  cutoff?: { weekday: number; hour: number };
 }
 
 // ---- Delivery configuration (persisted to tenant.settings.delivery) ----
