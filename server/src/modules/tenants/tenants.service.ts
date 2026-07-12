@@ -600,6 +600,29 @@ export class TenantsService {
         next.endLng = null;
       }
     }
+    // Per-courier home „У дома" (task #7): geocode each courier's homeAddress into
+    // homeLat/homeLng when the client sent an address without coords (typed, not
+    // map-picked); clear the coords when the address is removed. The client sends
+    // the FULL couriers array (index-aligned), so it replaces the stored one.
+    if (Array.isArray(routing.couriers)) {
+      next.couriers = await Promise.all(
+        (routing.couriers as unknown[]).map(async (c) => {
+          if (!c || typeof c !== 'object' || Array.isArray(c)) return c;
+          const cfg = { ...(c as Record<string, unknown>) };
+          const homeAddress = typeof cfg.homeAddress === 'string' ? cfg.homeAddress.trim() : '';
+          const hasCoords = cfg.homeLat != null && cfg.homeLng != null;
+          if (homeAddress && !hasCoords) {
+            const geo = await this.maps.geocode(homeAddress);
+            cfg.homeLat = geo ? String(geo.lat) : null;
+            cfg.homeLng = geo ? String(geo.lng) : null;
+          } else if (!homeAddress) {
+            cfg.homeLat = null;
+            cfg.homeLng = null;
+          }
+          return cfg;
+        }),
+      );
+    }
     return next;
   }
 }
