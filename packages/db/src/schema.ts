@@ -201,6 +201,9 @@ export const products = pgTable(
     // Companion rule: true = can't be ordered alone; the cart must also hold ≥1 other distinct
     // product. Enforced in OrdersService + a storefront pre-check. (migr 0101)
     requiresCompanion: boolean('requires_companion').notNull().default(false),
+    // Optional EUR-cents threshold for the companion rule (same unit as priceStotinki): the
+    // required other product must be worth ≥ this. NULL = any other product qualifies. (migr 0101)
+    companionMinPriceStotinki: integer('companion_min_price_stotinki'),
     imageUrl: text('image_url'),
     // How the cover image is framed in storefront product cards: focal point
     // (x/y, 0..1) + zoom (1..3). NULL = legacy behavior (centered, no zoom).
