@@ -63,7 +63,7 @@ export function ProductsClient({
   // «Продукт на седмицата» and the storefront catalog order are shop-wide, owner-only
   // concerns — a producer manages only the contents of their own products.
   const isFarmer = role === 'farmer';
-  const { items: products, setItems: setProducts, loadMore, loadAll, hasMore, loading } = usePaginatedList<Product>(
+  const { items: products, setItems: setProducts, loadMore, loadAll, replace: replaceProducts, hasMore, loading } = usePaginatedList<Product>(
     initial,
     listProducts,
   );
@@ -504,9 +504,13 @@ export function ProductsClient({
           toast.success(`Добавени ${created} продукта`);
           // The commit only returns a count, not the created rows — refetch the
           // first page (same call `loadMore` uses) instead of guessing ids.
+          // `replace` (not `setProducts`) so the hook's cursor resets to match —
+          // otherwise `loadMore` resumes from the pre-refresh cursor (skipped/dup
+          // pages), or if every page had already been drained, the list silently
+          // shrinks to page 1 with no «Зареди още» button to get the rest back.
           try {
             const page = await listProducts();
-            setProducts(page.items);
+            replaceProducts(page);
           } catch (e) {
             toast.error(errMsg(e));
           }

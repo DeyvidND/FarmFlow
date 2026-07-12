@@ -29,6 +29,19 @@ export function usePaginatedList<T>(
   }, [cursor, loading, fetchMore]);
 
   /**
+   * Replace the whole list with a freshly fetched page (e.g. after a mutation that
+   * invalidates the accumulated pages) AND reset the cursor to match it. Plain
+   * `setItems` alone would leave a stale cursor: `loadMore` would then resume from
+   * wherever the old pagination had gotten to (skipping/duplicating rows), and if
+   * the farmer had already drained every page (`cursor === null`, `hasMore === false`)
+   * the list would shrink to one page with no way to reach the rest short of a reload.
+   */
+  const replace = useCallback((page: Paginated<T>) => {
+    setItems(page.items);
+    setCursor(page.nextCursor);
+  }, []);
+
+  /**
    * Drain every remaining page in one go. Used when a client-side filter is active:
    * filtering only sees loaded items, so a filter can't be trusted until the whole
    * list is in memory. Loops on a LOCAL cursor (not the state one) so it isn't
@@ -58,5 +71,5 @@ export function usePaginatedList<T>(
     }
   }, [cursor, loading, fetchMore]);
 
-  return { items, setItems, loadMore, loadAll, hasMore: cursor !== null, loading } as const;
+  return { items, setItems, loadMore, loadAll, replace, hasMore: cursor !== null, loading } as const;
 }

@@ -31,6 +31,12 @@ export function AiImportDialog({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // The dialog instance stays mounted across opens (`open` just toggles the render
+  // guard below), so an in-flight extract/publish promise from a closed session can
+  // still resolve later and call setState on the NEXT session. Bumped in `close()`;
+  // every async continuation checks it against the value captured at call-time and
+  // bails out if it's gone stale instead of poisoning the reopened dialog.
+  const sessionRef = useRef(0);
 
   // So a second open never shows the previous run's preview/text/error.
   function reset() {
@@ -42,6 +48,7 @@ export function AiImportDialog({
   }
 
   function close() {
+    sessionRef.current++; // invalidate any extract/publish still in flight
     reset();
     onClose();
   }
@@ -49,32 +56,38 @@ export function AiImportDialog({
   if (!open) return null;
 
   async function runExtract(input: { file?: File; text?: string }) {
+    const session = sessionRef.current;
     setBusy(true);
     setErr(null);
     try {
       const res = await extractAiProducts(input);
+      if (session !== sessionRef.current) return; // dialog closed/reopened meanwhile
       if (res.products.length === 0)
         setErr('Не разчетохме продукти. Опитайте с по-ясна снимка или поставете текста.');
       else setRows(res.products);
     } catch (e) {
+      if (session !== sessionRef.current) return;
       setErr(e instanceof Error ? e.message : 'Грешка при разчитането.');
     } finally {
-      setBusy(false);
+      if (session === sessionRef.current) setBusy(false);
     }
   }
 
   async function publish() {
     if (!rows?.length) return;
+    const session = sessionRef.current;
     setBusy(true);
     setErr(null);
     try {
       const { created } = await commitAiProducts(rows);
+      if (session !== sessionRef.current) return; // dialog closed/reopened meanwhile
       onDone(created);
       close();
     } catch (e) {
+      if (session !== sessionRef.current) return;
       setErr(e instanceof Error ? e.message : 'Грешка при публикуването.');
     } finally {
-      setBusy(false);
+      if (session === sessionRef.current) setBusy(false);
     }
   }
 
