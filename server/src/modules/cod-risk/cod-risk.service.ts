@@ -368,16 +368,20 @@ export class CodRiskService {
   async undoManualRefusal(order: typeof orders.$inferSelect): Promise<void> {
     const phone = normalizePhone(order.customerPhone ?? '');
     if (!phone) return;
+    // orders.tenantId is nullable in the schema (legacy rows); nothing to scope the
+    // event delete to without it — the strike decrement below still applies.
+    const tenantId = order.tenantId;
     await this.db
       .update(codRisk)
       .set({ strikes: sql`GREATEST(${codRisk.strikes} - 1, 0)`, updatedAt: new Date() })
       .where(eq(codRisk.phone, phone));
+    if (!tenantId) return;
     await this.db
       .delete(codRiskEvents)
       .where(
         and(
           eq(codRiskEvents.phone, phone),
-          eq(codRiskEvents.tenantId, order.tenantId),
+          eq(codRiskEvents.tenantId, tenantId),
           eq(codRiskEvents.type, 'returned'),
           isNull(codRiskEvents.shipmentId),
         ),
