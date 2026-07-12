@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { type Database, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { CommissionService } from '../vendor-finance/commission.service';
@@ -32,13 +32,15 @@ export class PlatformMarketplaceFinanceService {
     private readonly commission: CommissionService,
   ) {}
 
-  /** Every multi-producer tenant with its commission summary totals. The set is
-   *  tiny (a handful of marketplace brands), so a summary per brand is fine. */
+  /** Every REAL multi-producer tenant with its commission summary totals. Demo
+   *  brands are sandbox data with no real finance, so they're excluded here (they
+   *  still exist, just not in the marketplace money view). The set is tiny (a
+   *  handful of brands), so a summary per brand is fine. */
   async listBrands(): Promise<MarketplaceBrand[]> {
     const brands = await this.db
       .select({ id: tenants.id, name: tenants.name, slug: tenants.slug, isDemo: tenants.isDemo })
       .from(tenants)
-      .where(eq(tenants.multiFarmer, true))
+      .where(and(eq(tenants.multiFarmer, true), eq(tenants.isDemo, false)))
       .orderBy(tenants.name);
 
     return Promise.all(

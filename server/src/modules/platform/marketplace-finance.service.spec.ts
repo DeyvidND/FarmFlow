@@ -29,9 +29,11 @@ async function build(db: any, commission: Partial<CommissionService>) {
 describe('PlatformMarketplaceFinanceService.listBrands', () => {
   it('maps each multi-producer tenant to its commission roll-up', async () => {
     const db = makeDb();
+    // listBrands filters demos out in SQL, so every row reaching the mapper is a
+    // real brand — both fixtures are non-demo.
     db.queue([
       { id: 'b1', name: 'Бранд 1', slug: 'brand-1', isDemo: false },
-      { id: 'b2', name: 'Бранд 2', slug: 'brand-2', isDemo: true },
+      { id: 'b2', name: 'Бранд 2', slug: 'brand-2', isDemo: false },
     ]);
     const summary = jest.fn(async (tenantId: string) =>
       tenantId === 'b1'
@@ -72,7 +74,7 @@ describe('PlatformMarketplaceFinanceService.listBrands', () => {
         id: 'b2',
         name: 'Бранд 2',
         slug: 'brand-2',
-        isDemo: true,
+        isDemo: false,
         commissionEnabled: false,
         defaultRateBps: 0,
         farmerCount: 0,
