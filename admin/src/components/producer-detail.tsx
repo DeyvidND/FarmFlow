@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowLeft, ChevronRight, Package, Truck, Wallet, ShoppingBasket, Check } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Package, Truck, Wallet, ShoppingBasket, Check, TriangleAlert } from 'lucide-react';
 import { cn, eur, dmy } from '@/lib/utils';
 import type { FarmerDetail } from '@/lib/api-client';
 import { ImpersonateButton } from './impersonate-button';
@@ -54,6 +54,27 @@ function CarrierPill({ on, label }: { on: boolean; label: string }) {
 
 const money = (st: number | null) => (st == null ? '—' : eur(st));
 
+/** Farmer-as-seller go-live readiness pill: green when the producer can be flipped to a
+ *  live seller (legal КЗП identity + own carrier for own COD), else amber with what's
+ *  missing so the operator knows what to chase before enabling marketplace sales. */
+function SellerReadyBadge({ readiness }: { readiness: FarmerDetail['sellerReadiness'] }) {
+  if (readiness.ready) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-ff-green-50 px-2.5 py-1 text-[12px] font-bold text-ff-green-700">
+        <Check size={13} /> Готов за продажби
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full bg-ff-amber-soft px-2.5 py-1 text-[12px] font-bold text-ff-amber-600"
+      title={`Липсва: ${readiness.missing.join(', ')}`}
+    >
+      <TriangleAlert size={13} /> Не е готов · липсва {readiness.missing.join(', ')}
+    </span>
+  );
+}
+
 export function ProducerDetail({ farmer: f }: { farmer: FarmerDetail }) {
   return (
     <div className="animate-ff-fade-up">
@@ -97,6 +118,7 @@ export function ProducerDetail({ farmer: f }: { farmer: FarmerDetail }) {
             <CarrierPill on={f.econtConnected} label="Еконт" />
             <CarrierPill on={f.speedyConnected} label="Speedy" />
           </div>
+          <SellerReadyBadge readiness={f.sellerReadiness} />
         </div>
       </div>
 

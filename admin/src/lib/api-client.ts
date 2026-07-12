@@ -100,6 +100,13 @@ export interface FarmerDetail {
   invitePending: boolean;
   econtConnected: boolean;
   speedyConnected: boolean;
+  /** Farmer-as-seller go-live readiness: legal seller identity + own carrier connected. */
+  sellerReadiness: {
+    ready: boolean;
+    hasLegalIdentity: boolean;
+    hasOwnCarrier: boolean;
+    missing: string[];
+  };
   counts: { products: number; courierOrders: number; shipments: number; draftShipments: number };
   cod: { pendingStotinki: number; collectedStotinki: number };
   recentShipments: {

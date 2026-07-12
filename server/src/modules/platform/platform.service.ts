@@ -61,7 +61,7 @@ import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { sanitizeSiteUrl } from '../tenants/site-copy';
 import { DEMO_SEED } from './demo-seed';
 import { econtTenantSettings, withEcontActive } from '../econt-app/econt-app.helpers';
-import { farmDefaultSettings } from './platform.helpers';
+import { farmDefaultSettings, farmerSellerReadiness, type SellerReadiness } from './platform.helpers';
 import { CreateDeliveryAccountDto } from './dto/create-delivery-account.dto';
 import {
   deliveryCapabilities,
@@ -263,6 +263,8 @@ export interface FarmerDetail {
   invitePending: boolean;
   econtConnected: boolean;
   speedyConnected: boolean;
+  // Farmer-as-seller go-live readiness: legal seller identity + own carrier connected.
+  sellerReadiness: SellerReadiness;
   // Marketplace ranking tier (1..3) — mirrors farmers.tier. For the curation screen's
   // tier picker.
   tier: number;
@@ -837,6 +839,7 @@ export class PlatformService {
         name: farmers.name,
         role: farmers.role,
         tier: farmers.tier,
+        legal: farmers.legal,
         tenantId: tenants.id,
         tenantName: tenants.name,
         tenantSlug: tenants.slug,
@@ -930,6 +933,12 @@ export class PlatformService {
       invitePending: !!base.userId && !!base.mustChange,
       econtConnected: !!ns?.econt?.configured,
       speedyConnected: !!ns?.speedy?.configured,
+      // Farmer-as-seller go-live gate: legal identity (КЗП disclosure) + own carrier
+      // (collects own COD). The operator needs this to know who can be flipped live.
+      sellerReadiness: farmerSellerReadiness(
+        base.legal,
+        !!ns?.econt?.configured || !!ns?.speedy?.configured,
+      ),
       tier: base.tier,
       isFarmerOfWeek,
       products: productRows,
