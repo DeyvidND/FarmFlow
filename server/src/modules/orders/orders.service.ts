@@ -337,7 +337,13 @@ export function toFarmerOrder(r: FarmerOrderRow): FarmerOrder {
 
 /**
  * Fold the per-channel SQL aggregate into screen totals. Pure (no DB). COD counts
- * every due order; card counts only paid orders (money actually received).
+ * every due order (rows.count is not filtered — a refused order stays listed on
+ * the Плащания screen with its «Отказана» badge); card counts only paid orders
+ * (money actually received). Task #8: `rows[].totalStotinki` for the COD channel
+ * is now produced by a SUM that already excludes `codOutcome='refused'` rows (see
+ * paymentTotalsCached / paymentsForFarmer) — that money was returned at the door
+ * and must not inflate the «Общо»/«Наложен платеж» tiles, even though the order's
+ * status never left the counted set (only a cancel, not a refusal, flips status).
  */
 export function paymentTotals(rows: PaymentAggRow[]): PaymentTotals {
   let codTotalStotinki = 0;
@@ -768,13 +774,17 @@ export class OrdersService {
     // Totals are global (ignore search/page) — only computed on the first page; a
     // «load more» fetch (cur set) would otherwise run this full-history aggregate
     // and then discard the result unused.
+    // Task #8 fix: exclude refused COD money from the sum (mirrors
+    // paymentTotalsCached above) — a refused наложен платеж order stays in a
+    // counted status (only a cancel, not a refusal, flips status), so it must
+    // not keep inflating this producer's due/collected total.
     const aggRows = cur
       ? []
       : await this.db
           .select({
             paymentMethod: orders.paymentMethod,
             count: sql<number>`count(distinct ${orders.id})::int`,
-            totalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}), 0)::int`,
+            totalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.codOutcome} is distinct from 'refused'), 0)::int`,
             paidCount: sql<number>`count(distinct ${orders.id}) filter (where ${orders.paidAt} is not null)::int`,
             paidTotalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.paidAt} is not null), 0)::int`,
           })
@@ -922,7 +932,18 @@ export class OrdersService {
     return { orders: fullRows.map(toFarmerOrder), nextCursor };
   }
 
-  /** Tenant-wide payment totals, Redis-cached (busted on order writes). */
+  /** Tenant-wide payment totals, Redis-cached (busted on order writes).
+   *
+   * Task #8 fix: a COD order the customer REFUSED at the door
+   * (`codOutcome='refused'`) never leaves its counted status (it stays
+   * confirmed/delivered — only a cancel flips status, and a refusal is not a
+   * cancel), so it was still being summed into `totalStotinki` as money
+   * due/collected even though that money will never arrive. `totalStotinki`
+   * now excludes refused COD rows from the SUM (they stay in `count` — the
+   * row is still listed on the Плащания screen with its «Отказана» badge,
+   * it just contributes 0 to the money tiles). `codOutcome` is only ever set
+   * on `payment_method='cod'` rows (see setCodOutcome's method guard), so
+   * `IS DISTINCT FROM 'refused'` is a no-op for the online group. */
   private async paymentTotalsCached(tenantId: string): Promise<PaymentTotals> {
     const key = `payments:totals:${tenantId}`;
     const hit = await this.cache.get<PaymentTotals>(key);
@@ -931,7 +952,7 @@ export class OrdersService {
       .select({
         paymentMethod: orders.paymentMethod,
         count: sql<number>`count(*)::int`,
-        totalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}), 0)::int`,
+        totalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.codOutcome} is distinct from 'refused'), 0)::int`,
         paidCount: sql<number>`count(*) filter (where ${orders.paidAt} is not null)::int`,
         paidTotalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.paidAt} is not null), 0)::int`,
       })
