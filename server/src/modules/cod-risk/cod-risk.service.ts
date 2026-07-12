@@ -1,5 +1,5 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
-import { and, eq, sql, desc } from 'drizzle-orm';
+import { and, eq, sql, desc, isNull } from 'drizzle-orm';
 import { type Database, shipments, orders, codRisk, codRiskEvents } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { NekorektenClient } from './nekorekten.client';
@@ -358,6 +358,30 @@ export class CodRiskService {
     await this.db
       .insert(codRiskEvents)
       .values({ phone, tenantId: order.tenantId, shipmentId: null, type: 'returned' });
+  }
+
+  /** Reverse a manual refusal strike (Task #3 revert). Best-effort: decrement the
+   *  phone's strike count (floor 0) and drop the manual `returned` cod_risk_event(s)
+   *  for this tenant+phone (shipmentId IS NULL identifies the manual-refusal path,
+   *  as opposed to a courier-driven {@link recordReturnIfApplicable} strike, which
+   *  always carries a shipmentId). Caller wraps in try/catch. */
+  async undoManualRefusal(order: typeof orders.$inferSelect): Promise<void> {
+    const phone = normalizePhone(order.customerPhone ?? '');
+    if (!phone) return;
+    await this.db
+      .update(codRisk)
+      .set({ strikes: sql`GREATEST(${codRisk.strikes} - 1, 0)`, updatedAt: new Date() })
+      .where(eq(codRisk.phone, phone));
+    await this.db
+      .delete(codRiskEvents)
+      .where(
+        and(
+          eq(codRiskEvents.phone, phone),
+          eq(codRiskEvents.tenantId, order.tenantId),
+          eq(codRiskEvents.type, 'returned'),
+          isNull(codRiskEvents.shipmentId),
+        ),
+      );
   }
 
   /** Returned-COD shipments for this tenant awaiting a report decision. */

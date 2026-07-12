@@ -15,6 +15,7 @@ import {
   Loader2,
   Check,
   X,
+  RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -287,6 +288,23 @@ export function PaymentsClient({
     }
   }, []);
 
+  // Undo an accidental «Получих парите» / «Отказана» click — reverts the COD
+  // outcome back to «Очаквано» (Task 3). Optimistic: patch the row locally.
+  const onRevert = useCallback(async (id: string) => {
+    setCollectingId(id);
+    try {
+      await setCodOutcome(id, 'pending');
+      setAllOrders((prev) =>
+        prev.map((o) => (o.id === id ? { ...o, codOutcome: null, collected: false } : o)),
+      );
+      toast.success('Върнато в очакване.');
+    } catch {
+      toast.error('Грешка при връщането.');
+    } finally {
+      setCollectingId(null);
+    }
+  }, []);
+
   /** Create/refresh the connected account and open Stripe's hosted onboarding in a new tab. */
   async function onboard() {
     setBusy(true);
@@ -418,6 +436,7 @@ export function PaymentsClient({
             empty={tab === 'cod' ? 'Още няма плащания с наложен платеж.' : 'Още няма плащания.'}
             onCollect={tab === 'cod' ? onCollect : undefined}
             onRefuse={tab === 'cod' ? onRefuse : undefined}
+            onRevert={tab === 'cod' ? onRevert : undefined}
             collectingId={collectingId}
             codRecon={tab === 'cod' ? codRecon : undefined}
           />
@@ -447,6 +466,7 @@ function PayTable({
   empty,
   onCollect,
   onRefuse,
+  onRevert,
   collectingId,
   codRecon,
 }: {
@@ -456,6 +476,7 @@ function PayTable({
   empty: string;
   onCollect?: (id: string) => void;
   onRefuse?: (id: string) => void;
+  onRevert?: (id: string) => void;
   collectingId?: string | null;
   codRecon?: Record<string, CodReconRow>;
 }) {
@@ -483,6 +504,7 @@ function PayTable({
             const s = moneyStatus(o);
             const canCollect = !!onCollect && o.paymentMethod === 'cod' && o.codOutcome == null;
             const canRefuse = !!onRefuse && o.paymentMethod === 'cod' && o.codOutcome == null;
+            const canRevert = !!onRevert && o.paymentMethod === 'cod' && o.codOutcome != null;
             return (
               <tr key={o.id} className="border-b border-ff-border-2 last:border-0 hover:bg-ff-surface-2">
                 <td className="px-5 py-3.5 align-top">
@@ -511,6 +533,9 @@ function PayTable({
                     {canRefuse && (
                       <RefuseButton id={o.id} collectingId={collectingId} onRefuse={onRefuse!} />
                     )}
+                    {canRevert && (
+                      <RevertButton id={o.id} collectingId={collectingId} onRevert={onRevert!} />
+                    )}
                     {codRecon && (() => {
                       const b = codSettlementBadge(codRecon[o.id], o);
                       return <span className={cn('rounded-full px-2 py-0.5 text-[12px] font-bold', b.cls)}>{b.label}</span>;
@@ -532,6 +557,7 @@ function PayTable({
           const s = moneyStatus(o);
           const canCollect = !!onCollect && o.paymentMethod === 'cod' && o.codOutcome == null;
           const canRefuse = !!onRefuse && o.paymentMethod === 'cod' && o.codOutcome == null;
+          const canRevert = !!onRevert && o.paymentMethod === 'cod' && o.codOutcome != null;
           return (
             <div key={o.id} className="flex flex-col gap-2 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
               <div className="flex items-start justify-between gap-2.5">
@@ -556,6 +582,9 @@ function PayTable({
                 )}
                 {canRefuse && (
                   <RefuseButton id={o.id} collectingId={collectingId} onRefuse={onRefuse!} />
+                )}
+                {canRevert && (
+                  <RevertButton id={o.id} collectingId={collectingId} onRevert={onRevert!} />
                 )}
                 {codRecon && (() => {
                   const b = codSettlementBadge(codRecon[o.id], o);
@@ -624,6 +653,35 @@ function RefuseButton({
         <X size={12} />
       )}
       Отказана
+    </button>
+  );
+}
+
+/** «Върни» — undo an accidental «Получих парите» / «Отказана» click, reverting
+ *  the COD outcome back to «Очаквано» so it can be re-marked correctly later. */
+function RevertButton({
+  id,
+  collectingId,
+  onRevert,
+}: {
+  id: string;
+  collectingId?: string | null;
+  onRevert: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onRevert(id)}
+      disabled={collectingId === id}
+      title="Върни в очакване"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-ff-border bg-ff-surface-2 px-2.5 py-1 text-[11px] font-extrabold text-ff-muted hover:bg-ff-border-2 disabled:opacity-60"
+    >
+      {collectingId === id ? (
+        <Loader2 size={12} className="animate-spin" />
+      ) : (
+        <RotateCcw size={12} />
+      )}
+      Върни
     </button>
   );
 }

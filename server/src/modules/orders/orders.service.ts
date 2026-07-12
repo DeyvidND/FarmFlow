@@ -1411,16 +1411,26 @@ export class OrdersService {
     return this.updateStatus(id, tenantId, dto);
   }
 
-  /** Set a COD order's money outcome (received / refused). Manual path used by
-   *  pickup + own-delivery orders and by a courier-order override. Strike on
-   *  the NULL→refused transition only (idempotent re-marks add no strike). */
+  /** Set a COD order's money outcome (received / refused / pending). Manual path
+   *  used by pickup + own-delivery orders and by a courier-order override. Strike on
+   *  the NULL→refused transition only (idempotent re-marks add no strike).
+   *  `outcome: 'pending'` REVERTS a resolved outcome back to «Очаквано» (Task #3) —
+   *  undoing the side-effects the original mark caused: the commission ledger is
+   *  voided (no money has actually been collected yet) and, if the order was
+   *  manually refused, the cod-risk strike it recorded is reversed. */
   async setCodOutcome(
     id: string,
     tenantId: string,
     dto: UpdateCodOutcomeDto,
   ): Promise<OrderRow> {
     const [prev] = await this.db
-      .select({ paymentMethod: orders.paymentMethod, codOutcome: orders.codOutcome })
+      .select({
+        id: orders.id,
+        tenantId: orders.tenantId,
+        paymentMethod: orders.paymentMethod,
+        codOutcome: orders.codOutcome,
+        customerPhone: orders.customerPhone,
+      })
       .from(orders)
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .limit(1);
@@ -1428,6 +1438,36 @@ export class OrdersService {
     if (prev.paymentMethod !== 'cod') {
       throw new BadRequestException('Само поръчки с наложен платеж имат статус на плащане.');
     }
+
+    if (dto.outcome === 'pending') {
+      const [row] = await this.db
+        .update(orders)
+        .set({
+          codOutcome: null,
+          codOutcomeAt: null,
+          codOutcomeReason: null,
+          codOutcomeSource: 'manual',
+        })
+        .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+        .returning();
+      if (!row) throw new NotFoundException('Поръчката не е намерена');
+      // No money has been collected once reverted to pending — void the (dormant)
+      // commission accrual. Fire-and-forget: must never block the outcome write.
+      void this.commission?.voidForOrder(id, tenantId);
+      // A manual refusal recorded a cod-risk strike on the NULL→refused transition
+      // (see below); reverting that refusal removes the strike it caused. A prior
+      // `received` outcome never recorded a strike, so there is nothing to undo.
+      if (prev.codOutcome === 'refused') {
+        try {
+          await this.codRisk.undoManualRefusal(prev as typeof orders.$inferSelect);
+        } catch {
+          /* best-effort: leave the revert recorded even if the strike undo fails */
+        }
+      }
+      await this.bustPayments(tenantId);
+      return row;
+    }
+
     const [row] = await this.db
       .update(orders)
       .set({

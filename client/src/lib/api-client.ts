@@ -612,12 +612,15 @@ export const rescheduleOrders = (orderIds: string[], toDate: string) =>
     'Неуспешно преместване на поръчките',
   );
 
-export const setCodOutcome = (id: string, outcome: 'received' | 'refused', reason?: string) =>
+export const setCodOutcome = (id: string, outcome: 'received' | 'refused' | 'pending', reason?: string) =>
   apiFetch<Order>(
     `orders/${id}/cod-outcome`,
     { method: 'PATCH', ...json({ outcome, ...(reason ? { reason } : {}) }) },
     'Неуспешна промяна на статуса на плащане',
   );
+
+/** Revert a resolved COD outcome (received/refused) back to «Очаквано». */
+export const revertCodOutcome = (id: string) => setCodOutcome(id, 'pending');
 
 export const confirmPendingOrders = (date?: string) =>
   apiFetch<{ confirmed: number }>(
