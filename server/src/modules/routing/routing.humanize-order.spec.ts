@@ -68,7 +68,7 @@ describe('RoutingService.getRoute — human-readable order smoothing', () => {
       routeFixed: jest.fn().mockResolvedValue({ distanceM: 900, durationS: 610, polyline: 'r' }),
       geocode: jest.fn(),
     } as any;
-    const svc = new RoutingService(db, maps, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any);
 
     // One-way (`last`): the last stop is free, so in-sequence is a clear win.
     const result = await svc.getRoute('t1', '2026-07-07', 'last', 1);
@@ -100,7 +100,7 @@ describe('RoutingService.getRoute — human-readable order smoothing', () => {
       routeFixed: jest.fn().mockResolvedValue({ distanceM: 5000, durationS: 99999, polyline: 'r' }),
       geocode: jest.fn(),
     } as any;
-    const svc = new RoutingService(db, maps, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any);
 
     // Home (round trip): reordered + dest!=null → the guard branch runs.
     const result = await svc.getRoute('t1', '2026-07-07', 'home', 1);
