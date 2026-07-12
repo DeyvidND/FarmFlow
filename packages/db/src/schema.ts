@@ -198,6 +198,9 @@ export const products = pgTable(
     // review, hidden from the public catalog. Admin/operator-created products are
     // born false (live). Cleared only by the explicit approve endpoint.
     needsReview: boolean('needs_review').notNull().default(false),
+    // Companion rule: true = can't be ordered alone; the cart must also hold ≥1 other distinct
+    // product. Enforced in OrdersService + a storefront pre-check. (migr 0101)
+    requiresCompanion: boolean('requires_companion').notNull().default(false),
     imageUrl: text('image_url'),
     // How the cover image is framed in storefront product cards: focal point
     // (x/y, 0..1) + zoom (1..3). NULL = legacy behavior (centered, no zoom).
@@ -301,6 +304,21 @@ export const productVariants = pgTable(
     ),
   }),
 );
+
+// Real product membership for bundle products (products.category='bundle'). See 0100.
+export const productBundleItems = pgTable('product_bundle_items', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  bundleId: uuid('bundle_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  quantity: integer('quantity').notNull().default(1),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  bundleIdx: index('product_bundle_items_bundle_idx').on(t.bundleId, t.position, t.id),
+  bundleProductUnique: uniqueIndex('product_bundle_items_bundle_product_unique').on(t.bundleId, t.productId),
+  productIdx: index('product_bundle_items_product_idx').on(t.productId),
+}));
 
 export const productAvailabilityWindows = pgTable(
   'product_availability_windows',
@@ -1050,6 +1068,11 @@ export const farmers = pgTable(
     // branding.enabled (in farmers.service.update), operator can override.
     tier: smallint('tier').notNull().default(1),
     position: integer('position').notNull().default(0),
+    // Producer-map coordinates (logistics), geocoded from legal.address/city and cached.
+    // NULL = unresolved. (migr 0102)
+    lat: numeric('lat', { precision: 10, scale: 7 }),
+    lng: numeric('lng', { precision: 10, scale: 7 }),
+    geocodedAt: timestamp('geocoded_at', { withTimezone: true }),
     createdAt: timestamp('created_at').defaultNow(),
   },
   // Admin + storefront lists filter by tenant, sort by (position, createdAt).

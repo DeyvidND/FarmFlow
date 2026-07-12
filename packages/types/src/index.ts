@@ -4,6 +4,7 @@ import type {
   users,
   products,
   productVariants,
+  productBundleItems,
   productAvailabilityWindows,
   farmers,
   subcategories,
@@ -29,6 +30,9 @@ export type NewProduct = InferInsertModel<typeof products>;
 
 export type ProductVariant = InferSelectModel<typeof productVariants>;
 export type NewProductVariant = InferInsertModel<typeof productVariants>;
+
+export type ProductBundleItem = InferSelectModel<typeof productBundleItems>;
+export type NewProductBundleItem = InferInsertModel<typeof productBundleItems>;
 
 export type Farmer = InferSelectModel<typeof farmers>;
 export type NewFarmer = InferInsertModel<typeof farmers>;
@@ -115,6 +119,18 @@ export type PublicProductVariant = {
   soldOut: boolean;
 };
 
+/** A resolved bundle member as exposed to the storefront (task #1). Built by
+ *  looking up each product_bundle_items row against the already-built public
+ *  products array — no separate private-field stripping needed. */
+export type PublicBundleItem = {
+  productId: string;
+  name: string;
+  slug: string | null;
+  image: string | null;
+  quantity: number;
+  priceStotinki: number;
+};
+
 /**
  * Public storefront shape: tenant_id + private fields stripped. `salePriceStotinki`
  * is the server-computed discounted headline price (present only while a promo is
@@ -130,6 +146,11 @@ export type PublicProduct = Omit<
   // `products.salePriceStotinki` input column (stripped above).
   salePriceStotinki?: number;
   variants: PublicProductVariant[];
+  // True when the product can go on a courier waybill (Econt/Speedy) = !courierDisabled.
+  // Positive alias for clear storefront display. (task #11)
+  courierShippable: boolean;
+  // Resolved member products for category='bundle' products; absent/empty otherwise. (task #1)
+  bundleProducts?: PublicBundleItem[];
 };
 
 export type AvailabilityWindow = InferSelectModel<typeof productAvailabilityWindows>;

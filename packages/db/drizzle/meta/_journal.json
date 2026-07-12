@@ -652,6 +652,27 @@
       "when": 1783886406000,
       "tag": "0092_farmer_legal",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1783886407000,
+      "tag": "0100_bundle_products",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1783886408000,
+      "tag": "0101_product_requires_companion",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1783886409000,
+      "tag": "0102_farmer_geo",
+      "breakpoints": true
     }
   ]
 }
