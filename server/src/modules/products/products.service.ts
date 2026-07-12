@@ -4,8 +4,9 @@ import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import sharp from 'sharp';
 import { and, asc, eq, getTableColumns, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { type Database, products, productMedia, productVariants, farmers, subcategories } from '@fermeribg/db';
-import type { Product, ProductMedia, ProductVariant, PublicProduct, PublicProductVariant } from '@fermeribg/types';
+import { type Database, products, productMedia, productVariants, productBundleItems, farmers, subcategories } from '@fermeribg/db';
+import type { Product, ProductMedia, ProductVariant, PublicProduct, PublicProductVariant, PublicBundleItem } from '@fermeribg/types';
+import { BundleItemDto } from './dto/bundle-items.dto';
 import { isPromoActive, salePriceStotinki } from './promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
@@ -32,6 +33,21 @@ export interface ProductOption {
   stockQuantity: number | null;
   farmerId: string | null;
   subcategoryId: string | null;
+  courierDisabled: boolean;
+}
+
+/** A bundle's member product as returned to the admin/farmer bundle editor (task #1).
+ *  `isActive`/`courierDisabled` let the editor flag members that won't show on the
+ *  storefront or can't ship by courier. */
+export interface BundleMember {
+  productId: string;
+  name: string;
+  slug: string | null;
+  image: string | null;
+  quantity: number;
+  position: number;
+  priceStotinki: number;
+  isActive: boolean | null;
   courierDisabled: boolean;
 }
 import { CreateProductDto } from './dto/create-product.dto';
@@ -468,6 +484,98 @@ export class ProductsService {
     });
   }
 
+  // ---- Bundle contents („Фермерска кошница" / готови пакети, task #1) ----
+
+  /** Member products of a bundle (products.category='bundle'), ordered. Same
+   *  guard/scope as the other product reads (a producer sees only their own). */
+  async listBundleItems(
+    bundleId: string,
+    tenantId: string,
+    farmerScope: string | null = null,
+  ): Promise<BundleMember[]> {
+    await this.findOne(bundleId, tenantId, farmerScope); // existence + tenant + farmer scope
+    const rows = await this.db
+      .select({
+        productId: productBundleItems.productId,
+        quantity: productBundleItems.quantity,
+        position: productBundleItems.position,
+        name: products.name,
+        slug: products.slug,
+        imageUrl: products.imageUrl,
+        priceStotinki: products.priceStotinki,
+        isActive: products.isActive,
+        courierDisabled: products.courierDisabled,
+      })
+      .from(productBundleItems)
+      .innerJoin(products, eq(products.id, productBundleItems.productId))
+      .where(eq(productBundleItems.bundleId, bundleId))
+      .orderBy(asc(productBundleItems.position), asc(productBundleItems.productId));
+    return rows.map((r) => ({
+      productId: r.productId,
+      name: r.name,
+      slug: r.slug,
+      image: r.imageUrl,
+      quantity: r.quantity,
+      position: r.position,
+      priceStotinki: r.priceStotinki,
+      isActive: r.isActive,
+      courierDisabled: r.courierDisabled,
+    }));
+  }
+
+  /** Full-replace a bundle's member products (mirrors the variants "set" pattern):
+   *  upsert the given members, drop any not in the list. Rejects a non-bundle target,
+   *  a member that isn't in this tenant, the bundle referencing itself, and a member
+   *  that is itself a bundle (no nested bundles → no render/loop hazard). Inactive
+   *  members may be linked but are hidden from the public bundle payload. */
+  async setBundleItems(
+    bundleId: string,
+    tenantId: string,
+    items: BundleItemDto[],
+    farmerScope: string | null = null,
+  ): Promise<BundleMember[]> {
+    const bundle = await this.findOne(bundleId, tenantId, farmerScope);
+    if (bundle.category !== 'bundle') {
+      throw new BadRequestException('Само пакет (готова кошница) може да съдържа продукти');
+    }
+    // A member appears once per bundle (unique bundle_id+product_id) — dedupe, last wins.
+    const byProduct = new Map<string, BundleItemDto>();
+    for (const it of items) byProduct.set(it.productId, it);
+    const memberIds = [...byProduct.keys()];
+    if (memberIds.includes(bundleId)) {
+      throw new BadRequestException('Пакетът не може да съдържа себе си');
+    }
+    if (memberIds.length) {
+      const members = await this.db
+        .select({ id: products.id, category: products.category })
+        .from(products)
+        .where(and(eq(products.tenantId, tenantId), inArray(products.id, memberIds), isNull(products.deletedAt)));
+      const foundById = new Map(members.map((m) => [m.id, m]));
+      for (const id of memberIds) {
+        const m = foundById.get(id);
+        if (!m) throw new BadRequestException('Продукт от пакета не е намерен в този магазин');
+        if (m.category === 'bundle') throw new BadRequestException('Пакет не може да съдържа друг пакет');
+      }
+    }
+    // One transaction so a mid-replace failure can't leave a partial membership set.
+    await this.db.transaction(async (tx) => {
+      await tx.delete(productBundleItems).where(eq(productBundleItems.bundleId, bundleId));
+      if (memberIds.length) {
+        await tx.insert(productBundleItems).values(
+          memberIds.map((productId, i) => ({
+            tenantId,
+            bundleId,
+            productId,
+            quantity: byProduct.get(productId)!.quantity ?? 1,
+            position: i,
+          })),
+        );
+      }
+    });
+    await this.cache.invalidate(tenantId);
+    return this.listBundleItems(bundleId, tenantId, farmerScope);
+  }
+
   // ---- Gallery (multi-image) ----
 
   /** Ordered gallery for a product (admin). 404 if missing / cross-tenant /
@@ -828,6 +936,44 @@ export class ProductsService {
     const result = rows.map((p) =>
       buildPublicProduct(p, mediaByProduct.get(p.id) ?? [], varsByProduct.get(p.id) ?? [], now),
     );
+
+    // Attach resolved member products to bundle products (task #1). One query for
+    // every bundle in the catalog; members are looked up in-memory against the
+    // already-built public products, so an inactive / needs-review member simply
+    // doesn't appear (no N+1, no private-field leak). Bundles with no live members
+    // get an empty array (the storefront can then hide the „съдържание" block).
+    const bundleIds = result.filter((p) => p.category === 'bundle').map((p) => p.id);
+    if (bundleIds.length) {
+      const links = await this.db
+        .select({
+          bundleId: productBundleItems.bundleId,
+          productId: productBundleItems.productId,
+          quantity: productBundleItems.quantity,
+        })
+        .from(productBundleItems)
+        .where(inArray(productBundleItems.bundleId, bundleIds))
+        .orderBy(asc(productBundleItems.position), asc(productBundleItems.productId));
+      const publicById = new Map(result.map((p) => [p.id, p]));
+      const membersByBundle = new Map<string, PublicBundleItem[]>();
+      for (const l of links) {
+        const member = publicById.get(l.productId);
+        if (!member) continue; // inactive / hidden / needs-review member — skip
+        const list = membersByBundle.get(l.bundleId) ?? [];
+        list.push({
+          productId: member.id,
+          name: member.name,
+          slug: member.slug,
+          image: member.images[0] ?? null,
+          quantity: l.quantity,
+          priceStotinki: member.salePriceStotinki ?? member.priceStotinki,
+        });
+        membersByBundle.set(l.bundleId, list);
+      }
+      for (const p of result) {
+        if (p.category === 'bundle') p.bundleProducts = membersByBundle.get(p.id) ?? [];
+      }
+    }
+
     await this.cache.set(tenant.id, result, 300);
     return result;
   }
@@ -967,6 +1113,10 @@ export function buildPublicProduct(
   const pub: PublicProduct = {
     ...rest,
     images,
+    // Positive courier-shippability alias for clear storefront display (task #11):
+    // true = may go on an Econt/Speedy waybill; false = pickup/local only. Single
+    // source of truth is `courierDisabled` — no separate column to drift out of sync.
+    courierShippable: !p.courierDisabled,
     variants: variants.map((v): PublicProductVariant => {
       // A variant's own fixed promo price wins; otherwise the active product-level
       // % applies. (Writes keep these mutually exclusive, so only one ever fires.)
