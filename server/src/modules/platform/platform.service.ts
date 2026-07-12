@@ -229,6 +229,8 @@ export interface GlobalFarmerRow {
   invitePending: boolean;
   econtConnected: boolean;
   speedyConnected: boolean;
+  /** Farmer-as-seller go-live readiness (legal identity + own carrier). */
+  sellerReady: boolean;
   products: number;
   courierOrders: number;
   shipments: number;
@@ -692,6 +694,7 @@ export class PlatformService {
         id: farmers.id,
         name: farmers.name,
         role: farmers.role,
+        legal: farmers.legal,
         createdAt: farmers.createdAt,
         tenantId: tenants.id,
         tenantName: tenants.name,
@@ -758,6 +761,9 @@ export class PlatformService {
         invitePending: !!r.userId && !!r.mustChange,
         econtConnected: !!ns?.econt?.configured,
         speedyConnected: !!ns?.speedy?.configured,
+        // Farmer-as-seller go-live flag (legal identity + own carrier). The lean list
+        // carries just the boolean; the producer detail view has the full missing[].
+        sellerReady: farmerSellerReadiness(r.legal, !!ns?.econt?.configured || !!ns?.speedy?.configured).ready,
         products: prodMap.get(r.id) ?? 0,
         courierOrders: orderMap.get(r.id) ?? 0,
         shipments: sm?.total ?? 0,

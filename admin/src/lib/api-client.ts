@@ -72,6 +72,8 @@ export interface GlobalFarmer {
   invitePending: boolean;
   econtConnected: boolean;
   speedyConnected: boolean;
+  /** Farmer-as-seller go-live readiness (legal identity + own carrier). */
+  sellerReady: boolean;
   products: number;
   courierOrders: number;
   shipments: number;

@@ -114,6 +114,11 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
                       <ChevronRight size={14} className="text-ff-muted-2" />
                     </Link>
                     {f.role && <div className="text-[12px] text-ff-muted">{f.role}</div>}
+                    {f.sellerReady && (
+                      <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-ff-green-50 px-2 py-0.5 text-[11px] font-bold text-ff-green-700">
+                        <Check size={10} /> готов за продажби
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <Link
