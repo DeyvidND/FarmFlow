@@ -67,7 +67,7 @@ describe('RoutingService.getRoute — saved courier count default', () => {
 
   it('splits by the saved courierCount when ?couriers= is absent', async () => {
     const db = makeDb([[tenant({ courierCount: 3 })], stops(), []]);
-    const svc = new RoutingService(db, makeMaps(), {} as any);
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any);
 
     const result = await svc.getRoute('t1', '2026-07-07'); // no endMode, no couriers
 
@@ -77,7 +77,7 @@ describe('RoutingService.getRoute — saved courier count default', () => {
 
   it('lets an explicit ?couriers= override the saved default', async () => {
     const db = makeDb([[tenant({ courierCount: 3 })], stops(), []]);
-    const svc = new RoutingService(db, makeMaps(), {} as any);
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any);
 
     const result = await svc.getRoute('t1', '2026-07-07', undefined, 2); // 2 wins over saved 3
 
@@ -86,7 +86,7 @@ describe('RoutingService.getRoute — saved courier count default', () => {
 
   it('falls back to a single courier when neither is set', async () => {
     const db = makeDb([[tenant({})], stops(), []]);
-    const svc = new RoutingService(db, makeMaps(), {} as any);
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any);
 
     const result = await svc.getRoute('t1', '2026-07-07');
 

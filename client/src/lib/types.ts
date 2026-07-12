@@ -227,6 +227,20 @@ export interface RoutingConfig {
   endLng?: string | null;
   /** Default number of couriers to split the route between (1-10). */
   courierCount?: number;
+  /** Per-courier config (task #7 home „У дома" + name/end). Index-aligned. */
+  couriers?: {
+    name?: string | null;
+    endMode?: RouteEndMode;
+    homeAddress?: string | null;
+    homeLat?: string | null;
+    homeLng?: string | null;
+  }[];
+  /** Delivery day-plan tuning (task #13 window generation). */
+  dayStartHour?: number;
+  slotSizeMin?: number;
+  serviceMin?: number;
+  /** Weekly order-intake cutoff (task #13): weekday 0=Sun..6=Sat, hour 0-23 (Europe/Sofia). */
+  cutoff?: { weekday: number; hour: number };
 }
 
 // ---- Delivery configuration (persisted to tenant.settings.delivery) ----
@@ -663,6 +677,16 @@ export interface RouteStop {
   lat: number | null;
   lng: number | null;
   summary: string;
+  /** Order money (stotinki): goods subtotal, delivery fee, grand total with delivery. */
+  itemsSubtotalStotinki: number;
+  deliveryFeeStotinki: number;
+  totalStotinki: number;
+  /** Operator's manual courier pin (0-based), or null for auto geographic split. */
+  courierIndex: number | null;
+  /** Delivery time window (HH:MM, Europe/Sofia) + review status (draft|approved|sent), null until generated. */
+  deliveryWindowStart: string | null;
+  deliveryWindowEnd: string | null;
+  deliveryWindowStatus: string | null;
 }
 
 /** Delivery route for a date (GET /orders/route?date=). */
@@ -685,6 +709,18 @@ export interface CourierRoute {
   polyline: string[] | null;
   /** This courier's own end mode (home = back to base, last = end at last stop). */
   endMode: RouteEndMode;
+  /** Where THIS courier's leg ends (task #7 „У дома"): resolved end coords, or null for a one-way leg. */
+  endAddress: string | null;
+  endLat: number | null;
+  endLng: number | null;
+  /** 0-based index of this courier (== position in routes). */
+  courierIndex: number;
+  /** Operator-set courier name, else null. */
+  name: string | null;
+  /** This courier's day money (stotinki), summed from its stops. */
+  itemsSubtotalStotinki: number;
+  deliveryFeeStotinki: number;
+  totalStotinki: number;
 }
 
 /** The day's route, split across 1+ couriers (GET /orders/route?date=&couriers=). */
@@ -696,6 +732,24 @@ export interface MultiRouteResult {
   /** Effective courier count — equals `routes.length`. */
   couriers: number;
   routes: CourierRoute[];
+}
+
+/** One order's generated/edited delivery window (task #13 proposal). */
+export interface DeliveryWindowStop {
+  id: string;
+  customer: string | null;
+  email: string | null;
+  windowStart: string; // 'HH:MM'
+  windowEnd: string;    // 'HH:MM'
+  hasEmail: boolean;
+}
+/** POST /orders/route/windows/generate response — proposed windows per courier. */
+export interface DeliveryWindowProposal {
+  date: string;
+  slotMin: number;
+  couriers: { courierIndex: number; name: string | null; stops: DeliveryWindowStop[] }[];
+  /** Orders that got a window but have no email (can't be notified). */
+  withoutEmail: number;
 }
 
 // ── Site analytics (GET /analytics?range=) — visitors/funnel/traffic, the

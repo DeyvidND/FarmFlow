@@ -19,6 +19,13 @@ const stop = (id: string, lat: number | null, lng: number | null): RouteStop => 
   lat,
   lng,
   summary: '',
+  itemsSubtotalStotinki: 0,
+  deliveryFeeStotinki: 0,
+  totalStotinki: 0,
+  courierIndex: null,
+  deliveryWindowStart: null,
+  deliveryWindowEnd: null,
+  deliveryWindowStatus: null,
 });
 
 describe('ptOf', () => {

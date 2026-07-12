@@ -657,13 +657,34 @@
       "idx": 93,
       "version": "7",
       "when": 1783886407000,
-      "tag": "0097_order_delivered_at",
+      "tag": "0093_order_courier_index",
       "breakpoints": true
     },
     {
       "idx": 94,
       "version": "7",
       "when": 1783886408000,
+      "tag": "0094_order_delivery_window",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1783886409000,
+      "tag": "0095_order_route_seq",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1783886410000,
+      "tag": "0097_order_delivered_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1783886411000,
       "tag": "0098_order_fulfillments",
       "breakpoints": true
     }

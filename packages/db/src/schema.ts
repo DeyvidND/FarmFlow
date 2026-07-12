@@ -437,6 +437,24 @@ export const orders = pgTable(
     // that shopper's page_view rows (funnel counts distinct visitor_hash). Nullable:
     // legacy rows + any order created before this column existed.
     visitorHash: text('visitor_hash'),
+    // Manual courier assignment for the route/маршрути screen (own delivery). NULL =
+    // auto (sweep-split by geography); 0-based index of the courier the operator
+    // pinned this order to. Out-of-range (courier count later lowered) is ignored by
+    // the router → falls back to auto. See migration 0093.
+    courierIndex: smallint('courier_index'),
+    // Persisted manual stop order within a courier's leg (0-based position).
+    // NULL = not manually ordered (auto/optimized order applies). Set via
+    // PATCH /orders/route/order/sequence when the operator drags stops around
+    // on the route screen, so slot regeneration honours it. Migration 0095.
+    routeSeq: smallint('route_seq'),
+    // Delivery time window (task #13). Wall-clock Europe/Sofia, per order, generated
+    // from the optimized route then approved/edited by the operator and emailed to the
+    // customer. start/end are 'HH:MM' times; status draft→approved→sent; notifiedAt is
+    // when the customer was told. All NULL until a window is generated. Migration 0094.
+    deliveryWindowStart: time('delivery_window_start'),
+    deliveryWindowEnd: time('delivery_window_end'),
+    deliveryWindowStatus: text('delivery_window_status'),
+    deliveryWindowNotifiedAt: timestamp('delivery_window_notified_at', { withTimezone: true }),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
