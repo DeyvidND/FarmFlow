@@ -15,7 +15,7 @@ import { PlatformInsightsService } from './insights.service';
 import { ProblemsService } from './problems.service';
 import { HealthBoardService } from './health-board.service';
 import { PlatformController, PlatformAuthController } from './platform.controller';
-import { ProductExtractService } from './product-extract.service';
+import { AiImportModule } from '../ai-import/ai-import.module';
 import { OperatorDigestService } from './operator-digest.service';
 import { OperatorDigestProcessor } from './operator-digest.processor';
 import { CriticalAlertService } from './critical-alert.service';
@@ -49,6 +49,7 @@ import { RUN_WORKERS } from '../../config/app-role';
     // Reused dormant commission + vendor-subscription services for the super-admin
     // marketplace-finance oversight controller.
     VendorFinanceModule,
+    AiImportModule,
     // Product public-catalog Redis cache (`catalog:{tenantId}`) — busted by
     // setProductFeatured (matches ProductsService's own invalidate-on-write pattern).
     CatalogCacheModule,
@@ -97,7 +98,6 @@ import { RUN_WORKERS } from '../../config/app-role';
     PlatformInsightsService,
     ProblemsService,
     HealthBoardService,
-    ProductExtractService,
     OperatorDigestService,
     CriticalAlertService,
     ...(RUN_WORKERS ? [DemoCleanupProcessor, OperatorDigestProcessor, CriticalAlertProcessor] : []),

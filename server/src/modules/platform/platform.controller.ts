@@ -21,7 +21,7 @@ import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
 import { ProblemsService } from './problems.service';
 import { HealthBoardService } from './health-board.service';
-import { ProductExtractService } from './product-extract.service';
+import { ProductExtractService } from '../ai-import/product-extract.service';
 import { OperatorDigestService } from './operator-digest.service';
 import { CriticalAlertService } from './critical-alert.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
@@ -207,7 +207,7 @@ export class PlatformController {
     @Param('id', ParseUUIDPipe) _id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body('text') text: string | undefined,
-  ): Promise<{ products: import('./product-extract.service').ExtractedProduct[] }> {
+  ): Promise<{ products: import('../ai-import/product-extract.service').ExtractedProduct[] }> {
     const content = await this.productExtract.parseToText(file, text);
     const products = await this.productExtract.extract(content);
     return { products };
