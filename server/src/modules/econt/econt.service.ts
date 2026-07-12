@@ -45,6 +45,7 @@ import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { isReturnedStatus } from '../cod-risk/cod-risk.helpers';
 import type { CarrierAdapter } from '../orders/carrier-adapter';
 import { consolidatedCodOverride } from '../econt-app/consolidation.helpers';
+import { farmerDeliveryNamespace } from '../orders/courier-eligibility';
 
 const DEMO_BASE = 'https://demo.econt.com/ee/services';
 const PROD_BASE = 'https://ee.econt.com/services';
@@ -819,9 +820,8 @@ export class EcontService implements CarrierAdapter {
     farmerId?: string,
     overrides?: import('./dto/finalize-draft.dto').FinalizeDraftDto,
   ): Promise<typeof shipments.$inferSelect> {
-    // Share one settings read between loadStored and the callTenant→resolveCreds below.
+    // Share one settings read across the loadStored calls and the callTenant→resolveCreds below.
     const store = new Map<string, unknown>();
-    const { tenant, econt } = await this.loadStored(tenantId, store, farmerId);
     const { order, items } = await this.orderForShipment(tenantId, orderId);
     // Phase 3 authz: a farmer may only finalize THEIR OWN per-farmer order. orderForShipment
     // scopes by tenant, not farmer, so without this a farmer could finalize another farmer's
@@ -831,6 +831,21 @@ export class EcontService implements CarrierAdapter {
     if (farmerId && orderFarmerId && orderFarmerId !== farmerId) {
       throw new ForbiddenException('Поръчката принадлежи на друга ферма');
     }
+    // Farmer-as-seller credential resolution: a per-farmer order ships on THAT farmer's own
+    // Econt account, so the наложен платеж is settled by Econt to the farmer's own registered
+    // account/IBAN — not the tenant's. Prefer an explicit caller farmerId (the farmer's own
+    // standalone app), else the order's own farmer, but only when that farmer has actually
+    // connected Econt; otherwise fall back to the tenant account so legacy/tenant-level orders
+    // and not-yet-onboarded farmers keep working exactly as before. `credsFarmerId` is used
+    // for BOTH the settings/sender blob (loadStored) and the API auth (callTenant→resolveCreds).
+    let credsFarmerId: string | undefined = farmerId;
+    if (!credsFarmerId && orderFarmerId) {
+      const { tenant: probe } = await this.loadStored(tenantId, store, undefined);
+      if (farmerDeliveryNamespace(probe.settings, orderFarmerId)?.econt?.configured) {
+        credsFarmerId = orderFarmerId;
+      }
+    }
+    const { tenant, econt } = await this.loadStored(tenantId, store, credsFarmerId);
     // A door waybill needs a settlement name; without it Econt rejects mid-call with an
     // opaque ExInvalidCity. Fail fast with a clear message the farmer can act on.
     const odt = (order as { deliveryType?: string | null }).deliveryType;
@@ -866,7 +881,7 @@ export class EcontService implements CarrierAdapter {
     const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
       label,
       mode: 'create',
-    }, undefined, store, farmerId);
+    }, undefined, store, credsFarmerId);
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
     // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted

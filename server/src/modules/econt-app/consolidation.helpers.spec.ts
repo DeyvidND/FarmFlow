@@ -7,10 +7,10 @@ const row = (o: Partial<CandidateRow>): CandidateRow => ({
 });
 
 describe('groupConsolidationCandidates', () => {
-  it('groups by shared visitor hash and sums totals', () => {
+  it('groups the SAME farmer\'s orders by shared visitor hash and sums totals', () => {
     const rows = [
       row({ shipmentId: 's1', orderId: 'o1', orderNumber: 7, farmerId: 'fA', totalStotinki: 1300, visitorHash: 'h1' }),
-      row({ shipmentId: 's2', orderId: 'o2', orderNumber: 8, farmerId: 'fB', totalStotinki: 500, visitorHash: 'h1' }),
+      row({ shipmentId: 's2', orderId: 'o2', orderNumber: 8, farmerId: 'fA', totalStotinki: 500, visitorHash: 'h1' }),
     ];
     const groups = groupConsolidationCandidates(rows);
     expect(groups).toHaveLength(1);
@@ -18,14 +18,25 @@ describe('groupConsolidationCandidates', () => {
     expect(groups[0].members.map((m) => m.orderId)).toEqual(['o1', 'o2']);
   });
 
+  it('NEVER folds different farmers into one master (farmer-as-seller: each collects own COD)', () => {
+    // Same buyer, same destination, same checkout — but two different sellers. Under the
+    // one-collector model these merged; under farmer-as-seller they must stay separate so
+    // each farmer's наложен платеж is paid to their own account.
+    const rows = [
+      row({ shipmentId: 's1', orderId: 'o1', farmerId: 'fA', totalStotinki: 1300, visitorHash: 'h1' }),
+      row({ shipmentId: 's2', orderId: 'o2', farmerId: 'fB', totalStotinki: 500, visitorHash: 'h1' }),
+    ];
+    expect(groupConsolidationCandidates(rows)).toEqual([]);
+  });
+
   it('drops singleton groups', () => {
     expect(groupConsolidationCandidates([row({ visitorHash: 'lonely' })])).toEqual([]);
   });
 
-  it('falls back to phone+city+address when visitor hash is null', () => {
+  it('falls back to phone+city+address for the same farmer when visitor hash is null', () => {
     const rows = [
       row({ shipmentId: 's1', orderId: 'o1', farmerId: 'fA', customerPhone: '0888-123-456', visitorHash: null }),
-      row({ shipmentId: 's2', orderId: 'o2', farmerId: 'fB', customerPhone: '+359 888 123 456', visitorHash: null }),
+      row({ shipmentId: 's2', orderId: 'o2', farmerId: 'fA', customerPhone: '+359 888 123 456', visitorHash: null }),
     ];
     // Different-looking phones normalise to the same digits and same destination → one group.
     const groups = groupConsolidationCandidates(rows);
@@ -33,10 +44,18 @@ describe('groupConsolidationCandidates', () => {
     expect(groups[0].members).toHaveLength(2);
   });
 
+  it('does not fold different farmers even on the phone+address fallback', () => {
+    const rows = [
+      row({ shipmentId: 's1', orderId: 'o1', farmerId: 'fA', customerPhone: '0888-123-456', visitorHash: null }),
+      row({ shipmentId: 's2', orderId: 'o2', farmerId: 'fB', customerPhone: '+359 888 123 456', visitorHash: null }),
+    ];
+    expect(groupConsolidationCandidates(rows)).toEqual([]);
+  });
+
   it('keeps different destinations apart', () => {
     const rows = [
       row({ shipmentId: 's1', orderId: 'o1', farmerId: 'fA', deliveryAddress: 'ул. Х 1', visitorHash: null }),
-      row({ shipmentId: 's2', orderId: 'o2', farmerId: 'fB', deliveryAddress: 'ул. Y 9', visitorHash: null }),
+      row({ shipmentId: 's2', orderId: 'o2', farmerId: 'fA', deliveryAddress: 'ул. Y 9', visitorHash: null }),
     ];
     expect(groupConsolidationCandidates(rows)).toEqual([]);
   });

@@ -52,11 +52,36 @@ Backend вече връща `farmers[].legal` в публичния bundle. Ос
 на продуктовата/фермерската страница: „Продавач: {legal.name}, ЕИК/рег.№ {…}, адрес {…}".
 Само име („Васил Цанчев") НЕ е достатъчно по КЗП — трябват законните данни на продавача.
 
-## 4. Следващи стъпки (извън тази)
+## 4. Стъпка 3 — per-farmer Еконт / директен НП (ГОТОВО в този repo)
 
-3. Фермер-ниво Еконт креденшъли + IBAN + НП получател; Econt чете per-farmer; consolidation
-   ИЗКЛЮЧЕНА за multi-vendor (иначе НП отива при едно лице).
-4. Флип на dormant split + комисиона 0→10%.
-5. Checkout: per-фермер разбивка (пратки + такси) ПРЕДИ потвърждение.
+**Дискавъри:** per-farmer Еконт инфраструктурата ВЕЧЕ съществуваше (courier-per-farmer,
+migr 0069-71). Всеки фермер може да свърже СВОЙ Еконт акаунт под
+`tenants.settings.delivery.farmers[<id>].econt` (username/passwordEnc/sender/cod); `resolveCreds`
+/`loadStored`/`callTenant` са threaded с optional `farmerId`. Еконт сетълва НП към акаунта,
+който създава товарителницата → ако waybill-ът е с creds на фермера, парите отиват на
+**неговия** регистриран IBAN/пощенски превод автоматично. **Не са нужни IBAN колони.**
+
+Реалните дупки бяха 2 таргетирани поправки (без миграция):
+
+- **(A) `econt.service.createLabel`** — per-farmer order вече ползва creds на СВОЯ фермер
+  (не tenant). Преди: само farmer-standalone path подаваше farmerId; operator/admin path
+  (`econt.controller` finalize) го изпускаше → НП към tenant акаунт. Сега: резолвира
+  `credsFarmerId` от `order.farmerId`, ако този фермер има свързан Еконт; иначе graceful
+  fallback към tenant (legacy/tenant-level + неонбординг-нат фермер = без промяна).
+- **(B) `consolidation.helpers.groupConsolidationCandidates`** — same-seller-only key
+  (`f:<farmerId>|<dest>`). Никога не fold-ва НП на РАЗЛИЧНИ фермери в един master (това
+  беше „един събирач" = отхвърленият модел). Един фермер с 2 поръчки към същия клиент
+  все още се обединява (един waybill, неговият акаунт).
+
+Тестове: `econt.service.spec` (admin finalize → creds на фермера / fallback към tenant),
+`consolidation.helpers.spec` (различни фермери НЕ се обединяват). Всичко зелено; server tsc чист.
+
+⚠️ Остава за go-live: всеки фермер трябва **сам** да свърже своя Еконт акаунт в панела
+(вход вече съществува). Без него → fallback към tenant акаунт (НП не отива директно).
+
+## 5. Следващи стъпки (извън тази сесия)
+
+4. Флип на dormant split + комисиона 0→10% (`ONLY_LOCAL_DELIVERY` в chaika, rate в settings).
+5. Checkout: per-фермер разбивка (пратки + такси) ПРЕДИ потвърждение (chaika repo).
 
 Свързано: памет `project_farmflow_marketplace_farmer_as_seller_2026-07-12`.

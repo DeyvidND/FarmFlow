@@ -51,8 +51,16 @@ const digits = (s: string | null): string => {
  * absent, fall back to normalized phone + city + address.
  */
 function candidateKey(r: CandidateRow): string {
-  if (r.visitorHash) return `vh:${r.visitorHash}`;
-  return `pa:${digits(r.customerPhone)}|${(r.deliveryCity ?? '').trim().toLowerCase()}|${(r.deliveryAddress ?? '').trim().toLowerCase()}`;
+  // Farmer-as-seller: the seller is part of the key, so only a SINGLE farmer's own
+  // orders to one customer/destination may merge onto one waybill. Different farmers
+  // are NEVER folded into one master — that master would collect the whole group's COD
+  // to ONE account, breaking direct-to-farmer settlement (each farmer must collect their
+  // own наложен платеж to their own Econt account / IBAN). A farmer shipping two of their
+  // own orders to the same buyer still consolidates (one waybill, their own account).
+  const dest = r.visitorHash
+    ? `vh:${r.visitorHash}`
+    : `pa:${digits(r.customerPhone)}|${(r.deliveryCity ?? '').trim().toLowerCase()}|${(r.deliveryAddress ?? '').trim().toLowerCase()}`;
+  return `f:${r.farmerId}|${dest}`;
 }
 
 /**

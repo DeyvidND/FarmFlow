@@ -665,6 +665,79 @@ describe('EcontService.createLabel (finalize courier draft)', () => {
     await expect(svc.createLabel('t1', 'order-1', 'farmer-2')).rejects.toThrow('друга ферма');
     expect(callTenant).not.toHaveBeenCalled(); // no waybill created
   });
+
+  // Shared db mock for the credential-resolution tests below (insert→upsert, orders update,
+  // consolidation pre-read returns no master).
+  function wireDb(svc: EcontService) {
+    const returning = jest.fn().mockResolvedValue([{ orderId: 'order-1', farmerId: 'farmer-1', carrier: 'econt', status: 'created' }]);
+    const onConflictDoUpdate = jest.fn().mockReturnValue({ returning });
+    const values = jest.fn().mockReturnValue({ onConflictDoUpdate });
+    const insert = jest.fn().mockReturnValue({ values });
+    const updWhere = jest.fn().mockResolvedValue(undefined);
+    const update = jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: updWhere }) });
+    const selLimit = jest.fn().mockResolvedValue([]);
+    const select = jest.fn().mockReturnValue({ from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ limit: selLimit }) }) });
+    (svc as any).db = { insert, update, select };
+  }
+
+  const perFarmerOrder = {
+    order: {
+      tenantId: 't1', farmerId: 'farmer-1',
+      customerName: 'Стоян', customerPhone: '0833',
+      deliveryType: 'courier', econtOffice: null,
+      deliveryCity: 'Пловдив', deliveryAddress: 'бул. България 12',
+      totalStotinki: 4200, paymentMethod: 'cod', paidAt: null,
+    },
+    items: [{ name: 'Домати', qty: 2 }],
+  };
+
+  it('admin finalize (no farmerId arg): a per-farmer order ships on THAT farmer\'s Econt account when connected', async () => {
+    // Farmer-as-seller money path: the наложен платеж must settle to the farmer's own
+    // Econt account, so the operator-triggered finalize resolves creds to the order's
+    // farmer (not the tenant) when that farmer has connected Econt.
+    const settings = { delivery: { farmers: { 'farmer-1': { econt: { configured: true } } } } };
+    const loadStored = jest.fn()
+      // probe (tenant-level) — sees farmer-1 is configured
+      .mockResolvedValueOnce({ tenant: { id: 't1', settings }, econt: {} })
+      // creds load with the order's farmerId → farmer's own sender/package
+      .mockResolvedValueOnce({
+        tenant: { id: 't1', settings },
+        econt: { sender: { name: 'Ферма', phone: '0888', mode: 'office', officeCode: '1234' }, defaultPackage: { weightKg: 2.5 } },
+      });
+    (svc as any).loadStored = loadStored;
+    (svc as any).orderForShipment = jest.fn().mockResolvedValue(perFarmerOrder);
+    const callTenant = jest.fn().mockResolvedValue({ label: { shipmentNumber: '1051000000011', pdfURL: 'x.pdf', totalPrice: 6.9 } });
+    (svc as any).callTenant = callTenant;
+    wireDb(svc);
+
+    await svc.createLabel('t1', 'order-1'); // NO farmerId arg = operator/admin path
+
+    expect(loadStored.mock.calls[0][2]).toBeUndefined();   // probe read is tenant-level
+    expect(loadStored.mock.calls[1][2]).toBe('farmer-1');  // creds resolved to the order's farmer
+    expect(callTenant.mock.calls[0][5]).toBe('farmer-1');  // API call authenticates as the farmer
+  });
+
+  it('admin finalize: a per-farmer order whose farmer has NOT connected Econt falls back to the tenant account', async () => {
+    // Graceful fallback — an unonboarded farmer must not block the operator; behavior is
+    // exactly as before (tenant account) until the farmer connects their own Econt.
+    const settings = { delivery: { farmers: {} } };
+    const loadStored = jest.fn()
+      .mockResolvedValueOnce({ tenant: { id: 't1', settings }, econt: {} }) // probe: farmer not configured
+      .mockResolvedValueOnce({
+        tenant: { id: 't1', settings },
+        econt: { sender: { name: 'Ферма', phone: '0888', mode: 'office', officeCode: '1234' }, defaultPackage: { weightKg: 2.5 } },
+      });
+    (svc as any).loadStored = loadStored;
+    (svc as any).orderForShipment = jest.fn().mockResolvedValue(perFarmerOrder);
+    const callTenant = jest.fn().mockResolvedValue({ label: { shipmentNumber: '1051000000012', pdfURL: 'x.pdf', totalPrice: 6.9 } });
+    (svc as any).callTenant = callTenant;
+    wireDb(svc);
+
+    await svc.createLabel('t1', 'order-1'); // no farmerId arg
+
+    expect(loadStored.mock.calls[1][2]).toBeUndefined(); // creds stay tenant-level
+    expect(callTenant.mock.calls[0][5]).toBeUndefined();
+  });
 });
 
 describe('EcontService.codReconciliation (farmer-scoped)', () => {
