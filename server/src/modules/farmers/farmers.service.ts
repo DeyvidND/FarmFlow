@@ -503,6 +503,10 @@ export class FarmersService {
         // Tier-2 branding is presentational only (no finance) → safe to expose. When
         // enabled, the marketplace renders the branded farmer subpage.
         branding: farmers.branding,
+        // Legal seller identity — REQUIRED public КЗП disclosure (who the buyer
+        // contracts with). Unlike commissionRateBps/subscriptionFeeStotinki (owner-only
+        // finance, stripped below) this is meant to be shown on the storefront.
+        legal: farmers.legal,
         tier: farmers.tier,
         position: farmers.position,
         createdAt: farmers.createdAt,

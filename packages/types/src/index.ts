@@ -42,6 +42,15 @@ export type NewFarmer = InferInsertModel<typeof farmers>;
 export type Tier2Branding = NonNullable<Farmer['branding']>;
 
 /**
+ * Legal seller identity for the farmer-as-seller marketplace (each farmer is the
+ * legal Продавач). PUBLIC seller disclosure (КЗП): surfaced on the storefront so the
+ * buyer knows who they contract with. `kind` selects which id applies — individual
+ * (регистриран земеделски производител → `regNo`), sole_trader (ЕТ → `eik`), company
+ * (ЕООД/ООД/АД → `eik`, optional `vatNumber`). See farmers.legal in the schema.
+ */
+export type FarmerLegal = NonNullable<Farmer['legal']>;
+
+/**
  * How a catalog cover image is framed in the storefront. `x`/`y` are the focal
  * point as fractions (0..1) of the source image; `zoom` magnifies (1..3). Stored
  * on `farmers.coverCrop` / `subcategories.coverCrop` / `products.coverCrop`;

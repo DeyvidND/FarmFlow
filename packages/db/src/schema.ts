@@ -1018,6 +1018,32 @@ export const farmers = pgTable(
       unlockedAt?: string;
       unlockedBy?: string;
     }>(),
+    // Legal seller identity for the FARMER-AS-SELLER marketplace model: on farmmarket
+    // each producer is the legal Продавач (own Econt waybill, own COD/IBAN, self-reports
+    // to НАП), so КЗП requires the buyer be shown exactly who they contract with. This
+    // is PUBLIC seller disclosure (surfaced on the storefront), NOT owner-only finance —
+    // it IS included in the public projection (contrast commissionRateBps, which is
+    // stripped). NULL = not yet provided (gradual onboarding; a farmer without it can't
+    // be flipped to a live seller). `kind` drives which fields matter: individual =
+    // физическо лице / регистриран земеделски производител (use `regNo`), sole_trader =
+    // ЕТ (use `eik`), company = ЕООД/ООД/АД (use `eik`, optional `vatNumber`). Final
+    // field set to be confirmed with the юрист/счетоводител — jsonb keeps that cheap.
+    legal: jsonb('legal').$type<{
+      kind?: 'individual' | 'sole_trader' | 'company';
+      /** Юридическо/фирмено име на продавача, напр. „ЕТ Димка Четова", „Пчеларство ЕООД",
+       *  или трите имена за физическо лице. */
+      name?: string;
+      /** ЕИК/БУЛСТАТ (ЕТ/фирма). */
+      eik?: string;
+      /** ДДС номер, ако е регистриран по ЗДДС (по избор). */
+      vatNumber?: string;
+      /** Адрес на управление/седалище/за кореспонденция. */
+      address?: string;
+      /** Регистрационен номер на земеделски производител (Наредба 3), за физ. лице. */
+      regNo?: string;
+      /** Кога операторът/фермерът е потвърдил данните (одит следа). */
+      confirmedAt?: string;
+    }>(),
     // Marketplace ranking tier (operator-assigned). 1 = базов листинг, 2 = Бранд
     // идентичност, 3 = собствен сайт. The marketplace sorts farmers by tier DESC
     // (tier 3 on top, tier 1 at the bottom), then position. Auto-bumps to >=2 when

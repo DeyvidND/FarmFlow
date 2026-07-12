@@ -5,6 +5,7 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
 import { BrandingDto } from './branding.dto';
+import { LegalDto } from './legal.dto';
 
 export class CreateFarmerDto {
   @ApiProperty()
@@ -89,6 +90,14 @@ export class CreateFarmerDto {
   @ValidateNested()
   @Type(() => BrandingDto)
   branding?: BrandingDto | null;
+
+  // Legal seller identity (КЗП/НАП disclosure). The service spreads this straight into
+  // the row, so the `farmers.legal` jsonb column follows it. `null` clears it.
+  @ApiPropertyOptional({ type: LegalDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LegalDto)
+  legal?: LegalDto | null;
 
   /** Комисиона override в базисни точки (500 = 5%). NULL = наследява настройката на фермата. */
   @ApiPropertyOptional({ nullable: true })

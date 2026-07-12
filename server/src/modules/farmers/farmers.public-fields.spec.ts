@@ -26,10 +26,11 @@ const TENANT = 'tenant-1';
 describe('FarmersService public payload', () => {
   it('strips vendor-finance fields, keeps phone/email, and caches the stripped shape', async () => {
     const db = makeDb();
+    const legal = { kind: 'sole_trader' as const, name: 'ЕТ Васил', eik: '203912345' };
     const row = {
       id: 'f1', tenantId: TENANT, name: 'Васил', role: 'Ягодоплодни', bio: null,
       phone: '0888', email: 'v@x.bg', since: '2023', tint: null, imageUrl: null,
-      coverCrop: null, position: 0, createdAt: new Date(),
+      coverCrop: null, legal, position: 0, createdAt: new Date(),
       commissionRateBps: 500, subscriptionFeeStotinki: 1200,
     };
     // Call order inside findPublicBySlug: farmers rows → mediaUrlsByFarmer rows
@@ -55,6 +56,8 @@ describe('FarmersService public payload', () => {
       // public on purpose (product decision 2026-07-02) — must survive the strip
       expect(f).toHaveProperty('phone', '0888');
       expect(f).toHaveProperty('email', 'v@x.bg');
+      // legal seller identity is REQUIRED public КЗП disclosure — must survive too
+      expect(f).toHaveProperty('legal', legal);
     }
 
     // The strip must happen BEFORE the cache write — otherwise a stale cached

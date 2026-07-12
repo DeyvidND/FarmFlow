@@ -117,6 +117,20 @@ export interface Tier2Branding {
   unlockedBy?: string;
 }
 
+/** Legal seller identity (farmer-as-seller marketplace) — КЗП/НАП disclosure. Mirrors
+ *  @fermeribg/types FarmerLegal. PUBLIC (shown on the storefront so the buyer knows who
+ *  they contract with). `kind`: individual → регистрационен № (Наредба 3), sole_trader
+ *  (ЕТ) / company → ЕИК. */
+export interface FarmerLegal {
+  kind?: 'individual' | 'sole_trader' | 'company';
+  name?: string;
+  eik?: string;
+  vatNumber?: string;
+  address?: string;
+  regNo?: string;
+  confirmedAt?: string;
+}
+
 export interface Farmer {
   id: string;
   name: string;
@@ -132,6 +146,8 @@ export interface Farmer {
   coverCrop: CoverCrop | null;
   /** Tier-2 „Бранд идентичност" control layer. NULL / enabled:false = default card. */
   branding: Tier2Branding | null;
+  /** Legal seller identity (КЗП/НАП disclosure). NULL = not yet provided. */
+  legal?: FarmerLegal | null;
   position: number;
   createdAt: string;
   /** Commission override in basis points (500 = 5%). NULL = inherits the tenant default. */

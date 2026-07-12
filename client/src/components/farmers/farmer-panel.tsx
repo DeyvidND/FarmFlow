@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Check, Send, KeyRound, Sparkles, Images } from 'lucide-react';
+import { X, Check, Send, KeyRound, Sparkles, Images, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar } from './avatar';
@@ -69,6 +69,19 @@ export function FarmerPanel({
   const [monthlyFee, setMonthlyFee] = useState(
     farmer.subscriptionFeeStotinki != null ? String(farmer.subscriptionFeeStotinki / 100) : '',
   );
+  // Legal seller identity (farmer-as-seller marketplace) — КЗП/НАП disclosure. Persists
+  // to the `farmers.legal` jsonb column and IS surfaced publicly on the storefront (this
+  // is required seller disclosure, unlike the finance overrides above). A farmer without
+  // it can't be flipped to a live seller. `kind` selects which id matters: individual →
+  // регистрационен № (Наредба 3), sole_trader (ЕТ) / company → ЕИК.
+  const [legalKind, setLegalKind] = useState<'' | 'individual' | 'sole_trader' | 'company'>(
+    farmer.legal?.kind ?? '',
+  );
+  const [legalName, setLegalName] = useState(farmer.legal?.name ?? '');
+  const [eik, setEik] = useState(farmer.legal?.eik ?? '');
+  const [vatNumber, setVatNumber] = useState(farmer.legal?.vatNumber ?? '');
+  const [legalAddress, setLegalAddress] = useState(farmer.legal?.address ?? '');
+  const [regNo, setRegNo] = useState(farmer.legal?.regNo ?? '');
   // Tier-2 „Бранд идентичност" — operator-controlled paid branding. `brandingEnabled`
   // is the gate; when on, the marketplace renders the branded subpage and the panel
   // raises the photo cap so the gallery has more than one image. Primary brand color
@@ -118,6 +131,18 @@ export function FarmerPanel({
     }
     setSaving(true);
     try {
+      // Legal seller identity — send the object only when the operator filled at least
+      // one field; an all-blank form clears it back to null. `confirmedAt` stamps each
+      // non-empty save as "last confirmed by the operator" (audit trail).
+      const legalParts = {
+        kind: legalKind || undefined,
+        name: legalName.trim() || undefined,
+        eik: eik.trim() || undefined,
+        vatNumber: vatNumber.trim() || undefined,
+        address: legalAddress.trim() || undefined,
+        regNo: regNo.trim() || undefined,
+      };
+      const hasLegal = Object.values(legalParts).some(Boolean);
       const data = {
         name: name.trim(),
         role: role.trim(),
@@ -127,6 +152,7 @@ export function FarmerPanel({
         since: since.trim(),
         city: city.trim() || null,
         coverCrop,
+        legal: hasLegal ? { ...legalParts, confirmedAt: new Date().toISOString() } : null,
         commissionRateBps: commissionPct.trim() === '' ? null : Math.round(parseFloat(commissionPct) * 100),
         subscriptionFeeStotinki: monthlyFee.trim() === '' ? null : Math.round(parseFloat(monthlyFee) * 100),
         // Tier-2: when branding is on, the primary brand color (tint) is editable here
@@ -303,6 +329,79 @@ export function FarmerPanel({
               <input value={since} onChange={(e) => setSince(e.target.value)} className={field} />
             </label>
           </div>
+          {multiFarmer && (
+            <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+              <div className="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+                <FileText size={14} /> Юридически данни · продавач
+              </div>
+              <p className="mt-1.5 text-[12px] leading-snug text-ff-muted">
+                На пазара всеки фермер е продавачът — тези данни се показват на клиента (кой
+                е насрещната страна) и служат за отчитане пред НАП. Задължителни, преди
+                фермерът да продава сам.
+              </p>
+              <div className="mt-3 flex flex-col gap-3">
+                <label className={labelCls}>
+                  Вид продавач
+                  <select
+                    value={legalKind}
+                    onChange={(e) => setLegalKind(e.target.value as typeof legalKind)}
+                    className={field}
+                  >
+                    <option value="">— избери —</option>
+                    <option value="individual">Физическо лице / земеделски производител</option>
+                    <option value="sole_trader">ЕТ (едноличен търговец)</option>
+                    <option value="company">Фирма (ЕООД / ООД / АД)</option>
+                  </select>
+                </label>
+                <label className={labelCls}>
+                  Юридическо / фирмено име
+                  <input
+                    value={legalName}
+                    onChange={(e) => setLegalName(e.target.value)}
+                    placeholder={legalKind === 'individual' ? 'напр. Димка Иванова Четова' : 'напр. ЕТ „Димка Четова"'}
+                    className={field}
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className={labelCls}>
+                    {legalKind === 'individual' ? 'Рег. № зем. производител' : 'ЕИК / БУЛСТАТ'}
+                    <input
+                      value={legalKind === 'individual' ? regNo : eik}
+                      onChange={(e) =>
+                        legalKind === 'individual' ? setRegNo(e.target.value) : setEik(e.target.value)
+                      }
+                      inputMode="numeric"
+                      placeholder={legalKind === 'individual' ? 'Наредба 3' : 'напр. 203912345'}
+                      className={field}
+                    />
+                  </label>
+                  <label className={labelCls}>
+                    ДДС № (по избор)
+                    <input
+                      value={vatNumber}
+                      onChange={(e) => setVatNumber(e.target.value)}
+                      placeholder="напр. BG203912345"
+                      className={field}
+                    />
+                  </label>
+                </div>
+                <label className={labelCls}>
+                  Адрес на управление / кореспонденция
+                  <input
+                    value={legalAddress}
+                    onChange={(e) => setLegalAddress(e.target.value)}
+                    placeholder="напр. гр. Варна, ул. Приморска 12"
+                    className={field}
+                  />
+                </label>
+                {farmer.legal?.confirmedAt && (
+                  <p className="text-[11px] font-semibold text-ff-muted-2">
+                    Последно потвърдено: {new Date(farmer.legal.confirmedAt).toLocaleDateString('bg-BG')}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
           {multiFarmer && (
             <div className="grid grid-cols-2 gap-3">
               <label className={labelCls}>
