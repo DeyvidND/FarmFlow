@@ -545,20 +545,27 @@ export class ProductsService {
     if (memberIds.includes(bundleId)) {
       throw new BadRequestException('Пакетът не може да съдържа себе си');
     }
-    if (memberIds.length) {
-      const members = await this.db
-        .select({ id: products.id, category: products.category })
-        .from(products)
-        .where(and(eq(products.tenantId, tenantId), inArray(products.id, memberIds), isNull(products.deletedAt)));
-      const foundById = new Map(members.map((m) => [m.id, m]));
-      for (const id of memberIds) {
-        const m = foundById.get(id);
-        if (!m) throw new BadRequestException('Продукт от пакета не е намерен в този магазин');
-        if (m.category === 'bundle') throw new BadRequestException('Пакет не може да съдържа друг пакет');
-      }
-    }
     // One transaction so a mid-replace failure can't leave a partial membership set.
+    // The member validation runs INSIDE the tx, under row locks (`.for('update')`),
+    // so a concurrent product update can't flip a member's category to 'bundle' (or
+    // move it to another farmer) between the check and the delete+insert below.
     await this.db.transaction(async (tx) => {
+      if (memberIds.length) {
+        const members = await tx
+          .select({ id: products.id, category: products.category, farmerId: products.farmerId })
+          .from(products)
+          .where(and(eq(products.tenantId, tenantId), inArray(products.id, memberIds), isNull(products.deletedAt)))
+          .for('update');
+        const foundById = new Map(members.map((m) => [m.id, m]));
+        for (const id of memberIds) {
+          const m = foundById.get(id);
+          if (!m) throw new BadRequestException('Продукт от пакета не е намерен в този магазин');
+          if (m.category === 'bundle') throw new BadRequestException('Пакет не може да съдържа друг пакет');
+          if (bundle.farmerId !== null && m.farmerId !== bundle.farmerId) {
+            throw new BadRequestException('Продукт от пакета принадлежи на друг производител');
+          }
+        }
+      }
       await tx.delete(productBundleItems).where(eq(productBundleItems.bundleId, bundleId));
       if (memberIds.length) {
         await tx.insert(productBundleItems).values(
