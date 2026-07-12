@@ -32,6 +32,21 @@ const PROTECTED = [
 ];
 const AUTH_PAGES = ['/login'];
 
+// Producers may only open their own screens; bounce anything else to /stats.
+// UX only — the server's default-deny guard on each endpoint is the real boundary.
+// Keep in sync with FARMER_ALLOWED in components/layout/farmer-route-guard.tsx.
+const FARMER_ALLOWED = [
+  '/stats',
+  '/my-report',
+  '/payments',
+  '/availability',
+  '/products',
+  '/my-orders',
+  '/farmer-delivery',
+  '/settings',
+  '/help',
+];
+
 /** Decode the JWT payload without verifying signature (UX guard only). */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
@@ -90,6 +105,19 @@ export function middleware(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);
+  }
+
+  // Farmer role on a screen outside their allow-list → bounce before any render,
+  // so admin-only content never paints for them (was a client-side useEffect
+  // redirect, which flashed the admin dashboard for a frame first).
+  if (authed && isProtected) {
+    const role = token ? decodeJwtPayload(token)?.role : undefined;
+    const allowed = FARMER_ALLOWED.some((p) => pathname === p || pathname.startsWith(p + '/'));
+    if (role === 'farmer' && !allowed) {
+      const url = req.nextUrl.clone();
+      url.pathname = '/stats';
+      return NextResponse.redirect(url);
+    }
   }
 
   // Forced password change is handled by the blocking ForcePasswordModal (rendered

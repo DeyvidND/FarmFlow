@@ -1203,6 +1203,7 @@ export const schema = {
   importRows,
   auditLogs,
   errorEvents,
+  errorResolutions,
   platformAdmins,
   articles,
   articleMedia,

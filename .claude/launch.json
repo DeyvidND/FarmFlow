@@ -22,6 +22,19 @@
       "port": 3001
     },
     {
+      "name": "api-dev-prq",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "C:/Users/Lenovo/source/repos/FarmFlow-prq", "--filter", "@fermeribg/api", "dev"],
+      "port": 3001
+    },
+    {
+      "name": "web-dev-prq",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "C:/Users/Lenovo/source/repos/FarmFlow-prq", "--filter", "@fermeribg/web", "exec", "next", "dev", "-p", "3005"],
+      "port": 3005,
+      "autoPort": false
+    },
+    {
       "name": "storefront",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@fermeribg/storefront", "exec", "next", "start", "-p", "3003"],
