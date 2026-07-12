@@ -1,0 +1,11 @@
+# Standalone image that applies pending Drizzle migrations to DATABASE_URL.
+# Built and pushed to GHCR alongside the app images (see .github/workflows/
+# deploy.yml). Run as a one-off container BEFORE the new app containers come
+# up, so a migration a fresh deploy depends on (e.g. a new column) is never
+# missing on prod — the exact gap that caused the 2026-07-12 outage.
+FROM node:20-alpine
+WORKDIR /migrate
+COPY packages/db/drizzle ./drizzle
+COPY packages/db/drizzle.config.deploy.mjs ./
+RUN npm install --no-save drizzle-kit@0.31.10 drizzle-orm@0.45.2 pg
+CMD ["npx", "drizzle-kit", "migrate", "--config=drizzle.config.deploy.mjs"]

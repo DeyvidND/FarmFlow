@@ -1,7 +1,8 @@
 name: Deploy to Production
 
-# Build the three app images and push them to GHCR, then SSH to the Hetzner box
-# and `docker compose pull && up`. CI (build/lint/test) runs separately in ci.yml.
+# Build the app images (+ a migrator image) and push them to GHCR, then SSH to
+# the Hetzner box: apply pending DB migrations, then `docker compose pull && up`.
+# CI (build/lint/test) runs separately in ci.yml.
 on:
   push:
     branches: [main]
@@ -46,6 +47,14 @@ jobs:
           - app: delivery-web
             image: ghcr.io/deyvidnd/farmflow-delivery-web
             dockerfile: delivery-web/Dockerfile
+            build_args: ''
+          # One-off migrator: applies pending Drizzle migrations to DATABASE_URL,
+          # run by the deploy job BEFORE the app images below come up. Closes the
+          # gap that caused the 2026-07-12 outage (a migration was pushed but
+          # never applied, so the new app code 500'd on a missing column).
+          - app: migrate
+            image: ghcr.io/deyvidnd/farmflow-migrate
+            dockerfile: packages/db/Dockerfile.migrate
             build_args: ''
           # NOTE: no public storefront is built here. The shops live in their own
           # repos with their own pipelines: the chaika shop (Astro → CF) and the
@@ -111,6 +120,20 @@ jobs:
           script: |
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u DeyvidND --password-stdin
             cd /opt/fermeribg
+
+            # Apply any pending Drizzle migrations BEFORE the new app images come
+            # up, so code that depends on a new column/table never races ahead of
+            # the schema (the 2026-07-12 outage: a migration was pushed but never
+            # applied, and the new code 500'd on the missing column). Idempotent —
+            # already-applied migrations are no-ops (drizzle tracks them in
+            # drizzle.__drizzle_migrations; hand-written SQL also uses IF NOT
+            # EXISTS as a second safety net).
+            docker pull ghcr.io/deyvidnd/farmflow-migrate:latest
+            PGPW=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)
+            docker run --rm --network fermeribg_default \
+              -e DATABASE_URL="postgresql://farmflow:${PGPW}@10.0.0.3:5432/farmflow" \
+              ghcr.io/deyvidnd/farmflow-migrate:latest
+
             docker compose pull api web admin econt delivery-web worker
             docker compose up -d
             docker image prune -f
