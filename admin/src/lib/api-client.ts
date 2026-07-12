@@ -738,3 +738,29 @@ export const updateBrandCharge = (
     { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
     'Неуспешна промяна на таксата',
   );
+
+// ── One-shot producer onboarding (create + AI-import + invite link) ──
+
+export interface OnboardProducerResult {
+  farmerId: string;
+  productsCreated: number;
+  inviteLink: string | null;
+}
+
+/** Multipart: do NOT set content-type — the browser sets the boundary. */
+export const onboardProducer = (
+  tenantId: string,
+  input: { name: string; phone?: string; email?: string; pricelistText?: string; file?: File },
+) => {
+  const fd = new FormData();
+  fd.append('name', input.name);
+  if (input.phone) fd.append('phone', input.phone);
+  if (input.email) fd.append('email', input.email);
+  if (input.pricelistText) fd.append('pricelistText', input.pricelistText);
+  if (input.file) fd.append('file', input.file);
+  return apiFetch<OnboardProducerResult>(
+    `platform/tenants/${tenantId}/producers/onboard`,
+    { method: 'POST', body: fd },
+    'Неуспешно създаване на производителя',
+  );
+};

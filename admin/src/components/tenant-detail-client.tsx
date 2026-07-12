@@ -18,11 +18,13 @@ import {
   Pencil,
   Check,
   X,
+  UserPlus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, dmy, eur } from '@/lib/utils';
 import { ApiError, enableDeliveryOnFarm, type PlatformTenantDetail } from '@/lib/api-client';
 import { EnterPanelButton } from '@/components/enter-panel-button';
+import { ProducerOnboardDialog } from '@/components/producer-onboard-dialog';
 
 const ORDER_STATUS: Record<string, { label: string; tone: string }> = {
   pending: { label: 'Чака', tone: 'bg-ff-amber-soft text-ff-amber-600' },
@@ -147,6 +149,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
   const [err, setErr] = useState<string | null>(null);
   const [enabling, setEnabling] = useState(false);
   const [deliveryOn, setDeliveryOn] = useState(d.deliveryAccount);
+  const [onboardOpen, setOnboardOpen] = useState(false);
 
   async function enableDelivery() {
     setEnabling(true);
@@ -418,12 +421,20 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
           <h2 className="flex items-center gap-2 text-[15px] font-extrabold">
             <Users size={16} className="text-ff-green-600" /> Фермери и доставки
           </h2>
-          {d.farmers.length > 0 && (
-            <span className="text-[12.5px] text-ff-muted">
-              {d.farmers.length} {d.farmers.length === 1 ? 'фермер' : 'фермери'} ·{' '}
-              {d.farmers.filter((f) => f.hasLogin).length} с достъп
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {d.farmers.length > 0 && (
+              <span className="text-[12.5px] text-ff-muted">
+                {d.farmers.length} {d.farmers.length === 1 ? 'фермер' : 'фермери'} ·{' '}
+                {d.farmers.filter((f) => f.hasLogin).length} с достъп
+              </span>
+            )}
+            <button
+              onClick={() => setOnboardOpen(true)}
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-ff-green-700 px-3.5 text-[13px] font-bold text-white shadow-ff-sm hover:brightness-95"
+            >
+              <UserPlus size={16} /> Onboard производител
+            </button>
+          </div>
         </div>
         {d.farmers.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-ff-muted">Тази ферма няма добавени фермери.</p>
@@ -524,6 +535,8 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
           </div>
         )}
       </div>
+
+      {onboardOpen && <ProducerOnboardDialog tenantId={d.id} onClose={() => setOnboardOpen(false)} />}
     </div>
   );
 }
