@@ -194,6 +194,10 @@ export const products = pgTable(
     // for it. Self-delivery + pickup stay allowed (no waybill involved). Toggled by
     // the farmer (own products) or an admin in the product dialog.
     courierDisabled: boolean('courier_disabled').notNull().default(false),
+    // Moderation gate for farmer-submitted products: true = awaiting tenant-admin
+    // review, hidden from the public catalog. Admin/operator-created products are
+    // born false (live). Cleared only by the explicit approve endpoint.
+    needsReview: boolean('needs_review').notNull().default(false),
     imageUrl: text('image_url'),
     // How the cover image is framed in storefront product cards: focal point
     // (x/y, 0..1) + zoom (1..3). NULL = legacy behavior (centered, no zoom).

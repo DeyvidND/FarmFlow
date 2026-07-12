@@ -624,6 +624,13 @@
       "when": 1783886402000,
       "tag": "0088_farmer_tier",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1783855688236,
+      "tag": "0090_product_review",
+      "breakpoints": true
     }
   ]
 }
