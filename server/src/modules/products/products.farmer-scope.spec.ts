@@ -52,7 +52,7 @@ function makeDb(selects: unknown[][]) {
 
 const cache = () => ({ invalidate: jest.fn() });
 const svcWith = (db: unknown, c: unknown) =>
-  new ProductsService(db as never, {} as never, c as never, {} as never, {} as never, {} as never);
+  new ProductsService(db as never, {} as never, c as never, {} as never, {} as never, {} as never, {} as never);
 
 const FARMER = 'farmer-1';
 const OTHER = 'farmer-2';

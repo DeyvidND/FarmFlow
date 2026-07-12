@@ -296,6 +296,11 @@ export async function addMedia(
 export const deleteMedia = (resource: MediaResource, id: string, mediaId: string) =>
   apiFetch<{ id: string }>(`${resource}/${id}/media/${mediaId}`, { method: 'DELETE' }, 'Неуспешно изтриване');
 
+/** Undo the image-sanity worker's auto rotate/crop — points the photo back
+ *  at the pre-fix upload. Products only (the worker is product-scoped). */
+export const revertMediaOriginal = (id: string, mediaId: string) =>
+  apiFetch<{ id: string }>(`products/${id}/media/${mediaId}/revert`, { method: 'POST' }, 'Неуспешно връщане на оригинала');
+
 export const reorderMedia = (
   resource: MediaResource,
   id: string,

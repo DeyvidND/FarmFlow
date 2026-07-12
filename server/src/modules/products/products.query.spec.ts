@@ -51,7 +51,7 @@ function makeDb(results: unknown[][]) {
 
 const catalogCache = () => ({ invalidate: jest.fn(), get: jest.fn(), set: jest.fn() });
 const svcWith = (db: unknown, cache: unknown, publicCache: unknown = {}) =>
-  new ProductsService(db as never, {} as never, cache as never, publicCache as never, {} as never, {} as never);
+  new ProductsService(db as never, {} as never, cache as never, publicCache as never, {} as never, {} as never, {} as never);
 
 describe('ProductsService.findAll', () => {
   it('returns the first page with a total and a nextCursor when full', async () => {

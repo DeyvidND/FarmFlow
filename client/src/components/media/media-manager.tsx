@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ImagePlus, Trash2, GripVertical, Star } from 'lucide-react';
+import { ImagePlus, Trash2, GripVertical, Star, Wand2, TriangleAlert, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ApiError,
@@ -9,6 +9,7 @@ import {
   addMedia,
   deleteMedia,
   reorderMedia,
+  revertMediaOriginal,
   waitForMediaItems,
   type MediaResource,
 } from '@/lib/api-client';
@@ -95,6 +96,23 @@ export function MediaManager({
     }
   }
 
+  /** Undo the image-sanity worker's auto-fix — points the photo back at its
+   *  pre-fix upload. Products only (the worker is product-scoped). */
+  async function onRevert(m: MediaItem) {
+    setBusy(true);
+    try {
+      await revertMediaOriginal(ownerId, m.id);
+      const fresh = await listMedia(resource, ownerId);
+      setItems(fresh);
+      announceCover(fresh);
+      toast.success('Оригиналната снимка е върната');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onDelete(m: MediaItem) {
     const prev = items;
     const next = items.filter((x) => x.id !== m.id).map((x, i) => ({ ...x, position: i }));
@@ -171,6 +189,23 @@ export function MediaManager({
               </span>
             )}
 
+            {resource === 'products' && m.autoFixed && (
+              <span
+                className="absolute right-1 top-1 inline-flex items-center gap-0.5 rounded bg-ff-amber-600/90 px-1.5 py-0.5 text-[9.5px] font-bold text-white"
+                title={m.sanityReason ?? undefined}
+              >
+                <Wand2 size={9} /> оправена автоматично
+              </span>
+            )}
+            {resource === 'products' && m.sanityVerdict === 'unusable' && (
+              <span
+                className="absolute right-1 top-1 inline-flex items-center gap-0.5 rounded bg-ff-red/90 px-1.5 py-0.5 text-[9.5px] font-bold text-white"
+                title={m.sanityReason ?? undefined}
+              >
+                <TriangleAlert size={9} /> лоша снимка
+              </span>
+            )}
+
             <div className="absolute inset-0 flex items-end justify-between gap-1 bg-gradient-to-t from-black/55 to-transparent p-1 opacity-0 transition group-hover:opacity-100 [@media(hover:none)]:opacity-100">
               {reorderable ? (
                 <span className="grid h-6 w-6 cursor-grab place-items-center rounded bg-white/85 text-ff-ink" title="Влачи за подреждане">
@@ -180,6 +215,18 @@ export function MediaManager({
                 <span />
               )}
               <div className="flex gap-1">
+                {resource === 'products' && m.autoFixed && (
+                  <button
+                    type="button"
+                    onClick={() => onRevert(m)}
+                    disabled={busy}
+                    aria-label="Върни оригинала"
+                    title="Върни оригинала"
+                    className="grid h-6 w-6 place-items-center rounded bg-white/85 text-ff-amber-600 hover:bg-white disabled:opacity-40"
+                  >
+                    <Undo2 size={12} />
+                  </button>
+                )}
                 {reorderable && i !== 0 && (
                   <button
                     type="button"

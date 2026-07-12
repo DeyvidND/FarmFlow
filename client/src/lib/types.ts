@@ -158,11 +158,18 @@ export interface Subcategory {
 }
 
 /** One gallery photo (admin GET /{products|farmers|subcategories}/:id/media).
- *  The cover is whichever photo sits at position 0. */
+ *  The cover is whichever photo sits at position 0. The `autoFixed`/`sanity*`
+ *  fields are only ever set on product photos (the image-sanity worker is
+ *  product-scoped today) — always undefined for farmer/subcategory items. */
 export interface MediaItem {
   id: string;
   url: string;
   position: number;
+  /** Pre-fix upload — present only when the worker replaced `url`. */
+  originalUrl?: string | null;
+  autoFixed?: boolean;
+  sanityVerdict?: 'ok' | 'unusable' | null;
+  sanityReason?: string | null;
 }
 
 /** Subset of the tenant profile the panels read (GET /tenants/me). */

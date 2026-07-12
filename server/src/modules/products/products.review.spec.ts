@@ -66,7 +66,7 @@ function makeDb(results: unknown[][]) {
 
 const catalogCache = () => ({ invalidate: jest.fn(), get: jest.fn(), set: jest.fn() });
 const svcWith = (db: unknown, cache: unknown, publicCache: unknown = {}) =>
-  new ProductsService(db as never, {} as never, cache as never, publicCache as never, {} as never, {} as never);
+  new ProductsService(db as never, {} as never, cache as never, publicCache as never, {} as never, {} as never, {} as never);
 
 /** Walk a drizzle `SQL` node tree and pull out `{ column, value }` for every
  *  `col = param` leaf. See orders.mine.spec.ts for the full rationale — this

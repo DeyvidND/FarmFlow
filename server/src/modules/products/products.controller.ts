@@ -242,6 +242,19 @@ export class ProductsController {
     const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
     return this.productsService.removeMedia(id, mediaId, tenantId, scope);
   }
+
+  /** Undo the image-sanity worker's auto rotate/crop — „върни оригинала". */
+  @Post(':id/media/:mediaId/revert')
+  @Roles('admin', 'farmer')
+  revertMediaOriginal(
+    @Param('id') id: string,
+    @Param('mediaId') mediaId: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.revertMediaOriginal(id, mediaId, tenantId, scope);
+  }
 }
 
 @ApiTags('public')

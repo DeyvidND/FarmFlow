@@ -2,6 +2,7 @@ import { Injectable, Inject, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
+import sharp from 'sharp';
 import { and, asc, eq, getTableColumns, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { type Database, products, productMedia, productVariants, farmers, subcategories } from '@fermeribg/db';
 import type { Product, ProductMedia, ProductVariant, PublicProduct, PublicProductVariant } from '@fermeribg/types';
@@ -44,7 +45,9 @@ import { ReorderDto } from '../../common/dto/reorder.dto';
 import { slugify } from '../articles/articles.util';
 import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { optimizeImage } from '../storage/image.util';
-import { smartFocal, smartFocalFromUrl } from '../storage/smart-crop.util';
+import { smartFocal, smartFocalFromUrl, isAllowedImageUrl } from '../storage/smart-crop.util';
+import { inlineSanityCheck } from '../storage/image-sanity.util';
+import { ImageSanityVisionClient } from './image-sanity-vision.client';
 import { tenantSlug } from '../../common/tenant-slug.util';
 
 @Injectable()
@@ -56,6 +59,7 @@ export class ProductsService {
     private readonly publicCache: PublicCacheService,
     @InjectQueue(IMAGE_QUEUE) private readonly imageQueue: Queue,
     private readonly availability: AvailabilityService,
+    private readonly sanityVision: ImageSanityVisionClient,
   ) {}
 
   /** Admin list: tenant-scoped, oldest first, keyset-paginated. `total` is included
@@ -498,18 +502,26 @@ export class ProductsService {
     farmerScope: string | null = null,
   ): Promise<{ imageProcessing: boolean }> {
     await this.findOne(id, tenantId, farmerScope);
-    await this.imageQueue.add('process', encodeImageJob('product-media', id, tenantId, file));
+    // Cheap, synchronous (no network) checks — flags the upload, never blocks it.
+    // An anomaly makes the worker follow up with a vision-based pass once the
+    // gallery row exists (see `finishProductMedia` / `finishImageSanity`).
+    const sanity = await inlineSanityCheck(file.buffer, file.mimetype);
+    await this.imageQueue.add(
+      'process',
+      encodeImageJob('product-media', id, tenantId, file, sanity.anomaly ? sanity.reasons : undefined),
+    );
     return { imageProcessing: true };
   }
 
   /** Worker finisher: runs the full synchronous optimize → upload → insert → syncCover
-   *  pipeline for a gallery photo after the queue has decoded the raw bytes. */
+   *  pipeline for a gallery photo after the queue has decoded the raw bytes. Returns
+   *  the new gallery row's id so the caller can follow up with an image-sanity job. */
   async finishProductMedia(
     id: string,
     tenantId: string,
     buffer: Buffer,
     mime: string,
-  ): Promise<void> {
+  ): Promise<{ mediaId: string }> {
     const product = await this.findOne(id, tenantId);
 
     const existing = await this.db
@@ -537,13 +549,127 @@ export class ProductsService {
     const key = `tenants/${slug}/products/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
 
-    await this.db
+    const [inserted] = await this.db
       .insert(productMedia)
       .values({ productId: id, tenantId, url, position: existing.length })
       .returning();
 
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
+    return { mediaId: inserted.id };
+  }
+
+  /**
+   * Worker finisher for the follow-up 'image-sanity' job: fetches the stored
+   * photo the inline check flagged, asks the vision client to judge it, and
+   * either applies a rotate/crop fix (uploading a derived object, keeping the
+   * original for "върни оригинала") or marks it `sanityVerdict:'unusable'` for
+   * the panel to surface. Idempotent (skips a row already judged) and
+   * best-effort throughout — any failure leaves the row exactly as uploaded,
+   * matching the fire-and-forget pattern used elsewhere in this pipeline.
+   */
+  async finishImageSanity(mediaId: string, tenantId: string, reasons: string[]): Promise<void> {
+    const [row] = await this.db
+      .select()
+      .from(productMedia)
+      .where(and(eq(productMedia.id, mediaId), eq(productMedia.tenantId, tenantId)));
+    if (!row || row.autoFixed || row.sanityVerdict || !row.productId) return;
+    const productId = row.productId;
+
+    const allowedBase = this.storage.getPublicBaseUrl();
+    if (!isAllowedImageUrl(row.url, allowedBase)) return;
+
+    let original: Buffer;
+    try {
+      const res = await fetch(row.url, { signal: AbortSignal.timeout(8000), redirect: 'error' });
+      if (!res.ok) return;
+      original = Buffer.from(await res.arrayBuffer());
+    } catch {
+      return;
+    }
+
+    let dataUri: string;
+    try {
+      const preview = await sharp(original, { failOn: 'none' })
+        .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 75 })
+        .toBuffer();
+      dataUri = `data:image/jpeg;base64,${preview.toString('base64')}`;
+    } catch {
+      return;
+    }
+
+    const verdict = await this.sanityVision.judge(dataUri, reasons);
+    if (!verdict) return;
+
+    if (verdict.verdict === 'unusable') {
+      await this.db
+        .update(productMedia)
+        .set({ sanityVerdict: 'unusable', sanityReason: verdict.reason })
+        .where(eq(productMedia.id, mediaId));
+      return;
+    }
+
+    try {
+      const meta = await sharp(original, { failOn: 'none' }).metadata();
+      const w = meta.width ?? 0;
+      const h = meta.height ?? 0;
+      let working = sharp(original, { failOn: 'none' });
+      if (verdict.cropBox && w > 0 && h > 0) {
+        const left = Math.min(Math.max(Math.round(verdict.cropBox.x * w), 0), w - 1);
+        const top = Math.min(Math.max(Math.round(verdict.cropBox.y * h), 0), h - 1);
+        const width = Math.min(Math.max(Math.round(verdict.cropBox.width * w), 1), w - left);
+        const height = Math.min(Math.max(Math.round(verdict.cropBox.height * h), 1), h - top);
+        if (width >= 50 && height >= 50) working = working.extract({ left, top, width, height });
+      }
+      if (verdict.rotate) working = working.rotate(verdict.rotate);
+      const fixed = await working.webp({ quality: 90 }).toBuffer();
+
+      const slug = await tenantSlug(this.db, tenantId);
+      const key = `tenants/${slug}/products/${productId}/${randomUUID()}.webp`;
+      const { url } = await this.storage.upload(fixed, key, 'image/webp');
+
+      await this.db
+        .update(productMedia)
+        .set({ originalUrl: row.url, url, autoFixed: true, sanityVerdict: 'ok', sanityReason: verdict.reason })
+        .where(eq(productMedia.id, mediaId));
+      await this.syncCover(productId, tenantId);
+      await this.cache.invalidate(tenantId);
+    } catch {
+      // Fix failed to apply — leave the row exactly as uploaded, never worse.
+    }
+  }
+
+  /** Undo an image-sanity auto-fix: point the gallery item back at the
+   *  pre-fix upload ("върни оригинала") and clear the worker's fields so it
+   *  reads as never-touched. The fixed derivative in R2 is left in place
+   *  (best-effort cleanup, not worth failing the revert over). No-op (not an
+   *  error) if the item was never auto-fixed. */
+  async revertMediaOriginal(
+    id: string,
+    mediaId: string,
+    tenantId: string,
+    farmerScope: string | null = null,
+  ): Promise<{ id: string }> {
+    await this.findOne(id, tenantId, farmerScope);
+
+    const [m] = await this.db
+      .select()
+      .from(productMedia)
+      .where(and(eq(productMedia.id, mediaId), eq(productMedia.productId, id), eq(productMedia.tenantId, tenantId)))
+      .limit(1);
+    if (!m) throw new NotFoundException('Снимката не е намерена');
+    if (!m.autoFixed || !m.originalUrl) return { id: mediaId };
+
+    const fixedUrl = m.url;
+    await this.db
+      .update(productMedia)
+      .set({ url: m.originalUrl, originalUrl: null, autoFixed: false, sanityVerdict: null, sanityReason: null })
+      .where(eq(productMedia.id, mediaId));
+    await this.deleteObject(fixedUrl);
+    await this.syncCover(id, tenantId);
+    await this.cache.invalidate(tenantId);
+    return { id: mediaId };
   }
 
   /** Remove one gallery photo (DB row + R2 object), then re-sync the cover. */

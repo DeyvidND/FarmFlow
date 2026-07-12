@@ -1077,6 +1077,17 @@ export const productMedia = pgTable(
     url: text('url').notNull(),
     position: integer('position').notNull().default(0),
     createdAt: timestamp('created_at').defaultNow(),
+    /** Pre-fix upload, kept so the panel can offer "върни оригинала" — set only
+     *  when the image-sanity worker replaces `url` with an auto-rotated/cropped
+     *  derivative. Null for every photo the worker never touched. */
+    originalUrl: text('original_url'),
+    /** True once the image-sanity worker has replaced `url` with a fixed version. */
+    autoFixed: boolean('auto_fixed').notNull().default(false),
+    /** Vision worker's verdict on the flagged photo — 'ok' (fixed) | 'unusable'
+     *  (left as-is, flagged for the operator) | null (never flagged / not yet run). */
+    sanityVerdict: text('sanity_verdict'),
+    /** BG-facing reason for the verdict, e.g. „снимката е замъглена". */
+    sanityReason: text('sanity_reason'),
   },
   (t) => ({
     productPositionIdx: index('product_media_product_position_idx').on(t.productId, t.position),

@@ -6,6 +6,7 @@ import { StorageService } from '../storage/storage.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { AvailabilityService } from '../availability/availability.service';
+import { ImageSanityVisionClient } from './image-sanity-vision.client';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
 
 /** Chainable Drizzle mock: select().from().where().limit() → [fakeProduct] */
@@ -35,6 +36,7 @@ async function buildSvc(db: any, queue: any): Promise<ProductsService> {
       { provide: PublicCacheService, useValue: { invalidate: jest.fn() } },
       { provide: getQueueToken(IMAGE_QUEUE), useValue: queue },
       { provide: AvailabilityService, useValue: { setProductStock: jest.fn() } },
+      { provide: ImageSanityVisionClient, useValue: { judge: jest.fn() } },
     ],
   }).compile();
   return mod.get(ProductsService);
@@ -55,6 +57,7 @@ describe('ProductsService.uploadImage (queue path)', () => {
         { provide: PublicCacheService, useValue: { invalidate: jest.fn() } },
         { provide: getQueueToken(IMAGE_QUEUE), useValue: queue },
         { provide: AvailabilityService, useValue: { setProductStock: jest.fn() } },
+        { provide: ImageSanityVisionClient, useValue: { judge: jest.fn() } },
       ],
     }).compile();
 

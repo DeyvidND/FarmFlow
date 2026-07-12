@@ -7,6 +7,7 @@ import { AvailabilityModule } from '../availability/availability.module';
 import { IMAGE_QUEUE, PRODUCTS_QUEUE } from '../../common/queue/queue.constants';
 import { RUN_WORKERS } from '../../config/app-role';
 import { ProductsProcessor } from './products.processor';
+import { ImageSanityVisionClient } from './image-sanity-vision.client';
 
 @Module({
   imports: [
@@ -32,7 +33,7 @@ import { ProductsProcessor } from './products.processor';
     }),
   ],
   controllers: [ProductsController, PublicProductsController],
-  providers: [ProductsService, ...(RUN_WORKERS ? [ProductsProcessor] : [])],
+  providers: [ProductsService, ImageSanityVisionClient, ...(RUN_WORKERS ? [ProductsProcessor] : [])],
   exports: [ProductsService],
 })
 export class ProductsModule {}

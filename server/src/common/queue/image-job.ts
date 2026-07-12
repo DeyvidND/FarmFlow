@@ -24,6 +24,10 @@ export interface ImageJobPayload {
   /** Original upload bytes, base64. Decoded by the worker, then optimized. */
   bufferB64: string;
   mime: string;
+  /** Set only for 'product-media' when the inline (sharp-only, synchronous)
+   *  sanity check flagged an anomaly on upload. The worker follows up with a
+   *  named 'image-sanity' job once the gallery row exists (see ImageProcessor). */
+  sanityReasons?: string[];
 }
 
 /** Build a payload from a Multer file. Kept tiny + pure so callers stay one-liners. */
@@ -32,6 +36,7 @@ export function encodeImageJob(
   entityId: string,
   tenantId: string,
   file: { buffer: Buffer; mimetype: string },
+  sanityReasons?: string[],
 ): ImageJobPayload {
   return {
     entityType,
@@ -39,5 +44,14 @@ export function encodeImageJob(
     tenantId,
     bufferB64: file.buffer.toString('base64'),
     mime: file.mimetype,
+    ...(sanityReasons?.length ? { sanityReasons } : {}),
   };
+}
+
+/** Payload for the follow-up 'image-sanity' job — the vision-based rotate/crop
+ *  fix (or 'unusable' flag) on a gallery photo the inline check flagged. */
+export interface ImageSanityJobPayload {
+  mediaId: string;
+  tenantId: string;
+  reasons: string[];
 }

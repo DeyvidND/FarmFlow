@@ -41,8 +41,8 @@ const cache = () => ({ invalidate: jest.fn() });
 const availability = () => ({ setProductStock: jest.fn(async () => undefined) });
 
 function svcWith(db: any, cacheStub: any, avail: any) {
-  // ctor: (db, storage, cache, publicCache, imageQueue, availability)
-  return new ProductsService(db, {} as never, cacheStub as never, {} as never, {} as never, avail as never);
+  // ctor: (db, storage, cache, publicCache, imageQueue, availability, sanityVision)
+  return new ProductsService(db, {} as never, cacheStub as never, {} as never, {} as never, avail as never, {} as never);
 }
 
 describe('ProductsService.create — stock → availability window', () => {
