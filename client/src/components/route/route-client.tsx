@@ -19,10 +19,11 @@ import {
   PackageCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getOrder, updateOrderStatus, updateTenant } from '@/lib/api-client';
+import { getOrder, measureRoute, setOrderCourier, updateOrderStatus, updateTenant } from '@/lib/api-client';
 import type { MultiRouteResult, CourierRoute, RouteStop, RouteEndMode } from '@/lib/types';
 import type { Order } from '@/lib/types';
 import type { OrderStatus } from '@/lib/utils';
+import { moneyFromStotinki } from '@/lib/utils';
 import { OrderPanel } from '@/components/orders/order-panel';
 import { nextUnfinishedId } from './route-finish';
 import { StopList } from './stop-list';
@@ -335,17 +336,72 @@ export function RouteClient({
 
   const dist = fmtDist(active.totalDistanceM);
   const dur = fmtDur(active.totalDurationS);
+  // Day-wide delivery money across EVERY courier's leg — shown next to the
+  // stop-count summary so the operator sees today's total without adding up
+  // each tab by hand.
+  const dayTotals = useMemo(
+    () =>
+      routes.reduce(
+        (acc, r) => ({
+          deliveryFeeStotinki: acc.deliveryFeeStotinki + r.deliveryFeeStotinki,
+          totalStotinki: acc.totalStotinki + r.totalStotinki,
+        }),
+        { deliveryFeeStotinki: 0, totalStotinki: 0 },
+      ),
+    [routes],
+  );
   // With one courier, the summary is that courier's own stats (as before). With
   // several, lead with the day-wide total — the per-courier distance/duration
-  // is already visible on each tab below.
-  const summary = multi
-    ? `${allStops.length} ${allStops.length === 1 ? 'спирка' : 'спирки'} общо · ${routes.length} куриера`
-    : `${remainingStops.length} ${remainingStops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`;
+  // is already visible on each tab below. Either way, append the day's money.
+  const summary =
+    (multi
+      ? `${allStops.length} ${allStops.length === 1 ? 'спирка' : 'спирки'} общо · ${routes.length} куриера`
+      : `${remainingStops.length} ${remainingStops.length === 1 ? 'спирка' : 'спирки'}${dist ? ` · ${dist}` : ''}${dur ? ` · ~${dur}` : ''}`) +
+    ` · Оборот ${moneyFromStotinki(dayTotals.totalStotinki)} · Доставки ${moneyFromStotinki(dayTotals.deliveryFeeStotinki)}`;
+
+  // Real road-following polyline for the operator's chosen order (task #5).
+  // The server's own polyline was drawn for its own auto order — once the
+  // farmer reorders manually or starts finishing stops, it no longer matches
+  // the remaining sequence, so we ask the server to measure a fresh one for
+  // the actual remaining order. `null` (loading / unavailable) falls back to
+  // straight pin-to-pin segments in the map, same as before this fix.
+  const [measuredPolyline, setMeasuredPolyline] = useState<string[] | null>(null);
+  // Stable signature of the ordered, geocoded remaining stops — recompute the
+  // measured polyline only when this (or the mode/date/courier) actually changes.
+  const remainingLocatedSig = remainingStops
+    .filter((s) => s.lat != null && s.lng != null)
+    .map((s) => s.id)
+    .join(',');
+  const needsMeasuredPolyline = isManualOrder || finishedIds.size > 0;
+  useEffect(() => {
+    if (!needsMeasuredPolyline) {
+      setMeasuredPolyline(null);
+      return;
+    }
+    const ids = remainingLocatedSig ? remainingLocatedSig.split(',') : [];
+    if (!ids.length) {
+      setMeasuredPolyline(null);
+      return;
+    }
+    let cancelled = false;
+    measureRoute({ date: route.date, stopIds: ids, courierIndex: activeCourierIdx, endMode: activeEndMode })
+      .then((res) => {
+        if (!cancelled) setMeasuredPolyline(res.polyline);
+      })
+      .catch(() => {
+        /* ignore — leave the polyline as-is (straight-line fallback stands) */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remainingLocatedSig, isManualOrder, finishedIds.size > 0, activeCourierIdx, activeEndMode, route.date]);
 
   // Routes fed to the map: the active courier's leg reflects the (possibly
-  // manual) order, and drops the server polyline when overridden — the road
-  // geometry followed the auto order, so the map falls back to straight segments
-  // through the farmer's own sequence instead of drawing a mismatched line.
+  // manual) order. Once the order is overridden OR any stop is finished, the
+  // server's road geometry (drawn for the full farm→all-stops auto route) no
+  // longer matches — swap in the freshly measured polyline for the actual
+  // remaining order instead (briefly null = straight lines while it loads).
   const displayRoutes = useMemo(
     () =>
       routes.map((r, i) =>
@@ -353,14 +409,11 @@ export function RouteClient({
           ? {
               ...r,
               stops: remainingStops,
-              // Drop the server road geometry once the order is overridden OR any
-              // stop is finished — it was drawn for the full farm→all-stops auto
-              // route and no longer matches the remaining line from the last drop.
-              polyline: isManualOrder || finishedIds.size > 0 ? null : r.polyline,
+              polyline: isManualOrder || finishedIds.size > 0 ? measuredPolyline : r.polyline,
             }
           : r,
       ),
-    [routes, activeCourierIdx, remainingStops, isManualOrder, finishedIds],
+    [routes, activeCourierIdx, remainingStops, isManualOrder, finishedIds, measuredPolyline],
   );
 
   // Where the van goes after the last delivery, for the Google Maps deep link
@@ -543,6 +596,19 @@ export function RouteClient({
       toast.error('Неуспешна промяна на статуса');
     } finally {
       setPanelBusy(false);
+    }
+  };
+
+  // Move an order to another courier's leg, or back to auto-split (task #6).
+  // The route refetches on success, which re-runs the geographic split with the
+  // pin honoured and recomputes each courier's stops/money.
+  const moveCourier = async (stopId: string, idx: number | null) => {
+    try {
+      await setOrderCourier(stopId, idx);
+      router.refresh();
+      toast.success(idx === null ? 'Върнато на авто-разпределение' : 'Поръчката е преместена');
+    } catch {
+      toast.error('Неуспешна промяна на куриера');
     }
   };
 
@@ -888,35 +954,44 @@ export function RouteClient({
       {/* courier tabs — one per leg, each labelled with its own stop count and
           distance/duration; only shown when the day is actually split */}
       {multi && (
-        <div className="mb-3 flex flex-wrap gap-2">
-          {routes.map((r, i) => {
-            const rDist = fmtDist(r.totalDistanceM);
-            const rDur = fmtDur(r.totalDurationS);
-            const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
-            const on = i === activeCourierIdx;
-            return (
-              <button
-                key={i}
-                onClick={() => setActiveCourierIdx(i)}
-                className={cn(
-                  'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[12.5px] font-bold transition',
-                  on
-                    ? 'border-transparent text-white shadow-ff-sm'
-                    : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
-                )}
-                style={on ? { backgroundColor: color } : undefined}
-              >
-                <span
-                  className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: on ? 'rgba(255,255,255,0.9)' : color }}
-                />
-                Маршрут {i + 1} ({r.stops.length} {r.stops.length === 1 ? 'спирка' : 'спирки'}
-                {rDist ? ` · ${rDist}` : ''}
-                {rDur ? ` · ~${rDur}` : ''})
-                {r.endMode === 'home' ? <Home size={12} /> : <Flag size={12} />}
-              </button>
-            );
-          })}
+        <div className="mb-3">
+          <div className="flex flex-wrap gap-2">
+            {routes.map((r, i) => {
+              const rDist = fmtDist(r.totalDistanceM);
+              const rDur = fmtDur(r.totalDurationS);
+              const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+              const on = i === activeCourierIdx;
+              return (
+                <button
+                  key={i}
+                  onClick={() => setActiveCourierIdx(i)}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[12.5px] font-bold transition',
+                    on
+                      ? 'border-transparent text-white shadow-ff-sm'
+                      : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+                  )}
+                  style={on ? { backgroundColor: color } : undefined}
+                >
+                  <span
+                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: on ? 'rgba(255,255,255,0.9)' : color }}
+                  />
+                  Маршрут {i + 1} ({r.stops.length} {r.stops.length === 1 ? 'спирка' : 'спирки'}
+                  {rDist ? ` · ${rDist}` : ''}
+                  {rDur ? ` · ~${rDur}` : ''})
+                  {r.endMode === 'home' ? <Home size={12} /> : <Flag size={12} />}
+                </button>
+              );
+            })}
+          </div>
+          {/* per-courier delivery revenue for the ACTIVE tab (task #6) — the
+              day-wide total already sits in the summary line above. */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-bold text-ff-muted">
+            <span>Маршрут {activeCourierIdx + 1}:</span>
+            <span>Доставки {moneyFromStotinki(active.deliveryFeeStotinki)}</span>
+            <span className="text-ff-ink-2">Оборот {moneyFromStotinki(active.totalStotinki)}</span>
+          </div>
         </div>
       )}
 
@@ -1015,6 +1090,8 @@ export function RouteClient({
             onCall={onCall}
             onEmail={onEmail}
             onEditAddress={setEditStop}
+            courierCount={route.couriers}
+            onMoveCourier={(id, idx) => void moveCourier(id, idx)}
           />
         </div>
 
