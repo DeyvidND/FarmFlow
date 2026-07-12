@@ -19,11 +19,15 @@ export function AiImportDialog({
   open,
   onClose,
   onDone,
+  role = 'admin',
 }: {
   open: boolean;
   onClose: () => void;
   /** Called after a successful commit so the products list can refresh. */
   onDone: (created: number) => void;
+  /** Farmer sub-accounts submit into the review queue instead of publishing
+   *  directly — swaps the commit button copy accordingly. */
+  role?: 'admin' | 'farmer';
 }) {
   const [mode, setMode] = useState<'photo' | 'text'>('photo');
   const [text, setText] = useState('');
@@ -252,7 +256,13 @@ export function AiImportDialog({
                   onClick={() => void publish()}
                   disabled={busy || rows.length === 0}
                 >
-                  {busy ? 'Публикуване…' : 'Публикувай'}
+                  {role === 'farmer'
+                    ? busy
+                      ? 'Изпращане…'
+                      : 'Изпрати за проверка'
+                    : busy
+                      ? 'Публикуване…'
+                      : 'Публикувай'}
                 </Button>
               </div>
             </div>

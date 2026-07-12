@@ -89,7 +89,7 @@ export function ProductCard({
         <ToggleSwitch small checked={product.isActive} disabled={busy} onChange={onToggle} />
       </div>
 
-      {(farmerLabel !== undefined || subcatLabel !== undefined) && (
+      {(farmerLabel !== undefined || subcatLabel !== undefined || product.needsReview) && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {farmerLabel !== undefined && (
             <span className="inline-flex items-center gap-1 rounded-full border border-ff-border bg-ff-surface-2 px-2 py-0.5 text-[11.5px] font-bold text-ff-ink-2">
@@ -99,6 +99,11 @@ export function ProductCard({
           {subcatLabel !== undefined && (
             <span className="inline-flex items-center gap-1 rounded-full border border-ff-border bg-ff-surface-2 px-2 py-0.5 text-[11.5px] font-bold text-ff-ink-2">
               {subcatLabel ?? 'Без категория'}
+            </span>
+          )}
+          {product.needsReview && (
+            <span className="inline-flex items-center rounded-full bg-ff-amber-soft px-2 py-0.5 text-[11.5px] font-bold text-ff-amber-600">
+              Чака проверка
             </span>
           )}
         </div>

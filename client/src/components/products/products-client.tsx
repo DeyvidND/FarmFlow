@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Info, ArrowUpDown, Check, Truck, Camera } from 'lucide-react';
+import { Plus, Info, ArrowUpDown, Check, Truck, Camera, ClipboardCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -10,6 +10,7 @@ import { PRODUCTS_HELP } from '@/lib/help-content';
 import { ProductCard } from './product-card';
 import { ProductDialog } from './product-dialog';
 import { AiImportDialog } from './ai-import-dialog';
+import { ReviewProductsDialog } from './review-products-dialog';
 import { ProductOfWeekPanel } from './product-of-week-panel';
 import { CourierSettingsModal } from './courier-settings-modal';
 import { ReorderableList } from '@/components/reorderable-list';
@@ -19,6 +20,7 @@ import {
   createProduct,
   deleteProduct,
   listProducts,
+  pendingReviewCount,
   reorderProducts,
   updateProduct,
   updateTenant,
@@ -74,6 +76,8 @@ export function ProductsClient({
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
   const [help, setHelp] = useState(false);
   const [courierOpen, setCourierOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const [reorderMode, setReorderMode] = useState(false);
   // True once the order changed in reorder mode — drives a single persist on exit.
   const reorderDirty = useRef(false);
@@ -138,6 +142,21 @@ export function ProductsClient({
   useEffect(() => {
     if (isFiltering && hasMore && !loading) void loadAll();
   }, [isFiltering, hasMore, loading, loadAll]);
+
+  // Badge count for the „Провери продукти" button — admin/owner only, farmers don't
+  // review their own (or others') submissions.
+  useEffect(() => {
+    if (isFarmer) return;
+    let alive = true;
+    pendingReviewCount()
+      .then((r) => {
+        if (alive) setPendingCount(r.count);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [isFarmer]);
   // The star shows only while the highlight is on and manually controlled.
   const showStar = potwEnabled && potwMode === 'manual';
 
@@ -327,6 +346,16 @@ export function ProductsClient({
               {reorderMode ? 'Готово' : 'Подреди'}
             </Button>
           )}
+          {!reorderMode && !isFarmer && (
+            <Button variant="outline" onClick={() => setReviewOpen(true)} className="rounded-sm">
+              <ClipboardCheck size={18} /> Провери продукти
+              {pendingCount > 0 && (
+                <span className="ml-0.5 rounded-full bg-ff-amber-soft px-2 py-0.5 text-xs font-bold text-ff-amber-600">
+                  {pendingCount}
+                </span>
+              )}
+            </Button>
+          )}
           {!reorderMode && (
             <Button variant="outline" onClick={() => setAiImportOpen(true)} className="rounded-sm">
               <Camera size={18} /> Добави от снимка
@@ -499,9 +528,14 @@ export function ProductsClient({
 
       <AiImportDialog
         open={aiImportOpen}
+        role={role}
         onClose={() => setAiImportOpen(false)}
         onDone={async (created) => {
-          toast.success(`Добавени ${created} продукта`);
+          toast.success(
+            isFarmer
+              ? 'Изпратени за проверка — операторът ще ги одобри преди да се покажат в магазина.'
+              : `Добавени ${created} продукта`,
+          );
           // The commit only returns a count, not the created rows — refetch the
           // first page (same call `loadMore` uses) instead of guessing ids.
           // `replace` (not `setProducts`) so the hook's cursor resets to match —
@@ -516,6 +550,19 @@ export function ProductsClient({
           }
         }}
       />
+
+      {reviewOpen && (
+        <ReviewProductsDialog
+          open
+          farmers={farmers}
+          onClose={() => setReviewOpen(false)}
+          onApproved={(p) => {
+            patchLocal(p.id, { needsReview: false });
+            setPendingCount((c) => Math.max(0, c - 1));
+          }}
+          onEdit={(p) => setFullEdit(p)}
+        />
+      )}
 
       {confirmDelete && (
         <ConfirmDialog
