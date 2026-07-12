@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AddressAutocomplete } from './address-autocomplete';
 import { getTenant, updateTenant } from '@/lib/api-client';
-import type { RouteEndMode } from '@/lib/types';
+import type { RouteEndMode, RoutingConfig } from '@/lib/types';
 
 interface CourierHomeRow {
   homeAddress: string;
@@ -14,6 +14,40 @@ interface CourierHomeRow {
   // preserved so saving doesn't wipe fields this modal doesn't edit
   name?: string | null;
   endMode?: RouteEndMode;
+}
+
+/** One entry of the server-stored `settings.routing.couriers[]` array. */
+type StoredCourier = NonNullable<RoutingConfig['couriers']>[number];
+
+/** One edited row → its server payload shape (unresolved coords — the server
+ *  geocodes `homeAddress` when no pin was picked). */
+function rowToPayload(r: CourierHomeRow): StoredCourier {
+  return {
+    ...(r.name !== undefined ? { name: r.name } : {}),
+    ...(r.endMode !== undefined ? { endMode: r.endMode } : {}),
+    homeAddress: r.homeAddress || null,
+    homeLat: r.homePin ? String(r.homePin.lat) : null,
+    homeLng: r.homePin ? String(r.homePin.lng) : null,
+  };
+}
+
+/**
+ * Build the FULL `couriers` array to send on save. The server replaces the
+ * stored array wholesale, index-aligned — so sending only today's visible
+ * rows (which can be FEWER than the tenant's configured total on a lighter
+ * day) would silently delete the saved home of any higher-index courier not
+ * active today. Edited rows (index < editedRows.length) win; any index beyond
+ * that is carried over UNCHANGED from `originalCouriers` (the full array as
+ * originally loaded, before this modal trimmed it down to today's rows).
+ * Exported (pure, no state) so it can be unit tested directly.
+ */
+export function mergeCourierRows(
+  editedRows: CourierHomeRow[],
+  originalCouriers: StoredCourier[],
+): StoredCourier[] {
+  const edited = editedRows.map(rowToPayload);
+  const length = Math.max(edited.length, originalCouriers.length);
+  return Array.from({ length }, (_, i) => (i < edited.length ? edited[i] : originalCouriers[i]));
 }
 
 /**
@@ -35,6 +69,11 @@ export function CourierHomesModal({
   const [rows, setRows] = useState<CourierHomeRow[]>(
     Array.from({ length: courierCount }, () => ({ homeAddress: '', homePin: null })),
   );
+  // The FULL couriers array as originally loaded from the server — may be
+  // longer than `rows` (today's visible/active courier count). Kept around
+  // purely so save() can carry forward any higher-index courier's home
+  // unchanged instead of the wholesale-replace wiping it (task fix).
+  const [originalCouriers, setOriginalCouriers] = useState<StoredCourier[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -42,6 +81,7 @@ export function CourierHomesModal({
     getTenant()
       .then((t) => {
         const stored = t.routing?.couriers ?? [];
+        setOriginalCouriers(stored);
         setRows(
           Array.from({ length: courierCount }, (_, i) => {
             const c = stored[i];
@@ -71,15 +111,25 @@ export function CourierHomesModal({
   async function save() {
     setSaving(true);
     try {
-      const couriers = rows.map((r) => ({
-        ...(r.name !== undefined ? { name: r.name } : {}),
-        ...(r.endMode !== undefined ? { endMode: r.endMode } : {}),
-        homeAddress: r.homeAddress || null,
-        homeLat: r.homePin ? String(r.homePin.lat) : null,
-        homeLng: r.homePin ? String(r.homePin.lng) : null,
-      }));
-      await updateTenant({ routing: { couriers } });
-      toast.success('Домовете са запазени');
+      const couriers = mergeCourierRows(rows, originalCouriers);
+      const updated = await updateTenant({ routing: { couriers } });
+      // The server geocodes a typed homeAddress into homeLat/homeLng; on a
+      // geocode miss it saves the address with NULL coords — the route then
+      // silently keeps ending at the depot for that courier. Surface it
+      // instead of a plain "Запазено" that hides the failure.
+      const savedCouriers = updated.routing?.couriers ?? [];
+      const failed = rows
+        .map((r, i) => ({ r, i }))
+        .filter(({ r }) => r.homeAddress.trim().length > 0)
+        .filter(({ i }) => savedCouriers[i]?.homeLat == null || savedCouriers[i]?.homeLng == null)
+        .map(({ r, i }) => r.name?.trim() || `Куриер ${i + 1}`);
+      if (failed.length) {
+        toast.warning(
+          `Адресът на ${failed.join(', ')} не е намерен на картата — маршрутът му ще завършва в базата, докато не оправиш адреса.`,
+        );
+      } else {
+        toast.success('Домовете са запазени');
+      }
       onSaved();
     } catch {
       toast.error('Неуспешно записване');

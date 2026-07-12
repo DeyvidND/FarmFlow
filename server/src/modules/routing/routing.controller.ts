@@ -10,6 +10,7 @@ import { ReverseGeocodeQueryDto } from './dto/reverse-geocode-query.dto';
 import { SuggestDaysDto } from './dto/suggest-days.dto';
 import { MeasureOrderDto } from './dto/measure-order.dto';
 import { SetOrderCourierDto } from './dto/set-order-courier.dto';
+import { SetOrderSequenceDto } from './dto/set-order-sequence.dto';
 import {
   DeliveryWindowDayDto,
   UpdateDeliveryWindowDto,
@@ -84,6 +85,9 @@ export class RoutingController {
       dto.stopIds,
       dto.courierIndex,
       dto.endMode,
+      dto.startLat != null && dto.startLng != null
+        ? { lat: dto.startLat, lng: dto.startLng }
+        : undefined,
     );
   }
 
@@ -97,6 +101,16 @@ export class RoutingController {
     @Body() dto: SetOrderCourierDto,
   ) {
     return this.routingService.setOrderCourier(tenantId, id, dto.courierIndex);
+  }
+
+  // Persist the operator's manual stop order for one courier leg (route_seq)
+  // so getRoute honours it instead of always re-optimizing. Empty stopIds
+  // clears the override. Multi-segment path so OrdersModule's `:id` can't
+  // catch it (mirrors route/measure and route/order/:id/courier above).
+  @Patch('route/order/sequence')
+  @UseGuards(ActiveSubscriptionGuard)
+  setOrderSequence(@CurrentTenant() tenantId: string, @Body() dto: SetOrderSequenceDto) {
+    return this.routingService.setOrderSequence(tenantId, dto.courierIndex, dto.stopIds);
   }
 
   // Task #13 — generate a draft delivery time-window per order for the day from

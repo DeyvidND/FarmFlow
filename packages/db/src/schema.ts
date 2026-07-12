@@ -433,6 +433,11 @@ export const orders = pgTable(
     // pinned this order to. Out-of-range (courier count later lowered) is ignored by
     // the router → falls back to auto. See migration 0093.
     courierIndex: smallint('courier_index'),
+    // Persisted manual stop order within a courier's leg (0-based position).
+    // NULL = not manually ordered (auto/optimized order applies). Set via
+    // PATCH /orders/route/order/sequence when the operator drags stops around
+    // on the route screen, so slot regeneration honours it. Migration 0095.
+    routeSeq: smallint('route_seq'),
     // Delivery time window (task #13). Wall-clock Europe/Sofia, per order, generated
     // from the optimized route then approved/edited by the operator and emailed to the
     // customer. start/end are 'HH:MM' times; status draft→approved→sent; notifiedAt is

@@ -667,6 +667,10 @@ export const measureRoute = (body: {
   stopIds: string[];
   courierIndex?: number;
   endMode?: 'home' | 'last' | 'custom';
+  /** Start the measured line from the courier's live position (or last
+   *  finished drop) instead of the depot, when known — task en-route fix. */
+  startLat?: number;
+  startLng?: number;
 }) =>
   apiFetch<{ polyline: string[] | null; totalDistanceM: number | null; totalDurationS: number | null }>(
     'orders/route/measure',
@@ -680,6 +684,16 @@ export const setOrderCourier = (orderId: string, courierIndex: number | null) =>
     `orders/route/order/${orderId}/courier`,
     { method: 'PATCH', ...json({ courierIndex }) },
     'Неуспешна промяна на куриера',
+  );
+
+// ---- Route: persist the operator's manual stop order server-side, so slot
+// generation (delivery windows) honours it instead of always re-optimizing.
+// Empty stopIds clears the override for that courier. ----
+export const setOrderSequence = (body: { date?: string; courierIndex: number; stopIds: string[] }) =>
+  apiFetch<{ courierIndex: number; count: number }>(
+    'orders/route/order/sequence',
+    { method: 'PATCH', ...json(body) },
+    'Неуспешно запазване на реда',
   );
 
 // ---- Route: per-order delivery time windows (task #13) ----
@@ -702,7 +716,7 @@ export const approveDeliveryWindows = (date?: string) =>
     'Неуспешно одобрение на часовете',
   );
 export const notifyDeliveryWindows = (date?: string) =>
-  apiFetch<{ sent: number; skipped: number; total: number; date: string }>(
+  apiFetch<{ sent: number; skipped: number; failed: number; total: number; date: string }>(
     'orders/route/windows/notify',
     { method: 'POST', ...json({ date }) },
     'Неуспешно изпращане на известия',

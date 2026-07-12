@@ -100,7 +100,14 @@ export function DeliveryWindowsModal({
     setNotifying(true);
     try {
       const res = await notifyDeliveryWindows(date);
-      toast.success(`Изпратени ${res.sent} · пропуснати ${res.skipped}`);
+      // A partial failure isn't a full error (some customers WERE notified),
+      // but it must read differently from a clean run — the operator needs to
+      // know some orders are still 'approved' (not sent) and worth retrying.
+      if (res.failed > 0) {
+        toast.error(`Изпратени ${res.sent} · пропуснати ${res.skipped} · неуспешни ${res.failed} — опитай пак за неуспешните`);
+      } else {
+        toast.success(`Изпратени ${res.sent} · пропуснати ${res.skipped}`);
+      }
       onChanged();
     } catch {
       toast.error('Неуспешно изпращане на известия');

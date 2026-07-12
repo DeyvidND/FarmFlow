@@ -20,7 +20,14 @@ import {
   Clock,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getOrder, measureRoute, setOrderCourier, updateOrderStatus, updateTenant } from '@/lib/api-client';
+import {
+  getOrder,
+  measureRoute,
+  setOrderCourier,
+  setOrderSequence,
+  updateOrderStatus,
+  updateTenant,
+} from '@/lib/api-client';
 import type { MultiRouteResult, CourierRoute, RouteStop, RouteEndMode } from '@/lib/types';
 import type { Order } from '@/lib/types';
 import type { OrderStatus } from '@/lib/utils';
@@ -270,6 +277,13 @@ export function RouteClient({
     } catch {
       /* localStorage unavailable (private mode) — order just won't persist */
     }
+    // Best-effort: also persist server-side (route_seq) so slot generation
+    // (delivery windows) honours this order too, not just this browser's
+    // localStorage. Fire-and-forget — never blocks the UI, errors swallowed
+    // (the localStorage copy above already drives this browser's display).
+    void setOrderSequence({ date: route.date, courierIndex: activeCourierIdx, stopIds: ids }).catch(
+      () => {},
+    );
   };
 
   // Drop the override — fall back to the server's auto-optimized order.
@@ -280,6 +294,10 @@ export function RouteClient({
     } catch {
       /* ignore */
     }
+    // Clear the server-side override too (empty stopIds = clear semantics).
+    void setOrderSequence({ date: route.date, courierIndex: activeCourierIdx, stopIds: [] }).catch(
+      () => {},
+    );
   };
 
   // The compact reorder modal (single line per stop) — the full side-list cards
@@ -371,6 +389,11 @@ export function RouteClient({
   // the actual remaining order. `null` (loading / unavailable) falls back to
   // straight pin-to-pin segments in the map, same as before this fix.
   const [measuredPolyline, setMeasuredPolyline] = useState<string[] | null>(null);
+  // Set when the last measure call came back with no usable polyline (quota /
+  // API error / nothing to measure) or outright rejected — the map is about to
+  // (or already did) fall back to straight pin-to-pin lines, silently, unless
+  // this drives a visible warning. Cleared on a good measurement.
+  const [routeApiFallback, setRouteApiFallback] = useState(false);
   // Stable signature of the ordered, geocoded remaining stops — recompute the
   // measured polyline only when this (or the mode/date/courier) actually changes.
   const remainingLocatedSig = remainingStops
@@ -381,26 +404,50 @@ export function RouteClient({
   useEffect(() => {
     if (!needsMeasuredPolyline) {
       setMeasuredPolyline(null);
+      setRouteApiFallback(false);
       return;
     }
     const ids = remainingLocatedSig ? remainingLocatedSig.split(',') : [];
     if (!ids.length) {
       setMeasuredPolyline(null);
+      setRouteApiFallback(false);
       return;
     }
     let cancelled = false;
-    measureRoute({ date: route.date, stopIds: ids, courierIndex: activeCourierIdx, endMode: activeEndMode })
+    measureRoute({
+      date: route.date,
+      stopIds: ids,
+      courierIndex: activeCourierIdx,
+      endMode: activeEndMode,
+      // Anchor the measured line to where the courier actually is (live GPS or
+      // the last finished drop) once en route, instead of always the depot.
+      startLat: mapStart?.lat ?? undefined,
+      startLng: mapStart?.lng ?? undefined,
+    })
       .then((res) => {
-        if (!cancelled) setMeasuredPolyline(res.polyline);
+        if (cancelled) return;
+        setMeasuredPolyline(res.polyline);
+        setRouteApiFallback(res.polyline == null);
       })
       .catch(() => {
-        /* ignore — leave the polyline as-is (straight-line fallback stands) */
+        // ignore — leave the polyline as-is (straight-line fallback stands),
+        // but surface that it's a fallback rather than silently swapping lines.
+        if (!cancelled) setRouteApiFallback(true);
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remainingLocatedSig, isManualOrder, finishedIds.size > 0, activeCourierIdx, activeEndMode, route.date]);
+  }, [
+    remainingLocatedSig,
+    isManualOrder,
+    finishedIds.size > 0,
+    activeCourierIdx,
+    activeEndMode,
+    route.date,
+    mapStart?.lat,
+    mapStart?.lng,
+  ]);
 
   // Routes fed to the map: the active courier's leg reflects the (possibly
   // manual) order. Once the order is overridden OR any stop is finished, the
@@ -1116,6 +1163,15 @@ export function RouteClient({
 
         {/* map — every courier's route is drawn; the active one is highlighted */}
         <div className="relative overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm max-[900px]:order-[-1] max-[900px]:h-[340px]">
+          {/* the measured road-following line failed/hit quota — the map is
+              drawing straight pin-to-pin segments instead of the real streets;
+              say so instead of leaving it silent. */}
+          {routeApiFallback && (
+            <div className="absolute left-2 top-2 z-[5] flex items-center gap-1.5 rounded-lg border border-ff-amber-soft bg-ff-amber-softer px-2.5 py-1.5 text-[11.5px] font-bold text-ff-amber-600 shadow-ff-sm">
+              <AlertTriangle size={13} className="shrink-0" />
+              Права линия — реалният път не е наличен (лимит/грешка на картите)
+            </div>
+          )}
           <RouteMap
             routes={displayRoutes}
             activeRoute={activeCourierIdx}

@@ -344,6 +344,7 @@ export class RoutingService {
         lng: orders.deliveryLng,
         total: orders.totalStotinki,
         courierIndex: orders.courierIndex,
+        routeSeq: orders.routeSeq,
         windowStart: orders.deliveryWindowStart,
         windowEnd: orders.deliveryWindowEnd,
         windowStatus: orders.deliveryWindowStatus,
@@ -365,6 +366,12 @@ export class RoutingService {
         )!,
       )
       .orderBy(orders.createdAt);
+
+    // Persisted manual stop order (route_seq), by order id. Kept OUT of the
+    // RouteStop interface (that would ripple into every test factory in this
+    // module) — used only internally, below, to honour a saved manual reorder
+    // instead of always re-optimizing.
+    const routeSeqById = new Map<string, number | null>(rows.map((r) => [r.id, r.routeSeq ?? null]));
 
     // Batch item summaries + goods subtotal per order (no N+1).
     const ids = rows.map((r) => r.id);
@@ -488,6 +495,21 @@ export class RoutingService {
     }
     if (!groups.length) groups = [[]];
 
+    // Honour a persisted manual reorder (route_seq, set via PATCH
+    // /orders/route/order/sequence): a group with at least one sequenced stop
+    // is sorted by that sequence (unseq'd stops trail, stable sort so their
+    // relative order is otherwise unchanged) and skips re-optimization
+    // entirely below — the operator's drag order sticks instead of being
+    // silently overwritten by the next Google/greedy re-optimize.
+    const preserveOrderFlags = groups.map((group) => group.some((s) => routeSeqById.get(s.id) != null));
+    groups = groups.map((group, i) =>
+      preserveOrderFlags[i]
+        ? [...group].sort(
+            (a, b) => (routeSeqById.get(a.id) ?? Infinity) - (routeSeqById.get(b.id) ?? Infinity),
+          )
+        : group,
+    );
+
     // Groups are independent (pure inputs, key-isolated MapsService cache writes),
     // so optimize them concurrently — each courier's Google Routes call(s) no longer
     // wait on the previous courier's. Serial cost was ~2 round-trips × courier count.
@@ -509,6 +531,7 @@ export class RoutingService {
           this.endForCourier(modes[i], origin, end, couriersCfg[i]),
           i,
           (couriersCfg[i]?.name as string | null) ?? null,
+          preserveOrderFlags[i],
         ),
       ),
     );
@@ -546,6 +569,12 @@ export class RoutingService {
    * map draws real streets instead of straight pin-to-pin lines after a manual
    * reorder or a courier move. Coordinates are loaded server-side (tenant-scoped)
    * from the given order ids — the client only sends the order, never coords.
+   *
+   * `start`, when given, anchors the measured line at the courier's live GPS
+   * position (or last finished drop) instead of the depot — the courier isn't
+   * at the farm anymore once en route, so measuring from there mis-draws the
+   * line. Only the path's first point changes; the end/return-leg resolution
+   * (which still needs the depot for `home`/saved-end fallback) is untouched.
    */
   async measureExplicitOrder(
     tenantId: string,
@@ -553,6 +582,7 @@ export class RoutingService {
     stopIds: string[],
     courierIndex?: number,
     endModeOverride?: RouteEndMode,
+    start?: Pt,
   ): Promise<{
     polyline: string[] | null;
     totalDistanceM: number | null;
@@ -607,7 +637,7 @@ export class RoutingService {
       .from(orders)
       .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, stopIds))!);
     const byId = new Map(rows.map((r) => [r.id, { lat: toNum(r.lat), lng: toNum(r.lng) }]));
-    const pts: Pt[] = [originPt];
+    const pts: Pt[] = [start ?? originPt];
     for (const id of stopIds) {
       const c = byId.get(id);
       if (c && c.lat != null && c.lng != null) pts.push({ lat: c.lat, lng: c.lng });
@@ -665,6 +695,7 @@ export class RoutingService {
     end: RouteEnd,
     courierIndex = 0,
     name: string | null = null,
+    preserveOrder = false,
   ): Promise<CourierRoute> {
     // Per-courier day money (task #6) — order-independent, so summed once here.
     const money = {
@@ -696,7 +727,13 @@ export class RoutingService {
     // order. Set only when it fully describes the chosen origin→…→dest path;
     // otherwise it stays null and the totals block measures the path itself.
     let precomputedTotal: { distanceM: number; durationS: number; polylines: string[] } | null = null;
-    if (originPt) {
+    if (preserveOrder) {
+      // A persisted manual order (route_seq) wins outright — the caller already
+      // sorted `group` into the operator's chosen sequence. Skip Google/greedy
+      // re-optimization entirely; the totals block below still measures this
+      // exact order's real road distance/duration + polyline.
+      orderedGroup = group;
+    } else if (originPt) {
       // Let Google optimize the visit order, targeting the REAL end point so a
       // one-way / custom-end route isn't optimized as a round trip.
       const cap = group.slice(0, MAX_OPTIMIZE_STOPS);
@@ -991,6 +1028,40 @@ export class RoutingService {
     return { id: orderId, courierIndex };
   }
 
+  /**
+   * Persist the operator's manual stop order for one courier leg (route_seq,
+   * migration 0095), so getRoute honours it instead of always re-optimizing.
+   * Position in `stopIds` becomes that order's route_seq, and the order is
+   * (re)pinned to `courierIndex` so the pin and the sequence always agree.
+   * Per-row updates — a delivery day is a handful of orders. Tenant-scoped
+   * (a foreign id is silently skipped by the WHERE, same as a no-op).
+   *
+   * An empty `stopIds` is a "clear": nulls route_seq for every order currently
+   * pinned to this courier (mirrors setOrderCourier's un-scoped-by-date pin
+   * lookup above — the pin itself carries no date), so the leg falls back to
+   * the auto/optimized order again.
+   */
+  async setOrderSequence(
+    tenantId: string,
+    courierIndex: number,
+    stopIds: string[],
+  ): Promise<{ courierIndex: number; count: number }> {
+    if (!stopIds.length) {
+      await this.db
+        .update(orders)
+        .set({ routeSeq: null })
+        .where(and(eq(orders.tenantId, tenantId), eq(orders.courierIndex, courierIndex)));
+      return { courierIndex, count: 0 };
+    }
+    for (let i = 0; i < stopIds.length; i++) {
+      await this.db
+        .update(orders)
+        .set({ courierIndex, routeSeq: i })
+        .where(and(eq(orders.id, stopIds[i]), eq(orders.tenantId, tenantId)));
+    }
+    return { courierIndex, count: stopIds.length };
+  }
+
   // ── Delivery time windows (task #13) ──────────────────────────────────────
 
   /** This tenant's `settings.routing` blob (or {}), for window params. */
@@ -1048,14 +1119,28 @@ export class RoutingService {
       const cumDist: number[] = [];
       let prev = originPt;
       let cum = 0;
+      let lastLocated: Pt | null = null;
       for (const s of r.stops) {
         if (prev && s.lat != null && s.lng != null) {
           cum += haversineKm(prev, { lat: s.lat, lng: s.lng });
         }
         cumDist.push(cum);
-        if (s.lat != null && s.lng != null) prev = { lat: s.lat, lng: s.lng };
+        if (s.lat != null && s.lng != null) {
+          prev = { lat: s.lat, lng: s.lng };
+          lastLocated = prev;
+        }
       }
-      const totalDist = cum;
+      // `driveMin` below (measured total duration) includes the return-to-
+      // depot/home leg whenever this courier's route has one (endMode !==
+      // 'last'). `cum` above only covers origin→…→last-stop, so a route WITH
+      // a return leg needs it added to the denominator too — otherwise every
+      // stop's time-share ratio is computed against a too-small total, and
+      // later stops (whose numerator already reflects the full, longer trip)
+      // get an inflated share, pushing their windows systematically late.
+      let totalDist = cum;
+      if (r.endMode !== 'last' && lastLocated && r.endLat != null && r.endLng != null) {
+        totalDist += haversineKm(lastLocated, { lat: r.endLat, lng: r.endLng });
+      }
       const driveMin = r.totalDurationS != null ? r.totalDurationS / 60 : null;
 
       const stops: DeliveryWindowStop[] = r.stops.map((s, i) => {
@@ -1074,7 +1159,18 @@ export class RoutingService {
         const windowEnd = minToHHMM(endMin);
         const hasEmail = !!s.email?.trim();
         if (!hasEmail) withoutEmail += 1;
-        updates.push({ id: s.id, start: windowStart, end: windowEnd });
+        // Don't clobber an already-SENT window when the recomputed time is
+        // identical — regenerating (e.g. after a late add/cancel elsewhere in
+        // the day) must not reset a customer-notified stop back to 'draft'
+        // (risking a duplicate notification on the next approve+notify pass)
+        // unless the time actually changed.
+        const unchangedSent =
+          s.deliveryWindowStatus === 'sent' &&
+          s.deliveryWindowStart === windowStart &&
+          s.deliveryWindowEnd === windowEnd;
+        if (!unchangedSent) {
+          updates.push({ id: s.id, start: windowStart, end: windowEnd });
+        }
         return { id: s.id, customer: s.customer, email: s.email, windowStart, windowEnd, hasEmail };
       });
 
@@ -1166,7 +1262,7 @@ export class RoutingService {
   async notifyDeliveryWindows(
     tenantId: string,
     date?: string,
-  ): Promise<{ sent: number; skipped: number; total: number; date: string }> {
+  ): Promise<{ sent: number; skipped: number; failed: number; total: number; date: string }> {
     const day = date ?? bgToday();
     const rows = await this.db
       .select({
@@ -1189,23 +1285,34 @@ export class RoutingService {
 
     let sent = 0;
     let skipped = 0;
+    let failed = 0;
     for (const r of rows) {
       if (!r.email?.trim()) {
         skipped += 1;
         continue;
       }
-      await this.orderEmail.sendDeliveryWindow(
-        r.id,
-        hhmm(r.windowStart) ?? '',
-        hhmm(r.windowEnd) ?? '',
-        day,
-      );
-      await this.db
-        .update(orders)
-        .set({ deliveryWindowStatus: 'sent', deliveryWindowNotifiedAt: new Date() })
-        .where(and(eq(orders.id, r.id), eq(orders.tenantId, tenantId)));
-      sent += 1;
+      // One order's email (or its "mark sent" write) failing must not abort the
+      // whole batch — the rest of the day's customers still deserve their
+      // notification. Failed orders are left as 'approved' (not marked sent)
+      // so a re-run of notify picks them back up.
+      try {
+        await this.orderEmail.sendDeliveryWindow(
+          r.id,
+          hhmm(r.windowStart) ?? '',
+          hhmm(r.windowEnd) ?? '',
+          day,
+        );
+        await this.db
+          .update(orders)
+          .set({ deliveryWindowStatus: 'sent', deliveryWindowNotifiedAt: new Date() })
+          .where(and(eq(orders.id, r.id), eq(orders.tenantId, tenantId)));
+        sent += 1;
+      } catch (err) {
+        this.logger.warn(`notifyDeliveryWindows: failed to notify order ${r.id}: ${err}`);
+        failed += 1;
+        continue;
+      }
     }
-    return { sent, skipped, total: rows.length, date: day };
+    return { sent, skipped, failed, total: rows.length, date: day };
   }
 }

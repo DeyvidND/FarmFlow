@@ -4,6 +4,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Matches,
@@ -40,4 +41,20 @@ export class MeasureOrderDto {
   @IsOptional()
   @IsIn(['home', 'last', 'custom'])
   endMode?: 'home' | 'last' | 'custom';
+
+  /** Start the measured line here instead of the depot/origin — the courier's
+   *  live GPS position or last finished drop, when the client has one. Both
+   *  must be present together (validated as a pair by the service: an
+   *  unpaired value is simply ignored, never a 500). */
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  startLat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  startLng?: number;
 }
