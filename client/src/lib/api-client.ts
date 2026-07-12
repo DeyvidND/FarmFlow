@@ -91,6 +91,17 @@ const qs = (cursor?: string, limit?: number) => {
 export const listProducts = (cursor?: string) =>
   apiFetch<Paginated<Product>>(`products${qs(cursor)}`);
 
+export const listPendingProducts = (cursor?: string) =>
+  apiFetch<Paginated<Product>>(
+    `products?review=pending${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+  );
+
+export const approveProduct = (id: string) =>
+  apiFetch<Product>(`products/${id}/approve`, { method: 'POST' });
+
+export const pendingReviewCount = () =>
+  apiFetch<{ count: number }>('products/review/count');
+
 export const listProductOptions = () => apiFetch<ProductOption[]>('products/options');
 
 /** A variant the dialog sends on save (id present = update existing, absent = create). */
