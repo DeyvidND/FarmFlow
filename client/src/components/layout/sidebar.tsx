@@ -27,7 +27,6 @@ import {
   MessageSquare,
   Truck,
   LineChart,
-  HandCoins,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -78,7 +77,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/production', label: 'Производство', Icon: ShoppingBasket, gated: true, desc: 'Дневен списък какво да приготвиш за доставките.' },
       { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true, desc: 'Маршрут за разнасяне на поръчките.' },
       { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите — наложен платеж и карти.' },
-      { href: '/marketplace-finance', label: 'Финанси на пазара', Icon: HandCoins, desc: 'Комисиона по производители и месечни такси — води кой колко дължи.' },
       { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Оборот, поръчки, топ продукти и тренд през времето.' },
       { href: '/site-analytics', label: 'Анализ на сайта', Icon: LineChart, desc: 'Посетители, фуния към поръчка, източници и устройства.' },
     ],
@@ -228,7 +226,6 @@ export function Sidebar({
       (i) =>
         (i.href === '/articles' ? articlesEnabled : true) &&
         (i.href === '/route' ? deliveryEnabled : true) &&
-        (i.href === '/marketplace-finance' ? multiFarmer : true) &&
         !hidden.has(i.href),
     );
   const groupHasActive = (g: NavGroup) => visibleItems(g).some((i) => isActive(i.href));

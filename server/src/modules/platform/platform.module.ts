@@ -7,6 +7,9 @@ import { FarmersModule } from '../farmers/farmers.module';
 import { SubcategoriesModule } from '../subcategories/subcategories.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
+import { VendorFinanceModule } from '../vendor-finance/vendor-finance.module';
+import { PlatformMarketplaceFinanceController } from './marketplace-finance.controller';
+import { PlatformMarketplaceFinanceService } from './marketplace-finance.service';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService } from './insights.service';
 import { ProblemsService } from './problems.service';
@@ -43,6 +46,9 @@ import { RUN_WORKERS } from '../../config/app-role';
     FarmersModule,
     SubcategoriesModule,
     TenantsModule,
+    // Reused dormant commission + vendor-subscription services for the super-admin
+    // marketplace-finance oversight controller.
+    VendorFinanceModule,
     // Product public-catalog Redis cache (`catalog:{tenantId}`) — busted by
     // setProductFeatured (matches ProductsService's own invalidate-on-write pattern).
     CatalogCacheModule,
@@ -84,9 +90,10 @@ import { RUN_WORKERS } from '../../config/app-role';
     BullModule.registerQueue({ name: BILLING_QUEUE }),
     BullModule.registerQueue({ name: ANALYTICS_QUEUE }),
   ],
-  controllers: [PlatformAuthController, PlatformController],
+  controllers: [PlatformAuthController, PlatformController, PlatformMarketplaceFinanceController],
   providers: [
     PlatformService,
+    PlatformMarketplaceFinanceService,
     PlatformInsightsService,
     ProblemsService,
     HealthBoardService,

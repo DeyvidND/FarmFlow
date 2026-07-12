@@ -16,6 +16,7 @@ import {
   Settings,
   LogOut,
   Leaf,
+  HandCoins,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -57,6 +58,7 @@ export const NAV_GROUPS: NavGroup[] = [
     title: 'Анализ и пари',
     items: [
       { href: '/insights', label: 'Анализ', Icon: LineChart },
+      { href: '/marketplace-finance', label: 'Финанси на пазара', Icon: HandCoins },
       { href: '/email-billing', label: 'Имейл сметки', Icon: Mail },
       { href: '/stripe', label: 'Stripe', Icon: CreditCard },
       { href: '/audit', label: 'Одит', Icon: ScrollText },

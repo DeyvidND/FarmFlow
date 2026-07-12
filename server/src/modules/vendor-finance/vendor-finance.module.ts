@@ -12,6 +12,8 @@ import { VendorFinanceController } from './vendor-finance.controller';
 @Module({
   controllers: [VendorFinanceController],
   providers: [CommissionService, VendorSubscriptionService],
-  exports: [CommissionService],
+  // Both services are reused by the super-admin marketplace-finance controller
+  // (platform-scoped oversight over the same dormant ledgers).
+  exports: [CommissionService, VendorSubscriptionService],
 })
 export class VendorFinanceModule {}

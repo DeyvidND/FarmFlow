@@ -650,3 +650,91 @@ export interface HealthBoard {
 /** Cross-tenant system health snapshot — services, queues, 24h error digest (client-side, via the BFF proxy). */
 export const getHealthBoard = () =>
   apiFetch<HealthBoard>('platform/health-board', undefined, 'Неуспешно зареждане на здравето');
+
+// ── «Финанси на пазара» (marketplace vendor-finance oversight, super-admin) ──
+
+/** One marketplace brand (multi-producer tenant) with its commission roll-up. */
+export interface MarketplaceBrand {
+  id: string;
+  name: string;
+  slug: string;
+  isDemo: boolean;
+  commissionEnabled: boolean;
+  defaultRateBps: number;
+  farmerCount: number;
+  totalGrossStotinki: number;
+  totalCommissionStotinki: number;
+}
+
+export interface CommissionFarmerSummary {
+  farmerId: string;
+  farmerName: string | null;
+  orderCount: number;
+  grossStotinki: number;
+  commissionStotinki: number;
+}
+
+export interface CommissionSummary {
+  commissionEnabled: boolean;
+  defaultRateBps: number;
+  farmers: CommissionFarmerSummary[];
+  totalGrossStotinki: number;
+  totalCommissionStotinki: number;
+}
+
+export type VendorChargeStatus = 'due' | 'paid' | 'waived';
+
+export interface VendorCharge {
+  id: string;
+  farmerId: string;
+  farmerName: string | null;
+  period: string;
+  feeStotinki: number;
+  status: VendorChargeStatus;
+  note: string | null;
+}
+
+/** All marketplace brands + commission totals (super-admin, via the BFF proxy). */
+export const listMarketplaceBrands = () =>
+  apiFetch<MarketplaceBrand[]>('platform/marketplace/brands', undefined, 'Неуспешно зареждане на пазара');
+
+/** One brand's per-producer commission summary. */
+export const getBrandCommission = (id: string, opts?: { from?: string; to?: string }) => {
+  const p = new URLSearchParams();
+  if (opts?.from) p.set('from', opts.from);
+  if (opts?.to) p.set('to', opts.to);
+  const qs = p.toString();
+  return apiFetch<CommissionSummary>(
+    `platform/marketplace/brands/${id}/commission${qs ? `?${qs}` : ''}`,
+    undefined,
+    'Неуспешно зареждане на комисионата',
+  );
+};
+
+/** One brand's monthly vendor charges (optionally scoped to a YYYY-MM period). */
+export const listBrandCharges = (id: string, period?: string) =>
+  apiFetch<VendorCharge[]>(
+    `platform/marketplace/brands/${id}/subscriptions${period ? `?period=${encodeURIComponent(period)}` : ''}`,
+    undefined,
+    'Неуспешно зареждане на таксите',
+  );
+
+/** Create the month's `due` charge rows for a brand. */
+export const generateBrandCharges = (id: string, period: string) =>
+  apiFetch<{ created: number; skipped: number }>(
+    `platform/marketplace/brands/${id}/subscriptions/generate`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ period }) },
+    'Неуспешно генериране на таксите',
+  );
+
+/** Set a charge's status (due / paid / waived). */
+export const updateBrandCharge = (
+  id: string,
+  chargeId: string,
+  body: { status: VendorChargeStatus; note?: string },
+) =>
+  apiFetch<VendorCharge>(
+    `platform/marketplace/brands/${id}/subscriptions/${chargeId}`,
+    { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+    'Неуспешна промяна на таксата',
+  );
