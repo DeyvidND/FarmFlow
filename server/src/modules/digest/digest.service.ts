@@ -399,7 +399,7 @@ function assembleFarmerRangeEmail(
   <p style="font-size:12px;color:#999;margin-top:32px">ФермериБГ</p>
 </body>
 </html>`;
-  const text = `${escapeHtml(farmerName)} — поръчки за ${label}\n\n${textSections.join('\n\n')}`;
+  const text = `${farmerName} — поръчки за ${label}\n\n${textSections.join('\n\n')}`;
 
   return {
     html,
