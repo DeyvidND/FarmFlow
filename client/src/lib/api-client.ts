@@ -196,6 +196,19 @@ export const grantFarmerAccess = (id: string, email: string) =>
 export const revokeFarmerAccess = (id: string) =>
   apiFetch<{ ok: true }>(`farmers/${id}/access`, { method: 'DELETE' }, 'Неуспешно премахване');
 
+/** Organizer: email selected farmers their orders for a date range + statuses. */
+export const sendFarmerOrders = (body: {
+  from: string;
+  to: string;
+  farmerIds: string[];
+  statuses: string[];
+}) =>
+  apiFetch<{ sent: number; skipped: number }>(
+    'digest/farmers/send',
+    { method: 'POST', ...json(body) },
+    'Неуспешно изпращане',
+  );
+
 // ---- Subcategories ----
 export const listSubcategories = () => apiFetch<Subcategory[]>('subcategories');
 

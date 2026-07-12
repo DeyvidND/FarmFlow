@@ -238,6 +238,32 @@ describe('DigestService', () => {
       expect(result!.html).toContain('Иван');
       expect(result!.html).toContain('Офис Пловдив');
     });
+
+    it('counts courier-split-leg orders toward totalOrders + distinctCustomers even though they render no section', async () => {
+      // A 'courier' deliveryType order (created by orders.service's
+      // createCourierOrders for a multi-farmer courier split) has no dedicated
+      // rendered section, but is still a real confirmed order for the farmer
+      // and must count in the summary — see groupFarmerRows' orderList.
+      db.orderBy.mockResolvedValueOnce([
+        { orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
+          deliveryCity: null, econtOffice: null, slotFrom: '10:00:00', slotTo: '12:00:00',
+          productName: 'Домати', quantity: 3 },
+        { orderId: 'o2', deliveryType: 'courier', customerName: 'Мария', deliveryAddress: 'ул. 2',
+          deliveryCity: 'Пловдив', econtOffice: null, slotFrom: null, slotTo: null,
+          productName: 'Мед', quantity: 1 },
+      ]);
+
+      const result = await service.buildFarmerDigest(TENANT_ID, 'farmer-1', TODAY, 'Петър');
+
+      expect(result).not.toBeNull();
+      expect(result!.summary.totalOrders).toBe(2);
+      expect(result!.summary.distinctCustomers).toBe(2);
+      // Rendering itself is unaffected: courier orders still get no
+      // "Доставка до адрес"/pickup/econt order block of their own (the prep
+      // table above is fed from raw rows regardless of deliveryType, so
+      // "Мед" legitimately appears there — only the per-order sections skip it).
+      expect(result!.html).not.toContain('Мария');
+    });
   });
 
   // ── eligibleTenantIds ────────────────────────────────────────────────────

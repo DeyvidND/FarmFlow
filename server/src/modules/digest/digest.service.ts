@@ -1,11 +1,16 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
-import { and, eq, isNotNull, or } from 'drizzle-orm';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
+import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import { type Database, orders, orderItems, products, deliverySlots, tenants, farmers } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
 import { bgToday } from '../../common/time/bg-time';
-import { scheduledForDay } from '../orders/order-scheduling';
+import { scheduledForDay, scheduledForRange } from '../orders/order-scheduling';
 import { harvestSummary } from '../orders/harvest-summary';
+
+/** Statuses an organizer may pick for a manual farmer-orders send. */
+const ALLOWED_STATUSES = ['pending', 'confirmed', 'delivered'] as const;
+/** Widest [from,to] span accepted by {@link DigestService.sendFarmerOrderEmails}. */
+const MAX_RANGE_DAYS = 31;
 
 interface DigestOrder {
   id: string;
@@ -245,9 +250,54 @@ function renderText(
   return lines.join('\n');
 }
 
-function renderFarmerHtml(
-  date: string,
-  farmerName: string,
+/** Pure grouping of a farmer's day rows into delivery-type buckets + prep list.
+ *  Shared by the single-day digest and the range email. */
+function groupFarmerRows(rows: FarmerDigestRow[]): {
+  orderList: FarmerOrder[];
+  addressOrders: FarmerOrder[];
+  econtOrders: FarmerOrder[];
+  pickupOrders: FarmerOrder[];
+  prep: FarmerItem[];
+} {
+  const byOrder = new Map<string, FarmerOrder>();
+  for (const r of rows) {
+    let o = byOrder.get(r.orderId);
+    if (!o) {
+      o = {
+        id: r.orderId,
+        deliveryType: r.deliveryType,
+        customerName: r.customerName,
+        deliveryAddress: r.deliveryAddress,
+        deliveryCity: r.deliveryCity,
+        econtOffice: r.econtOffice,
+        slotFrom: r.slotFrom,
+        slotTo: r.slotTo,
+        paymentMethod: 'online',
+        totalStotinki: 0,
+        items: [],
+      };
+      byOrder.set(r.orderId, o);
+    }
+    o.items.push({ productName: r.productName ?? '—', quantity: r.quantity });
+  }
+  // orderList = every distinct order from the input rows, regardless of
+  // deliveryType (includes e.g. 'courier' split-leg orders, which have no
+  // section of their own in the rendered email — see the three buckets below).
+  const orderList = [...byOrder.values()];
+  return {
+    orderList,
+    addressOrders: orderList.filter((o) => o.deliveryType === 'address'),
+    econtOrders: orderList.filter(
+      (o) => o.deliveryType === 'econt' || o.deliveryType === 'econt_address',
+    ),
+    pickupOrders: orderList.filter((o) => o.deliveryType === 'pickup'),
+    prep: harvestSummary(rows),
+  };
+}
+
+/** Inner HTML fragment for one day: prep table + pickup/address/econt sections.
+ *  No <html>/<body> wrapper — shared by the single-day email and range email. */
+function renderFarmerSectionsHtml(
   prep: FarmerItem[],
   addressOrders: FarmerOrder[],
   econtOrders: FarmerOrder[],
@@ -280,7 +330,6 @@ function renderFarmerHtml(
       ? `<h2 style="font-size:16px;color:#333;margin:24px 0 8px">За вземане (${pickupOrders.length})</h2>` +
         pickupOrders.map((o) => orderBlock(o, 'За вземане на място')).join('')
       : '';
-
   const addressSection =
     addressOrders.length > 0
       ? `<h2 style="font-size:16px;color:#333;margin:24px 0 8px">Доставка до адрес (${addressOrders.length})</h2>` +
@@ -291,13 +340,82 @@ function renderFarmerHtml(
           })
           .join('')
       : '';
-
   const econtSection =
     econtOrders.length > 0
       ? `<h2 style="font-size:16px;color:#333;margin:24px 0 8px">Еконт — за изпращане (${econtOrders.length})</h2>` +
         econtOrders.map((o) => orderBlock(o, econtDestination(o))).join('')
       : '';
 
+  return `<h2 style="font-size:16px;color:#333;margin:20px 0 8px">За приготвяне</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:14px"><tbody>${prepRows}</tbody></table>
+  ${pickupSection}
+  ${addressSection}
+  ${econtSection}`;
+}
+
+/** stotinki-free header period label, e.g. "10.07.2026 – 12.07.2026" or a single day. */
+function periodLabel(from: string, to: string): string {
+  return from === to ? from : `${from} – ${to}`;
+}
+
+/** One farmer's multi-day order email. `byDay` keyed by YYYY-MM-DD. */
+function assembleFarmerRangeEmail(
+  from: string,
+  to: string,
+  farmerName: string,
+  byDay: Map<string, FarmerDigestRow[]>,
+): DigestResult | null {
+  const days = [...byDay.entries()]
+    .filter(([, rows]) => rows.length > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (days.length === 0) return null;
+
+  let totalOrders = 0;
+  const htmlSections: string[] = [];
+  const textSections: string[] = [];
+  for (const [date, rows] of days) {
+    const { orderList, addressOrders, econtOrders, pickupOrders, prep } = groupFarmerRows(rows);
+    // Full order count for the day (includes deliveryType values like 'courier'
+    // that don't get their own rendered section — see groupFarmerRows).
+    totalOrders += orderList.length;
+    htmlSections.push(
+      `<h2 style="font-size:18px;color:#2d6a4f;margin:28px 0 4px;border-bottom:1px solid #cde">${date}</h2>` +
+        renderFarmerSectionsHtml(prep, addressOrders, econtOrders, pickupOrders),
+    );
+    textSections.push(
+      `=== ${date} ===\n` + renderFarmerText(date, farmerName, prep, addressOrders, econtOrders, pickupOrders),
+    );
+  }
+
+  const label = periodLabel(from, to);
+  const html = `<!DOCTYPE html>
+<html lang="bg">
+<head><meta charset="UTF-8"><title>Твоите поръчки за ${label}</title></head>
+<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333">
+  <h1 style="font-size:20px;color:#2d6a4f;border-bottom:2px solid #2d6a4f;padding-bottom:8px">
+    ${escapeHtml(farmerName)} — поръчки за ${label}
+  </h1>
+  ${htmlSections.join('\n')}
+  <p style="font-size:12px;color:#999;margin-top:32px">ФермериБГ</p>
+</body>
+</html>`;
+  const text = `${farmerName} — поръчки за ${label}\n\n${textSections.join('\n\n')}`;
+
+  return {
+    html,
+    text,
+    summary: { selfDeliveryCount: 0, econtCount: 0, totalOrders, distinctCustomers: 0 },
+  };
+}
+
+function renderFarmerHtml(
+  date: string,
+  farmerName: string,
+  prep: FarmerItem[],
+  addressOrders: FarmerOrder[],
+  econtOrders: FarmerOrder[],
+  pickupOrders: FarmerOrder[],
+): string {
   return `<!DOCTYPE html>
 <html lang="bg">
 <head><meta charset="UTF-8"><title>Твоите доставки за ${date}</title></head>
@@ -305,11 +423,7 @@ function renderFarmerHtml(
   <h1 style="font-size:20px;color:#2d6a4f;border-bottom:2px solid #2d6a4f;padding-bottom:8px">
     ${escapeHtml(farmerName)} — доставки за ${date}
   </h1>
-  <h2 style="font-size:16px;color:#333;margin:20px 0 8px">За приготвяне</h2>
-  <table style="width:100%;border-collapse:collapse;font-size:14px"><tbody>${prepRows}</tbody></table>
-  ${pickupSection}
-  ${addressSection}
-  ${econtSection}
+  ${renderFarmerSectionsHtml(prep, addressOrders, econtOrders, pickupOrders)}
   <p style="font-size:12px;color:#999;margin-top:32px">ФермериБГ — автоматичен дайджест за фермер</p>
 </body>
 </html>`;
@@ -474,46 +588,13 @@ export class DigestService {
     rows: FarmerDigestRow[],
   ): DigestResult | null {
     if (rows.length === 0) return null;
-
-    // Group line items by order.
-    const byOrder = new Map<string, FarmerOrder>();
-    for (const r of rows) {
-      let o = byOrder.get(r.orderId);
-      if (!o) {
-        o = {
-          id: r.orderId,
-          deliveryType: r.deliveryType,
-          customerName: r.customerName,
-          deliveryAddress: r.deliveryAddress,
-          deliveryCity: r.deliveryCity,
-          econtOffice: r.econtOffice,
-          slotFrom: r.slotFrom,
-          slotTo: r.slotTo,
-          // Per-farmer digest doesn't show order-level COD totals; satisfy the
-          // shared DigestOrder shape with benign defaults (farmer renderers
-          // never call codTag).
-          paymentMethod: 'online',
-          totalStotinki: 0,
-          items: [],
-        };
-        byOrder.set(r.orderId, o);
-      }
-      o.items.push({ productName: r.productName ?? '—', quantity: r.quantity });
-    }
-    const orderList = [...byOrder.values()];
-    const addressOrders = orderList.filter((o) => o.deliveryType === 'address');
-    const econtOrders = orderList.filter(
-      (o) => o.deliveryType === 'econt' || o.deliveryType === 'econt_address',
-    );
-    const pickupOrders = orderList.filter((o) => o.deliveryType === 'pickup');
-
-    // Prep summary: total qty per product across the day (shared helper).
-    const prep: FarmerItem[] = harvestSummary(rows);
-
+    const { orderList, addressOrders, econtOrders, pickupOrders, prep } = groupFarmerRows(rows);
+    // Full order list (not just the three rendered buckets) — deliveryType
+    // values like 'courier' are real confirmed orders with no section of their
+    // own, but must still count toward the summary totals.
     const distinctCustomers = new Set(
       orderList.map((o) => o.customerName?.trim().toLowerCase()),
     ).size;
-
     return {
       html: renderFarmerHtml(date, farmerName, prep, addressOrders, econtOrders, pickupOrders),
       text: renderFarmerText(date, farmerName, prep, addressOrders, econtOrders, pickupOrders),
@@ -679,4 +760,138 @@ export class DigestService {
 
     return { sent: true, farmersSent };
   }
+
+  /**
+   * Organizer-triggered: email each SELECTED farmer their own orders for the
+   * [from,to] BG-day range, limited to the chosen statuses. Reuses the range
+   * assembler. One batch line-item query (no N+1). Per-farmer try/catch so a
+   * single failed send doesn't abort the rest. Returns how many farmers were
+   * emailed vs skipped (selected, has email, but no orders / send failed).
+   */
+  async sendFarmerOrderEmails(
+    tenantId: string,
+    opts: { from: string; to: string; farmerIds: string[]; statuses: string[] },
+  ): Promise<{ sent: number; skipped: number }> {
+    const { from, to } = opts;
+
+    const [tenant] = await this.db
+      .select({ multiFarmer: tenants.multiFarmer })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!tenant?.multiFarmer) {
+      throw new BadRequestException('Тази функция е само за магазини с няколко фермери.');
+    }
+    if (from > to) {
+      throw new BadRequestException('Началната дата е след крайната.');
+    }
+    // Inclusive day span. (Both are YYYY-MM-DD; parse as UTC midnight.)
+    const spanDays =
+      Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+    if (spanDays > MAX_RANGE_DAYS) {
+      throw new BadRequestException(`Периодът е твърде голям (макс. ${MAX_RANGE_DAYS} дни).`);
+    }
+
+    const statuses = opts.statuses.filter((s): s is (typeof ALLOWED_STATUSES)[number] =>
+      (ALLOWED_STATUSES as readonly string[]).includes(s),
+    );
+    if (statuses.length === 0) {
+      throw new BadRequestException('Изберете поне един валиден статус.');
+    }
+    if (opts.farmerIds.length === 0) {
+      throw new BadRequestException('Изберете поне един фермер.');
+    }
+
+    // Selected farmers that actually belong to this tenant AND have an email.
+    const farmerRows = await this.db
+      .select({ id: farmers.id, name: farmers.name, email: farmers.email })
+      .from(farmers)
+      .where(
+        and(
+          eq(farmers.tenantId, tenantId),
+          inArray(farmers.id, opts.farmerIds),
+          isNotNull(farmers.email),
+        )!,
+      );
+    if (farmerRows.length === 0) {
+      throw new BadRequestException('Няма избран фермер с имейл адрес.');
+    }
+
+    // One batch query for every selected farmer's line items across the range.
+    const rows = await this.db
+      .select({
+        farmerId: products.farmerId,
+        orderId: orders.id,
+        deliveryType: orders.deliveryType,
+        customerName: orders.customerName,
+        deliveryAddress: orders.deliveryAddress,
+        deliveryCity: orders.deliveryCity,
+        econtOffice: orders.econtOffice,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+        slotDate: deliverySlots.date,
+        productName: orderItems.productName,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .innerJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          inArray(orders.status, statuses),
+          scheduledForRange(from, to),
+          inArray(products.farmerId, farmerRows.map((f) => f.id)),
+        )!,
+      )
+      .orderBy(orders.createdAt);
+
+    // Group rows: farmerId → (slotDate-or-null bucketed to a day) → rows.
+    // Slotless orders count on their scheduled day; for range display we bucket
+    // them under `from` day when slotDate is null (they were selected by the
+    // createdAt fallback in scheduledForRange, so their exact day isn't in the
+    // slot column — group them under the range start so they still appear).
+    const byFarmer = new Map<string, Map<string, typeof rows>>();
+    for (const r of rows) {
+      const fid = r.farmerId;
+      if (!fid) continue;
+      const day = (r.slotDate as string | null) ?? from;
+      const farmerMap = byFarmer.get(fid) ?? new Map();
+      const dayRows = farmerMap.get(day) ?? [];
+      dayRows.push(r);
+      farmerMap.set(day, dayRows);
+      byFarmer.set(fid, farmerMap);
+    }
+
+    let sent = 0;
+    let skipped = 0;
+    for (const f of farmerRows) {
+      const byDay = byFarmer.get(f.id);
+      const email = assembleFarmerRangeEmail(from, to, f.name, byDay ?? new Map());
+      if (!email) {
+        skipped++;
+        continue;
+      }
+      try {
+        await this.email.sendMail({
+          to: f.email!,
+          subject: `Твоите поръчки за ${periodLabel(from, to)} — ФермериБГ`,
+          html: email.html,
+          text: email.text,
+        });
+        sent++;
+        this.logger.log(`[digest] farmer-orders sent tenant=${tenantId} farmer=${f.id}`);
+      } catch (err) {
+        skipped++;
+        this.logger.error(
+          `[digest] farmer-orders failed tenant=${tenantId} farmer=${f.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { sent, skipped };
+  }
 }
+
+/** Test-only surface for the pure range assembler. */
+export const __rangeInternals = { assembleFarmerRangeEmail };

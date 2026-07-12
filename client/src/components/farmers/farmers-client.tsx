@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { Plus, Pencil, Link2, Users, ArrowUpDown, Check } from 'lucide-react';
+import { Plus, Pencil, Link2, Users, ArrowUpDown, Check, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
@@ -12,6 +12,7 @@ import { Avatar } from './avatar';
 import { SectionPhoto } from '@/components/subcategories/section-photo';
 import { FarmerPanel } from './farmer-panel';
 import { AccessControl } from './access-control';
+import { SendFarmerOrdersModal } from './send-farmer-orders-modal';
 
 export function FarmersClient({
   initialFarmers,
@@ -48,6 +49,7 @@ export function FarmersClient({
       return copy;
     });
   const [reorderMode, setReorderMode] = useState(false);
+  const [sendOrdersOpen, setSendOrdersOpen] = useState(false);
   const [prodModalFarmerId, setProdModalFarmerId] = useState<string | null>(null);
   const reorderDirty = useRef(false);
   // Local copy so bulk product (re)links from the drawer update the chips live.
@@ -157,6 +159,11 @@ export function FarmersClient({
                 >
                   {reorderMode ? <Check size={16} /> : <ArrowUpDown size={16} />}
                   {reorderMode ? 'Готово' : 'Подреди'}
+                </Button>
+              )}
+              {!reorderMode && (
+                <Button variant="ghost" size="sm" onClick={() => setSendOrdersOpen(true)} title="Изпрати имейл с поръчки на фермери">
+                  <Mail size={16} /> Изпрати поръчки
                 </Button>
               )}
               {!reorderMode && (
@@ -293,6 +300,10 @@ export function FarmersClient({
         products={productList}
         onClose={() => setProdModalFarmerId(null)}
       />
+
+      {sendOrdersOpen && (
+        <SendFarmerOrdersModal farmers={farmers} onClose={() => setSendOrdersOpen(false)} />
+      )}
     </div>
   );
 }
