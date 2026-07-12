@@ -119,6 +119,14 @@ const EMPTY_ROUTE: CourierRoute = {
   optimized: false,
   polyline: null,
   endMode: 'home',
+  endAddress: null,
+  endLat: null,
+  endLng: null,
+  courierIndex: 0,
+  name: null,
+  itemsSubtotalStotinki: 0,
+  deliveryFeeStotinki: 0,
+  totalStotinki: 0,
 };
 
 export function RouteClient({
