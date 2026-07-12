@@ -260,6 +260,11 @@ export const products = pgTable(
     // instead of a seq scan over products.
     farmerIdx: index('products_farmer_idx').on(t.farmerId),
     subcategoryIdx: index('products_subcategory_idx').on(t.subcategoryId),
+    // Review queue lookups: badge count + pending list are always tenant + flag.
+    // Partial — pending rows are few; mirrors 0090_product_review.sql.
+    pendingReviewIdx: index('products_tenant_pending_review_idx')
+      .on(t.tenantId)
+      .where(sql`${t.needsReview} = true`),
   }),
 );
 
