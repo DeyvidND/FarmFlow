@@ -16,7 +16,7 @@ type View = 'all' | 'farm' | 'producer';
 
 const methodTone = (m: string) =>
   m === 'DELETE'
-    ? 'bg-[#FBE9E7] text-ff-red'
+    ? 'bg-ff-red-soft text-ff-red'
     : m === 'POST'
       ? 'bg-ff-green-50 text-ff-green-700'
       : m === 'PATCH' || m === 'PUT'
@@ -37,8 +37,8 @@ function Actor({ a }: { a: AuditLog }) {
   if (a.actorType === 'admin') {
     return (
       <span className="inline-flex items-center gap-1.5 text-[13px]">
-        <ShieldAlert size={14} className="text-[#3457B1]" />
-        <span className="font-bold text-[#3457B1]">{a.actorEmail ?? 'Платформа'}</span>
+        <ShieldAlert size={14} className="text-ff-demo" />
+        <span className="font-bold text-ff-demo">{a.actorEmail ?? 'Платформа'}</span>
       </span>
     );
   }
@@ -169,7 +169,7 @@ export function AuditClient({ initial }: { initial: Paginated<AuditLog> }) {
             className={cn(
               'inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-[13.5px] font-bold shadow-ff-sm',
               errorsOnly
-                ? 'border-ff-red bg-[#FBE9E7] text-ff-red'
+                ? 'border-ff-red bg-ff-red-soft text-ff-red'
                 : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
             )}
           >

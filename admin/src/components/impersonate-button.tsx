@@ -32,7 +32,7 @@ export function ImpersonateButton({ farmerId, hasLogin }: { farmerId: string; ha
       onClick={go}
       disabled={busy}
       title="Отваря приложението Доставки като този фермер — за поддръжка"
-      className="inline-flex items-center gap-1.5 rounded-lg border border-[#3457B1] bg-[#EEF4FF] px-3 py-1.5 text-[13px] font-bold text-[#3457B1] hover:brightness-95 disabled:opacity-60"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-ff-demo bg-ff-demo-soft px-3 py-1.5 text-[13px] font-bold text-ff-demo hover:brightness-95 disabled:opacity-60"
     >
       <LogIn size={14} /> {busy ? 'Отваряне…' : 'Влез като фермер'}
     </button>

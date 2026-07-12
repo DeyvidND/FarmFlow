@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import {
   Search,
@@ -17,9 +17,11 @@ import {
   FlaskConical,
   Trash2,
   KeyRound,
+  Sprout,
+  Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn, eur } from '@/lib/utils';
 import {
   ApiError,
   setTenantStatus,
@@ -29,12 +31,64 @@ import {
   deleteTenant,
   resetTenantPassword,
   listTenants,
+  listAllFarmers,
   getProblems,
   type PlatformTenant,
+  type GlobalFarmer,
   type Paginated,
   type ProblemSeverity,
 } from '@/lib/api-client';
 import { usePaginatedList } from '@/hooks/use-paginated-list';
+
+/** Producers that sit under one farm-brand — the nested spine. Keeps each
+ *  producer visually *inside* the brand they belong to, instead of floating in a
+ *  separate flat table. */
+function ProducerSubList({ producers }: { producers: GlobalFarmer[] }) {
+  if (producers.length === 0) {
+    return (
+      <div className="bg-ff-surface-2 px-5 py-4 text-[13px] text-ff-muted">
+        Няма производители в тази ферма.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5 bg-ff-surface-2 px-4 py-3.5 sm:px-5">
+      <div className="flex items-center gap-1.5 pb-0.5 text-[11px] font-extrabold uppercase tracking-[0.06em] text-ff-ink-2">
+        <Sprout size={13} /> Производители · {producers.length}
+      </div>
+      {producers.map((p) => (
+        <Link
+          key={p.id}
+          href={`/producers/${p.id}`}
+          className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-ff-border bg-ff-surface px-3 py-2.5 no-underline transition-colors hover:border-ff-green-500 hover:bg-ff-green-50"
+        >
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ff-green-50 text-ff-green-700">
+            <Sprout size={14} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13.5px] font-bold text-ff-ink">{p.name}</span>
+            {p.role && <span className="block truncate text-[12px] text-ff-muted">{p.role}</span>}
+          </span>
+          {p.hasLogin ? (
+            p.invitePending ? (
+              <span className="rounded-full bg-ff-amber-soft px-2 py-0.5 text-[11px] font-bold text-ff-amber-600">покана</span>
+            ) : (
+              <span className="rounded-full bg-ff-green-50 px-2 py-0.5 text-[11px] font-bold text-ff-green-700">вход</span>
+            )
+          ) : (
+            <span className="rounded-full bg-ff-surface-2 px-2 py-0.5 text-[11px] font-bold text-ff-muted-2">няма вход</span>
+          )}
+          <span className="ff-fig hidden text-[12.5px] text-ff-ink-2 sm:inline">{p.products} прод.</span>
+          <span className="ff-fig hidden text-[12.5px] text-ff-ink-2 sm:inline">{p.courierOrders} поръчки</span>
+          {p.codPendingStotinki > 0 && (
+            <span className="ff-fig text-[12.5px] font-bold text-ff-amber-600">{eur(p.codPendingStotinki)} НП</span>
+          )}
+          <ChevronRight size={15} className="text-ff-muted-2" />
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -47,7 +101,7 @@ function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean
       disabled={disabled}
       onClick={() => onChange(!on)}
       className="relative shrink-0 rounded-full transition-colors disabled:opacity-50"
-      style={{ width: 46, height: 26, padding: 3, background: on ? 'var(--ff-green-600)' : '#D9D2C2' }}
+      style={{ width: 46, height: 26, padding: 3, background: on ? 'var(--ff-green-600)' : 'var(--ff-toggle-off)' }}
     >
       <span
         className="absolute rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.2)] transition-[left] duration-200"
@@ -87,7 +141,7 @@ function StatusBadge({ t }: { t: PlatformTenant }) {
     <span
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] font-bold',
-        active ? 'bg-ff-green-50 text-ff-green-700' : 'bg-[#FBE9E7] text-ff-red',
+        active ? 'bg-ff-green-50 text-ff-green-700' : 'bg-ff-red-soft text-ff-red',
       )}
     >
       <span className={cn('h-[7px] w-[7px] rounded-full', active ? 'bg-ff-green-500' : 'bg-ff-red')} />
@@ -111,7 +165,7 @@ function PlanBadge({ premium }: { premium: boolean }) {
 function DemoBadge({ expiresAt }: { expiresAt: string | null }) {
   const d = daysUntil(expiresAt);
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2.5 py-1 text-[12px] font-bold text-[#3457B1]">
+    <span className="inline-flex items-center gap-1 rounded-full bg-ff-demo-soft px-2.5 py-1 text-[12px] font-bold text-ff-demo">
       <FlaskConical size={12} /> ДЕМО{expiresAt ? ` · ${d}д` : ''}
     </span>
   );
@@ -128,7 +182,7 @@ function worseProblemSeverity(a: ProblemSeverity, b: ProblemSeverity): ProblemSe
 function ProblemBadge({ count, severity }: { count: number; severity: ProblemSeverity }) {
   const tone =
     severity === 'high'
-      ? 'bg-[#FBE9E7] text-ff-red'
+      ? 'bg-ff-red-soft text-ff-red'
       : severity === 'med'
         ? 'bg-ff-amber-soft text-ff-amber-600'
         : 'bg-ff-surface-2 text-ff-muted';
@@ -231,7 +285,7 @@ function AddFarmerDialog({ onClose, onCreated }: AddFarmerDialogProps) {
 
   return (
     <>
-      <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={created ? onClose : onClose} />
+      <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={created ? onClose : onClose} />
       <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
         {!created ? (
           <>
@@ -376,6 +430,10 @@ interface FarmTableProps {
   onDelete: (t: PlatformTenant) => void;
   emptyText: string;
   problemMap: Record<string, { count: number; severity: ProblemSeverity }>;
+  producersByTenant: Record<string, GlobalFarmer[]>;
+  producersLoaded: boolean;
+  expanded: Set<string>;
+  onToggleExpand: (id: string) => void;
 }
 
 function FarmTable({
@@ -389,7 +447,37 @@ function FarmTable({
   onDelete,
   emptyText,
   problemMap,
+  producersByTenant,
+  producersLoaded,
+  expanded,
+  onToggleExpand,
 }: FarmTableProps) {
+  const producerCount = (id: string) => producersByTenant[id]?.length ?? 0;
+  /** Small round expand toggle — the spine affordance that reveals a farm's
+   *  producers. Chevron rotates on open. */
+  const expandBtn = (t: PlatformTenant) => {
+    const open = expanded.has(t.id);
+    const n = producerCount(t.id);
+    return (
+      <button
+        type="button"
+        onClick={() => onToggleExpand(t.id)}
+        aria-expanded={open}
+        aria-label={open ? 'Скрий производителите' : 'Покажи производителите'}
+        title={producersLoaded ? `${n} ${n === 1 ? 'производител' : 'производители'}` : 'Производители'}
+        className={cn(
+          'inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[12px] font-bold transition-colors',
+          open
+            ? 'border-ff-green-500 bg-ff-green-50 text-ff-green-700'
+            : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+        )}
+      >
+        <ChevronRight size={14} className={cn('transition-transform', open && 'rotate-90')} />
+        <Users size={13} />
+        {producersLoaded ? n : '·'}
+      </button>
+    );
+  };
   const sortTh = (k: SortKey, label: string) => {
     const active = sort.key === k;
     return (
@@ -428,7 +516,7 @@ function FarmTable({
       onClick={() => onDelete(t)}
       disabled={busyId === t.id}
       title={t.isDemo ? 'Изтрий демо' : 'Изтрий фермата'}
-      className="grid h-9 w-9 place-items-center rounded-lg border border-ff-border text-ff-red hover:bg-[#FBE9E7] disabled:opacity-50"
+      className="grid h-9 w-9 place-items-center rounded-lg border border-ff-border text-ff-red hover:bg-ff-red-soft disabled:opacity-50"
     >
       <Trash2 size={16} />
     </button>
@@ -451,10 +539,14 @@ function FarmTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((t) => (
-            <tr key={t.id} className="border-b border-ff-border-2 last:border-0">
+          {rows.map((t) => {
+            const open = expanded.has(t.id);
+            return (
+            <Fragment key={t.id}>
+            <tr className={cn('border-b border-ff-border-2', open && 'bg-ff-surface-2')}>
               <td className="px-5 py-3.5">
                 <div className="flex items-center gap-2">
+                  {expandBtn(t)}
                   <Link
                     href={`/tenants/${t.id}`}
                     className="inline-flex items-center gap-1 text-[14.5px] font-bold text-ff-ink no-underline hover:text-ff-green-700 hover:underline"
@@ -467,7 +559,7 @@ function FarmTable({
                     <ProblemBadge count={problemMap[t.id].count} severity={problemMap[t.id].severity} />
                   )}
                 </div>
-                <div className="text-xs text-ff-muted-2">/{t.slug}</div>
+                <div className="ml-[52px] text-xs text-ff-muted-2">/{t.slug}</div>
               </td>
               <td className="px-5 py-3.5 text-[13.5px] text-ff-ink-2">{t.email ?? '—'}</td>
               <td className="ff-fig px-5 py-3.5 text-[14px] font-bold">{t.orderCount}</td>
@@ -494,24 +586,38 @@ function FarmTable({
                 </div>
               </td>
             </tr>
-          ))}
+            {open && (
+              <tr className="border-b border-ff-border-2">
+                <td colSpan={8} className="p-0">
+                  <ProducerSubList producers={producersByTenant[t.id] ?? []} />
+                </td>
+              </tr>
+            )}
+            </Fragment>
+            );
+          })}
         </tbody>
       </table>
 
       {/* mobile cards */}
       <div className="hidden flex-col max-[860px]:flex">
-        {rows.map((t) => (
+        {rows.map((t) => {
+          const open = expanded.has(t.id);
+          return (
           <div key={t.id} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
             <div className="flex items-start justify-between gap-2.5">
               <div className="min-w-0">
-                <Link
-                  href={`/tenants/${t.id}`}
-                  className="inline-flex items-center gap-1 text-[15.5px] font-extrabold text-ff-ink no-underline hover:text-ff-green-700"
-                >
-                  {t.name}
-                  <ChevronRight size={16} className="text-ff-muted-2" />
-                </Link>
-                <div className="text-[12.5px] text-ff-muted">{t.email ?? '—'}</div>
+                <div className="flex items-center gap-2">
+                  {expandBtn(t)}
+                  <Link
+                    href={`/tenants/${t.id}`}
+                    className="inline-flex items-center gap-1 text-[15.5px] font-extrabold text-ff-ink no-underline hover:text-ff-green-700"
+                  >
+                    {t.name}
+                    <ChevronRight size={16} className="text-ff-muted-2" />
+                  </Link>
+                </div>
+                <div className="mt-0.5 text-[12.5px] text-ff-muted">{t.email ?? '—'}</div>
                 {(t.isDemo || problemMap[t.id]) && (
                   <div className="mt-1 flex items-center gap-1.5">
                     {t.isDemo && <DemoBadge expiresAt={t.demoExpiresAt} />}
@@ -544,8 +650,14 @@ function FarmTable({
                 {deleteBtn(t)}
               </div>
             </div>
+            {open && (
+              <div className="-mx-4 -mb-3.5 mt-1 border-t border-ff-border-2">
+                <ProducerSubList producers={producersByTenant[t.id] ?? []} />
+              </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {rows.length === 0 && <p className="px-5 py-12 text-center text-sm text-ff-muted">{emptyText}</p>}
@@ -578,6 +690,10 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
   const [sort, setSort] = useState<SortState>({ key: 'created', dir: 'desc' });
   const [tab, setTab] = useState<'real' | 'demo'>('real');
   const [problemMap, setProblemMap] = useState<Record<string, { count: number; severity: ProblemSeverity }>>({});
+  // Producers grouped under the brand they belong to — the nested spine.
+  const [producersByTenant, setProducersByTenant] = useState<Record<string, GlobalFarmer[]>>({});
+  const [producersLoaded, setProducersLoaded] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // Cheap enrichment: one extra /platform/problems fetch, grouped by tenantId
   // client-side. Best-effort — a failure here must never break the farm list.
@@ -602,6 +718,43 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
     };
   }, []);
 
+  // Drain the cross-tenant producer directory once and bucket by tenantId, so
+  // every farm row can reveal its own producers inline. Platform-total producers
+  // is a small set (tens) — draining is scale-appropriate. Best-effort: a failure
+  // must never break the farm list.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const all: GlobalFarmer[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await listAllFarmers(cursor);
+          all.push(...page.items);
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor);
+        if (cancelled) return;
+        const map: Record<string, GlobalFarmer[]> = {};
+        for (const f of all) (map[f.tenantId] ??= []).push(f);
+        setProducersByTenant(map);
+        setProducersLoaded(true);
+      } catch {
+        /* ignore — farm list stands on its own */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleExpand = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   function onSort(key: SortKey) {
     setSort((s) =>
       s.key === key
@@ -611,18 +764,28 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
   }
 
   const needle = q.trim().toLowerCase();
+  const producerMatch = (tid: string) =>
+    (producersByTenant[tid] ?? []).some(
+      (p) => p.name.toLowerCase().includes(needle) || (p.loginEmail ?? '').toLowerCase().includes(needle),
+    );
   const matched = tenants.filter(
     (t) =>
       !needle ||
       t.name.toLowerCase().includes(needle) ||
       (t.email ?? '').toLowerCase().includes(needle) ||
-      t.slug.toLowerCase().includes(needle),
+      t.slug.toLowerCase().includes(needle) ||
+      producerMatch(t.id),
   );
   const sorted = [...matched].sort((a, b) =>
     sort.dir === 'asc' ? compareBy(a, b, sort.key) : compareBy(b, a, sort.key),
   );
   const realFarms = sorted.filter((t) => !t.isDemo);
   const demoFarms = sorted.filter((t) => t.isDemo);
+
+  // When a search matches a producer (not the farm itself), auto-open that farm
+  // so the hit is visible — without mutating the user's manual expand state.
+  const shownExpanded = new Set(expanded);
+  if (needle) for (const t of matched) if (producerMatch(t.id)) shownExpanded.add(t.id);
 
   async function apply(t: PlatformTenant, status: 'active' | 'inactive') {
     setBusyId(t.id);
@@ -784,7 +947,7 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
           onClick={() => setTab('demo')}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-bold transition-colors',
-            tab === 'demo' ? 'bg-[#3457B1] text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+            tab === 'demo' ? 'bg-ff-demo text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
           )}
         >
           <FlaskConical size={15} /> Демо{' '}
@@ -805,6 +968,10 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
             onDelete={openDelete}
             emptyText={needle ? 'Няма намерени ферми.' : 'Все още няма ферми.'}
             problemMap={problemMap}
+            producersByTenant={producersByTenant}
+            producersLoaded={producersLoaded}
+            expanded={shownExpanded}
+            onToggleExpand={toggleExpand}
           />
         ) : (
           <FarmTable
@@ -818,6 +985,10 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
             onDelete={openDelete}
             emptyText={needle ? 'Няма намерени демо ферми.' : 'Няма активни демо акаунти.'}
             problemMap={problemMap}
+            producersByTenant={producersByTenant}
+            producersLoaded={producersLoaded}
+            expanded={shownExpanded}
+            onToggleExpand={toggleExpand}
           />
         )}
       </div>
@@ -837,10 +1008,10 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
       {/* confirm disable dialog */}
       {confirmOff && (
         <>
-          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setConfirmOff(null)} />
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={() => setConfirmOff(null)} />
           <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[400px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
             <div className="mb-3 flex items-start gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-[#FBE9E7] text-ff-red">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-red-soft text-ff-red">
                 <AlertTriangle size={20} />
               </span>
               <div>
@@ -887,7 +1058,7 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
       {/* demo credentials */}
       {demoCreds && (
         <>
-          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setDemoCreds(null)} />
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={() => setDemoCreds(null)} />
           <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
             <div className="mb-3 flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-green-50 text-ff-green-700">
@@ -929,7 +1100,7 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
       {/* confirm reset password */}
       {confirmReset && (
         <>
-          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setConfirmReset(null)} />
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={() => setConfirmReset(null)} />
           <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
             <div className="mb-3 flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-amber-softer text-ff-amber-600">
@@ -968,7 +1139,7 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
       {/* new password result */}
       {resetCreds && (
         <>
-          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setResetCreds(null)} />
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={() => setResetCreds(null)} />
           <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
             <div className="mb-3 flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-green-50 text-ff-green-700">
@@ -1012,10 +1183,10 @@ export function TenantsClient({ initial }: { initial: Paginated<PlatformTenant> 
       {/* confirm delete (demo = quick; real = type the slug) */}
       {confirmDel && (
         <>
-          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setConfirmDel(null)} />
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={() => setConfirmDel(null)} />
           <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
             <div className="mb-3 flex items-start gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-[#FBE9E7] text-ff-red">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-red-soft text-ff-red">
                 <AlertTriangle size={20} />
               </span>
               <div>

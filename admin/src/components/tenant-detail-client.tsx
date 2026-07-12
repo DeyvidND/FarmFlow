@@ -30,7 +30,7 @@ const ORDER_STATUS: Record<string, { label: string; tone: string }> = {
   preparing: { label: 'Приготвя се', tone: 'bg-ff-green-50 text-ff-green-700' },
   out_for_delivery: { label: 'За доставка', tone: 'bg-ff-green-50 text-ff-green-700' },
   delivered: { label: 'Доставена', tone: 'bg-ff-green-100 text-ff-green-800' },
-  cancelled: { label: 'Отказана', tone: 'bg-[#FBE9E7] text-ff-red' },
+  cancelled: { label: 'Отказана', tone: 'bg-ff-red-soft text-ff-red' },
 };
 
 function StatCard({
@@ -238,7 +238,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
             <span
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] font-bold',
-                active ? 'bg-ff-green-50 text-ff-green-700' : 'bg-[#FBE9E7] text-ff-red',
+                active ? 'bg-ff-green-50 text-ff-green-700' : 'bg-ff-red-soft text-ff-red',
               )}
             >
               <span className={cn('h-[7px] w-[7px] rounded-full', active ? 'bg-ff-green-500' : 'bg-ff-red')} />
@@ -268,7 +268,7 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
               type="button"
               onClick={enableDelivery}
               disabled={enabling}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-3 py-1.5 text-[13px] font-bold text-[#3457B1] shadow-ff-sm hover:bg-[#EEF4FF] disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ff-border bg-ff-surface px-3 py-1.5 text-[13px] font-bold text-ff-demo shadow-ff-sm hover:bg-ff-demo-soft disabled:opacity-60"
             >
               <Truck size={14} /> {enabling ? 'Включване…' : 'Включи доставка'}
             </button>

@@ -52,9 +52,32 @@
     --ff-gray-badge-bg: #ece8dd;
     --ff-gray-badge-ink: #75705f;
     --ff-red: #bf4434;
+    --ff-red-soft: #fbe9e7;
 
-    --sidebar-w: 220px;
-    --topbar-h: 68px;
+    /* on-green foreground (light label text sitting on a green fill) */
+    --ff-green-on: #eaf1e4;
+
+    /* «Демо» is a first-class semantic state — tokenised so the blue stops being
+       a one-off hex scattered across components. */
+    --ff-demo: #3457b1;
+    --ff-demo-soft: #eef4ff;
+
+    /* shared modal scrim + the off-state track of the switch control */
+    --ff-overlay: rgba(30, 28, 15, 0.4);
+    --ff-toggle-off: #d9d2c2;
+
+    /* «Command console» dark-green navigation spine — the signature surface that
+       sets the operator panel apart from the light farmer app. Deep farm green,
+       cream ink, amber as the rare accent. */
+    --ff-sidebar-bg: #16301c;
+    --ff-sidebar-hover: #22432a;
+    --ff-sidebar-active: #2c5530;
+    --ff-sidebar-ink: #e6efe1;
+    --ff-sidebar-muted: #8fa891;
+    --ff-sidebar-border: #24422b;
+
+    --sidebar-w: 250px;
+    --topbar-h: 66px;
   }
 }
 
@@ -97,5 +120,13 @@
   }
   input:focus {
     border-color: var(--ff-green-500);
+  }
+  /* Keyboard focus is visible everywhere; mouse clicks stay clean (focus-visible
+     only). Was: browser default ring, inconsistent and often invisible on the
+     green pills / table rows. */
+  :where(a, button, [role='switch'], [role='tab'], summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--ff-green-600);
+    outline-offset: 2px;
+    border-radius: 8px;
   }
 }

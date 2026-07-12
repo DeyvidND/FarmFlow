@@ -82,7 +82,7 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
           onClick={() => setTab('demo')}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-bold transition-colors',
-            tab === 'demo' ? 'bg-[#3457B1] text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
+            tab === 'demo' ? 'bg-ff-demo text-white' : 'text-ff-ink-2 hover:bg-ff-surface-2',
           )}
         >
           <FlaskConical size={15} /> Демо{' '}
@@ -124,7 +124,7 @@ export function ProducersClient({ initial }: { initial: Paginated<GlobalFarmer> 
                       <ChevronRight size={14} className="text-ff-muted-2" />
                     </Link>
                     {f.isDemo && (
-                      <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[11px] font-bold text-[#3457B1]">
+                      <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-ff-demo-soft px-2 py-0.5 text-[11px] font-bold text-ff-demo">
                         <FlaskConical size={10} /> ДЕМО
                       </span>
                     )}

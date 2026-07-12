@@ -55,7 +55,7 @@ function Seg<T extends string>({
           key={o.key}
           onClick={() => onChange(o.key)}
           className={`rounded-lg px-3 py-1.5 text-[13px] font-bold transition-colors ${
-            value === o.key ? 'bg-ff-green-700 text-[#EAF1E4]' : 'text-ff-ink-2 hover:bg-ff-surface-2'
+            value === o.key ? 'bg-ff-green-700 text-ff-green-on' : 'text-ff-ink-2 hover:bg-ff-surface-2'
           }`}
         >
           {o.label}
@@ -69,12 +69,14 @@ function FarmAttentionCard({ f }: { f: FarmSignals }) {
   const vb = f.phone ? viberNumber(f.phone) : null;
   const accent = f.maxSeverity >= 80 ? 'bg-ff-amber' : f.maxSeverity >= 60 ? 'bg-ff-amber-600' : 'bg-ff-muted-2';
   return (
-    <div className="relative overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
-      <span className={`absolute inset-y-0 left-0 w-[3px] ${accent}`} />
-      <div className="flex flex-col gap-3 p-4 pl-5 sm:flex-row sm:items-start sm:justify-between">
+    <div className="rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <div className="text-[15.5px] font-extrabold">{f.name}</div>
-          <div className="text-xs text-ff-muted-2">/{f.slug}</div>
+          <div className="flex items-center gap-2 text-[15.5px] font-extrabold">
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${accent}`} />
+            {f.name}
+          </div>
+          <div className="ml-[18px] text-xs text-ff-muted-2">/{f.slug}</div>
           <ul className="mt-2.5 flex flex-col gap-2">
             {f.signals.map((s) => (
               <li key={s.key} className="flex items-start gap-2">
@@ -92,7 +94,7 @@ function FarmAttentionCard({ f }: { f: FarmSignals }) {
             {vb && (
               <a
                 href={`viber://chat?number=%2B${vb}`}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-ff-green-700 px-3 py-2 text-[12.5px] font-bold text-[#EAF1E4] hover:bg-ff-green-800"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-ff-green-700 px-3 py-2 text-[12.5px] font-bold text-ff-green-on hover:bg-ff-green-800"
               >
                 <MessageCircle size={15} /> Viber
               </a>

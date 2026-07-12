@@ -41,10 +41,10 @@ const QUEUE_STATUS: Record<
   },
   error: {
     label: 'Грешка',
-    bg: 'bg-[#FBE9E7]',
+    bg: 'bg-ff-red-soft',
     ink: 'text-ff-red',
     dot: 'bg-ff-red',
-    row: 'bg-[#FBE9E7]',
+    row: 'bg-ff-red-soft',
   },
 };
 
@@ -62,13 +62,13 @@ function ServiceTile({
     <div
       className={cn(
         'flex items-center gap-3 rounded-xl border p-4 shadow-ff-sm',
-        up ? 'border-ff-green-100 bg-ff-green-50' : 'border-ff-red bg-[#FBE9E7]',
+        up ? 'border-ff-green-100 bg-ff-green-50' : 'border-ff-red bg-ff-red-soft',
       )}
     >
       <span
         className={cn(
           'grid h-11 w-11 shrink-0 place-items-center rounded-xl',
-          up ? 'bg-ff-green-100 text-ff-green-700' : 'bg-[#FBE9E7] text-ff-red',
+          up ? 'bg-ff-green-100 text-ff-green-700' : 'bg-ff-red-soft text-ff-red',
         )}
       >
         {icon}
@@ -111,7 +111,7 @@ function RecentErrorCard({ err }: { err: RecentError }) {
   return (
     <li className="rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="ff-fig inline-flex shrink-0 items-center rounded-md bg-[#FBE9E7] px-1.5 py-0.5 text-[11.5px] font-extrabold text-ff-red">
+        <span className="ff-fig inline-flex shrink-0 items-center rounded-md bg-ff-red-soft px-1.5 py-0.5 text-[11.5px] font-extrabold text-ff-red">
           {err.statusCode}
         </span>
         <span className="shrink-0 font-mono text-[11.5px] font-bold text-ff-muted">{err.method}</span>
@@ -304,7 +304,7 @@ export function HealthClient() {
               <div
                 className={cn(
                   'rounded-xl border p-4 shadow-ff-sm sm:col-span-1',
-                  data.errors.last24h > 0 ? 'border-ff-red bg-[#FBE9E7]' : 'border-ff-green-100 bg-ff-green-50',
+                  data.errors.last24h > 0 ? 'border-ff-red bg-ff-red-soft' : 'border-ff-green-100 bg-ff-green-50',
                 )}
               >
                 <div className="text-[12px] font-bold uppercase tracking-[0.03em] text-ff-muted">Общо грешки</div>

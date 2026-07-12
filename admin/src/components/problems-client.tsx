@@ -14,7 +14,7 @@ import {
 } from '@/lib/api-client';
 
 const SEVERITY: Record<ProblemSeverity, { label: string; bg: string; ink: string; dot: string }> = {
-  high: { label: 'Спешно', bg: 'bg-[#FBE9E7]', ink: 'text-ff-red', dot: 'bg-ff-red' },
+  high: { label: 'Спешно', bg: 'bg-ff-red-soft', ink: 'text-ff-red', dot: 'bg-ff-red' },
   med: { label: 'Внимание', bg: 'bg-ff-amber-soft', ink: 'text-ff-amber-600', dot: 'bg-ff-amber-600' },
   low: { label: 'За сведение', bg: 'bg-ff-surface-2', ink: 'text-ff-muted', dot: 'bg-ff-muted-2' },
 };

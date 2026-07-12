@@ -30,7 +30,7 @@ export function EnterPanelButton({ tenantId }: { tenantId: string }) {
       onClick={go}
       disabled={busy}
       title="Отваря истинския панел на фермера като него — за поддръжка"
-      className="inline-flex items-center gap-1.5 rounded-lg border border-[#3457B1] bg-[#EEF4FF] px-3 py-1.5 text-[13px] font-bold text-[#3457B1] hover:brightness-95 disabled:opacity-60"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-ff-demo bg-ff-demo-soft px-3 py-1.5 text-[13px] font-bold text-ff-demo hover:brightness-95 disabled:opacity-60"
     >
       <LogIn size={14} /> {busy ? 'Отваряне…' : 'Влез в панела'}
     </button>

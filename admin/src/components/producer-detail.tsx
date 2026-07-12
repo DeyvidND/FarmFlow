@@ -11,8 +11,8 @@ const SHIP_STATUS: Record<string, { label: string; tone: string }> = {
   created: { label: 'Създадена', tone: 'bg-ff-amber-soft text-ff-amber-600' },
   shipped: { label: 'Изпратена', tone: 'bg-ff-amber-softer text-ff-amber-600' },
   delivered: { label: 'Доставена', tone: 'bg-ff-green-50 text-ff-green-700' },
-  returned: { label: 'Върната', tone: 'bg-[#FBE9E7] text-ff-red' },
-  refused: { label: 'Отказана', tone: 'bg-[#FBE9E7] text-ff-red' },
+  returned: { label: 'Върната', tone: 'bg-ff-red-soft text-ff-red' },
+  refused: { label: 'Отказана', tone: 'bg-ff-red-soft text-ff-red' },
   draft: { label: 'Чернова', tone: 'bg-ff-surface-2 text-ff-muted-2' },
 };
 
@@ -22,7 +22,7 @@ const ORDER_STATUS: Record<string, { label: string; tone: string }> = {
   preparing: { label: 'Приготвя се', tone: 'bg-ff-green-50 text-ff-green-700' },
   out_for_delivery: { label: 'За доставка', tone: 'bg-ff-green-50 text-ff-green-700' },
   delivered: { label: 'Доставена', tone: 'bg-ff-green-100 text-ff-green-800' },
-  cancelled: { label: 'Отказана', tone: 'bg-[#FBE9E7] text-ff-red' },
+  cancelled: { label: 'Отказана', tone: 'bg-ff-red-soft text-ff-red' },
 };
 
 function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) {

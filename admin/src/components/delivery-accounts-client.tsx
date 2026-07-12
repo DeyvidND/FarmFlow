@@ -35,7 +35,7 @@ function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean
       disabled={disabled}
       onClick={() => onChange(!on)}
       className="relative shrink-0 rounded-full transition-colors disabled:opacity-50"
-      style={{ width: 46, height: 26, padding: 3, background: on ? 'var(--ff-green-600)' : '#D9D2C2' }}
+      style={{ width: 46, height: 26, padding: 3, background: on ? 'var(--ff-green-600)' : 'var(--ff-toggle-off)' }}
     >
       <span
         className="absolute rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.2)] transition-[left] duration-200"
@@ -56,7 +56,7 @@ function TypeBadges({ type, isDemo }: { type: DeliveryAccount['type']; isDemo?: 
         </span>
       )}
       {delivery && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[12px] font-bold text-[#3457B1]">
+        <span className="inline-flex items-center gap-1 rounded-full bg-ff-demo-soft px-2 py-0.5 text-[12px] font-bold text-ff-demo">
           <Truck size={12} /> Доставка
         </span>
       )}
@@ -134,7 +134,7 @@ function StatusPill({ status }: { status: string }) {
   const dead = DEAD_COD.some((m) => st.includes(m));
   const done = st.includes('deliver') || st.includes('достав');
   const tone = dead
-    ? 'bg-[#FBE9E7] text-ff-red'
+    ? 'bg-ff-red-soft text-ff-red'
     : done
       ? 'bg-ff-green-100 text-ff-green-800'
       : 'bg-ff-surface-2 text-ff-ink-2';
@@ -150,7 +150,7 @@ function CarrierTag({ carrier }: { carrier: string }) {
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11.5px] font-bold ${
-        speedy ? 'bg-[#FFF1E8] text-[#B4541C]' : 'bg-[#EEF4FF] text-[#3457B1]'
+        speedy ? 'bg-[#FFF1E8] text-[#B4541C]' : 'bg-ff-demo-soft text-ff-demo'
       }`}
     >
       {speedy ? 'Speedy' : 'Econt'}
@@ -207,7 +207,7 @@ function ShipmentHistoryDrawer({ account, onClose }: { account: DeliveryAccount;
 
   return (
     <>
-      <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={onClose} />
+      <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={onClose} />
       <div className="animate-ff-fade-up fixed right-0 top-0 z-50 flex h-full w-[760px] max-w-[96vw] flex-col border-l border-ff-border bg-ff-bg shadow-ff-lg">
         <div className="flex items-start justify-between gap-3 border-b border-ff-border bg-ff-surface px-5 py-4">
           <div className="min-w-0">
@@ -325,7 +325,7 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
 
   return (
     <>
-      <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={onClose} />
+      <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={onClose} />
       <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
         {!created ? (
           <>
@@ -544,7 +544,7 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
 
       {confirmInvite && (
         <>
-          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setConfirmInvite(null)} />
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={() => setConfirmInvite(null)} />
           <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
             <div className="mb-3 flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-green-50 text-ff-green-700"><Send size={18} /></span>
@@ -573,7 +573,7 @@ export function DeliveryAccountsClient({ initial }: { initial: Paginated<Deliver
 
       {invite && (
         <>
-          <div className="animate-ff-fade fixed inset-0 z-40 bg-[rgba(30,28,15,0.4)]" onClick={() => setInvite(null)} />
+          <div className="animate-ff-fade fixed inset-0 z-40 bg-ff-overlay" onClick={() => setInvite(null)} />
           <div className="animate-ff-pop fixed left-1/2 top-1/2 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg">
             <div className="mb-3 flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-ff-green-50 text-ff-green-700"><Send size={18} /></span>

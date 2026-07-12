@@ -1,15 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import { Toaster } from 'sonner';
-import { Leaf, LogOut, Settings, Users, Mail, CreditCard, LineChart, Truck, Sprout, ScrollText, AlertTriangle, Activity } from 'lucide-react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-
-const NAV_LINK =
-  'inline-flex shrink-0 items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm hover:bg-ff-surface-2';
+import { Menu } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { PanelSidebar, currentTitle } from '@/components/panel-sidebar';
 
 export function PanelChrome({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const [drawer, setDrawer] = useState(false);
+  const title = currentTitle(pathname);
 
   async function logout() {
     await fetch('/api/session/logout', { method: 'POST' }).catch(() => {});
@@ -18,55 +19,39 @@ export function PanelChrome({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-ff-bg">
-      <header className="sticky top-0 z-10 flex h-[var(--topbar-h,64px)] items-center justify-between border-b border-ff-border bg-[rgba(251,248,241,0.85)] px-8 backdrop-blur-md max-sm:px-4">
-        <div className="flex shrink-0 items-center gap-[11px]">
-          <div className="grid h-[38px] w-[38px] place-items-center rounded-[11px] bg-ff-green-700 text-[#EAF1E4]">
-            <Leaf size={22} strokeWidth={1.9} />
-          </div>
-          <div className="leading-[1.1]">
-            <div className="font-display text-[17px] font-extrabold tracking-[-0.01em]">ФермериБГ — Платформа</div>
-            <div className="mt-0.5 text-[11.5px] font-semibold text-ff-muted">Администрация</div>
-          </div>
-        </div>
-        <div className="ml-3 flex min-w-0 items-center gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <Link href="/tenants" className={NAV_LINK}>
-            <Users size={17} /> <span className="max-sm:hidden">Фермери</span>
-          </Link>
-          <Link href="/producers" className={NAV_LINK}>
-            <Sprout size={17} /> <span className="max-sm:hidden">Производители</span>
-          </Link>
-          <Link href="/delivery" className={NAV_LINK}>
-            <Truck size={17} /> <span className="max-sm:hidden">Доставка</span>
-          </Link>
-          <Link href="/insights" className={NAV_LINK}>
-            <LineChart size={17} /> <span className="max-sm:hidden">Анализ</span>
-          </Link>
-          <Link href="/problems" className={NAV_LINK}>
-            <AlertTriangle size={17} /> <span className="max-sm:hidden">Проблеми</span>
-          </Link>
-          <Link href="/health" className={NAV_LINK}>
-            <Activity size={17} /> <span className="max-sm:hidden">Здраве</span>
-          </Link>
-          <Link href="/audit" className={NAV_LINK}>
-            <ScrollText size={17} /> <span className="max-sm:hidden">Одит</span>
-          </Link>
-          <Link href="/email-billing" className={NAV_LINK}>
-            <Mail size={17} /> <span className="max-sm:hidden">Имейл сметки</span>
-          </Link>
-          <Link href="/stripe" className={NAV_LINK}>
-            <CreditCard size={17} /> <span className="max-sm:hidden">Stripe</span>
-          </Link>
-          <Link href="/settings" className={NAV_LINK}>
-            <Settings size={17} /> <span className="max-sm:hidden">Настройки</span>
-          </Link>
-          <button onClick={logout} className={NAV_LINK}>
-            <LogOut size={17} /> <span className="max-sm:hidden">Изход</span>
-          </button>
-        </div>
-      </header>
+    <div className="flex h-screen overflow-hidden bg-ff-bg">
+      {/* Desktop sidebar — the permanent navigation spine. */}
+      <div className="hidden lg:flex">
+        <PanelSidebar onLogout={logout} />
+      </div>
 
-      <main className="mx-auto max-w-[1100px] px-8 py-8 max-sm:px-4">{children}</main>
+      {/* Mobile off-canvas drawer */}
+      {drawer && (
+        <div className="fixed inset-0 z-[60] lg:hidden" role="dialog" aria-modal="true">
+          <div className="animate-ff-fade absolute inset-0 bg-ff-overlay" onClick={() => setDrawer(false)} />
+          <div className="animate-ff-slide-in absolute inset-y-0 left-0 shadow-ff-lg">
+            <PanelSidebar onNavigate={() => setDrawer(false)} onLogout={logout} />
+          </div>
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="sticky top-0 z-10 flex h-[var(--topbar-h)] shrink-0 items-center gap-3 border-b border-ff-border bg-[rgba(251,248,241,0.85)] px-4 backdrop-blur-md sm:px-6">
+          <button
+            type="button"
+            onClick={() => setDrawer(true)}
+            aria-label="Отвори менюто"
+            className="grid h-10 w-10 place-items-center rounded-lg border border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2 lg:hidden"
+          >
+            <Menu size={19} />
+          </button>
+          <h1 className="font-display text-[19px] font-extrabold tracking-[-0.015em] text-ff-ink">{title}</h1>
+        </header>
+
+        <main className="flex-1 overflow-y-auto px-4 py-7 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-[1180px]">{children}</div>
+        </main>
+      </div>
 
       <Toaster
         position="bottom-right"
