@@ -312,6 +312,31 @@ export interface FarmerOrdersPage {
   nextCursor: string | null;
 }
 
+/** Task #14: a farmer's self-tracked prep state for one of tomorrow's orders.
+ *  'pending' (default, nothing marked) → 'in_production' → 'fulfilled'. */
+export type FulfillmentState = 'pending' | 'in_production' | 'fulfilled';
+
+export interface TomorrowOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+/** One of tomorrow's orders on the «Утре» panel — this farmer's own items only. */
+export interface TomorrowOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  deliveryType: string;
+  day: string;
+  slotFrom: string | null;
+  slotTo: string | null;
+  fulfillmentState: FulfillmentState;
+  items: TomorrowOrderItem[];
+}
+
 /** Map one assembled row to the API shape. Pure (no DB) so it's unit-testable,
  *  mirroring {@link toPaymentOrder}. */
 export function toFarmerOrder(r: FarmerOrderRow): FarmerOrder {
@@ -931,6 +956,128 @@ export class OrdersService {
     }));
 
     return { orders: fullRows.map(toFarmerOrder), nextCursor };
+  }
+
+  /**
+   * Task #14: tomorrow's confirmed orders containing this farmer's own
+   * products, with each order's self-tracked fulfilment state
+   * (order_fulfillments; no row yet ⇒ 'pending') and the customer's contact —
+   * so the farmer's «Утре» panel shows exactly whom to call about a gap.
+   * Mirrors ordersForFarmer's per-farmer item attribution: this farmer's own
+   * lines only — a co-producer's lines on a shared order never appear here.
+   */
+  async tomorrowForFarmer(tenantId: string, farmerId: string): Promise<TomorrowOrder[]> {
+    const tomorrow = bgAddDays(bgToday(), 1);
+    const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
+    const rows = await this.db
+      .select({
+        orderId: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        customerEmail: orders.customerEmail,
+        deliveryType: orders.deliveryType,
+        day,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+        state: orderFulfillments.state,
+        productId: orderItems.productId,
+        productName: products.name,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .leftJoin(
+        orderFulfillments,
+        and(eq(orderFulfillments.orderId, orders.id), eq(orderFulfillments.farmerId, farmerId)),
+      )
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(orders.status, 'confirmed'),
+          eq(products.farmerId, farmerId),
+          scheduledForDay(tomorrow),
+        )!,
+      )
+      .orderBy(orders.createdAt);
+
+    const byOrder = new Map<string, TomorrowOrder>();
+    for (const r of rows as Array<{
+      orderId: string;
+      orderNumber: number | null;
+      customerName: string | null;
+      customerPhone: string | null;
+      customerEmail: string | null;
+      deliveryType: string;
+      day: string;
+      slotFrom: string | null;
+      slotTo: string | null;
+      state: FulfillmentState | null;
+      productId: string | null;
+      productName: string | null;
+      quantity: number;
+    }>) {
+      let o = byOrder.get(r.orderId);
+      if (!o) {
+        o = {
+          id: r.orderId,
+          orderNumber: r.orderNumber,
+          customerName: r.customerName,
+          customerPhone: r.customerPhone,
+          customerEmail: r.customerEmail,
+          deliveryType: r.deliveryType,
+          day: r.day,
+          slotFrom: r.slotFrom,
+          slotTo: r.slotTo,
+          fulfillmentState: r.state ?? 'pending',
+          items: [],
+        };
+        byOrder.set(r.orderId, o);
+      }
+      if (r.productId) {
+        o.items.push({ productId: r.productId, productName: r.productName ?? '—', quantity: r.quantity });
+      }
+    }
+    return [...byOrder.values()];
+  }
+
+  /**
+   * Task #14: set this farmer's self-tracked fulfilment state for one of
+   * tomorrow's orders. Upsert on (order_id, farmer_id) — a re-mark updates in
+   * place. Ownership check requires only that AT LEAST ONE line item on the
+   * order belongs to this farmer (unlike updateStatusForFarmer/
+   * setCodOutcomeForFarmer, which require the WHOLE order be the farmer's own)
+   * — fulfilment state carries no money/status side-effect, so on a shared
+   * order each producer safely marks their own slice independently via their
+   * own order_fulfillments row.
+   */
+  async setFulfillment(
+    orderId: string,
+    tenantId: string,
+    farmerId: string,
+    state: FulfillmentState,
+  ): Promise<{ orderId: string; farmerId: string; state: FulfillmentState }> {
+    const [owns] = await this.db
+      .select({ id: orderItems.id })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(
+        and(eq(orders.id, orderId), eq(orders.tenantId, tenantId), eq(products.farmerId, farmerId)),
+      )
+      .limit(1);
+    if (!owns) throw new ForbiddenException('Нямате достъп до тази поръчка.');
+
+    await this.db
+      .insert(orderFulfillments)
+      .values({ tenantId, orderId, farmerId, state })
+      .onConflictDoUpdate({
+        target: [orderFulfillments.orderId, orderFulfillments.farmerId],
+        set: { state, updatedAt: new Date() },
+      });
+    return { orderId, farmerId, state };
   }
 
   /** Tenant-wide payment totals, Redis-cached (busted on order writes).

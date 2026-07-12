@@ -17,8 +17,11 @@ export class DigestProcessor extends WorkerHost implements OnModuleInit {
   }
 
   // Register the 07:00 Europe/Sofia repeatable once on worker boot (idempotent).
+  // Task #14: also register an 18:00 repeatable that emails each farmer TOMORROW's
+  // confirmed orders, so they know the next day's prep before end of day.
   async onModuleInit(): Promise<void> {
     await registerRepeatable(this.queue, 'daily', '0 7 * * *');
+    await registerRepeatable(this.queue, 'tomorrow', '0 18 * * *');
   }
 
   async process(job: Job): Promise<void> {
@@ -32,6 +35,21 @@ export class DigestProcessor extends WorkerHost implements OnModuleInit {
     }
     if (job.name === 'tenant') {
       await this.digest.runForTenant((job.data as { tenantId: string }).tenantId);
+      return;
+    }
+    // Task #14: 18:00 fan-out — every tenant (not just multi-farmer/has-email
+    // ones, see allTenantIds), one job per tenant so a single failure doesn't
+    // block the rest.
+    if (job.name === 'tomorrow') {
+      const ids = await this.digest.allTenantIds();
+      for (const tenantId of ids) {
+        await this.queue.add('tenant-tomorrow', { tenantId });
+      }
+      this.logger.log(`[digest] fanned out ${ids.length} tomorrow-email tenant job(s)`);
+      return;
+    }
+    if (job.name === 'tenant-tomorrow') {
+      await this.digest.runTomorrowForTenant((job.data as { tenantId: string }).tenantId);
       return;
     }
     this.logger.warn(`[digest] unknown job name=${job.name}`);

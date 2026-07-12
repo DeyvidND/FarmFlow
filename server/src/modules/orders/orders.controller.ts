@@ -10,6 +10,7 @@ import { CheckoutService } from './checkout.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
+import { UpdateFulfillmentDto } from './dto/update-fulfillment.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { PaymentsQueryDto } from './dto/payments-query.dto';
 import { OrdersQueryDto } from './dto/orders-query.dto';
@@ -100,6 +101,20 @@ export class OrdersController {
     return this.ordersService.ordersForFarmer(user.tenantId, scope, query);
   }
 
+  // Literal route — must precede `:id`. Task #14 «Утре» panel: tomorrow's
+  // confirmed orders containing this farmer's own products, plus each order's
+  // self-tracked fulfilment state and the customer's contact (who to call about
+  // a gap). Same scope rule as /mine — a producer is always forced to its own
+  // farmerId; an owner MUST pass ?farmerId.
+  @Get('tomorrow')
+  @Roles('admin', 'farmer')
+  @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
+  tomorrow(@CurrentUser() user: TenantRequestUser, @Query('farmerId') farmerId?: string) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, farmerId);
+    if (!scope) throw new BadRequestException('farmerId required for admin');
+    return this.ordersService.tomorrowForFarmer(user.tenantId, scope);
+  }
+
   // Literal route — declared before `:id`. Own-delivery orders that can be moved to
   // another day, grouped client-side by their slot date.
   @Get('reschedulable')
@@ -150,6 +165,25 @@ export class OrdersController {
     return scope
       ? this.ordersService.setCodOutcomeForFarmer(id, user.tenantId, scope, dto)
       : this.ordersService.setCodOutcome(id, user.tenantId, dto);
+  }
+
+  // Task #14: a farmer self-marks their own prep state (pending / in_production /
+  // fulfilled) for one of tomorrow's orders — no money/status side-effect, so
+  // (unlike /status and /cod-outcome) a producer only needs to own AT LEAST ONE
+  // line item on the order, not the whole thing (see setFulfillment). An owner
+  // MUST pass ?farmerId (this is inherently per-producer state).
+  @Patch(':id/fulfillment')
+  @Roles('admin', 'farmer')
+  @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: which producer is marking' })
+  setFulfillment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Body() dto: UpdateFulfillmentDto,
+    @Query('farmerId') farmerId?: string,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, farmerId);
+    if (!scope) throw new BadRequestException('farmerId required for admin');
+    return this.ordersService.setFulfillment(id, user.tenantId, scope, dto.state);
   }
 
   // Owner-only full order edit (contact / delivery values / slot / notes / items).

@@ -3,7 +3,7 @@ import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import { type Database, orders, orderItems, products, deliverySlots, tenants, farmers } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
-import { bgToday } from '../../common/time/bg-time';
+import { bgToday, bgAddDays } from '../../common/time/bg-time';
 import { scheduledForDay, scheduledForRange } from '../orders/order-scheduling';
 import { harvestSummary } from '../orders/harvest-summary';
 
@@ -610,9 +610,17 @@ export class DigestService {
   /**
    * Send a per-farmer digest to every farmer of the tenant that has an email
    * and items for the date. Returns how many emails were sent. Per-farmer
-   * try/catch so one failure does not abort the rest.
+   * try/catch so one failure does not abort the rest. `subjectOverride` lets
+   * {@link sendTomorrowFarmerEmails} (Task #14) reuse this exact batch query
+   * + per-farmer send loop for a "tomorrow" email instead of "today" (only the
+   * `date` passed in and the subject line differ).
    */
-  private async sendFarmerDigests(tenantId: string, date: string, testMode = false): Promise<number> {
+  private async sendFarmerDigests(
+    tenantId: string,
+    date: string,
+    testMode = false,
+    subjectOverride?: string,
+  ): Promise<number> {
     const farmerRows = await this.db
       .select({ id: farmers.id, name: farmers.name, email: farmers.email })
       .from(farmers)
@@ -666,7 +674,7 @@ export class DigestService {
         if (!digest) continue;
         await this.email.sendMail({
           to: f.email,
-          subject: `Твоите доставки за днес — ФермериБГ${testMode ? ' (тест)' : ''}`,
+          subject: subjectOverride ?? `Твоите доставки за днес — ФермериБГ${testMode ? ' (тест)' : ''}`,
           html: digest.html,
           text: digest.text,
         });
@@ -689,6 +697,42 @@ export class DigestService {
       .where(or(isNotNull(tenants.email), eq(tenants.multiFarmer, true))!)
       .orderBy(tenants.id);
     return rows.map((r) => r.id);
+  }
+
+  /** Every tenant id — used by the Task #14 tomorrow-email fan-out. UNLIKE
+   *  {@link eligibleTenantIds} this is NOT gated on tenant.email/multiFarmer:
+   *  the per-farmer tomorrow email must reach single-farmer shops too, not
+   *  just multi-farmer ones. Fanning a job out to every tenant is cheap; each
+   *  job internally no-ops (0 sent) when the tenant has no farmers-with-email
+   *  or no orders tomorrow. */
+  async allTenantIds(): Promise<string[]> {
+    const rows = await this.db.select({ id: tenants.id }).from(tenants).orderBy(tenants.id);
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Task #14: email every farmer of the tenant (that has an email and items)
+   * TOMORROW's confirmed orders — reuses {@link sendFarmerDigests}'s exact
+   * batch query + per-farmer send loop, just against tomorrow's date and a
+   * distinct subject. Runs regardless of tenants.multiFarmer (single-farmer
+   * shops get this too — unlike the existing today-digest, which only sends
+   * per-farmer mail in multi-farmer mode).
+   */
+  async sendTomorrowFarmerEmails(tenantId: string, testMode = false): Promise<number> {
+    const tomorrow = bgAddDays(bgToday(), 1);
+    return this.sendFarmerDigests(
+      tenantId,
+      tomorrow,
+      testMode,
+      `Утре: твоите поръчки за приготвяне — ФермериБГ${testMode ? ' (тест)' : ''}`,
+    );
+  }
+
+  /** Per-tenant job body for the Task #14 tomorrow-email fan-out (mirrors
+   *  {@link runForTenant}'s per-tenant job body for the today-digest fan-out). */
+  async runTomorrowForTenant(tenantId: string): Promise<void> {
+    const sent = await this.sendTomorrowFarmerEmails(tenantId);
+    if (sent > 0) this.logger.log(`[digest] tomorrow-email sent tenant=${tenantId} farmers=${sent}`);
   }
 
   /** Build + enqueue (via EmailService) the digests for ONE tenant. Mirrors the

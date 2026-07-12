@@ -842,6 +842,41 @@ export const getMyOrders = (opts?: {
   return apiFetch<FarmerOrdersPage>(`orders/mine${query ? `?${query}` : ''}`);
 };
 
+// ---- «Утре» (Task #14) — tomorrow's orders + self-tracked fulfilment state ----
+export type FulfillmentState = 'pending' | 'in_production' | 'fulfilled';
+
+export interface TomorrowOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface TomorrowOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  deliveryType: string;
+  day: string;
+  slotFrom: string | null;
+  slotTo: string | null;
+  fulfillmentState: FulfillmentState;
+  items: TomorrowOrderItem[];
+}
+
+/** `farmerId` is required for an owner (no tenant-wide "tomorrow" — mirrors
+ *  /orders/mine); a producer token always resolves to its own scope server-side. */
+export const getTomorrow = (farmerId?: string) =>
+  apiFetch<TomorrowOrder[]>(`orders/tomorrow${farmerId ? `?farmerId=${encodeURIComponent(farmerId)}` : ''}`);
+
+export const setFulfillment = (id: string, state: FulfillmentState, farmerId?: string) =>
+  apiFetch<{ orderId: string; farmerId: string; state: FulfillmentState }>(
+    `orders/${id}/fulfillment${farmerId ? `?farmerId=${encodeURIComponent(farmerId)}` : ''}`,
+    { method: 'PATCH', ...json({ state }) },
+    'Неуспешно отбелязване',
+  );
+
 /**
  * Create (if needed) the farm's Standard connected account and get a hosted
  * Stripe onboarding URL — the caller redirects the browser to it.

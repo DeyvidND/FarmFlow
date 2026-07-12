@@ -394,4 +394,76 @@ describe('DigestService', () => {
       );
     });
   });
+
+  // ── Task #14: allTenantIds / sendTomorrowFarmerEmails / runTomorrowForTenant ──
+
+  describe('allTenantIds', () => {
+    it('returns every tenant id, unfiltered (unlike eligibleTenantIds)', async () => {
+      db.orderBy.mockResolvedValueOnce([{ id: 'tenant-a' }, { id: 'tenant-b' }, { id: 'tenant-c' }]);
+      const ids = await service.allTenantIds();
+      expect(ids).toEqual(['tenant-a', 'tenant-b', 'tenant-c']);
+    });
+  });
+
+  describe('sendTomorrowFarmerEmails', () => {
+    it('emails every farmer with an email + items TOMORROW, regardless of multiFarmer', async () => {
+      // farmers-with-email query
+      db.orderBy.mockResolvedValueOnce([{ id: 'f1', name: 'Петър', email: 'petar@ferma.bg' }]);
+      // batched farmer items query for tomorrow
+      db.orderBy.mockResolvedValueOnce([
+        { farmerId: 'f1', orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
+          deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null,
+          productName: 'Домати', quantity: 3 },
+      ]);
+
+      const sent = await service.sendTomorrowFarmerEmails(TENANT_ID);
+
+      expect(sent).toBe(1);
+      expect(emailService.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'petar@ferma.bg', subject: expect.stringContaining('Утре') }),
+      );
+    });
+
+    it('testMode=true tags the subject with (тест)', async () => {
+      db.orderBy.mockResolvedValueOnce([{ id: 'f1', name: 'Петър', email: 'petar@ferma.bg' }]);
+      db.orderBy.mockResolvedValueOnce([
+        { farmerId: 'f1', orderId: 'o1', deliveryType: 'pickup', customerName: 'Иван', deliveryAddress: null,
+          deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null,
+          productName: 'Мед', quantity: 1 },
+      ]);
+
+      await service.sendTomorrowFarmerEmails(TENANT_ID, true);
+
+      expect(emailService.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ subject: expect.stringContaining('(тест)') }),
+      );
+    });
+
+    it('returns 0 and sends nothing when no farmer has items tomorrow', async () => {
+      db.orderBy.mockResolvedValueOnce([{ id: 'f1', name: 'Петър', email: 'petar@ferma.bg' }]);
+      db.orderBy.mockResolvedValueOnce([]); // no items tomorrow
+
+      const sent = await service.sendTomorrowFarmerEmails(TENANT_ID);
+
+      expect(sent).toBe(0);
+      expect(emailService.sendMail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('runTomorrowForTenant', () => {
+    it('delegates to sendTomorrowFarmerEmails (not testMode)', async () => {
+      db.orderBy.mockResolvedValueOnce([{ id: 'f1', name: 'Петър', email: 'petar@ferma.bg' }]);
+      db.orderBy.mockResolvedValueOnce([
+        { farmerId: 'f1', orderId: 'o1', deliveryType: 'address', customerName: 'Иван', deliveryAddress: 'ул. 1',
+          deliveryCity: null, econtOffice: null, slotFrom: null, slotTo: null,
+          productName: 'Домати', quantity: 1 },
+      ]);
+
+      await service.runTomorrowForTenant(TENANT_ID);
+
+      expect(emailService.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ subject: expect.not.stringContaining('(тест)') }),
+      );
+    });
+  });
 });

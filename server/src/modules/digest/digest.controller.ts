@@ -20,6 +20,14 @@ export class DigestController {
     return this.digestService.sendTestDigest(tenantId);
   }
 
+  /** Task #14: trigger TOMORROW's per-farmer order email now — for manual SMTP
+   *  testing without waiting for the 18:00 cron. */
+  @Post('tomorrow-test')
+  async testTomorrow(@CurrentTenant() tenantId: string): Promise<{ farmersSent: number }> {
+    const farmersSent = await this.digestService.sendTomorrowFarmerEmails(tenantId, true);
+    return { farmersSent };
+  }
+
   /** Organizer manually emails selected farmers their orders for a date range. */
   @Post('farmers/send')
   sendFarmerOrders(
