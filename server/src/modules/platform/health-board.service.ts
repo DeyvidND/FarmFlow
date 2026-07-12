@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { eq, gte, sql } from 'drizzle-orm';
 import type Redis from 'ioredis';
-import { type Database, errorEvents, tenants } from '@fermeribg/db';
+import { type Database, errorEvents, errorResolutions, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { REDIS_TOKEN } from '../../common/redis/redis.constants';
 import {
@@ -41,6 +41,10 @@ export interface RecentError {
   tenantId: string | null;
   tenantName: string | null;
   createdAt: string;
+  /** True when an operator has marked this error's (tenant, path) group resolved
+   *  in «Проблеми» at or after this error's `createdAt` — i.e. this specific error
+   *  is diagnostic history, not an open problem. */
+  resolved: boolean;
 }
 
 /** Live platform technical pulse for the super-admin «Здраве» screen.
@@ -235,9 +239,14 @@ export class HealthBoardService {
             tenantId: errorEvents.tenantId,
             tenantName: tenants.name,
             createdAt: errorEvents.createdAt,
+            resolvedAt: errorResolutions.resolvedAt,
           })
           .from(errorEvents)
           .leftJoin(tenants, eq(errorEvents.tenantId, tenants.id))
+          .leftJoin(
+            errorResolutions,
+            sql`${errorResolutions.tenantId} is not distinct from ${errorEvents.tenantId} and ${errorResolutions.path} = ${errorEvents.path}`,
+          )
           .where(gte(errorEvents.createdAt, since))
           .orderBy(sql`${errorEvents.createdAt} desc`)
           .limit(RECENT_ERRORS_LIMIT),
@@ -260,6 +269,7 @@ export class HealthBoardService {
           tenantName: r.tenantName ?? null,
           // `created_at` is nullable in the schema (DB default), so guard it.
           createdAt: (r.createdAt ?? new Date()).toISOString(),
+          resolved: r.resolvedAt != null && r.createdAt != null && r.createdAt <= r.resolvedAt,
         })),
       };
     } catch {

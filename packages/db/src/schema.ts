@@ -761,6 +761,31 @@ export const errorEvents = pgTable(
   }),
 );
 
+// Operator-marked "resolved" server-error groups, keyed by (tenant_id, path) — the
+// same tuple errorProblems() groups by. A group is suppressed from the «Проблеми»
+// feed while a resolution exists AND no newer error_events row for that group has
+// created_at > resolved_at (a fresh error auto-reopens it).
+export const errorResolutions = pgTable(
+  'error_resolutions',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id), // nullable: platform-wide errors
+    path: text('path').notNull(),
+    resolvedAt: timestamp('resolved_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    // Null-safe uniqueness via two partial unique indexes (Postgres treats NULLs as
+    // distinct in a plain UNIQUE, so tenant_id IS NULL rows need their own index).
+    tenantPathIdx: uniqueIndex('error_resolutions_tenant_path_idx')
+      .on(t.tenantId, t.path)
+      .where(sql`tenant_id is not null`),
+    platformPathIdx: uniqueIndex('error_resolutions_platform_path_idx')
+      .on(t.path)
+      .where(sql`tenant_id is null`),
+  }),
+);
+
 export const articleStatusEnum = pgEnum('article_status', ['draft', 'published']);
 export const articleMediaTypeEnum = pgEnum('article_media_type', [
   'image',

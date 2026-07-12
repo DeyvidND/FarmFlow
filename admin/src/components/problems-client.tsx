@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { CheckCircle2, Info, RefreshCw } from 'lucide-react';
+import { CheckCircle2, CircleCheck, Info, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { EnterPanelButton } from '@/components/enter-panel-button';
 import {
   ApiError,
   getProblems,
+  resolveProblem,
   type PlatformProblem,
   type ProblemSeverity,
   type ProblemsResponse,
@@ -35,9 +36,26 @@ function fmtClock(iso: string): string {
   return `${p2(d.getHours())}:${p2(d.getMinutes())}`;
 }
 
-function ProblemRow({ p }: { p: PlatformProblem }) {
+function ProblemRow({ p, onResolved }: { p: PlatformProblem; onResolved: () => void }) {
   const s = SEVERITY[p.severity];
   const when = fmtWhen(p.lastAt);
+  const [resolving, setResolving] = useState(false);
+  const canResolve = p.kind === 'server_error' && !!p.path;
+
+  async function resolve() {
+    if (!p.path) return;
+    setResolving(true);
+    try {
+      await resolveProblem(p.tenantId, p.path);
+      toast.success('Маркирано като оправено');
+      onResolved();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Неуспешно маркиране като оправено');
+    } finally {
+      setResolving(false);
+    }
+  }
+
   return (
     <div className="relative overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
       <span className={cn('absolute inset-y-0 left-0 w-[3px]', s.dot)} />
@@ -65,9 +83,19 @@ function ProblemRow({ p }: { p: PlatformProblem }) {
           <div className="mt-0.5 text-[13px] leading-[1.4] text-ff-muted">{p.detail}</div>
           {when && <div className="mt-1.5 text-[11.5px] text-ff-muted-2">{when}</div>}
         </div>
-        {p.tenantId && (
-          <div className="shrink-0">
-            <EnterPanelButton tenantId={p.tenantId} />
+        {(p.tenantId || canResolve) && (
+          <div className="flex shrink-0 items-center gap-2">
+            {canResolve && (
+              <button
+                type="button"
+                onClick={() => void resolve()}
+                disabled={resolving}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-ff-green-100 bg-ff-green-50 px-3 py-1.5 text-[13px] font-bold text-ff-green-700 hover:brightness-95 disabled:opacity-60"
+              >
+                <CircleCheck size={14} /> {resolving ? 'Маркиране…' : 'Маркирай като оправено'}
+              </button>
+            )}
+            {p.tenantId && <EnterPanelButton tenantId={p.tenantId} />}
           </div>
         )}
       </div>
@@ -144,7 +172,7 @@ export function ProblemsClient() {
       ) : (
         <div className="mt-5 flex flex-col gap-2.5">
           {items.map((p, i) => (
-            <ProblemRow key={`${p.kind}-${p.tenantId ?? 'platform'}-${i}`} p={p} />
+            <ProblemRow key={`${p.kind}-${p.tenantId ?? 'platform'}-${i}`} p={p} onResolved={() => void load()} />
           ))}
         </div>
       )}

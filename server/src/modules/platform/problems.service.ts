@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, gte, sql } from 'drizzle-orm';
-import { type Database, errorEvents, tenants } from '@fermeribg/db';
+import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { type Database, errorEvents, errorResolutions, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PlatformService } from './platform.service';
 import { PlatformInsightsService, type SignalKey } from './insights.service';
@@ -23,6 +23,9 @@ export interface PlatformProblem {
   count?: number;
   /** ISO timestamp. */
   lastAt?: string;
+  /** Present for kind:'server_error' — the (tenantId, path) group's path, needed
+   *  to resolve/reopen it via `resolveProblem()`. */
+  path?: string;
 }
 
 export interface ProblemsResponse {
@@ -101,11 +104,19 @@ export class ProblemsService {
         path: errorEvents.path,
         count: sql<number>`count(*)::int`,
         lastAt: sql<Date | null>`max(${errorEvents.createdAt})`,
+        resolvedAt: errorResolutions.resolvedAt,
       })
       .from(errorEvents)
       .leftJoin(tenants, eq(errorEvents.tenantId, tenants.id))
+      .leftJoin(
+        errorResolutions,
+        sql`${errorResolutions.tenantId} is not distinct from ${errorEvents.tenantId} and ${errorResolutions.path} = ${errorEvents.path}`,
+      )
       .where(gte(errorEvents.createdAt, since))
-      .groupBy(errorEvents.tenantId, tenants.name, errorEvents.path)
+      .groupBy(errorEvents.tenantId, tenants.name, errorEvents.path, errorResolutions.resolvedAt)
+      // A group with a resolution is suppressed unless a fresh error (newer than the
+      // resolution) has arrived since — that auto-reopens it.
+      .having(sql`${errorResolutions.resolvedAt} is null or max(${errorEvents.createdAt}) > ${errorResolutions.resolvedAt}`)
       .orderBy(sql`count(*) desc`)
       .limit(ERROR_TOP_N + 1);
 
@@ -126,7 +137,31 @@ export class ProblemsService {
       detail: `${r.count} грешки за ${ERROR_WINDOW_HOURS}ч по ${r.path}`,
       count: r.count,
       lastAt: r.lastAt ? new Date(r.lastAt).toISOString() : undefined,
+      path: r.path,
     }));
+  }
+
+  /** Operator marks a server-error group (tenantId+path) as resolved — it drops out
+   *  of `errorProblems()` (and stops re-alerting) until a NEW error for that exact
+   *  group lands after this moment. Upserts by hand (no native Drizzle upsert target
+   *  across two partial unique indexes): update the existing row if present,
+   *  otherwise insert. */
+  async resolveProblem(tenantId: string | null, path: string): Promise<{ ok: true }> {
+    const match =
+      tenantId === null
+        ? and(isNull(errorResolutions.tenantId), eq(errorResolutions.path, path))
+        : and(eq(errorResolutions.tenantId, tenantId), eq(errorResolutions.path, path));
+    await this.db.transaction(async (tx) => {
+      const updated = await tx
+        .update(errorResolutions)
+        .set({ resolvedAt: new Date() })
+        .where(match)
+        .returning({ id: errorResolutions.id });
+      if (updated.length === 0) {
+        await tx.insert(errorResolutions).values({ tenantId, path, resolvedAt: new Date() });
+      }
+    });
+    return { ok: true };
   }
 
   /** Source 2: reuse the attention signals already computed for the «Анализ»

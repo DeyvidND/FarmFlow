@@ -16,9 +16,17 @@ export class CriticalAlertProcessor extends WorkerHost implements OnModuleInit {
     super();
   }
 
-  // Register the every-15-minutes repeatable once on worker boot (idempotent).
+  // Register the twice-daily (07:00 + 19:00 Europe/Sofia) repeatable once on worker
+  // boot (idempotent).
   async onModuleInit(): Promise<void> {
-    await registerRepeatable(this.queue, 'check', '*/15 * * * *');
+    // Best-effort: drop the stale every-15-minutes schedule from older deploys so
+    // they self-heal onto the new cadence. Safe no-op if it was never registered.
+    try {
+      await this.queue.removeRepeatable('check', { pattern: '*/15 * * * *', tz: 'Europe/Sofia' }, 'check');
+    } catch {
+      /* no-op if absent */
+    }
+    await registerRepeatable(this.queue, 'check', '0 7,19 * * *');
   }
 
   async process(job: Job): Promise<void> {

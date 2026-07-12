@@ -37,6 +37,7 @@ import { CreateDeliveryAccountDto } from './dto/create-delivery-account.dto';
 import { SetDeliveryActiveDto } from './dto/set-delivery-active.dto';
 import { SetProductFeaturedDto, SetFarmerTierDto, SetFarmerOfWeekDto } from './dto/marketplace-curation.dto';
 import { OnboardProducerDto } from './dto/onboard-producer.dto';
+import { ResolveProblemDto } from './dto/resolve-problem.dto';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { RequestUser } from '@fermeribg/types';
@@ -91,6 +92,15 @@ export class PlatformController {
   @Get('problems')
   getProblems() {
     return this.problemsSvc.problems();
+  }
+
+  /** Marks a server-error problem group (tenantId+path) as resolved — it drops out
+   *  of the «Проблеми» feed (and stops re-alerting) until a NEW error for that
+   *  exact group lands after this call. */
+  @Post('problems/resolve')
+  @HttpCode(200)
+  resolveProblem(@Body() dto: ResolveProblemDto) {
+    return this.problemsSvc.resolveProblem(dto.tenantId, dto.path);
   }
 
   /** Live platform technical pulse for the «Здраве» screen: DB/Redis reachability,

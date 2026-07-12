@@ -9,11 +9,15 @@ export type CriticalAlertResult =
   | { sent: true; count: number }
   | { sent: false; reason: 'no-recipient' | 'none-critical' | 'no-new' };
 
-// How long a problem's alert "cooldown" lasts once sent — an ongoing incident
-// re-alerts hourly rather than re-sending every 15-minute check tick, but a
-// genuinely new problem (or one that recurs after being resolved) still emails
-// promptly.
-const ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1h
+// The check now runs twice daily (07:00 / 19:00 Europe/Sofia — see
+// CriticalAlertProcessor), not every 15 minutes. This cooldown only dedupes
+// within a single run — e.g. a BullMQ job retry or a manual re-trigger via
+// POST /platform/critical-alert-test hitting checkAndAlert() twice in quick
+// succession — while staying well under the ~12h gap between scheduled runs.
+// So each of the two daily runs still re-alerts any still-unresolved problem;
+// the only way to silence it is for an operator to mark it resolved in
+// «Проблеми» (ProblemsService then excludes it from `items` entirely).
+const ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6h
 
 function escapeHtml(s: string): string {
   return s
@@ -35,9 +39,9 @@ export class CriticalAlertService {
   ) {}
 
   /** Checks the "Проблеми" feed for high-severity items and emails any that
-   *  haven't already been alerted within the cooldown window. Called every 15
-   *  minutes by CriticalAlertProcessor; safe to call manually (e.g. for a test
-   *  trigger) — dedup is keyed in Redis, not in-memory. */
+   *  haven't already been alerted within the cooldown window. Called twice daily
+   *  (07:00 / 19:00 Europe/Sofia) by CriticalAlertProcessor; safe to call manually
+   *  (e.g. for a test trigger) — dedup is keyed in Redis, not in-memory. */
   async checkAndAlert(): Promise<CriticalAlertResult> {
     const to = this.config.get<string>('CRITICAL_ALERT_EMAIL');
     if (!to) {

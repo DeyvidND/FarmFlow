@@ -596,6 +596,8 @@ export interface PlatformProblem {
   count?: number;
   /** ISO timestamp. */
   lastAt?: string;
+  /** Present for kind:'server_error' — needed to resolve/reopen the group. */
+  path?: string;
 }
 
 export interface ProblemsResponse {
@@ -607,6 +609,15 @@ export interface ProblemsResponse {
 /** Unified, severity-ranked cross-farm problems feed (client-side, via the BFF proxy). */
 export const getProblems = () =>
   apiFetch<ProblemsResponse>('platform/problems', undefined, 'Неуспешно зареждане на проблемите');
+
+/** Marks a server-error problem group (tenantId+path) as resolved — it drops out of
+ *  the «Проблеми» feed until a NEW error for that exact group arrives. */
+export const resolveProblem = (tenantId: string | null, path: string) =>
+  apiFetch<{ ok: true }>(
+    'platform/problems/resolve',
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenantId, path }) },
+    'Неуспешно маркиране като оправено',
+  );
 
 // ── «Здраве» (system health board) ──
 
@@ -632,6 +643,9 @@ export interface RecentError {
   tenantId: string | null;
   tenantName: string | null;
   createdAt: string;
+  /** True when an operator has already marked this error's group resolved in
+   *  «Проблеми» — shown as an "✅ Оправено" badge rather than hidden. */
+  resolved: boolean;
 }
 
 export interface HealthBoard {

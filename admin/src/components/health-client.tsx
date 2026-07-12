@@ -114,6 +114,11 @@ function RecentErrorCard({ err }: { err: RecentError }) {
         <span className="ff-fig inline-flex shrink-0 items-center rounded-md bg-ff-red-soft px-1.5 py-0.5 text-[11.5px] font-extrabold text-ff-red">
           {err.statusCode}
         </span>
+        {err.resolved && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-ff-green-100 px-2 py-0.5 text-[11px] font-bold text-ff-green-700">
+            ✅ Оправено
+          </span>
+        )}
         <span className="shrink-0 font-mono text-[11.5px] font-bold text-ff-muted">{err.method}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ff-ink-2" title={err.path}>
           {err.path}
