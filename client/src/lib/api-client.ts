@@ -32,6 +32,8 @@ import type {
   SpeedySite,
   StatsSummary,
   StatsRange,
+  TurnoverBreakdown,
+  TurnoverBasis,
   Subcategory,
   TenantProfile,
   UpdateOrderInput,
@@ -664,6 +666,24 @@ export const getStats = (
       : `range=${opts.range}`;
   const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
   return apiFetch<StatsSummary>(`stats?${base}${fid}`);
+};
+
+// ---- Turnover breakdown (Task #9/#10) — explicit basis + to-date + platform income ----
+export const getTurnover = (
+  opts: ({ range: StatsRange } | { from: string; to: string }) & {
+    basis?: TurnoverBasis;
+    includeUndelivered?: boolean;
+    farmerId?: string;
+  },
+) => {
+  const base =
+    'from' in opts
+      ? `from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`
+      : `range=${opts.range}`;
+  const basis = opts.basis ? `&basis=${opts.basis}` : '';
+  const inc = opts.includeUndelivered === false ? '&includeUndelivered=false' : '';
+  const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
+  return apiFetch<TurnoverBreakdown>(`stats/turnover?${base}${basis}${inc}${fid}`);
 };
 
 // ---- Site analytics ----

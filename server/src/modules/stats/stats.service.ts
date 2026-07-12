@@ -1,9 +1,10 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
-import { and, eq, gte, lt, sql } from 'drizzle-orm';
-import { type Database, orders, orderItems, products } from '@fermeribg/db';
+import { and, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
+import { type Database, orders, orderItems, products, deliverySlots, farmers, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
-import { BG_TZ, bgToday, bgAddDays, bgDayBounds } from '../../common/time/bg-time';
+import { BG_TZ, bgToday, bgAddDays, bgDayBounds, bgDate, bgDateTz } from '../../common/time/bg-time';
+import { readVendorFinance } from '../vendor-finance/vendor-finance.settings';
 
 // ── Farmer-facing sales statistics. Everything here is derived from orders we
 //    already store (no tracking infra). Companion to the operational dashboard:
@@ -227,6 +228,64 @@ export function pickSlowProducts(active: TopProduct[], limit: number): TopProduc
 /** TTL for farmer stats cache (mirrors insights at 90 s). Analytics tolerate
  *  this much staleness; the key expires naturally — no write-bust needed. */
 const STATS_TTL = 90;
+
+// ── Task #9/#10: turnover history with an EXPLICIT, switchable basis + to-date /
+//    platform-income / undelivered-split. A separate endpoint from {@link
+//    StatsService.stats} (which stays basis-implicit = order-placed day, unchanged
+//    — no regression for existing callers) so today's "Статистика" screen keeps
+//    working exactly as before while a new "Оборот" section reads this one. ──────
+
+/** Which calendar day an order counts on. 'placed' = today's implicit behaviour
+ *  (created_at). 'delivery' = the scheduled slot day (fallback: created_at's BG
+ *  day for slotless orders — same rule as production/payments/digests). 'delivered'
+ *  = the day it was ACTUALLY marked delivered (orders.delivered_at); an order that
+ *  hasn't been delivered yet has no day under this basis and drops out entirely. */
+export type TurnoverBasis = 'placed' | 'delivery' | 'delivered';
+
+export interface TurnoverPoint {
+  t: string;
+  revenueStotinki: number;
+  orderCount: number;
+}
+
+export interface TurnoverBreakdown {
+  basis: TurnoverBasis;
+  range: StatsRangeTag;
+  bucket: StatsBucket;
+  from: string;
+  to: string;
+  /** Whether not-yet-delivered orders are folded into the money figures below
+   *  (default true). Either way {@link undeliveredRevenueStotinki} /
+   *  {@link undeliveredOrderCount} report the window's undelivered slice so the
+   *  UI can show it even while it's excluded from the headline numbers. */
+  includeUndelivered: boolean;
+  /** This window's turnover (line-item money only — delivery fee excluded, same
+   *  invariant as {@link StatsService.stats}), on the chosen basis. */
+  turnoverStotinki: number;
+  orderCount: number;
+  /** Cumulative turnover from the start of history through the end of the window
+   *  (`to`), same basis + includeUndelivered scope as the window figure. */
+  turnoverToDateStotinki: number;
+  /** Whether the (dormant-by-default) commission ledger is actually turned on for
+   *  this tenant. `platformIncome*` below are honestly 0 while it is off — never a
+   *  hypothetical "what it would earn". */
+  commissionEnabled: boolean;
+  /** The bps rate actually applied (farmer override if farmerId-scoped, else the
+   *  tenant default) — 0 whenever `commissionEnabled` is false. */
+  commissionRateBps: number;
+  platformIncomeStotinki: number;
+  platformIncomeToDateStotinki: number;
+  /** This window's turnover/count coming from orders NOT YET delivered — always
+   *  computed regardless of includeUndelivered (it IS the toggle's preview). On
+   *  the 'delivered' basis this is always 0 (undelivered orders have no day, so
+   *  they can never enter the window on that basis in the first place). */
+  undeliveredRevenueStotinki: number;
+  undeliveredOrderCount: number;
+  points: TurnoverPoint[];
+}
+
+/** Cache TTL for the turnover breakdown — mirrors STATS_TTL. */
+const TURNOVER_TTL = 90;
 
 @Injectable()
 export class StatsService {
@@ -665,5 +724,169 @@ export class StatsService {
     };
     await this.cache.set(cacheKey, farmerResult, STATS_TTL);
     return farmerResult;
+  }
+
+  /**
+   * Task #9/#10: turnover reported against an explicit, switchable `basis`
+   * (placed / delivery / delivered — see {@link TurnoverBasis}), plus lifetime
+   * to-date sums, platform income (honestly 0 while the commission ledger is
+   * dormant), and the undelivered slice + toggle. `farmerId` scopes to one
+   * producer's line-item money (mirrors {@link statsForFarmer}'s attribution:
+   * a shared order counts for every producer in it; delivery is nobody's
+   * turnover). Unlike {@link stats}/{@link statsForFarmer} this is ONE method
+   * for both scopes (optional farmerId) rather than two near-duplicates — the
+   * basis-day expression and the includeUndelivered toggle apply identically
+   * either way, so branching a single query keeps the FILTER-clause logic in
+   * one place instead of two drifting copies.
+   */
+  async turnoverBreakdown(
+    tenantId: string,
+    opts: {
+      range?: string;
+      from?: string;
+      to?: string;
+      basis?: string;
+      includeUndelivered?: boolean;
+      farmerId?: string;
+    } = {},
+  ): Promise<TurnoverBreakdown> {
+    const today = bgToday();
+    const { from, to, range } = resolveWindow(opts, today);
+    const basis: TurnoverBasis =
+      opts.basis === 'delivery' || opts.basis === 'delivered' ? opts.basis : 'placed';
+    const includeUndelivered = opts.includeUndelivered !== false;
+    const bucket = pickBucket(from, to);
+    const cfg = BUCKETS[bucket];
+    const axisKeys = buildAxis(bucket, from, to);
+
+    const cacheKey = `turnover:${tenantId}:${opts.farmerId ?? 'all'}:${basis}:${includeUndelivered}:${from}:${to}`;
+    const cached = await this.cache.get<TurnoverBreakdown>(cacheKey);
+    if (cached) return cached;
+
+    // A sale is anything not cancelled — same convention as stats()/statsForFarmer().
+    const live = sql`${orders.status} is distinct from 'cancelled'`;
+    // "Delivered" for the undelivered split/toggle is the fulfilment `status`, NOT
+    // the chosen basis — even reporting turnover on the 'placed' basis, we still
+    // need to know which of those placed orders have or haven't been delivered yet.
+    const notDelivered = sql`${orders.status} is distinct from 'delivered'`;
+    const lineRev = sql`${orderItems.quantity} * ${orderItems.priceStotinki}`;
+
+    // Basis-day: the calendar day this order counts on. A 'delivered'-basis row
+    // with no delivered_at yet (not delivered) produces SQL NULL here, so it
+    // naturally never matches a `basisDay between/<= ...` predicate below —
+    // correct: an undelivered order has no "delivered day" until it gets one.
+    const basisDay: SQL =
+      basis === 'placed'
+        ? bgDate(orders.createdAt)
+        : basis === 'delivery'
+          ? sql`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`
+          : bgDateTz(orders.deliveredAt);
+
+    const farmerScope = opts.farmerId ? eq(products.farmerId, opts.farmerId) : undefined;
+
+    const windowRange = and(sql`${basisDay} >= ${from}::date`, sql`${basisDay} <= ${to}::date`)!;
+    const toDateRange = sql`${basisDay} <= ${to}::date`;
+    // When the toggle excludes undelivered orders, both the window and to-date
+    // sums additionally require status='delivered'.
+    const deliveredOnly = includeUndelivered ? undefined : sql`${orders.status} = 'delivered'`;
+
+    const aggP = this.db
+      .select({
+        turnover: sql<number>`coalesce(sum(${lineRev}) filter (where ${and(windowRange, deliveredOnly)}), 0)::int`,
+        orderCount: sql<number>`count(distinct ${orders.id}) filter (where ${and(windowRange, deliveredOnly)})::int`,
+        toDate: sql<number>`coalesce(sum(${lineRev}) filter (where ${and(toDateRange, deliveredOnly)}), 0)::int`,
+        undeliveredRevenue: sql<number>`coalesce(sum(${lineRev}) filter (where ${and(windowRange, notDelivered)}), 0)::int`,
+        undeliveredCount: sql<number>`count(distinct ${orders.id}) filter (where ${and(windowRange, notDelivered)})::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .leftJoin(products, eq(products.id, orderItems.productId))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          live,
+          farmerScope,
+          // Bound the scan to "up to and including the window end" — the to-date
+          // sum needs no lower bound (true lifetime cumulative), but nothing
+          // beyond `to` is ever needed by any of the five aggregates above.
+          toDateRange,
+        ),
+      );
+
+    // ── Trend: one point per bucket, scoped to the window + includeUndelivered. ──
+    const localBucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${cfg.trunc}'`)}, ${basisDay}), ${sql.raw(`'${cfg.fmt}'`)})`;
+    const seriesP = this.db
+      .select({
+        t: localBucketExpr,
+        revenueStotinki: sql<number>`coalesce(sum(${lineRev}) filter (where ${deliveredOnly ?? sql`true`}), 0)::int`,
+        orderCount: sql<number>`count(distinct ${orders.id}) filter (where ${deliveredOnly ?? sql`true`})::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .leftJoin(products, eq(products.id, orderItems.productId))
+      .where(and(eq(orders.tenantId, tenantId), live, farmerScope, windowRange))
+      // Bucket carries a bound param (cfg.trunc/fmt raw + the basisDay sub-expression)
+      // — group/order by output position, matching the rest of this file's pattern.
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
+
+    // ── Platform income: dormant-aware commission rate. Farmer override (when
+    //    farmerId-scoped) beats the tenant default; the whole thing reads 0 while
+    //    commissionEnabled is false — never a hypothetical "what it would earn". ──
+    const tenantP = this.db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const farmerRateP = opts.farmerId
+      ? this.db
+          .select({ commissionRateBps: farmers.commissionRateBps })
+          .from(farmers)
+          .where(eq(farmers.id, opts.farmerId))
+          .limit(1)
+      : Promise.resolve([] as { commissionRateBps: number | null }[]);
+
+    const [[agg], seriesRows, [tenantRow], [farmerRow]] = await Promise.all([
+      aggP,
+      seriesP,
+      tenantP,
+      farmerRateP,
+    ]);
+
+    const vf = readVendorFinance(tenantRow?.settings);
+    const overrideBps = farmerRow?.commissionRateBps;
+    const rateBps = overrideBps != null ? overrideBps : vf.defaultCommissionRateBps;
+    const commissionRateBps = vf.commissionEnabled ? rateBps : 0;
+    const platformIncomeStotinki = Math.round((agg.turnover * commissionRateBps) / 10_000);
+    const platformIncomeToDateStotinki = Math.round((agg.toDate * commissionRateBps) / 10_000);
+
+    const found = new Map(seriesRows.map((r) => [r.t, r]));
+    const points: TurnoverPoint[] = axisKeys.map((t) => {
+      const r = found.get(t);
+      return { t, revenueStotinki: r?.revenueStotinki ?? 0, orderCount: r?.orderCount ?? 0 };
+    });
+
+    const result: TurnoverBreakdown = {
+      basis,
+      range,
+      bucket,
+      from,
+      to,
+      includeUndelivered,
+      turnoverStotinki: agg.turnover,
+      orderCount: agg.orderCount,
+      turnoverToDateStotinki: agg.toDate,
+      commissionEnabled: vf.commissionEnabled,
+      commissionRateBps,
+      platformIncomeStotinki,
+      platformIncomeToDateStotinki,
+      undeliveredRevenueStotinki: agg.undeliveredRevenue,
+      undeliveredOrderCount: agg.undeliveredCount,
+      points,
+    };
+    await this.cache.set(cacheKey, result, TURNOVER_TTL);
+    return result;
   }
 }

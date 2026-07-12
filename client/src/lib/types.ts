@@ -621,6 +621,36 @@ export interface StatsSummary {
   points: StatsPoint[];
 }
 
+// ── Turnover breakdown (GET /stats/turnover) — Task #9/#10. Explicit switchable
+//    basis + lifetime to-date + platform income + undelivered split. Separate
+//    from StatsSummary above (which stays basis-implicit = order-placed day). ──
+export type TurnoverBasis = 'placed' | 'delivery' | 'delivered';
+
+export interface TurnoverPoint {
+  t: string;
+  revenueStotinki: number;
+  orderCount: number;
+}
+
+export interface TurnoverBreakdown {
+  basis: TurnoverBasis;
+  range: StatsRangeTag;
+  bucket: StatsBucket;
+  from: string;
+  to: string;
+  includeUndelivered: boolean;
+  turnoverStotinki: number;
+  orderCount: number;
+  turnoverToDateStotinki: number;
+  commissionEnabled: boolean;
+  commissionRateBps: number;
+  platformIncomeStotinki: number;
+  platformIncomeToDateStotinki: number;
+  undeliveredRevenueStotinki: number;
+  undeliveredOrderCount: number;
+  points: TurnoverPoint[];
+}
+
 /** One delivery stop on the optimized route (GET /orders/route). */
 export interface RouteStop {
   id: string;

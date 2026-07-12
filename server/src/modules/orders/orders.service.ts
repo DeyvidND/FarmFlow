@@ -19,12 +19,13 @@ import {
   tenants,
   farmers,
   shipments,
+  orderFulfillments,
 } from '@fermeribg/db';
 import type { Product, ProductVariant } from '@fermeribg/types';
 import { effectivePriceStotinki } from '../products/promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
-import { bgToday, bgDayBounds, bgDate } from '../../common/time/bg-time';
+import { bgToday, bgDayBounds, bgDate, bgAddDays } from '../../common/time/bg-time';
 import { buildKeysetPage, clampLimit, cursorTs, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -1313,9 +1314,22 @@ export class OrdersService {
       .from(orders)
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .limit(1);
+    // Task #9/#10: delivered_at tracks the day the order was ACTUALLY delivered,
+    // kept in lockstep with `status`. Set once on the first transition into
+    // 'delivered' (idempotent — re-marking an already-delivered order must not
+    // bump the day); cleared if status ever moves back out of 'delivered' (an
+    // operator correction) so a stale delivered_at never survives the revert.
+    const statusUpdate: { status: OrderRow['status']; deliveredAt?: Date | null } = {
+      status: dto.status as OrderRow['status'],
+    };
+    if (dto.status === 'delivered' && prev?.status !== 'delivered') {
+      statusUpdate.deliveredAt = new Date();
+    } else if (dto.status !== 'delivered' && prev?.status === 'delivered') {
+      statusUpdate.deliveredAt = null;
+    }
     const [row] = await this.db
       .update(orders)
-      .set({ status: dto.status as OrderRow['status'] })
+      .set(statusUpdate)
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Поръчката не е намерена');

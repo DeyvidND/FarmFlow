@@ -29,6 +29,9 @@ export const orderStatusEnum = pgEnum('order_status', [
 ]);
 export const codOutcomeEnum = pgEnum('cod_outcome', ['received', 'refused']);
 export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', 'past_due', 'inactive']);
+// Task #14: per-farmer self-tracked prep state for tomorrow's orders — see
+// order_fulfillments below. Plain text column (not a pg enum) so a future state
+// can be added without an ALTER TYPE migration; validated in the DTO layer.
 // Vendor finance (DORMANT until enabled per tenant — see tenants.settings.vendorFinance).
 // commission_entries lifecycle: accrued (money collected) → settled (paid out) or
 // voided (order cancelled / COD refused). Settled is final.
@@ -419,6 +422,12 @@ export const orders = pgTable(
     codOutcomeAt: timestamp('cod_outcome_at', { withTimezone: true }),
     codOutcomeReason: text('cod_outcome_reason'),
     codOutcomeSource: text('cod_outcome_source'),
+    // Day the order was ACTUALLY delivered — distinct from created_at (order-placed
+    // day) and the delivery_slots.date it was scheduled for. NULL until the first
+    // transition into status='delivered'; cleared back to NULL if that transition is
+    // ever reverted (kept in lockstep with `status`). Feeds the turnover-by-basis
+    // stat (Task #9/#10) — see migration 0097 for the backfill of legacy rows.
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     // How the customer chose to pay: 'online' (Stripe card) or 'cod' (наложен
     // платеж — collected at delivery/Econt office). Normalized at checkout to
     // reflect reality: any order with no Stripe session is recorded as 'cod'.
@@ -447,6 +456,11 @@ export const orders = pgTable(
     tenantNumberUnique: uniqueIndex('orders_tenant_number_unique').on(t.tenantId, t.orderNumber),
     // Farmer-scoped order lookups (courier split orders).
     farmerIdx: index('orders_farmer_idx').on(t.farmerId),
+    // Turnover-by-delivered-day bucketing / to-date sums (Task #9/#10). Partial:
+    // most orders are NULL here at any given time (not yet delivered).
+    tenantDeliveredIdx: index('orders_tenant_delivered_idx')
+      .on(t.tenantId, t.deliveredAt)
+      .where(sql`${t.deliveredAt} is not null`),
   }),
 );
 
@@ -1186,6 +1200,29 @@ export const commissionEntries = pgTable(
   }),
 );
 
+// Task #14: per-(order, farmer) fulfilment self-tracking, driven off the daily
+// «tomorrow» farmer email. A shared multi-farmer order gets one independent row
+// per producer — one farm running behind never blocks another's status on the
+// same order. 'pending' (default, nothing marked) → 'in_production' → 'fulfilled'.
+// See migration 0098.
+export const orderFulfillments = pgTable(
+  'order_fulfillments',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }),
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'cascade' }),
+    state: text('state').notNull().default('pending'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // Re-marking a row updates in place — never a duplicate per (order, farmer).
+    orderFarmerUniq: uniqueIndex('order_fulfillments_order_farmer_uniq').on(t.orderId, t.farmerId),
+    // «Утре» panel: this farmer's fulfilment rows, tenant-scoped.
+    tenantFarmerIdx: index('order_fulfillments_tenant_farmer_idx').on(t.tenantId, t.farmerId),
+  }),
+);
+
 // Vendor monthly subscription charges (DORMANT until
 // tenants.settings.vendorFinance.subscriptionEnabled). Generated per farmer per
 // 'YYYY-MM' period; the operator collects the money off-platform and marks rows
@@ -1231,6 +1268,7 @@ export const schema = {
   deliverySlots,
   orders,
   orderItems,
+  orderFulfillments,
   commissionEntries,
   vendorSubscriptionCharges,
   siteEvents,

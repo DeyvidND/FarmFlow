@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { HelpModal } from '@/components/delivery/ui';
 import { STATS_HELP } from '@/lib/help-content';
 import { TrendChart } from './trend-chart';
+import { TurnoverSection } from './turnover-section';
 import { getStats } from '@/lib/api-client';
 import type { StatsSummary, StatsRange } from '@/lib/types';
 import { RANGES, errMsg, pctDelta, StatTile, ShareBar, Seg } from '@/lib/stat-ui';
@@ -454,6 +455,16 @@ export function StatsClient({
               </div>
             )}
           </section>
+
+          {/* Task #9/#10: turnover on an explicit switchable basis + to-date /
+              platform income / undelivered split — separate from the headline
+              "Оборот" tile above (which stays implicitly order-placed). */}
+          <TurnoverSection
+            range={range}
+            applied={applied}
+            mode={mode}
+            farmerId={farmerId || undefined}
+          />
         </div>
       )}
 
