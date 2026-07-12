@@ -17,7 +17,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
 import type { TenantRequestUser } from '@fermeribg/types';
-import { PaginationQueryDto } from '../../common/pagination/pagination-query.dto';
+import { ListProductsQueryDto } from './dto/list-products-query.dto';
 import { ReorderMediaDto } from '../../common/dto/reorder-media.dto';
 import { ReorderDto } from '../../common/dto/reorder.dto';
 import {
@@ -39,13 +39,18 @@ export class ProductsController {
   @Roles('admin', 'farmer')
   @ApiQuery({ name: 'cursor', required: false })
   @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'review', required: false })
   findAll(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: TenantRequestUser,
-    @Query() q: PaginationQueryDto,
+    @Query() q: ListProductsQueryDto,
   ) {
     const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
-    return this.productsService.findAll(tenantId, { cursor: q.cursor, limit: q.limit }, scope);
+    return this.productsService.findAll(
+      tenantId,
+      { cursor: q.cursor, limit: q.limit, review: q.review === 'pending' },
+      scope,
+    );
   }
 
   // Literal route — must precede `:id` so "options" isn't captured as a product id.
@@ -54,6 +59,15 @@ export class ProductsController {
   listOptions(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
     const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
     return this.productsService.listOptions(tenantId, scope);
+  }
+
+  // Review queue size for the «Провери продукти» badge. Admin only — farmers
+  // see their own pending rows in the list, not the queue. Literal route —
+  // must precede `:id` so "review" isn't captured as a product id.
+  @Get('review/count')
+  @Roles('admin')
+  reviewCount(@CurrentTenant() tenantId: string) {
+    return this.productsService.pendingReviewCount(tenantId);
   }
 
   @Get(':id')
@@ -75,7 +89,17 @@ export class ProductsController {
     @Body() dto: CreateProductDto,
   ) {
     const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
-    return this.productsService.create(tenantId, dto, scope);
+    return this.productsService.create(tenantId, dto, scope, {
+      needsReview: user.role === 'farmer',
+    });
+  }
+
+  // Admin sign-off on a farmer-submitted product. Explicitly admin-only —
+  // a producer must never clear their own review flag.
+  @Post(':id/approve')
+  @Roles('admin')
+  approve(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.productsService.approve(id, tenantId);
   }
 
   // Literal route — must precede `:id` so "assign" isn't captured as a product id.

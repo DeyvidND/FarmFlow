@@ -66,7 +66,9 @@ export class AiImportController {
         isActive: p.isActive ?? true,
         farmerId: scope ?? undefined,
       };
-      await this.productsSvc.create(tenantId, productDto, scope);
+      await this.productsSvc.create(tenantId, productDto, scope, {
+        needsReview: user.role === 'farmer',
+      });
       created++;
     }
     return { created };

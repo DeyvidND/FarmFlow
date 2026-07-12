@@ -36,7 +36,12 @@ describe('AiImportController.commit', () => {
       products: [row],
       farmerId: 'someone-else',
     } as any);
-    expect(create).toHaveBeenCalledWith('tenant-1', expect.objectContaining({ name: 'Домати', farmerId: 'me' }), 'me');
+    expect(create).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({ name: 'Домати', farmerId: 'me' }),
+      'me',
+      { needsReview: true },
+    );
     expect(res).toEqual({ created: 1 });
   });
 
@@ -45,6 +50,25 @@ describe('AiImportController.commit', () => {
     const c = controller({} as any, { create } as any);
     await c.commit('tenant-1', { role: 'admin' } as any, { products: [row, row], farmerId: 'f9' } as any);
     expect(create).toHaveBeenCalledTimes(2);
-    expect(create).toHaveBeenLastCalledWith('tenant-1', expect.objectContaining({ farmerId: 'f9' }), 'f9');
+    expect(create).toHaveBeenLastCalledWith(
+      'tenant-1',
+      expect.objectContaining({ farmerId: 'f9' }),
+      'f9',
+      { needsReview: false },
+    );
+  });
+
+  it('commit as farmer creates rows with needsReview: true', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'p1' });
+    const c = controller({} as any, { create } as any);
+    await c.commit('tenant-1', { role: 'farmer', farmerId: 'me' } as any, { products: [row] } as any);
+    expect(create).toHaveBeenCalledWith('tenant-1', expect.anything(), 'me', { needsReview: true });
+  });
+
+  it('commit as admin creates rows with needsReview: false', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'p1' });
+    const c = controller({} as any, { create } as any);
+    await c.commit('tenant-1', { role: 'admin' } as any, { products: [row], farmerId: 'f9' } as any);
+    expect(create).toHaveBeenCalledWith('tenant-1', expect.anything(), 'f9', { needsReview: false });
   });
 });

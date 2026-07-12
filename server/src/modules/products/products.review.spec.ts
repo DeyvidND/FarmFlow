@@ -1,7 +1,9 @@
+import 'reflect-metadata';
 import { NotFoundException } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { products } from '@fermeribg/db';
 import { ProductsService } from './products.service';
+import { ProductsController } from './products.controller';
 
 /**
  * Review-queue lifecycle: `create(..., opts)` sets the pending flag on insert,
@@ -213,11 +215,11 @@ describe('product review queue', () => {
 });
 
 describe('review endpoint roles', () => {
-  // Task 3 (controller wiring) hasn't run yet in this branch — ProductsController
-  // has no `approve` / `reviewCount` methods to pin metadata on. Un-todo these
-  // (and add `import { ProductsController } from './products.controller';` +
-  // `Reflect.getMetadata('roles', ProductsController.prototype.approve)` /
-  // `...reviewCount)` assertions, per the task-2 brief) once Task 3 lands.
-  it.todo('approve is admin-only');
-  it.todo('review count is admin-only');
+  it('approve is admin-only', () => {
+    expect(Reflect.getMetadata('roles', ProductsController.prototype.approve)).toEqual(['admin']);
+  });
+
+  it('review count is admin-only', () => {
+    expect(Reflect.getMetadata('roles', ProductsController.prototype.reviewCount)).toEqual(['admin']);
+  });
 });
