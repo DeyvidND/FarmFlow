@@ -1,6 +1,7 @@
 import { BadGatewayException, BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import sharp from 'sharp';
 
 /** A clean product row ready for PlatformImportDto.products (subset of CreateProductDto). */
 export interface ExtractedProduct {
@@ -15,6 +16,13 @@ export interface ExtractedProduct {
 
 const MAX_TEXT = 100_000;
 const MAX_ROWS = 1000;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const IMAGE_MIME_RE = /^image\/(jpeg|png|webp)$/;
+
+/** True when the upload is a photo the vision path should handle. */
+export function isImageFile(file: Express.Multer.File): boolean {
+  return IMAGE_MIME_RE.test(file.mimetype ?? '');
+}
 
 const SYSTEM_PROMPT = `Ти си помощник, който извлича продукти от ценоразпис на българска ферма.
 Текстът по-долу е приблизително подреден по полета: име, цена, мерна единица, разфасовка, категория, описание.
@@ -108,13 +116,60 @@ export class ProductExtractService {
       this.log.warn(`OpenAI product extract failed: ${String((e as Error)?.message ?? e)}`);
       throw new BadGatewayException('AI услугата не отговори — опитайте пак');
     }
+    return this.parseCompletion(raw);
+  }
+
+  /** Parse one completion's raw content into clean rows (shared by text + vision). */
+  private parseCompletion(raw: string | null | undefined): ExtractedProduct[] {
     let parsed: { products?: unknown };
     try {
-      parsed = JSON.parse(raw);
+      parsed = JSON.parse(raw ?? '{}');
     } catch {
       throw new BadGatewayException('AI върна невалиден отговор — опитайте пак');
     }
     const rows = Array.isArray(parsed.products) ? parsed.products : [];
     return rows.map(coerce).filter((p): p is ExtractedProduct => p != null).slice(0, MAX_ROWS);
+  }
+
+  /**
+   * Vision path: a PHOTO of a price list (paper/handwritten) → product rows.
+   * Downscaled before sending — vision cost scales with pixels and 1600px is
+   * plenty for OCR. Same prompt + coercion as the text path.
+   */
+  async extractFromImage(file: Express.Multer.File): Promise<ExtractedProduct[]> {
+    if (!this.client) {
+      throw new ServiceUnavailableException('AI импортът не е настроен (липсва OPENAI_API_KEY).');
+    }
+    if (!isImageFile(file)) throw new BadRequestException('Подайте снимка (JPEG/PNG/WebP).');
+    if (file.size > MAX_IMAGE_BYTES) {
+      throw new BadRequestException('Снимката е твърде голяма (до 10MB). Снимайте отново или я компресирайте.');
+    }
+    // .rotate() honours EXIF orientation — phone photos are often sideways.
+    const jpeg = await sharp(file.buffer)
+      .rotate()
+      .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    const dataUri = `data:image/jpeg;base64,${jpeg.toString('base64')}`;
+    try {
+      const res = await this.client.chat.completions.create({
+        model: this.model,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Извади продуктите от този ценоразпис (снимка).' },
+              { type: 'image_url', image_url: { url: dataUri } },
+            ],
+          },
+        ],
+      });
+      return this.parseCompletion(res.choices[0]?.message?.content);
+    } catch (e) {
+      this.log.warn(`OpenAI image extract failed: ${String((e as Error)?.message ?? e)}`);
+      throw new BadGatewayException('AI разчитането на снимката не успя. Опитайте пак или поставете текста.');
+    }
   }
 }

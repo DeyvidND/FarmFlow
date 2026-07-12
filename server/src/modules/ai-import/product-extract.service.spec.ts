@@ -1,5 +1,16 @@
 import { BadRequestException, BadGatewayException } from '@nestjs/common';
-import { ProductExtractService } from './product-extract.service';
+import { ProductExtractService, isImageFile } from './product-extract.service';
+
+// sharp is heavy; stub it — we assert the downscale pipeline is invoked, not pixels.
+jest.mock('sharp', () => {
+  const chain = {
+    rotate: jest.fn().mockReturnThis(),
+    resize: jest.fn().mockReturnThis(),
+    jpeg: jest.fn().mockReturnThis(),
+    toBuffer: jest.fn().mockResolvedValue(Buffer.from('tiny-jpeg')),
+  };
+  return { __esModule: true, default: jest.fn(() => chain), __chain: chain };
+});
 
 /** Build a service with a stubbed config. Default key=null so the constructor
  *  never instantiates a real OpenAI client (which left a worker handle dangling
@@ -12,6 +23,18 @@ function makeSvc(key: string | null = null) {
 
 function fileOf(name: string, buffer: Buffer, mimetype = 'application/octet-stream') {
   return { originalname: name, buffer, mimetype } as Express.Multer.File;
+}
+
+/** Multer file for the vision-path tests — needs `size` (checked by extractFromImage). */
+function imageFileOf(over: Partial<Express.Multer.File> = {}): Express.Multer.File {
+  return {
+    fieldname: 'file',
+    originalname: 'cenorazpis.jpg',
+    mimetype: 'image/jpeg',
+    size: 1024,
+    buffer: Buffer.from('raw'),
+    ...over,
+  } as Express.Multer.File;
 }
 
 describe('ProductExtractService.parseToText', () => {
@@ -87,5 +110,53 @@ describe('ProductExtractService.extract', () => {
     const svc = makeSvc();
     (svc as any).client = { chat: { completions: { create: async () => ({ choices: [{ message: { content: 'not json' } }] }) } } };
     await expect(svc.extract('…')).rejects.toBeInstanceOf(BadGatewayException);
+  });
+});
+
+describe('isImageFile', () => {
+  it('accepts jpeg/png/webp, rejects the rest', () => {
+    expect(isImageFile(imageFileOf({ mimetype: 'image/jpeg' }))).toBe(true);
+    expect(isImageFile(imageFileOf({ mimetype: 'image/png' }))).toBe(true);
+    expect(isImageFile(imageFileOf({ mimetype: 'image/webp' }))).toBe(true);
+    expect(isImageFile(imageFileOf({ mimetype: 'text/csv' }))).toBe(false);
+    expect(isImageFile(imageFileOf({ mimetype: 'application/pdf' }))).toBe(false);
+  });
+});
+
+describe('ProductExtractService.extractFromImage', () => {
+  function withClient(create: jest.Mock): ProductExtractService {
+    const svc = makeSvc();
+    (svc as any).client = { chat: { completions: { create } } };
+    return svc;
+  }
+
+  it('downscales, sends a data-URI image_url, and coerces the reply rows', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              products: [
+                { name: 'Домати', priceStotinki: 450, unit: 'кг' },
+                { name: '', priceStotinki: 100, unit: 'бр' }, // dropped by coerce
+              ],
+            }),
+          },
+        },
+      ],
+    });
+    const rows = await withClient(create).extractFromImage(imageFileOf());
+    expect(rows).toEqual([{ name: 'Домати', priceStotinki: 450, unit: 'кг', isActive: true }]);
+    const msg = create.mock.calls[0][0].messages[1];
+    const img = msg.content.find((p: any) => p.type === 'image_url');
+    expect(img.image_url.url).toMatch(/^data:image\/jpeg;base64,/);
+  });
+
+  it('rejects an oversized image with a BG message', async () => {
+    const create = jest.fn();
+    await expect(
+      withClient(create).extractFromImage(imageFileOf({ size: 11 * 1024 * 1024 })),
+    ).rejects.toThrow('Снимката е твърде голяма');
+    expect(create).not.toHaveBeenCalled();
   });
 });
