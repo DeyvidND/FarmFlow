@@ -1232,3 +1232,37 @@ export const askHelpAi = (question: string) =>
     { method: 'POST', ...json({ surface: 'panel', question }) },
     'AI помощникът не е достъпен в момента',
   );
+
+// ── AI product import (photo / pasted list → preview → commit) ──────────────
+
+export interface AiExtractedProduct {
+  name: string;
+  priceStotinki: number;
+  unit: string;
+  weight?: string;
+  category?: string;
+  description?: string;
+  isActive?: boolean;
+}
+
+/** Photo or pasted text → AI-extracted preview rows. Multipart: do NOT set
+ *  content-type — the browser sets the boundary and the BFF forwards it. */
+export const extractAiProducts = (input: { file?: File; text?: string }) => {
+  const fd = new FormData();
+  if (input.file) fd.append('file', input.file);
+  if (input.text) fd.append('text', input.text);
+  return apiFetch<{ products: AiExtractedProduct[] }>(
+    'products/ai-import/extract',
+    { method: 'POST', body: fd },
+    'Неуспешно разчитане',
+  );
+};
+
+/** Publish the reviewed rows (owner may target one producer via farmerId — the
+ *  server forces a farmer sub-account to its own id regardless). */
+export const commitAiProducts = (products: AiExtractedProduct[], farmerId?: string) =>
+  apiFetch<{ created: number }>(
+    'products/ai-import/commit',
+    { method: 'POST', ...json({ products, ...(farmerId ? { farmerId } : {}) }) },
+    'Неуспешно публикуване',
+  );

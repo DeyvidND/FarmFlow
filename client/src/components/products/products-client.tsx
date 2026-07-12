@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Info, ArrowUpDown, Check, Truck } from 'lucide-react';
+import { Plus, Info, ArrowUpDown, Check, Truck, Camera } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -9,6 +9,7 @@ import { HelpModal } from '@/components/delivery/ui';
 import { PRODUCTS_HELP } from '@/lib/help-content';
 import { ProductCard } from './product-card';
 import { ProductDialog } from './product-dialog';
+import { AiImportDialog } from './ai-import-dialog';
 import { ProductOfWeekPanel } from './product-of-week-panel';
 import { CourierSettingsModal } from './courier-settings-modal';
 import { ReorderableList } from '@/components/reorderable-list';
@@ -68,6 +69,7 @@ export function ProductsClient({
   );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [aiImportOpen, setAiImportOpen] = useState(false);
   const [fullEdit, setFullEdit] = useState<Product | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
   const [help, setHelp] = useState(false);
@@ -326,6 +328,11 @@ export function ProductsClient({
             </Button>
           )}
           {!reorderMode && (
+            <Button variant="outline" onClick={() => setAiImportOpen(true)} className="rounded-sm">
+              <Camera size={18} /> Добави от снимка
+            </Button>
+          )}
+          {!reorderMode && (
             <Button variant="primary" onClick={() => setCreateOpen(true)} className="rounded-sm">
               <Plus size={18} /> Добави продукт
             </Button>
@@ -489,6 +496,22 @@ export function ProductsClient({
           onCoverChange={(url) => patchLocal(fullEdit.id, { imageUrl: url })}
         />
       )}
+
+      <AiImportDialog
+        open={aiImportOpen}
+        onClose={() => setAiImportOpen(false)}
+        onDone={async (created) => {
+          toast.success(`Добавени ${created} продукта`);
+          // The commit only returns a count, not the created rows — refetch the
+          // first page (same call `loadMore` uses) instead of guessing ids.
+          try {
+            const page = await listProducts();
+            setProducts(page.items);
+          } catch (e) {
+            toast.error(errMsg(e));
+          }
+        }}
+      />
 
       {confirmDelete && (
         <ConfirmDialog
