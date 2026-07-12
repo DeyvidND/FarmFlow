@@ -45,6 +45,20 @@ export interface RouteStop {
   lat: number | null;
   lng: number | null;
   summary: string;
+  /** Order money (tasks #4/#6), all in stotinki: goods subtotal (Σ item
+   *  price×qty), the delivery fee (grand total − subtotal, clamped ≥ 0), and the
+   *  grand total WITH delivery. */
+  itemsSubtotalStotinki: number;
+  deliveryFeeStotinki: number;
+  totalStotinki: number;
+  /** Operator's manual courier pin (task #6): 0-based courier index, or null for
+   *  auto (geographic sweep-split). */
+  courierIndex: number | null;
+  /** Delivery time window (task #13): 'HH:MM' wall-clock (Europe/Sofia) and its
+   *  review status (draft → approved → sent). Null until a window is generated. */
+  deliveryWindowStart: string | null;
+  deliveryWindowEnd: string | null;
+  deliveryWindowStatus: string | null;
 }
 
 export type RouteEndMode = 'home' | 'last' | 'custom';
@@ -73,6 +87,27 @@ export interface CourierRoute {
   /** This courier's own end mode: home = loop back to the depot, last = end at
    *  the last stop. Set per leg from the per-courier ends. */
   endMode: RouteEndMode;
+  /** Where THIS courier's leg ends (task #7 „У дома"): the resolved home/custom
+   *  end coordinates, or null coords for a one-way (`last`) leg. Lets the client
+   *  label the finish and deep-link to it. */
+  endAddress: string | null;
+  endLat: number | null;
+  endLng: number | null;
+}
+
+/**
+ * Per-courier saved config (task #5 + #7), stored index-aligned in
+ * settings.routing.couriers[]. A courier with a configured home ends their leg
+ * at that home („У дома"); endMode overrides the day-wide default for this
+ * courier. All fields optional — an unconfigured courier falls back to the
+ * day-wide end.
+ */
+export interface CourierConfig {
+  name?: string | null;
+  endMode?: RouteEndMode;
+  homeAddress?: string | null;
+  homeLat?: number | string | null;
+  homeLng?: number | string | null;
 }
 
 export interface MultiRouteResult {
@@ -86,6 +121,11 @@ export interface MultiRouteResult {
 }
 
 const toNum = (v: string | null): number | null => (v == null ? null : Number(v));
+
+/** Normalise a Postgres `time` value ('HH:MM:SS') to the 'HH:MM' the UI/email
+ *  use. Passes through null and already-short values. */
+const hhmm = (v: string | null | undefined): string | null =>
+  v == null ? null : v.length >= 5 ? v.slice(0, 5) : v;
 
 /** Routes API hard limit on intermediate waypoints per computeRoutes request. */
 const MAX_OPTIMIZE_STOPS = 25;
@@ -244,6 +284,11 @@ export class RoutingService {
         note: orders.deliveryNote,
         lat: orders.deliveryLat,
         lng: orders.deliveryLng,
+        total: orders.totalStotinki,
+        courierIndex: orders.courierIndex,
+        windowStart: orders.deliveryWindowStart,
+        windowEnd: orders.deliveryWindowEnd,
+        windowStatus: orders.deliveryWindowStatus,
       })
       .from(orders)
       .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
@@ -263,15 +308,17 @@ export class RoutingService {
       )
       .orderBy(orders.createdAt);
 
-    // Batch item summaries (no N+1).
+    // Batch item summaries + goods subtotal per order (no N+1).
     const ids = rows.map((r) => r.id);
     const itemsByOrder = new Map<string, string[]>();
+    const subtotalByOrder = new Map<string, number>();
     if (ids.length) {
       const items = await this.db
         .select({
           orderId: orderItems.orderId,
           productName: orderItems.productName,
           quantity: orderItems.quantity,
+          priceStotinki: orderItems.priceStotinki,
         })
         .from(orderItems)
         .where(inArray(orderItems.orderId, ids));
@@ -279,20 +326,38 @@ export class RoutingService {
         const list = itemsByOrder.get(it.orderId!) ?? [];
         list.push(`${it.productName} × ${it.quantity}`);
         itemsByOrder.set(it.orderId!, list);
+        subtotalByOrder.set(
+          it.orderId!,
+          (subtotalByOrder.get(it.orderId!) ?? 0) + it.priceStotinki * it.quantity,
+        );
       }
     }
 
-    const stops: RouteStop[] = rows.map((r) => ({
-      id: r.id,
-      customer: r.customer,
-      phone: r.phone,
-      email: r.email,
-      address: r.address,
-      note: r.note,
-      lat: toNum(r.lat),
-      lng: toNum(r.lng),
-      summary: (itemsByOrder.get(r.id) ?? []).join(', '),
-    }));
+    const stops: RouteStop[] = rows.map((r) => {
+      const total = r.total ?? 0;
+      const subtotal = subtotalByOrder.get(r.id) ?? 0;
+      return {
+        id: r.id,
+        customer: r.customer,
+        phone: r.phone,
+        email: r.email,
+        address: r.address,
+        note: r.note,
+        lat: toNum(r.lat),
+        lng: toNum(r.lng),
+        summary: (itemsByOrder.get(r.id) ?? []).join(', '),
+        itemsSubtotalStotinki: subtotal,
+        // Delivery fee isn't stored separately — it's folded into the grand total
+        // at checkout. Recover it as total − goods subtotal (clamp ≥ 0 so a legacy
+        // row with a rounding quirk never shows a negative fee).
+        deliveryFeeStotinki: Math.max(0, total - subtotal),
+        totalStotinki: total,
+        courierIndex: r.courierIndex ?? null,
+        deliveryWindowStart: hhmm(r.windowStart),
+        deliveryWindowEnd: hhmm(r.windowEnd),
+        deliveryWindowStatus: r.windowStatus ?? null,
+      };
+    });
 
     const origin: RouteOrigin = {
       address: tenant.farmAddress,
@@ -333,20 +398,35 @@ export class RoutingService {
     // (settings.routing.courierCount), else 1. Both are clamped to [1,10].
     const n = effectiveCourierCount(couriers ?? (routingCfg.courierCount as number | undefined));
 
+    // Operator-pinned stops (task #6): an order the operator manually moved onto a
+    // specific courier keeps that courier regardless of geography. Out-of-range
+    // pins (courier count later lowered) are treated as auto. The rest are split
+    // geographically as before, then the pins are dropped into their courier.
+    const inRange = (ci: number | null): ci is number => ci != null && ci >= 0 && ci < n;
+    const pinned = located.filter((s) => inRange(s.courierIndex));
+    const free = located.filter((s) => !inRange(s.courierIndex));
+
     // Partition among couriers (sweep needs a depot; without one, round-robin
     // over a greedy chain so groups still make geographic sense).
     let groups: RouteStop[][];
-    if (originPt && located.length) {
+    if (originPt && free.length) {
       // Feed the split the point every courier returns to after its last stop,
       // so workload balancing counts the return leg (round trip vs one-way).
       const splitEnd = endPoint(mode, originPt, end);
-      groups = sweepSplit(originPt, located, n, splitEnd);
-    } else if (located.length) {
-      const chain = greedyByDistance(null, located);
+      groups = sweepSplit(originPt, free, n, splitEnd);
+    } else if (free.length) {
+      const chain = greedyByDistance(null, free);
       groups = Array.from({ length: Math.min(n, chain.length) }, () => []);
       chain.forEach((s, i) => groups[i % groups.length].push(s));
     } else {
       groups = [];
+    }
+    // Materialise enough courier slots (up to n) to receive the pins, then place
+    // each pinned stop on its courier. Pinning is what makes „move to courier 2"
+    // stick across reloads and lets an explicitly-chosen 2-courier day show both.
+    if (pinned.length) {
+      while (groups.length < n) groups.push([]);
+      for (const s of pinned) groups[s.courierIndex as number].push(s);
     }
     if (!groups.length) groups = [[]];
 
@@ -356,10 +436,20 @@ export class RoutingService {
     // Per-courier end modes, indexed by resulting group. The split above balanced
     // with the single default `mode`; here each leg is optimized + measured with
     // ITS own end (home = return to base, last = end at last stop).
-    const modes = resolveCourierModes(mode, endModes, groups.length);
+    // Per-courier end: the request's ?ends= csv wins, else this courier's saved
+    // config (settings.routing.couriers[i].endMode), else the day-wide default.
+    const couriersCfg = (routingCfg.couriers as CourierConfig[] | undefined) ?? [];
+    const modes = groups.map(
+      (_, i) => endModes?.[i] ?? (couriersCfg[i]?.endMode as RouteEndMode) ?? mode,
+    );
     const routes: CourierRoute[] = await Promise.all(
       groups.map((group, i) =>
-        this.optimizeGroup(originPt, group, modes[i], this.endForMode(modes[i], origin, end)),
+        this.optimizeGroup(
+          originPt,
+          group,
+          modes[i],
+          this.endForCourier(modes[i], origin, end, couriersCfg[i]),
+        ),
       ),
     );
 
@@ -380,17 +470,118 @@ export class RoutingService {
     return { date: day, origin, end, couriers: routes.length, routes };
   }
 
-  /** The RouteEnd a single courier leg targets, from its own mode. `home` loops
-   *  to the depot; `last` is one-way (null coords); `custom` reuses the shared
-   *  saved end (legacy — no per-courier custom UI). */
-  private endForMode(mode: RouteEndMode, origin: RouteOrigin, shared: RouteEnd): RouteEnd {
-    if (mode === 'home') {
-      return { mode: 'home', address: origin.address, lat: origin.lat, lng: origin.lng };
+  /**
+   * Task #5 — road geometry + totals for an EXPLICIT, operator-chosen stop order.
+   * Unlike getRoute this does NOT reorder: it measures depot → stops (in exactly
+   * the given order) → the courier's end, and returns the encoded polyline so the
+   * map draws real streets instead of straight pin-to-pin lines after a manual
+   * reorder or a courier move. Coordinates are loaded server-side (tenant-scoped)
+   * from the given order ids — the client only sends the order, never coords.
+   */
+  async measureExplicitOrder(
+    tenantId: string,
+    date: string | undefined,
+    stopIds: string[],
+    courierIndex?: number,
+    endModeOverride?: RouteEndMode,
+  ): Promise<{
+    polyline: string[] | null;
+    totalDistanceM: number | null;
+    totalDurationS: number | null;
+  }> {
+    const [tenant] = await this.db
+      .select({
+        farmAddress: tenants.farmAddress,
+        farmLat: tenants.farmLat,
+        farmLng: tenants.farmLng,
+        settings: tenants.settings,
+      })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!tenant) throw new NotFoundException('Фермата не е намерена');
+
+    const origin: RouteOrigin = {
+      address: tenant.farmAddress,
+      lat: toNum(tenant.farmLat),
+      lng: toNum(tenant.farmLng),
+    };
+    const originPt: Pt | null =
+      origin.lat != null && origin.lng != null
+        ? { lat: origin.lat as number, lng: origin.lng as number }
+        : null;
+    if (!originPt || stopIds.length === 0) {
+      return { polyline: null, totalDistanceM: null, totalDurationS: null };
     }
+
+    const routingCfg =
+      ((tenant.settings as Record<string, any> | null)?.routing as Record<string, any>) ?? {};
+    const couriersCfg = (routingCfg.couriers as CourierConfig[] | undefined) ?? [];
+    const cfg = courierIndex != null ? couriersCfg[courierIndex] : undefined;
+    const mode: RouteEndMode =
+      endModeOverride ?? (cfg?.endMode as RouteEndMode) ?? (routingCfg.endMode as RouteEndMode) ?? 'home';
+    const sharedEnd: RouteEnd =
+      mode === 'custom'
+        ? {
+            mode,
+            address: routingCfg.endAddress ?? null,
+            lat: toNum(routingCfg.endLat ?? null),
+            lng: toNum(routingCfg.endLng ?? null),
+          }
+        : { mode, address: origin.address, lat: origin.lat, lng: origin.lng };
+    const end = this.endForCourier(mode, origin, sharedEnd, cfg);
+
+    // Load coords for the requested ids (tenant-scoped), then re-order them to the
+    // caller's sequence. Ids without coords are dropped (can't be routed).
+    const rows = await this.db
+      .select({ id: orders.id, lat: orders.deliveryLat, lng: orders.deliveryLng })
+      .from(orders)
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, stopIds))!);
+    const byId = new Map(rows.map((r) => [r.id, { lat: toNum(r.lat), lng: toNum(r.lng) }]));
+    const pts: Pt[] = [originPt];
+    for (const id of stopIds) {
+      const c = byId.get(id);
+      if (c && c.lat != null && c.lng != null) pts.push({ lat: c.lat, lng: c.lng });
+    }
+    const dest = endPoint(mode, originPt, end);
+    if (dest) pts.push(dest);
+    if (pts.length < 2) return { polyline: null, totalDistanceM: null, totalDurationS: null };
+
+    const total = await this.pathTotal(pts);
+    if (!total) return { polyline: null, totalDistanceM: null, totalDurationS: null };
+    return {
+      polyline: total.polylines.length ? total.polylines : null,
+      totalDistanceM: total.distanceM,
+      totalDurationS: total.durationS,
+    };
+  }
+
+  /**
+   * The RouteEnd a single courier leg targets, from its own mode + saved config.
+   *  - `last` → one-way (null coords).
+   *  - otherwise, if this courier has a configured home („У дома", task #7) →
+   *    end there (as a custom end at the home coords), regardless of home/custom.
+   *  - else legacy: `home` loops back to the depot, `custom` reuses the shared
+   *    tenant-wide saved end.
+   */
+  private endForCourier(
+    mode: RouteEndMode,
+    origin: RouteOrigin,
+    shared: RouteEnd,
+    cfg?: CourierConfig,
+  ): RouteEnd {
     if (mode === 'last') {
       return { mode: 'last', address: null, lat: null, lng: null };
     }
-    return shared; // custom
+    const homeLat = toNum((cfg?.homeLat ?? null) as string | null);
+    const homeLng = toNum((cfg?.homeLng ?? null) as string | null);
+    if (homeLat != null && homeLng != null) {
+      return { mode: 'custom', address: cfg?.homeAddress ?? null, lat: homeLat, lng: homeLng };
+    }
+    if (mode === 'home') {
+      return { mode: 'home', address: origin.address, lat: origin.lat, lng: origin.lng };
+    }
+    return shared; // custom, no per-courier home → tenant-wide saved end
   }
 
   /**
@@ -405,7 +596,17 @@ export class RoutingService {
     end: RouteEnd,
   ): Promise<CourierRoute> {
     if (!group.length) {
-      return { stops: [], totalDistanceM: null, totalDurationS: null, optimized: false, polyline: null, endMode: mode };
+      return {
+        stops: [],
+        totalDistanceM: null,
+        totalDurationS: null,
+        optimized: false,
+        polyline: null,
+        endMode: mode,
+        endAddress: end.address,
+        endLat: end.lat,
+        endLng: end.lng,
+      };
     }
 
     let orderedGroup: RouteStop[];
@@ -519,6 +720,9 @@ export class RoutingService {
       optimized: orderedGroup.length > 0,
       polyline: routePolyline,
       endMode: mode,
+      endAddress: end.address,
+      endLat: end.lat,
+      endLng: end.lng,
     };
   }
 
