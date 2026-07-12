@@ -25,3 +25,26 @@ describe('AiImportController.extract', () => {
     expect(extract).toHaveBeenCalledWith('домати 4.50');
   });
 });
+
+describe('AiImportController.commit', () => {
+  const row = { name: 'Домати', priceStotinki: 450, unit: 'кг' };
+
+  it('forces a farmer token to its own farmerId (ignores the body override)', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'p1' });
+    const c = controller({} as any, { create } as any);
+    const res = await c.commit('tenant-1', { role: 'farmer', farmerId: 'me' } as any, {
+      products: [row],
+      farmerId: 'someone-else',
+    } as any);
+    expect(create).toHaveBeenCalledWith('tenant-1', expect.objectContaining({ name: 'Домати', farmerId: 'me' }), 'me');
+    expect(res).toEqual({ created: 1 });
+  });
+
+  it('lets the owner attach rows to a chosen producer', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'p1' });
+    const c = controller({} as any, { create } as any);
+    await c.commit('tenant-1', { role: 'admin' } as any, { products: [row, row], farmerId: 'f9' } as any);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).toHaveBeenLastCalledWith('tenant-1', expect.objectContaining({ farmerId: 'f9' }), 'f9');
+  });
+});

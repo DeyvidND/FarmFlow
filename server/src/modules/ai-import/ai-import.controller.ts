@@ -9,7 +9,9 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
 import type { TenantRequestUser } from '@fermeribg/types';
 import { ProductsService } from '../products/products.service';
+import type { CreateProductDto } from '../products/dto/create-product.dto';
 import { ProductExtractService, isImageFile, type ExtractedProduct } from './product-extract.service';
+import { CommitAiImportDto } from './dto/commit-ai-import.dto';
 
 /**
  * Tenant-facing AI product import: photo / pasted list → preview rows → commit.
@@ -40,5 +42,33 @@ export class AiImportController {
     }
     const content = await this.extractSvc.parseToText(file, text);
     return { products: await this.extractSvc.extract(content) };
+  }
+
+  /** Publish the reviewed rows. Row-by-row through the SAME validated create path
+   *  a manual product create uses — a malformed row fails like a manual one would. */
+  @Post('commit')
+  @Roles('admin', 'farmer')
+  async commit(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Body() dto: CommitAiImportDto,
+  ): Promise<{ created: number }> {
+    const scope = effectiveFarmerId(user.role, user.farmerId, dto.farmerId);
+    let created = 0;
+    for (const p of dto.products) {
+      const productDto: CreateProductDto = {
+        name: p.name,
+        priceStotinki: p.priceStotinki,
+        unit: p.unit,
+        weight: p.weight,
+        category: p.category,
+        description: p.description,
+        isActive: p.isActive ?? true,
+        farmerId: scope ?? undefined,
+      };
+      await this.productsSvc.create(tenantId, productDto, scope);
+      created++;
+    }
+    return { created };
   }
 }
