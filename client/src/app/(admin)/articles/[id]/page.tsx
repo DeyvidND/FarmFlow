@@ -7,7 +7,7 @@ import type { Article } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 
 async function getArticle(id: string): Promise<Article | null> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const res = await fetch(`${API_BASE}/articles/${id}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -17,7 +17,8 @@ async function getArticle(id: string): Promise<Article | null> {
   return res.json();
 }
 
-export default async function ArticleEditorPage({ params }: { params: { id: string } }) {
+export default async function ArticleEditorPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const article = await getArticle(params.id);
   if (!article) redirect('/articles');
   return <ArticleEditor initial={article} />;

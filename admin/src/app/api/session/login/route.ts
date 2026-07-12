@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     );
   }
 
-  cookies().set(SESSION_COOKIE, data.accessToken, {
+  (await cookies()).set(SESSION_COOKIE, data.accessToken, {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',

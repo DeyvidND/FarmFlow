@@ -6,7 +6,7 @@ import type { AvailabilityWindow, Farmer, Paginated, Product, Subcategory } from
 export const dynamic = 'force-dynamic';
 
 async function fetchJson<T>(path: string, fallback: T): Promise<T> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return fallback;
   const res = await fetch(`${API_BASE}/${path}`, {
     headers: { Authorization: `Bearer ${token}` },

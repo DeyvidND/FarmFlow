@@ -6,7 +6,7 @@ import type { PlatformInsights, PlatformTimeseries } from '@/lib/api-client';
 export const dynamic = 'force-dynamic';
 
 async function serverFetch<T>(path: string): Promise<T | null> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const res = await fetch(`${API_BASE}/${path}`, {
     headers: { Authorization: `Bearer ${token}` },

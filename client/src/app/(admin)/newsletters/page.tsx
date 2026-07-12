@@ -24,7 +24,7 @@ async function api<T>(path: string, token: string, fallback: T): Promise<T> {
 }
 
 export default async function NewslettersPage() {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) {
     return (
       <NewsletterClient

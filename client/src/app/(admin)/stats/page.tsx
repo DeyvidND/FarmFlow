@@ -15,7 +15,7 @@ async function authed<T>(path: string, token: string): Promise<T | null> {
 }
 
 export default async function StatsPage() {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return <StatsClient initial={null} role="admin" farmers={[]} multiFarmer={false} />;
 
   const [initial, account, profile] = await Promise.all([

@@ -41,7 +41,7 @@ async function getOwnDeliveryEnabled(token: string | undefined): Promise<boolean
 }
 
 export default async function OrdersPage() {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   const [{ ok, ...initial }, ownDeliveryEnabled] = await Promise.all([
     getOrders(token),
     getOwnDeliveryEnabled(token),

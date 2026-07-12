@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 const EMPTY: Paginated<Article> = { items: [], nextCursor: null };
 
 async function getArticles(): Promise<Paginated<Article>> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return EMPTY;
   const res = await fetch(`${API_BASE}/articles?limit=50`, {
     headers: { Authorization: `Bearer ${token}` },

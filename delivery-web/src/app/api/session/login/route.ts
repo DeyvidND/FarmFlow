@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   if (!res.ok || !data?.accessToken) {
     return NextResponse.json({ message: extractApiMessage(data) ?? 'Грешен имейл или парола' }, { status: res.status || 401 });
   }
-  cookies().set(SESSION_COOKIE, data.accessToken, {
+  (await cookies()).set(SESSION_COOKIE, data.accessToken, {
     httpOnly: true, sameSite: 'lax', path: '/',
     secure: process.env.NODE_ENV === 'production', maxAge: SESSION_MAX_AGE,
   });

@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 const EMPTY: Paginated<GlobalFarmer> = { items: [], nextCursor: null };
 
 async function getFarmers(): Promise<Paginated<GlobalFarmer>> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return EMPTY;
   const res = await fetch(`${API_BASE}/platform/farmers?limit=50`, {
     headers: { Authorization: `Bearer ${token}` },

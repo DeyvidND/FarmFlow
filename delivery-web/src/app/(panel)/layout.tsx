@@ -7,7 +7,7 @@ import { ForcePasswordModal } from '@/components/force-password-modal';
 export const dynamic = 'force-dynamic';
 
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) redirect('/login');
 
   const me = await fetch(`${API_BASE}/auth/me`, {

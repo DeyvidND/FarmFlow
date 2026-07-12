@@ -31,7 +31,7 @@ async function getRoute(
     couriers: 1,
     routes: [],
   };
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return { route: empty, failed: false };
   const qs =
     `date=${date}` +
@@ -57,11 +57,12 @@ async function getRoute(
   return { route: await res.json(), failed: false };
 }
 
-export default async function RoutePage({
-  searchParams,
-}: {
-  searchParams: { date?: string; end?: string; couriers?: string; ends?: string };
-}) {
+export default async function RoutePage(
+  props: {
+    searchParams: Promise<{ date?: string; end?: string; couriers?: string; ends?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const date = searchParams.date ?? bgToday();
   const end =
     searchParams.end === 'home' || searchParams.end === 'last' || searchParams.end === 'custom'

@@ -20,7 +20,7 @@ const EMPTY: DashboardSummary = {
 };
 
 async function load(date: string): Promise<{ summary: DashboardSummary; orders: Order[] }> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return { summary: { ...EMPTY, date }, orders: [] };
   const headers = { Authorization: `Bearer ${token}` };
   const [sRes, oRes] = await Promise.all([
@@ -37,7 +37,7 @@ async function load(date: string): Promise<{ summary: DashboardSummary; orders: 
  *  standard plan, has no card on file, and isn't already suspended (the suspended
  *  banner covers that case). Never throws — no nudge on any failure. */
 async function shouldNudgeCard(): Promise<boolean> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return false;
   const res = await fetch(`${API_BASE}/billing/summary`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -52,7 +52,7 @@ async function shouldNudgeCard(): Promise<boolean> {
  *  the owner already controls. Any fetch failure just leaves a step unchecked. */
 async function loadReadiness(): Promise<{ readiness: StoreReadiness; deliveryEnabled: boolean }> {
   const fallback: StoreReadiness = { hasProducts: false, hasPayment: false, hasDelivery: false, hasContact: false };
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return { readiness: fallback, deliveryEnabled: false };
   const headers = { Authorization: `Bearer ${token}` };
   const j = async <T,>(path: string, fb: T): Promise<T> => {
@@ -76,11 +76,12 @@ async function loadReadiness(): Promise<{ readiness: StoreReadiness; deliveryEna
   };
 }
 
-export default async function DashboardPage({
-  searchParams,
-}: {
-  searchParams: { date?: string };
-}) {
+export default async function DashboardPage(
+  props: {
+    searchParams: Promise<{ date?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const date = searchParams.date ?? new Date().toISOString().slice(0, 10);
   const [{ summary, orders }, nudgeCard, { readiness, deliveryEnabled }] = await Promise.all([
     load(date),

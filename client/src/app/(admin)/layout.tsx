@@ -37,7 +37,7 @@ export const dynamic = 'force-dynamic';
  * rendering an empty panel.
  */
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) redirect('/login');
 
   // Tenant profile (subscription + name) and the user's mustChangePassword flag in

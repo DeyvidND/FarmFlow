@@ -29,7 +29,7 @@ async function getOps(token: string | undefined): Promise<DeliveryOps | null> {
 }
 
 export default async function DeliveryPage() {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   const [initial, ops] = await Promise.all([getAccounts(token), getOps(token)]);
   return (
     <>

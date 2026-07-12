@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
  * panel (the API also locks every other endpoint until it's done).
  */
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) redirect('/login');
 
   const me = await fetch(`${API_BASE}/platform/me`, {

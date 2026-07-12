@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 const EMPTY: Paginated<AdminReview> = { items: [], nextCursor: null };
 
 async function getPendingReviews(): Promise<Paginated<AdminReview>> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return EMPTY;
   const res = await fetch(`${API_BASE}/reviews?status=pending&limit=50`, {
     headers: { Authorization: `Bearer ${token}` },

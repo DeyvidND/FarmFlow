@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 async function getProduction(date: string): Promise<ProductionSummary> {
   const empty: ProductionSummary = { date, confirmedOrders: 0, pendingOrders: 0, multiFarmer: false, items: [] };
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return empty;
   const res = await fetch(`${API_BASE}/orders/production?date=${date}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -18,11 +18,12 @@ async function getProduction(date: string): Promise<ProductionSummary> {
   return res.json();
 }
 
-export default async function ProductionPage({
-  searchParams,
-}: {
-  searchParams: { date?: string };
-}) {
+export default async function ProductionPage(
+  props: {
+    searchParams: Promise<{ date?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const date = searchParams.date ?? new Date().toISOString().slice(0, 10);
   const summary = await getProduction(date);
   const dateLabel = bgDateLabel(new Date(`${date}T00:00:00`)).replace(' г.', '');

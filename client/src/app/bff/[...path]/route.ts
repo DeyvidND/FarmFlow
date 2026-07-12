@@ -4,7 +4,7 @@ import { API_BASE, SESSION_COOKIE } from '@/lib/session';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type Ctx = { params: { path: string[] } };
+type Ctx = { params: Promise<{ path: string[] }> };
 
 /**
  * Authenticated pass-through to the Nest API. Reads the httpOnly `ff_session`
@@ -15,11 +15,12 @@ type Ctx = { params: { path: string[] } };
  * NOTE: lives under `/bff` (not `/api`) on purpose — keeps the proxy namespace
  * distinct from the `/api/session/*` cookie-issuing route handlers.
  */
-async function proxy(req: Request, { params }: Ctx) {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+async function proxy(req: Request, { params: paramsPromise }: Ctx) {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) {
     return Response.json({ message: 'Unauthorized' }, { status: 401 });
   }
+  const params = await paramsPromise;
 
   // CSRF defense-in-depth on top of the session cookie's SameSite=Lax: reject a
   // cross-site state change. same-origin/same-site/direct-nav (none) pass through;

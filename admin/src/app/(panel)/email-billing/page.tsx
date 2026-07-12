@@ -11,7 +11,7 @@ const EMPTY: PlatformEmailBilling = {
 };
 
 async function getBilling(): Promise<PlatformEmailBilling> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return EMPTY;
   const res = await fetch(`${API_BASE}/platform/email-billing`, {
     headers: { Authorization: `Bearer ${token}` },

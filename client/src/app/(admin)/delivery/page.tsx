@@ -44,7 +44,7 @@ async function load(): Promise<{
   rule: SlotRule | null;
   freeThisWeek: number;
 }> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) {
     return { enabled: false, packageEnabled: false, delivery: null, rule: null, freeThisWeek: 0 };
   }

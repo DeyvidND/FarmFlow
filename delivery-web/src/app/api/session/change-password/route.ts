@@ -11,7 +11,7 @@ import { API_BASE, SESSION_COOKIE, SESSION_MAX_AGE, extractApiMessage } from '@/
  */
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) {
     return NextResponse.json({ message: 'Не сте влезли в системата' }, { status: 401 });
   }
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     );
   }
 
-  cookies().set(SESSION_COOKIE, data.accessToken, {
+  (await cookies()).set(SESSION_COOKIE, data.accessToken, {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',

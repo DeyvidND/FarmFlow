@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 const EMPTY_PAGE: FarmerOrdersPage = { orders: [], nextCursor: null };
 
 async function getMyOrdersSsr(): Promise<FarmerOrdersPage> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return EMPTY_PAGE;
   const res = await fetch(`${API_BASE}/orders/mine?limit=20`, {
     headers: { Authorization: `Bearer ${token}` },

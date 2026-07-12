@@ -6,7 +6,7 @@ import type { Paginated, PlatformTenant, PlatformInsights, ProblemsResponse } fr
 export const dynamic = 'force-dynamic';
 
 async function serverFetch<T>(path: string, fallback: T): Promise<T> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return fallback;
   const res = await fetch(`${API_BASE}/${path}`, {
     headers: { Authorization: `Bearer ${token}` },

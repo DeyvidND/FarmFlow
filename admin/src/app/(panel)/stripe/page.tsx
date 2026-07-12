@@ -6,7 +6,7 @@ import type { PlatformStripeAccount } from '@/lib/api-client';
 export const dynamic = 'force-dynamic';
 
 async function getAccounts(): Promise<PlatformStripeAccount[]> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return [];
   const res = await fetch(`${API_BASE}/platform/stripe/accounts`, {
     headers: { Authorization: `Bearer ${token}` },

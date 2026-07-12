@@ -46,7 +46,7 @@ async function readJson<T>(res: Response, fallback: T): Promise<T> {
 async function load(
   week: string[],
 ): Promise<{ slots: Slot[]; delivery: boolean; rule: SlotRule | null }> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return { slots: [], delivery: false, rule: null };
   const headers = { Authorization: `Bearer ${token}` };
 

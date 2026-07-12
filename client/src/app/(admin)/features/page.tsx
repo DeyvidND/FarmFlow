@@ -11,7 +11,7 @@ async function load(): Promise<FeatureFlags> {
     articlesEnabled: true,
     reviewsEnabled: true,
   };
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return fallback;
   const res = await fetch(`${API_BASE}/tenants/me`, {
     headers: { Authorization: `Bearer ${token}` },

@@ -10,7 +10,7 @@ async function load(): Promise<{
   delivery: DeliveryConfig | null;
   stripe: StripeStatus;
 }> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return { enabled: false, delivery: null, stripe: null };
   const headers = { Authorization: `Bearer ${token}` };
 

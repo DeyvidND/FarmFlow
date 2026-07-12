@@ -15,7 +15,7 @@ async function authed<T>(path: string, token: string): Promise<T | null> {
 }
 
 export default async function SiteAnalyticsPage() {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return <AnalyticsClient initial={null} role="admin" />;
 
   const [initial, account] = await Promise.all([
