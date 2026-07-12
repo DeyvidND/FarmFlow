@@ -185,7 +185,7 @@ export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
  *  terms with this farmer) are owner/admin-only — NEVER the storefront's. */
 export type PublicFarmer = Omit<
   Farmer,
-  'tenantId' | 'commissionRateBps' | 'subscriptionFeeStotinki'
+  'tenantId' | 'commissionRateBps' | 'subscriptionFeeStotinki' | 'lat' | 'lng' | 'geocodedAt'
 > & {
   images: string[];
   /** Phase 2: farmer offers nationwide courier (≥1 carrier connected). */

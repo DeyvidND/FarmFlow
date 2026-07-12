@@ -42,24 +42,30 @@ basket contents. `bundleItems` (text lines) stays for backward-compat display.
 
 ---
 
-## Task #2 — Кайсии combo rule (requires-companion)
+## Task #2 — Mandatory companion ≥ X € (REVISED by Vasil — folded into bundles)
 
-**Ask:** If the cart contains apricots (кайсии) it must also contain at least one OTHER
-product of choice; apricots-only orders are blocked. Make it a configurable per-product rule,
-not hardcoded to apricots.
+**Revised ask:** No longer apricot-specific. A product OR a bundle can require a MANDATORY
+additional item from the store, where that additional item's price must be ABOVE a configurable
+EUR threshold. Generalized to: "this item requires at least one OTHER cart item priced ≥ X €" —
+configurable threshold, NOT hardcoded. One system with the bundles (task #1).
 
-**Design:** New per-product flag `products.requires_companion boolean default false` (migr
-0101). Rule: **if any cart line's product has `requiresCompanion=true`, the cart must contain
-≥2 distinct product ids** (i.e. at least one other product). Applies to ALL delivery methods
-(Vasil: "само кайсии не ми се разнасят" — not just courier). Enforced server-side in
-`OrdersService.reserveCartItems` (before/independent of the courier backstop). `byId` already
-selects the full product row, so no select change.
+**Design:** Two per-product columns (migr 0101):
+- `requires_companion boolean default false` — the gate.
+- `companion_min_price_stotinki integer` (nullable) — EUR-cents threshold (same unit as
+  `price_stotinki`). NULL = any other product qualifies.
 
-**Backend deliverables:** DTO field on create/update product; enforcement + Bulgarian error
-message; unit spec.
+Rule (enforced in `OrdersService.reserveCartItems`, ALL delivery methods): if any cart line's
+product has `requiresCompanion=true`, the cart must contain ≥1 line for a **different** product
+whose unit price ≥ `companionMinPriceStotinki` (or any other product when NULL). Unit price is
+`resolveLineUnit` (sale-aware, variant-aware). Multiple units of the SAME flagged product do NOT
+satisfy it. `byId` + `variantById` already loaded — no extra query.
 
-**Chaika (documented):** checkout pre-check blocking the order + inline message + a nudge to
-add another product.
+**Backend deliverables:** `requiresCompanion` + `companionMinPriceStotinki` DTO fields
+(companion price `''→null` `@Transform`); enforcement + Bulgarian error message (names the
+product + „на стойност поне X,XX €"); unit spec (`orders.companion.spec.ts`).
+
+**Chaika (documented):** checkout pre-check blocking the order + inline message (with/without
+threshold) + a nudge. See `chaika-changes.md`.
 
 ---
 
@@ -132,7 +138,7 @@ controller route; types.
 | file | journal idx | change |
 |------|-------------|--------|
 | `0100_bundle_products.sql` | 93 | create table `product_bundle_items` |
-| `0101_product_requires_companion.sql` | 94 | `products.requires_companion boolean not null default false` |
+| `0101_product_requires_companion.sql` | 94 | `products.requires_companion boolean not null default false` + `products.companion_min_price_stotinki integer` (EUR-cents threshold) |
 | `0102_farmer_geo.sql` | 95 | `farmers.lat/lng numeric(10,7)`, `farmers.geocoded_at timestamptz` |
 
 No 0103 needed. NEVER leave a journal idx gap (breaks the migrator silently). Filenames use

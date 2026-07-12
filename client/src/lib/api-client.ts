@@ -3,6 +3,7 @@ import type {
   AnalyticsSummary,
   Article,
   AvailabilityWindow,
+  BundleMember,
   DashboardSummary,
   DaySuggestionResult,
   DeliveryConfig,
@@ -127,6 +128,22 @@ export const updateProduct = (id: string, data: ProductWrite) =>
 
 export const updateCourierBatch = (updates: { id: string; courierDisabled: boolean }[]) =>
   apiFetch<{ ok: true }>('products/courier-batch', { method: 'PATCH', ...json({ updates }) }, 'Неуспешно записване');
+
+/** Bundle contents („Съдържание на пакета", task #1) — only meaningful for a
+ *  product with `category === 'bundle'`. Full-replace semantics: `setBundleItems`
+ *  sends the whole member list every call (empty array clears it). */
+export const getBundleItems = (productId: string) =>
+  apiFetch<BundleMember[]>(`products/${productId}/bundle-items`, {}, 'Неуспешно зареждане на съдържанието');
+
+export const setBundleItems = (
+  productId: string,
+  items: { productId: string; quantity?: number }[],
+) =>
+  apiFetch<BundleMember[]>(
+    `products/${productId}/bundle-items`,
+    { method: 'PUT', ...json({ items }) },
+    'Неуспешно записване на съдържанието',
+  );
 
 export const deleteProduct = (id: string) =>
   apiFetch<{ id: string }>(`products/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
