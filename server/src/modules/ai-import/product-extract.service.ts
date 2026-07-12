@@ -145,11 +145,17 @@ export class ProductExtractService {
       throw new BadRequestException('Снимката е твърде голяма (до 10MB). Снимайте отново или я компресирайте.');
     }
     // .rotate() honours EXIF orientation — phone photos are often sideways.
-    const jpeg = await sharp(file.buffer)
-      .rotate()
-      .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80 })
-      .toBuffer();
+    let jpeg: Buffer;
+    try {
+      jpeg = await sharp(file.buffer)
+        .rotate()
+        .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+    } catch (e) {
+      this.log.warn(`sharp decode failed: ${String((e as Error)?.message ?? e)}`);
+      throw new BadRequestException('Снимката не може да бъде прочетена. Снимайте отново (JPEG/PNG/WebP).');
+    }
     const dataUri = `data:image/jpeg;base64,${jpeg.toString('base64')}`;
     try {
       const res = await this.client.chat.completions.create({

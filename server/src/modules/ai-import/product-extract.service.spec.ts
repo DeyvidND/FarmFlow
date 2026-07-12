@@ -159,4 +159,15 @@ describe('ProductExtractService.extractFromImage', () => {
     ).rejects.toThrow('Снимката е твърде голяма');
     expect(create).not.toHaveBeenCalled();
   });
+
+  it('rejects a corrupt image (sharp decode failure) with a BG message', async () => {
+    const sharpModule = require('sharp');
+    const chain = sharpModule.__chain;
+    chain.toBuffer.mockRejectedValueOnce(new Error('bad image'));
+    const create = jest.fn();
+    await expect(
+      withClient(create).extractFromImage(imageFileOf()),
+    ).rejects.toThrow('Снимката не може да бъде прочетена');
+    expect(create).not.toHaveBeenCalled();
+  });
 });
