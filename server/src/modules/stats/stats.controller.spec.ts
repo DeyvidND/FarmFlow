@@ -71,7 +71,7 @@ describe('StatsController routing', () => {
       });
     });
 
-    it('includeUndelivered omitted → undefined (service defaults it to true); "false" → false; any other value → true', async () => {
+    it('includeUndelivered omitted → undefined (service now defaults it to false); "false" → false; any other value → true', async () => {
       await ctrl.turnover({ type: 'tenant', userId: 'u', tenantId: 't', role: 'admin' } as any, undefined, undefined, undefined, undefined, undefined, undefined);
       expect(svc.turnoverBreakdown).toHaveBeenLastCalledWith('t', expect.objectContaining({ includeUndelivered: undefined }));
 

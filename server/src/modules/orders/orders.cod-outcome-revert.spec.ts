@@ -60,7 +60,7 @@ function makeSvc(opts: {
     {} as never,
     commission as never,
   );
-  return { svc, db, cache, codRisk, commission, updatedRow, setSpy };
+  return { svc, db, cache, codRisk, commission, updatedRow, setSpy, selectChain, updateChain };
 }
 
 // Flush the microtask queue so fire-and-forget `void this.commission?.xxx()`
@@ -129,5 +129,34 @@ describe('OrdersService.setCodOutcome — revert to pending (Task #3)', () => {
     const { svc, cache } = makeSvc({ prev: { paymentMethod: 'cod', codOutcome: 'received' } });
     await svc.setCodOutcome('o1', 't1', { outcome: 'pending' } as never);
     expect(cache.del).toHaveBeenCalled();
+  });
+
+  it('a lost race (concurrent revert already won) skips undoManualRefusal', async () => {
+    // The conditional UPDATE's `.returning()` resolves empty — another request
+    // already flipped this order out of 'refused' first — so this request must
+    // NOT double-undo the cod-risk strike. It should instead re-select the
+    // (already-consistent) current row and return that.
+    const prevRow = { paymentMethod: 'cod', codOutcome: 'refused', tenantId: 't1', customerPhone: '0888000000' };
+    const { svc, selectChain, updateChain, codRisk } = makeSvc({ prev: prevRow });
+
+    const reselectRow = {
+      id: 'o1',
+      tenantId: 't1',
+      paymentMethod: 'cod',
+      codOutcome: null,
+      codOutcomeAt: null,
+      codOutcomeReason: null,
+      customerPhone: '0888000000',
+    };
+    // 1st `.limit()` call = the initial `prev` fetch; 2nd = the race-loss re-fetch.
+    (selectChain.limit as jest.Mock)
+      .mockResolvedValueOnce([prevRow])
+      .mockResolvedValueOnce([reselectRow]);
+    // The conditional revert UPDATE loses the race — `.returning()` comes back empty.
+    (updateChain.returning as jest.Mock).mockResolvedValueOnce([]);
+
+    const row = await svc.setCodOutcome('o1', 't1', { outcome: 'pending' } as never);
+    expect(codRisk.undoManualRefusal).not.toHaveBeenCalled();
+    expect(row.codOutcome).toBe(null);
   });
 });

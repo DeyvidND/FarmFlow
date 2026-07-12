@@ -681,7 +681,7 @@ export const getTurnover = (
       ? `from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`
       : `range=${opts.range}`;
   const basis = opts.basis ? `&basis=${opts.basis}` : '';
-  const inc = opts.includeUndelivered === false ? '&includeUndelivered=false' : '';
+  const inc = opts.includeUndelivered === undefined ? '' : `&includeUndelivered=${opts.includeUndelivered}`;
   const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
   return apiFetch<TurnoverBreakdown>(`stats/turnover?${base}${basis}${inc}${fid}`);
 };

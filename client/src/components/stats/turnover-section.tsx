@@ -36,7 +36,7 @@ export function TurnoverSection({
   farmerId?: string;
 }) {
   const [basis, setBasis] = useState<TurnoverBasis>('placed');
-  const [includeUndelivered, setIncludeUndelivered] = useState(true);
+  const [includeUndelivered, setIncludeUndelivered] = useState(false);
   const [data, setData] = useState<TurnoverBreakdown | null>(null);
   const [loading, setLoading] = useState(false);
 

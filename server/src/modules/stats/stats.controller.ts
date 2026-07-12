@@ -50,7 +50,7 @@ export class StatsController {
   @ApiQuery({
     name: 'includeUndelivered',
     required: false,
-    description: '"false" excludes not-yet-delivered orders from the money figures (default: included)',
+    description: '"false" excludes not-yet-delivered orders from the money figures (default: excluded)',
   })
   @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
   turnover(

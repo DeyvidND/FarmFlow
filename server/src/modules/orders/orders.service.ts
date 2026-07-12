@@ -804,6 +804,8 @@ export class OrdersService {
     // paymentTotalsCached above) — a refused наложен платеж order stays in a
     // counted status (only a cancel, not a refusal, flips status), so it must
     // not keep inflating this producer's due/collected total.
+    // (Same test-DB-harness caveat as paymentTotalsCached above: this FILTER's
+    // DB-level behaviour is not exercised by a spec here.)
     const aggRows = cur
       ? []
       : await this.db
@@ -1060,7 +1062,7 @@ export class OrdersService {
     state: FulfillmentState,
   ): Promise<{ orderId: string; farmerId: string; state: FulfillmentState }> {
     const [owns] = await this.db
-      .select({ id: orderItems.id })
+      .select({ id: orderItems.id, status: orders.status })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .innerJoin(products, eq(products.id, orderItems.productId))
@@ -1069,6 +1071,9 @@ export class OrdersService {
       )
       .limit(1);
     if (!owns) throw new ForbiddenException('Нямате достъп до тази поръчка.');
+    if (!PAYMENT_COUNTED_STATUSES.includes(owns.status as (typeof PAYMENT_COUNTED_STATUSES)[number])) {
+      throw new BadRequestException('Поръчката вече не е активна.');
+    }
 
     await this.db
       .insert(orderFulfillments)
@@ -1091,7 +1096,11 @@ export class OrdersService {
    * row is still listed on the Плащания screen with its «Отказана» badge,
    * it just contributes 0 to the money tiles). `codOutcome` is only ever set
    * on `payment_method='cod'` rows (see setCodOutcome's method guard), so
-   * `IS DISTINCT FROM 'refused'` is a no-op for the online group. */
+   * `IS DISTINCT FROM 'refused'` is a no-op for the online group.
+   * (No test-DB harness exists in this repo, so this FILTER's actual exclusion
+   * behaviour at the DB level isn't exercised by a spec — see orders.payments.
+   * spec.ts's header note. The JS-side fold that consumes this aggregate IS
+   * covered there.) */
   private async paymentTotalsCached(tenantId: string): Promise<PaymentTotals> {
     const key = `payments:totals:${tenantId}`;
     const hit = await this.cache.get<PaymentTotals>(key);
@@ -1622,30 +1631,64 @@ export class OrdersService {
     }
 
     if (dto.outcome === 'pending') {
-      const [row] = await this.db
-        .update(orders)
-        .set({
-          codOutcome: null,
-          codOutcomeAt: null,
-          codOutcomeReason: null,
-          codOutcomeSource: 'manual',
-        })
-        .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
-        .returning();
+      const revertSet = {
+        codOutcome: null,
+        codOutcomeAt: null,
+        codOutcomeReason: null,
+        codOutcomeSource: 'manual' as const,
+      };
+      let row: OrderRow | undefined;
+      if (prev.codOutcome === 'refused') {
+        // Condition the UPDATE on the order still being 'refused': two concurrent
+        // reverts of the same refused order both read the same STALE `prev` above,
+        // so without this guard both would call `undoManualRefusal` and double-
+        // decrement a shared phone's cod-risk strike. With the guard, only the
+        // request that actually flips refused→pending gets a non-empty
+        // `.returning()` back and is allowed to undo the strike; the loser sees
+        // an empty array (the other request already won) and skips it silently.
+        const [updated] = await this.db
+          .update(orders)
+          .set(revertSet)
+          .where(
+            and(
+              eq(orders.id, id),
+              eq(orders.tenantId, tenantId),
+              eq(orders.codOutcome, 'refused'),
+            ),
+          )
+          .returning();
+        if (updated) {
+          row = updated;
+          try {
+            await this.codRisk.undoManualRefusal(prev as typeof orders.$inferSelect);
+          } catch {
+            /* best-effort: leave the revert recorded even if the strike undo fails */
+          }
+        } else {
+          // Lost the race — a concurrent request already reverted this order out
+          // of 'refused' (and already undid the strike). Nothing left to do here
+          // except hand back the now-current row instead of a misleading 404.
+          const [current] = await this.db
+            .select()
+            .from(orders)
+            .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+            .limit(1);
+          row = current;
+        }
+      } else {
+        // Was 'received' or null — no strike was ever recorded, so there is no
+        // race to guard against; keep the plain unconditional update.
+        const [updated] = await this.db
+          .update(orders)
+          .set(revertSet)
+          .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+          .returning();
+        row = updated;
+      }
       if (!row) throw new NotFoundException('Поръчката не е намерена');
       // No money has been collected once reverted to pending — void the (dormant)
       // commission accrual. Fire-and-forget: must never block the outcome write.
       void this.commission?.voidForOrder(id, tenantId);
-      // A manual refusal recorded a cod-risk strike on the NULL→refused transition
-      // (see below); reverting that refusal removes the strike it caused. A prior
-      // `received` outcome never recorded a strike, so there is nothing to undo.
-      if (prev.codOutcome === 'refused') {
-        try {
-          await this.codRisk.undoManualRefusal(prev as typeof orders.$inferSelect);
-        } catch {
-          /* best-effort: leave the revert recorded even if the strike undo fails */
-        }
-      }
       await this.bustPayments(tenantId);
       return row;
     }

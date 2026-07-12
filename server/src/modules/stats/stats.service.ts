@@ -754,7 +754,7 @@ export class StatsService {
     const { from, to, range } = resolveWindow(opts, today);
     const basis: TurnoverBasis =
       opts.basis === 'delivery' || opts.basis === 'delivered' ? opts.basis : 'placed';
-    const includeUndelivered = opts.includeUndelivered !== false;
+    const includeUndelivered = opts.includeUndelivered === true;
     const bucket = pickBucket(from, to);
     const cfg = BUCKETS[bucket];
     const axisKeys = buildAxis(bucket, from, to);

@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 
 /**
@@ -91,7 +91,7 @@ describe('OrdersService.setFulfillment', () => {
   }
 
   it('upserts the fulfilment row when the farmer owns at least one item on the order', async () => {
-    const { svc, valuesSpy, onConflictSpy } = makeSvc([{ id: 'item-1' }]);
+    const { svc, valuesSpy, onConflictSpy } = makeSvc([{ id: 'item-1', status: 'confirmed' }]);
     const result = await svc.setFulfillment('o1', 't1', 'farmer-1', 'fulfilled');
     expect(result).toEqual({ orderId: 'o1', farmerId: 'farmer-1', state: 'fulfilled' });
     expect(valuesSpy).toHaveBeenCalledWith(
@@ -106,6 +106,14 @@ describe('OrdersService.setFulfillment', () => {
     const { svc, valuesSpy } = makeSvc([]);
     await expect(svc.setFulfillment('o1', 't1', 'farmer-9', 'fulfilled')).rejects.toThrow(
       ForbiddenException,
+    );
+    expect(valuesSpy).not.toHaveBeenCalled();
+  });
+
+  it('throws BadRequestException self-marking fulfilment on a non-active order (e.g. cancelled)', async () => {
+    const { svc, valuesSpy } = makeSvc([{ id: 'item-1', status: 'cancelled' }]);
+    await expect(svc.setFulfillment('o1', 't1', 'farmer-1', 'fulfilled')).rejects.toThrow(
+      BadRequestException,
     );
     expect(valuesSpy).not.toHaveBeenCalled();
   });
