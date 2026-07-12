@@ -79,7 +79,29 @@ export interface Product {
   saleEndsAt: string | null;
   /** Product-level fixed promo price (stotinki) or null. Plain products only. */
   salePriceStotinki: number | null;
+  /** Companion rule: true = can't be ordered alone; the cart must also hold ≥1
+   *  other distinct product. See `companionMinPriceStotinki` for the optional
+   *  value gate. Enforced server-side (OrdersService) for every delivery method. */
+  requiresCompanion: boolean;
+  /** Optional EUR-cents threshold for the companion rule (same unit as
+   *  priceStotinki): the required other product must cost ≥ this. null = any
+   *  other product qualifies. */
+  companionMinPriceStotinki: number | null;
   createdAt: string;
+}
+
+/** A member product of a bundle ( category='bundle' product), as returned by
+ *  GET/PUT /products/:id/bundle-items. */
+export interface BundleMember {
+  productId: string;
+  name: string;
+  slug: string;
+  image: string | null;
+  quantity: number;
+  position: number;
+  priceStotinki: number;
+  isActive: boolean;
+  courierDisabled: boolean;
 }
 
 /** A product variant (вид/грамаж) as edited in the panel. */

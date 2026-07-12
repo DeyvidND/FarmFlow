@@ -43,6 +43,7 @@ jobs:
             image: ghcr.io/deyvidnd/farmflow-admin
             dockerfile: admin/Dockerfile
             build_args: |
+              NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ vars.FF_MAPS_BROWSER_KEY }}
               NEXT_PUBLIC_SENTRY_DSN=${{ vars.FF_SENTRY_DSN_ADMIN }}
           - app: delivery-web
             image: ghcr.io/deyvidnd/farmflow-delivery-web

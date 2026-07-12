@@ -770,6 +770,39 @@ export interface OnboardProducerResult {
   inviteLink: string | null;
 }
 
+// ── «Карта на производители» (cross-tenant producers map, task #12) ──
+
+/** One producer pin (or table row when unlocated) for the producers map.
+ *  Mirrors `server/src/modules/platform/platform.service.ts` — response shape is FIXED. */
+export interface ProducerMapPoint {
+  id: string;
+  name: string;
+  tenantName: string;
+  tenantSlug: string;
+  isDemo: boolean;
+  city: string | null;
+  tier: number;
+  tint: string | null;
+  imageUrl: string | null;
+  /** Null when the producer/tenant address hasn't been geocoded yet — not plotted
+   *  on the map, but still listed in the fallback table. */
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface ProducersMapResult {
+  producers: ProducerMapPoint[];
+  withLocation: number;
+  withoutLocation: number;
+  /** False when GOOGLE_MAPS_API_KEY is unset on the server — the page falls back
+   *  to the table only. */
+  mapsEnabled: boolean;
+}
+
+/** Cross-tenant producers map snapshot (client-side, via the BFF proxy). */
+export const getProducersMap = () =>
+  apiFetch<ProducersMapResult>('platform/producers/map', undefined, 'Неуспешно зареждане на картата');
+
 /** Multipart: do NOT set content-type — the browser sets the boundary. */
 export const onboardProducer = (
   tenantId: string,

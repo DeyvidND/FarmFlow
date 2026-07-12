@@ -155,6 +155,14 @@ export class PlatformController {
     return this.platform.farmerDetail(id);
   }
 
+  /** Карта на производители (task #12): every producer we work with as map pins,
+   *  geocoding any that still lack coordinates. Literal segment — declared before no
+   *  `:id` sibling clashes with it. */
+  @Get('producers/map')
+  producersMap() {
+    return this.platform.producersMap();
+  }
+
   /** Cross-tenant delivery operations snapshot (status + COD + stuck drafts). */
   @Get('delivery/ops')
   deliveryOps() {

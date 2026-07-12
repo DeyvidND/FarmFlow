@@ -2074,6 +2074,42 @@ export class OrdersService {
       }
     }
 
+    // Companion rule (generalized „кайсии" combo): a product flagged `requiresCompanion`
+    // can't be ordered alone — the cart must also hold at least one OTHER distinct product,
+    // and (when `companionMinPriceStotinki` is set) that other product's unit price must be
+    // >= the threshold (EUR cents). Configurable per product/bundle, enforced for EVERY
+    // delivery method (pickup/local/courier), independent of the courier backstop above.
+    // byId already holds the full product rows + variantById the chosen variants — no extra query.
+    const companionRequirers = dtoItems
+      .map((it) => byId.get(it.productId))
+      .filter((p): p is NonNullable<typeof p> => !!p && p.requiresCompanion);
+    if (companionRequirers.length) {
+      const nowC = new Date();
+      const unitOf = (it: (typeof dtoItems)[number]): number => {
+        const prod = byId.get(it.productId)!;
+        const variant = it.variantId ? variantById.get(it.variantId) ?? null : null;
+        return resolveLineUnit(prod, variant, nowC).unitStotinki;
+      };
+      for (const req of companionRequirers) {
+        const threshold = req.companionMinPriceStotinki ?? 0;
+        // A qualifying companion is ANY cart line for a DIFFERENT product meeting the threshold.
+        const hasCompanion = dtoItems.some(
+          (it) => it.productId !== req.id && !!byId.get(it.productId) && unitOf(it) >= threshold,
+        );
+        if (!hasCompanion) {
+          if (threshold > 0) {
+            const eur = (threshold / 100).toFixed(2).replace('.', ',');
+            throw new BadRequestException(
+              `„${req.name}" не се доставя самостоятелно — добавете поне още един продукт на стойност поне ${eur} €.`,
+            );
+          }
+          throw new BadRequestException(
+            `„${req.name}" не се доставя самостоятелно — добавете поне още един продукт по избор.`,
+          );
+        }
+      }
+    }
+
     // Slot (local delivery only): lock the row + enforce the slot's capacity. When
     // slotId is null (courier / non-local) this whole block is skipped.
     // slotFrom/slotTo: day-rows carry no time window anymore (see migration

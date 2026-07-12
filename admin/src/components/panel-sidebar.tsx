@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Users,
   Sprout,
+  MapPin,
   Truck,
   AlertTriangle,
   Activity,
@@ -44,6 +45,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/tenants', label: 'Ферми', Icon: Users },
       { href: '/producers', label: 'Производители', Icon: Sprout },
+      { href: '/producers-map', label: 'Карта на производители', Icon: MapPin },
     ],
   },
   {
