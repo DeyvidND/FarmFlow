@@ -29,6 +29,8 @@ const SKELETON_ROWS = 6;
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 /** Human order ref — the per-tenant number, falling back to a short id for legacy rows. */
 const orderNo = (o: Order) => (o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(0, 8)}`);
+/** Goods subtotal (Σ line items). Delivery fee is order.totalStotinki − this. */
+const goodsSubtotal = (o: Order) => o.items.reduce((s, it) => s + it.priceStotinki * it.quantity, 0);
 
 const bar = (w: string, h = 'h-3') => <div className={cn('animate-pulse rounded bg-ff-surface-2', w, h)} />;
 
@@ -313,8 +315,13 @@ export function OrdersClient({
                     )}
                   </div>
                 </td>
-                <td className="ff-fig px-5 py-3.5 text-right align-top text-[14.5px] font-extrabold">
-                  {moneyFromStotinki(o.totalStotinki)}
+                <td className="px-5 py-3.5 text-right align-top">
+                  <div className="ff-fig text-[14.5px] font-extrabold">{moneyFromStotinki(o.totalStotinki)}</div>
+                  {goodsSubtotal(o) < o.totalStotinki && (
+                    <div className="mt-0.5 text-[11.5px] font-semibold text-ff-muted">
+                      стоки {moneyFromStotinki(goodsSubtotal(o))}
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -349,7 +356,14 @@ export function OrdersClient({
               <div className="text-[13.5px] leading-[1.4] text-ff-ink-2">{itemsSummary(o)}</div>
               <div className="flex items-center justify-between border-t border-ff-border-2 pt-2.5 text-[13px]">
                 {deliveryCell(o)}
-                <span className="ff-fig text-[16.5px] font-extrabold">{moneyFromStotinki(o.totalStotinki)}</span>
+                <div className="flex flex-col items-end">
+                  <span className="ff-fig text-[16.5px] font-extrabold">{moneyFromStotinki(o.totalStotinki)}</span>
+                  {goodsSubtotal(o) < o.totalStotinki && (
+                    <span className="text-[11.5px] font-semibold text-ff-muted">
+                      стоки {moneyFromStotinki(goodsSubtotal(o))}
+                    </span>
+                  )}
+                </div>
               </div>
             </button>
           ))}
