@@ -623,6 +623,17 @@ export interface QueueHealth {
   status: 'ok' | 'backlog' | 'error';
 }
 
+/** One recent server-side failure with its verbatim message (the real cause). */
+export interface RecentError {
+  method: string;
+  path: string;
+  statusCode: number;
+  message: string | null;
+  tenantId: string | null;
+  tenantName: string | null;
+  createdAt: string;
+}
+
 export interface HealthBoard {
   generatedAt: string;
   services: { db: ServiceStatus; redis: ServiceStatus };
@@ -631,6 +642,7 @@ export interface HealthBoard {
     last24h: number;
     topPaths: { path: string; count: number }[];
     topTenants: { tenantId: string | null; tenantName: string | null; count: number }[];
+    recent: RecentError[];
   };
   notes?: string[];
 }

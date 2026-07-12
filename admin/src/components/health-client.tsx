@@ -9,6 +9,7 @@ import {
   getHealthBoard,
   type HealthBoard,
   type QueueHealth,
+  type RecentError,
   type ServiceStatus,
 } from '@/lib/api-client';
 
@@ -17,6 +18,13 @@ function fmtClock(iso: string): string {
   const d = new Date(iso);
   const p2 = (n: number) => String(n).padStart(2, '0');
   return `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
+/** ISO → "11.07, 21:51" for the recent-errors timeline. */
+function fmtDateTime(iso: string): string {
+  const d = new Date(iso);
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}, ${p2(d.getHours())}:${p2(d.getMinutes())}`;
 }
 
 const QUEUE_STATUS: Record<
@@ -94,6 +102,34 @@ function QueueBadge({ status }: { status: QueueHealth['status'] }) {
       <span className={cn('h-[7px] w-[7px] rounded-full', s.dot)} />
       {s.label}
     </span>
+  );
+}
+
+/** One recent failure: method + path + farm + time, and the verbatim error message
+ *  (the actual cause, e.g. a failing SQL) in a monospace, scrollable block. */
+function RecentErrorCard({ err }: { err: RecentError }) {
+  return (
+    <li className="rounded-xl border border-ff-border bg-ff-surface p-3.5 shadow-ff-sm">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="ff-fig inline-flex shrink-0 items-center rounded-md bg-[#FBE9E7] px-1.5 py-0.5 text-[11.5px] font-extrabold text-ff-red">
+          {err.statusCode}
+        </span>
+        <span className="shrink-0 font-mono text-[11.5px] font-bold text-ff-muted">{err.method}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ff-ink-2" title={err.path}>
+          {err.path}
+        </span>
+        <span className="ml-auto shrink-0 whitespace-nowrap text-[11.5px] text-ff-muted-2">
+          {err.tenantName ?? '(без ферма)'} · {fmtDateTime(err.createdAt)}
+        </span>
+      </div>
+      {err.message ? (
+        <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-ff-surface-2 p-2.5 font-mono text-[11.5px] leading-[1.5] text-ff-ink-2">
+          {err.message}
+        </pre>
+      ) : (
+        <div className="mt-2 text-[12px] italic text-ff-muted-2">Няма съобщение за грешката.</div>
+      )}
+    </li>
   );
 }
 
@@ -324,6 +360,20 @@ export function HealthClient() {
                 )}
               </div>
             </div>
+
+            {/* Последни грешки — verbatim messages, newest first */}
+            {data.errors.recent.length > 0 && (
+              <div className="mt-3">
+                <div className="mb-2 text-[12px] font-bold uppercase tracking-[0.03em] text-ff-muted">
+                  Последни грешки
+                </div>
+                <ul className="flex flex-col gap-2.5">
+                  {data.errors.recent.map((err, i) => (
+                    <RecentErrorCard key={i} err={err} />
+                  ))}
+                </ul>
+              </div>
+            )}
           </section>
         </div>
       ) : null}

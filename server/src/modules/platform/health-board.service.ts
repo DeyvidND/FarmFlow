@@ -29,6 +29,20 @@ export interface QueueHealth {
   status: 'ok' | 'backlog' | 'error';
 }
 
+/** One recent server-side failure, surfaced verbatim so the operator sees the
+ *  actual error text (e.g. the failing SQL) in the panel instead of only a count.
+ *  `message` is the captured `Error.message` (already length-capped at write time
+ *  by GlobalExceptionFilter) — the real cause, not a generic 500 blurb. */
+export interface RecentError {
+  method: string;
+  path: string;
+  statusCode: number;
+  message: string | null;
+  tenantId: string | null;
+  tenantName: string | null;
+  createdAt: string;
+}
+
 /** Live platform technical pulse for the super-admin «Здраве» screen.
  *  Response shape is FIXED — the admin UI depends on it exactly as-is. */
 export interface HealthBoard {
@@ -39,6 +53,8 @@ export interface HealthBoard {
     last24h: number;
     topPaths: { path: string; count: number }[];
     topTenants: { tenantId: string | null; tenantName: string | null; count: number }[];
+    /** Newest-first sample of individual failures, each with its verbatim message. */
+    recent: RecentError[];
   };
   notes?: string[];
 }
@@ -50,6 +66,10 @@ const QUEUE_BACKLOG_THRESHOLD = 100;
 const ERROR_WINDOW_HOURS = 24;
 // Bounded fetch for the recent-failures scan — see `recentFailedCount`.
 const FAILED_SAMPLE_SIZE = 100;
+// How many individual recent failures to surface (newest-first) with their full
+// message. Small on purpose: this is a "what broke, exactly?" sample for the
+// operator, not a paginated log viewer.
+const RECENT_ERRORS_LIMIT = 15;
 
 /**
  * Live system health for the super-admin «Здраве» board: DB/Redis reachability,
@@ -176,12 +196,13 @@ export class HealthBoardService {
 
   /** 24h error-rate summary from `error_events`: total + top-5 paths + top-5 tenants
    *  (null tenant/tenantName grouped together for platform-level/unauthenticated
-   *  errors). Guarded as a whole — if the table/query fails, degrade to zeros with
+   *  errors) + a newest-first sample of individual failures carrying their verbatim
+   *  message. Guarded as a whole — if the table/query fails, degrade to zeros with
    *  a note rather than failing the entire health board. */
   private async errorStats(notes: string[]): Promise<HealthBoard['errors']> {
     const since = new Date(Date.now() - ERROR_WINDOW_HOURS * 60 * 60 * 1000);
     try {
-      const [[totalRow], topPaths, topTenantsRaw] = await Promise.all([
+      const [[totalRow], topPaths, topTenantsRaw, recentRaw] = await Promise.all([
         this.db
           .select({ count: sql<number>`count(*)::int` })
           .from(errorEvents)
@@ -205,6 +226,21 @@ export class HealthBoardService {
           .groupBy(errorEvents.tenantId, tenants.name)
           .orderBy(sql`count(*) desc`)
           .limit(5),
+        this.db
+          .select({
+            method: errorEvents.method,
+            path: errorEvents.path,
+            statusCode: errorEvents.statusCode,
+            message: errorEvents.message,
+            tenantId: errorEvents.tenantId,
+            tenantName: tenants.name,
+            createdAt: errorEvents.createdAt,
+          })
+          .from(errorEvents)
+          .leftJoin(tenants, eq(errorEvents.tenantId, tenants.id))
+          .where(gte(errorEvents.createdAt, since))
+          .orderBy(sql`${errorEvents.createdAt} desc`)
+          .limit(RECENT_ERRORS_LIMIT),
       ]);
 
       return {
@@ -215,10 +251,20 @@ export class HealthBoardService {
           tenantName: r.tenantName ?? null,
           count: r.count,
         })),
+        recent: recentRaw.map((r) => ({
+          method: r.method,
+          path: r.path,
+          statusCode: r.statusCode,
+          message: r.message ?? null,
+          tenantId: r.tenantId,
+          tenantName: r.tenantName ?? null,
+          // `created_at` is nullable in the schema (DB default), so guard it.
+          createdAt: (r.createdAt ?? new Date()).toISOString(),
+        })),
       };
     } catch {
       notes.push('Грешките (error_events) не можаха да бъдат прочетени за последните 24ч.');
-      return { last24h: 0, topPaths: [], topTenants: [] };
+      return { last24h: 0, topPaths: [], topTenants: [], recent: [] };
     }
   }
 }
