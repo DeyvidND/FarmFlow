@@ -1239,9 +1239,15 @@ export class RoutingService {
     date?: string,
   ): Promise<{ approved: number; date: string }> {
     const day = date ?? bgToday();
-    const res = await this.db
-      .update(orders)
-      .set({ deliveryWindowStatus: 'approved' })
+    // scheduledForDay references deliverySlots.date, but an UPDATE can't leftJoin
+    // (and UPDATE ... FROM would inner-join, dropping slotless orders). Compute the
+    // eligible ids in a self-contained subselect that DOES join per scheduledForDay's
+    // contract, then update by id — else Postgres throws "missing FROM-clause entry
+    // for table delivery_slots". The slotless (createdAt) fallback branch is kept.
+    const eligible = this.db
+      .select({ id: orders.id })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
       .where(
         and(
           eq(orders.tenantId, tenantId),
@@ -1251,7 +1257,11 @@ export class RoutingService {
           isNotNull(orders.deliveryWindowStart),
           or(isNull(orders.deliveryWindowStatus), eq(orders.deliveryWindowStatus, 'draft')),
         ),
-      )
+      );
+    const res = await this.db
+      .update(orders)
+      .set({ deliveryWindowStatus: 'approved' })
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, eligible)))
       .returning({ id: orders.id });
     return { approved: res.length, date: day };
   }

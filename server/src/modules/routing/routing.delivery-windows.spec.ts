@@ -286,3 +286,44 @@ describe('RoutingService.notifyDeliveryWindows — partial-failure resilience', 
     expect(orderEmail.sendDeliveryWindow).not.toHaveBeenCalled();
   });
 });
+
+// ─── (e) approve joins delivery_slots for the scheduledForDay eligibility ────
+describe('RoutingService.approveDeliveryWindows — joins delivery_slots', () => {
+  it('leftJoins delivery_slots in the eligibility subselect and returns the approved count', async () => {
+    // An UPDATE can't .leftJoin, so approve builds a self-contained subselect that
+    // joins delivery_slots (scheduledForDay references delivery_slots.date) and
+    // updates by id. Without the join, Postgres throws "missing FROM-clause entry
+    // for table delivery_slots" — the mock can't reproduce that SQL error, so we
+    // assert the join is present on the subselect chain instead.
+    let leftJoinCalled = false;
+    const db = {
+      select: () => {
+        const chain: any = {
+          from: () => chain,
+          leftJoin: () => {
+            leftJoinCalled = true;
+            return chain;
+          },
+          // The subselect is passed to inArray(), never awaited on its own.
+          where: () => chain,
+        };
+        return chain;
+      },
+      update: () => ({
+        set: () => ({
+          where: () => ({
+            // Two rows matched → approved: 2.
+            returning: () => Promise.resolve([{ id: 'o1' }, { id: 'o2' }]),
+          }),
+        }),
+      }),
+    } as any;
+    const svc = new RoutingService(db, {} as any, {} as any, {} as any);
+
+    const result = await svc.approveDeliveryWindows('t1', '2026-07-07');
+
+    expect(result).toEqual({ approved: 2, date: '2026-07-07' });
+    // The eligibility subselect MUST join delivery_slots per scheduledForDay's contract.
+    expect(leftJoinCalled).toBe(true);
+  });
+});
