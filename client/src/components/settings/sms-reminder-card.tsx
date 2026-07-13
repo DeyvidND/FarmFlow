@@ -3,24 +3,26 @@
 /**
  * Delivery settings → SMS напомняне в деня на доставка. When on, the platform
  * SMSes each own-delivery customer their approved time window on the morning of
- * delivery (server cron). Off by default — SMS-ите се таксуват. Self-contained
- * (own load/save cycle via GET/PATCH tenants/me), independent of the surrounding
- * delivery-config save flow — mirrors nav-visibility-card.tsx.
+ * delivery (server cron). Off by default — SMS-ите се таксуват.
+ *
+ * Single-boolean setting → AUTO-SAVES on toggle (no SaveBar): the toggle
+ * optimistically flips, PATCHes tenants/me immediately, and reverts on error.
+ * Deliberately avoids the shared fixed-position `SaveBar` — this card is mounted
+ * inside the delivery-settings screen, which already renders its own page-level
+ * save bar for its `cfg`, and two fixed bottom bars would overlap and hide each
+ * other's controls. Auto-save also just reads better for a lone on/off flag.
  */
 import * as React from 'react';
 import { MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
-import { SaveBar } from '@/components/panels/panel-ui';
 import { ApiError, getTenant, updateTenant } from '@/lib/api-client';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
 export function SmsReminderCard() {
   const [loading, setLoading] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
-  const [saved, setSaved] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
   const [on, setOn] = React.useState(false);
 
   React.useEffect(() => {
@@ -28,9 +30,7 @@ export function SmsReminderCard() {
     getTenant()
       .then((t) => {
         if (!active) return;
-        const v = !!t.sms?.dayOfReminder;
-        setSaved(v);
-        setOn(v);
+        setOn(!!t.sms?.dayOfReminder);
       })
       .catch(() => active && toast.error('Неуспешно зареждане на настройките'))
       .finally(() => {
@@ -41,25 +41,25 @@ export function SmsReminderCard() {
     };
   }, []);
 
-  const dirty = on !== saved;
-
-  const save = async () => {
-    setSaving(true);
+  const toggle = async (next: boolean) => {
+    const prev = on;
+    setOn(next); // optimistic
+    setBusy(true);
     try {
-      await updateTenant({ sms: { dayOfReminder: on } });
-      setSaved(on);
+      await updateTenant({ sms: { dayOfReminder: next } });
       toast.success('Настройката е запазена');
     } catch (e) {
+      setOn(prev); // revert on failure
       toast.error(errMsg(e));
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   };
 
   if (loading) return null;
 
   return (
-    <section className={cn('rounded-xl border border-ff-border bg-ff-surface-2', dirty && 'mb-16')}>
+    <section className="rounded-xl border border-ff-border bg-ff-surface-2">
       <div className="flex items-center gap-3 px-[15px] py-3.5">
         <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] border border-ff-border-2 bg-ff-surface text-ff-muted">
           <MessageSquare size={20} />
@@ -73,10 +73,8 @@ export function SmsReminderCard() {
             часове предната вечер. SMS-ите се таксуват.
           </div>
         </div>
-        <ToggleSwitch checked={on} onChange={setOn} />
+        <ToggleSwitch checked={on} onChange={toggle} disabled={busy} />
       </div>
-
-      {dirty && <SaveBar saving={saving} onSave={save} onDiscard={() => setOn(saved)} />}
     </section>
   );
 }
