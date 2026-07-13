@@ -146,7 +146,7 @@ export function FarmersClient({
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-ff-muted">{farmers.length} фермери · продуктите им се показват в общия магазин</p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {farmers.length > 1 && (
                 <Button
                   variant={reorderMode ? 'primary' : 'ghost'}
@@ -204,7 +204,7 @@ export function FarmersClient({
                           const s = !acc ? 'none' : acc.invitePending ? 'pending' : 'active';
                           const meta = {
                             active: { t: 'Активен', c: 'bg-ff-green-50 text-ff-green-700' },
-                            pending: { t: 'Поканен', c: 'bg-ff-amber-50 text-ff-amber-600' },
+                            pending: { t: 'Поканен', c: 'bg-ff-amber-50 text-[#7a4e10]' },
                             none: { t: 'Без достъп', c: 'bg-ff-surface-2 text-ff-muted' },
                           }[s];
                           return (
@@ -227,7 +227,7 @@ export function FarmersClient({
                     <button
                       onClick={() => openEdit(f)}
                       aria-label="Редактирай"
-                      className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] border border-ff-border bg-ff-surface-2 text-ff-ink-2"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-[9px] border border-ff-border bg-ff-surface-2 text-ff-ink-2"
                     >
                       <Pencil size={16} />
                     </button>

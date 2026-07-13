@@ -18,8 +18,10 @@ import {
 } from '@/lib/api-client';
 import type { Farmer, ProductOption, CoverCrop, FarmerAccess } from '@/lib/types';
 
+// Font is 16px on phones (prevents iOS Safari auto-zoom on focus, which yanks the
+// whole drawer sideways) and drops back to the denser 14.5px on ≥sm screens.
 const field =
-  'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
+  'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[16px] sm:text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
 export function FarmerPanel({
@@ -276,7 +278,7 @@ export function FarmerPanel({
           <button
             onClick={onClose}
             aria-label="Затвори"
-            className="grid h-10 w-10 place-items-center rounded-[11px] border border-ff-border bg-ff-surface-2 text-ff-ink-2"
+            className="grid h-11 w-11 place-items-center rounded-[11px] border border-ff-border bg-ff-surface-2 text-ff-ink-2"
           >
             <X size={20} />
           </button>
@@ -292,7 +294,7 @@ export function FarmerPanel({
           </div>
 
           {isNew ? (
-            <p className="text-[12.5px] text-ff-muted-2">Първо запази фермера, после добави снимка.</p>
+            <p className="text-[12.5px] text-ff-muted">Първо запази фермера, после добави снимка.</p>
           ) : (
             <MediaManager resource="farmers" ownerId={farmer.id!} onCoverChange={onCoverChange} maxPhotos={brandingEnabled ? 6 : 1} />
           )}
@@ -395,7 +397,7 @@ export function FarmerPanel({
                   />
                 </label>
                 {farmer.legal?.confirmedAt && (
-                  <p className="text-[11px] font-semibold text-ff-muted-2">
+                  <p className="text-[11px] font-semibold text-ff-muted">
                     Последно потвърдено: {new Date(farmer.legal.confirmedAt).toLocaleDateString('bg-BG')}
                   </p>
                 )}
@@ -475,7 +477,7 @@ export function FarmerPanel({
 
                   <div className={labelCls}>
                     Оформление на галерията
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                       {([
                         ['wide', 'Едра'],
                         ['mosaic', 'Мозайка'],
@@ -541,7 +543,7 @@ export function FarmerPanel({
               placeholder="напр. petar@ferma.bg"
               className={field}
             />
-            <span className="text-[11px] font-semibold text-ff-muted-2">
+            <span className="text-[11px] font-semibold text-ff-muted">
               Същият имейл се ползва и за дневния списък с доставки, и за входа в панела.
             </span>
           </label>
@@ -612,7 +614,7 @@ export function FarmerPanel({
           )}
         </div>
 
-        <div className="flex gap-2.5 border-t border-ff-border-2 px-6 pb-[22px] pt-4">
+        <div className="flex gap-2.5 border-t border-ff-border-2 px-6 pb-[calc(22px+env(safe-area-inset-bottom))] pt-4">
           <Button variant="primary" onClick={save} disabled={saving} className="flex-1 rounded-sm">
             <Check size={18} /> {isNew ? 'Добави фермер' : 'Запази промените'}
           </Button>

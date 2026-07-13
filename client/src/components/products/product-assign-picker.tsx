@@ -117,7 +117,7 @@ export function ProductAssignPicker({
           {on && <Check size={13} strokeWidth={3} />}
         </span>
         <span className="flex-1 truncate text-[13.5px] font-semibold text-ff-ink">{p.name}</span>
-        {elsewhere && <span className="shrink-0 text-[11px] font-bold text-ff-muted-2">свързан другаде</span>}
+        {elsewhere && <span className="shrink-0 text-[11px] font-bold text-ff-muted">свързан другаде</span>}
       </button>
     );
   }
@@ -135,7 +135,7 @@ export function ProductAssignPicker({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Търси продукт…"
-          className="w-full rounded-sm border border-ff-border bg-ff-surface-2 py-2 pl-8 pr-3 text-[13.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500"
+          className="w-full rounded-sm border border-ff-border bg-ff-surface-2 py-2 pl-8 pr-3 text-[16px] sm:text-[13.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500"
         />
       </div>
 
@@ -159,7 +159,7 @@ export function ProductAssignPicker({
         )}
       </div>
 
-      <p className="text-[11.5px] text-ff-muted-2">
+      <p className="text-[11.5px] text-ff-muted">
         Отметни продуктите за този профил. „Свързан другаде“ ще се премести тук при запазване.
       </p>
     </div>

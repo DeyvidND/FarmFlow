@@ -110,7 +110,7 @@ export function CoverCropEditor({
 
       {aspects && aspects.length > 1 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-[11.5px] font-semibold text-ff-muted-2">Форма:</span>
+          <span className="text-[11.5px] font-semibold text-ff-muted">Форма:</span>
           <div className="inline-flex overflow-hidden rounded-lg border border-ff-border">
             {aspects.map((a) => {
               const active = Math.abs(a.value - previewAspect) < 1e-6;
@@ -166,7 +166,7 @@ export function CoverCropEditor({
         />
         <span className="w-9 text-right tabular-nums">{crop.zoom.toFixed(1)}×</span>
       </label>
-      <p className="text-[11.5px] text-ff-muted-2">
+      <p className="text-[11.5px] text-ff-muted">
         Влачи снимката за да избереш коя част се вижда; колелцето или плъзгача увеличава.
       </p>
     </div>
