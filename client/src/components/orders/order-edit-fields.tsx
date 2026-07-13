@@ -262,8 +262,27 @@ function AddProductRow({
   const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [variantId, setVariantId] = useState<string>('');
 
+  // Drain ALL pages once on open — the catalog is keyset-paginated (50/page,
+  // oldest-first), and the search below filters client-side, so a single page
+  // would silently hide any product beyond the first 50 (e.g. newer seasonal
+  // items). Load everything so the picker can find every product.
   useEffect(() => {
-    if (open && products.length === 0) listProducts().then((r) => setProducts(r.items)).catch(() => setProducts([]));
+    if (!open || products.length > 0) return;
+    let alive = true;
+    void (async () => {
+      const all: Product[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await listProducts(cursor).catch(() => null);
+        if (!page) break;
+        all.push(...page.items);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+      if (alive) setProducts(all);
+    })();
+    return () => {
+      alive = false;
+    };
   }, [open, products.length]);
 
   async function choose(p: Product) {
