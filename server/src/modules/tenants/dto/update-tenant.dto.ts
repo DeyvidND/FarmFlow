@@ -164,4 +164,13 @@ export class UpdateTenantDto {
   @IsObject()
   @MaxJsonSize(20_000)
   delivery?: Record<string, unknown>;
+
+  /**
+   * SMS config blob, persisted to `settings.sms`. Validated only as an object;
+   * shape parsed defensively server-side (parseSmsSettings). e.g. { dayOfReminder: true }.
+   */
+  @ApiPropertyOptional({ description: 'SMS config (persisted to settings.sms)' })
+  @IsOptional()
+  @IsObject()
+  sms?: Record<string, unknown>;
 }

@@ -40,6 +40,7 @@ import { buildPublicCopy, buildPublicFaq, cleanCopy, normalizeFaq, sanitizeSiteU
 import { SiteEditContentDto } from './dto/site-edit-content.dto';
 import { LegalDto } from './dto/legal.dto';
 import { normalizeLegal } from './legal';
+import { parseSmsSettings } from './sms-settings';
 
 /** One stored site-media value. `key` is the R2 object key (for replace/delete);
  *  only `url` is ever exposed publicly. */
@@ -157,8 +158,8 @@ export class TenantsService {
   }
 
   async updateMe(tenantId: string, dto: UpdateTenantDto): Promise<PublicTenant> {
-    // `delivery` and `routing` aren't columns — they merge into `settings` jsonb.
-    const { delivery, routing, farmAddress, farmLat, farmLng, ...flat } = dto;
+    // `delivery`, `routing`, `sms` aren't columns — they merge into `settings` jsonb.
+    const { delivery, routing, sms, farmAddress, farmLat, farmLng, ...flat } = dto;
     const set: Record<string, unknown> = { ...flat };
 
     // A manually-featured «Продукт на седмицата» must belong to this tenant.
@@ -195,7 +196,7 @@ export class TenantsService {
       set.farmLng = String(farmLng);
     }
 
-    if (delivery !== undefined || routing !== undefined) {
+    if (delivery !== undefined || routing !== undefined || sms !== undefined) {
       const [cur] = await this.db
         .select({ settings: tenants.settings })
         .from(tenants)
@@ -212,6 +213,11 @@ export class TenantsService {
       }
       if (routing !== undefined) {
         nextSettings.routing = await this.resolveRouting(existing.routing, routing);
+      }
+      if (sms !== undefined) {
+        // Sanitize to the one boolean we support; never store arbitrary keys.
+        const curSms = (existing.sms as Record<string, unknown> | undefined) ?? {};
+        nextSettings.sms = { ...curSms, dayOfReminder: (sms as { dayOfReminder?: unknown }).dayOfReminder === true };
       }
       set.settings = nextSettings;
     }
@@ -770,5 +776,10 @@ export function toPublicMedia(media: unknown): PublicMediaMap {
 function toPublicTenant(t: Tenant): PublicTenant {
   const { stripeAccountId, settings, ...rest } = t;
   const s = settings as Record<string, unknown> | null;
-  return { ...rest, delivery: stripCarrierSecrets(s?.delivery) ?? null, routing: s?.routing ?? null };
+  return {
+    ...rest,
+    delivery: stripCarrierSecrets(s?.delivery) ?? null,
+    routing: s?.routing ?? null,
+    sms: parseSmsSettings(settings),
+  };
 }

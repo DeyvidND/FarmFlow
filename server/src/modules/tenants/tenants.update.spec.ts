@@ -126,6 +126,20 @@ describe('TenantsService.updateMe', () => {
     expect(set.settings.delivery).toBeDefined();
   });
 
+  it('merges sms.dayOfReminder into settings without dropping other keys', async () => {
+    const existing = { delivery: { foo: 1 }, media: { hero: {} } };
+    const { db, captured } = makeDb([[{ settings: existing }]], baseRow);
+    const svc = svcWith(db, maps(), publicCache());
+
+    await svc.updateMe('t1', { sms: { dayOfReminder: true } } as never);
+
+    expect(captured.set?.settings).toMatchObject({
+      delivery: { foo: 1 },
+      media: { hero: {} },
+      sms: { dayOfReminder: true },
+    });
+  });
+
   it('busts the profile + farmers + subcategories caches on save', async () => {
     const { db } = makeDb([], baseRow);
     const pc = publicCache();

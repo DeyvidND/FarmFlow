@@ -192,6 +192,7 @@ export type PublicAvailabilityWindow = {
 export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
   delivery?: unknown;
   routing?: unknown;
+  sms?: { dayOfReminder: boolean };
 };
 
 /** Public storefront shapes — tenant_id stripped. `images` = ordered gallery
