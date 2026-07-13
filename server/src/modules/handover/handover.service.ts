@@ -15,6 +15,8 @@ import type { DraftQueryDto } from './dto/draft-query.dto';
 import type { CreateProtocolDto, ProtocolItemDto } from './dto/create-protocol.dto';
 import type { BatchDto } from './dto/batch.dto';
 import { requireLegal, type LegalIdentity } from './legal.util';
+import { renderProtocolPdf } from './handover-pdf';
+import { mergePdfs } from '../econt/econt.mappers';
 
 /** Statuses whose items are handover-ready — matches the prep/delivery window. */
 const HANDOVER_STATUSES = ['confirmed', 'preparing'] as const;
@@ -442,5 +444,23 @@ export class HandoverService {
       throw new NotFoundException('Протоколът не е намерен.');
     }
     return row;
+  }
+
+  /** Renders a single protocol (tenant-scoped) to a PDF buffer. */
+  async renderPdf(tenantId: string, id: string): Promise<Buffer> {
+    const row = await this.getById(tenantId, id);
+    return renderProtocolPdf(row);
+  }
+
+  /** Renders every protocol matching the slot/date (via `list`) to PDF and
+   *  merges them into one buffer. Throws if the slot/date has no protocols —
+   *  an empty merged PDF (0 pages) would be a useless download. */
+  async renderBatchPdf(tenantId: string, b: BatchDto): Promise<Buffer> {
+    const rows = await this.list(tenantId, { slotId: b.slotId, date: b.date });
+    if (rows.length === 0) {
+      throw new BadRequestException('Няма протоколи за тази дата.');
+    }
+    const pdfs = await Promise.all(rows.map((row) => renderProtocolPdf(row)));
+    return mergePdfs(pdfs);
   }
 }

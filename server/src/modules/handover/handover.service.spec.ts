@@ -266,3 +266,49 @@ describe('HandoverService.getById', () => {
     await expect(svc.getById('t1', 'missing')).rejects.toThrow(/намерен/);
   });
 });
+
+/** A row shape complete enough for `renderProtocolPdf` (mirrors handover-pdf.spec.ts's ROW). */
+const PDF_ROW = {
+  id: 'p1', kind: 'farmer_to_operator', protocolNumber: 41,
+  signedAt: new Date('2026-07-13T09:00:00Z'), createdAt: new Date('2026-07-13T08:00:00Z'),
+  fromSnapshot: { name: 'ЕТ Васил Петров', eik: '203912345' },
+  toSnapshot: { name: 'ЕТ Оператор', eik: '111222333' },
+  items: [{ productName: 'Домати', quantity: 5, unit: 'кг', priceStotinki: 300 }],
+  totalStotinki: 1500, fromSignaturePng: null, toSignaturePng: null, signMode: 'pending',
+};
+
+describe('HandoverService.renderPdf', () => {
+  it('loads the row via getById (tenant-scoped) and renders it to a PDF buffer', async () => {
+    const db = makeDb();
+    db.queue([PDF_ROW]); // getById
+    const svc = await build(db);
+    const buf = await svc.renderPdf('t1', 'p1');
+    expect(buf.length).toBeGreaterThan(1000);
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('404s when the row is missing', async () => {
+    const db = makeDb();
+    db.queue([]); // getById: not found
+    const svc = await build(db);
+    await expect(svc.renderPdf('t1', 'missing')).rejects.toThrow(/намерен/);
+  });
+});
+
+describe('HandoverService.renderBatchPdf', () => {
+  it('merges N protocol rows (via list) into one non-empty PDF buffer', async () => {
+    const db = makeDb();
+    db.queue([PDF_ROW, { ...PDF_ROW, id: 'p2', protocolNumber: 42 }]); // list()
+    const svc = await build(db);
+    const buf = await svc.renderBatchPdf('t1', { slotId: 's1' } as any);
+    expect(buf.length).toBeGreaterThan(0);
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('throws a 400 in Bulgarian when there are no protocols for the slot/date', async () => {
+    const db = makeDb();
+    db.queue([]); // list(): no rows
+    const svc = await build(db);
+    await expect(svc.renderBatchPdf('t1', { slotId: 's1' } as any)).rejects.toThrow(/Няма протоколи/);
+  });
+});
