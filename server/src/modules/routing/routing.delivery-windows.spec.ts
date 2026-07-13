@@ -213,6 +213,7 @@ describe('RoutingService.notifyDeliveryWindows — partial-failure resilience', 
       select: () => {
         const chain: any = {
           from: () => chain,
+          leftJoin: () => chain,
           where: () => Promise.resolve(rows),
           then: (resolve: any, reject: any) => Promise.resolve(rows).then(resolve, reject),
         };
@@ -259,6 +260,7 @@ describe('RoutingService.notifyDeliveryWindows — partial-failure resilience', 
       select: () => {
         const chain: any = {
           from: () => chain,
+          leftJoin: () => chain,
           where: () => Promise.resolve(rows),
           then: (resolve: any, reject: any) => Promise.resolve(rows).then(resolve, reject),
         };

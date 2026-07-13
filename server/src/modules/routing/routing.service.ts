@@ -1274,6 +1274,9 @@ export class RoutingService {
         windowEnd: orders.deliveryWindowEnd,
       })
       .from(orders)
+      // scheduledForDay references deliverySlots.date — join per its contract,
+      // else Postgres throws "missing FROM-clause entry for table delivery_slots".
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
       .where(
         and(
           eq(orders.tenantId, tenantId),
