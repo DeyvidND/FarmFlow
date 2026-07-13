@@ -25,6 +25,58 @@ const HANDOVER_STATUSES = ['confirmed', 'preparing'] as const;
 export type CustomerParty = { name?: string; phone?: string; address?: string };
 
 /**
+ * A row in the day's live protocol view. A persisted protocol has a real `id`
+ * and number; a not-yet-created (virtual) target has `id: null`,
+ * `protocolNumber: null` and `status: 'draft'`.
+ */
+export interface DayProtocolRow {
+  id: string | null;
+  kind: string;
+  farmerId: string | null;
+  orderId: string | null;
+  slotId: string | null;
+  protocolNumber: number | null;
+  status: string;
+  signMode: string;
+  totalStotinki: number;
+  createdAt: Date | string | null;
+  fromSnapshot: LegalIdentity | CustomerParty | null;
+  toSnapshot: LegalIdentity | CustomerParty | null;
+}
+
+/** Target key so a live-computed target lines up with its persisted row. */
+function protocolKey(r: { kind: string; orderId: string | null; farmerId: string | null; slotId: string | null }): string {
+  return r.kind === 'operator_to_customer' ? `o:${r.orderId}` : `f:${r.farmerId}:${r.slotId}`;
+}
+
+/** A not-yet-persisted protocol for a live target. */
+function virtualRow(
+  kind: 'farmer_to_operator' | 'operator_to_customer',
+  slotId: string | undefined,
+  opts: {
+    farmerId?: string;
+    orderId?: string;
+    from: LegalIdentity | CustomerParty;
+    to: LegalIdentity | CustomerParty;
+  },
+): DayProtocolRow {
+  return {
+    id: null,
+    kind,
+    farmerId: opts.farmerId ?? null,
+    orderId: opts.orderId ?? null,
+    slotId: slotId ?? null,
+    protocolNumber: null,
+    status: 'draft',
+    signMode: 'pending',
+    totalStotinki: 0,
+    createdAt: null,
+    fromSnapshot: opts.from,
+    toSnapshot: opts.to,
+  };
+}
+
+/**
  * Builds an unsaved handover-protocol draft: the two parties (frozen at draft
  * time) plus the line items. `farmer_to_operator` aggregates one farmer's
  * items across a slot; `operator_to_customer` uses a single order's own
@@ -443,6 +495,65 @@ export class HandoverService {
       .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.id, id)));
   }
 
+  /** Paper-signs a single target from the day view. If a protocol row already
+   *  exists for the target it's flipped to signed(paper); otherwise a draft is
+   *  built, numbered (advisory lock, same race-safe path as createSigned) and
+   *  inserted straight as signed(paper). This is how a virtual (id=null) row gets
+   *  signed on paper — a number is assigned only now, at sign time. */
+  async signPaperTarget(tenantId: string, dto: DraftQueryDto): Promise<{ id: string }> {
+    const targetMatch =
+      dto.kind === 'operator_to_customer'
+        ? eq(handoverProtocols.orderId, dto.orderId!)
+        : and(eq(handoverProtocols.farmerId, dto.farmerId!), eq(handoverProtocols.slotId, dto.slotId!));
+
+    const [existing] = await this.db
+      .select({ id: handoverProtocols.id, status: handoverProtocols.status })
+      .from(handoverProtocols)
+      .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.kind, dto.kind), targetMatch))
+      .limit(1);
+
+    if (existing) {
+      if (existing.status === 'signed') {
+        throw new ConflictException('Протоколът вече е подписан.');
+      }
+      await this.db
+        .update(handoverProtocols)
+        .set({ status: 'signed', signMode: 'paper', signedAt: new Date() })
+        .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.id, existing.id)));
+      return { id: existing.id };
+    }
+
+    const draft = await this.buildDraft(tenantId, dto);
+    const inserted = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+      const [{ max }] = await tx
+        .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
+        .from(handoverProtocols)
+        .where(eq(handoverProtocols.tenantId, tenantId));
+      const [row] = await tx
+        .insert(handoverProtocols)
+        .values({
+          tenantId,
+          kind: dto.kind,
+          farmerId: dto.farmerId,
+          orderId: dto.orderId,
+          slotId: dto.slotId,
+          protocolNumber: (max ?? 0) + 1,
+          fromSnapshot: draft.from,
+          toSnapshot: draft.to,
+          items: draft.items,
+          orderIds: dto.orderId ? [dto.orderId] : null,
+          totalStotinki: draft.total,
+          signMode: 'paper',
+          status: 'signed',
+          signedAt: new Date(),
+        })
+        .returning({ id: handoverProtocols.id });
+      return row;
+    });
+    return { id: inserted.id };
+  }
+
   /** Lists protocols for a tenant, optionally narrowed by slot and/or kind.
    *  `handover_protocols` has no date column of its own; when a `date` is given
    *  without a `slotId` to scope it precisely, this joins `deliverySlots` (via
@@ -471,6 +582,137 @@ export class HandoverService {
       .where(and(...conditions));
   }
 
+  /**
+   * The day's protocols as a LIVE view: every handover-ready target for the
+   * slot/day (a farmer pickup per farmer with confirmed/preparing items, a
+   * customer delivery per such order) merged with any already-persisted
+   * `handover_protocols` rows. Targets without a persisted row come back as
+   * virtual rows (`id: null`, `protocolNumber: null`, `status: 'draft'`) so the
+   * list is populated without «Печат за деня» first — a protocol row + its number
+   * are created only when it's printed or signed. Persisted rows keep their id /
+   * status / number. A persisted row whose target no longer appears (e.g. its
+   * order was cancelled after signing) is still returned, so signed history is
+   * never dropped.
+   */
+  async listForDay(
+    tenantId: string,
+    q: { slotId?: string; date?: string },
+  ): Promise<DayProtocolRow[]> {
+    const slotIds = await this.resolveSlotIds(tenantId, q);
+    if (slotIds.length === 0) {
+      return [];
+    }
+
+    const farmerRows: { farmerId: string | null; slotId: string | null }[] = await this.db
+      .select({ farmerId: products.farmerId, slotId: orders.slotId })
+      .from(orderItems)
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          inArray(orders.slotId, slotIds),
+          inArray(orders.status, [...HANDOVER_STATUSES]),
+        ),
+      );
+
+    const customerOrders: { id: string; slotId: string | null; customerName: string | null }[] =
+      await this.db
+        .select({ id: orders.id, slotId: orders.slotId, customerName: orders.customerName })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.tenantId, tenantId),
+            inArray(orders.slotId, slotIds),
+            inArray(orders.status, [...HANDOVER_STATUSES]),
+          ),
+        );
+
+    const farmerTargets = [
+      ...new Map(
+        farmerRows
+          .filter((r): r is { farmerId: string; slotId: string } => !!r.farmerId && !!r.slotId)
+          .map((r): [string, { farmerId: string; slotId: string }] => [
+            `f:${r.farmerId}:${r.slotId}`,
+            { farmerId: r.farmerId, slotId: r.slotId },
+          ]),
+      ).values(),
+    ];
+
+    // Already-persisted rows for this slot/day, keyed by the same target key.
+    const persisted = (await this.list(tenantId, { slotId: q.slotId, date: q.date })) as DayProtocolRow[];
+    const persistedByKey = new Map<string, DayProtocolRow>();
+    for (const r of persisted) {
+      persistedByKey.set(protocolKey(r), r);
+    }
+
+    // Party names — one query each, so building virtual rows costs no per-target
+    // round-trips. The operator (tenant) and farmers always have a display name;
+    // resolveParty falls back to it when the legal identity is unset.
+    const [tenantRow] = await this.db
+      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const operatorParty = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
+
+    const farmerIds = [...new Set(farmerTargets.map((t) => t.farmerId))];
+    const farmerById = new Map<string, { legal: LegalIdentity | null; name: string | null }>();
+    if (farmerIds.length > 0) {
+      const rows: { id: string; legal: LegalIdentity | null; name: string | null }[] = await this.db
+        .select({ id: farmers.id, legal: farmers.legal, name: farmers.name })
+        .from(farmers)
+        .where(and(eq(farmers.tenantId, tenantId), inArray(farmers.id, farmerIds)));
+      for (const f of rows) farmerById.set(f.id, { legal: f.legal, name: f.name });
+    }
+
+    const out: DayProtocolRow[] = [];
+    const consumed = new Set<string>();
+
+    for (const t of farmerTargets) {
+      const key = `f:${t.farmerId}:${t.slotId}`;
+      const hit = persistedByKey.get(key);
+      if (hit) {
+        out.push(hit);
+        consumed.add(key);
+        continue;
+      }
+      const f = farmerById.get(t.farmerId);
+      out.push(
+        virtualRow('farmer_to_operator', t.slotId, {
+          farmerId: t.farmerId,
+          from: resolveParty(f?.legal, f?.name, 'фермер'),
+          to: operatorParty,
+        }),
+      );
+    }
+
+    for (const o of customerOrders) {
+      const key = `o:${o.id}`;
+      const hit = persistedByKey.get(key);
+      if (hit) {
+        out.push(hit);
+        consumed.add(key);
+        continue;
+      }
+      out.push(
+        virtualRow('operator_to_customer', o.slotId ?? undefined, {
+          orderId: o.id,
+          from: operatorParty,
+          to: { name: o.customerName ?? '—' },
+        }),
+      );
+    }
+
+    // Persisted rows whose target dropped out of the live set (e.g. a cancelled
+    // order) — keep them so a signed protocol never disappears from the day.
+    for (const [key, r] of persistedByKey) {
+      if (!consumed.has(key)) out.push(r);
+    }
+
+    return out;
+  }
+
   /** Loads a single protocol scoped to the tenant; 404s if missing. */
   async getById(tenantId: string, id: string) {
     const [row] = await this.db
@@ -489,6 +731,25 @@ export class HandoverService {
   async renderPdf(tenantId: string, id: string): Promise<Buffer> {
     const row = await this.getById(tenantId, id);
     return renderProtocolPdf(row);
+  }
+
+  /** Renders a single target's protocol to PDF on the fly WITHOUT persisting it —
+   *  used to print/preview a virtual (not-yet-created) row from the day view. No
+   *  protocol number is assigned (it's not a saved document yet). */
+  async renderPreviewPdf(tenantId: string, q: DraftQueryDto): Promise<Buffer> {
+    const draft = await this.buildDraft(tenantId, q);
+    return renderProtocolPdf({
+      kind: draft.kind,
+      protocolNumber: null,
+      createdAt: new Date(),
+      signedAt: null,
+      fromSnapshot: draft.from,
+      toSnapshot: draft.to,
+      items: draft.items,
+      totalStotinki: draft.total,
+      fromSignaturePng: null,
+      toSignaturePng: null,
+    });
   }
 
   /** Renders every protocol matching the slot/date (via `list`) to PDF and

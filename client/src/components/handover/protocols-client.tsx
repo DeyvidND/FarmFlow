@@ -9,12 +9,14 @@ import { relDayLabel, todayIso } from '@/lib/utils';
 import {
   ApiError,
   createProtocolBatch,
-  listProtocols,
+  listDayProtocols,
   markProtocolSigned,
   protocolBatchPdfHref,
   protocolPdfHref,
+  protocolPreviewPdfHref,
+  signProtocolPaper,
 } from '@/lib/api-client';
-import type { ProtocolRow } from '@/lib/types';
+import type { DayProtocolRow } from '@/lib/types';
 import { ProtocolDialog } from './protocol-dialog';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -30,8 +32,22 @@ const KIND_LABEL: Record<string, string> = {
 
 /** Which party's name to show for a row — the counterpart in the handover
  *  (the farmer for a pickup leg, the customer for a delivery leg). */
-const partyName = (row: ProtocolRow) =>
+const partyName = (row: DayProtocolRow) =>
   (row.kind === 'farmer_to_operator' ? row.fromSnapshot?.name : row.toSnapshot?.name) ?? '—';
+
+/** Stable key for a row — its id, or a target key for a virtual (unsaved) row. */
+const rowKey = (r: DayProtocolRow) => r.id ?? `${r.kind}:${r.farmerId ?? r.orderId}:${r.slotId ?? ''}`;
+
+const targetOf = (r: DayProtocolRow) => ({
+  kind: r.kind,
+  farmerId: r.farmerId ?? undefined,
+  orderId: r.orderId ?? undefined,
+  slotId: r.slotId ?? undefined,
+});
+
+/** PDF link — a saved row streams its stored PDF; a virtual row renders on the
+ *  fly (no protocol number burned to preview it). */
+const pdfHref = (r: DayProtocolRow) => (r.id ? protocolPdfHref(r.id) : protocolPreviewPdfHref(targetOf(r)));
 
 function StatusPill({ status }: { status: string }) {
   return (
@@ -52,16 +68,15 @@ function StatusPill({ status }: { status: string }) {
  * protocol for the day, sign a farmer pickup digitally, or mark any pending
  * protocol signed on paper.
  *
- * Data-source note: there is no dedicated endpoint for "farmers with orders
- * today, independent of any protocol" — the farmer-pickup list below is driven
- * by `listProtocols({ date, kind: 'farmer_to_operator' })`, so a farmer only
- * appears once a protocol row exists for them that day (created by «Печат за
- * деня», which batch-creates one draft per farmer/order before printing). This
- * mirrors the source data the batch-print endpoint itself uses server-side.
+ * Data source: `listDayProtocols({ date })` returns a LIVE view — every
+ * handover-ready farmer pickup and customer delivery for the day, whether or not
+ * a protocol row has been created yet. Virtual (not-yet-created) rows come back
+ * with `id: null`; a row + its number are created only when printed or signed. So
+ * the screen is populated without «Печат за деня» first.
  */
 export function ProtocolsClient() {
   const [date, setDate] = useState(() => todayIso());
-  const [rows, setRows] = useState<ProtocolRow[]>([]);
+  const [rows, setRows] = useState<DayProtocolRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [printing, setPrinting] = useState(false);
   const [markingId, setMarkingId] = useState<string | null>(null);
@@ -70,7 +85,7 @@ export function ProtocolsClient() {
   const load = useCallback(async (d: string) => {
     setLoading(true);
     try {
-      const res = await listProtocols({ date: d });
+      const res = await listDayProtocols({ date: d });
       setRows(res);
     } catch (e) {
       toast.error(errMsg(e));
@@ -102,10 +117,13 @@ export function ProtocolsClient() {
     }
   }
 
-  async function markSigned(id: string) {
-    setMarkingId(id);
+  // Paper-sign a row: a saved row flips by id; a virtual row is created + numbered
+  // + signed in one call (signProtocolPaper).
+  async function markSigned(row: DayProtocolRow) {
+    setMarkingId(rowKey(row));
     try {
-      await markProtocolSigned(id);
+      if (row.id) await markProtocolSigned(row.id);
+      else await signProtocolPaper(targetOf(row));
       toast.success('Протоколът е маркиран като подписан');
       await load(date);
     } catch (e) {
@@ -151,7 +169,7 @@ export function ProtocolsClient() {
           </thead>
           <tbody>
             {farmerRows.map((row) => (
-              <tr key={row.id} className="border-b border-ff-border-2 last:border-0">
+              <tr key={rowKey(row)} className="border-b border-ff-border-2 last:border-0">
                 <td className="px-5 py-3.5 align-top text-[14px] font-bold">{partyName(row)}</td>
                 <td className="px-5 py-3.5 align-top">
                   <StatusPill status={row.status} />
@@ -170,15 +188,15 @@ export function ProtocolsClient() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={markingId === row.id}
-                          onClick={() => void markSigned(row.id)}
+                          disabled={markingId === rowKey(row)}
+                          onClick={() => void markSigned(row)}
                         >
                           <Check size={15} /> Хартия
                         </Button>
                       </>
                     )}
                     <Button variant="ghost" size="sm" asChild>
-                      <a href={protocolPdfHref(row.id)} target="_blank" rel="noopener noreferrer">
+                      <a href={pdfHref(row)} target="_blank" rel="noopener noreferrer">
                         <FileDown size={15} /> PDF
                       </a>
                     </Button>
@@ -192,7 +210,7 @@ export function ProtocolsClient() {
         {/* cards (mobile) */}
         <div className="hidden flex-col max-[680px]:flex">
           {farmerRows.map((row) => (
-            <div key={row.id} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
+            <div key={rowKey(row)} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
               <div className="flex items-center justify-between gap-2.5">
                 <span className="text-[14.5px] font-extrabold">{partyName(row)}</span>
                 <StatusPill status={row.status} />
@@ -207,13 +225,13 @@ export function ProtocolsClient() {
                     >
                       Подпиши дигитално
                     </Button>
-                    <Button variant="ghost" size="sm" disabled={markingId === row.id} onClick={() => void markSigned(row.id)}>
+                    <Button variant="ghost" size="sm" disabled={markingId === rowKey(row)} onClick={() => void markSigned(row)}>
                       <Check size={15} /> Хартия
                     </Button>
                   </>
                 )}
                 <Button variant="ghost" size="sm" asChild>
-                  <a href={protocolPdfHref(row.id)} target="_blank" rel="noopener noreferrer">
+                  <a href={pdfHref(row)} target="_blank" rel="noopener noreferrer">
                     <FileDown size={15} /> PDF
                   </a>
                 </Button>
@@ -224,7 +242,7 @@ export function ProtocolsClient() {
 
         {!loading && farmerRows.length === 0 && (
           <p className="px-5 py-10 text-center text-sm text-ff-muted">
-            Все още няма протоколи за фермери за тази дата. Натисни „Печат за деня“, за да ги генерираш.
+            Няма прибирания от фермери за тази дата.
           </p>
         )}
       </div>
@@ -251,7 +269,7 @@ export function ProtocolsClient() {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className="border-b border-ff-border-2 last:border-0">
+              <tr key={rowKey(row)} className="border-b border-ff-border-2 last:border-0">
                 <td className="px-5 py-3.5 align-top text-[13.5px] font-semibold text-ff-ink-2">
                   {KIND_LABEL[row.kind] ?? row.kind}
                 </td>
@@ -262,12 +280,12 @@ export function ProtocolsClient() {
                 <td className="px-5 py-3.5 text-right align-top">
                   <div className="flex justify-end gap-2">
                     {row.status !== 'signed' && (
-                      <Button variant="ghost" size="sm" disabled={markingId === row.id} onClick={() => void markSigned(row.id)}>
+                      <Button variant="ghost" size="sm" disabled={markingId === rowKey(row)} onClick={() => void markSigned(row)}>
                         <Check size={15} /> Маркирай подписан (хартия)
                       </Button>
                     )}
                     <Button variant="ghost" size="sm" asChild>
-                      <a href={protocolPdfHref(row.id)} target="_blank" rel="noopener noreferrer">
+                      <a href={pdfHref(row)} target="_blank" rel="noopener noreferrer">
                         <FileDown size={15} /> Свали PDF
                       </a>
                     </Button>
@@ -281,7 +299,7 @@ export function ProtocolsClient() {
         {/* cards (mobile) */}
         <div className="hidden flex-col max-[680px]:flex">
           {rows.map((row) => (
-            <div key={row.id} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
+            <div key={rowKey(row)} className="flex flex-col gap-2.5 border-b border-ff-border-2 px-4 py-3.5 last:border-0">
               <div className="flex items-center justify-between gap-2.5">
                 <div>
                   <div className="text-[14.5px] font-extrabold">{partyName(row)}</div>
@@ -291,12 +309,12 @@ export function ProtocolsClient() {
               </div>
               <div className="flex flex-wrap gap-2">
                 {row.status !== 'signed' && (
-                  <Button variant="ghost" size="sm" disabled={markingId === row.id} onClick={() => void markSigned(row.id)}>
+                  <Button variant="ghost" size="sm" disabled={markingId === rowKey(row)} onClick={() => void markSigned(row)}>
                     <Check size={15} /> Хартия
                   </Button>
                 )}
                 <Button variant="ghost" size="sm" asChild>
-                  <a href={protocolPdfHref(row.id)} target="_blank" rel="noopener noreferrer">
+                  <a href={pdfHref(row)} target="_blank" rel="noopener noreferrer">
                     <FileDown size={15} /> PDF
                   </a>
                 </Button>

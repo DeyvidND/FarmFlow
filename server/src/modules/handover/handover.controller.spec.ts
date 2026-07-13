@@ -11,9 +11,12 @@ describe('HandoverController delegation', () => {
     createSigned: jest.fn().mockResolvedValue({ id: 'p1', protocolNumber: 1 }),
     list: jest.fn().mockResolvedValue([{ id: 'p1' }]),
     createBatch: jest.fn().mockResolvedValue({ ids: ['p1'] }),
+    listForDay: jest.fn().mockResolvedValue([{ id: null }]),
     renderPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4')),
     renderBatchPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4')),
+    renderPreviewPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4')),
     markSigned: jest.fn().mockResolvedValue(undefined),
+    signPaperTarget: jest.fn().mockResolvedValue({ id: 'p1' }),
   };
   const ctrl = new HandoverController(svc as any);
 
@@ -46,9 +49,28 @@ describe('HandoverController delegation', () => {
     expect(svc.createBatch).toHaveBeenCalledWith('t1', dto);
   });
 
+  it('GET /handover/day delegates listForDay with tenantId + slot/date', async () => {
+    await ctrl.listForDay('t1', 's1', '2026-07-16');
+    expect(svc.listForDay).toHaveBeenCalledWith('t1', { slotId: 's1', date: '2026-07-16' });
+  });
+
   it('PATCH /handover/:id/mark-signed delegates markSigned with tenantId + id', async () => {
     await ctrl.markSigned('t1', 'p1');
     expect(svc.markSigned).toHaveBeenCalledWith('t1', 'p1');
+  });
+
+  it('POST /handover/sign-paper delegates signPaperTarget with tenantId + body', async () => {
+    const dto = { kind: 'operator_to_customer', orderId: 'o1' } as any;
+    await ctrl.signPaper('t1', dto);
+    expect(svc.signPaperTarget).toHaveBeenCalledWith('t1', dto);
+  });
+
+  it('GET /handover/preview.pdf delegates renderPreviewPdf and returns an inline application/pdf StreamableFile', async () => {
+    const q = { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' } as any;
+    const result = await ctrl.previewPdf('t1', q);
+    expect(svc.renderPreviewPdf).toHaveBeenCalledWith('t1', q);
+    expect(result).toBeInstanceOf(StreamableFile);
+    expect(result.getHeaders().type).toBe('application/pdf');
   });
 
   it('GET /handover/:id/pdf delegates renderPdf and returns an inline application/pdf StreamableFile', async () => {

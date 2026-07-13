@@ -48,6 +48,18 @@ export class HandoverController {
     return this.handover.list(tenantId, { slotId, date, kind });
   }
 
+  /** The day's LIVE protocol view — every handover-ready target for the slot/date
+   *  merged with any persisted rows (virtual targets come back with id=null), so
+   *  the screen is populated without «Печат за деня» first. */
+  @Get('day')
+  listForDay(
+    @CurrentTenant() tenantId: string,
+    @Query('slotId') slotId?: string,
+    @Query('date') date?: string,
+  ) {
+    return this.handover.listForDay(tenantId, { slotId, date });
+  }
+
   @Post('batch')
   createBatch(@CurrentTenant() tenantId: string, @Body() dto: BatchDto) {
     return this.handover.createBatch(tenantId, dto);
@@ -57,6 +69,14 @@ export class HandoverController {
   async batchPdf(@CurrentTenant() tenantId: string, @Query() dto: BatchDto): Promise<StreamableFile> {
     const buf = await this.handover.renderBatchPdf(tenantId, dto);
     return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="protocols.pdf"' });
+  }
+
+  /** On-the-fly PDF for a single not-yet-created target (virtual row) — renders
+   *  without persisting, so no protocol number is burned just to preview/print. */
+  @Get('preview.pdf')
+  async previewPdf(@CurrentTenant() tenantId: string, @Query() q: DraftQueryDto): Promise<StreamableFile> {
+    const buf = await this.handover.renderPreviewPdf(tenantId, q);
+    return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="protocol-preview.pdf"' });
   }
 
   @Get(':id/pdf')
@@ -72,5 +92,12 @@ export class HandoverController {
   @HttpCode(204)
   markSigned(@CurrentTenant() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.handover.markSigned(tenantId, id);
+  }
+
+  /** Paper-sign a single target (creating + numbering the protocol if it's still
+   *  a virtual day-view row). */
+  @Post('sign-paper')
+  signPaper(@CurrentTenant() tenantId: string, @Body() dto: DraftQueryDto) {
+    return this.handover.signPaperTarget(tenantId, dto);
   }
 }

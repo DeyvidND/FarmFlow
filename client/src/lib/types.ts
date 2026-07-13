@@ -1002,3 +1002,20 @@ export interface ProtocolRow {
   fromSnapshot: LegalIdentity;
   toSnapshot: LegalIdentity;
 }
+
+/** A row in the day's LIVE protocol view (GET /handover/day). A virtual target
+ *  that hasn't been created yet has `id: null` / `protocolNumber: null`. */
+export interface DayProtocolRow {
+  id: string | null;
+  kind: string;
+  farmerId: string | null;
+  orderId: string | null;
+  slotId: string | null;
+  protocolNumber: number | null;
+  status: string;
+  signMode: string;
+  totalStotinki: number;
+  createdAt: string | null;
+  fromSnapshot: LegalIdentity;
+  toSnapshot: LegalIdentity;
+}

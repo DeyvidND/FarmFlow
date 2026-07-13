@@ -5,6 +5,7 @@ import type {
   AvailabilityWindow,
   BundleMember,
   DashboardSummary,
+  DayProtocolRow,
   DaySuggestionResult,
   DeliveryConfig,
   DeliveryWindowProposal,
@@ -1218,7 +1219,40 @@ export const createProtocolBatch = (body: { slotId?: string; date?: string }) =>
 export const markProtocolSigned = (id: string) =>
   apiFetch<void>(`handover/${id}/mark-signed`, { method: 'PATCH' }, 'Неуспешно маркиране');
 
+/** Live day view: every handover-ready target for the date, virtual (id=null) or
+ *  persisted. Populated without «Печат за деня» first. */
+export const listDayProtocols = (q: { slotId?: string; date?: string }) => {
+  const p = new URLSearchParams();
+  if (q.slotId) p.set('slotId', q.slotId);
+  if (q.date) p.set('date', q.date);
+  const query = p.toString();
+  return apiFetch<DayProtocolRow[]>(`handover/day${query ? `?${query}` : ''}`);
+};
+
+/** Paper-sign one target — creates + numbers the protocol if it's still virtual. */
+export const signProtocolPaper = (target: {
+  kind: string;
+  farmerId?: string;
+  orderId?: string;
+  slotId?: string;
+}) => apiFetch<{ id: string }>('handover/sign-paper', { method: 'POST', ...json(target) }, 'Неуспешно подписване');
+
 export const protocolPdfHref = (id: string) => `/bff/handover/${id}/pdf`;
+
+/** On-the-fly PDF for a virtual (not-yet-created) target — no number burned. */
+export const protocolPreviewPdfHref = (target: {
+  kind: string;
+  farmerId?: string;
+  orderId?: string;
+  slotId?: string;
+}) => {
+  const p = new URLSearchParams();
+  p.set('kind', target.kind);
+  if (target.farmerId) p.set('farmerId', target.farmerId);
+  if (target.orderId) p.set('orderId', target.orderId);
+  if (target.slotId) p.set('slotId', target.slotId);
+  return `/bff/handover/preview.pdf?${p.toString()}`;
+};
 
 export const protocolBatchPdfHref = (q?: { slotId?: string; date?: string }) => {
   const p = new URLSearchParams();
