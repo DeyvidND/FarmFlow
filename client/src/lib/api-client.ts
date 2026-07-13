@@ -3,9 +3,11 @@ import type {
   AnalyticsSummary,
   Article,
   AvailabilityWindow,
+  BundleMember,
   DashboardSummary,
   DaySuggestionResult,
   DeliveryConfig,
+  DeliveryWindowProposal,
   EcontCity,
   EcontOfficeLive,
   Farmer,
@@ -22,6 +24,7 @@ import type {
   ReschedulableOrder,
   ReviewStatus,
   MultiRouteResult,
+  RouteEndMode,
   Shipment,
   Slot,
   SlotRule,
@@ -32,6 +35,8 @@ import type {
   SpeedySite,
   StatsSummary,
   StatsRange,
+  TurnoverBreakdown,
+  TurnoverBasis,
   Subcategory,
   TenantProfile,
   UpdateOrderInput,
@@ -127,6 +132,22 @@ export const updateProduct = (id: string, data: ProductWrite) =>
 
 export const updateCourierBatch = (updates: { id: string; courierDisabled: boolean }[]) =>
   apiFetch<{ ok: true }>('products/courier-batch', { method: 'PATCH', ...json({ updates }) }, 'Неуспешно записване');
+
+/** Bundle contents („Съдържание на пакета", task #1) — only meaningful for a
+ *  product with `category === 'bundle'`. Full-replace semantics: `setBundleItems`
+ *  sends the whole member list every call (empty array clears it). */
+export const getBundleItems = (productId: string) =>
+  apiFetch<BundleMember[]>(`products/${productId}/bundle-items`, {}, 'Неуспешно зареждане на съдържанието');
+
+export const setBundleItems = (
+  productId: string,
+  items: { productId: string; quantity?: number }[],
+) =>
+  apiFetch<BundleMember[]>(
+    `products/${productId}/bundle-items`,
+    { method: 'PUT', ...json({ items }) },
+    'Неуспешно записване на съдържанието',
+  );
 
 export const deleteProduct = (id: string) =>
   apiFetch<{ id: string }>(`products/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
@@ -334,6 +355,17 @@ export const updateTenant = (data: {
     endMode?: 'home' | 'last' | 'custom';
     endAddress?: string | null;
     courierCount?: number;
+    dayStartHour?: number;
+    slotSizeMin?: number;
+    serviceMin?: number;
+    cutoff?: { weekday: number; hour: number };
+    couriers?: {
+      name?: string | null;
+      endMode?: 'home' | 'last' | 'custom';
+      homeAddress?: string | null;
+      homeLat?: string | number | null;
+      homeLng?: string | number | null;
+    }[];
   };
 }) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
@@ -612,12 +644,15 @@ export const rescheduleOrders = (orderIds: string[], toDate: string) =>
     'Неуспешно преместване на поръчките',
   );
 
-export const setCodOutcome = (id: string, outcome: 'received' | 'refused', reason?: string) =>
+export const setCodOutcome = (id: string, outcome: 'received' | 'refused' | 'pending', reason?: string) =>
   apiFetch<Order>(
     `orders/${id}/cod-outcome`,
     { method: 'PATCH', ...json({ outcome, ...(reason ? { reason } : {}) }) },
     'Неуспешна промяна на статуса на плащане',
   );
+
+/** Revert a resolved COD outcome (received/refused) back to «Очаквано». */
+export const revertCodOutcome = (id: string) => setCodOutcome(id, 'pending');
 
 export const confirmPendingOrders = (date?: string) =>
   apiFetch<{ confirmed: number }>(
@@ -648,6 +683,67 @@ export const suggestDays = (days: { date: string; couriers: number }[]) =>
     'Неуспешно предложение за разпределение',
   );
 
+// ---- Route: road geometry for an explicit stop order (task #5) ----
+export const measureRoute = (body: {
+  date?: string;
+  stopIds: string[];
+  courierIndex?: number;
+  endMode?: 'home' | 'last' | 'custom';
+  /** Start the measured line from the courier's live position (or last
+   *  finished drop) instead of the depot, when known — task en-route fix. */
+  startLat?: number;
+  startLng?: number;
+}) =>
+  apiFetch<{ polyline: string[] | null; totalDistanceM: number | null; totalDurationS: number | null }>(
+    'orders/route/measure',
+    { method: 'POST', ...json(body) },
+    'Неуспешно изчисляване на маршрута',
+  );
+
+// ---- Route: move an order to a courier / clear the pin (task #6) ----
+export const setOrderCourier = (orderId: string, courierIndex: number | null) =>
+  apiFetch<{ id: string; courierIndex: number | null }>(
+    `orders/route/order/${orderId}/courier`,
+    { method: 'PATCH', ...json({ courierIndex }) },
+    'Неуспешна промяна на куриера',
+  );
+
+// ---- Route: persist the operator's manual stop order server-side, so slot
+// generation (delivery windows) honours it instead of always re-optimizing.
+// Empty stopIds clears the override for that courier. ----
+export const setOrderSequence = (body: { date?: string; courierIndex: number; stopIds: string[] }) =>
+  apiFetch<{ courierIndex: number; count: number }>(
+    'orders/route/order/sequence',
+    { method: 'PATCH', ...json(body) },
+    'Неуспешно запазване на реда',
+  );
+
+// ---- Route: per-order delivery time windows (task #13) ----
+export const generateDeliveryWindows = (body: { date?: string; couriers?: number; ends?: string }) =>
+  apiFetch<DeliveryWindowProposal>(
+    'orders/route/windows/generate',
+    { method: 'POST', ...json(body) },
+    'Неуспешно генериране на часове',
+  );
+export const updateDeliveryWindow = (orderId: string, start: string, end: string) =>
+  apiFetch<{ id: string; windowStart: string; windowEnd: string; status: string }>(
+    `orders/route/window/${orderId}`,
+    { method: 'PATCH', ...json({ start, end }) },
+    'Неуспешна промяна на часа',
+  );
+export const approveDeliveryWindows = (date?: string) =>
+  apiFetch<{ approved: number; date: string }>(
+    'orders/route/windows/approve',
+    { method: 'POST', ...json({ date }) },
+    'Неуспешно одобрение на часовете',
+  );
+export const notifyDeliveryWindows = (date?: string) =>
+  apiFetch<{ sent: number; skipped: number; failed: number; total: number; date: string }>(
+    'orders/route/windows/notify',
+    { method: 'POST', ...json({ date }) },
+    'Неуспешно изпращане на известия',
+  );
+
 export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);
 
@@ -661,6 +757,24 @@ export const getStats = (
       : `range=${opts.range}`;
   const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
   return apiFetch<StatsSummary>(`stats?${base}${fid}`);
+};
+
+// ---- Turnover breakdown (Task #9/#10) — explicit basis + to-date + platform income ----
+export const getTurnover = (
+  opts: ({ range: StatsRange } | { from: string; to: string }) & {
+    basis?: TurnoverBasis;
+    includeUndelivered?: boolean;
+    farmerId?: string;
+  },
+) => {
+  const base =
+    'from' in opts
+      ? `from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`
+      : `range=${opts.range}`;
+  const basis = opts.basis ? `&basis=${opts.basis}` : '';
+  const inc = opts.includeUndelivered === undefined ? '' : `&includeUndelivered=${opts.includeUndelivered}`;
+  const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
+  return apiFetch<TurnoverBreakdown>(`stats/turnover?${base}${basis}${inc}${fid}`);
 };
 
 // ---- Site analytics ----
@@ -818,6 +932,41 @@ export const getMyOrders = (opts?: {
   const query = p.toString();
   return apiFetch<FarmerOrdersPage>(`orders/mine${query ? `?${query}` : ''}`);
 };
+
+// ---- «Утре» (Task #14) — tomorrow's orders + self-tracked fulfilment state ----
+export type FulfillmentState = 'pending' | 'in_production' | 'fulfilled';
+
+export interface TomorrowOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface TomorrowOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  deliveryType: string;
+  day: string;
+  slotFrom: string | null;
+  slotTo: string | null;
+  fulfillmentState: FulfillmentState;
+  items: TomorrowOrderItem[];
+}
+
+/** `farmerId` is required for an owner (no tenant-wide "tomorrow" — mirrors
+ *  /orders/mine); a producer token always resolves to its own scope server-side. */
+export const getTomorrow = (farmerId?: string) =>
+  apiFetch<TomorrowOrder[]>(`orders/tomorrow${farmerId ? `?farmerId=${encodeURIComponent(farmerId)}` : ''}`);
+
+export const setFulfillment = (id: string, state: FulfillmentState, farmerId?: string) =>
+  apiFetch<{ orderId: string; farmerId: string; state: FulfillmentState }>(
+    `orders/${id}/fulfillment${farmerId ? `?farmerId=${encodeURIComponent(farmerId)}` : ''}`,
+    { method: 'PATCH', ...json({ state }) },
+    'Неуспешно отбелязване',
+  );
 
 /**
  * Create (if needed) the farm's Standard connected account and get a hosted

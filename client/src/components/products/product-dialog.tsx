@@ -1,14 +1,31 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ImagePlus, PackageCheck, PackageX, Plus, Trash2, X } from 'lucide-react';
+import { ImagePlus, Package, PackageCheck, PackageX, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/delivery/ui';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
-import { ApiError, listAvailabilityWindows, listProductVariants, type ProductWrite, type VariantWrite } from '@/lib/api-client';
-import type { CoverCrop, Farmer, Product, Subcategory } from '@/lib/types';
+import {
+  ApiError,
+  getBundleItems,
+  listAvailabilityWindows,
+  listProductOptions,
+  listProductVariants,
+  setBundleItems,
+  type ProductWrite,
+  type VariantWrite,
+} from '@/lib/api-client';
+import type { BundleMember, CoverCrop, Farmer, Product, ProductOption, Subcategory } from '@/lib/types';
 import { moneyFromStotinki } from '@/lib/utils';
+
+/** '' → null; guards against a blank/garbage number input posting `0`/NaN. */
+function euroInputToStotinki(s: string): number | null {
+  const t = s.trim();
+  if (t === '') return null;
+  const n = Math.round(parseFloat(t.replace(',', '.')) * 100);
+  return Number.isFinite(n) ? n : null;
+}
 
 const field =
   'rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[14.5px] text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
@@ -53,6 +70,26 @@ export function ProductDialog({
   const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(product?.coverCrop ?? null);
   // courierEnabled = !courierDisabled — ON (green) = ships by courier (default), OFF = no courier.
   const [courierEnabled, setCourierEnabled] = useState(!(product?.courierDisabled ?? false));
+  // Companion rule („не се доставя самостоятелно"): ON = the cart must also hold
+  // ≥1 other distinct product, optionally worth ≥ a EUR threshold. Threshold is
+  // edited in euros (comma or dot decimal) and converted to stotinki on submit.
+  const [requiresCompanion, setRequiresCompanion] = useState(product?.requiresCompanion ?? false);
+  const [companionMinPrice, setCompanionMinPrice] = useState(
+    product?.companionMinPriceStotinki != null
+      ? (product.companionMinPriceStotinki / 100).toFixed(2).replace('.', ',')
+      : '',
+  );
+  // Bundle contents („Съдържание на пакета", task #1) — only for an already-saved
+  // product with category==='bundle'. Persisted immediately per add/remove (full
+  // replace), independent of the main product save.
+  const isBundle = isEdit && product?.category === 'bundle';
+  const [bundleItems, setBundleItemsState] = useState<BundleMember[]>([]);
+  const [bundleOptions, setBundleOptions] = useState<ProductOption[]>([]);
+  const [bundleLoading, setBundleLoading] = useState(false);
+  const [bundleBusy, setBundleBusy] = useState(false);
+  const [bundleErr, setBundleErr] = useState('');
+  const [pickProductId, setPickProductId] = useState('');
+  const [pickQty, setPickQty] = useState('1');
   // Price + stock live in rows: one product is a list of ≥1 priced row. ONE row =
   // a plain product (its price = the product price, its stock = the availability
   // window — same number „Задай наличност" edits, never desync; label optional).
@@ -118,6 +155,28 @@ export function ProductDialog({
     };
   }, [isEdit, product]);
 
+  // Bundle members + candidate picker options — only fetched for an already-saved
+  // bundle product.
+  useEffect(() => {
+    if (!isBundle || !product) return;
+    let alive = true;
+    setBundleLoading(true);
+    (async () => {
+      const [items, options] = await Promise.all([
+        getBundleItems(product.id).catch(() => []),
+        listProductOptions().catch(() => []),
+      ]);
+      if (!alive) return;
+      setBundleItemsState(items);
+      setBundleOptions(options);
+    })().finally(() => {
+      if (alive) setBundleLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [isBundle, product]);
+
   if (!open) return null;
 
   function addPending(files: FileList | null) {
@@ -130,6 +189,42 @@ export function ProductDialog({
       URL.revokeObjectURL(prev[i]?.url);
       return prev.filter((_, j) => j !== i);
     });
+  }
+
+  // Full-replace the bundle's member list (mirrors the backend's "set" semantics):
+  // send everything the bundle should contain after this change, including the
+  // new/removed member.
+  async function persistBundleItems(next: { productId: string; quantity: number }[]) {
+    if (!product) return;
+    setBundleErr('');
+    setBundleBusy(true);
+    try {
+      const updated = await setBundleItems(product.id, next);
+      setBundleItemsState(updated);
+    } catch (e) {
+      setBundleErr(e instanceof ApiError ? e.message : 'Неуспешно записване на съдържанието');
+    } finally {
+      setBundleBusy(false);
+    }
+  }
+
+  function addBundleMember() {
+    if (!pickProductId) return;
+    const qty = Math.max(1, parseInt(pickQty, 10) || 1);
+    const next = [
+      ...bundleItems.map((b) => ({ productId: b.productId, quantity: b.quantity })),
+      { productId: pickProductId, quantity: qty },
+    ];
+    setPickProductId('');
+    setPickQty('1');
+    void persistBundleItems(next);
+  }
+
+  function removeBundleMember(productId: string) {
+    const next = bundleItems
+      .filter((b) => b.productId !== productId)
+      .map((b) => ({ productId: b.productId, quantity: b.quantity }));
+    void persistBundleItems(next);
   }
 
   // The gallery cover changed (photo 0 added/removed/reordered). Sync the local
@@ -223,6 +318,8 @@ export function ProductDialog({
           salePriceStotinki: productSalePriceStotinki,
           variants: variantPayload,
           courierDisabled: !courierEnabled,
+          requiresCompanion,
+          companionMinPriceStotinki: requiresCompanion ? euroInputToStotinki(companionMinPrice) : null,
           ...(isEdit ? { coverCrop } : { isActive: true }),
           ...(multiFarmer ? { farmerId: farmerId || null } : {}),
           ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
@@ -537,6 +634,12 @@ export function ProductDialog({
             </span>
           </button>
 
+          {/* Explicit shippability line (task #11) — same signal as the toggle above,
+              spelled out unambiguously for the farmer. */}
+          <p className="-mt-1 pl-1 text-[12px] font-semibold text-ff-ink-2">
+            {courierEnabled ? '📦 Може по Еконт/куриер' : '🚫 Само вземане/местна доставка (не се праща по куриер)'}
+          </p>
+
           {onOpenCourierSettings && (
             <button
               type="button"
@@ -548,6 +651,147 @@ export function ProductDialog({
             >
               Управлявай куриера за всички продукти наведнъж →
             </button>
+          )}
+
+          {/* Companion rule toggle — ON = the cart must also hold ≥1 other product
+              (optionally worth ≥ a EUR threshold) for this one to ship. */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={requiresCompanion}
+            onClick={() => setRequiresCompanion((v) => !v)}
+            className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
+              requiresCompanion
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
+            }`}
+          >
+            <span
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition ${
+                requiresCompanion ? 'bg-amber-100 text-amber-700' : 'bg-ff-surface text-ff-muted'
+              }`}
+            >
+              <Package size={18} />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="text-[13.5px] font-bold text-ff-ink">Изисква втори продукт</span>
+              <span className="text-[12px] leading-snug text-ff-muted">
+                Клиентът трябва да добави поне още един продукт (по избор), на посочената минимална стойност.
+              </span>
+            </span>
+            <span
+              className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition ${
+                requiresCompanion ? 'bg-amber-500' : 'bg-ff-border-2'
+              }`}
+            >
+              <span
+                className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
+                  requiresCompanion ? 'left-[19px]' : 'left-[3px]'
+                }`}
+              />
+            </span>
+          </button>
+
+          {requiresCompanion && (
+            <label className={labelCls}>
+              Мин. стойност на втория продукт (€)
+              <input
+                value={companionMinPrice}
+                onChange={(e) => setCompanionMinPrice(e.target.value)}
+                inputMode="decimal"
+                placeholder="напр. 10 (празно = всякаква стойност)"
+                className={field}
+              />
+            </label>
+          )}
+
+          {/* Bundle contents (task #1) — only for an already-saved bundle product. */}
+          {isBundle && (
+            <Collapsible
+              title="Съдържание на пакета"
+              hint="Продуктите, които клиентът получава в този пакет."
+              defaultOpen
+            >
+              {!product ? (
+                <p className="text-[12.5px] text-ff-muted">Запазете пакета, за да добавите продукти.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {bundleLoading ? (
+                    <p className="text-[12.5px] text-ff-muted">Зареждане…</p>
+                  ) : bundleItems.length === 0 ? (
+                    <p className="text-[12.5px] text-ff-muted">Пакетът все още няма продукти.</p>
+                  ) : (
+                    <ul className="flex flex-col gap-1.5">
+                      {bundleItems.map((b) => (
+                        <li
+                          key={b.productId}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2"
+                        >
+                          <span className="min-w-0 truncate text-[13px] font-semibold text-ff-ink">
+                            {b.name} {b.quantity > 1 ? `× ${b.quantity}` : ''}
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className="ff-fig text-[12.5px] text-ff-muted">{moneyFromStotinki(b.priceStotinki)}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeBundleMember(b.productId)}
+                              disabled={bundleBusy}
+                              aria-label="Премахни от пакета"
+                              className="grid h-7 w-7 place-items-center rounded text-ff-red hover:bg-ff-surface disabled:opacity-50"
+                            >
+                              <X size={14} />
+                            </button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div className="flex items-end gap-2">
+                    <label className={`${labelCls} min-w-0 flex-1`}>
+                      Добави продукт
+                      <select
+                        value={pickProductId}
+                        onChange={(e) => setPickProductId(e.target.value)}
+                        className={`${field} cursor-pointer appearance-none`}
+                      >
+                        <option value="">Избери…</option>
+                        {bundleOptions
+                          .filter((o) => o.id !== product.id && !bundleItems.some((b) => b.productId === o.id))
+                          .map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                              {o.weight ? ` (${o.weight})` : ''}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label className="flex w-16 flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
+                      Бр.
+                      <input
+                        value={pickQty}
+                        onChange={(e) => setPickQty(e.target.value.replace(/[^0-9]/g, ''))}
+                        inputMode="numeric"
+                        className={field}
+                      />
+                    </label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-sm"
+                      disabled={!pickProductId || bundleBusy}
+                      onClick={addBundleMember}
+                    >
+                      <Plus size={14} /> Добави
+                    </Button>
+                  </div>
+                  {bundleErr && <p className="text-[12.5px] font-semibold text-ff-red">{bundleErr}</p>}
+                  <p className="text-[11px] text-ff-muted">
+                    Забележка: продукт, който сам е пакет, не може да бъде добавен в друг пакет — сървърът ще откаже с ясно съобщение.
+                  </p>
+                </div>
+              )}
+            </Collapsible>
           )}
 
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}

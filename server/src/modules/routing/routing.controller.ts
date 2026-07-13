@@ -8,6 +8,13 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { SetStopLocationDto } from './dto/set-stop-location.dto';
 import { ReverseGeocodeQueryDto } from './dto/reverse-geocode-query.dto';
 import { SuggestDaysDto } from './dto/suggest-days.dto';
+import { MeasureOrderDto } from './dto/measure-order.dto';
+import { SetOrderCourierDto } from './dto/set-order-courier.dto';
+import { SetOrderSequenceDto } from './dto/set-order-sequence.dto';
+import {
+  DeliveryWindowDayDto,
+  UpdateDeliveryWindowDto,
+} from './dto/delivery-window.dto';
 
 // NOTE: RoutingModule is imported before OrdersModule in app.module so this
 // literal `/orders/route` route registers before OrdersModule's `/orders/:id`.
@@ -63,6 +70,85 @@ export class RoutingController {
   @UseGuards(ActiveSubscriptionGuard)
   reverseGeocode(@Query() dto: ReverseGeocodeQueryDto) {
     return this.routingService.reverseGeocode(dto.lat, dto.lng);
+  }
+
+  // Task #5 — road geometry + totals for an EXPLICIT operator-chosen stop order
+  // (after a manual reorder / courier move). No re-optimization: the map gets a
+  // real street-following polyline for the given sequence instead of straight
+  // pin-to-pin lines. Multi-segment path so OrdersModule's `:id` can't catch it.
+  @Post('route/measure')
+  @UseGuards(ActiveSubscriptionGuard)
+  measure(@CurrentTenant() tenantId: string, @Body() dto: MeasureOrderDto) {
+    return this.routingService.measureExplicitOrder(
+      tenantId,
+      dto.date,
+      dto.stopIds,
+      dto.courierIndex,
+      dto.endMode,
+      dto.startLat != null && dto.startLng != null
+        ? { lat: dto.startLat, lng: dto.startLng }
+        : undefined,
+    );
+  }
+
+  // Task #6 — pin an order to a courier (or clear the pin). The route recomputes
+  // on the client's next fetch, honouring the pin.
+  @Patch('route/order/:id/courier')
+  @UseGuards(ActiveSubscriptionGuard)
+  setOrderCourier(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: SetOrderCourierDto,
+  ) {
+    return this.routingService.setOrderCourier(tenantId, id, dto.courierIndex);
+  }
+
+  // Persist the operator's manual stop order for one courier leg (route_seq)
+  // so getRoute honours it instead of always re-optimizing. Empty stopIds
+  // clears the override. Multi-segment path so OrdersModule's `:id` can't
+  // catch it (mirrors route/measure and route/order/:id/courier above).
+  @Patch('route/order/sequence')
+  @UseGuards(ActiveSubscriptionGuard)
+  setOrderSequence(@CurrentTenant() tenantId: string, @Body() dto: SetOrderSequenceDto) {
+    return this.routingService.setOrderSequence(tenantId, dto.courierIndex, dto.stopIds);
+  }
+
+  // Task #13 — generate a draft delivery time-window per order for the day from
+  // the optimized per-courier routes. Returns the proposal for review.
+  @Post('route/windows/generate')
+  @UseGuards(ActiveSubscriptionGuard)
+  generateWindows(@CurrentTenant() tenantId: string, @Body() dto: DeliveryWindowDayDto) {
+    return this.routingService.generateDeliveryWindows(
+      tenantId,
+      dto.date,
+      dto.couriers,
+      parseEndModes(dto.ends),
+    );
+  }
+
+  // Task #13 — operator lightly edits one order's generated window.
+  @Patch('route/window/:id')
+  @UseGuards(ActiveSubscriptionGuard)
+  updateWindow(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateDeliveryWindowDto,
+  ) {
+    return this.routingService.updateDeliveryWindow(tenantId, id, { start: dto.start, end: dto.end });
+  }
+
+  // Task #13 — approve the day's draft windows (ready to notify).
+  @Post('route/windows/approve')
+  @UseGuards(ActiveSubscriptionGuard)
+  approveWindows(@CurrentTenant() tenantId: string, @Body() dto: DeliveryWindowDayDto) {
+    return this.routingService.approveDeliveryWindows(tenantId, dto.date);
+  }
+
+  // Task #13 — email each customer their approved delivery window.
+  @Post('route/windows/notify')
+  @UseGuards(ActiveSubscriptionGuard)
+  notifyWindows(@CurrentTenant() tenantId: string, @Body() dto: DeliveryWindowDayDto) {
+    return this.routingService.notifyDeliveryWindows(tenantId, dto.date);
   }
 
   // Geography-first proposal to spread pending address orders across the given

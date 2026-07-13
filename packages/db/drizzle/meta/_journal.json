@@ -652,6 +652,62 @@
       "when": 1783886406000,
       "tag": "0092_farmer_legal",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1783886407000,
+      "tag": "0093_order_courier_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1783886408000,
+      "tag": "0094_order_delivery_window",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1783886409000,
+      "tag": "0095_order_route_seq",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1783886410000,
+      "tag": "0097_order_delivered_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1783886411000,
+      "tag": "0098_order_fulfillments",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1783886412000,
+      "tag": "0100_bundle_products",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1783886413000,
+      "tag": "0101_product_requires_companion",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1783886414000,
+      "tag": "0102_farmer_geo",
+      "breakpoints": true
     }
   ]
 }

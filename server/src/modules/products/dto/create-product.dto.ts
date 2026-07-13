@@ -2,7 +2,7 @@ import {
   IsString, IsInt, IsOptional, IsBoolean, IsUrl, IsUUID, Min, Max, MaxLength, ValidateIf, ValidateNested,
   IsArray, IsDateString, ArrayMaxSize, IsNotEmpty,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
 import { VariantDto } from './variant.dto';
@@ -83,6 +83,32 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   courierDisabled?: boolean;
+
+  // Companion rule (generalized „кайсии" combo): the product can't be ordered alone —
+  // the cart must also hold >=1 OTHER product. See companionMinPriceStotinki for the
+  // optional value gate. Enforced server-side + storefront pre-check.
+  @ApiPropertyOptional({
+    description: 'Companion rule: require >=1 other product in the cart (не се доставя самостоятелно)',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  requiresCompanion?: boolean;
+
+  // Optional EUR-cents threshold (same unit as priceStotinki) for the companion rule:
+  // the required other product must cost at least this much. null/absent = any other
+  // product qualifies. A blank number field posts '' → normalize to null (the
+  // @IsOptional/@IsInt gotcha: '' is not stopped by @IsOptional alone).
+  @ApiPropertyOptional({
+    description: 'Companion min price in stotinki (EUR cents); the other product must cost >= this. null = any',
+    nullable: true,
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  companionMinPriceStotinki?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -5,6 +5,17 @@ import {
   type PaymentAggRow,
 } from './orders.service';
 
+/**
+ * Task #8 LOW: the refused-COD exclusion (`orders.service.ts`'s
+ * `... FILTER (where orders.cod_outcome IS DISTINCT FROM 'refused')` in both
+ * paymentTotalsCached and the producer-scoped totals query) is pure SQL — no
+ * test-DB harness exists in this repo (no pg-mem/pglite/testcontainers), so its
+ * actual DB-level exclusion behaviour isn't exercised by a spec. What IS covered
+ * below is the JS-side fold (`paymentTotals`) that consumes the aggregate rows
+ * the SQL would produce — the tests below feed it canned aggregate rows,
+ * including a refused-COD one, and assert the totals fold correctly.
+ */
+
 const row = (over: Partial<PaymentRow>): PaymentRow => ({
   day: '2026-06-12',
   id: 'o',

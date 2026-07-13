@@ -190,6 +190,11 @@ export function OrderDetailBody({ order }: { order: Order }) {
           ? 'Вземане от пазара'
           : 'Адрес за доставка';
 
+  // Money model (integer stotinki, no separate delivery column): subtotal is the
+  // goods total from line items; delivery fee is whatever's left over the order total.
+  const subtotal = order.items.reduce((s, it) => s + it.priceStotinki * it.quantity, 0);
+  const deliveryFee = Math.max(0, order.totalStotinki - subtotal);
+
   return (
     <div className="flex-1 overflow-y-auto px-6 py-5">
       <div className="mb-5 flex flex-wrap items-center gap-2.5">
@@ -233,16 +238,35 @@ export function OrderDetailBody({ order }: { order: Order }) {
             key={it.id}
             className={`flex items-center justify-between px-3.5 py-3 ${i < order.items.length - 1 ? 'border-b border-ff-border-2' : ''}`}
           >
-            <span className="text-sm font-semibold">{it.productName}</span>
-            <span className="text-[13.5px] font-bold text-ff-muted">× {it.quantity}</span>
+            <div className="min-w-0 pr-3">
+              <div className="truncate text-sm font-semibold">{it.productName}</div>
+              <div className="mt-px text-xs text-ff-muted">
+                × {it.quantity} · {moneyFromStotinki(it.priceStotinki)}
+              </div>
+            </div>
+            <span className="ff-fig shrink-0 text-[13.5px] font-bold">
+              {moneyFromStotinki(it.priceStotinki * it.quantity)}
+            </span>
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between px-1">
-        <span className="text-[15px] font-bold">Общо</span>
-        <span className="ff-fig text-[22px] font-extrabold tracking-[-0.02em]">
-          {moneyFromStotinki(order.totalStotinki)}
-        </span>
+      <div className="flex flex-col gap-1.5 px-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[13.5px] font-semibold text-ff-muted">Продукти</span>
+          <span className="ff-fig text-[14px] font-bold text-ff-ink-2">{moneyFromStotinki(subtotal)}</span>
+        </div>
+        {deliveryFee > 0 && (
+          <div className="flex items-center justify-between">
+            <span className="text-[13.5px] font-semibold text-ff-muted">Доставка</span>
+            <span className="ff-fig text-[14px] font-bold text-ff-ink-2">{moneyFromStotinki(deliveryFee)}</span>
+          </div>
+        )}
+        <div className="mt-1 flex items-center justify-between border-t border-ff-border-2 pt-2.5">
+          <span className="text-[15px] font-bold">Общо (с доставка)</span>
+          <span className="ff-fig text-[22px] font-extrabold tracking-[-0.02em]">
+            {moneyFromStotinki(order.totalStotinki)}
+          </span>
+        </div>
       </div>
     </div>
   );

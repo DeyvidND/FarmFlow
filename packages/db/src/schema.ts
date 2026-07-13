@@ -29,6 +29,9 @@ export const orderStatusEnum = pgEnum('order_status', [
 ]);
 export const codOutcomeEnum = pgEnum('cod_outcome', ['received', 'refused']);
 export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', 'past_due', 'inactive']);
+// Task #14: per-farmer self-tracked prep state for tomorrow's orders — see
+// order_fulfillments below. Plain text column (not a pg enum) so a future state
+// can be added without an ALTER TYPE migration; validated in the DTO layer.
 // Vendor finance (DORMANT until enabled per tenant — see tenants.settings.vendorFinance).
 // commission_entries lifecycle: accrued (money collected) → settled (paid out) or
 // voided (order cancelled / COD refused). Settled is final.
@@ -198,6 +201,12 @@ export const products = pgTable(
     // review, hidden from the public catalog. Admin/operator-created products are
     // born false (live). Cleared only by the explicit approve endpoint.
     needsReview: boolean('needs_review').notNull().default(false),
+    // Companion rule: true = can't be ordered alone; the cart must also hold ≥1 other distinct
+    // product. Enforced in OrdersService + a storefront pre-check. (migr 0101)
+    requiresCompanion: boolean('requires_companion').notNull().default(false),
+    // Optional EUR-cents threshold for the companion rule (same unit as priceStotinki): the
+    // required other product must be worth ≥ this. NULL = any other product qualifies. (migr 0101)
+    companionMinPriceStotinki: integer('companion_min_price_stotinki'),
     imageUrl: text('image_url'),
     // How the cover image is framed in storefront product cards: focal point
     // (x/y, 0..1) + zoom (1..3). NULL = legacy behavior (centered, no zoom).
@@ -301,6 +310,21 @@ export const productVariants = pgTable(
     ),
   }),
 );
+
+// Real product membership for bundle products (products.category='bundle'). See 0100.
+export const productBundleItems = pgTable('product_bundle_items', {
+  id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  bundleId: uuid('bundle_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  quantity: integer('quantity').notNull().default(1),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  bundleIdx: index('product_bundle_items_bundle_idx').on(t.bundleId, t.position, t.id),
+  bundleProductUnique: uniqueIndex('product_bundle_items_bundle_product_unique').on(t.bundleId, t.productId),
+  productIdx: index('product_bundle_items_product_idx').on(t.productId),
+}));
 
 export const productAvailabilityWindows = pgTable(
   'product_availability_windows',
@@ -419,6 +443,12 @@ export const orders = pgTable(
     codOutcomeAt: timestamp('cod_outcome_at', { withTimezone: true }),
     codOutcomeReason: text('cod_outcome_reason'),
     codOutcomeSource: text('cod_outcome_source'),
+    // Day the order was ACTUALLY delivered — distinct from created_at (order-placed
+    // day) and the delivery_slots.date it was scheduled for. NULL until the first
+    // transition into status='delivered'; cleared back to NULL if that transition is
+    // ever reverted (kept in lockstep with `status`). Feeds the turnover-by-basis
+    // stat (Task #9/#10) — see migration 0097 for the backfill of legacy rows.
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     // How the customer chose to pay: 'online' (Stripe card) or 'cod' (наложен
     // платеж — collected at delivery/Econt office). Normalized at checkout to
     // reflect reality: any order with no Stripe session is recorded as 'cod'.
@@ -428,6 +458,24 @@ export const orders = pgTable(
     // that shopper's page_view rows (funnel counts distinct visitor_hash). Nullable:
     // legacy rows + any order created before this column existed.
     visitorHash: text('visitor_hash'),
+    // Manual courier assignment for the route/маршрути screen (own delivery). NULL =
+    // auto (sweep-split by geography); 0-based index of the courier the operator
+    // pinned this order to. Out-of-range (courier count later lowered) is ignored by
+    // the router → falls back to auto. See migration 0093.
+    courierIndex: smallint('courier_index'),
+    // Persisted manual stop order within a courier's leg (0-based position).
+    // NULL = not manually ordered (auto/optimized order applies). Set via
+    // PATCH /orders/route/order/sequence when the operator drags stops around
+    // on the route screen, so slot regeneration honours it. Migration 0095.
+    routeSeq: smallint('route_seq'),
+    // Delivery time window (task #13). Wall-clock Europe/Sofia, per order, generated
+    // from the optimized route then approved/edited by the operator and emailed to the
+    // customer. start/end are 'HH:MM' times; status draft→approved→sent; notifiedAt is
+    // when the customer was told. All NULL until a window is generated. Migration 0094.
+    deliveryWindowStart: time('delivery_window_start'),
+    deliveryWindowEnd: time('delivery_window_end'),
+    deliveryWindowStatus: text('delivery_window_status'),
+    deliveryWindowNotifiedAt: timestamp('delivery_window_notified_at', { withTimezone: true }),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
@@ -447,6 +495,11 @@ export const orders = pgTable(
     tenantNumberUnique: uniqueIndex('orders_tenant_number_unique').on(t.tenantId, t.orderNumber),
     // Farmer-scoped order lookups (courier split orders).
     farmerIdx: index('orders_farmer_idx').on(t.farmerId),
+    // Turnover-by-delivered-day bucketing / to-date sums (Task #9/#10). Partial:
+    // most orders are NULL here at any given time (not yet delivered).
+    tenantDeliveredIdx: index('orders_tenant_delivered_idx')
+      .on(t.tenantId, t.deliveredAt)
+      .where(sql`${t.deliveredAt} is not null`),
   }),
 );
 
@@ -1050,6 +1103,11 @@ export const farmers = pgTable(
     // branding.enabled (in farmers.service.update), operator can override.
     tier: smallint('tier').notNull().default(1),
     position: integer('position').notNull().default(0),
+    // Producer-map coordinates (logistics), geocoded from legal.address/city and cached.
+    // NULL = unresolved. (migr 0102)
+    lat: numeric('lat', { precision: 10, scale: 7 }),
+    lng: numeric('lng', { precision: 10, scale: 7 }),
+    geocodedAt: timestamp('geocoded_at', { withTimezone: true }),
     createdAt: timestamp('created_at').defaultNow(),
   },
   // Admin + storefront lists filter by tenant, sort by (position, createdAt).
@@ -1186,6 +1244,29 @@ export const commissionEntries = pgTable(
   }),
 );
 
+// Task #14: per-(order, farmer) fulfilment self-tracking, driven off the daily
+// «tomorrow» farmer email. A shared multi-farmer order gets one independent row
+// per producer — one farm running behind never blocks another's status on the
+// same order. 'pending' (default, nothing marked) → 'in_production' → 'fulfilled'.
+// See migration 0098.
+export const orderFulfillments = pgTable(
+  'order_fulfillments',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }),
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'cascade' }),
+    state: text('state').notNull().default('pending'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // Re-marking a row updates in place — never a duplicate per (order, farmer).
+    orderFarmerUniq: uniqueIndex('order_fulfillments_order_farmer_uniq').on(t.orderId, t.farmerId),
+    // «Утре» panel: this farmer's fulfilment rows, tenant-scoped.
+    tenantFarmerIdx: index('order_fulfillments_tenant_farmer_idx').on(t.tenantId, t.farmerId),
+  }),
+);
+
 // Vendor monthly subscription charges (DORMANT until
 // tenants.settings.vendorFinance.subscriptionEnabled). Generated per farmer per
 // 'YYYY-MM' period; the operator collects the money off-platform and marks rows
@@ -1231,6 +1312,7 @@ export const schema = {
   deliverySlots,
   orders,
   orderItems,
+  orderFulfillments,
   commissionEntries,
   vendorSubscriptionCharges,
   siteEvents,

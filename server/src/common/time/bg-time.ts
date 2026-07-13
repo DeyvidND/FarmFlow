@@ -30,6 +30,16 @@ export function bgDate(col: PgColumn | SQL): SQL {
   return sql`(${col} AT TIME ZONE 'UTC' AT TIME ZONE ${BG_TZ})::date`;
 }
 
+/** SQL fragment: a tz-AWARE column (`timestamp with time zone`, e.g. `deliveredAt`,
+ *  `paidAt`, `codOutcomeAt`) reduced to its BG-local date. Unlike {@link bgDate}
+ *  (for naive UTC-wall-clock columns like `createdAt`), a `timestamptz` value is
+ *  already an absolute instant — a SINGLE `AT TIME ZONE` conversion is correct;
+ *  applying the naive-column's double conversion here would silently shift the
+ *  day. Same non-sargable caveat as {@link bgDate} applies. */
+export function bgDateTz(col: PgColumn | SQL): SQL {
+  return sql`(${col} AT TIME ZONE ${BG_TZ})::date`;
+}
+
 /** Offset (ms) of Europe/Sofia at a given instant: (wall-clock as-UTC) − instant.
  *  +2h in winter, +3h in summer (DST). */
 function bgOffsetMs(instant: Date): number {

@@ -45,6 +45,7 @@ import {
 } from '@fermeribg/db';
 import type { JwtPayload } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import {
   clampLimit,
@@ -302,6 +303,33 @@ export interface DeliveryOpsSummary {
   stuckDrafts: { farmerId: string | null; farmerName: string; tenantId: string; tenantName: string; count: number; oldestAt: Date | null }[];
 }
 
+/** One producer pin for the super-admin producers map (task #12). Coordinates are
+ *  null until geocoded (from legal.address / city); such producers show as „без
+ *  локация" in the sidebar list. */
+export interface ProducerMapPoint {
+  id: string;
+  name: string;
+  tenantName: string;
+  tenantSlug: string;
+  isDemo: boolean;
+  city: string | null;
+  tier: number;
+  tint: string | null;
+  imageUrl: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
+/** Producers-map response: every producer (with or without coords) plus counts and
+ *  a flag telling the page whether maps are configured at all. */
+export interface ProducersMapResult {
+  producers: ProducerMapPoint[];
+  withLocation: number;
+  withoutLocation: number;
+  /** False when GOOGLE_MAPS_API_KEY is unset — the page then shows only the table. */
+  mapsEnabled: boolean;
+}
+
 @Injectable()
 export class PlatformService {
   private readonly logger = new Logger(PlatformService.name);
@@ -319,6 +347,8 @@ export class PlatformService {
     private readonly tenantsSvc: TenantsService,
     private readonly storage: StorageService,
     private readonly catalogCache: CatalogCacheService,
+    // @Global MapsService — geocodes producer pins for the producers map (task #12).
+    private readonly maps: MapsService,
   ) {}
 
   /** Origin the delivery set-password ("invite") link is aimed at. */
@@ -833,6 +863,95 @@ export class PlatformService {
         outstandingStotinki: agg?.outstandingStotinki ?? 0,
       },
       stuckDrafts,
+    };
+  }
+
+  /** Location string to geocode a producer from: prefer the legal seat address
+   *  (finer), else the free-text city. Null when neither is set. */
+  private producerLocationString(
+    legal: { address?: string } | null | undefined,
+    city: string | null,
+  ): string | null {
+    const addr = legal?.address?.trim();
+    const c = city?.trim();
+    return addr || c || null;
+  }
+
+  /**
+   * Every producer we work with, as map pins (task #12 — карта на производители).
+   * Coordinates come from `farmers.lat/lng`; rows still missing them (but with a
+   * legal address / city) are geocoded on read via {@link MapsService.geocodeApprox}
+   * (bounded concurrency) and persisted so the next read — and future route planning
+   * — skip the geocode. Maps disabled / a geocode miss simply leaves the pin null
+   * (listed as „без локация"); it never throws into the endpoint. Published for now on
+   * the internal super-admin console; the shape is storefront-ready for later.
+   */
+  async producersMap(): Promise<ProducersMapResult> {
+    const rows = await this.db
+      .select({
+        id: farmers.id,
+        name: farmers.name,
+        city: farmers.city,
+        legal: farmers.legal,
+        tint: farmers.tint,
+        imageUrl: farmers.imageUrl,
+        tier: farmers.tier,
+        lat: farmers.lat,
+        lng: farmers.lng,
+        tenantName: tenants.name,
+        tenantSlug: tenants.slug,
+        isDemo: tenants.isDemo,
+      })
+      .from(farmers)
+      .innerJoin(tenants, eq(farmers.tenantId, tenants.id))
+      .orderBy(asc(farmers.name), asc(farmers.id));
+
+    // Geocode-on-read for rows missing coords (skip when maps are off). numeric
+    // columns come back as strings — mutate the row in place so the mapped output
+    // below picks up the freshly geocoded value.
+    const missing = this.maps.enabled
+      ? rows.filter(
+          (r) => (r.lat == null || r.lng == null) && this.producerLocationString(r.legal, r.city),
+        )
+      : [];
+    const CONCURRENCY = 5;
+    for (let i = 0; i < missing.length; i += CONCURRENCY) {
+      const batch = missing.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        batch.map(async (r) => {
+          const loc = this.producerLocationString(r.legal, r.city);
+          if (!loc) return;
+          const ll = await this.maps.geocodeApprox(loc);
+          if (!ll) return;
+          r.lat = ll.lat.toString();
+          r.lng = ll.lng.toString();
+          await this.db
+            .update(farmers)
+            .set({ lat: ll.lat.toString(), lng: ll.lng.toString(), geocodedAt: new Date() })
+            .where(eq(farmers.id, r.id));
+        }),
+      );
+    }
+
+    const producers: ProducerMapPoint[] = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      tenantName: r.tenantName,
+      tenantSlug: r.tenantSlug,
+      isDemo: !!r.isDemo,
+      city: r.city ?? r.legal?.address ?? null,
+      tier: r.tier,
+      tint: r.tint,
+      imageUrl: r.imageUrl,
+      lat: r.lat != null ? Number(r.lat) : null,
+      lng: r.lng != null ? Number(r.lng) : null,
+    }));
+
+    return {
+      producers,
+      withLocation: producers.filter((p) => p.lat != null && p.lng != null).length,
+      withoutLocation: producers.filter((p) => p.lat == null || p.lng == null).length,
+      mapsEnabled: this.maps.enabled,
     };
   }
 

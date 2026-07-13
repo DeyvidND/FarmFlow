@@ -174,6 +174,47 @@ export class MapsService {
   }
 
   /**
+   * Forward-geocode a free-text location to coordinates, ACCEPTING coarse
+   * (town/locality-centroid) matches — unlike {@link geocode}, which drops them.
+   * Used for the producer / logistics map, where a settlement-level pin is good
+   * enough and a producer often has only a city (no street). Restricted to Bulgaria,
+   * cached for {@link GEOCODE_CACHE_TTL}. Returns null when disabled, on no match, or
+   * on any error — the same graceful-degradation contract as the other methods, so a
+   * maps outage never breaks the producers-map endpoint.
+   */
+  async geocodeApprox(address: string): Promise<LatLng | null> {
+    const query = address?.trim();
+    if (!this.enabled || !query) return null;
+
+    const key = `maps:geocodeapprox:${createHash('sha1')
+      .update(query.toLowerCase().replace(/\s+/g, ' '))
+      .digest('hex')}`;
+    const cached = await this.cachedGet<LatLng>(key);
+    if (cached) return cached;
+
+    const url =
+      `${GEOCODE_URL}?address=${encodeURIComponent(query)}` +
+      `&components=${encodeURIComponent('country:BG')}&region=bg&language=bg&key=${this.apiKey}`;
+    try {
+      const res = await this.fetchJson(url);
+      if (res?.status !== 'OK' || !Array.isArray(res.results) || !res.results.length) {
+        if (res?.status && res.status !== 'ZERO_RESULTS') {
+          this.logger.warn(`geocodeApprox failed (${res.status}) for "${query}".`);
+        }
+        return null;
+      }
+      const loc = res.results[0]?.geometry?.location;
+      if (typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') return null;
+      const ll: LatLng = { lat: loc.lat, lng: loc.lng };
+      await this.cachedSet(key, ll, GEOCODE_CACHE_TTL);
+      return ll;
+    } catch (err) {
+      this.logger.warn(`geocodeApprox error for "${query}": ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
    * Resolve a map point back to a human address (reverse geocoding) — used by
    * the route stop editor when the farmer drops/drags a pin on the embedded
    * map, so the address field can reflect where the pin actually landed.

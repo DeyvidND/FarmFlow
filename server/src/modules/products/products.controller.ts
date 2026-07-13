@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete,
+  Controller, Get, Post, Patch, Put, Delete,
   Param, Body, Query, UseGuards,
   UploadedFile, UseInterceptors,
   ParseFilePipe, FileTypeValidator, MaxFileSizeValidator,
@@ -11,6 +11,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { AssignProductsDto } from './dto/assign-products.dto';
 import { UpdateCourierBatchDto } from './dto/update-courier-batch.dto';
+import { SetBundleItemsDto } from './dto/bundle-items.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -194,6 +195,32 @@ export class ProductsController {
   ) {
     const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
     return this.productsService.listVariants(id, tenantId, scope);
+  }
+
+  // ---- Bundle contents („Фермерска кошница" / готови пакети, task #1) ----
+
+  @Get(':id/bundle-items')
+  @Roles('admin', 'farmer')
+  listBundleItems(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.listBundleItems(id, tenantId, scope);
+  }
+
+  // Full replace — same guard/scoping as PATCH :id.
+  @Put(':id/bundle-items')
+  @Roles('admin', 'farmer')
+  setBundleItems(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Body() dto: SetBundleItemsDto,
+  ) {
+    const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
+    return this.productsService.setBundleItems(id, tenantId, dto.items, scope);
   }
 
   @Post(':id/media')

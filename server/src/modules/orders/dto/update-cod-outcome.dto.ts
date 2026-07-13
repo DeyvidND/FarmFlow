@@ -2,9 +2,9 @@ import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateCodOutcomeDto {
-  @ApiProperty({ enum: ['received', 'refused'] })
-  @IsEnum(['received', 'refused'])
-  outcome: 'received' | 'refused';
+  @ApiProperty({ enum: ['received', 'refused', 'pending'] })
+  @IsEnum(['received', 'refused', 'pending'])
+  outcome: 'received' | 'refused' | 'pending';
 
   @ApiPropertyOptional({ description: 'Причина при отказ (свободен текст)' })
   @IsOptional()

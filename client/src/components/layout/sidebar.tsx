@@ -8,6 +8,7 @@ import {
   ClipboardList,
   BarChart3,
   CalendarClock,
+  CalendarCheck,
   CreditCard,
   ShoppingBasket,
   Package,
@@ -75,6 +76,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/orders', label: 'Поръчки', Icon: ClipboardList, desc: 'Входящи поръчки от клиенти.' },
       { href: '/production', label: 'Производство', Icon: ShoppingBasket, gated: true, desc: 'Дневен списък какво да приготвиш за доставките.' },
+      { href: '/tomorrow', label: 'Утре', Icon: CalendarCheck, desc: 'Поръчките за утре и кого да потърсиш, ако изостанеш.' },
       { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true, desc: 'Маршрут за разнасяне на поръчките.' },
       { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите — наложен платеж и карти.' },
       { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Оборот, поръчки, топ продукти и тренд през времето.' },
@@ -123,6 +125,7 @@ export const FARMER_NAV: NavItem[] = [
   { href: '/site-analytics', label: 'Анализ на сайта', Icon: LineChart, desc: 'Посетители на сайта, фуния към поръчка и източници.' },
   { href: '/products', label: 'Продукти', Icon: Package, desc: 'Твоите продукти — добавяй, променяй цени, снимки и наличност.' },
   { href: '/my-orders', label: 'Моите поръчки', Icon: ClipboardList, desc: 'Какво трябва да приготвиш — по поръчка и статус.' },
+  { href: '/tomorrow', label: 'Утре', Icon: CalendarCheck, desc: 'Поръчките за утре — отбелязвай ги, докато ги приготвяш.' },
   { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Плащанията за твоите продукти.' },
   { href: '/my-report', label: 'Моят отчет', Icon: BarChart3, desc: 'Твоят оборот от пазара и комисионата (ако е включена).' },
   { href: '/availability', label: 'Задай наличност', Icon: CalendarClock, desc: 'Колко имаш налично от всеки продукт — намалява при поръчка.' },

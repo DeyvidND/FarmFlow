@@ -10,8 +10,10 @@ FROM base AS build
 ENV NEXT_OUTPUT_STANDALONE=1
 # NEXT_PUBLIC_* are inlined into the bundle at build time, so they arrive as a
 # build arg from CI (FF_SENTRY_DSN_ADMIN), not runtime env.
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
 ARG NEXT_PUBLIC_SENTRY_DSN=""
-ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
+ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY \
+    NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 RUN pnpm --filter "@fermeribg/admin..." run build

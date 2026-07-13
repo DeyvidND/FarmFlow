@@ -156,3 +156,70 @@ describe('OrdersController mine routing', () => {
     expect(svc.ordersForFarmer).not.toHaveBeenCalled();
   });
 });
+
+// GET /orders/tomorrow (Task #14) mirrors /mine's owner-vs-producer split —
+// no tenant-wide "tomorrow" either (an owner MUST pass ?farmerId).
+describe('OrdersController tomorrow routing', () => {
+  const svc = { tomorrowForFarmer: jest.fn().mockResolvedValue('scoped') };
+  const ctrl = new OrdersController(svc as any);
+  const tenant = (over: Record<string, unknown>) =>
+    ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('a producer is forced to their own farmerId, ignoring ?farmerId', async () => {
+    await ctrl.tomorrow(tenant({ role: 'farmer', farmerId: 'farmer-1' }), 'farmer-9');
+    expect(svc.tomorrowForFarmer).toHaveBeenCalledWith('t', 'farmer-1');
+  });
+
+  it('an owner with ?farmerId gets that producer\'s tomorrow list', async () => {
+    await ctrl.tomorrow(tenant({ role: 'admin' }), 'farmer-3');
+    expect(svc.tomorrowForFarmer).toHaveBeenCalledWith('t', 'farmer-3');
+  });
+
+  it('an owner without ?farmerId gets a 400', () => {
+    expect(() => ctrl.tomorrow(tenant({ role: 'admin' }), undefined)).toThrow(BadRequestException);
+    expect(svc.tomorrowForFarmer).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed farmer token (role=farmer, no farmerId) with 403', () => {
+    expect(() => ctrl.tomorrow(tenant({ role: 'farmer' }), undefined)).toThrow(ForbiddenException);
+    expect(svc.tomorrowForFarmer).not.toHaveBeenCalled();
+  });
+});
+
+// PATCH :id/fulfillment (Task #14) — same owner-vs-producer scope rule as
+// /tomorrow (an owner MUST pass ?farmerId; a producer is forced to their own).
+describe('OrdersController setFulfillment routing', () => {
+  const svc = { setFulfillment: jest.fn().mockResolvedValue('ok') };
+  const ctrl = new OrdersController(svc as any);
+  const tenant = (over: Record<string, unknown>) =>
+    ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
+  const dto = { state: 'fulfilled' } as any;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('a producer is forced to their own farmerId, ignoring ?farmerId', async () => {
+    await ctrl.setFulfillment('o1', tenant({ role: 'farmer', farmerId: 'farmer-1' }), dto, 'farmer-9');
+    expect(svc.setFulfillment).toHaveBeenCalledWith('o1', 't', 'farmer-1', 'fulfilled');
+  });
+
+  it('an owner with ?farmerId marks on that producer\'s behalf', async () => {
+    await ctrl.setFulfillment('o1', tenant({ role: 'admin' }), dto, 'farmer-3');
+    expect(svc.setFulfillment).toHaveBeenCalledWith('o1', 't', 'farmer-3', 'fulfilled');
+  });
+
+  it('an owner without ?farmerId gets a 400', () => {
+    expect(() => ctrl.setFulfillment('o1', tenant({ role: 'admin' }), dto, undefined)).toThrow(
+      BadRequestException,
+    );
+    expect(svc.setFulfillment).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed farmer token (role=farmer, no farmerId) with 403', () => {
+    expect(() => ctrl.setFulfillment('o1', tenant({ role: 'farmer' }), dto, undefined)).toThrow(
+      ForbiddenException,
+    );
+    expect(svc.setFulfillment).not.toHaveBeenCalled();
+  });
+});

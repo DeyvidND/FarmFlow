@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Check, X, Loader2, Phone, Mail, Users } from 'lucide-react';
+import { Check, X, Loader2, Phone, Mail, Users, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   cn,
@@ -145,6 +145,31 @@ function RefuseButton({
   );
 }
 
+/** «Върни» — undo an accidental «Получих парите» / «Отказана» click, reverting
+ *  the COD outcome back to «Очаквано». */
+function RevertButton({
+  id,
+  busyId,
+  onRevert,
+}: {
+  id: string;
+  busyId: string | null;
+  onRevert: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onRevert(id)}
+      disabled={busyId === id}
+      title="Върни в очакване"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-ff-border bg-ff-surface-2 px-2.5 py-1 text-[11px] font-extrabold text-ff-muted hover:bg-ff-border-2 disabled:opacity-60"
+    >
+      {busyId === id ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+      Върни
+    </button>
+  );
+}
+
 export function MyOrdersClient({ initial }: { initial: FarmerOrdersPage }) {
   const [orders, setOrders] = useState<FarmerOrder[]>(initial.orders);
   const [cursor, setCursor] = useState<string | null>(initial.nextCursor);
@@ -235,6 +260,21 @@ export function MyOrdersClient({ initial }: { initial: FarmerOrdersPage }) {
     }
   }, []);
 
+  // Undo an accidental «Получих парите» / «Отказана» click — reverts the COD
+  // outcome back to «Очаквано» (Task 3).
+  const onRevert = useCallback(async (id: string) => {
+    setBusyId(id);
+    try {
+      await setCodOutcome(id, 'pending');
+      setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, codOutcome: null } : o)));
+      toast.success('Върнато в очакване.');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusyId(null);
+    }
+  }, []);
+
   return (
     <div>
       <h1 className="mb-1 text-[22px] font-extrabold text-ff-green-900">Моите поръчки</h1>
@@ -314,6 +354,9 @@ export function MyOrdersClient({ initial }: { initial: FarmerOrdersPage }) {
                       <CollectButton id={o.id} busyId={busyId} onCollect={onCollect} />
                       <RefuseButton id={o.id} busyId={busyId} onRefuse={onRefuse} />
                     </>
+                  )}
+                  {o.paymentMethod === 'cod' && o.codOutcome !== null && (
+                    <RevertButton id={o.id} busyId={busyId} onRevert={onRevert} />
                   )}
                 </div>
               )}

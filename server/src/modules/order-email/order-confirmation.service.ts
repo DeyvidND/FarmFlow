@@ -136,6 +136,45 @@ export class OrderConfirmationService {
     }
   }
 
+  /**
+   * Email the buyer the delivery time WINDOW the operator approved for their
+   * order (task #13). Unlike the fire-and-forget helpers above, this one lets its
+   * error propagate: the caller (RoutingService.notifyDeliveryWindows) only marks
+   * the order `sent` after the send resolves, so a failure must NOT be swallowed
+   * or the order would be wrongly recorded as notified. Returns silently when the
+   * order has no email — the caller pre-filters, but this stays safe on its own.
+   */
+  async sendDeliveryWindow(
+    orderId: string,
+    windowStart: string,
+    windowEnd: string,
+    date: string,
+  ): Promise<void> {
+    const [order] = await this.db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+    if (!order) return;
+    const to = order.customerEmail?.trim();
+    if (!to) return;
+
+    const [tenant] = order.tenantId
+      ? await this.db
+          .select({ name: tenants.name, settings: tenants.settings })
+          .from(tenants)
+          .where(eq(tenants.id, order.tenantId))
+          .limit(1)
+      : [undefined];
+    const farmName = tenant?.name ?? 'ФермериБГ';
+    const phone = contactPhone(tenant?.settings);
+    const safeFarmName = farmName.replace(/[\r\n]+/g, ' ').trim();
+
+    await this.email.sendMail({
+      to,
+      subject: `Час за доставка — ${safeFarmName}`.trim(),
+      html: this.renderWindowHtml(order, farmName, date, windowStart, windowEnd, phone),
+      text: this.renderWindowText(order, farmName, date, windowStart, windowEnd, phone),
+      stream: 'transactional',
+    });
+  }
+
   private async send(orderId: string, phase: 'received' | 'confirmed'): Promise<void> {
     try {
       const [order] = await this.db
@@ -297,6 +336,69 @@ export class OrderConfirmationService {
       phone ? `Ако този ден не ти е удобен, обади се на ${phone}, за да се уговорим за друг ден.` : '',
       '',
       this.deliveryLine(order),
+    ]
+      .filter((l) => l !== '')
+      .join('\n');
+  }
+
+  private renderWindowHtml(
+    order: OrderRow,
+    farmName: string,
+    date: string,
+    windowStart: string,
+    windowEnd: string,
+    phone: string | null,
+  ): string {
+    const greetingName = order.customerName ? esc(order.customerName) : '';
+    const phoneClause = phone
+      ? ` Ако този час не ти е удобен, обади се на <strong>${esc(phone)}</strong>, за да се уговорим.`
+      : '';
+    return `<!doctype html><html lang="bg"><body style="margin:0;background:#f6f4ec;font-family:Arial,Helvetica,sans-serif;color:#23210f">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f4ec;padding:28px 0">
+    <tr><td align="center">
+      <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fffdf7;border:1px solid #e7e3d6;border-radius:16px;overflow:hidden">
+        <tr><td style="background:#2d6a4f;padding:22px 28px;color:#eaf1e4;font-size:20px;font-weight:bold">🌿 ${esc(farmName)}</td></tr>
+        <tr><td style="padding:28px">
+          <h1 style="margin:0 0 6px;font-size:22px;color:#23210f">Кога да те очакваме</h1>
+          <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#4a4733">
+            ${greetingName ? `Здравей, ${greetingName}! ` : ''}Куриерът ни ще достави поръчката ти на <strong>${esc(dayLabel(date))}</strong>.${phoneClause}
+          </p>
+          <div style="margin-top:8px;padding:18px 16px;background:#f3f6f0;border:1px solid #e1e9dd;border-radius:12px;text-align:center">
+            <div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#8a8770;margin-bottom:6px">Очакван час</div>
+            <div style="font-size:26px;font-weight:bold;color:#2d6a4f">${esc(windowStart)} – ${esc(windowEnd)} ч.</div>
+          </div>
+          <div style="margin-top:16px;padding:14px 16px;background:#f3f6f0;border:1px solid #e1e9dd;border-radius:12px">
+            <div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#8a8770;margin-bottom:4px">Доставка</div>
+            <div style="font-size:14px;color:#23210f">${esc(this.deliveryLine(order))}</div>
+          </div>
+          <p style="margin:20px 0 0;font-size:13px;color:#8a8770">Часът е ориентировъчен — възможно е леко разминаване според трафика.</p>
+        </td></tr>
+        <tr><td style="padding:16px 28px;border-top:1px solid #eee7d6;font-size:12px;color:#a8a594">${esc(farmName)} · Благодарим, че пазаруваш от местни производители 🌱</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+  }
+
+  private renderWindowText(
+    order: OrderRow,
+    farmName: string,
+    date: string,
+    windowStart: string,
+    windowEnd: string,
+    phone: string | null,
+  ): string {
+    return [
+      `${farmName} — Час за доставка.`,
+      order.customerName ? `Здравей, ${order.customerName}!` : '',
+      '',
+      `Ще доставим поръчката ти на ${dayLabel(date)}.`,
+      `Очакван час: ${windowStart} – ${windowEnd} ч.`,
+      phone ? `Ако този час не ти е удобен, обади се на ${phone}, за да се уговорим.` : '',
+      '',
+      this.deliveryLine(order),
+      '',
+      'Часът е ориентировъчен — възможно е леко разминаване според трафика.',
     ]
       .filter((l) => l !== '')
       .join('\n');

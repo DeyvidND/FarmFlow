@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, Check, Copy, Mail, MapPin, MapPinned, Navigation, Phone } from 'lucide-react';
+import { AlertTriangle, Check, Clock, Copy, Mail, MapPin, MapPinned, Navigation, Phone } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn, moneyFromStotinki } from '@/lib/utils';
 import type { RouteStop } from '@/lib/types';
 import { isMajorRoadAddress } from './major-road';
 
@@ -16,6 +16,11 @@ interface StopListProps {
   onEmail: (stop: RouteStop) => void;
   /** Open the „Смени адрес" modal for this stop. */
   onEditAddress: (stop: RouteStop) => void;
+  /** Total courier count for this date — the per-stop courier-move select only
+   *  renders when there's more than one (task #6). */
+  courierCount?: number;
+  /** Move a stop to another courier's leg, or back to auto (null) (task #6). */
+  onMoveCourier?: (stopId: string, courierIndex: number | null) => void;
 }
 
 /** A stop is "on the map" only when it has been geocoded (has both coords). */
@@ -76,6 +81,8 @@ export function StopList({
   onCall,
   onEmail,
   onEditAddress,
+  courierCount,
+  onMoveCourier,
 }: StopListProps) {
   if (stops.length === 0) {
     return (
@@ -120,7 +127,31 @@ export function StopList({
             {/* details */}
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
-                <div className="text-[14.5px] font-bold">{s.customer ?? 'Клиент'}</div>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <div className="text-[14.5px] font-bold">{s.customer ?? 'Клиент'}</div>
+                  {/* delivery time-window badge (task #13, display only) — color
+                      reflects review status: draft=amber, approved/sent=green. */}
+                  {s.deliveryWindowStart && (
+                    <span
+                      className={cn(
+                        'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold',
+                        s.deliveryWindowStatus === 'approved' || s.deliveryWindowStatus === 'sent'
+                          ? 'bg-ff-green-100 text-ff-green-800'
+                          : 'bg-ff-amber-softer text-ff-amber-600',
+                      )}
+                      title={
+                        s.deliveryWindowStatus === 'sent'
+                          ? 'Часът е изпратен на клиента'
+                          : s.deliveryWindowStatus === 'approved'
+                            ? 'Часът е одобрен'
+                            : 'Предложен час (чернова)'
+                      }
+                    >
+                      {s.deliveryWindowStatus === 'sent' ? <Check size={11} /> : <Clock size={11} />}
+                      {s.deliveryWindowStart}–{s.deliveryWindowEnd}
+                    </span>
+                  )}
+                </div>
                 <div className="flex shrink-0 gap-[7px]">
                   <button
                     onClick={(e) => {
@@ -233,7 +264,38 @@ export function StopList({
                 )}
               </div>
 
+              {/* move this order to another courier's leg, or back to auto (task #6) */}
+              {!!courierCount && courierCount > 1 && onMoveCourier && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-[12px] font-bold text-ff-ink-2">
+                  <span className="text-ff-muted">Куриер</span>
+                  <select
+                    value={s.courierIndex ?? ''}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      onMoveCourier(s.id, v === '' ? null : Number(v));
+                    }}
+                    className="rounded-lg border border-ff-border bg-ff-surface-2 px-1.5 py-1 text-[12px] font-bold text-ff-ink outline-none"
+                  >
+                    <option value="">Авто</option>
+                    {Array.from({ length: courierCount }, (_, ci) => (
+                      <option key={ci} value={ci}>{`Куриер ${ci + 1}`}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="mt-1.5 text-[12.5px] text-ff-muted">{s.summary}</div>
+              {/* order value: goods + (delivery, if any) + total with delivery (task #4) */}
+              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-ff-muted">
+                <span>Стоки {moneyFromStotinki(s.itemsSubtotalStotinki)}</span>
+                {s.deliveryFeeStotinki > 0 && (
+                  <span>Доставка {moneyFromStotinki(s.deliveryFeeStotinki)}</span>
+                )}
+                <span className="font-extrabold text-ff-ink-2">
+                  Общо {moneyFromStotinki(s.totalStotinki)}
+                </span>
+              </div>
             </div>
           </div>
         );

@@ -19,12 +19,13 @@ import {
   tenants,
   farmers,
   shipments,
+  orderFulfillments,
 } from '@fermeribg/db';
 import type { Product, ProductVariant } from '@fermeribg/types';
 import { effectivePriceStotinki } from '../products/promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
-import { bgToday, bgDayBounds, bgDate } from '../../common/time/bg-time';
+import { bgToday, bgDayBounds, bgDate, bgAddDays } from '../../common/time/bg-time';
 import { buildKeysetPage, clampLimit, cursorTs, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -311,6 +312,31 @@ export interface FarmerOrdersPage {
   nextCursor: string | null;
 }
 
+/** Task #14: a farmer's self-tracked prep state for one of tomorrow's orders.
+ *  'pending' (default, nothing marked) → 'in_production' → 'fulfilled'. */
+export type FulfillmentState = 'pending' | 'in_production' | 'fulfilled';
+
+export interface TomorrowOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+/** One of tomorrow's orders on the «Утре» panel — this farmer's own items only. */
+export interface TomorrowOrder {
+  id: string;
+  orderNumber: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  deliveryType: string;
+  day: string;
+  slotFrom: string | null;
+  slotTo: string | null;
+  fulfillmentState: FulfillmentState;
+  items: TomorrowOrderItem[];
+}
+
 /** Map one assembled row to the API shape. Pure (no DB) so it's unit-testable,
  *  mirroring {@link toPaymentOrder}. */
 export function toFarmerOrder(r: FarmerOrderRow): FarmerOrder {
@@ -337,7 +363,13 @@ export function toFarmerOrder(r: FarmerOrderRow): FarmerOrder {
 
 /**
  * Fold the per-channel SQL aggregate into screen totals. Pure (no DB). COD counts
- * every due order; card counts only paid orders (money actually received).
+ * every due order (rows.count is not filtered — a refused order stays listed on
+ * the Плащания screen with its «Отказана» badge); card counts only paid orders
+ * (money actually received). Task #8: `rows[].totalStotinki` for the COD channel
+ * is now produced by a SUM that already excludes `codOutcome='refused'` rows (see
+ * paymentTotalsCached / paymentsForFarmer) — that money was returned at the door
+ * and must not inflate the «Общо»/«Наложен платеж» tiles, even though the order's
+ * status never left the counted set (only a cancel, not a refusal, flips status).
  */
 export function paymentTotals(rows: PaymentAggRow[]): PaymentTotals {
   let codTotalStotinki = 0;
@@ -768,13 +800,19 @@ export class OrdersService {
     // Totals are global (ignore search/page) — only computed on the first page; a
     // «load more» fetch (cur set) would otherwise run this full-history aggregate
     // and then discard the result unused.
+    // Task #8 fix: exclude refused COD money from the sum (mirrors
+    // paymentTotalsCached above) — a refused наложен платеж order stays in a
+    // counted status (only a cancel, not a refusal, flips status), so it must
+    // not keep inflating this producer's due/collected total.
+    // (Same test-DB-harness caveat as paymentTotalsCached above: this FILTER's
+    // DB-level behaviour is not exercised by a spec here.)
     const aggRows = cur
       ? []
       : await this.db
           .select({
             paymentMethod: orders.paymentMethod,
             count: sql<number>`count(distinct ${orders.id})::int`,
-            totalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}), 0)::int`,
+            totalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.codOutcome} is distinct from 'refused'), 0)::int`,
             paidCount: sql<number>`count(distinct ${orders.id}) filter (where ${orders.paidAt} is not null)::int`,
             paidTotalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.paidAt} is not null), 0)::int`,
           })
@@ -922,7 +960,147 @@ export class OrdersService {
     return { orders: fullRows.map(toFarmerOrder), nextCursor };
   }
 
-  /** Tenant-wide payment totals, Redis-cached (busted on order writes). */
+  /**
+   * Task #14: tomorrow's confirmed orders containing this farmer's own
+   * products, with each order's self-tracked fulfilment state
+   * (order_fulfillments; no row yet ⇒ 'pending') and the customer's contact —
+   * so the farmer's «Утре» panel shows exactly whom to call about a gap.
+   * Mirrors ordersForFarmer's per-farmer item attribution: this farmer's own
+   * lines only — a co-producer's lines on a shared order never appear here.
+   */
+  async tomorrowForFarmer(tenantId: string, farmerId: string): Promise<TomorrowOrder[]> {
+    const tomorrow = bgAddDays(bgToday(), 1);
+    const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
+    const rows = await this.db
+      .select({
+        orderId: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        customerEmail: orders.customerEmail,
+        deliveryType: orders.deliveryType,
+        day,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+        state: orderFulfillments.state,
+        productId: orderItems.productId,
+        productName: products.name,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .leftJoin(
+        orderFulfillments,
+        and(eq(orderFulfillments.orderId, orders.id), eq(orderFulfillments.farmerId, farmerId)),
+      )
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(orders.status, 'confirmed'),
+          eq(products.farmerId, farmerId),
+          scheduledForDay(tomorrow),
+        )!,
+      )
+      .orderBy(orders.createdAt);
+
+    const byOrder = new Map<string, TomorrowOrder>();
+    for (const r of rows as Array<{
+      orderId: string;
+      orderNumber: number | null;
+      customerName: string | null;
+      customerPhone: string | null;
+      customerEmail: string | null;
+      deliveryType: string;
+      day: string;
+      slotFrom: string | null;
+      slotTo: string | null;
+      state: FulfillmentState | null;
+      productId: string | null;
+      productName: string | null;
+      quantity: number;
+    }>) {
+      let o = byOrder.get(r.orderId);
+      if (!o) {
+        o = {
+          id: r.orderId,
+          orderNumber: r.orderNumber,
+          customerName: r.customerName,
+          customerPhone: r.customerPhone,
+          customerEmail: r.customerEmail,
+          deliveryType: r.deliveryType,
+          day: r.day,
+          slotFrom: r.slotFrom,
+          slotTo: r.slotTo,
+          fulfillmentState: r.state ?? 'pending',
+          items: [],
+        };
+        byOrder.set(r.orderId, o);
+      }
+      if (r.productId) {
+        o.items.push({ productId: r.productId, productName: r.productName ?? '—', quantity: r.quantity });
+      }
+    }
+    return [...byOrder.values()];
+  }
+
+  /**
+   * Task #14: set this farmer's self-tracked fulfilment state for one of
+   * tomorrow's orders. Upsert on (order_id, farmer_id) — a re-mark updates in
+   * place. Ownership check requires only that AT LEAST ONE line item on the
+   * order belongs to this farmer (unlike updateStatusForFarmer/
+   * setCodOutcomeForFarmer, which require the WHOLE order be the farmer's own)
+   * — fulfilment state carries no money/status side-effect, so on a shared
+   * order each producer safely marks their own slice independently via their
+   * own order_fulfillments row.
+   */
+  async setFulfillment(
+    orderId: string,
+    tenantId: string,
+    farmerId: string,
+    state: FulfillmentState,
+  ): Promise<{ orderId: string; farmerId: string; state: FulfillmentState }> {
+    const [owns] = await this.db
+      .select({ id: orderItems.id, status: orders.status })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(
+        and(eq(orders.id, orderId), eq(orders.tenantId, tenantId), eq(products.farmerId, farmerId)),
+      )
+      .limit(1);
+    if (!owns) throw new ForbiddenException('Нямате достъп до тази поръчка.');
+    if (!PAYMENT_COUNTED_STATUSES.includes(owns.status as (typeof PAYMENT_COUNTED_STATUSES)[number])) {
+      throw new BadRequestException('Поръчката вече не е активна.');
+    }
+
+    await this.db
+      .insert(orderFulfillments)
+      .values({ tenantId, orderId, farmerId, state })
+      .onConflictDoUpdate({
+        target: [orderFulfillments.orderId, orderFulfillments.farmerId],
+        set: { state, updatedAt: new Date() },
+      });
+    return { orderId, farmerId, state };
+  }
+
+  /** Tenant-wide payment totals, Redis-cached (busted on order writes).
+   *
+   * Task #8 fix: a COD order the customer REFUSED at the door
+   * (`codOutcome='refused'`) never leaves its counted status (it stays
+   * confirmed/delivered — only a cancel flips status, and a refusal is not a
+   * cancel), so it was still being summed into `totalStotinki` as money
+   * due/collected even though that money will never arrive. `totalStotinki`
+   * now excludes refused COD rows from the SUM (they stay in `count` — the
+   * row is still listed on the Плащания screen with its «Отказана» badge,
+   * it just contributes 0 to the money tiles). `codOutcome` is only ever set
+   * on `payment_method='cod'` rows (see setCodOutcome's method guard), so
+   * `IS DISTINCT FROM 'refused'` is a no-op for the online group.
+   * (No test-DB harness exists in this repo, so this FILTER's actual exclusion
+   * behaviour at the DB level isn't exercised by a spec — see orders.payments.
+   * spec.ts's header note. The JS-side fold that consumes this aggregate IS
+   * covered there.) */
   private async paymentTotalsCached(tenantId: string): Promise<PaymentTotals> {
     const key = `payments:totals:${tenantId}`;
     const hit = await this.cache.get<PaymentTotals>(key);
@@ -931,7 +1109,7 @@ export class OrdersService {
       .select({
         paymentMethod: orders.paymentMethod,
         count: sql<number>`count(*)::int`,
-        totalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}), 0)::int`,
+        totalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.codOutcome} is distinct from 'refused'), 0)::int`,
         paidCount: sql<number>`count(*) filter (where ${orders.paidAt} is not null)::int`,
         paidTotalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.paidAt} is not null), 0)::int`,
       })
@@ -1292,9 +1470,22 @@ export class OrdersService {
       .from(orders)
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .limit(1);
+    // Task #9/#10: delivered_at tracks the day the order was ACTUALLY delivered,
+    // kept in lockstep with `status`. Set once on the first transition into
+    // 'delivered' (idempotent — re-marking an already-delivered order must not
+    // bump the day); cleared if status ever moves back out of 'delivered' (an
+    // operator correction) so a stale delivered_at never survives the revert.
+    const statusUpdate: { status: OrderRow['status']; deliveredAt?: Date | null } = {
+      status: dto.status as OrderRow['status'],
+    };
+    if (dto.status === 'delivered' && prev?.status !== 'delivered') {
+      statusUpdate.deliveredAt = new Date();
+    } else if (dto.status !== 'delivered' && prev?.status === 'delivered') {
+      statusUpdate.deliveredAt = null;
+    }
     const [row] = await this.db
       .update(orders)
-      .set({ status: dto.status as OrderRow['status'] })
+      .set(statusUpdate)
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Поръчката не е намерена');
@@ -1411,16 +1602,26 @@ export class OrdersService {
     return this.updateStatus(id, tenantId, dto);
   }
 
-  /** Set a COD order's money outcome (received / refused). Manual path used by
-   *  pickup + own-delivery orders and by a courier-order override. Strike on
-   *  the NULL→refused transition only (idempotent re-marks add no strike). */
+  /** Set a COD order's money outcome (received / refused / pending). Manual path
+   *  used by pickup + own-delivery orders and by a courier-order override. Strike on
+   *  the NULL→refused transition only (idempotent re-marks add no strike).
+   *  `outcome: 'pending'` REVERTS a resolved outcome back to «Очаквано» (Task #3) —
+   *  undoing the side-effects the original mark caused: the commission ledger is
+   *  voided (no money has actually been collected yet) and, if the order was
+   *  manually refused, the cod-risk strike it recorded is reversed. */
   async setCodOutcome(
     id: string,
     tenantId: string,
     dto: UpdateCodOutcomeDto,
   ): Promise<OrderRow> {
     const [prev] = await this.db
-      .select({ paymentMethod: orders.paymentMethod, codOutcome: orders.codOutcome })
+      .select({
+        id: orders.id,
+        tenantId: orders.tenantId,
+        paymentMethod: orders.paymentMethod,
+        codOutcome: orders.codOutcome,
+        customerPhone: orders.customerPhone,
+      })
       .from(orders)
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .limit(1);
@@ -1428,6 +1629,70 @@ export class OrdersService {
     if (prev.paymentMethod !== 'cod') {
       throw new BadRequestException('Само поръчки с наложен платеж имат статус на плащане.');
     }
+
+    if (dto.outcome === 'pending') {
+      const revertSet = {
+        codOutcome: null,
+        codOutcomeAt: null,
+        codOutcomeReason: null,
+        codOutcomeSource: 'manual' as const,
+      };
+      let row: OrderRow | undefined;
+      if (prev.codOutcome === 'refused') {
+        // Condition the UPDATE on the order still being 'refused': two concurrent
+        // reverts of the same refused order both read the same STALE `prev` above,
+        // so without this guard both would call `undoManualRefusal` and double-
+        // decrement a shared phone's cod-risk strike. With the guard, only the
+        // request that actually flips refused→pending gets a non-empty
+        // `.returning()` back and is allowed to undo the strike; the loser sees
+        // an empty array (the other request already won) and skips it silently.
+        const [updated] = await this.db
+          .update(orders)
+          .set(revertSet)
+          .where(
+            and(
+              eq(orders.id, id),
+              eq(orders.tenantId, tenantId),
+              eq(orders.codOutcome, 'refused'),
+            ),
+          )
+          .returning();
+        if (updated) {
+          row = updated;
+          try {
+            await this.codRisk.undoManualRefusal(prev as typeof orders.$inferSelect);
+          } catch {
+            /* best-effort: leave the revert recorded even if the strike undo fails */
+          }
+        } else {
+          // Lost the race — a concurrent request already reverted this order out
+          // of 'refused' (and already undid the strike). Nothing left to do here
+          // except hand back the now-current row instead of a misleading 404.
+          const [current] = await this.db
+            .select()
+            .from(orders)
+            .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+            .limit(1);
+          row = current;
+        }
+      } else {
+        // Was 'received' or null — no strike was ever recorded, so there is no
+        // race to guard against; keep the plain unconditional update.
+        const [updated] = await this.db
+          .update(orders)
+          .set(revertSet)
+          .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+          .returning();
+        row = updated;
+      }
+      if (!row) throw new NotFoundException('Поръчката не е намерена');
+      // No money has been collected once reverted to pending — void the (dormant)
+      // commission accrual. Fire-and-forget: must never block the outcome write.
+      void this.commission?.voidForOrder(id, tenantId);
+      await this.bustPayments(tenantId);
+      return row;
+    }
+
     const [row] = await this.db
       .update(orders)
       .set({
@@ -1806,6 +2071,42 @@ export class OrdersService {
         throw new BadRequestException(
           `Тези продукти не се изпращат с куриер (само вземане от място/местна доставка): ${names}`,
         );
+      }
+    }
+
+    // Companion rule (generalized „кайсии" combo): a product flagged `requiresCompanion`
+    // can't be ordered alone — the cart must also hold at least one OTHER distinct product,
+    // and (when `companionMinPriceStotinki` is set) that other product's unit price must be
+    // >= the threshold (EUR cents). Configurable per product/bundle, enforced for EVERY
+    // delivery method (pickup/local/courier), independent of the courier backstop above.
+    // byId already holds the full product rows + variantById the chosen variants — no extra query.
+    const companionRequirers = dtoItems
+      .map((it) => byId.get(it.productId))
+      .filter((p): p is NonNullable<typeof p> => !!p && p.requiresCompanion);
+    if (companionRequirers.length) {
+      const nowC = new Date();
+      const unitOf = (it: (typeof dtoItems)[number]): number => {
+        const prod = byId.get(it.productId)!;
+        const variant = it.variantId ? variantById.get(it.variantId) ?? null : null;
+        return resolveLineUnit(prod, variant, nowC).unitStotinki;
+      };
+      for (const req of companionRequirers) {
+        const threshold = req.companionMinPriceStotinki ?? 0;
+        // A qualifying companion is ANY cart line for a DIFFERENT product meeting the threshold.
+        const hasCompanion = dtoItems.some(
+          (it) => it.productId !== req.id && !!byId.get(it.productId) && unitOf(it) >= threshold,
+        );
+        if (!hasCompanion) {
+          if (threshold > 0) {
+            const eur = (threshold / 100).toFixed(2).replace('.', ',');
+            throw new BadRequestException(
+              `„${req.name}" не се доставя самостоятелно — добавете поне още един продукт на стойност поне ${eur} €.`,
+            );
+          }
+          throw new BadRequestException(
+            `„${req.name}" не се доставя самостоятелно — добавете поне още един продукт по избор.`,
+          );
+        }
       }
     }
 
