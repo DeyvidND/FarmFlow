@@ -965,6 +965,7 @@ export interface LegalIdentity {
   address?: string;
   regNo?: string;
   phone?: string;
+  confirmedAt?: string;
 }
 
 /** One line item on a handover protocol. */
