@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { type Database, tenants, products } from '@fermeribg/db';
-import type { PublicTenant, Tenant } from '@fermeribg/types';
+import type { PublicTenant, Tenant, LegalIdentity } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
@@ -38,6 +38,8 @@ import {
 } from './site-contact';
 import { buildPublicCopy, buildPublicFaq, cleanCopy, normalizeFaq, sanitizeSiteUrl, isValidSlotKey, type PublicFaqItem } from './site-copy';
 import { SiteEditContentDto } from './dto/site-edit-content.dto';
+import { LegalDto } from './dto/legal.dto';
+import { normalizeLegal } from './legal';
 
 /** One stored site-media value. `key` is the R2 object key (for replace/delete);
  *  only `url` is ever exposed publicly. */
@@ -416,6 +418,26 @@ export class TenantsService {
 
     await this.publicCache.del(publicCacheKeys.tenant(slug));
     return { contact: buildPublicContact(contact), themeColor: themeColor ?? null };
+  }
+
+  // ---- Operator legal identity (handover-protocol приел/предал party) ----
+
+  /** Current operator legal identity, or null if never set. */
+  async getLegal(tenantId: string): Promise<LegalIdentity | null> {
+    const settings = await this.loadSettings(tenantId);
+    return (settings.legal as LegalIdentity | undefined) ?? null;
+  }
+
+  /** Atomic write to settings.legal. */
+  async updateLegal(tenantId: string, dto: LegalDto): Promise<LegalIdentity> {
+    const legal = normalizeLegal(dto);
+    await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['legal'], ${JSON.stringify(legal)}::jsonb, true)`,
+      })
+      .where(eq(tenants.id, tenantId));
+    return legal;
   }
 
   // ---- Landing-page blocks (settings.landing) ----
