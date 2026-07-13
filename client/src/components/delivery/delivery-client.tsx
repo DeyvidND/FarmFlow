@@ -14,6 +14,7 @@ import type { DeliveryConfig } from '@/lib/types';
 import { MethodsSection, GlobalRulesSection } from './methods-section';
 import { CarrierPolicySection } from './carrier-policy-section';
 import { HandlingSection } from './handling-section';
+import { SmsReminderCard } from '@/components/settings/sms-reminder-card';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -118,6 +119,9 @@ export function DeliveryClient({
         <GlobalRulesSection cfg={cfg} mut={mut} />
         {courierOn && <HandlingSection cfg={cfg} mut={mut} />}
         {comparisonActive && <CarrierPolicySection cfg={cfg} mut={mut} />}
+        {/* Own-tenant notification setting — self-contained (its own get/save
+            cycle against tenants/me), independent of the cfg above. */}
+        <SmsReminderCard />
       </div>
 
       {/* sticky save bar */}
