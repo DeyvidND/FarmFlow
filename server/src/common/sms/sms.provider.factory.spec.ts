@@ -9,12 +9,12 @@ function cfg(map: Record<string, string | undefined>): ConfigService {
 describe('createSmsProvider', () => {
   const logger = new Logger('test');
 
-  it('returns HttpSmsProvider when url + token are set', () => {
+  it('returns SmsApiProvider when url + token are set', () => {
     const p = createSmsProvider(
       cfg({ SMS_GATEWAY_URL: 'https://gw', SMS_GATEWAY_TOKEN: 't' }),
       logger,
     );
-    expect(p.name).toBe('http');
+    expect(p.name).toBe('smsapi');
   });
 
   it('falls back to LogOnlySmsProvider when creds are missing', () => {
