@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Phone, Mail, MapPin, Package, CalendarClock, Check, Truck, CreditCard, ExternalLink, Pencil } from 'lucide-react';
+import { X, Phone, Mail, MapPin, Package, CalendarClock, Check, Truck, CreditCard, ExternalLink, Pencil, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -11,6 +11,7 @@ import { moneyFromStotinki, hhmm, timeFromIso, relDayLabel, statusMeta, type Ord
 import { ApiError, requestDeliveryHandoff, setCodOutcome, updateOrder } from '@/lib/api-client';
 import type { Order, UpdateOrderInput } from '@/lib/types';
 import { OrderEditForm } from './order-edit-fields';
+import { ProtocolDialog } from '@/components/handover/protocol-dialog';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -30,6 +31,7 @@ export function OrderPanel({
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [protocolOpen, setProtocolOpen] = useState(false);
   const editable = true;
 
   return (
@@ -95,6 +97,9 @@ export function OrderPanel({
                 <Truck size={18} /> Маркирай доставена
               </Button>
             )}
+            <Button variant="ghost" disabled={busy} onClick={() => setProtocolOpen(true)} className="w-full rounded-sm">
+              <FileText size={18} /> Протокол за клиента
+            </Button>
             {order.status !== 'cancelled' && order.status !== 'delivered' && (
               <Button
                 variant="danger"
@@ -150,6 +155,14 @@ export function OrderPanel({
             setConfirmingCancel(false);
             onAction('cancelled');
           }}
+        />
+      )}
+
+      {protocolOpen && (
+        <ProtocolDialog
+          kind="operator_to_customer"
+          orderId={order.id}
+          onClose={() => setProtocolOpen(false)}
         />
       )}
     </>
