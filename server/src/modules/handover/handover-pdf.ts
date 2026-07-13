@@ -48,8 +48,12 @@ function partyLine(s: any): string {
 async function sigBlock(doc: any, page: any, font: any, x: number, y: number, label: string, png: string | null) {
   page.drawText(`${label}: ______________________`, { x, y, size: 10, font });
   if (png) {
-    const bytes = Buffer.from(png.split(',').pop()!, 'base64');
-    const img = await doc.embedPng(bytes);
-    page.drawImage(img, { x, y: y + 6, width: 120, height: 40 });
+    try {
+      const bytes = Buffer.from(png.split(',').pop()!, 'base64');
+      const img = await doc.embedPng(bytes);
+      page.drawImage(img, { x, y: y + 6, width: 120, height: 40 });
+    } catch {
+      // Malformed/corrupt signature data — fall back to the blank line already drawn above.
+    }
   }
 }

@@ -20,4 +20,9 @@ describe('renderProtocolPdf', () => {
       toSnapshot: { name: 'Иван Петров', phone: '0888' } } as any);
     expect(buf.length).toBeGreaterThan(1000);
   });
+  it('falls back to a blank signature line when fromSignaturePng is malformed (no crash)', async () => {
+    const buf = await renderProtocolPdf({ ...ROW, fromSignaturePng: 'not-a-real-data-uri' } as any);
+    expect(buf.length).toBeGreaterThan(1000);
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
 });
