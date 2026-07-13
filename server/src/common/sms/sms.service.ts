@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { type Database, smsLog } from '@fermeribg/db';
 import { DB_TOKEN } from '../drizzle/drizzle.constants';
 import { normalizePhone } from '../../modules/cod-risk/cod-risk.helpers';
@@ -14,7 +14,8 @@ export class SmsService {
     @Inject(DB_TOKEN) private readonly db: Database,
     @Inject(SMS_PROVIDER) private readonly provider: SmsProvider,
     // Optional logger param kept for tests; falls back to the class logger.
-    logger?: Logger,
+    // @Optional() so Nest DI won't try to resolve a bare Logger provider.
+    @Optional() logger?: Logger,
   ) {
     if (logger) this.logger = logger;
   }
