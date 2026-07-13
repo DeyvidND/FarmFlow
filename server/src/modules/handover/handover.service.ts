@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { type Database, farmers, orderItems, orders, products, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -9,11 +9,14 @@ import { requireLegal, type LegalIdentity } from './legal.util';
 /** Statuses whose items are handover-ready — matches the prep/delivery window. */
 const HANDOVER_STATUSES = ['confirmed', 'preparing'] as const;
 
+/** Customer identity snapshotted on an order — no legal-entity data required. */
+export type CustomerParty = { name?: string; phone?: string; address?: string };
+
 /**
- * Builds an unsaved handover-protocol draft: the two legal parties (frozen at
- * draft time via `requireLegal`) plus the aggregated line items. This task
- * implements only the `farmer_to_operator` leg (farmer hands the slot's items
- * to the operator); `operator_to_customer` lands in a later task.
+ * Builds an unsaved handover-protocol draft: the two parties (frozen at draft
+ * time) plus the line items. `farmer_to_operator` aggregates one farmer's
+ * items across a slot; `operator_to_customer` uses a single order's own
+ * lines (no cross-farmer aggregation) with the customer as the `to` party.
  */
 @Injectable()
 export class HandoverService {
@@ -22,9 +25,15 @@ export class HandoverService {
   async buildDraft(
     tenantId: string,
     q: DraftQueryDto,
-  ): Promise<{ kind: string; from: LegalIdentity; to: LegalIdentity; items: ProtocolItemDto[]; total: number }> {
-    if (q.kind !== 'farmer_to_operator') {
-      throw new Error('operator_to_customer draft not implemented yet');
+  ): Promise<{
+    kind: string;
+    from: LegalIdentity;
+    to: LegalIdentity | CustomerParty;
+    items: ProtocolItemDto[];
+    total: number;
+  }> {
+    if (q.kind === 'operator_to_customer') {
+      return this.buildCustomerLegDraft(tenantId, q);
     }
     if (!q.farmerId || !q.slotId) {
       throw new BadRequestException('Изисква се фермер и слот.');
@@ -94,5 +103,67 @@ export class HandoverService {
     const total = items.reduce((s, i) => s + i.quantity * i.priceStotinki, 0);
 
     return { kind: q.kind, from: farmerLegal, to: operatorLegal, items, total };
+  }
+
+  private async buildCustomerLegDraft(
+    tenantId: string,
+    q: DraftQueryDto,
+  ): Promise<{ kind: string; from: LegalIdentity; to: CustomerParty; items: ProtocolItemDto[]; total: number }> {
+    if (!q.orderId) {
+      throw new BadRequestException('Изисква се поръчка.');
+    }
+
+    const [tenantRow] = await this.db
+      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'` })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+
+    const operatorLegal = requireLegal(tenantRow?.legal, 'оператор');
+
+    const [order] = await this.db
+      .select({
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        deliveryAddress: orders.deliveryAddress,
+        totalStotinki: orders.totalStotinki,
+      })
+      .from(orders)
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.id, q.orderId)))
+      .limit(1);
+
+    if (!order) {
+      throw new NotFoundException('Поръчката не е намерена');
+    }
+
+    const to: CustomerParty = {
+      name: order.customerName ?? undefined,
+      phone: order.customerPhone ?? undefined,
+      address: order.deliveryAddress ?? undefined,
+    };
+
+    const rows: {
+      productName: string | null;
+      variantLabel: string | null;
+      quantity: number;
+      priceStotinki: number;
+    }[] = await this.db
+      .select({
+        productName: orderItems.productName,
+        variantLabel: orderItems.variantLabel,
+        quantity: orderItems.quantity,
+        priceStotinki: orderItems.priceStotinki,
+      })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, q.orderId));
+
+    const items: ProtocolItemDto[] = rows.map((r) => ({
+      productName: r.productName ?? '',
+      variantLabel: r.variantLabel ?? undefined,
+      quantity: r.quantity,
+      priceStotinki: r.priceStotinki,
+    }));
+
+    return { kind: q.kind, from: operatorLegal, to, items, total: order.totalStotinki };
   }
 }
