@@ -147,6 +147,7 @@ describe('HandoverService.createSigned', () => {
       kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1',
       items: [{ productName: 'Домати', quantity: 5, priceStotinki: 300 }],
       fromSignaturePng: 'data:image/png;base64,AAA', toSignaturePng: 'data:image/png;base64,BBB',
+      meta: { device: 'ipad', userAgent: 'Mozilla/5.0' },
     } as any);
     expect(res.protocolNumber).toBe(41);
     const inserted = db.calls.values[0] as any;
@@ -155,6 +156,7 @@ describe('HandoverService.createSigned', () => {
     expect(inserted.protocolNumber).toBe(41);
     expect(inserted.fromSnapshot).toEqual({ name: 'ЕТ Васил' });      // frozen, not client-supplied
     expect(inserted.totalStotinki).toBe(1500);                        // re-derived, not trusted from client
+    expect(inserted.meta).toEqual({ device: 'ipad', userAgent: 'Mozilla/5.0' }); // e-signature evidence, not dropped
   });
 
   it('rejects a duplicate signed protocol for the same target', async () => {

@@ -12,7 +12,6 @@ import type {
   EcontOfficeLive,
   Farmer,
   FarmerAccess,
-  LegalIdentity,
   MediaItem,
   Order,
   Paged,

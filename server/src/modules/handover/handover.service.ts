@@ -248,6 +248,7 @@ export class HandoverService {
           totalStotinki: draft.total,
           fromSignaturePng: dto.fromSignaturePng,
           toSignaturePng: dto.toSignaturePng,
+          meta: dto.meta ?? null,
           signMode: 'digital',
           status: 'signed',
           signedAt: new Date(),
