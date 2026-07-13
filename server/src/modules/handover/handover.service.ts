@@ -267,10 +267,16 @@ export class HandoverService {
    * a target already covered by a protocol row of ANY status (draft or signed) is
    * skipped, so re-running after some protocols are signed only fills in the gaps.
    */
-  async createBatch(tenantId: string, b: BatchDto): Promise<{ ids: string[] }> {
+  async createBatch(
+    tenantId: string,
+    b: BatchDto,
+  ): Promise<{
+    ids: string[];
+    skipped: { kind: string; farmerId?: string; orderId?: string; slotId?: string; reason: string }[];
+  }> {
     const slotIds = await this.resolveSlotIds(tenantId, b);
     if (slotIds.length === 0) {
-      return { ids: [] };
+      return { ids: [], skipped: [] };
     }
 
     const farmerRows: { farmerId: string | null; slotId: string | null }[] = await this.db
@@ -320,8 +326,9 @@ export class HandoverService {
 
     const targets = [...farmerTargets, ...customerTargets];
     const ids: string[] = [];
+    const skipped: { kind: string; farmerId?: string; orderId?: string; slotId?: string; reason: string }[] = [];
     if (targets.length === 0) {
-      return { ids };
+      return { ids, skipped };
     }
 
     for (const target of targets) {
@@ -340,7 +347,23 @@ export class HandoverService {
         continue;
       }
 
-      const draft = await this.buildDraft(tenantId, target as DraftQueryDto);
+      // A missing legal identity (operator or, for a farmer leg, that farmer)
+      // must only skip THIS target, not abort the whole batch — otherwise one
+      // farmer who hasn't filled in their legal data yet blocks every other
+      // farmer's and every customer's protocol for the day.
+      let draft: Awaited<ReturnType<HandoverService['buildDraft']>>;
+      try {
+        draft = await this.buildDraft(tenantId, target as DraftQueryDto);
+      } catch (e) {
+        skipped.push({
+          kind: target.kind,
+          farmerId: target.kind === 'farmer_to_operator' ? target.farmerId : undefined,
+          orderId: target.kind === 'operator_to_customer' ? target.orderId : undefined,
+          slotId: target.slotId,
+          reason: e instanceof Error ? e.message : 'Неуспешно генериране на протокол.',
+        });
+        continue;
+      }
 
       // Next per-tenant protocol number, re-queried per target (not hoisted
       // before the loop) under an advisory lock — same race-safe pattern as
@@ -378,7 +401,7 @@ export class HandoverService {
       ids.push(inserted.id);
     }
 
-    return { ids };
+    return { ids, skipped };
   }
 
   /** Resolves the slot ids in scope for a batch request: the slot itself if

@@ -1205,7 +1205,10 @@ export const listProtocols = (q?: { slotId?: string; date?: string; kind?: strin
 };
 
 export const createProtocolBatch = (body: { slotId?: string; date?: string }) =>
-  apiFetch<{ ids: string[] }>('handover/batch', { method: 'POST', ...json(body) }, 'Батчът не беше създаден');
+  apiFetch<{
+    ids: string[];
+    skipped: { kind: string; farmerId?: string; orderId?: string; slotId?: string; reason: string }[];
+  }>('handover/batch', { method: 'POST', ...json(body) }, 'Батчът не беше създаден');
 
 export const markProtocolSigned = (id: string) =>
   apiFetch<void>(`handover/${id}/mark-signed`, { method: 'PATCH' }, 'Неуспешно маркиране');

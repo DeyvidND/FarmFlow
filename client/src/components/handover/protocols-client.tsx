@@ -86,8 +86,14 @@ export function ProtocolsClient() {
   async function printDay() {
     setPrinting(true);
     try {
-      await createProtocolBatch({ date });
-      window.open(protocolBatchPdfHref({ date }), '_blank', 'noopener');
+      const { ids, skipped } = await createProtocolBatch({ date });
+      if (skipped.length > 0) {
+        const reasons = [...new Set(skipped.map((s) => s.reason))].join(' ');
+        toast.warning(`${skipped.length} протокол(а) не са генерирани — ${reasons}`);
+      }
+      if (ids.length > 0 || rows.length > 0) {
+        window.open(protocolBatchPdfHref({ date }), '_blank', 'noopener');
+      }
       await load(date);
     } catch (e) {
       toast.error(errMsg(e));

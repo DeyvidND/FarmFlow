@@ -199,6 +199,31 @@ describe('HandoverService.createBatch', () => {
     expect(inserted.farmerId).toBe('f1');
   });
 
+  it('skips a target whose legal data is missing instead of aborting the whole batch', async () => {
+    const db = makeDb();
+    db.queue([{ farmerId: 'f1', slotId: 's1' }]);          // distinct farmer pickups for the slot
+    db.queue([{ id: 'o1', slotId: 's1' }]);                // customer orders for the slot
+    db.queue([]);                                          // farmer target f1/s1: not covered
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);         // buildDraft: tenant
+    db.queue([{ id: 'f1', legal: null }]);                  // buildDraft: farmer — missing legal, throws here
+    db.queue([]);                                          // customer target o1: not covered
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);         // buildDraft: tenant
+    db.queue([{ id: 'o1', customerName: 'Иван', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720 }]); // buildDraft: order
+    db.queue([                                              // buildDraft: order_items ⋈ products
+      { productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' },
+    ]);
+    db.queue([{ max: 5 }]);                                 // tx: current max protocol_number (customer target)
+    db.queue([{ id: 'p-customer' }]);                       // tx: insert ... returning
+
+    const svc = await build(db);
+    const res = await svc.createBatch('t1', { slotId: 's1' } as any);
+
+    expect(res.ids).toEqual(['p-customer']);
+    expect(res.skipped).toEqual([
+      { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1', reason: expect.stringMatching(/фермер/) },
+    ]);
+  });
+
   it('is idempotent — a second run with all targets already covered creates zero rows', async () => {
     const db = makeDb();
     db.queue([{ farmerId: 'f1', slotId: 's1' }]);
