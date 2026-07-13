@@ -1255,28 +1255,59 @@ export class OrdersService {
       // pass slotId=null to reserveCartItems (its slot block is skipped for null).
       if (dto.items) {
         const oldItems = await tx.select().from(orderItems).where(eq(orderItems.orderId, id));
-        await this.restoreAvailabilityWindows(tx, tenantId, oldItems);
-        const oldTouched = await this.restoreVariantStock(tx, oldItems);
+
+        // Grandfather lines that are UNCHANGED (same product+variant+quantity as
+        // before) AND whose product has since gone inactive/deleted. Without this,
+        // one discontinued product sitting untouched in the cart blocks the WHOLE
+        // edit — reserveCartItems below re-validates + re-reserves every line on
+        // every items patch, active or not. Active-product lines are entirely
+        // unaffected: they still flow through the full release+reserve+re-price
+        // pass exactly as before, so nothing changes for the common case.
+        const dtoProductIds = [...new Set(dto.items.map((i) => i.productId))];
+        const dtoProds = dtoProductIds.length
+          ? await tx.select().from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, dtoProductIds)))
+          : [];
+        const dtoById = new Map(dtoProds.map((p) => [p.id, p]));
+        const itemKey = (o: { productId: string | null; variantId: string | null; quantity: number }) =>
+          `${o.productId ?? ''}:${o.variantId ?? ''}:${o.quantity}`;
+        const oldByKey = new Map(oldItems.map((o) => [itemKey(o), o]));
+
+        const grandfathered: typeof oldItems = [];
+        const toSubmit: typeof dto.items = [];
+        for (const it of dto.items) {
+          const p = dtoById.get(it.productId);
+          const existing = oldByKey.get(itemKey({ productId: it.productId, variantId: it.variantId ?? null, quantity: it.quantity }));
+          if (existing && (!p || !p.isActive)) {
+            grandfathered.push(existing);
+          } else {
+            toSubmit.push(it);
+          }
+        }
+        const grandfatheredIds = new Set(grandfathered.map((o) => o.id));
+        const releasedItems = oldItems.filter((o) => !grandfatheredIds.has(o.id));
+
+        await this.restoreAvailabilityWindows(tx, tenantId, releasedItems);
+        const oldTouched = await this.restoreVariantStock(tx, releasedItems);
 
         const carrierDelivery =
           current.deliveryType === 'econt' ||
           current.deliveryType === 'econt_address' ||
           current.deliveryType === 'courier';
-        const { items: prepared, variantStockTouched: newTouched } = await this.reserveCartItems(
-          tx,
-          tenantId,
-          dto.items,
-          null,
-          carrierDelivery,
-        );
+        const { items: prepared, variantStockTouched: newTouched } = toSubmit.length
+          ? await this.reserveCartItems(tx, tenantId, toSubmit, null, carrierDelivery)
+          : { items: [] as PreparedItem[], variantStockTouched: false };
         variantStockTouched = oldTouched || newTouched;
-        const lines = prepared.map(({ farmerId: _f, ...line }) => line);
+        const newLines = prepared.map(({ farmerId: _f, ...line }) => line);
+        // Kept rows are re-inserted verbatim (their locked-in price/name/variant
+        // snapshot untouched) — only `id`/`orderId` are dropped since every edit
+        // already deletes + re-inserts the whole order_items set (fresh ids).
+        const keptLines = grandfathered.map(({ id: _id, orderId: _oid, ...line }) => line);
 
         await tx.delete(orderItems).where(eq(orderItems.orderId, id));
-        await tx.insert(orderItems).values(lines.map((l) => ({ ...l, orderId: id })));
+        await tx.insert(orderItems).values([...keptLines, ...newLines].map((l) => ({ ...l, orderId: id })));
 
         const prevSubtotal = subtotalStotinki(oldItems);
-        const newSubtotal = subtotalStotinki(prepared);
+        const newSubtotal = subtotalStotinki(grandfathered) + subtotalStotinki(prepared);
         set.totalStotinki = recomputeTotalStotinki(current.totalStotinki, prevSubtotal, newSubtotal);
       }
 

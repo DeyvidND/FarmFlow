@@ -260,6 +260,125 @@ describe('updateOrder item replacement wiring', () => {
   });
 });
 
+/**
+ * Regression coverage for the grandfather clause: an order line whose product
+ * has since gone inactive/deleted must not block editing OTHER lines in the
+ * same order, as long as that line's own product/variant/quantity is untouched.
+ */
+describe('updateOrder item replacement — grandfathers an unchanged inactive-product line', () => {
+  it('carries the untouched inactive-product line forward verbatim and only re-validates/reserves the changed line', async () => {
+    const oldItems = [
+      { id: 'oi-1', orderId: 'order-1', productId: 'p1', productName: 'Малини 1кг', variantId: null, variantLabel: null, quantity: 1, priceStotinki: 500 },
+      { id: 'oi-2', orderId: 'order-1', productId: 'p2', productName: 'Краставици 3-клас 1кг', variantId: null, variantLabel: null, quantity: 1, priceStotinki: 300 },
+    ];
+    const dtoItems = [
+      { productId: 'p1', quantity: 1 }, // unchanged — p1 is now inactive
+      { productId: 'p2', quantity: 2 }, // changed 1 -> 2
+    ];
+    const preparedNew = [
+      { productId: 'p2', productName: 'Краставици 3-клас 1кг', quantity: 2, priceStotinki: 300, variantId: null, variantLabel: null, farmerId: 'f1' },
+    ];
+    const orderRow = { ...BASE, status: 'confirmed', paidAt: null, totalStotinki: 1100 }; // subtotal 800 + fee 300
+
+    const orderChain: any = {};
+    orderChain.from = () => orderChain;
+    orderChain.leftJoin = () => orderChain;
+    orderChain.where = () => orderChain;
+    orderChain.limit = () => Promise.resolve([orderRow]);
+
+    let txSelectCall = 0;
+    const setCapture: Record<string, unknown>[] = [];
+    let insertedRows: unknown[] | undefined;
+    let deleteCalled = false;
+
+    const db: any = {
+      select: jest.fn(() => orderChain),
+      transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx: any = {
+          select: jest.fn(() => {
+            const call = txSelectCall++;
+            return {
+              from: () => ({
+                where: () =>
+                  Promise.resolve(
+                    call === 0
+                      ? oldItems
+                      : [
+                          { id: 'p1', isActive: false },
+                          { id: 'p2', isActive: true },
+                        ],
+                  ),
+              }),
+            };
+          }),
+          delete: () => ({
+            where: () => {
+              deleteCalled = true;
+              return Promise.resolve();
+            },
+          }),
+          insert: () => ({
+            values: (rows: unknown[]) => {
+              insertedRows = rows;
+              return Promise.resolve();
+            },
+          }),
+          update: () => ({
+            set: (v: Record<string, unknown>) => ({
+              where: () => {
+                setCapture.push(v);
+                return Promise.resolve();
+              },
+            }),
+          }),
+        };
+        return fn(tx);
+      }),
+    };
+    const maps: any = { geocode: jest.fn(), geocodeCity: jest.fn() };
+    const cache: any = { del: jest.fn().mockResolvedValue(undefined) };
+    const svc = new OrdersService(db, maps, {} as any, {} as any, cache, {} as any, {} as any, { invalidate: jest.fn() } as any);
+    jest.spyOn(svc, 'findOne').mockResolvedValue({} as any);
+
+    const restoreWindowsSpy = jest.spyOn(svc as any, 'restoreAvailabilityWindows').mockImplementation(async () => {});
+    const restoreVariantSpy = jest.spyOn(svc as any, 'restoreVariantStock').mockImplementation(async () => {});
+    const reserveCartSpy = jest.spyOn(svc as any, 'reserveCartItems').mockImplementation(async () => ({
+      items: preparedNew,
+      slotFrom: null,
+      slotTo: null,
+      slotDate: null,
+    }));
+
+    await svc.updateOrder('order-1', 'tenant-1', { items: dtoItems as any });
+
+    // Only the CHANGED line (p2) is re-validated/re-reserved — the unchanged
+    // inactive-product line (p1) never reaches reserveCartItems, so it can't
+    // trip the "Невалиден или неактивен продукт" guard.
+    expect(reserveCartSpy).toHaveBeenCalledWith(expect.anything(), 'tenant-1', [{ productId: 'p2', quantity: 2 }], null, false);
+
+    // Only the CHANGED line's old stock/window is released — the grandfathered
+    // line's original reservation is left untouched.
+    expect(restoreWindowsSpy).toHaveBeenCalledWith(expect.anything(), 'tenant-1', [oldItems[1]]);
+    expect(restoreVariantSpy).toHaveBeenCalledWith(expect.anything(), [oldItems[1]]);
+
+    // Re-insert carries the grandfathered line's original snapshot verbatim
+    // (id/orderId stripped, price/name/variant unchanged) alongside the freshly
+    // prepared new line.
+    expect(insertedRows).toEqual([
+      { productId: 'p1', productName: 'Малини 1кг', variantId: null, variantLabel: null, quantity: 1, priceStotinki: 500, orderId: 'order-1' },
+      { productId: 'p2', productName: 'Краставици 3-клас 1кг', quantity: 2, priceStotinki: 300, variantId: null, variantLabel: null, orderId: 'order-1' },
+    ]);
+    expect(deleteCalled).toBe(true);
+
+    const expectedTotal = recomputeTotalStotinki(
+      orderRow.totalStotinki,
+      subtotalStotinki(oldItems),
+      subtotalStotinki([oldItems[0]]) + subtotalStotinki(preparedNew),
+    );
+    expect(setCapture[0].totalStotinki).toBe(expectedTotal);
+  });
+});
+
 describe('restoreVariantStock (via a captured tx)', () => {
   it('adds quantities back per variant, skips unlimited (null) stock', async () => {
     const updates: Array<{ id: string; stockQuantity: number }> = [];
