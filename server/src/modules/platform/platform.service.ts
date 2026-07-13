@@ -887,6 +887,10 @@ export class PlatformService {
    * the internal super-admin console; the shape is storefront-ready for later.
    */
   async producersMap(): Promise<ProducersMapResult> {
+    // Bound the scan — the endpoint is unpaginated and this table is loaded whole.
+    // Producers grow slowly, so a generous cap is effectively "all" today while
+    // guaranteeing the query can never fan out unbounded as the platform scales.
+    const MAX_PRODUCERS = 1000;
     const rows = await this.db
       .select({
         id: farmers.id,
@@ -904,15 +908,26 @@ export class PlatformService {
       })
       .from(farmers)
       .innerJoin(tenants, eq(farmers.tenantId, tenants.id))
-      .orderBy(asc(farmers.name), asc(farmers.id));
+      .orderBy(asc(farmers.name), asc(farmers.id))
+      .limit(MAX_PRODUCERS);
+    if (rows.length === MAX_PRODUCERS) {
+      this.logger.warn(
+        `producersMap capped at ${MAX_PRODUCERS} producers — some may be omitted from the map`,
+      );
+    }
 
     // Geocode-on-read for rows missing coords (skip when maps are off). numeric
     // columns come back as strings — mutate the row in place so the mapped output
-    // below picks up the freshly geocoded value.
+    // below picks up the freshly geocoded value. Bounded to GEOCODE_PER_REQUEST so
+    // the first load after a big import can't hang the request geocoding hundreds
+    // of rows synchronously — the rest fill in (and persist) on subsequent reads.
+    const GEOCODE_PER_REQUEST = 25;
     const missing = this.maps.enabled
-      ? rows.filter(
-          (r) => (r.lat == null || r.lng == null) && this.producerLocationString(r.legal, r.city),
-        )
+      ? rows
+          .filter(
+            (r) => (r.lat == null || r.lng == null) && this.producerLocationString(r.legal, r.city),
+          )
+          .slice(0, GEOCODE_PER_REQUEST)
       : [];
     const CONCURRENCY = 5;
     for (let i = 0; i < missing.length; i += CONCURRENCY) {

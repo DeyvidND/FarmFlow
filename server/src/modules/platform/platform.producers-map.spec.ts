@@ -12,13 +12,15 @@
  */
 import { PlatformService } from './platform.service';
 
-/** Chainable select mock: select().from().innerJoin().orderBy() resolves to `rows`.
- *  A separate update().set().where() chain resolves to undefined and is spied on. */
+/** Chainable select mock: select().from().innerJoin().orderBy().limit() resolves
+ *  to `rows`. A separate update().set().where() chain resolves to undefined and is
+ *  spied on. */
 function makeDb(rows: unknown[]) {
   const selectChain: any = {
     from: jest.fn(() => selectChain),
     innerJoin: jest.fn(() => selectChain),
-    orderBy: jest.fn(() => Promise.resolve(rows)),
+    orderBy: jest.fn(() => selectChain),
+    limit: jest.fn(() => Promise.resolve(rows)),
   };
   const updateWhere = jest.fn(() => Promise.resolve(undefined));
   const updateSet = jest.fn(() => ({ where: updateWhere }));

@@ -1282,6 +1282,9 @@ export class RoutingService {
           scheduledForDay(day),
           eq(orders.deliveryWindowStatus, 'approved'),
           isNotNull(orders.deliveryWindowStart),
+          // Only rows not already claimed by a prior/concurrent run — a claimed
+          // row (notifiedAt set) whose email went out must never be re-picked.
+          isNull(orders.deliveryWindowNotifiedAt),
         ),
       );
 
@@ -1293,10 +1296,27 @@ export class RoutingService {
         skipped += 1;
         continue;
       }
-      // One order's email (or its "mark sent" write) failing must not abort the
-      // whole batch — the rest of the day's customers still deserve their
-      // notification. Failed orders are left as 'approved' (not marked sent)
-      // so a re-run of notify picks them back up.
+      // Claim the row BEFORE sending: an atomic compare-and-set on
+      // (status='approved' AND notifiedAt IS NULL). This is the idempotency
+      // guard — a concurrent run or a re-run of the same day loses the race and
+      // skips, so no customer is ever emailed their window twice. If we don't win
+      // the claim, someone else already owns this row.
+      const [claimed] = await this.db
+        .update(orders)
+        .set({ deliveryWindowNotifiedAt: new Date() })
+        .where(
+          and(
+            eq(orders.id, r.id),
+            eq(orders.tenantId, tenantId),
+            eq(orders.deliveryWindowStatus, 'approved'),
+            isNull(orders.deliveryWindowNotifiedAt),
+          ),
+        )
+        .returning({ id: orders.id });
+      if (!claimed) {
+        skipped += 1;
+        continue;
+      }
       try {
         await this.orderEmail.sendDeliveryWindow(
           r.id,
@@ -1306,11 +1326,18 @@ export class RoutingService {
         );
         await this.db
           .update(orders)
-          .set({ deliveryWindowStatus: 'sent', deliveryWindowNotifiedAt: new Date() })
+          .set({ deliveryWindowStatus: 'sent' })
           .where(and(eq(orders.id, r.id), eq(orders.tenantId, tenantId)));
         sent += 1;
       } catch (err) {
         this.logger.warn(`notifyDeliveryWindows: failed to notify order ${r.id}: ${err}`);
+        // The email didn't go out — release the claim (notifiedAt → null) so the
+        // row is 'approved' + unclaimed again and a later run retries it. No dup
+        // (send failed), no permanent miss (row is retryable).
+        await this.db
+          .update(orders)
+          .set({ deliveryWindowNotifiedAt: null })
+          .where(and(eq(orders.id, r.id), eq(orders.tenantId, tenantId)));
         failed += 1;
         continue;
       }

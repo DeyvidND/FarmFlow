@@ -206,7 +206,9 @@ describe('RoutingService.notifyDeliveryWindows — partial-failure resilience', 
       { id: 'o1', email: 'a@test.bg', windowStart: '09:00', windowEnd: '10:00' },
       { id: 'o2', email: 'b@test.bg', windowStart: '10:00', windowEnd: '11:00' },
     ];
-    let updateCount = 0;
+    // Record every update's SET payload so we can distinguish claim / mark-sent /
+    // release. Every claim wins the race in this single-run test.
+    const sets: Record<string, unknown>[] = [];
     const db = {
       select: () => {
         const chain: any = {
@@ -217,9 +219,16 @@ describe('RoutingService.notifyDeliveryWindows — partial-failure resilience', 
         return chain;
       },
       update: () => ({
-        set: () => {
-          updateCount++;
-          return { where: () => Promise.resolve(undefined) };
+        set: (vals: Record<string, unknown>) => {
+          sets.push(vals);
+          return {
+            where: () => ({
+              // The claim chains .returning(); a won claim returns one row.
+              returning: () => Promise.resolve([{ id: 'claimed' }]),
+              // mark-sent / release just await the where().
+              then: (resolve: any, reject: any) => Promise.resolve(undefined).then(resolve, reject),
+            }),
+          };
         },
       }),
     } as any;
@@ -234,8 +243,44 @@ describe('RoutingService.notifyDeliveryWindows — partial-failure resilience', 
     const result = await svc.notifyDeliveryWindows('t1', '2026-07-07');
 
     expect(result).toEqual({ sent: 1, skipped: 0, failed: 1, total: 2, date: '2026-07-07' });
-    // Only the successful send resulted in a 'sent' write.
-    expect(updateCount).toBe(1);
     expect(orderEmail.sendDeliveryWindow).toHaveBeenCalledTimes(2);
+    // Exactly one order was marked 'sent' (the successful o2).
+    expect(sets.filter((s) => s.deliveryWindowStatus === 'sent')).toHaveLength(1);
+    // The failed order (o1) had its claim released (notifiedAt → null) so a later
+    // run can retry it — never left claimed-but-unsent.
+    expect(sets.filter((s) => s.deliveryWindowNotifiedAt === null)).toHaveLength(1);
+    // Two claims (one per row), each stamping notifiedAt with a Date.
+    expect(sets.filter((s) => s.deliveryWindowNotifiedAt instanceof Date)).toHaveLength(2);
+  });
+
+  it('skips a row it cannot claim (a concurrent run already owns it)', async () => {
+    const rows = [{ id: 'o1', email: 'a@test.bg', windowStart: '09:00', windowEnd: '10:00' }];
+    const db = {
+      select: () => {
+        const chain: any = {
+          from: () => chain,
+          where: () => Promise.resolve(rows),
+          then: (resolve: any, reject: any) => Promise.resolve(rows).then(resolve, reject),
+        };
+        return chain;
+      },
+      update: () => ({
+        set: () => ({
+          where: () => ({
+            // Lost the race — the compare-and-set updated no row.
+            returning: () => Promise.resolve([]),
+            then: (resolve: any, reject: any) => Promise.resolve(undefined).then(resolve, reject),
+          }),
+        }),
+      }),
+    } as any;
+    const orderEmail = { sendDeliveryWindow: jest.fn() };
+    const svc = new RoutingService(db, {} as any, {} as any, orderEmail as any);
+
+    const result = await svc.notifyDeliveryWindows('t1', '2026-07-07');
+
+    expect(result).toEqual({ sent: 0, skipped: 1, failed: 0, total: 1, date: '2026-07-07' });
+    // Never sent — the row was already claimed elsewhere.
+    expect(orderEmail.sendDeliveryWindow).not.toHaveBeenCalled();
   });
 });
