@@ -527,6 +527,40 @@ export const orderItems = pgTable(
   }),
 );
 
+export const handoverProtocols = pgTable(
+  'handover_protocols',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    // 'farmer_to_operator' | 'operator_to_customer'
+    kind: text('kind').notNull(),
+    farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'set null' }),
+    orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
+    slotId: uuid('slot_id').references(() => deliverySlots.id, { onDelete: 'set null' }),
+    protocolNumber: integer('protocol_number'),
+    fromSnapshot: jsonb('from_snapshot').notNull(),
+    toSnapshot: jsonb('to_snapshot').notNull(),
+    items: jsonb('items').notNull(),
+    orderIds: uuid('order_ids').array(),
+    totalStotinki: integer('total_stotinki').notNull().default(0),
+    fromSignaturePng: text('from_signature_png'),
+    toSignaturePng: text('to_signature_png'),
+    // 'digital' | 'paper' | 'pending'
+    signMode: text('sign_mode').notNull().default('pending'),
+    meta: jsonb('meta'),
+    // 'draft' | 'signed'
+    status: text('status').notNull().default('draft'),
+    signedAt: timestamp('signed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    tenantCreatedIdx: index('handover_tenant_created_idx').on(t.tenantId, t.createdAt, t.id),
+    tenantNumberUnique: uniqueIndex('handover_tenant_number_unique').on(t.tenantId, t.protocolNumber),
+    farmerIdx: index('handover_farmer_idx').on(t.farmerId),
+    orderIdx: index('handover_order_idx').on(t.orderId),
+  }),
+);
+
 export const siteEvents = pgTable(
   'site_events',
   {
@@ -1312,6 +1346,7 @@ export const schema = {
   deliverySlots,
   orders,
   orderItems,
+  handoverProtocols,
   orderFulfillments,
   commissionEntries,
   vendorSubscriptionCharges,

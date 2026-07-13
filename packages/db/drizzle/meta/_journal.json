@@ -708,6 +708,13 @@
       "when": 1783886414000,
       "tag": "0102_farmer_geo",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1784000000000,
+      "tag": "0103_handover_protocols",
+      "breakpoints": true
     }
   ]
 }
