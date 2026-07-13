@@ -953,3 +953,47 @@ export interface DaySuggestionResult {
   days: SuggestedDay[];
   unplaced: UnplacedOrder[];
 }
+
+/** One party (seller or buyer) on a handover protocol. Same shape as `FarmerLegal`
+ *  plus `phone` — the protocol snapshots identity at signing time, independent of
+ *  the farmer/tenant record it was drawn from. */
+export interface LegalIdentity {
+  kind?: 'individual' | 'sole_trader' | 'company';
+  name?: string;
+  eik?: string;
+  vatNumber?: string;
+  address?: string;
+  regNo?: string;
+  phone?: string;
+}
+
+/** One line item on a handover protocol. */
+export interface ProtocolItem {
+  productName: string;
+  variantLabel?: string;
+  quantity: number;
+  unit?: string;
+  priceStotinki: number;
+  orderNumber?: number;
+}
+
+/** Draft preview for a not-yet-created handover protocol (GET /handover/draft). */
+export interface ProtocolDraft {
+  kind: string;
+  from: LegalIdentity;
+  to: LegalIdentity;
+  items: ProtocolItem[];
+  total: number;
+}
+
+/** A saved handover protocol row (GET /handover). */
+export interface ProtocolRow {
+  id: string;
+  kind: string;
+  protocolNumber: number | null;
+  status: string;
+  signMode: string;
+  totalStotinki: number;
+  createdAt: string;
+  toSnapshot: LegalIdentity;
+}

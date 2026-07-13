@@ -12,6 +12,7 @@ import type {
   EcontOfficeLive,
   Farmer,
   FarmerAccess,
+  LegalIdentity,
   MediaItem,
   Order,
   Paged,
@@ -21,6 +22,8 @@ import type {
   ProductOption,
   ProductVariant,
   ProductionSummary,
+  ProtocolDraft,
+  ProtocolRow,
   ReschedulableOrder,
   ReviewStatus,
   MultiRouteResult,
@@ -1165,6 +1168,46 @@ export const refreshShipment = (id: string, carrier: 'econt' | 'speedy') =>
 /** Void/cancel a waybill via its carrier. */
 export const voidShipment = (id: string, carrier: 'econt' | 'speedy') =>
   apiFetch<{ id: string }>(`${carrier}/shipments/${id}`, { method: 'DELETE' }, 'Неуспешно анулиране');
+
+// ---- Handover protocols ----
+
+/** Draft preview (unsaved) for a handover protocol — used to render the sign dialog. */
+export const getProtocolDraft = (q: { kind: string; farmerId?: string; orderId?: string; slotId?: string }) => {
+  const p = new URLSearchParams();
+  if (q.kind) p.set('kind', q.kind);
+  if (q.farmerId) p.set('farmerId', q.farmerId);
+  if (q.orderId) p.set('orderId', q.orderId);
+  if (q.slotId) p.set('slotId', q.slotId);
+  return apiFetch<ProtocolDraft>(`handover/draft?${p.toString()}`);
+};
+
+export const createProtocol = (body: unknown) =>
+  apiFetch<{ id: string; protocolNumber: number }>('handover', { method: 'POST', ...json(body) }, 'Протоколът не беше записан');
+
+export const listProtocols = (q?: { slotId?: string; date?: string; kind?: string }) => {
+  const p = new URLSearchParams();
+  if (q?.slotId) p.set('slotId', q.slotId);
+  if (q?.date) p.set('date', q.date);
+  if (q?.kind) p.set('kind', q.kind);
+  const query = p.toString();
+  return apiFetch<ProtocolRow[]>(`handover${query ? `?${query}` : ''}`);
+};
+
+export const createProtocolBatch = (body: { slotId?: string; date?: string }) =>
+  apiFetch<{ ids: string[] }>('handover/batch', { method: 'POST', ...json(body) }, 'Батчът не беше създаден');
+
+export const markProtocolSigned = (id: string) =>
+  apiFetch<void>(`handover/${id}/mark-signed`, { method: 'PATCH' }, 'Неуспешно маркиране');
+
+export const protocolPdfHref = (id: string) => `/bff/handover/${id}/pdf`;
+
+export const protocolBatchPdfHref = (q?: { slotId?: string; date?: string }) => {
+  const p = new URLSearchParams();
+  if (q?.slotId) p.set('slotId', q.slotId);
+  if (q?.date) p.set('date', q.date);
+  const query = p.toString();
+  return `/bff/handover/batch.pdf${query ? `?${query}` : ''}`;
+};
 
 export interface CodReconRow {
   orderId: string;
