@@ -17,6 +17,7 @@ describe('HandoverController delegation', () => {
     renderPreviewPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4')),
     markSigned: jest.fn().mockResolvedValue(undefined),
     signPaperTarget: jest.fn().mockResolvedValue({ id: 'p1' }),
+    signAllForDay: jest.fn().mockResolvedValue({ signed: 3 }),
   };
   const ctrl = new HandoverController(svc as any);
 
@@ -63,6 +64,12 @@ describe('HandoverController delegation', () => {
     const dto = { kind: 'operator_to_customer', orderId: 'o1' } as any;
     await ctrl.signPaper('t1', dto);
     expect(svc.signPaperTarget).toHaveBeenCalledWith('t1', dto);
+  });
+
+  it('POST /handover/sign-all delegates signAllForDay with tenantId + body', async () => {
+    const dto = { date: '2026-07-16', kind: 'farmer_to_operator' } as any;
+    await ctrl.signAll('t1', dto);
+    expect(svc.signAllForDay).toHaveBeenCalledWith('t1', dto);
   });
 
   it('GET /handover/preview.pdf delegates renderPreviewPdf and returns an inline application/pdf StreamableFile', async () => {

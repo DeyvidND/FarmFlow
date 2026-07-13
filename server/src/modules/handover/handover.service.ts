@@ -376,7 +376,11 @@ export class HandoverService {
       slotId: o.slotId ?? undefined,
     }));
 
-    const targets = [...farmerTargets, ...customerTargets];
+    // «Печат фермери» / «Печат поръчки» narrow to one leg; absent = both.
+    const targets = [
+      ...(b.kind === 'operator_to_customer' ? [] : farmerTargets),
+      ...(b.kind === 'farmer_to_operator' ? [] : customerTargets),
+    ];
     const ids: string[] = [];
     const skipped: { kind: string; farmerId?: string; orderId?: string; slotId?: string; reason: string }[] = [];
     if (targets.length === 0) {
@@ -756,11 +760,78 @@ export class HandoverService {
    *  merges them into one buffer. Throws if the slot/date has no protocols —
    *  an empty merged PDF (0 pages) would be a useless download. */
   async renderBatchPdf(tenantId: string, b: BatchDto): Promise<Buffer> {
-    const rows = await this.list(tenantId, { slotId: b.slotId, date: b.date });
+    const rows = await this.list(tenantId, { slotId: b.slotId, date: b.date, kind: b.kind });
     if (rows.length === 0) {
       throw new BadRequestException('Няма протоколи за тази дата.');
     }
     const pdfs = await Promise.all(rows.map((row) => renderProtocolPdf(row)));
     return mergePdfs(pdfs);
+  }
+
+  /**
+   * Paper-signs EVERY handover-ready target for the day at once («Отбележи всички
+   * подписани») — narrowed to one leg by `b.kind` if given. Each target is routed
+   * through `signPaperTarget` (create+number+sign a virtual one, flip an existing
+   * draft); already-signed targets and any that can't be built are skipped, so the
+   * bulk action never aborts on one bad row. Returns how many were newly signed.
+   */
+  async signAllForDay(tenantId: string, b: BatchDto): Promise<{ signed: number }> {
+    const slotIds = await this.resolveSlotIds(tenantId, b);
+    if (slotIds.length === 0) {
+      return { signed: 0 };
+    }
+
+    const targets: DraftQueryDto[] = [];
+
+    if (b.kind !== 'operator_to_customer') {
+      const farmerRows: { farmerId: string | null; slotId: string | null }[] = await this.db
+        .select({ farmerId: products.farmerId, slotId: orders.slotId })
+        .from(orderItems)
+        .innerJoin(products, eq(products.id, orderItems.productId))
+        .innerJoin(orders, eq(orders.id, orderItems.orderId))
+        .where(
+          and(
+            eq(orders.tenantId, tenantId),
+            inArray(orders.slotId, slotIds),
+            inArray(orders.status, [...HANDOVER_STATUSES]),
+          ),
+        );
+      const seen = new Set<string>();
+      for (const r of farmerRows) {
+        if (!r.farmerId || !r.slotId) continue;
+        const key = `${r.farmerId}:${r.slotId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        targets.push({ kind: 'farmer_to_operator', farmerId: r.farmerId, slotId: r.slotId });
+      }
+    }
+
+    if (b.kind !== 'farmer_to_operator') {
+      const customerOrders: { id: string; slotId: string | null }[] = await this.db
+        .select({ id: orders.id, slotId: orders.slotId })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.tenantId, tenantId),
+            inArray(orders.slotId, slotIds),
+            inArray(orders.status, [...HANDOVER_STATUSES]),
+          ),
+        );
+      for (const o of customerOrders) {
+        targets.push({ kind: 'operator_to_customer', orderId: o.id, slotId: o.slotId ?? undefined });
+      }
+    }
+
+    let signed = 0;
+    for (const t of targets) {
+      try {
+        await this.signPaperTarget(tenantId, t);
+        signed++;
+      } catch {
+        // Already signed, or a target that can't be built (e.g. no name anywhere) —
+        // skip it, don't abort the whole run.
+      }
+    }
+    return { signed };
   }
 }

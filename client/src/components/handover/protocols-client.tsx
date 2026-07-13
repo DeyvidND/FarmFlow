@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Printer, FileDown, Check } from 'lucide-react';
+import { Printer, FileDown, Check, CheckCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { DateNavBar } from '@/components/production/date-nav-bar';
@@ -14,6 +14,7 @@ import {
   protocolBatchPdfHref,
   protocolPdfHref,
   protocolPreviewPdfHref,
+  signAllProtocols,
   signProtocolPaper,
 } from '@/lib/api-client';
 import type { DayProtocolRow } from '@/lib/types';
@@ -78,7 +79,7 @@ export function ProtocolsClient() {
   const [date, setDate] = useState(() => todayIso());
   const [rows, setRows] = useState<DayProtocolRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [printing, setPrinting] = useState(false);
+  const [busy, setBusy] = useState<null | 'farmers' | 'orders' | 'signall'>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [signTarget, setSignTarget] = useState<{ farmerId: string; slotId: string } | null>(null);
 
@@ -98,22 +99,38 @@ export function ProtocolsClient() {
     void load(date);
   }, [date, load]);
 
-  async function printDay() {
-    setPrinting(true);
+  // Create + print one leg's protocols for the day. Only opens the merged PDF if
+  // that leg actually has rows (avoids a 400 «Няма протоколи» tab).
+  async function printKind(kind: 'farmer_to_operator' | 'operator_to_customer') {
+    const has = rows.some((r) => r.kind === kind);
+    setBusy(kind === 'farmer_to_operator' ? 'farmers' : 'orders');
     try {
-      const { ids, skipped } = await createProtocolBatch({ date });
+      const { skipped } = await createProtocolBatch({ date, kind });
       if (skipped.length > 0) {
         const reasons = [...new Set(skipped.map((s) => s.reason))].join(' ');
         toast.warning(`${skipped.length} протокол(а) не са генерирани — ${reasons}`);
       }
-      if (ids.length > 0 || rows.length > 0) {
-        window.open(protocolBatchPdfHref({ date }), '_blank', 'noopener');
-      }
+      if (has) window.open(protocolBatchPdfHref({ date, kind }), '_blank', 'noopener');
+      else toast.info('Няма протоколи за печат за тази дата.');
       await load(date);
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
-      setPrinting(false);
+      setBusy(null);
+    }
+  }
+
+  async function signAll() {
+    if (!window.confirm('Да отбележа ли всички протоколи за деня като подписани (на хартия)?')) return;
+    setBusy('signall');
+    try {
+      const { signed } = await signAllProtocols({ date });
+      toast.success(`${signed} протокол(а) отбелязани като подписани`);
+      await load(date);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -142,9 +159,27 @@ export function ProtocolsClient() {
         <div className="max-[680px]:w-full">
           <DateNavBar date={date} dateLabel={relDayLabel(date)} onSelect={setDate} />
         </div>
-        <Button onClick={() => void printDay()} disabled={printing} className="max-[680px]:w-full">
-          <Printer size={17} /> {printing ? 'Подготвяне…' : 'Печат за деня'}
-        </Button>
+        <div className="flex flex-wrap gap-2 max-[680px]:w-full">
+          <Button
+            variant="outline"
+            onClick={() => void printKind('farmer_to_operator')}
+            disabled={busy !== null}
+            className="max-[680px]:flex-1"
+          >
+            <Printer size={16} /> {busy === 'farmers' ? 'Подготвяне…' : 'Печат фермери'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void printKind('operator_to_customer')}
+            disabled={busy !== null}
+            className="max-[680px]:flex-1"
+          >
+            <Printer size={16} /> {busy === 'orders' ? 'Подготвяне…' : 'Печат поръчки'}
+          </Button>
+          <Button onClick={() => void signAll()} disabled={busy !== null} className="max-[680px]:w-full">
+            <CheckCheck size={16} /> {busy === 'signall' ? 'Подписване…' : 'Отбележи всички подписани'}
+          </Button>
+        </div>
       </div>
 
       {/* farmer pickups */}

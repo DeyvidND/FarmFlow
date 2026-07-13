@@ -318,6 +318,47 @@ describe('HandoverService.markSigned', () => {
   });
 });
 
+describe('HandoverService.createBatch kind filter', () => {
+  it('creates only the customer leg when kind=operator_to_customer', async () => {
+    const db = makeDb();
+    db.queue([{ farmerId: 'f1', slotId: 's1' }]); // farmer pickups (ignored by kind filter)
+    db.queue([{ id: 'o1', slotId: 's1' }]);        // customer orders
+    db.queue([]);                                  // customer o1: not covered
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]); // buildDraft: tenant
+    db.queue([{ id: 'o1', customerName: 'Иван', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720 }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' }]);
+    db.queue([{ max: 2 }]);                         // tx max
+    db.queue([{ id: 'p-cust' }]);                   // insert returning
+
+    const svc = await build(db);
+    const res = await svc.createBatch('t1', { slotId: 's1', kind: 'operator_to_customer' } as any);
+
+    expect(res.ids).toEqual(['p-cust']);
+    expect((db.calls.values[0] as any).kind).toBe('operator_to_customer');
+  });
+});
+
+describe('HandoverService.signAllForDay', () => {
+  it('paper-signs every target and returns the newly-signed count', async () => {
+    const db = makeDb();
+    db.queue([{ farmerId: 'f1', slotId: 's1' }]); // farmer pickups
+    db.queue([]);                                  // customer orders: none
+    // signPaperTarget(farmer f1/s1):
+    db.queue([]);                                  // existing? none
+    db.queue([{ legal: null, name: 'Оп' }]);        // buildDraft tenant
+    db.queue([{ id: 'f1', legal: null, name: 'Васил' }]); // buildDraft farmer
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 }]);
+    db.queue([{ max: 0 }]);                          // tx max
+    db.queue([{ id: 'p1' }]);                       // insert returning
+
+    const svc = await build(db);
+    const res = await svc.signAllForDay('t1', { slotId: 's1' } as any);
+    expect(res.signed).toBe(1);
+    expect((db.calls.values[0] as any).status).toBe('signed');
+    expect((db.calls.values[0] as any).signMode).toBe('paper');
+  });
+});
+
 describe('HandoverService.signPaperTarget', () => {
   it('creates a signed(paper) protocol for a not-yet-persisted target', async () => {
     const db = makeDb();

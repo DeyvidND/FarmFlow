@@ -100,4 +100,11 @@ export class HandoverController {
   signPaper(@CurrentTenant() tenantId: string, @Body() dto: DraftQueryDto) {
     return this.handover.signPaperTarget(tenantId, dto);
   }
+
+  /** Paper-sign every target for the day at once («Отбележи всички подписани»),
+   *  optionally narrowed to one leg by `kind`. */
+  @Post('sign-all')
+  signAll(@CurrentTenant() tenantId: string, @Body() dto: BatchDto) {
+    return this.handover.signAllForDay(tenantId, dto);
+  }
 }

@@ -1210,11 +1210,15 @@ export const listProtocols = (q?: { slotId?: string; date?: string; kind?: strin
   return apiFetch<ProtocolRow[]>(`handover${query ? `?${query}` : ''}`);
 };
 
-export const createProtocolBatch = (body: { slotId?: string; date?: string }) =>
+export const createProtocolBatch = (body: { slotId?: string; date?: string; kind?: string }) =>
   apiFetch<{
     ids: string[];
     skipped: { kind: string; farmerId?: string; orderId?: string; slotId?: string; reason: string }[];
   }>('handover/batch', { method: 'POST', ...json(body) }, 'Батчът не беше създаден');
+
+/** Paper-sign every target for the day at once (optionally one leg via kind). */
+export const signAllProtocols = (body: { slotId?: string; date?: string; kind?: string }) =>
+  apiFetch<{ signed: number }>('handover/sign-all', { method: 'POST', ...json(body) }, 'Неуспешно подписване');
 
 export const markProtocolSigned = (id: string) =>
   apiFetch<void>(`handover/${id}/mark-signed`, { method: 'PATCH' }, 'Неуспешно маркиране');
@@ -1254,10 +1258,11 @@ export const protocolPreviewPdfHref = (target: {
   return `/bff/handover/preview.pdf?${p.toString()}`;
 };
 
-export const protocolBatchPdfHref = (q?: { slotId?: string; date?: string }) => {
+export const protocolBatchPdfHref = (q?: { slotId?: string; date?: string; kind?: string }) => {
   const p = new URLSearchParams();
   if (q?.slotId) p.set('slotId', q.slotId);
   if (q?.date) p.set('date', q.date);
+  if (q?.kind) p.set('kind', q.kind);
   const query = p.toString();
   return `/bff/handover/batch.pdf${query ? `?${query}` : ''}`;
 };
