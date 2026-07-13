@@ -79,7 +79,12 @@ async function apiFetch<T>(
     throw new ApiError(res.status, firstApiMessage(body, fallbackErr));
   }
   if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  // A 200 with an empty body is how NestJS serializes a controller that returns
+  // null/undefined (e.g. tenants/me/legal before any legal data is saved). Read
+  // as text first so an empty body resolves to undefined instead of throwing
+  // `SyntaxError: Unexpected end of JSON input` on res.json().
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 const json = (data: unknown): RequestInit => ({
