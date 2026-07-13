@@ -1,9 +1,9 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { type Database, farmers, orderItems, orders, products, tenants } from '@fermeribg/db';
+import { type Database, farmers, handoverProtocols, orderItems, orders, products, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import type { DraftQueryDto } from './dto/draft-query.dto';
-import type { ProtocolItemDto } from './dto/create-protocol.dto';
+import type { CreateProtocolDto, ProtocolItemDto } from './dto/create-protocol.dto';
 import { requireLegal, type LegalIdentity } from './legal.util';
 
 /** Statuses whose items are handover-ready — matches the prep/delivery window. */
@@ -171,5 +171,71 @@ export class HandoverService {
     }));
 
     return { kind: q.kind, from: operatorLegal, to, items, total: order.totalStotinki };
+  }
+
+  /**
+   * Signs and freezes a handover protocol. Re-derives `from`/`to`/`items`/`total`
+   * via `buildDraft` (client-supplied item totals are never trusted), assigns the
+   * next per-tenant `protocol_number`, and rejects a duplicate signed protocol for
+   * the same `(tenant, kind, farmer|order, slot)` target.
+   */
+  async createSigned(
+    tenantId: string,
+    dto: CreateProtocolDto,
+  ): Promise<{ id: string; protocolNumber: number }> {
+    const draft = await this.buildDraft(tenantId, dto);
+
+    const targetMatch =
+      dto.kind === 'operator_to_customer'
+        ? eq(handoverProtocols.orderId, dto.orderId!)
+        : and(eq(handoverProtocols.farmerId, dto.farmerId!), eq(handoverProtocols.slotId, dto.slotId!));
+
+    const [existing] = await this.db
+      .select({ id: handoverProtocols.id })
+      .from(handoverProtocols)
+      .where(
+        and(
+          eq(handoverProtocols.tenantId, tenantId),
+          eq(handoverProtocols.kind, dto.kind),
+          eq(handoverProtocols.status, 'signed'),
+          targetMatch,
+        ),
+      )
+      .limit(1);
+
+    if (existing) {
+      throw new ConflictException('Протокол вече е издаден за това предаване.');
+    }
+
+    const [{ max }] = await this.db
+      .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
+      .from(handoverProtocols)
+      .where(eq(handoverProtocols.tenantId, tenantId));
+
+    const next = (max ?? 0) + 1;
+
+    const [inserted] = await this.db
+      .insert(handoverProtocols)
+      .values({
+        tenantId,
+        kind: dto.kind,
+        farmerId: dto.farmerId,
+        orderId: dto.orderId,
+        slotId: dto.slotId,
+        protocolNumber: next,
+        fromSnapshot: draft.from,
+        toSnapshot: draft.to,
+        items: draft.items,
+        orderIds: dto.orderId ? [dto.orderId] : null,
+        totalStotinki: draft.total,
+        fromSignaturePng: dto.fromSignaturePng,
+        toSignaturePng: dto.toSignaturePng,
+        signMode: 'digital',
+        status: 'signed',
+        signedAt: new Date(),
+      })
+      .returning({ id: handoverProtocols.id, protocolNumber: handoverProtocols.protocolNumber });
+
+    return { id: inserted.id, protocolNumber: inserted.protocolNumber! };
   }
 }

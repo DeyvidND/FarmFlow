@@ -87,3 +87,42 @@ describe('HandoverService.buildDraft operator_to_customer', () => {
     expect(draft.total).toBe(720);
   });
 });
+
+describe('HandoverService.createSigned', () => {
+  it('assigns the next per-tenant protocol_number and stores digital signatures', async () => {
+    const db = makeDb();
+    // buildDraft re-derivation (farmer leg):
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 5, unit: 'кг', priceStotinki: 300, orderNumber: 5 }]);
+    db.queue([]);                                  // dup-check: none found
+    db.queue([{ max: 40 }]);                       // current max protocol_number
+    db.queue([{ id: 'p1', protocolNumber: 41 }]);  // insert ... returning
+    const svc = await build(db);
+    const res = await svc.createSigned('t1', {
+      kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1',
+      items: [{ productName: 'Домати', quantity: 5, priceStotinki: 300 }],
+      fromSignaturePng: 'data:image/png;base64,AAA', toSignaturePng: 'data:image/png;base64,BBB',
+    } as any);
+    expect(res.protocolNumber).toBe(41);
+    const inserted = db.calls.values[0] as any;
+    expect(inserted.status).toBe('signed');
+    expect(inserted.signMode).toBe('digital');
+    expect(inserted.protocolNumber).toBe(41);
+    expect(inserted.fromSnapshot).toEqual({ name: 'ЕТ Васил' });      // frozen, not client-supplied
+    expect(inserted.totalStotinki).toBe(1500);                        // re-derived, not trusted from client
+  });
+
+  it('rejects a duplicate signed protocol for the same target', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 1, unit: 'кг', priceStotinki: 300 }]);
+    db.queue([{ id: 'dup' }]); // existing signed protocol found
+    const svc = await build(db);
+    await expect(svc.createSigned('t1', {
+      kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1',
+      items: [{ productName: 'Домати', quantity: 1, priceStotinki: 300 }],
+    } as any)).rejects.toThrow(/вече/);
+  });
+});
