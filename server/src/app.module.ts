@@ -46,6 +46,7 @@ import { EcontModule } from './modules/econt/econt.module';
 import { HelpModule } from './modules/help/help.module';
 import { SpeedyConfigModule } from './modules/speedy/speedy-config.module';
 import { DigestModule } from './modules/digest/digest.module';
+import { SmsReminderModule } from './modules/sms-reminder/sms-reminder.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { QueueModule } from './common/queue/queue.module';
@@ -136,6 +137,7 @@ import { HandoverModule } from './modules/handover/handover.module';
     HelpModule,
     SpeedyConfigModule, // SpeedyConfigController (main API only) + SpeedyCoreModule (cron/worker).
     DigestModule,
+    SmsReminderModule,
     NewsletterModule,
     AvailabilityModule,
     // After the feature modules it composes (Tenants/Products/Farmers/Subcategories).
