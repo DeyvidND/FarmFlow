@@ -50,9 +50,12 @@ describe('SmsReminderService.sendForTenant', () => {
   it('skips a row with no phone without claiming', async () => {
     const sms = { sendSms: jest.fn() };
     const db = makeDb([{ ...baseRow, phone: null }], [true]);
+    const updateSpy = jest.spyOn(db, 'update');
     const svc = new SmsReminderService(db, sms as any);
     const res = await svc.sendForTenant('t1', '2026-07-13');
     expect(sms.sendSms).not.toHaveBeenCalled();
+    // No phone → no claim: db.update must never be touched.
+    expect(updateSpy).not.toHaveBeenCalled();
     expect(res).toMatchObject({ sent: 0, skipped: 1, total: 1 });
   });
 

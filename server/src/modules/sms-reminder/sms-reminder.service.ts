@@ -68,6 +68,8 @@ export class SmsReminderService {
           // Approved OR already-emailed (sent): the morning SMS still fires.
           inArray(orders.deliveryWindowStatus, ['approved', 'sent']),
           isNotNull(orders.deliveryWindowStart),
+          // Guard the END too: a null end would render "между 09:00– ч.".
+          isNotNull(orders.deliveryWindowEnd),
           isNull(orders.deliveryWindowSmsAt),
         ),
       );
@@ -100,21 +102,41 @@ export class SmsReminderService {
         skipped += 1;
         continue;
       }
-      const body = buildBody(r.orderNumber, hhmm(r.windowStart), hhmm(r.windowEnd));
-      const res = await this.sms.sendSms(phone, body, {
-        tenantId,
-        orderId: r.id,
-        kind: 'delivery_window',
-      });
-      if (res.status === 'sent') {
-        sent += 1;
-      } else {
-        // Release the claim so a later run retries — no dup (send failed).
-        await this.db
-          .update(orders)
-          .set({ deliveryWindowSmsAt: null })
-          .where(and(eq(orders.id, r.id), eq(orders.tenantId, tenantId)));
+      // From the claim onward, any throw (DB error on send/release, or a
+      // violated sendSms never-throws contract) must not abort the batch or
+      // strand a claimed row: release the claim (tenant-scoped) and continue,
+      // counting failed. Mirrors the email path notifyDeliveryWindows.
+      try {
+        const body = buildBody(r.orderNumber, hhmm(r.windowStart), hhmm(r.windowEnd));
+        const res = await this.sms.sendSms(phone, body, {
+          tenantId,
+          orderId: r.id,
+          kind: 'delivery_window',
+        });
+        if (res.status === 'sent') {
+          sent += 1;
+        } else {
+          // Release the claim so a later run retries — no dup (send failed).
+          await this.db
+            .update(orders)
+            .set({ deliveryWindowSmsAt: null })
+            .where(and(eq(orders.id, r.id), eq(orders.tenantId, tenantId)));
+          failed += 1;
+        }
+      } catch (err) {
+        this.logger.warn(`sendForTenant: failed to SMS order ${r.id}: ${err}`);
+        // Best-effort release so a later run retries; swallow a release error
+        // (the claim just stays set — no dup, at worst a missed retry).
+        try {
+          await this.db
+            .update(orders)
+            .set({ deliveryWindowSmsAt: null })
+            .where(and(eq(orders.id, r.id), eq(orders.tenantId, tenantId)));
+        } catch (releaseErr) {
+          this.logger.error(`sendForTenant: claim release failed for order ${r.id}: ${releaseErr}`);
+        }
         failed += 1;
+        continue;
       }
     }
     return { sent, skipped, failed, total: rows.length, date: day };
