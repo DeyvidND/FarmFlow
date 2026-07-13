@@ -1,7 +1,7 @@
 import {
   Controller, Get, Post, Patch,
   Param, Body, Query, UseGuards,
-  ParseUUIDPipe, StreamableFile,
+  ParseUUIDPipe, StreamableFile, HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { HandoverService } from './handover.service';
@@ -69,6 +69,7 @@ export class HandoverController {
   }
 
   @Patch(':id/mark-signed')
+  @HttpCode(204)
   markSigned(@CurrentTenant() tenantId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.handover.markSigned(tenantId, id);
   }
