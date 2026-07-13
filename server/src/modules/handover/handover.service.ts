@@ -147,21 +147,27 @@ export class HandoverService {
       variantLabel: string | null;
       quantity: number;
       priceStotinki: number;
+      unit: string | null;
+      name: string | null;
     }[] = await this.db
       .select({
         productName: orderItems.productName,
         variantLabel: orderItems.variantLabel,
         quantity: orderItems.quantity,
         priceStotinki: orderItems.priceStotinki,
+        unit: products.unit,
+        name: products.name,
       })
       .from(orderItems)
+      .leftJoin(products, eq(orderItems.productId, products.id))
       .where(eq(orderItems.orderId, q.orderId));
 
     const items: ProtocolItemDto[] = rows.map((r) => ({
-      productName: r.productName ?? '',
+      productName: r.productName ?? r.name ?? '',
       variantLabel: r.variantLabel ?? undefined,
       quantity: r.quantity,
       priceStotinki: r.priceStotinki,
+      unit: r.unit ?? undefined,
     }));
 
     return { kind: q.kind, from: operatorLegal, to, items, total: order.totalStotinki };

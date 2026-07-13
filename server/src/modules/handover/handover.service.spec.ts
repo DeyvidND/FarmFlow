@@ -75,14 +75,15 @@ describe('HandoverService.buildDraft operator_to_customer', () => {
     db.queue([{ legal: { name: 'ЕТ Оператор' } }]); // tenant settings.legal
     db.queue([{ id: 'o9', customerName: 'Иван Петров', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720 }]); // order
     db.queue([
-      { productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300 },
-      { productName: 'Краставици', variantLabel: null, quantity: 1, priceStotinki: 120 },
-    ]); // order_items
+      { productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' },
+      { productName: 'Краставици', variantLabel: null, quantity: 1, priceStotinki: 120, unit: 'бр', name: 'Краставици' },
+    ]); // order_items ⋈ products (left join)
     const svc = await build(db);
     const draft = await svc.buildDraft('t1', { kind: 'operator_to_customer', orderId: 'o9' });
     expect(draft.from).toEqual({ name: 'ЕТ Оператор' });
     expect(draft.to).toEqual({ name: 'Иван Петров', phone: '0888', address: 'ул. Роза 1' });
     expect(draft.items.map((i) => i.quantity)).toEqual([2, 1]);
+    expect(draft.items[0].unit).toBe('кг');
     expect(draft.total).toBe(720);
   });
 });
