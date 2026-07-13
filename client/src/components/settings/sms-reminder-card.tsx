@@ -1,9 +1,10 @@
 'use client';
 
 /**
- * Delivery settings → SMS напомняне в деня на доставка. When on, the platform
- * SMSes each own-delivery customer their approved time window on the morning of
- * delivery (server cron). Off by default — SMS-ите се таксуват.
+ * Delivery settings → Напомняне в деня на доставка. When on, the platform
+ * reminds each own-delivery customer of their approved time window on the
+ * morning of delivery (server cron). Channel is email by default (free),
+ * switchable to SMS via settings.sms.channel. Off by default.
  *
  * Single-boolean setting → AUTO-SAVES on toggle (no SaveBar): the toggle
  * optimistically flips, PATCHes tenants/me immediately, and reverts on error.
@@ -66,11 +67,11 @@ export function SmsReminderCard() {
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[14.5px] font-extrabold text-ff-ink">
-            SMS напомняне в деня на доставка
+            Напомняне в деня на доставка
           </div>
           <div className="mt-0.5 max-w-[560px] text-[12.5px] leading-snug text-ff-muted">
-            Клиентът получава SMS сутринта с часовия диапазон за доставка. Изисква одобрени
-            часове предната вечер. SMS-ите се таксуват.
+            Клиентът получава напомняне сутринта с часовия диапазон за доставка. Изисква
+            одобрени часове предната вечер.
           </div>
         </div>
         <ToggleSwitch checked={on} onChange={toggle} disabled={busy} />

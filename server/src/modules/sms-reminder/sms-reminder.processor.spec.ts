@@ -8,7 +8,7 @@ describe('SmsReminderProcessor', () => {
 
   it('registers the 08:00 Europe/Sofia repeatable on boot', async () => {
     const queue = makeQueue();
-    const svc = { eligibleTenantIds: jest.fn(), sendForTenant: jest.fn() };
+    const svc = { eligibleTenants: jest.fn(), sendForTenant: jest.fn() };
     const p = new SmsReminderProcessor(svc as any, queue as any);
     await p.onModuleInit();
     expect(queue.add).toHaveBeenCalledWith(
@@ -17,20 +17,26 @@ describe('SmsReminderProcessor', () => {
     );
   });
 
-  it('fans out one sms-tenant job per eligible tenant', async () => {
+  it('fans out one sms-tenant job per eligible tenant, carrying its channel', async () => {
     const queue = makeQueue();
-    const svc = { eligibleTenantIds: jest.fn().mockResolvedValue(['a', 'b']), sendForTenant: jest.fn() };
+    const svc = {
+      eligibleTenants: jest.fn().mockResolvedValue([
+        { id: 'a', channel: 'email' },
+        { id: 'b', channel: 'sms' },
+      ]),
+      sendForTenant: jest.fn(),
+    };
     const p = new SmsReminderProcessor(svc as any, queue as any);
     await p.process({ name: 'sms-daily' } as any);
-    expect(queue.add).toHaveBeenCalledWith('sms-tenant', { tenantId: 'a' });
-    expect(queue.add).toHaveBeenCalledWith('sms-tenant', { tenantId: 'b' });
+    expect(queue.add).toHaveBeenCalledWith('sms-tenant', { tenantId: 'a', channel: 'email' });
+    expect(queue.add).toHaveBeenCalledWith('sms-tenant', { tenantId: 'b', channel: 'sms' });
   });
 
-  it('runs the per-tenant send for an sms-tenant job', async () => {
+  it('runs the per-tenant send with the carried channel for an sms-tenant job', async () => {
     const queue = makeQueue();
-    const svc = { eligibleTenantIds: jest.fn(), sendForTenant: jest.fn().mockResolvedValue({ sent: 1 }) };
+    const svc = { eligibleTenants: jest.fn(), sendForTenant: jest.fn().mockResolvedValue({ sent: 1 }) };
     const p = new SmsReminderProcessor(svc as any, queue as any);
-    await p.process({ name: 'sms-tenant', data: { tenantId: 'a' } } as any);
-    expect(svc.sendForTenant).toHaveBeenCalledWith('a');
+    await p.process({ name: 'sms-tenant', data: { tenantId: 'a', channel: 'sms' } } as any);
+    expect(svc.sendForTenant).toHaveBeenCalledWith('a', 'sms');
   });
 });

@@ -24,21 +24,25 @@ export class SmsReminderProcessor extends WorkerHost implements OnModuleInit {
 
   async process(job: Job): Promise<void> {
     if (job.name === 'sms-daily') {
-      const ids = await this.reminder.eligibleTenantIds();
-      for (const tenantId of ids) {
-        await this.queue.add('sms-tenant', { tenantId });
+      const tenants = await this.reminder.eligibleTenants();
+      for (const t of tenants) {
+        await this.queue.add('sms-tenant', { tenantId: t.id, channel: t.channel });
       }
-      this.logger.log(`[sms] fanned out ${ids.length} tenant reminder job(s)`);
+      this.logger.log(`[reminder] fanned out ${tenants.length} tenant reminder job(s)`);
       return;
     }
     if (job.name === 'sms-tenant') {
-      const res = await this.reminder.sendForTenant((job.data as { tenantId: string }).tenantId);
+      const { tenantId, channel } = job.data as {
+        tenantId: string;
+        channel?: 'email' | 'sms';
+      };
+      const res = await this.reminder.sendForTenant(tenantId, channel ?? 'email');
       this.logger.log(
-        `[sms] tenant ${(job.data as { tenantId: string }).tenantId}: ` +
+        `[reminder] tenant ${tenantId} (${channel ?? 'email'}): ` +
           `sent=${res.sent} skipped=${res.skipped} failed=${res.failed}`,
       );
       return;
     }
-    this.logger.warn(`[sms] unknown job name=${job.name}`);
+    this.logger.warn(`[reminder] unknown job name=${job.name}`);
   }
 }

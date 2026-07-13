@@ -150,6 +150,33 @@ export class OrderConfirmationService {
     windowEnd: string,
     date: string,
   ): Promise<void> {
+    return this.sendWindowEmail(orderId, windowStart, windowEnd, date, false);
+  }
+
+  /**
+   * Day-of reminder variant (the 08:00 reminder cron). Same window details as
+   * sendDeliveryWindow but a distinct "Напомняне: доставка днес" subject, so it
+   * reads as a reminder even when the operator already emailed the window the
+   * evening before. Like sendDeliveryWindow it lets its error propagate — the
+   * caller (SmsReminderService) only counts it sent after it resolves, and
+   * releases its claim to retry on failure.
+   */
+  async sendDeliveryWindowReminder(
+    orderId: string,
+    windowStart: string,
+    windowEnd: string,
+    date: string,
+  ): Promise<void> {
+    return this.sendWindowEmail(orderId, windowStart, windowEnd, date, true);
+  }
+
+  private async sendWindowEmail(
+    orderId: string,
+    windowStart: string,
+    windowEnd: string,
+    date: string,
+    reminder: boolean,
+  ): Promise<void> {
     const [order] = await this.db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
     if (!order) return;
     const to = order.customerEmail?.trim();
@@ -165,10 +192,13 @@ export class OrderConfirmationService {
     const farmName = tenant?.name ?? 'ФермериБГ';
     const phone = contactPhone(tenant?.settings);
     const safeFarmName = farmName.replace(/[\r\n]+/g, ' ').trim();
+    const subject = reminder
+      ? `Напомняне: доставка днес — ${safeFarmName}`.trim()
+      : `Час за доставка — ${safeFarmName}`.trim();
 
     await this.email.sendMail({
       to,
-      subject: `Час за доставка — ${safeFarmName}`.trim(),
+      subject,
       html: this.renderWindowHtml(order, farmName, date, windowStart, windowEnd, phone),
       text: this.renderWindowText(order, farmName, date, windowStart, windowEnd, phone),
       stream: 'transactional',
