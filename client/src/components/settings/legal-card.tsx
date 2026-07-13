@@ -62,7 +62,17 @@ export function LegalCard() {
     address: address.trim() || undefined,
     regNo: regNo.trim() || undefined,
   };
-  const dirty = !!saved && !same(current, { ...saved, confirmedAt: undefined });
+  const savedForCompare: LegalIdentity = saved
+    ? {
+        kind: saved.kind,
+        name: saved.name,
+        eik: saved.eik,
+        vatNumber: saved.vatNumber,
+        address: saved.address,
+        regNo: saved.regNo,
+      }
+    : ({} as LegalIdentity);
+  const dirty = !!saved && !same(current, savedForCompare);
 
   const save = async () => {
     setSaving(true);
