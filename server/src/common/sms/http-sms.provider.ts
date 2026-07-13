@@ -8,6 +8,12 @@ export interface HttpSmsConfig {
   senderId: string;
 }
 
+/** Hard cap on a single gateway request. Node's global fetch has NO default
+ *  timeout, so without this a hung gateway would stall the tenant's whole
+ *  send loop. On timeout the fetch rejects → SmsService records a failed row
+ *  and releases the claim (retried next run). */
+const SMS_HTTP_TIMEOUT_MS = 10_000;
+
 /**
  * Generic BG HTTP SMS gateway adapter (SMSAPI.bg / Mobica / iSMS-style). POSTs a
  * JSON body { from, to, message } with a Bearer token and expects a JSON reply
@@ -29,6 +35,7 @@ export class HttpSmsProvider implements SmsProvider {
         authorization: `Bearer ${this.cfg.token}`,
       },
       body: JSON.stringify({ from: this.cfg.senderId, to, message: body }),
+      signal: AbortSignal.timeout(SMS_HTTP_TIMEOUT_MS),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
