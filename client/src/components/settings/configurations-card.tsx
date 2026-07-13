@@ -3,7 +3,7 @@
 import * as React from 'react';
 import {
   SlidersHorizontal, Truck, CalendarDays, ToggleRight, Megaphone, ChevronRight,
-  TrendingUp, Home, Lock,
+  TrendingUp, Home, Lock, FileText,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -17,7 +17,8 @@ export type ConfigKey =
   | 'features'
   | 'merchandising'
   | 'landing'
-  | 'marketing';
+  | 'marketing'
+  | 'legal';
 
 interface ConfigItem {
   key: ConfigKey;
@@ -55,6 +56,13 @@ const GROUPS: { title: string; desc: string; items: ConfigItem[] }[] = [
     desc: 'Реклама и проследяване.',
     items: [
       { key: 'marketing', label: 'Маркетинг и проследяване', Icon: Megaphone, desc: 'Кодове за Google Analytics, Google Ads, Meta Pixel и др.' },
+    ],
+  },
+  {
+    title: 'Оператор',
+    desc: 'Данни за платформата като юридическо лице.',
+    items: [
+      { key: 'legal', label: 'Легални данни', Icon: FileText, desc: 'Данни на оператора за приемо-предавателни протоколи и разписки за доставка.' },
     ],
   },
 ];

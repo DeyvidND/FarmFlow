@@ -10,6 +10,7 @@ import { PasswordCard } from '@/components/settings/password-card';
 import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
 import { LandingCard } from '@/components/settings/landing-card';
 import { MerchandisingCard } from '@/components/settings/merchandising-card';
+import { LegalCard } from '@/components/settings/legal-card';
 import {
   SetupSection,
   DeliverySection,
@@ -28,6 +29,7 @@ const CONFIG_KEYS: ConfigKey[] = [
   'merchandising',
   'landing',
   'marketing',
+  'legal',
 ];
 
 const SECTIONS: { id: Section; label: string }[] = [
@@ -52,6 +54,8 @@ function ConfigSection({ view }: { view: ConfigKey }) {
       return <LandingCard />;
     case 'marketing':
       return <MarketingSection />;
+    case 'legal':
+      return <LegalCard />;
   }
 }
 
