@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import {
   type Database,
   deliverySlots,
@@ -404,8 +404,10 @@ export class HandoverService {
 
   /** Lists protocols for a tenant, optionally narrowed by slot and/or kind.
    *  `handover_protocols` has no date column of its own; when a `date` is given
-   *  without a `slotId` to scope it precisely, this falls back to the protocol's
-   *  own `createdAt` day as a pragmatic proxy (see task-7 report for rationale). */
+   *  without a `slotId` to scope it precisely, this joins `deliverySlots` (via
+   *  the protocol's `slotId`) and filters on `deliverySlots.date` — the actual
+   *  calendar date, unlike a UTC `createdAt` range which drifts against the
+   *  Europe/Sofia dates `BatchDto.date` documents (see task-7 report). */
   async list(tenantId: string, q: { slotId?: string; date?: string; kind?: string }) {
     const conditions = [eq(handoverProtocols.tenantId, tenantId)];
     if (q.slotId) {
@@ -415,8 +417,12 @@ export class HandoverService {
       conditions.push(eq(handoverProtocols.kind, q.kind));
     }
     if (q.date && !q.slotId) {
-      conditions.push(gte(handoverProtocols.createdAt, new Date(`${q.date}T00:00:00.000Z`)));
-      conditions.push(lte(handoverProtocols.createdAt, new Date(`${q.date}T23:59:59.999Z`)));
+      conditions.push(eq(deliverySlots.date, q.date));
+      return this.db
+        .select({ ...getTableColumns(handoverProtocols) })
+        .from(handoverProtocols)
+        .leftJoin(deliverySlots, eq(handoverProtocols.slotId, deliverySlots.id))
+        .where(and(...conditions));
     }
     return this.db
       .select()

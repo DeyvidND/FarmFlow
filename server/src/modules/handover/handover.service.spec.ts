@@ -1,6 +1,42 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { deliverySlots } from '@fermeribg/db';
 import { HandoverService } from './handover.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+
+/**
+ * Drizzle's `and(...)`/`eq(...)` build a tree of `SQL` nodes whose
+ * `queryChunks` mix raw `StringChunk`s, `PgColumn` references, and `Param`
+ * wrappers around bound values. Deep-equalling that tree is fragile, so we
+ * walk it and pull out `{ column, value }` pairs for every `col = param`
+ * leaf — same approach as order-scheduling.spec.ts's `extractBoundPairs`.
+ */
+function extractEqPairs(node: unknown): Array<{ column: string; value: unknown }> {
+  const pairs: Array<{ column: string; value: unknown }> = [];
+  let pendingColumn: string | null = null;
+
+  function walk(n: any): void {
+    if (n == null || typeof n !== 'object') return;
+    const ctor = n.constructor?.name;
+    if (ctor === 'PgColumn' || (typeof n.name === 'string' && n.table !== undefined)) {
+      pendingColumn = n.name;
+      return;
+    }
+    if (ctor === 'Param') {
+      if (pendingColumn) {
+        pairs.push({ column: pendingColumn, value: n.value });
+        pendingColumn = null;
+      }
+      return;
+    }
+    if (Array.isArray(n.queryChunks)) {
+      for (const c of n.queryChunks) walk(c);
+    }
+  }
+
+  const sqlNode = (node as any)?.getSQL ? (node as any).getSQL() : node;
+  walk(sqlNode);
+  return pairs;
+}
 
 const CHAIN_METHODS = [
   'select', 'from', 'where', 'innerJoin', 'leftJoin', 'limit', 'orderBy',
@@ -194,6 +230,23 @@ describe('HandoverService.list', () => {
     const svc = await build(db);
     const rows = await svc.list('t1', { slotId: 's1', kind: 'farmer_to_operator' });
     expect(rows).toEqual([{ id: 'p1', tenantId: 't1', slotId: 's1', kind: 'farmer_to_operator' }]);
+  });
+
+  it('date-only filter joins deliverySlots and filters by deliverySlots.date, not createdAt', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'p1', tenantId: 't1', slotId: 's1', kind: 'farmer_to_operator' }]); // protocol ⋈ slots
+    const svc = await build(db);
+    const rows = await svc.list('t1', { date: '2026-07-13' });
+    expect(rows).toEqual([{ id: 'p1', tenantId: 't1', slotId: 's1', kind: 'farmer_to_operator' }]);
+
+    // `db.select()` always returns the shared `step` chain object — grab it
+    // to inspect what the service actually joined/filtered by.
+    const step = db.select.mock.results[0].value;
+    expect(step.leftJoin).toHaveBeenCalledWith(deliverySlots, expect.anything());
+
+    const wherePairs = extractEqPairs(step.where.mock.calls[0][0]);
+    expect(wherePairs).toEqual(expect.arrayContaining([{ column: 'date', value: '2026-07-13' }]));
+    expect(wherePairs.some((p) => p.column === 'created_at')).toBe(false);
   });
 });
 
