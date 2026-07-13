@@ -12,6 +12,7 @@ import type {
   EcontOfficeLive,
   Farmer,
   FarmerAccess,
+  LegalIdentity,
   MediaItem,
   Order,
   Paged,
@@ -525,6 +526,17 @@ export const updateMerchandising = (merchandising: MerchandisingConfig) =>
   apiFetch<{ merchandising: MerchandisingConfig }>(
     'tenants/me/merchandising',
     { method: 'PATCH', ...json(merchandising) },
+    'Неуспешна промяна',
+  );
+
+// ---- Legal identity (settings.legal) ----
+
+export const getTenantLegal = () => apiFetch<LegalIdentity | null>('tenants/me/legal');
+
+export const updateTenantLegal = (legal: LegalIdentity) =>
+  apiFetch<LegalIdentity>(
+    'tenants/me/legal',
+    { method: 'PATCH', ...json(legal) },
     'Неуспешна промяна',
   );
 
