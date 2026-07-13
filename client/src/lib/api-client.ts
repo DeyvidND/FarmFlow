@@ -1233,6 +1233,15 @@ export const listDayProtocols = (q: { slotId?: string; date?: string }) => {
   return apiFetch<DayProtocolRow[]>(`handover/day${query ? `?${query}` : ''}`);
 };
 
+/** Materialize a virtual target into a numbered draft (returns its id) so its PDF
+ *  prints with a protocol number. Idempotent — returns the existing row if any. */
+export const ensureProtocolDraft = (target: {
+  kind: string;
+  farmerId?: string;
+  orderId?: string;
+  slotId?: string;
+}) => apiFetch<{ id: string }>('handover/ensure', { method: 'POST', ...json(target) }, 'Протоколът не беше създаден');
+
 /** Paper-sign one target — creates + numbers the protocol if it's still virtual. */
 export const signProtocolPaper = (target: {
   kind: string;

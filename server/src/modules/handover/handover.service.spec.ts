@@ -359,6 +359,34 @@ describe('HandoverService.signAllForDay', () => {
   });
 });
 
+describe('HandoverService.ensureDraftTarget', () => {
+  it('creates a numbered draft for a not-yet-persisted target', async () => {
+    const db = makeDb();
+    db.queue([]);                                  // existing? none
+    db.queue([{ legal: null, name: 'Оп' }]);        // buildDraft: tenant
+    db.queue([{ id: 'f1', legal: null, name: 'Васил' }]); // buildDraft: farmer
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 }]);
+    db.queue([{ max: 3 }]);                          // tx: max protocol_number
+    db.queue([{ id: 'p1' }]);                       // tx: insert returning
+    const svc = await build(db);
+    const res = await svc.ensureDraftTarget('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' });
+    expect(res.id).toBe('p1');
+    const inserted = db.calls.values[0] as any;
+    expect(inserted.status).toBe('draft');
+    expect(inserted.signMode).toBe('pending');
+    expect(inserted.protocolNumber).toBe(4);
+  });
+
+  it('returns the existing row id without creating a duplicate', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'p9' }]); // existing
+    const svc = await build(db);
+    const res = await svc.ensureDraftTarget('t1', { kind: 'operator_to_customer', orderId: 'o1' });
+    expect(res.id).toBe('p9');
+    expect(db.calls.values).toEqual([]);
+  });
+});
+
 describe('HandoverService.signPaperTarget', () => {
   it('creates a signed(paper) protocol for a not-yet-persisted target', async () => {
     const db = makeDb();

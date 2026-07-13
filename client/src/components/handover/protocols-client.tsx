@@ -9,11 +9,11 @@ import { relDayLabel, todayIso } from '@/lib/utils';
 import {
   ApiError,
   createProtocolBatch,
+  ensureProtocolDraft,
   listDayProtocols,
   markProtocolSigned,
   protocolBatchPdfHref,
   protocolPdfHref,
-  protocolPreviewPdfHref,
   signAllProtocols,
   signProtocolPaper,
 } from '@/lib/api-client';
@@ -45,10 +45,6 @@ const targetOf = (r: DayProtocolRow) => ({
   orderId: r.orderId ?? undefined,
   slotId: r.slotId ?? undefined,
 });
-
-/** PDF link — a saved row streams its stored PDF; a virtual row renders on the
- *  fly (no protocol number burned to preview it). */
-const pdfHref = (r: DayProtocolRow) => (r.id ? protocolPdfHref(r.id) : protocolPreviewPdfHref(targetOf(r)));
 
 function StatusPill({ status }: { status: string }) {
   return (
@@ -150,6 +146,27 @@ export function ProtocolsClient() {
     }
   }
 
+  // Open a row's PDF. A saved row streams its stored (numbered) PDF directly. A
+  // virtual row is first materialized into a numbered draft (ensureProtocolDraft)
+  // so the PDF prints WITH a protocol number — a blank tab is opened synchronously
+  // (before the await) so the pop-up isn't blocked, then pointed at the PDF.
+  async function openPdf(row: DayProtocolRow) {
+    if (row.id) {
+      window.open(protocolPdfHref(row.id), '_blank', 'noopener');
+      return;
+    }
+    const tab = window.open('', '_blank');
+    try {
+      const { id } = await ensureProtocolDraft(targetOf(row));
+      if (tab) tab.location.href = protocolPdfHref(id);
+      else window.open(protocolPdfHref(id), '_blank', 'noopener');
+      await load(date);
+    } catch (e) {
+      if (tab) tab.close();
+      toast.error(errMsg(e));
+    }
+  }
+
   const farmerRows = rows.filter((r) => r.kind === 'farmer_to_operator');
 
   return (
@@ -230,10 +247,8 @@ export function ProtocolsClient() {
                         </Button>
                       </>
                     )}
-                    <Button variant="ghost" size="sm" asChild>
-                      <a href={pdfHref(row)} target="_blank" rel="noopener noreferrer">
-                        <FileDown size={15} /> PDF
-                      </a>
+                    <Button variant="ghost" size="sm" onClick={() => void openPdf(row)}>
+                      <FileDown size={15} /> PDF
                     </Button>
                   </div>
                 </td>
@@ -265,11 +280,9 @@ export function ProtocolsClient() {
                     </Button>
                   </>
                 )}
-                <Button variant="ghost" size="sm" asChild>
-                  <a href={pdfHref(row)} target="_blank" rel="noopener noreferrer">
-                    <FileDown size={15} /> PDF
-                  </a>
-                </Button>
+                <Button variant="ghost" size="sm" onClick={() => void openPdf(row)}>
+                      <FileDown size={15} /> PDF
+                    </Button>
               </div>
             </div>
           ))}
@@ -319,10 +332,8 @@ export function ProtocolsClient() {
                         <Check size={15} /> Маркирай подписан (хартия)
                       </Button>
                     )}
-                    <Button variant="ghost" size="sm" asChild>
-                      <a href={pdfHref(row)} target="_blank" rel="noopener noreferrer">
-                        <FileDown size={15} /> Свали PDF
-                      </a>
+                    <Button variant="ghost" size="sm" onClick={() => void openPdf(row)}>
+                      <FileDown size={15} /> Свали PDF
                     </Button>
                   </div>
                 </td>
@@ -348,11 +359,9 @@ export function ProtocolsClient() {
                     <Check size={15} /> Хартия
                   </Button>
                 )}
-                <Button variant="ghost" size="sm" asChild>
-                  <a href={pdfHref(row)} target="_blank" rel="noopener noreferrer">
-                    <FileDown size={15} /> PDF
-                  </a>
-                </Button>
+                <Button variant="ghost" size="sm" onClick={() => void openPdf(row)}>
+                      <FileDown size={15} /> PDF
+                    </Button>
               </div>
             </div>
           ))}

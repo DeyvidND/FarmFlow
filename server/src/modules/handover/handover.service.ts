@@ -499,6 +499,56 @@ export class HandoverService {
       .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.id, id)));
   }
 
+  /** Ensures a persisted (numbered) draft exists for a single target — used when
+   *  a virtual day-view row's own PDF is opened: downloading a protocol means
+   *  materializing it, so it prints WITH a number. Returns the existing row's id
+   *  if one is already there, otherwise builds + numbers + inserts a `draft`. */
+  async ensureDraftTarget(tenantId: string, dto: DraftQueryDto): Promise<{ id: string }> {
+    const targetMatch =
+      dto.kind === 'operator_to_customer'
+        ? eq(handoverProtocols.orderId, dto.orderId!)
+        : and(eq(handoverProtocols.farmerId, dto.farmerId!), eq(handoverProtocols.slotId, dto.slotId!));
+
+    const [existing] = await this.db
+      .select({ id: handoverProtocols.id })
+      .from(handoverProtocols)
+      .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.kind, dto.kind), targetMatch))
+      .limit(1);
+
+    if (existing) {
+      return { id: existing.id };
+    }
+
+    const draft = await this.buildDraft(tenantId, dto);
+    const inserted = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+      const [{ max }] = await tx
+        .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
+        .from(handoverProtocols)
+        .where(eq(handoverProtocols.tenantId, tenantId));
+      const [row] = await tx
+        .insert(handoverProtocols)
+        .values({
+          tenantId,
+          kind: dto.kind,
+          farmerId: dto.farmerId,
+          orderId: dto.orderId,
+          slotId: dto.slotId,
+          protocolNumber: (max ?? 0) + 1,
+          fromSnapshot: draft.from,
+          toSnapshot: draft.to,
+          items: draft.items,
+          orderIds: dto.orderId ? [dto.orderId] : null,
+          totalStotinki: draft.total,
+          signMode: 'pending',
+          status: 'draft',
+        })
+        .returning({ id: handoverProtocols.id });
+      return row;
+    });
+    return { id: inserted.id };
+  }
+
   /** Paper-signs a single target from the day view. If a protocol row already
    *  exists for the target it's flipped to signed(paper); otherwise a draft is
    *  built, numbered (advisory lock, same race-safe path as createSigned) and

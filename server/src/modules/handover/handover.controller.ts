@@ -96,6 +96,13 @@ export class HandoverController {
 
   /** Paper-sign a single target (creating + numbering the protocol if it's still
    *  a virtual day-view row). */
+  /** Materialize a single virtual target into a numbered draft (returns its id) —
+   *  so opening its PDF prints a numbered protocol. */
+  @Post('ensure')
+  ensure(@CurrentTenant() tenantId: string, @Body() dto: DraftQueryDto) {
+    return this.handover.ensureDraftTarget(tenantId, dto);
+  }
+
   @Post('sign-paper')
   signPaper(@CurrentTenant() tenantId: string, @Body() dto: DraftQueryDto) {
     return this.handover.signPaperTarget(tenantId, dto);

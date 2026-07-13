@@ -18,6 +18,7 @@ describe('HandoverController delegation', () => {
     markSigned: jest.fn().mockResolvedValue(undefined),
     signPaperTarget: jest.fn().mockResolvedValue({ id: 'p1' }),
     signAllForDay: jest.fn().mockResolvedValue({ signed: 3 }),
+    ensureDraftTarget: jest.fn().mockResolvedValue({ id: 'p1' }),
   };
   const ctrl = new HandoverController(svc as any);
 
@@ -58,6 +59,12 @@ describe('HandoverController delegation', () => {
   it('PATCH /handover/:id/mark-signed delegates markSigned with tenantId + id', async () => {
     await ctrl.markSigned('t1', 'p1');
     expect(svc.markSigned).toHaveBeenCalledWith('t1', 'p1');
+  });
+
+  it('POST /handover/ensure delegates ensureDraftTarget with tenantId + body', async () => {
+    const dto = { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' } as any;
+    await ctrl.ensure('t1', dto);
+    expect(svc.ensureDraftTarget).toHaveBeenCalledWith('t1', dto);
   });
 
   it('POST /handover/sign-paper delegates signPaperTarget with tenantId + body', async () => {
