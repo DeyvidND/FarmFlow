@@ -51,6 +51,7 @@ import { AvailabilityModule } from './modules/availability/availability.module';
 import { QueueModule } from './common/queue/queue.module';
 import { HealthModule } from './common/health/health.module';
 import { ImageQueueModule } from './modules/image-queue/image-queue.module';
+import { HandoverModule } from './modules/handover/handover.module';
 
 @Module({
   imports: [
@@ -141,6 +142,7 @@ import { ImageQueueModule } from './modules/image-queue/image-queue.module';
     PublicBootstrapModule,
     RecommendationsModule,
     ImageQueueModule,
+    HandoverModule,
   ],
   controllers: [AppController],
   providers: [
