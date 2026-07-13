@@ -70,9 +70,10 @@ export function ProductDialog({
   const [coverCrop, setCoverCrop] = useState<CoverCrop | null>(product?.coverCrop ?? null);
   // courierEnabled = !courierDisabled — ON (green) = ships by courier (default), OFF = no courier.
   const [courierEnabled, setCourierEnabled] = useState(!(product?.courierDisabled ?? false));
-  // Companion rule („не се доставя самостоятелно"): ON = the cart must also hold
-  // ≥1 other distinct product, optionally worth ≥ a EUR threshold. Threshold is
-  // edited in euros (comma or dot decimal) and converted to stotinki on submit.
+  // Companion rule („не се доставя самостоятелно"): ON = the OTHER products in the
+  // cart must TOTAL ≥ a EUR threshold (loss-leader — a cheap product that can only
+  // leave alongside a real basket). Empty threshold = any one other product.
+  // Edited in euros (comma or dot decimal), converted to stotinki on submit.
   const [requiresCompanion, setRequiresCompanion] = useState(product?.requiresCompanion ?? false);
   const [companionMinPrice, setCompanionMinPrice] = useState(
     product?.companionMinPriceStotinki != null
@@ -653,8 +654,8 @@ export function ProductDialog({
             </button>
           )}
 
-          {/* Companion rule toggle — ON = the cart must also hold ≥1 other product
-              (optionally worth ≥ a EUR threshold) for this one to ship. */}
+          {/* Companion rule toggle — ON = the OTHER products in the cart must total
+              ≥ a EUR threshold (loss-leader) for this one to be orderable. */}
           <button
             type="button"
             role="switch"
@@ -674,9 +675,9 @@ export function ProductDialog({
               <Package size={18} />
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-[13.5px] font-bold text-ff-ink">Изисква втори продукт</span>
+              <span className="text-[13.5px] font-bold text-ff-ink">Изисква други продукти в количката</span>
               <span className="text-[12px] leading-snug text-ff-muted">
-                Клиентът трябва да добави поне още един продукт (по избор), на посочената минимална стойност.
+                Клиентът може да поръча този продукт само ако в количката има други продукти на обща стойност поне посочената сума (напр. кайсии на промо цена — само с още покупки).
               </span>
             </span>
             <span
@@ -694,12 +695,12 @@ export function ProductDialog({
 
           {requiresCompanion && (
             <label className={labelCls}>
-              Мин. стойност на втория продукт (€)
+              Мин. обща стойност на другите продукти (€)
               <input
                 value={companionMinPrice}
                 onChange={(e) => setCompanionMinPrice(e.target.value)}
                 inputMode="decimal"
-                placeholder="напр. 10 (празно = всякаква стойност)"
+                placeholder="напр. 4,50 (празно = поне един друг продукт)"
                 className={field}
               />
             </label>
