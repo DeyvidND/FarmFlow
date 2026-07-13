@@ -98,8 +98,8 @@ export class SubcategoriesService {
       .select({ url: subcategoryMedia.url })
       .from(subcategoryMedia)
       .where(eq(subcategoryMedia.subcategoryId, id));
-    await Promise.all(media.map((m) => this.deleteObject(m.url)));
-    if (subcat.imageUrl) await this.deleteObject(subcat.imageUrl);
+    await Promise.all(media.map((m) => this.deleteObject(m.url, tenantId)));
+    if (subcat.imageUrl) await this.deleteObject(subcat.imageUrl, tenantId);
     await this.db
       .delete(subcategories)
       .where(and(eq(subcategories.id, id), eq(subcategories.tenantId, tenantId)));
@@ -134,7 +134,7 @@ export class SubcategoriesService {
     const slug = await tenantSlug(this.db, tenantId);
     const key = `tenants/${slug}/subcategories/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
-    if (subcat.imageUrl) await this.deleteObject(subcat.imageUrl);
+    if (subcat.imageUrl) await this.deleteObject(subcat.imageUrl, tenantId);
     await this.db
       .update(subcategories)
       .set({ imageUrl: url, coverCrop: await smartFocal(img.buffer) })
@@ -234,7 +234,7 @@ export class SubcategoriesService {
       .limit(1);
     if (!m) throw new NotFoundException('Снимката не е намерена');
 
-    await this.deleteObject(m.url);
+    await this.deleteObject(m.url, tenantId);
     await this.db.delete(subcategoryMedia).where(eq(subcategoryMedia.id, mediaId));
     await this.syncCover(id, tenantId);
     await this.cache.invalidate(tenantId);
@@ -346,13 +346,21 @@ export class SubcategoriesService {
     return result;
   }
 
-  /** Best-effort removal of a stored object given its public URL. */
-  private async deleteObject(url: string): Promise<void> {
+  /** Best-effort removal of a stored object given its public URL.
+   *  SECURITY: `imageUrl` (and the media URL seeded from it) is a client-settable
+   *  DTO field, so a stored URL may point at ANOTHER tenant's object. Only ever
+   *  delete objects under this tenant's own `tenants/<slug>/` key prefix — never
+   *  trust the raw key. Every uploaded object for this entity lives under that
+   *  prefix, so legitimate cleanups are unaffected. */
+  private async deleteObject(url: string, tenantId: string): Promise<void> {
     try {
       const key = new URL(url).pathname.replace(/^\/+/, '');
-      if (key) await this.storage.delete(key);
+      if (!key) return;
+      const slug = await tenantSlug(this.db, tenantId);
+      if (!key.startsWith(`tenants/${slug}/`)) return;
+      await this.storage.delete(key);
     } catch {
-      // a storage hiccup must not block the DB write
+      // a storage hiccup (or a missing/foreign tenant) must not block the DB write
     }
   }
 }

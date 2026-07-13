@@ -98,6 +98,53 @@ describe('ProductsService.uploadImage (queue path)', () => {
   });
 });
 
+describe('ProductsService.deleteObject (cross-tenant delete guard)', () => {
+  // `imageUrl` / media URLs are client-settable, so a stored URL may point at
+  // another tenant's object. deleteObject must only ever remove objects under the
+  // caller tenant's own `tenants/<slug>/` prefix. tenantSlug() resolves the slug
+  // via select({slug}).from(tenants).where().limit(1) — the db mock returns it.
+  async function buildWithSlug(storage: any, slug: string): Promise<ProductsService> {
+    const db: any = {};
+    db.select = jest.fn(() => db);
+    db.from = jest.fn(() => db);
+    db.where = jest.fn(() => db);
+    db.limit = jest.fn(() => Promise.resolve([{ slug }]));
+    const mod: TestingModule = await Test.createTestingModule({
+      providers: [
+        ProductsService,
+        { provide: DB_TOKEN, useValue: db },
+        { provide: StorageService, useValue: storage },
+        { provide: CatalogCacheService, useValue: { invalidate: jest.fn() } },
+        { provide: PublicCacheService, useValue: { invalidate: jest.fn() } },
+        { provide: getQueueToken(IMAGE_QUEUE), useValue: makeQueue() },
+        { provide: AvailabilityService, useValue: { setProductStock: jest.fn() } },
+        { provide: ImageSanityVisionClient, useValue: { judge: jest.fn() } },
+      ],
+    }).compile();
+    return mod.get(ProductsService);
+  }
+
+  it('does NOT delete an object whose key is under another tenant prefix', async () => {
+    const storage = { upload: jest.fn(), delete: jest.fn() };
+    const svc = await buildWithSlug(storage, 'tenant-a');
+    await (svc as any).deleteObject(
+      'https://cdn.example.com/tenants/tenant-b/products/p1/x.jpg',
+      't1',
+    );
+    expect(storage.delete).not.toHaveBeenCalled();
+  });
+
+  it('deletes an object under the caller tenant own prefix', async () => {
+    const storage = { upload: jest.fn(), delete: jest.fn().mockResolvedValue(undefined) };
+    const svc = await buildWithSlug(storage, 'tenant-a');
+    await (svc as any).deleteObject(
+      'https://cdn.example.com/tenants/tenant-a/products/p1/x.jpg',
+      't1',
+    );
+    expect(storage.delete).toHaveBeenCalledWith('tenants/tenant-a/products/p1/x.jpg');
+  });
+});
+
 describe('ProductsService.addMedia (queue path)', () => {
   it('addMedia enqueues a product-media job and returns processing=true', async () => {
     const db = makeDb({ id: 'p1', tenantId: 't1', imageUrl: null });
