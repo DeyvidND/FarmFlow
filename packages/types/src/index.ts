@@ -55,6 +55,24 @@ export type Tier2Branding = NonNullable<Farmer['branding']>;
 export type FarmerLegal = NonNullable<Farmer['legal']>;
 
 /**
+ * Shared legal-identity shape for a handover protocol party — either a farmer
+ * (`farmers.legal`, see `FarmerLegal` above) or the platform operator
+ * (`tenants.settings.legal`, see `TenantSettings` below). Both reference this
+ * one type so the handover protocol can treat either side uniformly.
+ */
+export type LegalIdentity = FarmerLegal;
+
+/**
+ * Typed slice of the tenant `settings` jsonb blob (which itself stays untyped —
+ * see `VendorFinanceSettings` in server/vendor-finance for the same pattern).
+ * `legal` is the operator's own legal identity for the handover protocol,
+ * stored at `tenants.settings.legal`.
+ */
+export interface TenantSettings {
+  legal?: LegalIdentity;
+}
+
+/**
  * How a catalog cover image is framed in the storefront. `x`/`y` are the focal
  * point as fractions (0..1) of the source image; `zoom` magnifies (1..3). Stored
  * on `farmers.coverCrop` / `subcategories.coverCrop` / `products.coverCrop`;
