@@ -32,7 +32,11 @@ export function OrderPanel({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [protocolOpen, setProtocolOpen] = useState(false);
-  const editable = true;
+  // Money already collected on a cash/COD order — nothing about it (contact,
+  // address, items, notes) may change anymore, mirroring the backend's
+  // item-edit guard but extended to the whole order for this path.
+  const orderLocked = order.paymentStatus === 'cash' && order.codOutcome === 'received';
+  const editable = !orderLocked;
 
   return (
     <>
@@ -51,6 +55,17 @@ export function OrderPanel({
                 onClick={() => setEditing(true)}
                 aria-label="Редактирай"
                 className="grid h-10 w-10 place-items-center rounded-[11px] border border-ff-border bg-ff-surface-2 text-ff-ink-2"
+              >
+                <Pencil size={18} />
+              </button>
+            )}
+            {!editable && !editing && (
+              <button
+                type="button"
+                disabled
+                title="Поръчка с прибрано плащане — не може да се редактира."
+                aria-label="Редактирането е заключено — поръчка с прибрано плащане"
+                className="grid h-10 w-10 cursor-not-allowed place-items-center rounded-[11px] border border-ff-border bg-ff-surface-2 text-ff-muted opacity-60"
               >
                 <Pencil size={18} />
               </button>
@@ -294,19 +309,29 @@ function codOutcomeBadge(outcome: 'received' | 'refused' | null): { label: strin
   return { label: 'Очаквано', cls: 'bg-ff-surface-2 text-ff-muted' };
 }
 
+const codOutcomeOptions: { value: 'pending' | 'received' | 'refused'; label: string }[] = [
+  { value: 'pending', label: 'Очаквано' },
+  { value: 'received', label: 'Събрано' },
+  { value: 'refused', label: 'Отказана' },
+];
+
 /** «Плащане (наложен платеж)» — lets the farmer/driver record whether the cash
- *  was actually collected on delivery. Courier orders (Econt/Speedy) get this
- *  signal from carrier reconciliation, but that can be wrong, so a manual
- *  override is always available behind «Коригирай». Self-contained mutation
- *  (mirrors EcontHandoffLink below): local busy flag, try/catch, toast, and
- *  local state updated from the response — the `order` prop itself is
- *  immutable from the parent. */
+ *  was actually collected on delivery. A status select mirrors the order's own
+ *  «Промени статус» override below: always editable, including switching a
+ *  resolved outcome back to «Очаквано» — the fact that the order itself locks
+ *  once collected (see `orderLocked` above) makes this the only way left to
+ *  correct a wrong tap. Courier orders (Econt/Speedy) get their signal from
+ *  carrier reconciliation, but that can be wrong, so a manual override is
+ *  always available behind «Коригирай». Self-contained mutation (mirrors
+ *  EcontHandoffLink below): local busy flag, try/catch, toast, and local state
+ *  updated from the response — the `order` prop itself is immutable from the
+ *  parent. */
 function CodOutcomeSection({ order }: { order: Order }) {
   const isCourier =
     order.deliveryType === 'econt' || order.deliveryType === 'econt_address' || order.deliveryType === 'courier';
   // Отказана поръчка не събира наложен платеж — cancel-ът вече е сложил
   // codOutcome='refused' в същата транзакция, така че показваме само баджа
-  // «Отказана» без action бутони («Получих парите» тук няма смисъл).
+  // «Отказана» без селектор (промяна тук няма смисъл).
   const isCancelled = order.status === 'cancelled';
 
   const [codOutcome, setCodOutcomeState] = useState(order.codOutcome);
@@ -317,8 +342,9 @@ function CodOutcomeSection({ order }: { order: Order }) {
   const [reason, setReason] = useState('');
 
   const badge = codOutcomeBadge(codOutcome);
+  const selectValue = codOutcome ?? 'pending';
 
-  async function apply(outcome: 'received' | 'refused', outcomeReason?: string) {
+  async function apply(outcome: 'received' | 'refused' | 'pending', outcomeReason?: string) {
     setBusy(true);
     try {
       const updated = await setCodOutcome(order.id, outcome, outcomeReason);
@@ -326,12 +352,28 @@ function CodOutcomeSection({ order }: { order: Order }) {
       setCodOutcomeReasonState(updated.codOutcomeReason);
       setShowReasonInput(false);
       setReason('');
-      toast.success(outcome === 'received' ? 'Отбелязано като получено' : 'Отбелязано като отказана');
+      toast.success(
+        outcome === 'received'
+          ? 'Отбелязано като получено'
+          : outcome === 'refused'
+            ? 'Отбелязано като отказана'
+            : 'Върнато в очакване',
+      );
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleSelect(value: string) {
+    const outcome = value as 'received' | 'refused' | 'pending';
+    if (outcome === 'refused') {
+      setShowReasonInput(true);
+      return;
+    }
+    setShowReasonInput(false);
+    void apply(outcome);
   }
 
   return (
@@ -357,25 +399,23 @@ function CodOutcomeSection({ order }: { order: Order }) {
 
       {showActions && !isCancelled && (
         <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="soft"
+          <div className="flex items-center gap-2.5">
+            <label htmlFor="cod-outcome-override" className="shrink-0 text-xs font-bold text-ff-muted">
+              Промени статус
+            </label>
+            <select
+              id="cod-outcome-override"
+              value={selectValue}
               disabled={busy}
-              onClick={() => apply('received')}
-              className="rounded-sm px-3 py-1.5 text-[12.5px]"
+              onChange={(e) => handleSelect(e.target.value)}
+              className="flex-1 rounded-sm border border-ff-border bg-ff-surface-2 px-2.5 py-2 text-[13px] font-semibold text-ff-ink outline-none transition-colors focus:border-ff-green-500 disabled:opacity-60"
             >
-              Получих парите
-            </Button>
-            {!showReasonInput ? (
-              <Button
-                variant="danger"
-                disabled={busy}
-                onClick={() => setShowReasonInput(true)}
-                className="rounded-sm px-3 py-1.5 text-[12.5px]"
-              >
-                Отказана
-              </Button>
-            ) : null}
+              {codOutcomeOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           {showReasonInput && (
