@@ -22,6 +22,7 @@ import { SiteContactDto } from './dto/site-contact.dto';
 import { SiteMarketingDto } from './dto/site-marketing.dto';
 import { LandingDto } from './dto/landing.dto';
 import { MerchandisingDto } from './dto/merchandising.dto';
+import { LegalDto } from './dto/legal.dto';
 
 @ApiTags('tenants')
 @ApiBearerAuth()
@@ -93,6 +94,18 @@ export class TenantsController {
   @Patch('me/site-contact')
   updateSiteContact(@CurrentTenant() tenantId: string, @Body() dto: SiteContactDto) {
     return this.tenantsService.updateSiteContact(tenantId, dto);
+  }
+
+  @ApiOperation({ summary: 'Operator legal identity (for handover-protocol documents)' })
+  @Get('me/legal')
+  getLegal(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.getLegal(tenantId);
+  }
+
+  @ApiOperation({ summary: 'Update operator legal identity' })
+  @Patch('me/legal')
+  updateLegal(@CurrentTenant() tenantId: string, @Body() dto: LegalDto) {
+    return this.tenantsService.updateLegal(tenantId, dto);
   }
 
   // ---- Marketing / tracking IDs ----
