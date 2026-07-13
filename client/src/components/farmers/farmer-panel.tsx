@@ -131,10 +131,6 @@ export function FarmerPanel({
       toast.error('Въведи име на фермера');
       return;
     }
-    if (!legalName.trim()) {
-      toast.error('Въведи Име и Фамилия в „Юридическо / фирмено име“ — нужно е за приемо-предавателните протоколи');
-      return;
-    }
     setSaving(true);
     try {
       // Legal seller identity — send the object only when the operator filled at least

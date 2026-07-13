@@ -103,10 +103,23 @@ describe('HandoverService.buildDraft farmer_to_operator', () => {
     expect(draft.total).toBe(5 * 300 + 1 * 120);
   });
 
-  it('throws 400 when the farmer has no legal identity', async () => {
+  it('falls back to the plain farmer/operator name when legal identity is unset', async () => {
     const db = makeDb();
-    db.queue([{ legal: { name: 'ЕТ Оператор' } }]); // tenant ok
-    db.queue([{ id: 'f1', legal: null }]);          // farmer missing
+    db.queue([{ legal: null, name: 'Фермерски пазари' }]);        // tenant: no legal, has display name
+    db.queue([{ id: 'f1', legal: null, name: 'Васил Цанчев' }]);  // farmer: no legal, has name
+    db.queue([
+      { productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 },
+    ]);
+    const svc = await build(db);
+    const draft = await svc.buildDraft('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' });
+    expect(draft.from).toEqual({ name: 'Васил Цанчев' });
+    expect(draft.to).toEqual({ name: 'Фермерски пазари' });
+  });
+
+  it('throws 400 only when there is no name at all (legal AND display name blank)', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);   // tenant ok
+    db.queue([{ id: 'f1', legal: null, name: null }]); // farmer: no legal, no name
     const svc = await build(db);
     await expect(svc.buildDraft('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' }))
       .rejects.toThrow(/фермер/);
@@ -129,6 +142,16 @@ describe('HandoverService.buildDraft operator_to_customer', () => {
     expect(draft.items.map((i) => i.quantity)).toEqual([2, 1]);
     expect(draft.items[0].unit).toBe('кг');
     expect(draft.total).toBe(720);
+  });
+
+  it('falls back to the operator plain name when operator legal is unset', async () => {
+    const db = makeDb();
+    db.queue([{ legal: null, name: 'Фермерски пазари' }]); // tenant: no legal, has display name
+    db.queue([{ id: 'o9', customerName: 'Иван Петров', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720 }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' }]);
+    const svc = await build(db);
+    const draft = await svc.buildDraft('t1', { kind: 'operator_to_customer', orderId: 'o9' });
+    expect(draft.from).toEqual({ name: 'Фермерски пазари' });
   });
 });
 

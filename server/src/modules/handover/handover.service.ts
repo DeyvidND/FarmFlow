@@ -14,7 +14,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import type { DraftQueryDto } from './dto/draft-query.dto';
 import type { CreateProtocolDto, ProtocolItemDto } from './dto/create-protocol.dto';
 import type { BatchDto } from './dto/batch.dto';
-import { requireLegal, type LegalIdentity } from './legal.util';
+import { resolveParty, type LegalIdentity } from './legal.util';
 import { renderProtocolPdf } from './handover-pdf';
 import { mergePdfs } from '../econt/econt.mappers';
 
@@ -52,19 +52,19 @@ export class HandoverService {
     }
 
     const [tenantRow] = await this.db
-      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'` })
+      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
 
     const [farmerRow] = await this.db
-      .select({ id: farmers.id, legal: farmers.legal })
+      .select({ id: farmers.id, legal: farmers.legal, name: farmers.name })
       .from(farmers)
       .where(and(eq(farmers.tenantId, tenantId), eq(farmers.id, q.farmerId)))
       .limit(1);
 
-    const operatorLegal = requireLegal(tenantRow?.legal, 'оператор');
-    const farmerLegal = requireLegal(farmerRow?.legal, 'фермер');
+    const operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
+    const farmerLegal = resolveParty(farmerRow?.legal, farmerRow?.name, 'фермер');
 
     const rows: {
       productName: string | null;
@@ -126,12 +126,12 @@ export class HandoverService {
     }
 
     const [tenantRow] = await this.db
-      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'` })
+      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
 
-    const operatorLegal = requireLegal(tenantRow?.legal, 'оператор');
+    const operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
 
     const [order] = await this.db
       .select({
