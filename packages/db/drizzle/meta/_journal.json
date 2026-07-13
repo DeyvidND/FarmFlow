@@ -715,6 +715,13 @@
       "when": 1784000000000,
       "tag": "0103_handover_protocols",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1784100000000,
+      "tag": "0104_sms_reminder",
+      "breakpoints": true
     }
   ]
 }

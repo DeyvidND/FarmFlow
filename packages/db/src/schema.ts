@@ -476,6 +476,10 @@ export const orders = pgTable(
     deliveryWindowEnd: time('delivery_window_end'),
     deliveryWindowStatus: text('delivery_window_status'),
     deliveryWindowNotifiedAt: timestamp('delivery_window_notified_at', { withTimezone: true }),
+    // Day-of SMS reminder claim/idempotency marker (separate from the email's
+    // delivery_window_notified_at): the morning SMS must fire exactly once even
+    // when the window email already went out the evening before. Migration 0104.
+    deliveryWindowSmsAt: timestamp('delivery_window_sms_at', { withTimezone: true }),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
@@ -777,6 +781,30 @@ export const codRiskEvents = pgTable(
   },
   (t) => ({
     phoneIdx: index('cod_risk_events_phone_idx').on(t.phone),
+  }),
+);
+
+// One row per attempted SMS send — audit trail, dedup evidence, and cost
+// accounting (segments). `kind` lets future message types reuse the table.
+export const smsLog = pgTable(
+  'sms_log',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
+    phone: text('phone').notNull(), // normalized E.164 BG
+    body: text('body').notNull(),
+    segments: smallint('segments').notNull().default(1),
+    provider: text('provider').notNull(), // 'http' | 'log-only'
+    providerMessageId: text('provider_message_id'),
+    status: text('status').notNull(), // 'sent' | 'failed'
+    error: text('error'),
+    kind: text('kind').notNull().default('delivery_window'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    tenantCreatedIdx: index('sms_log_tenant_created_idx').on(t.tenantId, t.createdAt),
+    orderIdx: index('sms_log_order_idx').on(t.orderId),
   }),
 );
 
@@ -1344,6 +1372,7 @@ export const schema = {
   farmerMedia,
   subcategoryMedia,
   deliverySlots,
+  smsLog,
   orders,
   orderItems,
   handoverProtocols,
