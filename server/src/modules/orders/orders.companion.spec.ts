@@ -1,8 +1,10 @@
 /**
  * Unit test for the companion-product rule inside OrdersService.reserveCartItems().
- * A product flagged `requiresCompanion` cannot be ordered alone — the cart must
- * also hold at least one OTHER distinct product (and, when `companionMinPriceStotinki`
- * is set, that other product's resolved unit price must meet the threshold).
+ * A product flagged `requiresCompanion` cannot be ordered alone. When
+ * `companionMinPriceStotinki` is set, the OTHER products in the cart must TOTAL at
+ * least the threshold (sum of unit × qty over every different-product line — a
+ * basket of cheaper goods qualifies, not just one expensive item). When no
+ * threshold is set, any one other distinct product suffices.
  *
  * The check runs right after the pickup-only (courierDisabled) backstop and
  * before the slot/availability-window block. It uses only `byId` (the products
@@ -165,6 +167,53 @@ describe('OrdersService.reserveCartItems() — companion enforcement', () => {
 
     const res = await (svc as any).reserveCartItems(tx, TENANT_ID, items, null);
     expect(res.items).toHaveLength(2);
+  });
+
+  it('passes when several cheaper OTHER products TOTAL the threshold (loss-leader basket)', async () => {
+    // The point of the sum rule: cheap „кайсии" (min 10.00) can leave once the
+    // rest of the basket totals >= 10.00, even if no single item reaches it.
+    const svc = makeSvc();
+    const apricot = productRow({
+      id: 'apricot',
+      name: 'Кайсии',
+      requiresCompanion: true,
+      companionMinPriceStotinki: 1000, // 10.00 €
+      priceStotinki: 150,
+    });
+    const tomato = productRow({ id: 'tomato', name: 'Домати', priceStotinki: 400 });
+    const parsley = productRow({ id: 'parsley', name: 'Магданоз', priceStotinki: 300 });
+    const tx = makeTx([[apricot, tomato, parsley], [], []]);
+    // 400×1 + 300×2 = 1000 >= 1000 → satisfied (no single item reaches the threshold).
+    const items = [
+      { productId: 'apricot', quantity: 1 },
+      { productId: 'tomato', quantity: 1 },
+      { productId: 'parsley', quantity: 2 },
+    ];
+
+    const res = await (svc as any).reserveCartItems(tx, TENANT_ID, items, null);
+    expect(res.items).toHaveLength(3);
+  });
+
+  it('rejects when the OTHER products total below the threshold', async () => {
+    const svc = makeSvc();
+    const apricot = productRow({
+      id: 'apricot',
+      name: 'Кайсии',
+      requiresCompanion: true,
+      companionMinPriceStotinki: 1000,
+      priceStotinki: 150,
+    });
+    const tomato = productRow({ id: 'tomato', name: 'Домати', priceStotinki: 400 });
+    const tx = makeTx([[apricot, tomato], []]);
+    // 400×2 = 800 < 1000 → rejected, and the message names the total wording.
+    const items = [
+      { productId: 'apricot', quantity: 1 },
+      { productId: 'tomato', quantity: 2 },
+    ];
+
+    await expect(
+      (svc as any).reserveCartItems(tx, TENANT_ID, items, null),
+    ).rejects.toThrow(/обща стойност поне 10,00/);
   });
 
   it('rejects two units of the SAME requiresCompanion product (companion must be a different product)', async () => {

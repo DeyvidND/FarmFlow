@@ -2074,12 +2074,17 @@ export class OrdersService {
       }
     }
 
-    // Companion rule (generalized „кайсии" combo): a product flagged `requiresCompanion`
-    // can't be ordered alone — the cart must also hold at least one OTHER distinct product,
-    // and (when `companionMinPriceStotinki` is set) that other product's unit price must be
-    // >= the threshold (EUR cents). Configurable per product/bundle, enforced for EVERY
-    // delivery method (pickup/local/courier), independent of the courier backstop above.
-    // byId already holds the full product rows + variantById the chosen variants — no extra query.
+    // Companion rule (generalized „кайсии" loss-leader): a product flagged
+    // `requiresCompanion` can't be ordered alone. When `companionMinPriceStotinki`
+    // is set, the OTHER products in the cart (everything except this flagged
+    // product) must TOTAL at least the threshold (EUR cents) — a basket of cheaper
+    // goods qualifies, not only a single expensive item. That is the point: cheap
+    // „кайсии" pull traffic to the platform but can't leave on their own; the
+    // shopper must build a real basket alongside them. When the threshold is unset
+    // (0), any one other distinct product suffices. Configurable per product/bundle,
+    // enforced for EVERY delivery method (pickup/local/courier), independent of the
+    // courier backstop above. byId already holds the full product rows +
+    // variantById the chosen variants — no extra query.
     const companionRequirers = dtoItems
       .map((it) => byId.get(it.productId))
       .filter((p): p is NonNullable<typeof p> => !!p && p.requiresCompanion);
@@ -2092,15 +2097,17 @@ export class OrdersService {
       };
       for (const req of companionRequirers) {
         const threshold = req.companionMinPriceStotinki ?? 0;
-        // A qualifying companion is ANY cart line for a DIFFERENT product meeting the threshold.
-        const hasCompanion = dtoItems.some(
-          (it) => it.productId !== req.id && !!byId.get(it.productId) && unitOf(it) >= threshold,
+        // Every cart line for a DIFFERENT product counts toward the companion total.
+        const others = dtoItems.filter(
+          (it) => it.productId !== req.id && !!byId.get(it.productId),
         );
-        if (!hasCompanion) {
+        const othersTotal = others.reduce((sum, it) => sum + unitOf(it) * it.quantity, 0);
+        const satisfied = threshold > 0 ? othersTotal >= threshold : others.length > 0;
+        if (!satisfied) {
           if (threshold > 0) {
             const eur = (threshold / 100).toFixed(2).replace('.', ',');
             throw new BadRequestException(
-              `„${req.name}" не се доставя самостоятелно — добавете поне още един продукт на стойност поне ${eur} €.`,
+              `„${req.name}" не се доставя самостоятелно — добавете други продукти на обща стойност поне ${eur} €.`,
             );
           }
           throw new BadRequestException(
