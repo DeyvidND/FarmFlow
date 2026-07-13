@@ -97,7 +97,7 @@ export function OrderPanel({
             }}
           />
         ) : (
-          <OrderDetailBody key={order.id} order={order} />
+          <OrderDetailBody key={order.id} order={order} onCodOutcomeSaved={onSaved} />
         )}
 
         {!editing && (
@@ -184,7 +184,16 @@ export function OrderPanel({
   );
 }
 
-export function OrderDetailBody({ order }: { order: Order }) {
+export function OrderDetailBody({
+  order,
+  onCodOutcomeSaved,
+}: {
+  order: Order;
+  /** Bubbles a fresh order (after a COD-outcome change) up to the caller's list
+   *  state — without this, the change is only ever visible in this section's own
+   *  local state and reverts to stale on next open (see CodOutcomeSection). */
+  onCodOutcomeSaved?: (updated: Order) => void;
+}) {
   // Local-delivery day-rows carry no time window (see migration 0081) — legacy
   // rows still do, so keep both readable.
   const slotWindow = order.slotFrom && order.slotTo ? `${hhmm(order.slotFrom)} – ${hhmm(order.slotTo)}` : '';
@@ -245,7 +254,7 @@ export function OrderDetailBody({ order }: { order: Order }) {
         <InfoRow icon={<CreditCard size={18} />} label="Плащане" value={paymentValue} />
       </div>
 
-      {order.paymentStatus === 'cash' && <CodOutcomeSection order={order} />}
+      {order.paymentStatus === 'cash' && <CodOutcomeSection order={order} onSaved={onCodOutcomeSaved} />}
 
       {/* Bridge to the separate Доставки app — товарителницата за тази поръчка
           не се създава тук, а там. Без тази линия фермерът не знае накъде да
@@ -326,7 +335,7 @@ const codOutcomeOptions: { value: 'pending' | 'received' | 'refused'; label: str
  *  EcontHandoffLink below): local busy flag, try/catch, toast, and local state
  *  updated from the response — the `order` prop itself is immutable from the
  *  parent. */
-function CodOutcomeSection({ order }: { order: Order }) {
+function CodOutcomeSection({ order, onSaved }: { order: Order; onSaved?: (updated: Order) => void }) {
   const isCourier =
     order.deliveryType === 'econt' || order.deliveryType === 'econt_address' || order.deliveryType === 'courier';
   // Отказана поръчка не събира наложен платеж — cancel-ът вече е сложил
@@ -352,6 +361,7 @@ function CodOutcomeSection({ order }: { order: Order }) {
       setCodOutcomeReasonState(updated.codOutcomeReason);
       setShowReasonInput(false);
       setReason('');
+      onSaved?.(updated);
       toast.success(
         outcome === 'received'
           ? 'Отбелязано като получено'
