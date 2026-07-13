@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { HandoverService } from './handover.service';
+import { HandoverController } from './handover.controller';
 
-// HandoverController lands in a later task (6/10). DrizzleModule is @Global()
-// so DB_TOKEN needs no import here.
+// DrizzleModule is @Global() so DB_TOKEN needs no import here.
 @Module({
-  controllers: [],
+  controllers: [HandoverController],
   providers: [HandoverService],
 })
 export class HandoverModule {}

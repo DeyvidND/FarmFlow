@@ -219,34 +219,42 @@ export class HandoverService {
       throw new ConflictException('Протокол вече е издаден за това предаване.');
     }
 
-    const [{ max }] = await this.db
-      .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
-      .from(handoverProtocols)
-      .where(eq(handoverProtocols.tenantId, tenantId));
+    // Next per-tenant protocol number. The advisory lock serializes concurrent
+    // signings/batches for this tenant so two protocols can't claim the same
+    // number; it's released when the transaction commits/rolls back — same
+    // pattern as orders.service.ts's order-number assignment.
+    const inserted = await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+      const [{ max }] = await tx
+        .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
+        .from(handoverProtocols)
+        .where(eq(handoverProtocols.tenantId, tenantId));
 
-    const next = (max ?? 0) + 1;
+      const next = (max ?? 0) + 1;
 
-    const [inserted] = await this.db
-      .insert(handoverProtocols)
-      .values({
-        tenantId,
-        kind: dto.kind,
-        farmerId: dto.farmerId,
-        orderId: dto.orderId,
-        slotId: dto.slotId,
-        protocolNumber: next,
-        fromSnapshot: draft.from,
-        toSnapshot: draft.to,
-        items: draft.items,
-        orderIds: dto.orderId ? [dto.orderId] : null,
-        totalStotinki: draft.total,
-        fromSignaturePng: dto.fromSignaturePng,
-        toSignaturePng: dto.toSignaturePng,
-        signMode: 'digital',
-        status: 'signed',
-        signedAt: new Date(),
-      })
-      .returning({ id: handoverProtocols.id, protocolNumber: handoverProtocols.protocolNumber });
+      const [row] = await tx
+        .insert(handoverProtocols)
+        .values({
+          tenantId,
+          kind: dto.kind,
+          farmerId: dto.farmerId,
+          orderId: dto.orderId,
+          slotId: dto.slotId,
+          protocolNumber: next,
+          fromSnapshot: draft.from,
+          toSnapshot: draft.to,
+          items: draft.items,
+          orderIds: dto.orderId ? [dto.orderId] : null,
+          totalStotinki: draft.total,
+          fromSignaturePng: dto.fromSignaturePng,
+          toSignaturePng: dto.toSignaturePng,
+          signMode: 'digital',
+          status: 'signed',
+          signedAt: new Date(),
+        })
+        .returning({ id: handoverProtocols.id, protocolNumber: handoverProtocols.protocolNumber });
+      return row;
+    });
 
     return { id: inserted.id, protocolNumber: inserted.protocolNumber! };
   }
@@ -315,12 +323,6 @@ export class HandoverService {
       return { ids };
     }
 
-    const [{ max }] = await this.db
-      .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
-      .from(handoverProtocols)
-      .where(eq(handoverProtocols.tenantId, tenantId));
-    let nextNumber = (max ?? 0) + 1;
-
     for (const target of targets) {
       const targetMatch =
         target.kind === 'operator_to_customer'
@@ -339,27 +341,40 @@ export class HandoverService {
 
       const draft = await this.buildDraft(tenantId, target as DraftQueryDto);
 
-      const [inserted] = await this.db
-        .insert(handoverProtocols)
-        .values({
-          tenantId,
-          kind: target.kind,
-          farmerId: target.kind === 'farmer_to_operator' ? target.farmerId : undefined,
-          orderId: target.kind === 'operator_to_customer' ? target.orderId : undefined,
-          slotId: target.slotId,
-          protocolNumber: nextNumber,
-          fromSnapshot: draft.from,
-          toSnapshot: draft.to,
-          items: draft.items,
-          orderIds: target.kind === 'operator_to_customer' ? [target.orderId] : null,
-          totalStotinki: draft.total,
-          signMode: 'pending',
-          status: 'draft',
-        })
-        .returning({ id: handoverProtocols.id });
+      // Next per-tenant protocol number, re-queried per target (not hoisted
+      // before the loop) under an advisory lock — same race-safe pattern as
+      // createSigned, so this loop, a concurrent batch call, and a concurrent
+      // createSigned can't ever claim the same number.
+      const inserted = await this.db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+        const [{ max }] = await tx
+          .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
+          .from(handoverProtocols)
+          .where(eq(handoverProtocols.tenantId, tenantId));
+        const nextNumber = (max ?? 0) + 1;
+
+        const [row] = await tx
+          .insert(handoverProtocols)
+          .values({
+            tenantId,
+            kind: target.kind,
+            farmerId: target.kind === 'farmer_to_operator' ? target.farmerId : undefined,
+            orderId: target.kind === 'operator_to_customer' ? target.orderId : undefined,
+            slotId: target.slotId,
+            protocolNumber: nextNumber,
+            fromSnapshot: draft.from,
+            toSnapshot: draft.to,
+            items: draft.items,
+            orderIds: target.kind === 'operator_to_customer' ? [target.orderId] : null,
+            totalStotinki: draft.total,
+            signMode: 'pending',
+            status: 'draft',
+          })
+          .returning({ id: handoverProtocols.id });
+        return row;
+      });
 
       ids.push(inserted.id);
-      nextNumber += 1;
     }
 
     return { ids };

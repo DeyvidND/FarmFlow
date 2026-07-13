@@ -64,6 +64,14 @@ function makeDb() {
 
   const db: any = { queue: (v: unknown) => queue.push(v), calls };
   for (const m of CHAIN_METHODS) db[m] = jest.fn(() => step);
+  // createSigned/createBatch wrap protocol-number assignment + insert in
+  // db.transaction(...) with an advisory lock (see orders.service.ts's
+  // order-number pattern). `execute()` (the lock acquisition) doesn't consume
+  // the FIFO queue — only select()/insert() do — and transaction() runs the
+  // callback against this same `db` mock, so it's transparent to every
+  // existing queued-value test.
+  db.execute = jest.fn(() => Promise.resolve(undefined));
+  db.transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn(db));
   return db;
 }
 
@@ -168,14 +176,14 @@ describe('HandoverService.createBatch', () => {
     const db = makeDb();
     db.queue([{ farmerId: 'f1', slotId: 's1' }]);          // distinct farmer pickups for the slot
     db.queue([{ id: 'o1', slotId: 's1' }]);                // customer orders for the slot
-    db.queue([{ max: 5 }]);                                // current max protocol_number
     db.queue([]);                                          // farmer target f1/s1: not covered
     db.queue([{ legal: { name: 'ЕТ Оператор' } }]);         // buildDraft: tenant
     db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);  // buildDraft: farmer
     db.queue([                                              // buildDraft: order_items ⋈ products
       { productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 },
     ]);
-    db.queue([{ id: 'p-new' }]);                            // insert ... returning
+    db.queue([{ max: 5 }]);                                 // tx: current max protocol_number (per-target)
+    db.queue([{ id: 'p-new' }]);                            // tx: insert ... returning
     db.queue([{ id: 'existing' }]);                         // customer target o1: already covered
 
     const svc = await build(db);
@@ -193,7 +201,6 @@ describe('HandoverService.createBatch', () => {
     const db = makeDb();
     db.queue([{ farmerId: 'f1', slotId: 's1' }]);
     db.queue([{ id: 'o1', slotId: 's1' }]);
-    db.queue([{ max: 6 }]);
     db.queue([{ id: 'p-new' }]);   // farmer target already covered
     db.queue([{ id: 'existing' }]); // customer target already covered
 
