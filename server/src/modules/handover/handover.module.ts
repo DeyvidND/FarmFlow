@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
+import { HandoverService } from './handover.service';
 
-// HandoverService/HandoverController land in later tasks (4/6, 10). Empty
-// arrays keep this module registrable now without placeholder classes to
-// discard later — DrizzleModule is @Global() so DB_TOKEN needs no import here.
+// HandoverController lands in a later task (6/10). DrizzleModule is @Global()
+// so DB_TOKEN needs no import here.
 @Module({
   controllers: [],
-  providers: [],
+  providers: [HandoverService],
 })
 export class HandoverModule {}
