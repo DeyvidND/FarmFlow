@@ -19,6 +19,21 @@ describe('CreateProductDto', () => {
     expect((await validate(make({ priceStotinki: -1 }))).length).toBeGreaterThan(0);
   });
 
+  // int4 guard: an absurd price must 400 at the DTO, not overflow the Postgres
+  // integer column into a 500 (companionMinPriceStotinki/salePriceStotinki share the cap).
+  it.each([
+    ['priceStotinki', 9_999_999_999],
+    ['companionMinPriceStotinki', 9_999_999_999],
+    ['salePriceStotinki', 9_999_999_999],
+  ])('rejects an over-max %s', async (field, val) => {
+    const errs = await validate(make({ [field]: val }));
+    expect(errs.some((e) => e.property === field)).toBe(true);
+  });
+
+  it('accepts a price at the 1_000_000 cap', async () => {
+    expect(await validate(make({ priceStotinki: 1_000_000 }))).toHaveLength(0);
+  });
+
   // A blank name silently drops out of the order-line label (resolveLineUnit
   // joins name + weight/variant, filtering falsy parts) — orders end up
   // snapshotted as just the weight/variant text with no product identity.

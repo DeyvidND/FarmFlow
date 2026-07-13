@@ -16,6 +16,7 @@ export class VariantDto {
   @ApiProperty({ description: 'Variant price in stotinki', example: 650 })
   @IsInt()
   @Min(0)
+  @Max(1_000_000)
   priceStotinki: number;
 
   // Fixed promo price for this variant (stotinki). null = no per-variant promo.
@@ -26,6 +27,7 @@ export class VariantDto {
   @ValidateIf((_, v) => v !== null)
   @IsInt()
   @Min(0)
+  @Max(1_000_000)
   salePriceStotinki?: number | null;
 
   @ApiPropertyOptional({ description: 'NULL = unlimited stock', nullable: true })

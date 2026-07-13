@@ -26,6 +26,7 @@ export class CreateProductDto {
   @ApiProperty({ description: 'Price in stotinki (integer)', example: 350 })
   @IsInt()
   @Min(0)
+  @Max(1_000_000)
   priceStotinki: number;
 
   @ApiProperty({ example: 'kg' })
@@ -108,6 +109,7 @@ export class CreateProductDto {
   @ValidateIf((_, v) => v !== null)
   @IsInt()
   @Min(0)
+  @Max(1_000_000)
   companionMinPriceStotinki?: number | null;
 
   @ApiPropertyOptional()
@@ -158,6 +160,7 @@ export class CreateProductDto {
   @ValidateIf((_, v) => v !== null)
   @IsInt()
   @Min(0)
+  @Max(1_000_000)
   salePriceStotinki?: number | null;
 
   // Full replace: the variants the product should have after the write. The

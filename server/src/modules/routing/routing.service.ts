@@ -16,6 +16,7 @@ import { sweepSplit, haversineKm, type Pt } from './route-split';
 import { humanizeStopOrder } from './route-humanize';
 import { OrdersService } from '../orders/orders.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
+import { positionCase } from '../../common/db/reorder.util';
 import {
   assembleDaySuggestion,
   type SuggestedDayOrder,
@@ -1053,12 +1054,13 @@ export class RoutingService {
         .where(and(eq(orders.tenantId, tenantId), eq(orders.courierIndex, courierIndex)));
       return { courierIndex, count: 0 };
     }
-    for (let i = 0; i < stopIds.length; i++) {
-      await this.db
-        .update(orders)
-        .set({ courierIndex, routeSeq: i })
-        .where(and(eq(orders.id, stopIds[i]), eq(orders.tenantId, tenantId)));
-    }
+    // One UPDATE … SET route_seq = CASE id … END instead of a statement per row
+    // (a foreign id is dropped by the tenant-scoped WHERE, same as the old no-op).
+    const seqItems = stopIds.map((id, i) => ({ id, position: i }));
+    await this.db
+      .update(orders)
+      .set({ courierIndex, routeSeq: positionCase(orders.id, orders.routeSeq, seqItems) })
+      .where(and(inArray(orders.id, stopIds), eq(orders.tenantId, tenantId)));
     return { courierIndex, count: stopIds.length };
   }
 
