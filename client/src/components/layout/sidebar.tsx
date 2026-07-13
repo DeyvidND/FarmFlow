@@ -28,6 +28,7 @@ import {
   MessageSquare,
   Truck,
   LineChart,
+  FileSignature,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -78,6 +79,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/production', label: 'Производство', Icon: ShoppingBasket, gated: true, desc: 'Дневен списък какво да приготвиш за доставките.' },
       { href: '/tomorrow', label: 'Утре', Icon: CalendarCheck, desc: 'Поръчките за утре и кого да потърсиш, ако изостанеш.' },
       { href: '/route', label: 'Маршрут', Icon: RouteIcon, gated: true, desc: 'Маршрут за разнасяне на поръчките.' },
+      { href: '/protocols', label: 'Протоколи', Icon: FileSignature, desc: 'Протоколи за приемане на стоки от фермери и предаване на клиенти.' },
       { href: '/payments', label: 'Плащания', Icon: CreditCard, desc: 'Преглед на плащанията и приходите — наложен платеж и карти.' },
       { href: '/stats', label: 'Статистика', Icon: BarChart3, desc: 'Оборот, поръчки, топ продукти и тренд през времето.' },
       { href: '/site-analytics', label: 'Анализ на сайта', Icon: LineChart, desc: 'Посетители, фуния към поръчка, източници и устройства.' },

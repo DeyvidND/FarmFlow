@@ -990,10 +990,14 @@ export interface ProtocolDraft {
 export interface ProtocolRow {
   id: string;
   kind: string;
+  farmerId: string | null;
+  orderId: string | null;
+  slotId: string | null;
   protocolNumber: number | null;
   status: string;
   signMode: string;
   totalStotinki: number;
   createdAt: string;
+  fromSnapshot: LegalIdentity;
   toSnapshot: LegalIdentity;
 }

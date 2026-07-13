@@ -26,14 +26,21 @@ function PartyBlock({ label, identity }: { label: string; identity: LegalIdentit
  * Fetches the (unsaved) draft on mount, renders parties + items + total, captures
  * both signatures (or skips the customer's via «Получено без подпис»), then
  * creates the protocol and opens its PDF in a new tab.
+ *
+ * `orderId` targets an `operator_to_customer` protocol; `farmerId`+`slotId`
+ * target a `farmer_to_operator` one (which farmer pickup at which delivery slot).
  */
 export function ProtocolDialog({
   kind,
   orderId,
+  farmerId,
+  slotId,
   onClose,
 }: {
   kind: string;
-  orderId: string;
+  orderId?: string;
+  farmerId?: string;
+  slotId?: string;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<ProtocolDraft | null>(null);
@@ -44,10 +51,10 @@ export function ProtocolDialog({
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    getProtocolDraft({ kind, orderId })
+    getProtocolDraft({ kind, orderId, farmerId, slotId })
       .then(setDraft)
       .catch((e) => setError(errMsg(e)));
-  }, [kind, orderId]);
+  }, [kind, orderId, farmerId, slotId]);
 
   async function submit() {
     if (!draft) return;
@@ -56,6 +63,8 @@ export function ProtocolDialog({
       const res = await createProtocol({
         kind,
         orderId,
+        farmerId,
+        slotId,
         items: draft.items,
         fromSignaturePng,
         toSignaturePng: noSignature ? null : toSignaturePng,
@@ -78,7 +87,9 @@ export function ProtocolDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-ff-border px-5 py-4">
-          <h2 className="text-[16px] font-extrabold text-ff-ink">Протокол за клиента</h2>
+          <h2 className="text-[16px] font-extrabold text-ff-ink">
+            {kind === 'farmer_to_operator' ? 'Протокол за фермер' : 'Протокол за клиента'}
+          </h2>
           <button onClick={onClose} className="text-ff-muted hover:text-ff-ink" aria-label="Затвори">
             <X size={20} />
           </button>
