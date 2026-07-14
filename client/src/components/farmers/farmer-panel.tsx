@@ -5,6 +5,7 @@ import { X, Check, Send, KeyRound, Sparkles, Images, FileText, StickyNote, Bankn
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar } from './avatar';
+import { CompletenessMeter, computeCompleteness } from './completeness-meter';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
 import { ProductAssignPicker } from '@/components/products/product-assign-picker';
@@ -309,6 +310,21 @@ export function FarmerPanel({
               <div className="text-[12.5px] font-bold" style={{ color: tint }}>{role || 'Специалност'}</div>
             </div>
           </div>
+
+          {!isNew && (
+            <CompletenessMeter
+              items={computeCompleteness({
+                hasPhoto: !!imageUrl,
+                hasBio: !!bio.trim(),
+                hasStory: !!story.trim(),
+                hasProducts: checked.size > 0,
+                hasAccess: !!acc,
+                marketplace: multiFarmer,
+                hasLegal: !!(legalKind || legalName.trim() || eik.trim() || regNo.trim() || legalAddress.trim()),
+                hasPayout: !!(iban.trim() || payoutHolder.trim()),
+              })}
+            />
+          )}
 
           {isNew ? (
             <p className="text-[12.5px] text-ff-muted">Първо запази фермера, после добави снимка.</p>
