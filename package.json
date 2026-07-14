@@ -10,7 +10,8 @@
     "lint": "turbo run lint",
     "db:generate": "pnpm --filter @fermeribg/db generate",
     "db:migrate": "pnpm --filter @fermeribg/db migrate",
-    "db:seed": "pnpm --filter @fermeribg/db seed"
+    "db:seed": "pnpm --filter @fermeribg/db seed",
+    "docs:check": "node scripts/check-docs-fresh.mjs"
   },
   "devDependencies": {
     "turbo": "^2.1.0",

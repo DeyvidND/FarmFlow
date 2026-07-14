@@ -66,3 +66,16 @@ jobs:
 
       - name: Test (API)
         run: pnpm --filter @fermeribg/api test
+
+  docs-freshness:
+    name: Docs freshness (warn-only)
+    runs-on: ubuntu-latest
+    # Never blocks CI: surfaces doc/code drift as a warning only.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check docs invariants
+        run: node scripts/check-docs-fresh.mjs   # exits 0 (warn-only) unless --strict
