@@ -22,7 +22,6 @@ import type {
   Product,
   ProductOption,
   ProductVariant,
-  ProductionSummary,
   ProtocolDraft,
   ProtocolRow,
   ReschedulableOrder,
@@ -682,9 +681,6 @@ export const confirmPendingOrders = (date?: string) =>
     'Неуспешно потвърждаване',
   );
 
-export const getProduction = (date?: string) =>
-  apiFetch<ProductionSummary>(`orders/production${date ? `?date=${date}` : ''}`);
-
 export const getRoute = (opts?: { date?: string; end?: string; couriers?: number; ends?: string[] }) => {
   const p = new URLSearchParams();
   if (opts?.date) p.set('date', opts.date);
@@ -988,6 +984,21 @@ export const setFulfillment = (id: string, state: FulfillmentState, farmerId?: s
     { method: 'PATCH', ...json({ state }) },
     'Неуспешно отбелязване',
   );
+
+export interface PrepSummary {
+  date: string;
+  confirmedOrders: number;
+  pendingOrders: number;
+  orders: TomorrowOrder[];
+}
+
+export const getPrep = (date?: string, farmerId?: string) => {
+  const qs = new URLSearchParams();
+  if (date) qs.set('date', date);
+  if (farmerId) qs.set('farmerId', farmerId);
+  const q = qs.toString();
+  return apiFetch<PrepSummary>(`orders/prep${q ? `?${q}` : ''}`);
+};
 
 /**
  * Create (if needed) the farm's Standard connected account and get a hosted

@@ -829,25 +829,6 @@ export interface AnalyticsSummary {
   sparse: boolean;
 }
 
-/** One aggregated product row in the daily prep list. */
-export interface ProductionItem {
-  productName: string;
-  totalQty: number;
-  orderCount: number;
-  farmerId: string | null;
-  farmerName: string | null;
-}
-
-/** Daily prep list (GET /orders/production?date=). */
-export interface ProductionSummary {
-  date: string; // YYYY-MM-DD
-  confirmedOrders: number;
-  /** Still-pending orders for the day — not yet in the prep list (nudge to confirm). */
-  pendingOrders: number;
-  multiFarmer: boolean;
-  items: ProductionItem[];
-}
-
 /** How an order was paid, derived server-side from Stripe state. */
 export type PaymentStatus = 'paid' | 'pending_online' | 'cash';
 
