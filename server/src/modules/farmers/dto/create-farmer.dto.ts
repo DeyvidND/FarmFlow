@@ -6,6 +6,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
 import { BrandingDto } from './branding.dto';
 import { LegalDto } from './legal.dto';
+import { PayoutDto } from './payout.dto';
 
 export class CreateFarmerDto {
   @ApiProperty()
@@ -113,4 +114,27 @@ export class CreateFarmerDto {
   @IsInt()
   @Min(0)
   subscriptionFeeStotinki?: number | null;
+
+  // Farmer profile v1 (migration 0105).
+  // „За фермата" — long PUBLIC story shown on the storefront farmer subpage (bio is
+  // the short card one-liner). Added to the public projection in findPublicBySlug.
+  @ApiPropertyOptional({ description: 'Дълъг публичен разказ „За фермата".' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  story?: string | null;
+
+  // OPERATOR-ONLY private notes about this producer — never public.
+  @ApiPropertyOptional({ description: 'Вътрешни бележки (само за оператора).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  internalNotes?: string | null;
+
+  // OPERATOR-ONLY payout account for marketplace settlement — never public.
+  @ApiPropertyOptional({ type: PayoutDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PayoutDto)
+  payout?: PayoutDto | null;
 }
