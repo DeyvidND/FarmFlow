@@ -337,6 +337,16 @@ export interface TomorrowOrder {
   items: TomorrowOrderItem[];
 }
 
+/** The «Подготовка» feed for one farmer on one day: per-order rows (the source of
+ *  truth for "готово") plus the day's counts. The product view is derived from
+ *  `orders` on the frontend. */
+export interface PrepSummary {
+  date: string;
+  confirmedOrders: number;
+  pendingOrders: number;
+  orders: TomorrowOrder[];
+}
+
 /** Map one assembled row to the API shape. Pure (no DB) so it's unit-testable,
  *  mirroring {@link toPaymentOrder}. */
 export function toFarmerOrder(r: FarmerOrderRow): FarmerOrder {
@@ -960,6 +970,18 @@ export class OrdersService {
     return { orders: fullRows.map(toFarmerOrder), nextCursor };
   }
 
+  /** «Подготовка» feed for one farmer on one day. Orders are the source of truth
+   *  for prep progress; the product view aggregates them client-side. `date`
+   *  defaults to tomorrow (the main prep horizon). */
+  async prepSummary(tenantId: string, farmerId: string, date?: string): Promise<PrepSummary> {
+    const day = date ?? bgAddDays(bgToday(), 1);
+    const [orders, pendingOrders] = await Promise.all([
+      this.prepOrders(tenantId, farmerId, day),
+      this.pendingCountForFarmer(tenantId, farmerId, day),
+    ]);
+    return { date: day, confirmedOrders: orders.length, pendingOrders, orders };
+  }
+
   /**
    * Task #14: one day's confirmed orders containing this farmer's own
    * products, with each order's self-tracked fulfilment state
@@ -1044,6 +1066,31 @@ export class OrdersService {
       }
     }
     return [...byOrder.values()];
+  }
+
+  /** Pending (unconfirmed) orders on `day` that contain this farmer's items — they
+   *  aren't in the prep feed yet, so the UI nudges the farmer to confirm them.
+   *  Needs the deliverySlots leftJoin for scheduledForDay. */
+  private async pendingCountForFarmer(
+    tenantId: string,
+    farmerId: string,
+    day: string,
+  ): Promise<number> {
+    const [{ pending }] = await this.db
+      .select({ pending: sql<number>`count(distinct ${orders.id})::int` })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(orders.status, 'pending'),
+          eq(products.farmerId, farmerId),
+          scheduledForDay(day),
+        )!,
+      );
+    return pending ?? 0;
   }
 
   /**

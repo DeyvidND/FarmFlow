@@ -124,3 +124,42 @@ describe('OrdersService.setFulfillment', () => {
     expect(valuesSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('OrdersService.prepSummary', () => {
+  function makeSvc() {
+    const svc = new OrdersService(
+      {} as never, {} as never, {} as never, {} as never,
+      {} as never, {} as never, {} as never, {} as never,
+    );
+    return { svc };
+  }
+
+  it('composes orders + counts, defaulting confirmedOrders to orders.length', async () => {
+    const { svc } = makeSvc();
+    const orders = [
+      { id: 'o1', orderNumber: 1, customerName: null, customerPhone: null, customerEmail: null,
+        deliveryType: 'pickup', day: '2026-07-15', slotFrom: null, slotTo: null,
+        fulfillmentState: 'pending' as const, items: [] },
+      { id: 'o2', orderNumber: 2, customerName: null, customerPhone: null, customerEmail: null,
+        deliveryType: 'pickup', day: '2026-07-15', slotFrom: null, slotTo: null,
+        fulfillmentState: 'fulfilled' as const, items: [] },
+    ];
+    jest.spyOn(svc, 'prepOrders').mockResolvedValue(orders);
+    jest.spyOn(svc as never, 'pendingCountForFarmer' as never).mockResolvedValue(3 as never);
+
+    const summary = await svc.prepSummary('t', 'farmer-1', '2026-07-15');
+    expect(summary.date).toBe('2026-07-15');
+    expect(summary.confirmedOrders).toBe(2);
+    expect(summary.pendingOrders).toBe(3);
+    expect(summary.orders).toBe(orders);
+  });
+
+  it('falls back to tomorrow for the date when none is passed', async () => {
+    const { svc } = makeSvc();
+    jest.spyOn(svc, 'prepOrders').mockResolvedValue([]);
+    jest.spyOn(svc as never, 'pendingCountForFarmer' as never).mockResolvedValue(0 as never);
+    const summary = await svc.prepSummary('t', 'farmer-1');
+    expect(summary.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(summary.confirmedOrders).toBe(0);
+  });
+});
