@@ -12,7 +12,7 @@ import {
   type PrepSummary, type TomorrowOrder, type FulfillmentState,
 } from '@/lib/api-client';
 import { DateNavBar } from '@/components/production/date-nav-bar';
-import { aggregateByProduct } from './aggregate';
+import { aggregateByProduct, mergeOrderSlices } from './aggregate';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 const plural = (n: number) => (n === 1 ? 'бройка' : 'бройки');
@@ -96,12 +96,22 @@ export function PrepClient({
     if (role === 'admin' && !farmerId) return;
     let live = true;
     setLoading(true);
-    getPrep(date, role === 'admin' ? farmerId : undefined)
+    // «Всички» (owner, multi-farmer): fan out one feed per farmer and flatten to raw
+    // per-farmer slices. The product view aggregates these directly (per-farmer picked
+    // stays accurate); the order view merges them by order id (read-only). pendingOrders
+    // is summed — an approximate nudge count that may double-count a shared order.
+    const load = farmerId === 'all'
+      ? Promise.all(farmers.map((f) => getPrep(date, f.id))).then((sums) => ({
+          orders: sums.flatMap((s) => s.orders),
+          pendingOrders: sums.reduce((n, s) => n + s.pendingOrders, 0),
+        }))
+      : getPrep(date, role === 'admin' ? farmerId : undefined);
+    load
       .then((s) => { if (live) { setOrders(s.orders); setPendingOrders(s.pendingOrders); } })
       .catch((e) => { if (live) toast.error(errMsg(e)); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [date, farmerId, role]);
+  }, [date, farmerId, role, farmers]);
 
   const onMark = useCallback(
     async (id: string, state: FulfillmentState) => {
@@ -119,11 +129,15 @@ export function PrepClient({
     [farmerId, role],
   );
 
+  const isAll = farmerId === 'all';
+  // Aggregate over the RAW slices so per-farmer picked stays accurate. The order view
+  // shows whole orders (slices merged by id) and is read-only under «Всички».
   const productRows = aggregateByProduct(orders);
   const totalQty = productRows.reduce((s, r) => s + r.totalQty, 0);
   const pickedQty = productRows.reduce((s, r) => s + r.pickedQty, 0);
   const allDone = totalQty > 0 && pickedQty === totalQty;
-  const gaps = orders.filter((o) => o.fulfillmentState !== 'fulfilled');
+  const orderViewOrders = isAll ? mergeOrderSlices(orders) : orders;
+  const gaps = isAll ? [] : orders.filter((o) => o.fulfillmentState !== 'fulfilled');
 
   return (
     <div className="animate-ff-fade-up">
@@ -142,6 +156,7 @@ export function PrepClient({
                 onChange={(e) => setFarmerId(e.target.value)}
                 className="h-10 rounded-xl border border-ff-border bg-ff-surface px-2.5 text-[13px] font-semibold text-ff-ink-2 shadow-ff-sm outline-none focus:border-ff-green-500"
               >
+                <option value="all">Всички</option>
                 {farmers.map((f) => (<option key={f.id} value={f.id}>{f.name}</option>))}
               </select>
             </label>
@@ -202,7 +217,7 @@ export function PrepClient({
           Няма потвърдени поръчки за този ден.
         </div>
       ) : view === 'orders' ? (
-        <OrdersView orders={orders} gaps={gaps} busyId={busyId} onMark={onMark} />
+        <OrdersView orders={orderViewOrders} gaps={gaps} busyId={busyId} onMark={onMark} readOnly={isAll} />
       ) : (
         <ProductsView rows={productRows} pickedQty={pickedQty} totalQty={totalQty} allDone={allDone} />
       )}
@@ -211,15 +226,21 @@ export function PrepClient({
 }
 
 function OrdersView({
-  orders, gaps, busyId, onMark,
+  orders, gaps, busyId, onMark, readOnly = false,
 }: {
   orders: TomorrowOrder[];
   gaps: TomorrowOrder[];
   busyId: string | null;
   onMark: (id: string, state: FulfillmentState) => void;
+  readOnly?: boolean;
 }) {
   return (
     <>
+      {readOnly && (
+        <div className="mb-4 rounded-xl border border-ff-border bg-ff-surface-2 px-4 py-3 text-[13px] leading-[1.5] text-ff-muted">
+          Изглед за всички фермери — избери конкретен фермер горе, за да отмяташ поръчки.
+        </div>
+      )}
       {gaps.length > 0 && (
         <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-ff-amber-soft bg-ff-amber-softer px-4 py-3">
           <AlertTriangle size={18} className="mt-0.5 shrink-0 text-ff-amber-600" />
@@ -247,7 +268,7 @@ function OrdersView({
             <ul className="my-2.5 flex flex-col gap-0.5 text-[12.5px] text-ff-muted">
               {o.items.map((it) => (<li key={it.productId}>{it.productName} × {it.quantity}</li>))}
             </ul>
-            {o.fulfillmentState !== 'fulfilled' && (
+            {!readOnly && o.fulfillmentState !== 'fulfilled' && (
               <div className="flex flex-wrap gap-1.5">
                 {o.fulfillmentState === 'pending' && (
                   <button
