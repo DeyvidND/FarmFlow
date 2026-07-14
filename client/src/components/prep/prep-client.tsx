@@ -90,7 +90,7 @@ export function PrepClient({
   const firstRun = useRef(true);
 
   // Refetch whenever the day or the selected farmer changes (skip the SSR-provided
-  // first render). Mirrors TomorrowClient's client refetch.
+  // first render). Mirrors the old /tomorrow screen's client refetch.
   useEffect(() => {
     if (firstRun.current) { firstRun.current = false; return; }
     if (role === 'admin' && !farmerId) return;
