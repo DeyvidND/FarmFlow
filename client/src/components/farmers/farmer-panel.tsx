@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Check, Send, KeyRound, Sparkles, Images, FileText } from 'lucide-react';
+import { X, Check, Send, KeyRound, Sparkles, Images, FileText, StickyNote } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar } from './avatar';
@@ -61,6 +61,8 @@ export function FarmerPanel({
   const [name, setName] = useState(farmer.name ?? '');
   const [role, setRole] = useState(farmer.role ?? '');
   const [bio, setBio] = useState(farmer.bio ?? '');
+  const [story, setStory] = useState(farmer.story ?? '');
+  const [notes, setNotes] = useState(farmer.internalNotes ?? '');
   const [phone, setPhone] = useState(farmer.phone ?? '+359 ');
   const [email, setEmail] = useState(farmer.email ?? '');
   const [since, setSince] = useState(farmer.since ?? '2026');
@@ -149,6 +151,8 @@ export function FarmerPanel({
         name: name.trim(),
         role: role.trim(),
         bio: bio.trim(),
+        story: story.trim() || null,
+        internalNotes: notes.trim() || null,
         phone: phone.trim(),
         email: email.trim() || null,
         since: since.trim(),
@@ -320,6 +324,19 @@ export function FarmerPanel({
           <label className={labelCls}>
             Кратко описание
             <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} placeholder="Какво произвежда този фермер…" className={`${field} resize-y leading-relaxed`} />
+          </label>
+          <label className={labelCls}>
+            За фермата (дълъг разказ)
+            <textarea
+              value={story}
+              onChange={(e) => setStory(e.target.value)}
+              rows={6}
+              placeholder="Историята, методът, ценностите — показва се на страницата на фермера в магазина…"
+              className={`${field} resize-y leading-relaxed`}
+            />
+            <span className="text-[11px] font-semibold text-ff-muted">
+              Дълъг текст за публичната страница на фермера. „Кратко описание&quot; горе е за списъците.
+            </span>
           </label>
           <div className="grid grid-cols-[1fr_110px] gap-3">
             <label className={labelCls}>
@@ -547,6 +564,22 @@ export function FarmerPanel({
               Същият имейл се ползва и за дневния списък с доставки, и за входа в панела.
             </span>
           </label>
+
+          <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+              <StickyNote size={14} className="text-ff-amber-600" /> Вътрешни бележки
+            </div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="напр. обажда се преди доставка, предпочита Viber…"
+              className={`${field} resize-y leading-relaxed`}
+            />
+            <p className="mt-1.5 text-[11px] font-semibold text-ff-muted">
+              Само за теб — не се показва на клиента.
+            </p>
+          </div>
 
           {/* Panel access — invite straight from here with the email above. */}
           <div
