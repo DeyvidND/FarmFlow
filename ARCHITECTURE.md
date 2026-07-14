@@ -77,10 +77,13 @@ reference **`deliverySlots.date`**. Therefore:
 ## Data & migrations
 
 - Postgres via **Drizzle**. Schema: `packages/db/src/schema.ts` (single source).
-- **Migrations are hand-written** numbered SQL in `packages/db/migrations/` (latest
-  `0104`). Do not ship drizzle-kit's raw auto-output — review/edit by hand.
-- A **journal index gap silently breaks the migrator** — keep migrations contiguous
-  and `migrations/meta/` consistent.
+- **Migrations are hand-written** numbered SQL in `packages/db/drizzle/` (latest
+  `0104`; `out: './drizzle'`). Do not ship drizzle-kit's raw auto-output — review/edit
+  by hand. Applied by the drizzle-orm migrator (`src/migrate.ts`), idempotent, tracked
+  in the `__drizzle_migrations` table.
+- A **journal index gap silently breaks the migrator** — every `.sql` needs a matching,
+  contiguous entry in `drizzle/meta/_journal.json` (sequential `idx`, `tag` = filename
+  without `.sql`). See the checklist in [`packages/CLAUDE.md`](packages/CLAUDE.md).
 - Drizzle quirks that have bitten us: no `ANY()` in `sql\`\`` → use `inArray()`;
   `CASE … THEN` returns `text` → cast `::int`; correlated subqueries can unqualify
   columns.

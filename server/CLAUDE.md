@@ -50,6 +50,17 @@ Dev DB runs on port **5433** (see repo root `docker-compose.yml`).
 - **DB migrations are hand-written** — never trust drizzle-kit to auto-generate here.
   See ARCHITECTURE → Migrations.
 
+## Adding a module — checklist
+
+1. Create `src/modules/<name>/` with `<name>.module.ts` (+ `.controller.ts`,
+   `.service.ts`, `dto/` as needed), following an existing sibling's shape.
+2. **Register it in `src/app.module.ts`** `imports: [...]` — it won't load otherwise.
+3. Tenant-scope every query (guards/decorators exist in `src/common/`); never read or
+   write across tenants unless it's an explicit platform/super-admin path.
+4. Optional string DTO fields: add the `@Transform('' → undefined)` (see Conventions).
+5. Schema change? Hand-write the migration in `@fermeribg/db` — see
+   [`../packages/CLAUDE.md`](../packages/CLAUDE.md) → *Adding a migration*.
+
 ## Landmines (verify before trusting)
 
 - **`scheduledForDay` / `scheduledForRange`** (`src/modules/orders/order-scheduling.ts`)
