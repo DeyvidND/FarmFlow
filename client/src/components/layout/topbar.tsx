@@ -124,7 +124,7 @@ function toInitials(name: string): string {
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Табло',
   '/orders': 'Поръчки',
-  '/production': 'Производство',
+  '/prep': 'Подготовка',
   '/route': 'Маршрут',
   '/payments': 'Плащания',
   '/stats': 'Статистика',

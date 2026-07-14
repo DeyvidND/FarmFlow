@@ -973,11 +973,6 @@ export interface TomorrowOrder {
   items: TomorrowOrderItem[];
 }
 
-/** `farmerId` is required for an owner (no tenant-wide "tomorrow" — mirrors
- *  /orders/mine); a producer token always resolves to its own scope server-side. */
-export const getTomorrow = (farmerId?: string) =>
-  apiFetch<TomorrowOrder[]>(`orders/tomorrow${farmerId ? `?farmerId=${encodeURIComponent(farmerId)}` : ''}`);
-
 export const setFulfillment = (id: string, state: FulfillmentState, farmerId?: string) =>
   apiFetch<{ orderId: string; farmerId: string; state: FulfillmentState }>(
     `orders/${id}/fulfillment${farmerId ? `?farmerId=${encodeURIComponent(farmerId)}` : ''}`,
