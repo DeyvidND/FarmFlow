@@ -722,6 +722,13 @@
       "when": 1784100000000,
       "tag": "0104_sms_reminder",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1784200000000,
+      "tag": "0105_farmer_profile_extras",
+      "breakpoints": true
     }
   ]
 }
