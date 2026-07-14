@@ -229,7 +229,10 @@ export class SpeedyService implements CarrierAdapter {
     // parent still succeeds, while a tenant-level write keeps targeting delivery.speedy.
     const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), seededSpeedy);
     await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
-    await this.cache.del(`speedy:sites:${tenant.slug}`);
+    // Connecting flips `configured: true`, which changes the cached TenantMeta
+    // (speedyConfigured / comparisonActive) — bust `tenant:` too, else the storefront
+    // hides the Speedy option for up to PUBLIC_CACHE_TTL. Mirrors disconnect().
+    await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`);
     return { configured: true };
   }
 

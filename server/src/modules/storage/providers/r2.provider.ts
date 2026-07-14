@@ -58,6 +58,11 @@ export class R2StorageProvider extends StorageService {
       forcePathStyle: true,
       region: 'auto',
       credentials: { accessKeyId, secretAccessKey },
+      // Bound every request so a hung/half-open R2 connection fails fast instead of
+      // blocking a foreground image upload (or the image-sanity worker) indefinitely.
+      // The SDK wraps this options hash into its NodeHttpHandler — no extra import.
+      requestHandler: { connectionTimeout: 5000, requestTimeout: 15000 },
+      maxAttempts: 3,
     });
   }
 

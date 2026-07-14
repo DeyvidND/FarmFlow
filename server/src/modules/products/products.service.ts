@@ -78,6 +78,21 @@ export class ProductsService {
     private readonly sanityVision: ImageSanityVisionClient,
   ) {}
 
+  /** In-process single-flight for the cold public-catalog rebuild. When the 300 s
+   *  cache expires, N concurrent storefront/product-page requests would otherwise
+   *  each rebuild the full catalog (products + media + variants + bundles) at once
+   *  (thundering herd) — this coalesces them into one rebuild; the rest await the
+   *  shared Promise. Mirrors RecommendationsService.inflight. */
+  private readonly inflight = new Map<string, Promise<unknown>>();
+
+  private singleFlight<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    const existing = this.inflight.get(key) as Promise<T> | undefined;
+    if (existing) return existing;
+    const run = compute().finally(() => this.inflight.delete(key));
+    this.inflight.set(key, run);
+    return run;
+  }
+
   /** Admin list: tenant-scoped, oldest first, keyset-paginated. `total` is included
    *  only on the first page (no cursor) so the UI can show the full count.
    *  farmerScope — when non-null (producer sub-account), restricts to that farmer's
@@ -923,66 +938,71 @@ export class ProductsService {
     const cached = (await this.cache.get(tenant.id)) as PublicProduct[] | null;
     if (cached) return cached;
 
-    const rows = await this.db
-      .select()
-      .from(products)
-      .where(and(
-        eq(products.tenantId, tenant.id),
-        eq(products.isActive, true),
-        eq(products.needsReview, false),
-      ))
-      .orderBy(asc(products.position), asc(products.createdAt), asc(products.id));
+    // Coalesce concurrent cold-cache rebuilds (thundering herd): N storefront/
+    // product-page requests racing a Redis miss would each rebuild the whole
+    // catalog. Mirrors RecommendationsService.singleFlight.
+    return this.singleFlight(`catalog:${tenant.id}`, async () => {
+      const rows = await this.db
+        .select()
+        .from(products)
+        .where(and(
+          eq(products.tenantId, tenant.id),
+          eq(products.isActive, true),
+          eq(products.needsReview, false),
+        ))
+        .orderBy(asc(products.position), asc(products.createdAt), asc(products.id));
 
-    const ids = rows.map((r) => r.id);
-    // Independent batch loads — run concurrently on the cold-cache catalog build.
-    const [mediaByProduct, varsByProduct] = await Promise.all([
-      this.mediaUrlsByProduct(ids),
-      this.variantsByProduct(ids),
-    ]);
-    const now = new Date();
-    const result = rows.map((p) =>
-      buildPublicProduct(p, mediaByProduct.get(p.id) ?? [], varsByProduct.get(p.id) ?? [], now),
-    );
+      const ids = rows.map((r) => r.id);
+      // Independent batch loads — run concurrently on the cold-cache catalog build.
+      const [mediaByProduct, varsByProduct] = await Promise.all([
+        this.mediaUrlsByProduct(ids),
+        this.variantsByProduct(ids),
+      ]);
+      const now = new Date();
+      const result = rows.map((p) =>
+        buildPublicProduct(p, mediaByProduct.get(p.id) ?? [], varsByProduct.get(p.id) ?? [], now),
+      );
 
-    // Attach resolved member products to bundle products (task #1). One query for
-    // every bundle in the catalog; members are looked up in-memory against the
-    // already-built public products, so an inactive / needs-review member simply
-    // doesn't appear (no N+1, no private-field leak). Bundles with no live members
-    // get an empty array (the storefront can then hide the „съдържание" block).
-    const bundleIds = result.filter((p) => p.category === 'bundle').map((p) => p.id);
-    if (bundleIds.length) {
-      const links = await this.db
-        .select({
-          bundleId: productBundleItems.bundleId,
-          productId: productBundleItems.productId,
-          quantity: productBundleItems.quantity,
-        })
-        .from(productBundleItems)
-        .where(inArray(productBundleItems.bundleId, bundleIds))
-        .orderBy(asc(productBundleItems.position), asc(productBundleItems.productId));
-      const publicById = new Map(result.map((p) => [p.id, p]));
-      const membersByBundle = new Map<string, PublicBundleItem[]>();
-      for (const l of links) {
-        const member = publicById.get(l.productId);
-        if (!member) continue; // inactive / hidden / needs-review member — skip
-        const list = membersByBundle.get(l.bundleId) ?? [];
-        list.push({
-          productId: member.id,
-          name: member.name,
-          slug: member.slug,
-          image: member.images[0] ?? null,
-          quantity: l.quantity,
-          priceStotinki: member.salePriceStotinki ?? member.priceStotinki,
-        });
-        membersByBundle.set(l.bundleId, list);
+      // Attach resolved member products to bundle products (task #1). One query for
+      // every bundle in the catalog; members are looked up in-memory against the
+      // already-built public products, so an inactive / needs-review member simply
+      // doesn't appear (no N+1, no private-field leak). Bundles with no live members
+      // get an empty array (the storefront can then hide the „съдържание" block).
+      const bundleIds = result.filter((p) => p.category === 'bundle').map((p) => p.id);
+      if (bundleIds.length) {
+        const links = await this.db
+          .select({
+            bundleId: productBundleItems.bundleId,
+            productId: productBundleItems.productId,
+            quantity: productBundleItems.quantity,
+          })
+          .from(productBundleItems)
+          .where(inArray(productBundleItems.bundleId, bundleIds))
+          .orderBy(asc(productBundleItems.position), asc(productBundleItems.productId));
+        const publicById = new Map(result.map((p) => [p.id, p]));
+        const membersByBundle = new Map<string, PublicBundleItem[]>();
+        for (const l of links) {
+          const member = publicById.get(l.productId);
+          if (!member) continue; // inactive / hidden / needs-review member — skip
+          const list = membersByBundle.get(l.bundleId) ?? [];
+          list.push({
+            productId: member.id,
+            name: member.name,
+            slug: member.slug,
+            image: member.images[0] ?? null,
+            quantity: l.quantity,
+            priceStotinki: member.salePriceStotinki ?? member.priceStotinki,
+          });
+          membersByBundle.set(l.bundleId, list);
+        }
+        for (const p of result) {
+          if (p.category === 'bundle') p.bundleProducts = membersByBundle.get(p.id) ?? [];
+        }
       }
-      for (const p of result) {
-        if (p.category === 'bundle') p.bundleProducts = membersByBundle.get(p.id) ?? [];
-      }
-    }
 
-    await this.cache.set(tenant.id, result, 300);
-    return result;
+      await this.cache.set(tenant.id, result, 300);
+      return result;
+    });
   }
 
   /** Single active product by its storefront slug, or 404. Reuses the cached

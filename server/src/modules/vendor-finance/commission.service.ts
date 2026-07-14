@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq, gte, inArray, lte, ne } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, lte, ne, sql } from 'drizzle-orm';
 import {
   type Database,
   commissionEntries,
@@ -170,49 +170,25 @@ export class CommissionService {
       ...(opts.from ? [gte(commissionEntries.createdAt, opts.from)] : []),
       ...(opts.to ? [lte(commissionEntries.createdAt, opts.to)] : []),
     ];
-    const entries: {
-      farmerId: string | null;
-      grossStotinki: number;
-      commissionStotinki: number;
-      status: 'accrued' | 'voided' | 'settled';
-    }[] = await this.db
+    // Per-farmer totals aggregated in Postgres — one grouped row per farmer instead
+    // of scanning the whole (ever-growing) ledger into app memory to bucket in JS.
+    // `sum()` comes back as a numeric string from node-pg; Number() is exact here
+    // (a tenant's lifetime stotinki total is far below 2^53). The `filter (where
+    // status='settled')` mirrors the old settled-only branch. Null farmerId is
+    // excluded up front (the old loop did `if (!e.farmerId) continue`).
+    const grouped = await this.db
       .select({
         farmerId: commissionEntries.farmerId,
-        grossStotinki: commissionEntries.grossStotinki,
-        commissionStotinki: commissionEntries.commissionStotinki,
-        status: commissionEntries.status,
+        farmerName: farmers.name,
+        orderCount: sql<number>`count(*)::int`,
+        grossStotinki: sql<string>`coalesce(sum(${commissionEntries.grossStotinki}), 0)`,
+        commissionStotinki: sql<string>`coalesce(sum(${commissionEntries.commissionStotinki}), 0)`,
+        settledCommissionStotinki: sql<string>`coalesce(sum(${commissionEntries.commissionStotinki}) filter (where ${commissionEntries.status} = 'settled'), 0)`,
       })
       .from(commissionEntries)
-      .where(and(...conditions));
-
-    const byFarmer = new Map<string, CommissionFarmerSummary>();
-    for (const e of entries) {
-      if (!e.farmerId) continue;
-      const row = byFarmer.get(e.farmerId) ?? {
-        farmerId: e.farmerId,
-        farmerName: null,
-        orderCount: 0,
-        grossStotinki: 0,
-        commissionStotinki: 0,
-        settledCommissionStotinki: 0,
-      };
-      row.orderCount += 1;
-      row.grossStotinki += e.grossStotinki;
-      row.commissionStotinki += e.commissionStotinki;
-      if (e.status === 'settled') row.settledCommissionStotinki += e.commissionStotinki;
-      byFarmer.set(e.farmerId, row);
-    }
-
-    if (byFarmer.size > 0) {
-      const names: { id: string; name: string }[] = await this.db
-        .select({ id: farmers.id, name: farmers.name })
-        .from(farmers)
-        .where(inArray(farmers.id, [...byFarmer.keys()]));
-      for (const n of names) {
-        const row = byFarmer.get(n.id);
-        if (row) row.farmerName = n.name;
-      }
-    }
+      .leftJoin(farmers, eq(farmers.id, commissionEntries.farmerId))
+      .where(and(...conditions, isNotNull(commissionEntries.farmerId)))
+      .groupBy(commissionEntries.farmerId, farmers.name);
 
     const [tenant] = await this.db
       .select({ settings: tenants.settings })
@@ -221,7 +197,16 @@ export class CommissionService {
       .limit(1);
     const vf = readVendorFinance(tenant?.settings);
 
-    const rows = [...byFarmer.values()].sort((a, b) => b.grossStotinki - a.grossStotinki);
+    const rows: CommissionFarmerSummary[] = grouped
+      .map((g) => ({
+        farmerId: g.farmerId as string,
+        farmerName: g.farmerName,
+        orderCount: g.orderCount,
+        grossStotinki: Number(g.grossStotinki),
+        commissionStotinki: Number(g.commissionStotinki),
+        settledCommissionStotinki: Number(g.settledCommissionStotinki),
+      }))
+      .sort((a, b) => b.grossStotinki - a.grossStotinki);
     return {
       commissionEnabled: vf.commissionEnabled,
       defaultRateBps: vf.defaultCommissionRateBps,
