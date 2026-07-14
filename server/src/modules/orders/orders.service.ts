@@ -961,15 +961,16 @@ export class OrdersService {
   }
 
   /**
-   * Task #14: tomorrow's confirmed orders containing this farmer's own
+   * Task #14: one day's confirmed orders containing this farmer's own
    * products, with each order's self-tracked fulfilment state
    * (order_fulfillments; no row yet ⇒ 'pending') and the customer's contact —
-   * so the farmer's «Утре» panel shows exactly whom to call about a gap.
+   * so the farmer's «Подготовка» panel shows exactly whom to call about a gap.
    * Mirrors ordersForFarmer's per-farmer item attribution: this farmer's own
    * lines only — a co-producer's lines on a shared order never appear here.
+   * `date` defaults to tomorrow (the main prep horizon).
    */
-  async tomorrowForFarmer(tenantId: string, farmerId: string): Promise<TomorrowOrder[]> {
-    const tomorrow = bgAddDays(bgToday(), 1);
+  async prepOrders(tenantId: string, farmerId: string, date?: string): Promise<TomorrowOrder[]> {
+    const targetDay = date ?? bgAddDays(bgToday(), 1);
     const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
     const rows = await this.db
       .select({
@@ -1000,7 +1001,7 @@ export class OrdersService {
           eq(orders.tenantId, tenantId),
           eq(orders.status, 'confirmed'),
           eq(products.farmerId, farmerId),
-          scheduledForDay(tomorrow),
+          scheduledForDay(targetDay),
         )!,
       )
       .orderBy(orders.createdAt);
