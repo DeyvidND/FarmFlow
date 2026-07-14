@@ -320,8 +320,8 @@ export function FarmerPanel({
                 hasProducts: checked.size > 0,
                 hasAccess: !!acc,
                 marketplace: multiFarmer,
-                hasLegal: !!(legalKind || legalName.trim() || eik.trim() || regNo.trim() || legalAddress.trim()),
-                hasPayout: !!(iban.trim() || payoutHolder.trim()),
+                hasLegal: !!(legalKind || legalName.trim() || eik.trim() || vatNumber.trim() || regNo.trim() || legalAddress.trim()),
+                hasPayout: !!(iban.trim() || payoutHolder.trim() || bic.trim()),
               })}
             />
           )}
