@@ -37,11 +37,18 @@ export class FarmersController {
   async findAll(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
     const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
     const rows = await this.farmersService.findAll(tenantId, scope);
-    // commissionRateBps / subscriptionFeeStotinki are the operator's commercial
-    // terms — owner/admin-only. A producer sub-account may read its own row here,
-    // so strip them for the farmer role (the panel calls this as admin, unstripped).
+    // commissionRateBps / subscriptionFeeStotinki are the operator's commercial terms,
+    // and internalNotes / payout are operator-only profile fields — all owner/admin-only.
+    // A producer sub-account may read its own row here, so strip them for the farmer role
+    // (the panel calls this as admin, unstripped).
     if (user.role === 'farmer') {
-      return rows.map(({ commissionRateBps: _c, subscriptionFeeStotinki: _s, ...rest }) => rest);
+      return rows.map(({
+        commissionRateBps: _c,
+        subscriptionFeeStotinki: _s,
+        internalNotes: _n,
+        payout: _p,
+        ...rest
+      }) => rest);
     }
     return rows;
   }

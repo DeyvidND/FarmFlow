@@ -1159,6 +1159,11 @@ export const farmers = pgTable(
       /** Кога операторът/фермерът е потвърдил данните (одит следа). */
       confirmedAt?: string;
     }>(),
+    // Farmer profile v1 (migration 0105). internalNotes + payout are OPERATOR-ONLY
+    // (never in the public projection); story IS public (added to findPublicBySlug).
+    internalNotes: text('internal_notes'),
+    story: text('story'),
+    payout: jsonb('payout').$type<{ iban?: string; holder?: string; bic?: string }>(),
     // Marketplace ranking tier (operator-assigned). 1 = базов листинг, 2 = Бранд
     // идентичност, 3 = собствен сайт. The marketplace sorts farmers by tier DESC
     // (tier 3 on top, tier 1 at the bottom), then position. Auto-bumps to >=2 when

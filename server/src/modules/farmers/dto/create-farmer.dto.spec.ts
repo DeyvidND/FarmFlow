@@ -80,3 +80,25 @@ describe('CreateFarmerDto — coverCrop', () => {
     expect(errs.some((e) => e.property === 'coverCrop')).toBe(true);
   });
 });
+
+describe('CreateFarmerDto — profile v1 fields', () => {
+  it('accepts story, internalNotes and a valid payout', async () => {
+    const dto = plainToInstance(CreateFarmerDto, {
+      name: 'Петър',
+      story: 'Дълъг разказ за фермата…',
+      internalNotes: 'обажда се преди доставка',
+      payout: { iban: 'BG80BNBG96611020345678', holder: 'Петър Петров' },
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('rejects a malformed IBAN', async () => {
+    const dto = plainToInstance(CreateFarmerDto, {
+      name: 'Петър',
+      payout: { iban: 'NOT-AN-IBAN' },
+    });
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
+  });
+});

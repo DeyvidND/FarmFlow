@@ -176,6 +176,12 @@ export interface Farmer {
   commissionRateBps?: number | null;
   /** Monthly subscription fee override in stotinki/eurocents. NULL = inherits the tenant default. */
   subscriptionFeeStotinki?: number | null;
+  /** „За фермата" — long public story shown on the storefront farmer subpage. */
+  story?: string | null;
+  /** Operator-only private notes about this producer — never public. */
+  internalNotes?: string | null;
+  /** Operator-only payout account for marketplace settlement — never public. */
+  payout?: { iban?: string; holder?: string; bic?: string } | null;
 }
 
 export interface FarmerAccess {

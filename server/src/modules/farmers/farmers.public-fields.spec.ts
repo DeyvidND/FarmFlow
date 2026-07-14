@@ -30,8 +30,9 @@ describe('FarmersService public payload', () => {
     const row = {
       id: 'f1', tenantId: TENANT, name: 'Васил', role: 'Ягодоплодни', bio: null,
       phone: '0888', email: 'v@x.bg', since: '2023', tint: null, imageUrl: null,
-      coverCrop: null, legal, position: 0, createdAt: new Date(),
+      coverCrop: null, legal, story: 'Дълъг разказ', position: 0, createdAt: new Date(),
       commissionRateBps: 500, subscriptionFeeStotinki: 1200,
+      internalNotes: 'таен коментар', payout: { iban: 'BG80BNBG96611020345678', holder: 'Васил' },
     };
     // Call order inside findPublicBySlug: farmers rows → mediaUrlsByFarmer rows
     // (private helper, one query) → tenant.settings row (for courier-eligibility).
@@ -58,6 +59,11 @@ describe('FarmersService public payload', () => {
       expect(f).toHaveProperty('email', 'v@x.bg');
       // legal seller identity is REQUIRED public КЗП disclosure — must survive too
       expect(f).toHaveProperty('legal', legal);
+      // „За фермата" public story survives the projection
+      expect(f).toHaveProperty('story', 'Дълъг разказ');
+      // operator-only fields must be stripped
+      expect(f).not.toHaveProperty('internalNotes');
+      expect(f).not.toHaveProperty('payout');
     }
 
     // The strip must happen BEFORE the cache write — otherwise a stale cached
@@ -67,6 +73,8 @@ describe('FarmersService public payload', () => {
     for (const f of cached) {
       expect(f).not.toHaveProperty('commissionRateBps');
       expect(f).not.toHaveProperty('subscriptionFeeStotinki');
+      expect(f).not.toHaveProperty('internalNotes');
+      expect(f).not.toHaveProperty('payout');
     }
   });
 

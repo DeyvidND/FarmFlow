@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Check, Send, KeyRound, Sparkles, Images, FileText } from 'lucide-react';
+import { X, Check, Send, KeyRound, Sparkles, Images, FileText, StickyNote, Banknote } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Avatar } from './avatar';
+import { CompletenessMeter, computeCompleteness } from './completeness-meter';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
 import { ProductAssignPicker } from '@/components/products/product-assign-picker';
@@ -61,6 +62,8 @@ export function FarmerPanel({
   const [name, setName] = useState(farmer.name ?? '');
   const [role, setRole] = useState(farmer.role ?? '');
   const [bio, setBio] = useState(farmer.bio ?? '');
+  const [story, setStory] = useState(farmer.story ?? '');
+  const [notes, setNotes] = useState(farmer.internalNotes ?? '');
   const [phone, setPhone] = useState(farmer.phone ?? '+359 ');
   const [email, setEmail] = useState(farmer.email ?? '');
   const [since, setSince] = useState(farmer.since ?? '2026');
@@ -71,6 +74,10 @@ export function FarmerPanel({
   const [monthlyFee, setMonthlyFee] = useState(
     farmer.subscriptionFeeStotinki != null ? String(farmer.subscriptionFeeStotinki / 100) : '',
   );
+  // Payout — operator-only IBAN for marketplace settlement (never public).
+  const [iban, setIban] = useState(farmer.payout?.iban ?? '');
+  const [payoutHolder, setPayoutHolder] = useState(farmer.payout?.holder ?? '');
+  const [bic, setBic] = useState(farmer.payout?.bic ?? '');
   // Legal seller identity (farmer-as-seller marketplace) — КЗП/НАП disclosure. Persists
   // to the `farmers.legal` jsonb column and IS surfaced publicly on the storefront (this
   // is required seller disclosure, unlike the finance overrides above). A farmer without
@@ -145,10 +152,21 @@ export function FarmerPanel({
         regNo: regNo.trim() || undefined,
       };
       const hasLegal = Object.values(legalParts).some(Boolean);
+      // Payout — send the object only when a field is filled; blank form clears it to null.
+      // IBAN is stripped of spaces + upper-cased so it matches the server @Matches regex.
+      const payoutParts = {
+        iban: iban.replace(/\s+/g, '').toUpperCase() || undefined,
+        holder: payoutHolder.trim() || undefined,
+        bic: bic.trim().toUpperCase() || undefined,
+      };
+      const hasPayout = Object.values(payoutParts).some(Boolean);
       const data = {
         name: name.trim(),
         role: role.trim(),
         bio: bio.trim(),
+        story: story.trim() || null,
+        internalNotes: notes.trim() || null,
+        payout: hasPayout ? payoutParts : null,
         phone: phone.trim(),
         email: email.trim() || null,
         since: since.trim(),
@@ -293,6 +311,21 @@ export function FarmerPanel({
             </div>
           </div>
 
+          {!isNew && (
+            <CompletenessMeter
+              items={computeCompleteness({
+                hasPhoto: !!imageUrl,
+                hasBio: !!bio.trim(),
+                hasStory: !!story.trim(),
+                hasProducts: checked.size > 0,
+                hasAccess: !!acc,
+                marketplace: multiFarmer,
+                hasLegal: !!(legalKind || legalName.trim() || eik.trim() || vatNumber.trim() || regNo.trim() || legalAddress.trim()),
+                hasPayout: !!(iban.trim() || payoutHolder.trim() || bic.trim()),
+              })}
+            />
+          )}
+
           {isNew ? (
             <p className="text-[12.5px] text-ff-muted">Първо запази фермера, после добави снимка.</p>
           ) : (
@@ -320,6 +353,19 @@ export function FarmerPanel({
           <label className={labelCls}>
             Кратко описание
             <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} placeholder="Какво произвежда този фермер…" className={`${field} resize-y leading-relaxed`} />
+          </label>
+          <label className={labelCls}>
+            За фермата (дълъг разказ)
+            <textarea
+              value={story}
+              onChange={(e) => setStory(e.target.value)}
+              rows={6}
+              placeholder="Историята, методът, ценностите — показва се на страницата на фермера в магазина…"
+              className={`${field} resize-y leading-relaxed`}
+            />
+            <span className="text-[11px] font-semibold text-ff-muted">
+              Дълъг текст за публичната страница на фермера. „Кратко описание&quot; горе е за списъците.
+            </span>
           </label>
           <div className="grid grid-cols-[1fr_110px] gap-3">
             <label className={labelCls}>
@@ -414,6 +460,47 @@ export function FarmerPanel({
                 Месечна такса € (празно = по подразбиране)
                 <input value={monthlyFee} onChange={(e) => setMonthlyFee(e.target.value)} inputMode="decimal" placeholder="12" className={field} />
               </label>
+            </div>
+          )}
+          {multiFarmer && (
+            <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+              <div className="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+                <Banknote size={14} /> IBAN за изплащане
+              </div>
+              <p className="mt-1.5 text-[12px] leading-snug text-ff-muted">
+                За превод на оборота към фермера. Не се показва публично.
+              </p>
+              <div className="mt-3 flex flex-col gap-3">
+                <label className={labelCls}>
+                  IBAN
+                  <input
+                    value={iban}
+                    onChange={(e) => setIban(e.target.value)}
+                    placeholder="BG80 BNBG 9661 1020 3456 78"
+                    className={field}
+                  />
+                </label>
+                <div className="grid grid-cols-[1fr_120px] gap-3">
+                  <label className={labelCls}>
+                    Титуляр
+                    <input
+                      value={payoutHolder}
+                      onChange={(e) => setPayoutHolder(e.target.value)}
+                      placeholder="напр. Петър Петров"
+                      className={field}
+                    />
+                  </label>
+                  <label className={labelCls}>
+                    BIC (по избор)
+                    <input
+                      value={bic}
+                      onChange={(e) => setBic(e.target.value)}
+                      placeholder="BNBGBGSF"
+                      className={field}
+                    />
+                  </label>
+                </div>
+              </div>
             </div>
           )}
           {multiFarmer && !isNew && (
@@ -547,6 +634,22 @@ export function FarmerPanel({
               Същият имейл се ползва и за дневния списък с доставки, и за входа в панела.
             </span>
           </label>
+
+          <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+              <StickyNote size={14} className="text-ff-amber-600" /> Вътрешни бележки
+            </div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="напр. обажда се преди доставка, предпочита Viber…"
+              className={`${field} resize-y leading-relaxed`}
+            />
+            <p className="mt-1.5 text-[11px] font-semibold text-ff-muted">
+              Само за теб — не се показва на клиента.
+            </p>
+          </div>
 
           {/* Panel access — invite straight from here with the email above. */}
           <div

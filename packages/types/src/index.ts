@@ -201,10 +201,14 @@ export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
  *  farmer's own contact (site-wide official contact stays the tenant's, kept
  *  separate). Product decision made 2026-07-02; see farmers.service.ts.
  *  `commissionRateBps`/`subscriptionFeeStotinki` (the operator's commercial
- *  terms with this farmer) are owner/admin-only — NEVER the storefront's. */
+ *  terms with this farmer) are owner/admin-only — NEVER the storefront's.
+ *  `internalNotes`/`payout` are operator-only too (private notes, bank payout
+ *  details) — NEVER the storefront's. `story` (the "За фермата" long bio) IS
+ *  public and stays in. */
 export type PublicFarmer = Omit<
   Farmer,
   'tenantId' | 'commissionRateBps' | 'subscriptionFeeStotinki' | 'lat' | 'lng' | 'geocodedAt'
+  | 'internalNotes' | 'payout'
 > & {
   images: string[];
   /** Phase 2: farmer offers nationwide courier (≥1 carrier connected). */
