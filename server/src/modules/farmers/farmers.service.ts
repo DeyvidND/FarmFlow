@@ -507,6 +507,8 @@ export class FarmersService {
         // contracts with). Unlike commissionRateBps/subscriptionFeeStotinki (owner-only
         // finance, stripped below) this is meant to be shown on the storefront.
         legal: farmers.legal,
+        // „За фермата" — long public story. Operator-only notes/payout are NOT selected here.
+        story: farmers.story,
         tier: farmers.tier,
         position: farmers.position,
         createdAt: farmers.createdAt,
@@ -531,11 +533,15 @@ export class FarmersService {
         tenantId: _tenantId,
         commissionRateBps: _commissionRateBps,
         subscriptionFeeStotinki: _subscriptionFeeStotinki,
+        internalNotes: _internalNotes,
+        payout: _payout,
         ...rest
       } = row as typeof row & {
         tenantId?: string | null;
         commissionRateBps?: number | null;
         subscriptionFeeStotinki?: number | null;
+        internalNotes?: string | null;
+        payout?: unknown;
       };
       const urls = mediaByFarmer.get(rest.id) ?? [];
       const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
