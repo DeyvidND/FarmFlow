@@ -536,6 +536,7 @@ export interface Slot {
   customerNote: string | null;
   driverNote: string | null;
   generated: boolean;
+  reminderOptOut: boolean;
 }
 
 /** One delivery window (hours only). Legacy shape — kept only because

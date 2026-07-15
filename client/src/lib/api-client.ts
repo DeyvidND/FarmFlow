@@ -602,11 +602,12 @@ export const createSlot = (data: {
   capacity?: number;
   customerNote?: string;
   driverNote?: string;
+  reminderOptOut?: boolean;
 }) => apiFetch<Slot>('slots', { method: 'POST', ...json(data) }, 'Неуспешно отваряне на ден за доставка');
 
 export const updateSlot = (
   id: string,
-  data: { capacity?: number; customerNote?: string; driverNote?: string },
+  data: { capacity?: number; customerNote?: string; driverNote?: string; reminderOptOut?: boolean },
 ) => apiFetch<Slot>(`slots/${id}`, { method: 'PATCH', ...json(data) }, 'Неуспешна промяна на деня за доставка');
 
 export const deleteSlot = (id: string) =>

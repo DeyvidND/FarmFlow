@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api-client';
 import { bgWeekdayShort, ddmm } from '@/lib/utils';
+import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import type { Slot } from '@/lib/types';
 
 const field =
@@ -16,6 +17,7 @@ export type SlotInput = {
   capacity: number;
   customerNote?: string;
   driverNote?: string;
+  reminderOptOut?: boolean;
 };
 
 export function AddSlotDialog({
@@ -33,6 +35,7 @@ export function AddSlotDialog({
   const [capacity, setCapacity] = useState(slot?.capacity ?? 1);
   const [cNote, setCNote] = useState(slot?.customerNote ?? '');
   const [dNote, setDNote] = useState(slot?.driverNote ?? '');
+  const [sendReminder, setSendReminder] = useState(slot ? !slot.reminderOptOut : true);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -50,6 +53,7 @@ export function AddSlotDialog({
           capacity,
           customerNote: cNote.trim() || undefined,
           driverNote: dNote.trim() || undefined,
+          reminderOptOut: !sendReminder,
         },
         slot?.id ?? null,
       );
@@ -112,6 +116,16 @@ export function AddSlotDialog({
               placeholder="напр. Маршрут Чайка→Левски, тел. 0888…"
               className={field}
             />
+          </label>
+
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5">
+            <span className="flex flex-col">
+              <span className="text-[13.5px] font-bold text-ff-ink">Напомняне в деня на доставка</span>
+              <span className="text-[12px] text-ff-muted">
+                Имейл на клиента сутринта с очаквания час, ако имаш одобрени часове за деня.
+              </span>
+            </span>
+            <ToggleSwitch checked={sendReminder} onChange={setSendReminder} />
           </label>
 
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}

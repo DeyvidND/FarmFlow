@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Clock, Mail, MailX, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import {
   getTenant,
   updateTenant,
@@ -11,8 +12,10 @@ import {
   updateDeliveryWindow,
   approveDeliveryWindows,
   notifyDeliveryWindows,
+  listSlots,
+  updateSlot,
 } from '@/lib/api-client';
-import type { DeliveryWindowProposal } from '@/lib/types';
+import type { DeliveryWindowProposal, Slot } from '@/lib/types';
 
 const WEEKDAYS = ['Неделя', 'Понеделник', 'Вторник', 'Сряда', 'Четвъртък', 'Петък', 'Събота'];
 
@@ -49,6 +52,11 @@ export function DeliveryWindowsModal({
   const [cutoffLoading, setCutoffLoading] = useState(true);
   const [cutoffSaving, setCutoffSaving] = useState(false);
 
+  // The day's slot row (for the reminder opt-out toggle) — separate from the
+  // per-order windows above.
+  const [slot, setSlot] = useState<Slot | null>(null);
+  const [savingReminder, setSavingReminder] = useState(false);
+
   useEffect(() => {
     getTenant()
       .then((t) => {
@@ -59,6 +67,12 @@ export function DeliveryWindowsModal({
       .catch(() => {})
       .finally(() => setCutoffLoading(false));
   }, []);
+
+  useEffect(() => {
+    listSlots(date, date)
+      .then((rows) => setSlot(rows[0] ?? null))
+      .catch(() => {});
+  }, [date]);
 
   const totalStops = useMemo(
     () => (proposal ? proposal.couriers.reduce((n, c) => n + c.stops.length, 0) : 0),
@@ -145,6 +159,20 @@ export function DeliveryWindowsModal({
     }
   }
 
+  async function toggleReminder(send: boolean) {
+    if (!slot) return;
+    setSavingReminder(true);
+    try {
+      const updated = await updateSlot(slot.id, { reminderOptOut: !send });
+      setSlot(updated);
+      toast.success(send ? 'Напомнянето е включено' : 'Напомнянето е изключено за този ден');
+    } catch {
+      toast.error('Неуспешна промяна');
+    } finally {
+      setSavingReminder(false);
+    }
+  }
+
   function close() {
     onChanged();
     onClose();
@@ -173,6 +201,22 @@ export function DeliveryWindowsModal({
         </p>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          {slot && (
+            <label className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5">
+              <span className="flex flex-col">
+                <span className="text-[13.5px] font-bold text-ff-ink">Напомняне в деня на доставка</span>
+                <span className="text-[12px] text-ff-muted">
+                  Имейл на клиента сутринта с очаквания час на доставка за {date}.
+                </span>
+              </span>
+              <ToggleSwitch
+                checked={!slot.reminderOptOut}
+                onChange={(v) => void toggleReminder(v)}
+                disabled={savingReminder}
+              />
+            </label>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" size="sm" disabled={generating} onClick={() => void generate()}>
               {generating ? 'Генериране…' : 'Генерирай часове'}
