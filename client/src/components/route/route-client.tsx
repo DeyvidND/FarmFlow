@@ -18,6 +18,7 @@ import {
   ClipboardList,
   PackageCheck,
   Clock,
+  PlusCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -47,6 +48,7 @@ import { ReorderStopsModal } from './reorder-stops-modal';
 import { RouteDaySuggesterModal } from './route-day-suggester-modal';
 import { CourierHomesModal } from './courier-homes-modal';
 import { DeliveryWindowsModal } from './delivery-windows-modal';
+import { AddOrdersModal } from './add-orders-modal';
 
 // Re-exported so callers only need to import from one place.
 export { ROUTE_COLORS };
@@ -311,6 +313,7 @@ export function RouteClient({
   const [showLoc, setShowLoc] = useState(false);
   const [showHomes, setShowHomes] = useState(false);
   const [showWindows, setShowWindows] = useState(false);
+  const [showAddOrders, setShowAddOrders] = useState(false);
   // The stop whose address is being edited (drives the „Смени адрес" modal).
   const [editStop, setEditStop] = useState<RouteStop | null>(null);
   // Remaining legs of a long (>9-waypoint) route — opened one-by-one on click so
@@ -827,6 +830,13 @@ export function RouteClient({
             <Wand2 size={16} /> Предложи по дни
           </button>
           <button
+            onClick={() => setShowAddOrders(true)}
+            title="Премести поръчки от други дни към този маршрут"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
+          >
+            <PlusCircle size={16} /> Добави поръчки
+          </button>
+          <button
             onClick={() => setShowLoc((v) => !v)}
             title="Адрес на базата и край на маршрута"
             className={cn(
@@ -1270,6 +1280,14 @@ export function RouteClient({
           ends={routes.map((r) => r.endMode).join(',')}
           onClose={() => setShowWindows(false)}
           onChanged={() => router.refresh()}
+        />
+      )}
+      {showAddOrders && (
+        <AddOrdersModal
+          routeDate={route.date}
+          courierCount={route.couriers}
+          onClose={() => setShowAddOrders(false)}
+          onAdded={() => router.refresh()}
         />
       )}
     </div>
