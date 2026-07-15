@@ -164,7 +164,12 @@ function CourierAccessSection({ tenantId }: { tenantId: string }) {
   const [loadErr, setLoadErr] = useState('');
   const [email, setEmail] = useState('');
   const [inviting, setInviting] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  // A Set (not a single accountId) so two rows can genuinely be busy at
+  // once — a single `string | null` would let a second row's call clobber
+  // the first's busy flag, re-enabling a still-in-flight row's buttons and
+  // letting a duplicate request through. See CourierHomesModal (client/)
+  // for the same pattern, fixed there after the identical bug.
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -196,7 +201,7 @@ function CourierAccessSection({ tenantId }: { tenantId: string }) {
   }
 
   async function resend(row: TenantCourierAccess) {
-    setBusyId(row.accountId);
+    setBusyIds((cur) => new Set(cur).add(row.accountId));
     try {
       const res = await grantTenantCourierAccess(tenantId, row.email);
       setRows((cur) => (cur ?? []).map((r) => (r.accountId === row.accountId ? res : r)));
@@ -204,12 +209,16 @@ function CourierAccessSection({ tenantId }: { tenantId: string }) {
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
-      setBusyId(null);
+      setBusyIds((cur) => {
+        const next = new Set(cur);
+        next.delete(row.accountId);
+        return next;
+      });
     }
   }
 
   async function revoke(row: TenantCourierAccess) {
-    setBusyId(row.accountId);
+    setBusyIds((cur) => new Set(cur).add(row.accountId));
     try {
       await revokeTenantCourierAccess(tenantId, row.accountId);
       setRows((cur) => (cur ?? []).filter((r) => r.accountId !== row.accountId));
@@ -217,7 +226,11 @@ function CourierAccessSection({ tenantId }: { tenantId: string }) {
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
-      setBusyId(null);
+      setBusyIds((cur) => {
+        const next = new Set(cur);
+        next.delete(row.accountId);
+        return next;
+      });
     }
   }
 
@@ -264,7 +277,7 @@ function CourierAccessSection({ tenantId }: { tenantId: string }) {
                     <button
                       type="button"
                       onClick={() => void resend(row)}
-                      disabled={busyId === row.accountId}
+                      disabled={busyIds.has(row.accountId)}
                       className="rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12px] font-bold text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-60"
                     >
                       Изпрати отново
@@ -273,7 +286,7 @@ function CourierAccessSection({ tenantId }: { tenantId: string }) {
                   <button
                     type="button"
                     onClick={() => void revoke(row)}
-                    disabled={busyId === row.accountId}
+                    disabled={busyIds.has(row.accountId)}
                     className="inline-flex items-center gap-1 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12px] font-bold text-ff-red hover:bg-ff-red-soft disabled:opacity-60"
                   >
                     <X size={13} /> Премахни достъп
