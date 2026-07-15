@@ -92,10 +92,19 @@ export function CourierHomesModal({
   // Typed-but-not-yet-invited email, per row — only relevant while that row
   // has no access entry yet.
   const [inviteEmails, setInviteEmails] = useState<Record<number, string>>({});
-  // Which row's grant/resend/revoke call is in flight (null = none) — scoped
-  // per-row since several rows are visible at once, unlike the single `saving`
-  // flag above which covers the (unrelated) address save.
-  const [busyIndex, setBusyIndex] = useState<number | null>(null);
+  // courierIndexes with a grant/resend/revoke call in flight — a Set (not a
+  // single index) so two rows can genuinely be busy at once; a single
+  // `number | null` would let a second row's call clobber the first's busy
+  // flag, letting a duplicate request through while the first is still in
+  // flight.
+  const [busyRows, setBusyRows] = useState<Set<number>>(new Set());
+  const setRowBusy = (i: number, busy: boolean) =>
+    setBusyRows((cur) => {
+      const next = new Set(cur);
+      if (busy) next.add(i);
+      else next.delete(i);
+      return next;
+    });
 
   useEffect(() => {
     getTenant()
@@ -135,7 +144,7 @@ export function CourierHomesModal({
       toast.error('Въведи имейл');
       return;
     }
-    setBusyIndex(i);
+    setRowBusy(i, true);
     try {
       const res = await grantCourierAccess(i, email);
       setAccess((cur) => ({ ...cur, [i]: res }));
@@ -144,14 +153,14 @@ export function CourierHomesModal({
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
     } finally {
-      setBusyIndex(null);
+      setRowBusy(i, false);
     }
   }
 
   async function resendCourierInvite(i: number) {
     const current = access[i];
     if (!current) return;
-    setBusyIndex(i);
+    setRowBusy(i, true);
     try {
       const res = await grantCourierAccess(i, current.email);
       setAccess((cur) => ({ ...cur, [i]: res }));
@@ -159,12 +168,12 @@ export function CourierHomesModal({
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
     } finally {
-      setBusyIndex(null);
+      setRowBusy(i, false);
     }
   }
 
   async function revokeCourier(i: number) {
-    setBusyIndex(i);
+    setRowBusy(i, true);
     try {
       await revokeCourierAccess(i);
       setAccess((cur) => {
@@ -176,7 +185,7 @@ export function CourierHomesModal({
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Грешка');
     } finally {
-      setBusyIndex(null);
+      setRowBusy(i, false);
     }
   }
 
@@ -293,7 +302,7 @@ export function CourierHomesModal({
                             <Button
                               size="sm"
                               variant="ghost"
-                              disabled={busyIndex === i}
+                              disabled={busyRows.has(i)}
                               onClick={() => void resendCourierInvite(i)}
                             >
                               Изпрати отново
@@ -302,7 +311,7 @@ export function CourierHomesModal({
                           <Button
                             size="sm"
                             variant="ghost"
-                            disabled={busyIndex === i}
+                            disabled={busyRows.has(i)}
                             onClick={() => void revokeCourier(i)}
                             title="Премахни достъп"
                           >
@@ -320,10 +329,10 @@ export function CourierHomesModal({
                           }
                           placeholder="имейл на куриера"
                           aria-label={`Имейл за достъп на Куриер ${i + 1}`}
-                          disabled={busyIndex === i}
+                          disabled={busyRows.has(i)}
                           className="min-w-0 flex-1 rounded-md border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12.5px] text-ff-ink outline-none disabled:opacity-50"
                         />
-                        <Button size="sm" variant="ghost" disabled={busyIndex === i} onClick={() => void inviteCourier(i)}>
+                        <Button size="sm" variant="ghost" disabled={busyRows.has(i)} onClick={() => void inviteCourier(i)}>
                           <Send size={14} /> Покани
                         </Button>
                       </div>
