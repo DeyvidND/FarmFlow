@@ -193,6 +193,67 @@ describe('slotRuleSlots', () => {
   it('inactive rule → []', () => {
     expect(slotRuleSlots({ ...base, active: false }, '2026-07-07')).toEqual([]);
   });
+
+  it('weekday window crossing a month boundary lands dates on both sides', () => {
+    // today = Tue 2026-07-28; horizon 10 → window ends 2026-08-07. The two
+    // Fridays in range (07-31, 08-07) straddle the July/August boundary.
+    const r: SlotRule = { ...base, days: [{ dow: 5, capacity: 10 }], horizonDays: 10 };
+    expect(slotRuleSlots(r, '2026-07-28')).toEqual([
+      { date: '2026-07-31', capacity: 10 },
+      { date: '2026-08-07', capacity: 10 },
+    ]);
+  });
+
+  describe('interval mode, anchor well before today', () => {
+    const interval: SlotRule = { ...base, repeat: 'interval', intervalDays: 7, intervalCapacity: 25, horizonDays: 7 };
+    const TODAY = '2026-07-15';
+
+    it('fast-forwards from a non-exact-multiple anchor (40 days back) to the first in-window step', () => {
+      // anchor 2026-06-05, +7 steps: ...07-10, 07-17, 07-24. 07-17 is the first
+      // step >= today; the guard must land there, not start from the anchor or
+      // emit an off-step date like today itself.
+      const r: SlotRule = { ...interval, anchorDate: '2026-06-05' };
+      expect(slotRuleSlots(r, TODAY)).toEqual([{ date: '2026-07-17', capacity: 25 }]);
+    });
+
+    it('today exactly on an anchor+k·interval step includes today itself', () => {
+      // anchor 2026-06-03, step k=6 (42 days) lands exactly on today.
+      const r: SlotRule = { ...interval, anchorDate: '2026-06-03' };
+      expect(slotRuleSlots(r, TODAY)).toEqual([
+        { date: '2026-07-15', capacity: 25 },
+        { date: '2026-07-22', capacity: 25 },
+      ]);
+    });
+
+    it('today one day off a step fast-forwards to the NEXT step, not the past one', () => {
+      // anchor 2026-06-02, step k=6 lands on 07-14 (one day before today) —
+      // the guard must not stop there nor emit today; next step is 07-21.
+      const r: SlotRule = { ...interval, anchorDate: '2026-06-02' };
+      expect(slotRuleSlots(r, TODAY)).toEqual([{ date: '2026-07-21', capacity: 25 }]);
+    });
+  });
+
+  describe('DST transition regression (Europe/Sofia 2026)', () => {
+    // isoAddDays/slotRuleSlots are UTC-string-based so DST should never affect
+    // them — this guards against a future accidental switch to local-TZ Date math.
+    it('spring-forward 2026-03-29 does not shift or drop the weekly Sunday sequence', () => {
+      const r: SlotRule = { ...base, days: [{ dow: 0, capacity: 8 }], anchorDate: '2026-01-01', horizonDays: 14 };
+      expect(slotRuleSlots(r, '2026-03-22')).toEqual([
+        { date: '2026-03-22', capacity: 8 },
+        { date: '2026-03-29', capacity: 8 },
+        { date: '2026-04-05', capacity: 8 },
+      ]);
+    });
+
+    it('fall-back 2026-10-25 does not shift or drop the weekly Sunday sequence', () => {
+      const r: SlotRule = { ...base, days: [{ dow: 0, capacity: 8 }], anchorDate: '2026-01-01', horizonDays: 14 };
+      expect(slotRuleSlots(r, '2026-10-18')).toEqual([
+        { date: '2026-10-18', capacity: 8 },
+        { date: '2026-10-25', capacity: 8 },
+        { date: '2026-11-01', capacity: 8 },
+      ]);
+    });
+  });
 });
 
 describe('normalizeRule', () => {

@@ -103,6 +103,37 @@ describe('SlotsService.materializeRule', () => {
     expect(inserted).toHaveLength(0);
   });
 
+  it('is idempotent: a second call the same "today" short-circuits with no DB writes', async () => {
+    // slots.service.ts:423 — lastMaterializedDate === today (and !force) must return
+    // before the existing-dates diff select or any insert ever runs.
+    const selectSpy = jest.fn(() => {
+      throw new Error('must not query existing dates on the idempotent short-circuit');
+    });
+    const insertSpy = jest.fn(() => {
+      throw new Error('must not insert on the idempotent short-circuit');
+    });
+    const svc = new SlotsService({ select: selectSpy, insert: insertSpy } as never, {} as never);
+    jest.spyOn(svc, 'getRule').mockResolvedValue({
+      active: true,
+      repeat: 'weekdays',
+      days: [{ dow: 4, capacity: 40 }],
+      intervalDays: 1,
+      intervalCapacity: 10,
+      anchorDate: '2026-07-01',
+      horizonDays: 14,
+      skipDates: [],
+      lastMaterializedDate: '2026-07-15',
+    });
+
+    const first = await svc.materializeRule('t1', '2026-07-15');
+    const second = await svc.materializeRule('t1', '2026-07-15');
+
+    expect(first).toBe(0);
+    expect(second).toBe(0);
+    expect(selectSpy).not.toHaveBeenCalled();
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
   it('a manual (generated=false) day-row on a wanted date suppresses generation for that date', async () => {
     // The diff must see ANY existing row, not only generated ones — otherwise the
     // generator would add a second row on a date the farmer opened by hand,
@@ -190,6 +221,17 @@ describe('SlotsService.create', () => {
       capacity: 20,
     } as never);
     expect(inserted.map((r) => r.date)).toEqual(['2026-07-06']);
+  });
+
+  it('rejects an inverted date range (expandDates guard) without touching the DB', async () => {
+    const selectSpy = jest.fn(() => {
+      throw new Error('must not query when the range is invalid');
+    });
+    const svc = new SlotsService({ select: selectSpy, insert: jest.fn() } as never, {} as never);
+    await expect(
+      svc.create('t1', { date: '2026-07-12', dateTo: '2026-07-06', weekdays: [1] } as never),
+    ).rejects.toThrow('Невалиден диапазон от дати');
+    expect(selectSpy).not.toHaveBeenCalled();
   });
 });
 
