@@ -1,12 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Home as HomeIcon, Trash2 } from 'lucide-react';
+import { X, Home as HomeIcon, Trash2, KeyRound, Send, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AddressAutocomplete } from './address-autocomplete';
-import { getTenant, updateTenant } from '@/lib/api-client';
-import type { RouteEndMode, RoutingConfig } from '@/lib/types';
+import {
+  ApiError,
+  getTenant,
+  grantCourierAccess,
+  listCourierAccess,
+  revokeCourierAccess,
+  updateTenant,
+} from '@/lib/api-client';
+import type { CourierAccess, RouteEndMode, RoutingConfig } from '@/lib/types';
 
 interface CourierHomeRow {
   homeAddress: string;
@@ -77,6 +84,19 @@ export function CourierHomesModal({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Driver-login status per courier leg (Task C2 grant/revoke), keyed by
+  // 0-based courierIndex. Loaded once alongside the tenant fetch below —
+  // independent of `rows`/`originalCouriers` (addresses), so a grant/revoke
+  // never has to touch the address-save flow or vice versa.
+  const [access, setAccess] = useState<Record<number, CourierAccess>>({});
+  // Typed-but-not-yet-invited email, per row — only relevant while that row
+  // has no access entry yet.
+  const [inviteEmails, setInviteEmails] = useState<Record<number, string>>({});
+  // Which row's grant/resend/revoke call is in flight (null = none) — scoped
+  // per-row since several rows are visible at once, unlike the single `saving`
+  // flag above which covers the (unrelated) address save.
+  const [busyIndex, setBusyIndex] = useState<number | null>(null);
+
   useEffect(() => {
     getTenant()
       .then((t) => {
@@ -98,8 +118,67 @@ export function CourierHomesModal({
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    listCourierAccess()
+      .then((list) => {
+        const byIndex: Record<number, CourierAccess> = {};
+        for (const a of list) byIndex[a.courierIndex] = a;
+        setAccess(byIndex);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courierCount]);
+
+  async function inviteCourier(i: number) {
+    const email = (inviteEmails[i] ?? '').trim();
+    if (!email) {
+      toast.error('Въведи имейл');
+      return;
+    }
+    setBusyIndex(i);
+    try {
+      const res = await grantCourierAccess(i, email);
+      setAccess((cur) => ({ ...cur, [i]: res }));
+      setInviteEmails((cur) => ({ ...cur, [i]: '' }));
+      toast.success('Поканата е изпратена');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Грешка');
+    } finally {
+      setBusyIndex(null);
+    }
+  }
+
+  async function resendCourierInvite(i: number) {
+    const current = access[i];
+    if (!current) return;
+    setBusyIndex(i);
+    try {
+      const res = await grantCourierAccess(i, current.email);
+      setAccess((cur) => ({ ...cur, [i]: res }));
+      toast.success('Поканата е изпратена отново');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Грешка');
+    } finally {
+      setBusyIndex(null);
+    }
+  }
+
+  async function revokeCourier(i: number) {
+    setBusyIndex(i);
+    try {
+      await revokeCourierAccess(i);
+      setAccess((cur) => {
+        const next = { ...cur };
+        delete next[i];
+        return next;
+      });
+      toast.success('Достъпът е премахнат');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Грешка');
+    } finally {
+      setBusyIndex(null);
+    }
+  }
 
   const setAddress = (i: number, v: string) =>
     setRows((cur) => cur.map((r, idx) => (idx === i ? { ...r, homeAddress: v, homePin: null } : r)));
@@ -188,6 +267,68 @@ export function CourierHomesModal({
                     onPick={(pin) => setPin(i, pin)}
                     apiKey={placesKey}
                   />
+
+                  {/* driver login for this leg (Task C2) — separate from the
+                      home address above, saved/removed immediately (not part
+                      of the "Запази" address save below). */}
+                  <div className="flex flex-col gap-2 rounded-lg border border-ff-border-2 bg-ff-surface-2 px-3 py-2.5">
+                    <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wide text-ff-muted">
+                      <KeyRound size={13} /> Акаунт за куриера
+                    </div>
+                    {access[i] ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
+                          {access[i].invitePending ? (
+                            <>
+                              <Send size={13} className="text-ff-amber-600" /> Поканен · {access[i].email}
+                            </>
+                          ) : (
+                            <>
+                              <Check size={13} className="text-ff-green-700" /> Активен · {access[i].email}
+                            </>
+                          )}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {access[i].invitePending && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busyIndex === i}
+                              onClick={() => void resendCourierInvite(i)}
+                            >
+                              Изпрати отново
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busyIndex === i}
+                            onClick={() => void revokeCourier(i)}
+                            title="Премахни достъп"
+                          >
+                            <X size={14} /> Премахни достъп
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="email"
+                          value={inviteEmails[i] ?? ''}
+                          onChange={(e) =>
+                            setInviteEmails((cur) => ({ ...cur, [i]: e.target.value }))
+                          }
+                          placeholder="имейл на куриера"
+                          aria-label={`Имейл за достъп на Куриер ${i + 1}`}
+                          disabled={busyIndex === i}
+                          className="min-w-0 flex-1 rounded-md border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12.5px] text-ff-ink outline-none disabled:opacity-50"
+                        />
+                        <Button size="sm" variant="ghost" disabled={busyIndex === i} onClick={() => void inviteCourier(i)}>
+                          <Send size={14} /> Покани
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

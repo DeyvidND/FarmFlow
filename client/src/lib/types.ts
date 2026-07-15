@@ -190,6 +190,15 @@ export interface FarmerAccess {
   invitePending: boolean;
 }
 
+/** A courier leg's driver login (Task C2 grant/revoke), keyed by 0-based
+ *  `courierIndex`. Normalizes the server's two endpoints (list returns
+ *  `email`, grant returns `loginEmail`) into one shape — see api-client.ts. */
+export interface CourierAccess {
+  courierIndex: number;
+  email: string;
+  invitePending: boolean;
+}
+
 export interface Subcategory {
   id: string;
   name: string;

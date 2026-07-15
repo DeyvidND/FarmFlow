@@ -34,6 +34,7 @@ import type { Order } from '@/lib/types';
 import type { OrderStatus } from '@/lib/utils';
 import { moneyFromStotinki } from '@/lib/utils';
 import { OrderPanel } from '@/components/orders/order-panel';
+import { useRole } from '@/components/layout/role-context';
 import { nextUnfinishedId } from './route-finish';
 import { StopList } from './stop-list';
 import { EditAddressModal } from './edit-address-modal';
@@ -161,6 +162,11 @@ export function RouteClient({
 }) {
   const router = useRouter();
   const { origin, end, routes } = route;
+  // A driver only ever sees their own leg (server-filtered) — hide every
+  // control that reconfigures the day/route/fleet, keep everything that
+  // executes their own stops (finish/undo, navigate, order panel).
+  const role = useRole();
+  const isDriver = role === 'driver';
 
   // Which courier's leg is shown in the list/map/Waze — a plain tab index into
   // `routes`. Reset to the first tab whenever the day or courier count changes
@@ -757,45 +763,52 @@ export function RouteClient({
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[14px] text-ff-muted">{summary}</p>
         <div className="flex flex-wrap items-center gap-2">
-          {/* where the ACTIVE courier's van goes after its last delivery */}
-          {multi && (
-            <span className="text-[12px] font-bold text-ff-muted">
-              Край за Маршрут {activeCourierIdx + 1}:
-            </span>
+          {/* end mode (+ its multi-day label) and courier count are day/fleet
+              config, organizer-only — a driver's own leg always honours the
+              server's default end mode, they just can't change it here */}
+          {!isDriver && (
+            <>
+              {/* where the ACTIVE courier's van goes after its last delivery */}
+              {multi && (
+                <span className="text-[12px] font-bold text-ff-muted">
+                  Край за Маршрут {activeCourierIdx + 1}:
+                </span>
+              )}
+              <div className="flex items-center gap-1 rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
+                {END_OPTIONS.map(({ mode, label, Icon }) => (
+                  <button
+                    key={mode}
+                    onClick={() => setCourierEnd(mode)}
+                    title={label}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12.5px] font-bold transition',
+                      activeEndMode === mode
+                        ? 'bg-ff-green-100 text-ff-green-800'
+                        : 'text-ff-ink-2 hover:bg-ff-surface-2',
+                    )}
+                  >
+                    <Icon size={14} /> {label}
+                  </button>
+                ))}
+              </div>
+              {/* how many people split today's deliveries */}
+              <label className="flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm">
+                Куриери
+                <select
+                  value={route.couriers}
+                  onChange={(e) => setCouriers(parseInt(e.target.value, 10))}
+                  aria-label="Брой куриери"
+                  className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
+                >
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
           )}
-          <div className="flex items-center gap-1 rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
-            {END_OPTIONS.map(({ mode, label, Icon }) => (
-              <button
-                key={mode}
-                onClick={() => setCourierEnd(mode)}
-                title={label}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12.5px] font-bold transition',
-                  activeEndMode === mode
-                    ? 'bg-ff-green-100 text-ff-green-800'
-                    : 'text-ff-ink-2 hover:bg-ff-surface-2',
-                )}
-              >
-                <Icon size={14} /> {label}
-              </button>
-            ))}
-          </div>
-          {/* how many people split today's deliveries */}
-          <label className="flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm">
-            Куриери
-            <select
-              value={route.couriers}
-              onChange={(e) => setCouriers(parseInt(e.target.value, 10))}
-              aria-label="Брой куриери"
-              className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
-            >
-              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
           <label className="relative flex cursor-pointer items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2">
             <CalendarDays size={17} />
             <span className="capitalize">{dateLabel}</span>
@@ -822,46 +835,52 @@ export function RouteClient({
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
           </label>
-          <button
-            onClick={() => setShowDaySuggest(true)}
-            title="Разпредели поръчките по няколко дни спрямо района на клиентите"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
-          >
-            <Wand2 size={16} /> Предложи по дни
-          </button>
-          <button
-            onClick={() => setShowAddOrders(true)}
-            title="Премести поръчки от други дни към този маршрут"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
-          >
-            <PlusCircle size={16} /> Добави поръчки
-          </button>
-          <button
-            onClick={() => setShowLoc((v) => !v)}
-            title="Адрес на базата и край на маршрута"
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-[13px] font-bold shadow-ff-sm transition',
-              showLoc
-                ? 'border-ff-green-500 bg-ff-green-100 text-ff-green-800'
-                : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
-            )}
-          >
-            <Settings size={16} /> Локация
-          </button>
-          <button
-            onClick={() => setShowHomes(true)}
-            title="Задай дом за всеки куриер (край на маршрута)"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
-          >
-            <Home size={16} /> Домове
-          </button>
-          <button
-            onClick={() => setShowWindows(true)}
-            title="Часове за доставка + известия до клиентите"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
-          >
-            <Clock size={16} /> Часове
-          </button>
+          {/* day/fleet planning + config actions — organizer-only, not a
+              driver executing their own leg */}
+          {!isDriver && (
+            <>
+              <button
+                onClick={() => setShowDaySuggest(true)}
+                title="Разпредели поръчките по няколко дни спрямо района на клиентите"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
+              >
+                <Wand2 size={16} /> Предложи по дни
+              </button>
+              <button
+                onClick={() => setShowAddOrders(true)}
+                title="Премести поръчки от други дни към този маршрут"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
+              >
+                <PlusCircle size={16} /> Добави поръчки
+              </button>
+              <button
+                onClick={() => setShowLoc((v) => !v)}
+                title="Адрес на базата и край на маршрута"
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-[13px] font-bold shadow-ff-sm transition',
+                  showLoc
+                    ? 'border-ff-green-500 bg-ff-green-100 text-ff-green-800'
+                    : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+                )}
+              >
+                <Settings size={16} /> Локация
+              </button>
+              <button
+                onClick={() => setShowHomes(true)}
+                title="Задай дом за всеки куриер (край на маршрута)"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
+              >
+                <Home size={16} /> Домове
+              </button>
+              <button
+                onClick={() => setShowWindows(true)}
+                title="Часове за доставка + известия до клиентите"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm transition hover:bg-ff-surface-2"
+              >
+                <Clock size={16} /> Часове
+              </button>
+            </>
+          )}
           <button
             onClick={() => setShowHelp((v) => !v)}
             title="Какво правят бутоните?"
@@ -1077,19 +1096,23 @@ export function RouteClient({
           <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-ff-border-2 px-[18px] pb-[13px] pt-4">
             <h2 className="text-[16px] font-extrabold">Маршрут за доставка</h2>
             <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setShowReorder(true)}
-                disabled={orderedStops.length < 2}
-                title="Подреди ръчно реда на доставка"
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-[9px] border px-[11px] py-[7px] text-[13px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50',
-                  isManualOrder
-                    ? 'border-ff-green-500 bg-ff-green-100 text-ff-green-800'
-                    : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
-                )}
-              >
-                <ArrowUpDown size={15} /> Подреди реда{isManualOrder ? ' · ръчен' : ''}
-              </button>
+              {/* manual stop-order override — an organizer decision (feeds
+                  route_seq), not a driver executing their own leg */}
+              {!isDriver && (
+                <button
+                  onClick={() => setShowReorder(true)}
+                  disabled={orderedStops.length < 2}
+                  title="Подреди ръчно реда на доставка"
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-[9px] border px-[11px] py-[7px] text-[13px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50',
+                    isManualOrder
+                      ? 'border-ff-green-500 bg-ff-green-100 text-ff-green-800'
+                      : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+                  )}
+                >
+                  <ArrowUpDown size={15} /> Подреди реда{isManualOrder ? ' · ръчен' : ''}
+                </button>
+              )}
               <button
                 onClick={() => openRoute()}
                 disabled={!stops.length}
@@ -1234,7 +1257,7 @@ export function RouteClient({
         />
       )}
 
-      {showReorder && (
+      {!isDriver && showReorder && (
         <ReorderStopsModal
           stops={orderedStops}
           dateLabel={dateLabel}
