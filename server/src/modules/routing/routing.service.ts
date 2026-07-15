@@ -559,11 +559,20 @@ export class RoutingService {
     // Per-courier end modes, indexed by resulting group. The split above balanced
     // with the single default `mode`; here each leg is optimized + measured with
     // ITS own end (home = return to base, last = end at last stop).
-    // Per-courier end: the request's ?ends= csv wins, else this courier's saved
-    // config (settings.routing.couriers[i].endMode), else the day-wide default.
+    // Per-courier end: the request's ?ends= csv wins (positional — the client
+    // builds it from the routes array it was shown, so position round-trips),
+    // else this courier's saved config, else the day-wide default.
+    //
+    // settings.routing.couriers[] is indexed by the REAL courier/leg number:
+    // the homes modal edits „Куриер N" at couriers[N-1], and
+    // measureExplicitOrder looks up couriersCfg[courierIndex] with the real
+    // leg. So saved config must be resolved via posToLeg[i], NOT the dense
+    // array position i — on a non-contiguous board day (legs [0, 2]) the
+    // position-indexed lookup handed the leg-2 route courier 2's saved name
+    // AND ended its actually-driven route at that wrong courier's home.
     const couriersCfg = (routingCfg.couriers as CourierConfig[] | undefined) ?? [];
     const modes = groups.map(
-      (_, i) => endModes?.[i] ?? (couriersCfg[i]?.endMode as RouteEndMode) ?? mode,
+      (_, i) => endModes?.[i] ?? (couriersCfg[posToLeg[i]]?.endMode as RouteEndMode) ?? mode,
     );
     const routes: CourierRoute[] = await Promise.all(
       groups.map((group, i) =>
@@ -571,12 +580,12 @@ export class RoutingService {
           originPt,
           group,
           modes[i],
-          this.endForCourier(modes[i], origin, end, couriersCfg[i]),
+          this.endForCourier(modes[i], origin, end, couriersCfg[posToLeg[i]]),
           // The real (possibly non-contiguous) leg, not the dense array
           // position — this is what a driver's resolveMyLeg comparison and
           // order pins match against.
           posToLeg[i],
-          (couriersCfg[i]?.name as string | null) ?? null,
+          (couriersCfg[posToLeg[i]]?.name as string | null) ?? null,
           preserveOrderFlags[i],
         ),
       ),

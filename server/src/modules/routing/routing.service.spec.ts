@@ -325,6 +325,39 @@ describe('RoutingService.getRoute — assignment board overrides leg count', () 
   // courierIndex is a REAL leg number, and must land in the array slot that
   // actually corresponds to that leg — not be used as a raw (and, for a
   // non-contiguous leg set, out-of-bounds-relative-to-n) array index.
+  // settings.routing.couriers[] is indexed by the REAL courier/leg number (the
+  // homes modal edits „Куриер N" at couriers[N-1]; measureExplicitOrder looks up
+  // couriersCfg[courierIndex] with the real leg). getRoute must therefore
+  // resolve each route's saved config (name, endMode, home) by posToLeg[i],
+  // not by the dense array position i — otherwise a non-contiguous board day
+  // (legs [0, 2]) gives the leg-2 route courier 2's (Куриер 2, config index 1)
+  // name AND ends the actually-driven route at that wrong courier's home.
+  it("(e) a non-contiguous leg's saved config (name + home end) comes from couriers[legIndex], not couriers[position]", async () => {
+    const couriersCfg = [
+      { name: 'Куриер А' },
+      { name: 'Куриер Б', homeAddress: 'дом Б', homeLat: '43.30', homeLng: '27.70' },
+      { name: 'Куриер В', homeAddress: 'дом В', homeLat: '43.10', homeLng: '28.00' },
+    ];
+    const db = makeDb([[tenant({ couriers: couriersCfg })], stops(), []]);
+    const assignments = {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([
+        { accountId: 'driver-1', legIndex: 0 },
+        { accountId: 'driver-3', legIndex: 2 }, // leg 1 deliberately unassigned
+      ]),
+    } as any;
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, assignments);
+
+    const result = await svc.getRoute('t1', '2026-07-15');
+
+    const leg2 = result.routes.find((r) => r.courierIndex === 2)!;
+    expect(leg2.name).toBe('Куриер В');
+    expect(leg2.endAddress).toBe('дом В');
+    expect(leg2.endLat).toBe(43.1);
+    expect(leg2.endLng).toBe(28.0);
+    const leg0 = result.routes.find((r) => r.courierIndex === 0)!;
+    expect(leg0.name).toBe('Куриер А');
+  });
+
   it('(d) an order pinned to a non-contiguous assigned leg lands on that leg\'s route, not a mismatched slot', async () => {
     const pinnedStops = stops().map((s, i) => (i === 0 ? { ...s, courierIndex: 2 } : s));
     const db = makeDb([[tenant()], pinnedStops, []]);
