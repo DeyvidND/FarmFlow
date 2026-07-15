@@ -729,6 +729,13 @@
       "when": 1784200000000,
       "tag": "0105_farmer_profile_extras",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1784300000000,
+      "tag": "0106_slot_reminder_opt_out",
+      "breakpoints": true
     }
   ]
 }

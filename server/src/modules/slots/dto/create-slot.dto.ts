@@ -1,6 +1,7 @@
 import {
   ArrayNotEmpty,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsInt,
   IsOptional,
@@ -63,4 +64,9 @@ export class CreateSlotDto {
   @IsString()
   @MaxLength(500)
   driverNote?: string;
+
+  @ApiPropertyOptional({ description: 'Не изпращай имейл „доставка днес" за този ден.' })
+  @IsOptional()
+  @IsBoolean()
+  reminderOptOut?: boolean;
 }

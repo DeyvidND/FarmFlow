@@ -1,3 +1,5 @@
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 import { SmsReminderService, buildBody } from './sms-reminder.service';
 
 describe('buildBody', () => {
@@ -10,13 +12,27 @@ describe('buildBody', () => {
 
 describe('SmsReminderService.sendForTenant', () => {
   // Minimal query-builder stub: select() → chainable → resolves to `rows`;
-  // update() → chainable → returning() resolves to the claim result.
+  // update() → chainable → returning() resolves to the claim result. where()
+  // renders the real drizzle condition to SQL text (same technique as
+  // slots.service.spec.ts's fakeDb) so the stub actually enforces the
+  // reminder-opt-out clause instead of blindly returning every row regardless
+  // of the WHERE — a test row's `reminderOptOut` stands in for the joined
+  // slot's flag (absent/undefined ⇒ a slotless order / LEFT JOIN miss).
+  const dialect = new PgDialect();
   function makeDb(rows: any[], claimWins: boolean[]) {
     let claimCall = 0;
     const select = () => {
       const q: any = {};
-      for (const m of ['from', 'leftJoin', 'where']) q[m] = () => q;
-      q.then = (res: any) => res(rows);
+      q.from = () => q;
+      q.leftJoin = () => q;
+      q.where = (cond: unknown) => {
+        const sqlText = dialect.sqlToQuery(cond as SQL).sql;
+        q._rows = sqlText.includes('"reminder_opt_out"')
+          ? rows.filter((r) => r.reminderOptOut !== true)
+          : rows;
+        return q;
+      };
+      q.then = (res: any) => res(q._rows ?? rows);
       return q;
     };
     const update = () => {
@@ -131,5 +147,28 @@ describe('SmsReminderService.sendForTenant', () => {
     await svc.sendForTenant('t1');
     expect(orderEmail.sendDeliveryWindowReminder).toHaveBeenCalled();
     expect(sms.sendSms).not.toHaveBeenCalled();
+  });
+
+  // ── Per-day reminder opt-out (deliverySlots.reminderOptOut) ─────────────────
+
+  it("excludes an order whose delivery day opted out of the reminder (slot's reminderOptOut=true)", async () => {
+    const sms = { sendSms: jest.fn().mockResolvedValue({ status: 'sent' }) };
+    const optedOutRow = { ...baseRow, id: 'o-opted-out', reminderOptOut: true };
+    const db = makeDb([optedOutRow], [true]);
+    const svc = new SmsReminderService(db, sms as any, noopEmail as any);
+    const res = await svc.sendForTenant('t1', 'sms', '2026-07-13');
+    expect(sms.sendSms).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ sent: 0, skipped: 0, failed: 0, total: 0 });
+  });
+
+  it('still sends a slotless order (no slot join ⇒ reminderOptOut is NULL, not opted out)', async () => {
+    const sms = { sendSms: jest.fn().mockResolvedValue({ status: 'sent' }) };
+    // baseRow carries no reminderOptOut key at all — mirrors a LEFT JOIN miss
+    // (NULL), which or(isNull(...), eq(...,false)) must still let through.
+    const db = makeDb([baseRow], [true]);
+    const svc = new SmsReminderService(db, sms as any, noopEmail as any);
+    const res = await svc.sendForTenant('t1', 'sms', '2026-07-13');
+    expect(sms.sendSms).toHaveBeenCalled();
+    expect(res).toMatchObject({ sent: 1, total: 1 });
   });
 });

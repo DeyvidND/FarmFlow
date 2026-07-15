@@ -85,6 +85,9 @@ export class SlotsService {
       capacity: clampCapacity(dto.capacity),
       customerNote: dto.customerNote ?? null,
       driverNote: dto.driverNote ?? null,
+      // Bulk-create path reuses `base` for every date — correct here, since the
+      // flag is per-day and defaults to "send" for the whole batch.
+      reminderOptOut: dto.reminderOptOut ?? false,
     };
 
     if (dto.dateTo && dto.weekdays?.length) {
@@ -130,7 +133,7 @@ export class SlotsService {
     // Explicit allow-list: a partial slot edit must not inject recurrence-only
     // keys (date range / weekdays) or the generated flag into the row.
     const patch: Record<string, unknown> = {};
-    for (const k of ['capacity', 'customerNote', 'driverNote'] as const) {
+    for (const k of ['capacity', 'customerNote', 'driverNote', 'reminderOptOut'] as const) {
       if (dto[k] !== undefined) patch[k] = k === 'capacity' ? clampCapacity(dto.capacity) : dto[k];
     }
     const [row] = await this.db

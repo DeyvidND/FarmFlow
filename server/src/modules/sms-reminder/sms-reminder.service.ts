@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { type Database, orders, deliverySlots, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { SmsService } from '../../common/sms/sms.service';
@@ -83,6 +83,10 @@ export class SmsReminderService {
           // Guard the END too: a null end would render "между 09:00– ч.".
           isNotNull(orders.deliveryWindowEnd),
           isNull(orders.deliveryWindowSmsAt),
+          // Day-level opt-out lives on the slot row; a slotless order (NULL join,
+          // no matching deliverySlots row) must still remind — hence isNull too,
+          // not a bare eq(...,false) which NULL fails in SQL.
+          or(isNull(deliverySlots.reminderOptOut), eq(deliverySlots.reminderOptOut, false)),
         ),
       );
 

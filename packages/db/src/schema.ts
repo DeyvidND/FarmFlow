@@ -382,6 +382,10 @@ export const deliverySlots = pgTable(
     // is computed live from non-cancelled orders; this is just the ceiling. Default
     // 1 preserves the historical one-order-per-slot behaviour on legacy rows.
     capacity: integer('capacity').notNull().default(1),
+    // Per-day suppression of the 08:00 "delivery today" reminder (sms-reminder
+    // module) — lets a farmer skip one uncertain day without disabling the
+    // tenant-wide toggle. Default false = send (see migration 0106).
+    reminderOptOut: boolean('reminder_opt_out').notNull().default(false),
   },
   // Slot lists + dashboard summary filter by tenant, usually over a date window.
   (t) => ({
