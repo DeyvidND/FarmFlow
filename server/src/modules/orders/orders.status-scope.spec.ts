@@ -70,3 +70,45 @@ describe('OrdersService.updateStatusForFarmer ownership (multi-producer) guard',
     expect(spy).toHaveBeenCalledWith('o', 't', { status: 'delivered' });
   });
 });
+
+// Task C3 — a driver (courier login) may finish a delivery or undo an
+// accidental finish from the route screen, and nothing else. No DB access
+// before the transition guard (unlike updateStatusForFarmer, this method does
+// NOT check route-leg ownership — see the doc comment on the method), so we
+// can exercise it with stub deps.
+describe('OrdersService.updateStatusForCourier transition guard', () => {
+  const svc = new OrdersService(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  );
+
+  it('rejects any transition other than «delivered»/«confirmed»', async () => {
+    for (const status of ['preparing', 'out_for_delivery', 'cancelled', 'pending']) {
+      await expect(
+        svc.updateStatusForCourier('o', 't', { status } as never),
+      ).rejects.toThrow(ForbiddenException);
+    }
+  });
+
+  it('delegates «delivered» to updateStatus', async () => {
+    const spy = jest
+      .spyOn(svc as never as { updateStatus: (...a: unknown[]) => unknown }, 'updateStatus')
+      .mockResolvedValue({ id: 'o' } as never);
+    await svc.updateStatusForCourier('o', 't', { status: 'delivered' } as never);
+    expect(spy).toHaveBeenCalledWith('o', 't', { status: 'delivered' });
+  });
+
+  it('delegates «confirmed» (undo-finish) to updateStatus', async () => {
+    const spy = jest
+      .spyOn(svc as never as { updateStatus: (...a: unknown[]) => unknown }, 'updateStatus')
+      .mockResolvedValue({ id: 'o' } as never);
+    await svc.updateStatusForCourier('o', 't', { status: 'confirmed' } as never);
+    expect(spy).toHaveBeenCalledWith('o', 't', { status: 'confirmed' });
+  });
+});

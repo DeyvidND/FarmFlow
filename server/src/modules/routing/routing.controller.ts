@@ -5,7 +5,9 @@ import { CourierAccessService } from './courier-access.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import type { TenantRequestUser } from '@fermeribg/types';
 import { SetStopLocationDto } from './dto/set-stop-location.dto';
 import { ReverseGeocodeQueryDto } from './dto/reverse-geocode-query.dto';
 import { SuggestDaysDto } from './dto/suggest-days.dto';
@@ -30,30 +32,40 @@ export class RoutingController {
     private readonly courierAccessService: CourierAccessService,
   ) {}
 
+  // Task C3 — opened to role='driver'. A driver has no business choosing courier
+  // count or overriding end modes (operator-only route-shape decisions), so those
+  // query params are ignored for them and the result is filtered to their own leg.
   @Get('route')
   @UseGuards(ActiveSubscriptionGuard)
+  @Roles('admin', 'driver')
   @ApiQuery({ name: 'date', required: false })
   @ApiQuery({ name: 'end', required: false, enum: ['home', 'last', 'custom'] })
   @ApiQuery({ name: 'ends', required: false, description: 'Per-courier end modes, csv e.g. home,last' })
   @ApiQuery({ name: 'couriers', required: false, description: '1–10; default 1' })
-  getRoute(
+  async getRoute(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
     @Query('date') date?: string,
     @Query('end') end?: string,
     @Query('couriers') couriers?: string,
     @Query('ends') ends?: string,
   ) {
+    const isDriver = user.role === 'driver';
     const endMode: RouteEndMode | undefined =
       end === 'home' || end === 'last' || end === 'custom' ? end : undefined;
     const parsed = couriers ? parseInt(couriers, 10) : undefined;
     const endModes = parseEndModes(ends);
-    return this.routingService.getRoute(
+    const result = await this.routingService.getRoute(
       tenantId,
       date,
       endMode,
-      Number.isFinite(parsed) ? parsed : undefined,
-      endModes,
+      isDriver ? undefined : (Number.isFinite(parsed) ? parsed : undefined),
+      isDriver ? undefined : endModes,
     );
+    if (!isDriver) return result;
+    // A driver whose courierIndex is unbound (Task C2) naturally gets routes: []
+    // — no CourierRoute.courierIndex is ever undefined.
+    return { ...result, routes: result.routes.filter((r) => r.courierIndex === user.courierIndex) };
   }
 
   // Fix a stop with no map pin: re-geocode a corrected address, or save a manual
@@ -81,14 +93,23 @@ export class RoutingController {
   // (after a manual reorder / courier move). No re-optimization: the map gets a
   // real street-following polyline for the given sequence instead of straight
   // pin-to-pin lines. Multi-segment path so OrdersModule's `:id` can't catch it.
+  // Task C3 — opened to role='driver'. dto.courierIndex is ignored for them and
+  // forced to their own — a driver must not be able to measure a leg that isn't
+  // theirs via a crafted request body.
   @Post('route/measure')
   @UseGuards(ActiveSubscriptionGuard)
-  measure(@CurrentTenant() tenantId: string, @Body() dto: MeasureOrderDto) {
+  @Roles('admin', 'driver')
+  measure(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Body() dto: MeasureOrderDto,
+  ) {
+    const courierIndex = user.role === 'driver' ? user.courierIndex : dto.courierIndex;
     return this.routingService.measureExplicitOrder(
       tenantId,
       dto.date,
       dto.stopIds,
-      dto.courierIndex,
+      courierIndex,
       dto.endMode,
       dto.startLat != null && dto.startLng != null
         ? { lat: dto.startLat, lng: dto.startLng }

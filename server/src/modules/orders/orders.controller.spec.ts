@@ -82,6 +82,42 @@ describe('OrdersController updateStatus routing', () => {
   });
 });
 
+// Task C3 — a driver (courier login) finishing/undoing from the route screen is
+// routed to the transition-restricted updateStatusForCourier, never the plain
+// owner path or the farmer IDOR path.
+describe('OrdersController updateStatus routing (driver)', () => {
+  const svc = {
+    updateStatus: jest.fn().mockResolvedValue('owner'),
+    updateStatusForFarmer: jest.fn().mockResolvedValue('scoped-farmer'),
+    updateStatusForCourier: jest.fn().mockResolvedValue('scoped-courier'),
+  };
+  const ctrl = new OrdersController(svc as any);
+  const tenant = (over: Record<string, unknown>) =>
+    ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
+  const dto = { status: 'delivered' } as any;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('a driver is routed to updateStatusForCourier', async () => {
+    await ctrl.updateStatus('o1', tenant({ role: 'driver', courierIndex: 2 }), dto);
+    expect(svc.updateStatusForCourier).toHaveBeenCalledWith('o1', 't', dto);
+    expect(svc.updateStatus).not.toHaveBeenCalled();
+    expect(svc.updateStatusForFarmer).not.toHaveBeenCalled();
+  });
+});
+
+// Task C3 — GET /orders/:id (OrderPanel) opened to driver logins alongside
+// whatever roles were already allowed.
+describe('OrdersController findOne role metadata', () => {
+  it('allows admin, farmer, and driver', () => {
+    expect(Reflect.getMetadata('roles', OrdersController.prototype.findOne)).toEqual([
+      'admin',
+      'farmer',
+      'driver',
+    ]);
+  });
+});
+
 // PATCH :id/cod-outcome mirrors the same owner-vs-producer scope split as
 // PATCH :id/status.
 describe('OrdersController setCodOutcome routing', () => {

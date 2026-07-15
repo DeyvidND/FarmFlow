@@ -1633,6 +1633,31 @@ export class OrdersService {
     return this.updateStatus(id, tenantId, dto);
   }
 
+  /** Opened to courier logins (role='driver') so they can finish a delivery or
+   *  undo an accidental finish from the route screen. Restricted to exactly
+   *  those two transitions — a driver has no business setting any other
+   *  status (pending/preparing/out_for_delivery/cancelled are operator-only
+   *  decisions). NOTE: unlike updateStatusForFarmer, this does NOT verify the
+   *  order is actually on the driver's own courier leg — route-leg membership
+   *  is computed live by RoutingService.getRoute (sweep-split + manual pins),
+   *  not stored on the order, so a cheap ownership check here isn't possible
+   *  without re-running that computation. The client only ever exposes this
+   *  action for orders visible on the driver's own filtered route (Task C5),
+   *  so no legitimate path constructs a cross-leg request; a malicious driver
+   *  could still mark an arbitrary same-tenant order delivered/confirmed via a
+   *  crafted request. Flagged for the final branch review to weigh whether
+   *  this residual gap needs closing. */
+  async updateStatusForCourier(
+    id: string,
+    tenantId: string,
+    dto: UpdateOrderStatusDto,
+  ): Promise<OrderRow> {
+    if (dto.status !== 'delivered' && dto.status !== 'confirmed') {
+      throw new ForbiddenException('Куриер може само да отбележи поръчка като доставена или да я върне към потвърдена.');
+    }
+    return this.updateStatus(id, tenantId, dto);
+  }
+
   /** Set a COD order's money outcome (received / refused / pending). Manual path
    *  used by pickup + own-delivery orders and by a courier-order override. Strike on
    *  the NULL→refused transition only (idempotent re-marks add no strike).

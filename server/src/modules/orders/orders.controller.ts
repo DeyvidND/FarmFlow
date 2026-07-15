@@ -130,22 +130,32 @@ export class OrdersController {
     return this.ordersService.rescheduleOrders(tenantId, dto);
   }
 
+  // Task C3 — opened to role='driver' (OrderPanel is used from the route screen
+  // too). Tenant-scoping alone (ordersService.findOne) is sufficient here; no
+  // ownership-narrowing beyond tenant for this read.
   @Get(':id')
+  @Roles('admin', 'farmer', 'driver')
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentTenant() tenantId: string) {
     return this.ordersService.findOne(id, tenantId);
   }
 
   // Opened to producer sub-accounts (role='farmer') so they can mark their OWN COD
-  // order as «доставена» (= cash received) from the Плащания screen. Owner edits
-  // any order; a producer is forced to its own farmerId and routed to the
-  // IDOR-scoped method (verifies ownership + restricts to the delivered transition).
+  // order as «доставена» (= cash received) from the Плащания screen. Opened to
+  // role='driver' (Task C3) so a courier can finish a delivery / undo an accidental
+  // finish from the route screen. Owner edits any order; a producer is forced to
+  // its own farmerId and routed to the IDOR-scoped method (verifies ownership +
+  // restricts to the delivered transition); a driver is routed to the
+  // transition-restricted (delivered/confirmed) courier method.
   @Patch(':id/status')
-  @Roles('admin', 'farmer')
+  @Roles('admin', 'farmer', 'driver')
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: TenantRequestUser,
     @Body() dto: UpdateOrderStatusDto,
   ) {
+    if (user.role === 'driver') {
+      return this.ordersService.updateStatusForCourier(id, user.tenantId, dto);
+    }
     const scope = effectiveFarmerId(user.role, user.farmerId, undefined);
     return scope
       ? this.ordersService.updateStatusForFarmer(id, user.tenantId, scope, dto)
