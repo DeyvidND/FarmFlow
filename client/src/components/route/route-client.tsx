@@ -640,8 +640,13 @@ export function RouteClient({
     if (!panelOrder) return;
     setPanelBusy(true);
     try {
+      // `updateOrderStatus` hits PATCH /orders/:id/status, which returns the
+      // raw updated row — no `items` (a separate table, never joined there).
+      // Replacing panelOrder wholesale with that response drops `items` and
+      // crashes the panel's money summary (`order.items.reduce(...)`).
+      // Merge onto the known-good, items-complete order instead.
       const updated = await updateOrderStatus(panelOrder.id, status);
-      setPanelOrder(updated);
+      setPanelOrder((prev) => (prev ? { ...prev, ...updated } : prev));
       toast.success('Статусът е обновен');
       router.refresh();
     } catch {
