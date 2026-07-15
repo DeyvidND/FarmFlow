@@ -9,7 +9,7 @@ describe('OrdersController payments routing', () => {
     payments: jest.fn().mockResolvedValue('owner'),
     paymentsForFarmer: jest.fn().mockResolvedValue('scoped'),
   };
-  const ctrl = new OrdersController(svc as any, {} as any);
+  const ctrl = new OrdersController(svc as any, {} as any, {} as any);
   const tenant = (over: Record<string, unknown>) =>
     ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
 
@@ -54,7 +54,7 @@ describe('OrdersController updateStatus routing', () => {
     updateStatus: jest.fn().mockResolvedValue('owner'),
     updateStatusForFarmer: jest.fn().mockResolvedValue('scoped'),
   };
-  const ctrl = new OrdersController(svc as any, {} as any);
+  const ctrl = new OrdersController(svc as any, {} as any, {} as any);
   const tenant = (over: Record<string, unknown>) =>
     ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
   const dto = { status: 'delivered' } as any;
@@ -91,6 +91,12 @@ describe('OrdersController updateStatus routing', () => {
 // owner path or the farmer IDOR path. Fast-follow (ledger finding #1): this is
 // now gated by the same own-leg recompute+check pattern as POST
 // /orders/route/measure — a driver may only touch an order on their own leg.
+//
+// Task A4 — the leg source is no longer the JWT's frozen `user.courierIndex`;
+// it's resolved fresh from CourierAssignmentService.resolveMyLeg(tenantId,
+// user.userId, orderDate) — the date-scoped board (Task A2). A driver with no
+// assignment for that date (resolveMyLeg → null) owns no stops and is denied,
+// same as the old "unbound driver" case, but the source of truth flips.
 describe('OrdersController updateStatus routing (driver)', () => {
   const svc = {
     updateStatus: jest.fn().mockResolvedValue('owner'),
@@ -99,7 +105,8 @@ describe('OrdersController updateStatus routing (driver)', () => {
     findOne: jest.fn(),
   };
   const routing = { getRoute: jest.fn() };
-  const ctrl = new OrdersController(svc as any, routing as any);
+  const courierAssignment = { resolveMyLeg: jest.fn() };
+  const ctrl = new OrdersController(svc as any, routing as any, courierAssignment as any);
   const tenant = (over: Record<string, unknown>) =>
     ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
   const dto = { status: 'delivered' } as any;
@@ -117,8 +124,10 @@ describe('OrdersController updateStatus routing (driver)', () => {
     routing.getRoute.mockResolvedValue(ownRoute);
   });
 
-  it('a driver whose own leg contains the order is routed to updateStatusForCourier', async () => {
-    await ctrl.updateStatus('o1', tenant({ role: 'driver', courierIndex: 2 }), dto);
+  it('a driver assigned leg 2 for the order\'s day is routed to updateStatusForCourier', async () => {
+    courierAssignment.resolveMyLeg.mockResolvedValue(2);
+    await ctrl.updateStatus('o1', tenant({ role: 'driver' }), dto);
+    expect(courierAssignment.resolveMyLeg).toHaveBeenCalledWith('t', 'u', '2026-07-16');
     expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-16', undefined, undefined, undefined, [
       'confirmed',
       'delivered',
@@ -128,28 +137,47 @@ describe('OrdersController updateStatus routing (driver)', () => {
     expect(svc.updateStatusForFarmer).not.toHaveBeenCalled();
   });
 
-  it('a driver whose own leg does NOT contain the order is rejected with 403', async () => {
+  it('a driver assigned a DIFFERENT leg than the order\'s is rejected with 403', async () => {
+    courierAssignment.resolveMyLeg.mockResolvedValue(0);
     await expect(
-      ctrl.updateStatus('o1', tenant({ role: 'driver', courierIndex: 0 }), dto),
+      ctrl.updateStatus('o1', tenant({ role: 'driver' }), dto),
     ).rejects.toThrow(ForbiddenException);
     expect(svc.updateStatusForCourier).not.toHaveBeenCalled();
   });
 
-  it('an unbound driver (no courierIndex on the token) is rejected with 403', async () => {
+  it('a driver with no assignment for that date (resolveMyLeg → null) is rejected with 403', async () => {
+    courierAssignment.resolveMyLeg.mockResolvedValue(null);
     await expect(
-      ctrl.updateStatus('o1', tenant({ role: 'driver', courierIndex: undefined }), dto),
+      ctrl.updateStatus('o1', tenant({ role: 'driver' }), dto),
     ).rejects.toThrow(ForbiddenException);
     expect(svc.updateStatusForCourier).not.toHaveBeenCalled();
+    // Unassigned short-circuits before recomputing the route.
+    expect(routing.getRoute).not.toHaveBeenCalled();
   });
 
-  it('a slotless order falls back to its creation day (BG local) for the leg recompute', async () => {
+  it('a slotless order falls back to its creation day (BG local) for the leg resolution', async () => {
     svc.findOne.mockResolvedValue({ id: 'o1', slotDate: null, createdAt: new Date('2026-07-16T21:30:00Z') });
-    await ctrl.updateStatus('o1', tenant({ role: 'driver', courierIndex: 2 }), dto);
+    courierAssignment.resolveMyLeg.mockResolvedValue(2);
+    await ctrl.updateStatus('o1', tenant({ role: 'driver' }), dto);
     // 21:30 UTC on 07-16 is past midnight Europe/Sofia (UTC+3 in July) → 07-17.
+    expect(courierAssignment.resolveMyLeg).toHaveBeenCalledWith('t', 'u', '2026-07-17');
     expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-17', undefined, undefined, undefined, [
       'confirmed',
       'delivered',
     ]);
+  });
+
+  it('the same driver on a different date resolves independently (date-keyed, not frozen)', async () => {
+    // Day X: assigned leg 1, which does NOT own o1 on that route snapshot.
+    courierAssignment.resolveMyLeg.mockResolvedValueOnce(1);
+    await expect(
+      ctrl.updateStatus('o1', tenant({ role: 'driver' }), dto),
+    ).rejects.toThrow(ForbiddenException);
+
+    // Day X again (same order/date): now assigned leg 2, which DOES own o1.
+    courierAssignment.resolveMyLeg.mockResolvedValueOnce(2);
+    await ctrl.updateStatus('o1', tenant({ role: 'driver' }), dto);
+    expect(svc.updateStatusForCourier).toHaveBeenCalledWith('o1', 't', dto);
   });
 });
 
@@ -169,10 +197,15 @@ describe('OrdersController findOne role metadata', () => {
 // with only tenant-scoping — a driver holding another leg's order UUID could
 // read full customer PII. Now gated by the same own-leg recompute+check as
 // POST /orders/route/measure and PATCH /orders/:id/status (driver).
+//
+// Task A4 — leg source is CourierAssignmentService.resolveMyLeg(tenantId,
+// user.userId, orderDate), resolved from the ORDER's own delivery date, not
+// user.courierIndex (retired from the JWT by this task).
 describe('OrdersController findOne (driver leg ownership)', () => {
   const svc = { findOne: jest.fn() };
   const routing = { getRoute: jest.fn() };
-  const ctrl = new OrdersController(svc as any, routing as any);
+  const courierAssignment = { resolveMyLeg: jest.fn() };
+  const ctrl = new OrdersController(svc as any, routing as any, courierAssignment as any);
   const tenant = (over: Record<string, unknown>) =>
     ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
   const order = { id: 'o1', slotDate: '2026-07-16', createdAt: new Date('2026-07-16T09:00:00Z') };
@@ -182,28 +215,41 @@ describe('OrdersController findOne (driver leg ownership)', () => {
     svc.findOne.mockResolvedValue(order);
   });
 
-  it('a driver whose own leg contains the order gets it back', async () => {
+  it('a driver assigned the leg that owns the order gets it back', async () => {
+    courierAssignment.resolveMyLeg.mockResolvedValue(2);
     routing.getRoute.mockResolvedValue({ routes: [{ courierIndex: 2, stops: [{ id: 'o1' }] }] });
-    const result = await ctrl.findOne('o1', 't', tenant({ role: 'driver', courierIndex: 2 }));
+    const result = await ctrl.findOne('o1', 't', tenant({ role: 'driver' }));
+    expect(courierAssignment.resolveMyLeg).toHaveBeenCalledWith('t', 'u', '2026-07-16');
     expect(result).toBe(order);
   });
 
-  it('a driver whose own leg does NOT contain the order is rejected with 403', async () => {
+  it('a driver assigned a leg that does NOT own the order is rejected with 403', async () => {
+    courierAssignment.resolveMyLeg.mockResolvedValue(2);
     routing.getRoute.mockResolvedValue({ routes: [{ courierIndex: 0, stops: [{ id: 'other-order' }] }] });
-    await expect(ctrl.findOne('o1', 't', tenant({ role: 'driver', courierIndex: 2 }))).rejects.toThrow(
+    await expect(ctrl.findOne('o1', 't', tenant({ role: 'driver' }))).rejects.toThrow(
       ForbiddenException,
     );
   });
 
-  it('an admin is never leg-checked (getRoute not called)', async () => {
-    const result = await ctrl.findOne('o1', 't', tenant({ role: 'admin' }));
-    expect(result).toBe(order);
+  it('a driver with no assignment for that date (resolveMyLeg → null) is rejected with 403', async () => {
+    courierAssignment.resolveMyLeg.mockResolvedValue(null);
+    await expect(ctrl.findOne('o1', 't', tenant({ role: 'driver' }))).rejects.toThrow(
+      ForbiddenException,
+    );
     expect(routing.getRoute).not.toHaveBeenCalled();
   });
 
-  it('a farmer is never leg-checked (getRoute not called)', async () => {
+  it('an admin is never leg-checked (resolveMyLeg/getRoute not called)', async () => {
+    const result = await ctrl.findOne('o1', 't', tenant({ role: 'admin' }));
+    expect(result).toBe(order);
+    expect(courierAssignment.resolveMyLeg).not.toHaveBeenCalled();
+    expect(routing.getRoute).not.toHaveBeenCalled();
+  });
+
+  it('a farmer is never leg-checked (resolveMyLeg/getRoute not called)', async () => {
     const result = await ctrl.findOne('o1', 't', tenant({ role: 'farmer', farmerId: 'farmer-1' }));
     expect(result).toBe(order);
+    expect(courierAssignment.resolveMyLeg).not.toHaveBeenCalled();
     expect(routing.getRoute).not.toHaveBeenCalled();
   });
 });
@@ -215,7 +261,7 @@ describe('OrdersController setCodOutcome routing', () => {
     setCodOutcome: jest.fn().mockResolvedValue('owner'),
     setCodOutcomeForFarmer: jest.fn().mockResolvedValue('scoped'),
   };
-  const ctrl = new OrdersController(svc as any, {} as any);
+  const ctrl = new OrdersController(svc as any, {} as any, {} as any);
   const tenant = (over: Record<string, unknown>) =>
     ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
   const dto = { outcome: 'refused', reason: 'не вдигна' } as any;
@@ -252,7 +298,7 @@ describe('OrdersController mine routing', () => {
   const svc = {
     ordersForFarmer: jest.fn().mockResolvedValue('scoped'),
   };
-  const ctrl = new OrdersController(svc as any, {} as any);
+  const ctrl = new OrdersController(svc as any, {} as any, {} as any);
   const tenant = (over: Record<string, unknown>) =>
     ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
 
@@ -287,7 +333,7 @@ describe('OrdersController mine routing', () => {
 // "prep" either (an owner MUST pass ?farmerId).
 describe('OrdersController prep routing', () => {
   const svc = { prepSummary: jest.fn().mockResolvedValue('scoped') };
-  const ctrl = new OrdersController(svc as any, {} as any);
+  const ctrl = new OrdersController(svc as any, {} as any, {} as any);
   const tenant = (over: Record<string, unknown>) =>
     ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
 
@@ -327,7 +373,7 @@ describe('OrdersController prep routing', () => {
 // /tomorrow (an owner MUST pass ?farmerId; a producer is forced to their own).
 describe('OrdersController setFulfillment routing', () => {
   const svc = { setFulfillment: jest.fn().mockResolvedValue('ok') };
-  const ctrl = new OrdersController(svc as any, {} as any);
+  const ctrl = new OrdersController(svc as any, {} as any, {} as any);
   const tenant = (over: Record<string, unknown>) =>
     ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
   const dto = { state: 'fulfilled' } as any;

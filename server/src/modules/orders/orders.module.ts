@@ -26,8 +26,10 @@ import { RoutingModule } from '../routing/routing.module';
     CatalogCacheModule,
     VendorFinanceModule,
     // forwardRef: RoutingModule imports this module back (RoutingService needs
-    // OrdersService.reschedulable); OrdersController needs RoutingService for
-    // the driver own-leg ownership check on findOne/updateStatus.
+    // OrdersService.reschedulable); OrdersController needs RoutingService AND
+    // CourierAssignmentService (both exported by RoutingModule) for the driver
+    // own-leg ownership check on findOne/updateStatus (Task A4: leg source is
+    // resolveMyLeg, date-scoped — no longer the JWT's user.courierIndex).
     forwardRef(() => RoutingModule),
   ],
   controllers: [OrdersController, PublicOrdersController, PublicCheckoutController],

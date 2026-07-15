@@ -3,8 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 
 /** Chainable Drizzle stub: `.select().from().where().limit()` resolves to [row]
- *  (or [] when row is null), matching the tokenVersion (+ courierIndex) lookup
- *  the strategy runs. */
+ *  (or [] when row is null), matching the tokenVersion-only lookup the
+ *  strategy runs (Task A4 retired `courierIndex` from this select — see the
+ *  courierIndex-retirement tests below). The row type still accepts an
+ *  optional `courierIndex` field so a test can prove the strategy ignores it
+ *  even when a stub DB row happens to carry one. */
 function makeDb(row: { tokenVersion: number; courierIndex?: number | null } | null = { tokenVersion: 0 }) {
   const chain: any = {
     select: () => chain,
@@ -108,38 +111,17 @@ describe('JwtStrategy.validate', () => {
     expect((result as any).farmerId).toBeUndefined();
   });
 
-  it('returns courierIndex in RequestUser for a driver token, read fresh from the DB row (not the payload)', async () => {
+  // Task A4 retirement regression guard: even if a stub DB row happens to
+  // carry a `courierIndex` (e.g. a not-yet-migrated caller, or the column
+  // just not dropped yet), the strategy must never select it or spread it
+  // into RequestUser — leg ownership is resolved per-request via
+  // CourierAssignmentService.resolveMyLeg (Task A2), not a JWT-frozen field.
+  it('never includes courierIndex in RequestUser for a driver token, even if the DB row has one', async () => {
     const driverStrategy = makeStrategy({ tokenVersion: 0, courierIndex: 2 });
-    await expect(
-      driverStrategy.validate({
-        // Payload deliberately carries a stale/different value than the DB row —
-        // the strategy must use the freshly-queried DB value, not this one.
-        sub: 'u1', type: 'tenant', tenantId: 't1', role: 'driver', tv: 0, courierIndex: 9,
-      } as any),
-    ).resolves.toEqual({
-      type: 'tenant', userId: 'u1', tenantId: 't1', role: 'driver', courierIndex: 2,
-    });
-  });
-
-  it('omits courierIndex from RequestUser when the DB row has courier_index null', async () => {
-    const ownerStrategy = makeStrategy({ tokenVersion: 0, courierIndex: null });
-    const result = await ownerStrategy.validate({
-      sub: 'u1', type: 'tenant', tenantId: 't1', role: 'admin', tv: 0,
+    const result = await driverStrategy.validate({
+      sub: 'u1', type: 'tenant', tenantId: 't1', role: 'driver', tv: 0, courierIndex: 9,
     } as any);
-    expect((result as any).courierIndex).toBeUndefined();
-  });
-
-  // Regression guard: courierIndex 0 is the FIRST courier and a common real value,
-  // but it's falsy — a future accidental `user.courierIndex ? ... : ...` truthy-check
-  // regression would silently drop it. Must stay present in the result.
-  it('includes courierIndex 0 in RequestUser for a driver token (falsy but valid — first courier)', async () => {
-    const driverStrategy = makeStrategy({ tokenVersion: 0, courierIndex: 0 });
-    await expect(
-      driverStrategy.validate({
-        sub: 'u1', type: 'tenant', tenantId: 't1', role: 'driver', tv: 0, courierIndex: 0,
-      } as any),
-    ).resolves.toEqual({
-      type: 'tenant', userId: 'u1', tenantId: 't1', role: 'driver', courierIndex: 0,
-    });
+    expect(result).toEqual({ type: 'tenant', userId: 'u1', tenantId: 't1', role: 'driver' });
+    expect('courierIndex' in (result as object)).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import { Throttle } from '@nestjs/throttler';
 import { OrdersService } from './orders.service';
 import { CheckoutService } from './checkout.service';
 import { RoutingService } from '../routing/routing.service';
+import { CourierAssignmentService } from '../routing/courier-assignment.service';
 import { bgDateOf } from '../../common/time/bg-time';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
@@ -34,12 +35,19 @@ export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     @Inject(forwardRef(() => RoutingService)) private readonly routingService: RoutingService,
+    @Inject(forwardRef(() => CourierAssignmentService))
+    private readonly courierAssignmentService: CourierAssignmentService,
   ) {}
 
   /**
    * Own-leg ownership check for a driver (role='driver'), reusing the same
-   * recompute+check pattern as POST /orders/route/measure: recompute the
-   * driver's own leg for the order's day and verify the order is on it.
+   * recompute+check pattern as POST /orders/route/measure: resolve the
+   * driver's leg for the order's day via CourierAssignmentService.resolveMyLeg
+   * (Task A2's date-scoped assignment board — NOT the JWT's frozen
+   * `user.courierIndex`, retired from auth by Task A4), then recompute the
+   * route for that day and verify the order is on the resolved leg. A driver
+   * with no assignment for that date (`resolveMyLeg` → null) owns no stops
+   * and is denied before the route is even recomputed.
    * `statuses: ['confirmed', 'delivered']` (not the route screen's
    * 'confirmed'-only default) so a driver can still revert an order they just
    * marked delivered — which would otherwise have already dropped off a
@@ -51,6 +59,10 @@ export class OrdersController {
     order: { id: string; slotDate: string | null; createdAt: Date | string | null },
   ): Promise<void> {
     const day = order.slotDate ?? bgDateOf(new Date(order.createdAt ?? Date.now()));
+    const myLeg = await this.courierAssignmentService.resolveMyLeg(tenantId, user.userId, day);
+    if (myLeg == null) {
+      throw new ForbiddenException('Нямате достъп до тази поръчка.');
+    }
     const own = await this.routingService.getRoute(
       tenantId,
       day,
@@ -60,7 +72,7 @@ export class OrdersController {
       ['confirmed', 'delivered'],
     );
     const ownIds = new Set(
-      own.routes.filter((r) => r.courierIndex === user.courierIndex).flatMap((r) => r.stops.map((s) => s.id)),
+      own.routes.filter((r) => r.courierIndex === myLeg).flatMap((r) => r.stops.map((s) => s.id)),
     );
     if (!ownIds.has(order.id)) {
       throw new ForbiddenException('Нямате достъп до тази поръчка.');

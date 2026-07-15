@@ -50,13 +50,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       if (!payload.tenantId) {
         throw new UnauthorizedException();
       }
-      // Read courierIndex fresh from the DB here (not from payload.courierIndex):
-      // a driver's courier binding can be granted/revoked (Task C2) without a
-      // re-login, and — unlike role/tenantId, fixed at issuance — a rebind should
-      // take effect on the driver's NEXT request, not wait for token expiry. Piggy-
-      // backs on the tokenVersion select already run on every request.
+      // Revocation check: re-read tokenVersion fresh from the DB on every
+      // request (a password change / revoke bumps it, killing old tokens
+      // without waiting for expiry).
+      //
+      // Task A4: this strategy STOPS selecting/injecting `courierIndex`. Leg
+      // ownership is now resolved per-request via
+      // CourierAssignmentService.resolveMyLeg(tenantId, userId, date) — a
+      // date-scoped lookup against routeCourierAssignments (Task A2) — inside
+      // each driver-facing endpoint, which has the `date` in scope. The JWT
+      // strategy runs before the route handler/params and has no `date`, so it
+      // can no longer answer "which leg am I on?" (that question is inherently
+      // per-date now, not a single global binding). `users.courierIndex` was
+      // the LAST reader of this field on the auth path (Tasks A1-A3 already
+      // migrated getRoute/measure off it) — retiring it here leaves nothing
+      // broken. `TenantRequestUser.courierIndex` stays typed-optional in
+      // @fermeribg/types; the column itself is dropped in a later, separate PR.
       const [user] = await this.db
-        .select({ tokenVersion: users.tokenVersion, courierIndex: users.courierIndex })
+        .select({ tokenVersion: users.tokenVersion })
         .from(users)
         .where(eq(users.id, payload.sub))
         .limit(1);
@@ -70,7 +81,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role: (payload.role ?? 'admin') as TenantRole,
         ...(payload.farmerId ? { farmerId: payload.farmerId } : {}),
         ...(payload.actingAdminId ? { actingAdminId: payload.actingAdminId } : {}),
-        ...(user.courierIndex != null ? { courierIndex: user.courierIndex } : {}),
       };
     }
     throw new UnauthorizedException();
