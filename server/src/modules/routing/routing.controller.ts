@@ -8,12 +8,14 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { RoutingService, parseEndModes, type RouteEndMode } from './routing.service';
 import { CourierAccessService } from './courier-access.service';
+import { CourierAssignmentService } from './courier-assignment.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -27,6 +29,7 @@ import { MeasureOrderDto } from './dto/measure-order.dto';
 import { SetOrderCourierDto } from './dto/set-order-courier.dto';
 import { SetOrderSequenceDto } from './dto/set-order-sequence.dto';
 import { GrantCourierAccessDto } from './dto/courier-access.dto';
+import { AssignmentsQueryDto, SetAssignmentsDto } from './dto/courier-assignment.dto';
 import {
   DeliveryWindowDayDto,
   UpdateDeliveryWindowDto,
@@ -42,6 +45,7 @@ export class RoutingController {
   constructor(
     private readonly routingService: RoutingService,
     private readonly courierAccessService: CourierAccessService,
+    private readonly courierAssignmentService: CourierAssignmentService,
   ) {}
 
   // Task C3 — opened to role='driver'. A driver has no business choosing courier
@@ -240,5 +244,31 @@ export class RoutingController {
     @Param('index', ParseIntPipe) index: number,
   ) {
     return this.courierAccessService.revokeAccess(tenantId, index);
+  }
+
+  // Task A2 — the per-day leg board: which account (driver login or the
+  // owner's own account) runs which leg on a given date. Multi-segment path
+  // so OrdersModule's `:id` can't capture it (mirrors the other route/* routes).
+  @Get('route/assignments')
+  @Roles('admin')
+  getAssignments(@CurrentTenant() tenantId: string, @Query() q: AssignmentsQueryDto) {
+    return this.courierAssignmentService.getAssignmentsForDay(tenantId, q.date);
+  }
+
+  @Put('route/assignments')
+  @Roles('admin')
+  setAssignments(@CurrentTenant() tenantId: string, @Body() dto: SetAssignmentsDto) {
+    return this.courierAssignmentService.setAssignmentsForDay(tenantId, dto.date, dto.assignments);
+  }
+
+  // Read-only roster for the farmer: drivers + own account. Feeds the
+  // read-only courier-homes view and the assignment board. Deliberately a
+  // NEW tenant-scoped endpoint, NOT the platform listAccess (which is behind
+  // PlatformAdminGuard + takes an explicit tenantId — a farmer session can't
+  // and shouldn't reach it; cross-tenant foot-gun).
+  @Get('route/couriers')
+  @Roles('admin')
+  listCouriers(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
+    return this.courierAssignmentService.listTenantCouriers(tenantId, user.userId);
   }
 }

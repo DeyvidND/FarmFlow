@@ -12,8 +12,8 @@ describe('RoutingController getRoute driver-scoping', () => {
   const service = {
     getRoute: jest.fn().mockResolvedValue({ routes, couriers: 2 }),
   };
-  // courierAccessService is unused by getRoute — pass a stub.
-  const c = new RoutingController(service as any, {} as any);
+  // courierAccessService/courierAssignmentService are unused by getRoute — pass stubs.
+  const c = new RoutingController(service as any, {} as any, {} as any);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -53,7 +53,7 @@ describe('RoutingController measure driver-scoping', () => {
     measureExplicitOrder: jest.fn().mockResolvedValue({ polyline: 'x' }),
     getRoute: jest.fn().mockResolvedValue(ownRoute),
   };
-  const c = new RoutingController(service as any, {} as any);
+  const c = new RoutingController(service as any, {} as any, {} as any);
 
   beforeEach(() => jest.clearAllMocks());
   beforeEach(() => service.getRoute.mockResolvedValue(ownRoute));
