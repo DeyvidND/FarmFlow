@@ -356,12 +356,17 @@ function CodOutcomeSection({ order, onSaved }: { order: Order; onSaved?: (update
   async function apply(outcome: 'received' | 'refused' | 'pending', outcomeReason?: string) {
     setBusy(true);
     try {
+      // PATCH /orders/:id/cod-outcome returns the raw updated row — no `items`
+      // (a separate table, never joined there). Bubbling that up as-is would
+      // replace the panel's order and crash its money summary
+      // (`order.items.reduce(...)`). Merge onto the known-good, items-complete
+      // `order` prop instead — same fix as route-client's panelAction.
       const updated = await setCodOutcome(order.id, outcome, outcomeReason);
       setCodOutcomeState(updated.codOutcome);
       setCodOutcomeReasonState(updated.codOutcomeReason);
       setShowReasonInput(false);
       setReason('');
-      onSaved?.(updated);
+      onSaved?.({ ...order, ...updated });
       toast.success(
         outcome === 'received'
           ? 'Отбелязано като получено'

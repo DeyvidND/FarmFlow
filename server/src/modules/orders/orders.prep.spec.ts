@@ -2,11 +2,11 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 
 /**
- * OrdersService.tomorrowForFarmer / setFulfillment (Task #14). Mirrors the
+ * OrdersService.prepOrders / setFulfillment (Task #14). Mirrors the
  * mocking style of orders.mine.spec.ts (ordersForFarmer): a chainable select
  * stub resolving off the final `.orderBy()`/`.limit()` call.
  */
-describe('OrdersService.tomorrowForFarmer', () => {
+describe('OrdersService.prepOrders', () => {
   function makeSvc(rows: unknown[]) {
     const chain: any = {};
     chain.select = jest.fn(() => chain);
@@ -37,7 +37,7 @@ describe('OrdersService.tomorrowForFarmer', () => {
         productId: 'p2', productName: 'Краставици', quantity: 2,
       },
     ]);
-    const result = await svc.tomorrowForFarmer('t', 'farmer-1');
+    const result = await svc.prepOrders('t', 'farmer-1', '2026-07-14');
     expect(result).toHaveLength(1);
     expect(result[0].fulfillmentState).toBe('pending');
     expect(result[0].items).toHaveLength(2);
@@ -48,18 +48,24 @@ describe('OrdersService.tomorrowForFarmer', () => {
     const { svc } = makeSvc([
       {
         orderId: 'o2', orderNumber: 6, customerName: 'Иван', customerPhone: null,
-        customerEmail: null, deliveryType: 'pickup', day: '2026-07-14',
+        customerEmail: null, deliveryType: 'pickup', day: '2026-07-20',
         slotFrom: null, slotTo: null, state: 'in_production',
         productId: 'p1', productName: 'Мед', quantity: 1,
       },
     ]);
-    const result = await svc.tomorrowForFarmer('t', 'farmer-1');
+    const result = await svc.prepOrders('t', 'farmer-1', '2026-07-20');
     expect(result[0].fulfillmentState).toBe('in_production');
   });
 
-  it('returns an empty list with no rows', async () => {
+  it('accepts an arbitrary date and still returns an empty list with no rows', async () => {
     const { svc } = makeSvc([]);
-    const result = await svc.tomorrowForFarmer('t', 'farmer-1');
+    const result = await svc.prepOrders('t', 'farmer-1', '2026-08-01');
+    expect(result).toEqual([]);
+  });
+
+  it('defaults to tomorrow when no date is passed (no throw)', async () => {
+    const { svc } = makeSvc([]);
+    const result = await svc.prepOrders('t', 'farmer-1');
     expect(result).toEqual([]);
   });
 });
@@ -116,5 +122,44 @@ describe('OrdersService.setFulfillment', () => {
       BadRequestException,
     );
     expect(valuesSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrdersService.prepSummary', () => {
+  function makeSvc() {
+    const svc = new OrdersService(
+      {} as never, {} as never, {} as never, {} as never,
+      {} as never, {} as never, {} as never, {} as never,
+    );
+    return { svc };
+  }
+
+  it('composes orders + counts, defaulting confirmedOrders to orders.length', async () => {
+    const { svc } = makeSvc();
+    const orders = [
+      { id: 'o1', orderNumber: 1, customerName: null, customerPhone: null, customerEmail: null,
+        deliveryType: 'pickup', day: '2026-07-15', slotFrom: null, slotTo: null,
+        fulfillmentState: 'pending' as const, items: [] },
+      { id: 'o2', orderNumber: 2, customerName: null, customerPhone: null, customerEmail: null,
+        deliveryType: 'pickup', day: '2026-07-15', slotFrom: null, slotTo: null,
+        fulfillmentState: 'fulfilled' as const, items: [] },
+    ];
+    jest.spyOn(svc, 'prepOrders').mockResolvedValue(orders);
+    jest.spyOn(svc as never, 'pendingCountForFarmer' as never).mockResolvedValue(3 as never);
+
+    const summary = await svc.prepSummary('t', 'farmer-1', '2026-07-15');
+    expect(summary.date).toBe('2026-07-15');
+    expect(summary.confirmedOrders).toBe(2);
+    expect(summary.pendingOrders).toBe(3);
+    expect(summary.orders).toBe(orders);
+  });
+
+  it('falls back to tomorrow for the date when none is passed', async () => {
+    const { svc } = makeSvc();
+    jest.spyOn(svc, 'prepOrders').mockResolvedValue([]);
+    jest.spyOn(svc as never, 'pendingCountForFarmer' as never).mockResolvedValue(0 as never);
+    const summary = await svc.prepSummary('t', 'farmer-1');
+    expect(summary.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(summary.confirmedOrders).toBe(0);
   });
 });

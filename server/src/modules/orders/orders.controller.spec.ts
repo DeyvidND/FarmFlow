@@ -283,10 +283,10 @@ describe('OrdersController mine routing', () => {
   });
 });
 
-// GET /orders/tomorrow (Task #14) mirrors /mine's owner-vs-producer split —
-// no tenant-wide "tomorrow" either (an owner MUST pass ?farmerId).
-describe('OrdersController tomorrow routing', () => {
-  const svc = { tomorrowForFarmer: jest.fn().mockResolvedValue('scoped') };
+// GET /orders/prep mirrors /mine's owner-vs-producer split — no tenant-wide
+// "prep" either (an owner MUST pass ?farmerId).
+describe('OrdersController prep routing', () => {
+  const svc = { prepSummary: jest.fn().mockResolvedValue('scoped') };
   const ctrl = new OrdersController(svc as any, {} as any);
   const tenant = (over: Record<string, unknown>) =>
     ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
@@ -294,23 +294,32 @@ describe('OrdersController tomorrow routing', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('a producer is forced to their own farmerId, ignoring ?farmerId', async () => {
-    await ctrl.tomorrow(tenant({ role: 'farmer', farmerId: 'farmer-1' }), 'farmer-9');
-    expect(svc.tomorrowForFarmer).toHaveBeenCalledWith('t', 'farmer-1');
+    await ctrl.prep(tenant({ role: 'farmer', farmerId: 'farmer-1' }), undefined, 'farmer-9');
+    expect(svc.prepSummary).toHaveBeenCalledWith('t', 'farmer-1', undefined);
   });
 
-  it('an owner with ?farmerId gets that producer\'s tomorrow list', async () => {
-    await ctrl.tomorrow(tenant({ role: 'admin' }), 'farmer-3');
-    expect(svc.tomorrowForFarmer).toHaveBeenCalledWith('t', 'farmer-3');
+  it('an owner with ?farmerId gets that producer\'s prep list', async () => {
+    await ctrl.prep(tenant({ role: 'admin' }), undefined, 'farmer-3');
+    expect(svc.prepSummary).toHaveBeenCalledWith('t', 'farmer-3', undefined);
+  });
+
+  it('passes the ?date query through to prepSummary', async () => {
+    await ctrl.prep(tenant({ role: 'farmer', farmerId: 'farmer-1' }), '2026-07-15', undefined);
+    expect(svc.prepSummary).toHaveBeenCalledWith('t', 'farmer-1', '2026-07-15');
   });
 
   it('an owner without ?farmerId gets a 400', () => {
-    expect(() => ctrl.tomorrow(tenant({ role: 'admin' }), undefined)).toThrow(BadRequestException);
-    expect(svc.tomorrowForFarmer).not.toHaveBeenCalled();
+    expect(() => ctrl.prep(tenant({ role: 'admin' }), undefined, undefined)).toThrow(
+      BadRequestException,
+    );
+    expect(svc.prepSummary).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed farmer token (role=farmer, no farmerId) with 403', () => {
-    expect(() => ctrl.tomorrow(tenant({ role: 'farmer' }), undefined)).toThrow(ForbiddenException);
-    expect(svc.tomorrowForFarmer).not.toHaveBeenCalled();
+    expect(() => ctrl.prep(tenant({ role: 'farmer' }), undefined, undefined)).toThrow(
+      ForbiddenException,
+    );
+    expect(svc.prepSummary).not.toHaveBeenCalled();
   });
 });
 

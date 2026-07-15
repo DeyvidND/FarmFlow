@@ -319,6 +319,7 @@ export type FulfillmentState = 'pending' | 'in_production' | 'fulfilled';
 export interface TomorrowOrderItem {
   productId: string;
   productName: string;
+  variantLabel?: string | null;
   quantity: number;
 }
 
@@ -335,6 +336,16 @@ export interface TomorrowOrder {
   slotTo: string | null;
   fulfillmentState: FulfillmentState;
   items: TomorrowOrderItem[];
+}
+
+/** The «Подготовка» feed for one farmer on one day: per-order rows (the source of
+ *  truth for "готово") plus the day's counts. The product view is derived from
+ *  `orders` on the frontend. */
+export interface PrepSummary {
+  date: string;
+  confirmedOrders: number;
+  pendingOrders: number;
+  orders: TomorrowOrder[];
 }
 
 /** Map one assembled row to the API shape. Pure (no DB) so it's unit-testable,
@@ -396,24 +407,6 @@ export function paymentTotals(rows: PaymentAggRow[]): PaymentTotals {
     cardTotalStotinki,
     cardCount,
   };
-}
-
-export interface ProductionItem {
-  productName: string;
-  totalQty: number;
-  orderCount: number;
-  farmerId: string | null;
-  farmerName: string | null;
-}
-
-export interface ProductionSummary {
-  date: string;
-  confirmedOrders: number;
-  /** Orders still pending (unconfirmed) for the day — they are NOT in the prep
-   *  list yet, so the UI nudges the farmer to confirm them. */
-  pendingOrders: number;
-  multiFarmer: boolean;
-  items: ProductionItem[];
 }
 
 /** Safe, public-facing order recap for the storefront confirmation page —
@@ -960,16 +953,29 @@ export class OrdersService {
     return { orders: fullRows.map(toFarmerOrder), nextCursor };
   }
 
+  /** «Подготовка» feed for one farmer on one day. Orders are the source of truth
+   *  for prep progress; the product view aggregates them client-side. `date`
+   *  defaults to tomorrow (the main prep horizon). */
+  async prepSummary(tenantId: string, farmerId: string, date?: string): Promise<PrepSummary> {
+    const day = date ?? bgAddDays(bgToday(), 1);
+    const [orders, pendingOrders] = await Promise.all([
+      this.prepOrders(tenantId, farmerId, day),
+      this.pendingCountForFarmer(tenantId, farmerId, day),
+    ]);
+    return { date: day, confirmedOrders: orders.length, pendingOrders, orders };
+  }
+
   /**
-   * Task #14: tomorrow's confirmed orders containing this farmer's own
+   * Task #14: one day's confirmed orders containing this farmer's own
    * products, with each order's self-tracked fulfilment state
    * (order_fulfillments; no row yet ⇒ 'pending') and the customer's contact —
-   * so the farmer's «Утре» panel shows exactly whom to call about a gap.
+   * so the farmer's «Подготовка» panel shows exactly whom to call about a gap.
    * Mirrors ordersForFarmer's per-farmer item attribution: this farmer's own
    * lines only — a co-producer's lines on a shared order never appear here.
+   * `date` defaults to tomorrow (the main prep horizon).
    */
-  async tomorrowForFarmer(tenantId: string, farmerId: string): Promise<TomorrowOrder[]> {
-    const tomorrow = bgAddDays(bgToday(), 1);
+  async prepOrders(tenantId: string, farmerId: string, date?: string): Promise<TomorrowOrder[]> {
+    const targetDay = date ?? bgAddDays(bgToday(), 1);
     const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
     const rows = await this.db
       .select({
@@ -985,6 +991,7 @@ export class OrdersService {
         state: orderFulfillments.state,
         productId: orderItems.productId,
         productName: products.name,
+        variantLabel: orderItems.variantLabel,
         quantity: orderItems.quantity,
       })
       .from(orderItems)
@@ -1000,7 +1007,7 @@ export class OrdersService {
           eq(orders.tenantId, tenantId),
           eq(orders.status, 'confirmed'),
           eq(products.farmerId, farmerId),
-          scheduledForDay(tomorrow),
+          scheduledForDay(targetDay),
         )!,
       )
       .orderBy(orders.createdAt);
@@ -1019,6 +1026,7 @@ export class OrdersService {
       state: FulfillmentState | null;
       productId: string | null;
       productName: string | null;
+      variantLabel: string | null;
       quantity: number;
     }>) {
       let o = byOrder.get(r.orderId);
@@ -1039,10 +1047,40 @@ export class OrdersService {
         byOrder.set(r.orderId, o);
       }
       if (r.productId) {
-        o.items.push({ productId: r.productId, productName: r.productName ?? '—', quantity: r.quantity });
+        o.items.push({
+          productId: r.productId,
+          productName: r.productName ?? '—',
+          variantLabel: r.variantLabel,
+          quantity: r.quantity,
+        });
       }
     }
     return [...byOrder.values()];
+  }
+
+  /** Pending (unconfirmed) orders on `day` that contain this farmer's items — they
+   *  aren't in the prep feed yet, so the UI nudges the farmer to confirm them.
+   *  Needs the deliverySlots leftJoin for scheduledForDay. */
+  private async pendingCountForFarmer(
+    tenantId: string,
+    farmerId: string,
+    day: string,
+  ): Promise<number> {
+    const [{ pending }] = await this.db
+      .select({ pending: sql<number>`count(distinct ${orders.id})::int` })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          eq(orders.status, 'pending'),
+          eq(products.farmerId, farmerId),
+          scheduledForDay(day),
+        )!,
+      );
+    return pending ?? 0;
   }
 
   /**
@@ -1795,80 +1833,6 @@ export class OrdersService {
       throw new ForbiddenException('Споделена поръчка — само собственикът може да отбележи плащането.');
     }
     return this.setCodOutcome(id, tenantId, dto);
-  }
-
-  /**
-   * Daily prep list: aggregate confirmed orders for a date into per-product
-   * totals (sum qty, distinct order count), most-to-prepare first. One grouped
-   * query for the rows + one scalar for the confirmed-order count (no N+1).
-   */
-  async production(tenantId: string, date?: string): Promise<ProductionSummary> {
-    const day = date ?? bgToday();
-    // A slotted order counts on its delivery-slot day, not its creation day —
-    // the same rule as the daily digests (see scheduledForDay). Slotless orders
-    // (market pickup) fall back to creation day. Needs the deliverySlots leftJoin.
-    const onDay = and(
-      eq(orders.tenantId, tenantId),
-      eq(orders.status, 'confirmed'),
-      scheduledForDay(day),
-    )!;
-
-    // Pending (unconfirmed) orders for the same day — these aren't in the prep
-    // list, so the UI warns the farmer to confirm them.
-    const pendingOnDay = and(
-      eq(orders.tenantId, tenantId),
-      eq(orders.status, 'pending'),
-      scheduledForDay(day),
-    )!;
-
-    // The four reads are independent — run concurrently (one admin page load).
-    const [rows, [{ count }], [{ pending }], [tenant]] = await Promise.all([
-      this.db
-        .select({
-          productName: orderItems.productName,
-          totalQty: sql<number>`sum(${orderItems.quantity})::int`,
-          orderCount: sql<number>`count(distinct ${orderItems.orderId})::int`,
-          farmerId: products.farmerId,
-          farmerName: farmers.name,
-        })
-        .from(orderItems)
-        .innerJoin(orders, eq(orderItems.orderId, orders.id))
-        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
-        .leftJoin(products, eq(orderItems.productId, products.id))
-        .leftJoin(farmers, eq(products.farmerId, farmers.id))
-        .where(onDay)
-        .groupBy(orderItems.productName, products.farmerId, farmers.name)
-        .orderBy(sql`sum(${orderItems.quantity}) desc`, orderItems.productName),
-      this.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(orders)
-        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
-        .where(onDay),
-      this.db
-        .select({ pending: sql<number>`count(*)::int` })
-        .from(orders)
-        .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
-        .where(pendingOnDay),
-      this.db
-        .select({ multiFarmer: tenants.multiFarmer })
-        .from(tenants)
-        .where(eq(tenants.id, tenantId))
-        .limit(1),
-    ]);
-
-    return {
-      date: day,
-      confirmedOrders: count,
-      pendingOrders: pending,
-      multiFarmer: tenant?.multiFarmer ?? false,
-      items: rows.map((r) => ({
-        productName: r.productName ?? '',
-        totalQty: r.totalQty,
-        orderCount: r.orderCount,
-        farmerId: r.farmerId ?? null,
-        farmerName: r.farmerName ?? null,
-      })),
-    };
   }
 
   /** Bulk confirm all pending orders (optionally for a single day). */
