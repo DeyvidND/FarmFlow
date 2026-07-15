@@ -52,6 +52,7 @@ import { RouteDaySuggesterModal } from './route-day-suggester-modal';
 import { CourierHomesModal } from './courier-homes-modal';
 import { CourierAssignmentBoard } from './courier-assignment-board';
 import { deriveLegCount, isBoardActive } from './courier-assignment';
+import { hasPinCausedImbalance } from './pin-imbalance';
 import { DeliveryWindowsModal } from './delivery-windows-modal';
 import { AddOrdersModal } from './add-orders-modal';
 
@@ -181,6 +182,11 @@ export function RouteClient({
   }, [route.date, route.couriers]);
 
   const multi = routes.length > 1;
+  // Audit follow-up: a manual courier pin can create a real, deliberate
+  // imbalance the geographic splitter can't fix (the pinned courier's stops
+  // are fixed regardless of geography) — surface a short explanation instead
+  // of letting a lopsided day read as "the algorithm is bad at this".
+  const pinImbalanceHint = useMemo(() => hasPinCausedImbalance(routes), [routes]);
   const active: CourierRoute = routes[activeCourierIdx] ?? routes[0] ?? EMPTY_ROUTE;
   const { stops } = active;
   // Every stop across every courier — used for the "mark all delivered" bulk
@@ -1166,6 +1172,15 @@ export function RouteClient({
             <span>Доставки {moneyFromStotinki(active.deliveryFeeStotinki)}</span>
             <span className="text-ff-ink-2">Оборот {moneyFromStotinki(active.totalStotinki)}</span>
           </div>
+          {/* audit follow-up: only shown when today's split is meaningfully
+              imbalanced AND at least one order is pinned to a courier — a pin
+              overrides geography on purpose, so the imbalance isn't a bug. */}
+          {pinImbalanceHint && (
+            <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] font-semibold text-ff-amber-600">
+              <AlertTriangle size={12} className="shrink-0" />
+              Разликата в натовареността идва от ръчно преместени поръчки към куриер — не от маршрута.
+            </div>
+          )}
         </div>
       )}
 
