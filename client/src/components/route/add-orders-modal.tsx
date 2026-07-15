@@ -62,21 +62,35 @@ export function AddOrdersModal({
   async function submit() {
     if (!canSubmit) return;
     setBusy(true);
+    let res: { moved: number };
     try {
-      const res = await rescheduleOrders(selectedIds, routeDate);
-      if (courierIndex !== null) {
-        for (const id of selectedIds) {
-          await setOrderCourier(id, courierIndex);
-        }
-      }
-      toast.success(`Добавени ${res.moved} поръчки към ${relDayLabel(routeDate)}`);
-      onAdded();
-      onClose();
+      res = await rescheduleOrders(selectedIds, routeDate);
     } catch (e) {
       toast.error(errMsg(e));
-    } finally {
       setBusy(false);
+      return;
     }
+
+    // Orders are on the route now — any failure past this point is partial,
+    // not total, so it must not look like nothing happened.
+    let courierFailures = 0;
+    if (courierIndex !== null) {
+      const results = await Promise.allSettled(
+        selectedIds.map((id) => setOrderCourier(id, courierIndex)),
+      );
+      courierFailures = results.filter((r) => r.status === 'rejected').length;
+    }
+
+    if (courierFailures > 0) {
+      toast.error(
+        `Добавени ${res.moved} поръчки към ${relDayLabel(routeDate)} — куриерът не се зададе за всички, провери реда`,
+      );
+    } else {
+      toast.success(`Добавени ${res.moved} поръчки към ${relDayLabel(routeDate)}`);
+    }
+    onAdded();
+    onClose();
+    setBusy(false);
   }
 
   return (
@@ -133,7 +147,7 @@ export function AddOrdersModal({
                         <span className="flex-1 text-[14px] font-semibold text-ff-ink">
                           {orderNo(o)} · {o.customerName ?? '—'}
                           {o.status === 'pending' && (
-                            <span className="ml-2 rounded-full bg-ff-amber-100 px-2 py-0.5 text-[11px] font-bold text-ff-amber-700">
+                            <span className="ml-2 rounded-full bg-ff-amber-soft px-2 py-0.5 text-[11px] font-bold text-ff-amber-600">
                               чака потвърждение
                             </span>
                           )}
