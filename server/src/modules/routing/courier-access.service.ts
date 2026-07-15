@@ -11,11 +11,11 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
  * Task C2 — admin-only grant/revoke/list for `role='driver'` logins bound to a
  * courier leg (0-based `courierIndex`, matches `orders.courierIndex` /
  * `settings.routing.couriers[]`). Mirrors `FarmersService`'s
- * listAccess/grantAccess/revokeAccess almost line-for-line; the one structural
- * difference is that a farmer login is uniquely constrained in the DB
- * (`users_farmer_id_uniq`) while a courier login has no such constraint, so
- * "at most one driver login per (tenantId, courierIndex)" is enforced here at
- * the application level instead.
+ * listAccess/grantAccess/revokeAccess almost line-for-line. "At most one driver
+ * login per (tenantId, courierIndex)" is backed by the partial unique index
+ * `users_tenant_courier_index_uniq` (mirrors `users_farmer_id_uniq` for
+ * farmers) — grantAccess's own lookup+insert is a plain read-then-write, so the
+ * DB constraint is what actually closes the race on concurrent grants.
  */
 @Injectable()
 export class CourierAccessService {
@@ -83,18 +83,29 @@ export class CourierAccessService {
       userId = updated.id;
     } else {
       const passwordHash = await argon2.hash(`${randomUUID()}${randomUUID()}`);
-      const [created] = await this.db
-        .insert(users)
-        .values({
-          tenantId,
-          courierIndex,
-          email: normalizedEmail,
-          role: 'driver',
-          passwordHash,
-          mustChangePassword: true,
-        })
-        .returning({ id: users.id });
-      userId = created.id;
+      try {
+        const [created] = await this.db
+          .insert(users)
+          .values({
+            tenantId,
+            courierIndex,
+            email: normalizedEmail,
+            role: 'driver',
+            passwordHash,
+            mustChangePassword: true,
+          })
+          .returning({ id: users.id });
+        userId = created.id;
+      } catch (err) {
+        // users_tenant_courier_index_uniq (partial, role='driver') backstops the
+        // read-then-write above: two concurrent grantAccess calls for the same leg
+        // (e.g. an admin double-clicking "Покани") can both see existing=undefined
+        // and race to insert — the DB constraint lets only one through.
+        if ((err as { code?: string }).code === '23505') {
+          throw new ConflictException('Достъп за този куриер вече е предоставен');
+        }
+        throw err;
+      }
     }
 
     // Swallow invite-send failures (mirrors FarmersService.grantAccess): the

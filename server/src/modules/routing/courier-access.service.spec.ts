@@ -130,6 +130,20 @@ describe('CourierAccessService', () => {
       expect(res).toEqual({ courierIndex: 2, loginEmail: 'same@x.bg', invitePending: true });
     });
 
+    it('maps a DB unique-violation on insert (concurrent grant race for the same leg) to a friendly ConflictException', async () => {
+      db.limit
+        .mockResolvedValueOnce([]) // this request's own read sees no existing login yet
+        .mockResolvedValueOnce([]); // email not taken
+      const uniqueViolation = Object.assign(
+        new Error('duplicate key value violates unique constraint "users_tenant_courier_index_uniq"'),
+        { code: '23505' },
+      );
+      db.returning.mockRejectedValueOnce(uniqueViolation);
+
+      await expect(svc.grantAccess(TENANT, 2, 'driver2@x.bg')).rejects.toThrow(ConflictException);
+      expect(auth.issueInvite).not.toHaveBeenCalled();
+    });
+
     it('still returns pending when the invite email fails (swallow + log)', async () => {
       db.limit
         .mockResolvedValueOnce([]) // no existing login

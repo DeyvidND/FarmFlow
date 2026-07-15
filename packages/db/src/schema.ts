@@ -168,6 +168,12 @@ export const users = pgTable(
     farmerIdUniq: uniqueIndex('users_farmer_id_uniq')
       .on(t.farmerId)
       .where(sql`${t.farmerId} is not null`),
+    // At most one driver login per courier leg — backs the app-level check in
+    // CourierAccessService.grantAccess (which is read-then-write, not transactional)
+    // so two concurrent grants for the same leg can't both insert.
+    courierIndexUniq: uniqueIndex('users_tenant_courier_index_uniq')
+      .on(t.tenantId, t.courierIndex)
+      .where(sql`${t.role} = 'driver' and ${t.courierIndex} is not null`),
     // listAccess: WHERE tenant_id=? AND role='farmer' — currently a seq-scan.
     tenantRoleIdx: index('users_tenant_role_idx').on(t.tenantId, t.role),
     // Login matches case-insensitively (auth.service: `lower(email) = ?`). The
