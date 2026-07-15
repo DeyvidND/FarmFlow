@@ -163,3 +163,74 @@ describe('OrdersService.prepSummary', () => {
     expect(summary.confirmedOrders).toBe(0);
   });
 });
+
+/**
+ * OrdersService.prepForCourierLeg — a courier's packing list for their own
+ * route leg. Unlike prepOrders (one farmer's own lines only, farmerId-scoped
+ * WHERE), the caller already resolved the exact order ids on the driver's
+ * leg (route-leg membership can't be a cheap WHERE — see the method's own
+ * doc comment), so this is scoped by `inArray(orders.id, orderIds)` alone and
+ * groups EVERY item regardless of which farmer grew it.
+ */
+describe('OrdersService.prepForCourierLeg', () => {
+  function makeSvc(rows: unknown[]) {
+    const chain: any = {};
+    chain.select = jest.fn(() => chain);
+    chain.from = jest.fn(() => chain);
+    chain.innerJoin = jest.fn(() => chain);
+    chain.leftJoin = jest.fn(() => chain);
+    chain.where = jest.fn(() => chain);
+    chain.orderBy = jest.fn(() => Promise.resolve(rows));
+    const svc = new OrdersService(
+      chain as never, {} as never, {} as never, {} as never,
+      {} as never, {} as never, {} as never, {} as never,
+    );
+    return { svc, chain };
+  }
+
+  it('an empty orderIds list short-circuits to an empty summary — no query at all', async () => {
+    const { svc, chain } = makeSvc([]);
+    const result = await svc.prepForCourierLeg('t', [], '2026-07-16');
+    expect(result).toEqual({ date: '2026-07-16', confirmedOrders: 0, pendingOrders: 0, orders: [] });
+    expect(chain.select).not.toHaveBeenCalled();
+  });
+
+  it('groups every item onto its order regardless of farmer, always defaulting fulfillmentState to pending', async () => {
+    const { svc } = makeSvc([
+      {
+        orderId: 'o1', orderNumber: 5, customerName: 'Мария', customerPhone: '0888111222',
+        customerEmail: null, deliveryType: 'address', slotFrom: '10:00:00', slotTo: '12:00:00',
+        productId: 'p1', productName: 'Домати (фермер А)', variantLabel: null, quantity: 3,
+      },
+      {
+        orderId: 'o1', orderNumber: 5, customerName: 'Мария', customerPhone: '0888111222',
+        customerEmail: null, deliveryType: 'address', slotFrom: '10:00:00', slotTo: '12:00:00',
+        productId: 'p2', productName: 'Мед (фермер Б)', variantLabel: '1 кг', quantity: 1,
+      },
+    ]);
+    const result = await svc.prepForCourierLeg('t', ['o1'], '2026-07-16');
+    expect(result.date).toBe('2026-07-16');
+    expect(result.confirmedOrders).toBe(1);
+    expect(result.pendingOrders).toBe(0);
+    expect(result.orders).toHaveLength(1);
+    expect(result.orders[0].fulfillmentState).toBe('pending');
+    expect(result.orders[0].items).toEqual([
+      { productId: 'p1', productName: 'Домати (фермер А)', variantLabel: null, quantity: 3 },
+      { productId: 'p2', productName: 'Мед (фермер Б)', variantLabel: '1 кг', quantity: 1 },
+    ]);
+  });
+
+  it('one summary row per order id, in query order', async () => {
+    const { svc } = makeSvc([
+      { orderId: 'o1', orderNumber: 1, customerName: null, customerPhone: null, customerEmail: null,
+        deliveryType: 'address', slotFrom: null, slotTo: null,
+        productId: 'p1', productName: 'Ябълки', variantLabel: null, quantity: 2 },
+      { orderId: 'o2', orderNumber: 2, customerName: null, customerPhone: null, customerEmail: null,
+        deliveryType: 'address', slotFrom: null, slotTo: null,
+        productId: 'p2', productName: 'Круши', variantLabel: null, quantity: 4 },
+    ]);
+    const result = await svc.prepForCourierLeg('t', ['o1', 'o2'], '2026-07-16');
+    expect(result.orders.map((o) => o.id)).toEqual(['o1', 'o2']);
+    expect(result.confirmedOrders).toBe(2);
+  });
+});

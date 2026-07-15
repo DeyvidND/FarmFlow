@@ -27,14 +27,16 @@ export default async function PrepPage(props: { searchParams: Promise<{ date?: s
     getJson<{ role?: string }>('auth/me', {}),
     getJson<{ multiFarmer?: boolean }>('tenants/me', {}),
   ]);
-  const role = account.role === 'farmer' ? 'farmer' : 'admin';
+  const role = account.role === 'farmer' ? 'farmer' : account.role === 'driver' ? 'driver' : 'admin';
   const multiFarmer = profile.multiFarmer === true;
 
   const farmers = role === 'admin' ? await getJson<{ id: string; name: string }[]>('farmers', []) : [];
   const defaultFarmerId = role === 'admin' ? (farmers[0]?.id ?? '') : '';
 
   const empty: PrepSummary = { date: date ?? '', confirmedOrders: 0, pendingOrders: 0, orders: [] };
-  const canFetch = role === 'farmer' || defaultFarmerId !== '';
+  // A driver has no farmerId at all — the server resolves their own route leg
+  // from the JWT instead, same as a farmer resolving their own farmerId.
+  const canFetch = role === 'farmer' || role === 'driver' || defaultFarmerId !== '';
   const qs = new URLSearchParams();
   if (date) qs.set('date', date);
   if (defaultFarmerId) qs.set('farmerId', defaultFarmerId);

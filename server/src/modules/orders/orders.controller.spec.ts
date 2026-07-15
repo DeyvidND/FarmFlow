@@ -369,6 +369,63 @@ describe('OrdersController prep routing', () => {
   });
 });
 
+// GET /orders/prep for a courier login (role='driver') — a driver has no
+// farmerId at all, so it's routed to prepForDriver instead of prepSummary:
+// resolve the driver's own leg for the day (same recompute as
+// assertDriverOwnsOrder), then collect that leg's order ids from the
+// recomputed route and hand them to a leg-scoped service method.
+describe('OrdersController prep routing — driver', () => {
+  const svc = { prepSummary: jest.fn(), prepForCourierLeg: jest.fn().mockResolvedValue('leg-scoped') };
+  const routing = { getRoute: jest.fn() };
+  const assignments = { resolveMyLeg: jest.fn() };
+  const ctrl = new OrdersController(svc as any, routing as any, assignments as any);
+  const driver = (over: Record<string, unknown> = {}) =>
+    ({ type: 'tenant', role: 'driver', userId: 'driver-1', tenantId: 't', ...over }) as any;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('an unassigned driver (no leg for the day) gets an empty summary without touching the route or prep query', async () => {
+    assignments.resolveMyLeg.mockResolvedValue(null);
+    const result = await ctrl.prep(driver(), '2026-07-16', undefined);
+
+    expect(assignments.resolveMyLeg).toHaveBeenCalledWith('t', 'driver-1', '2026-07-16');
+    expect(routing.getRoute).not.toHaveBeenCalled();
+    expect(svc.prepForCourierLeg).not.toHaveBeenCalled();
+    expect(svc.prepSummary).not.toHaveBeenCalled();
+    expect(result).toEqual({ date: '2026-07-16', confirmedOrders: 0, pendingOrders: 0, orders: [] });
+  });
+
+  it('an assigned driver gets ONLY their own leg\'s order ids, from the recomputed route, never a raw farmerId path', async () => {
+    assignments.resolveMyLeg.mockResolvedValue(1);
+    routing.getRoute.mockResolvedValue({
+      routes: [
+        { courierIndex: 0, stops: [{ id: 'order-a' }, { id: 'order-b' }] },
+        { courierIndex: 1, stops: [{ id: 'order-c' }] },
+      ],
+    });
+
+    const result = await ctrl.prep(driver(), '2026-07-16', undefined);
+
+    expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-16');
+    expect(svc.prepForCourierLeg).toHaveBeenCalledWith('t', ['order-c'], '2026-07-16');
+    expect(svc.prepSummary).not.toHaveBeenCalled();
+    expect(result).toBe('leg-scoped');
+  });
+
+  it('ignores a query ?farmerId entirely for a driver — no farmerId concept applies', async () => {
+    assignments.resolveMyLeg.mockResolvedValue(null);
+    await ctrl.prep(driver(), '2026-07-16', 'farmer-9');
+    expect(svc.prepSummary).not.toHaveBeenCalled();
+  });
+
+  it('defaults the date to today when none is given', async () => {
+    assignments.resolveMyLeg.mockResolvedValue(null);
+    const result = await ctrl.prep(driver(), undefined, undefined);
+    expect(assignments.resolveMyLeg).toHaveBeenCalledWith('t', 'driver-1', expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+    expect(result.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
 // PATCH :id/fulfillment (Task #14) — same owner-vs-producer scope rule as
 // /tomorrow (an owner MUST pass ?farmerId; a producer is forced to their own).
 describe('OrdersController setFulfillment routing', () => {

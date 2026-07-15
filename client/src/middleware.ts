@@ -48,10 +48,11 @@ const FARMER_ALLOWED = [
   '/help',
 ];
 
-// Driver (courier) logins only ever need the route screen + help; bounce anything
-// else to /route. UX only — the server's default-deny guard is the real boundary.
-// Keep in sync with DRIVER_ALLOWED in components/layout/driver-route-guard.tsx.
-const DRIVER_ALLOWED = ['/route', '/help'];
+// Driver (courier) logins only ever need the route screen, their prep
+// checklist, + help; bounce anything else to /route. UX only — the server's
+// default-deny guard is the real boundary. Keep in sync with DRIVER_ALLOWED
+// in components/layout/driver-route-guard.tsx.
+const DRIVER_ALLOWED = ['/route', '/prep', '/help'];
 
 /** Decode the JWT payload without verifying signature (UX guard only). */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {

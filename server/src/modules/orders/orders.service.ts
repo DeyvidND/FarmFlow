@@ -1058,6 +1058,86 @@ export class OrdersService {
     return [...byOrder.values()];
   }
 
+  /**
+   * «Подготовка» packing list for a courier's own route leg. Unlike
+   * {@link prepOrders} (one farmer's own lines only), a courier loads the
+   * whole van — every item on the given order ids, any farmer. `orderIds`
+   * is the caller's job to resolve (route-leg membership is computed live by
+   * RoutingService.getRoute — sweep-split + manual pins — same as the driver
+   * ownership check on findOne/updateStatusForCourier, not a stored column).
+   * Fulfilment state is always 'pending': order_fulfillments is a farmer's
+   * own per-product prep tracking, which a driver doesn't own or read here.
+   * Empty `orderIds` (no leg assigned today, or an empty leg) short-circuits
+   * to an empty summary — skips a query `inArray` would need guarding anyway.
+   */
+  async prepForCourierLeg(tenantId: string, orderIds: string[], day: string): Promise<PrepSummary> {
+    if (orderIds.length === 0) return { date: day, confirmedOrders: 0, pendingOrders: 0, orders: [] };
+    const rows = await this.db
+      .select({
+        orderId: orders.id,
+        orderNumber: orders.orderNumber,
+        customerName: orders.customerName,
+        customerPhone: orders.customerPhone,
+        customerEmail: orders.customerEmail,
+        deliveryType: orders.deliveryType,
+        slotFrom: deliverySlots.timeFrom,
+        slotTo: deliverySlots.timeTo,
+        productId: orderItems.productId,
+        productName: orderItems.productName,
+        variantLabel: orderItems.variantLabel,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)))
+      .orderBy(orders.createdAt);
+
+    const byOrder = new Map<string, TomorrowOrder>();
+    for (const r of rows as Array<{
+      orderId: string;
+      orderNumber: number | null;
+      customerName: string | null;
+      customerPhone: string | null;
+      customerEmail: string | null;
+      deliveryType: string;
+      slotFrom: string | null;
+      slotTo: string | null;
+      productId: string | null;
+      productName: string | null;
+      variantLabel: string | null;
+      quantity: number;
+    }>) {
+      let o = byOrder.get(r.orderId);
+      if (!o) {
+        o = {
+          id: r.orderId,
+          orderNumber: r.orderNumber,
+          customerName: r.customerName,
+          customerPhone: r.customerPhone,
+          customerEmail: r.customerEmail,
+          deliveryType: r.deliveryType,
+          day,
+          slotFrom: r.slotFrom,
+          slotTo: r.slotTo,
+          fulfillmentState: 'pending',
+          items: [],
+        };
+        byOrder.set(r.orderId, o);
+      }
+      if (r.productId) {
+        o.items.push({
+          productId: r.productId,
+          productName: r.productName ?? '—',
+          variantLabel: r.variantLabel,
+          quantity: r.quantity,
+        });
+      }
+    }
+    const list = [...byOrder.values()];
+    return { date: day, confirmedOrders: list.length, pendingOrders: 0, orders: list };
+  }
+
   /** Pending (unconfirmed) orders on `day` that contain this farmer's items — they
    *  aren't in the prep feed yet, so the UI nudges the farmer to confirm them.
    *  Needs the deliverySlots leftJoin for scheduledForDay. */

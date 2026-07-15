@@ -74,7 +74,7 @@ export function PrepClient({
 }: {
   initial: PrepSummary;
   initialDate: string;
-  role?: 'admin' | 'farmer';
+  role?: 'admin' | 'farmer' | 'driver';
   farmers?: { id: string; name: string }[];
   multiFarmer?: boolean;
   defaultFarmerId?: string;
@@ -137,7 +137,12 @@ export function PrepClient({
   const pickedQty = productRows.reduce((s, r) => s + r.pickedQty, 0);
   const allDone = totalQty > 0 && pickedQty === totalQty;
   const orderViewOrders = isAll ? mergeOrderSlices(orders) : orders;
-  const gaps = isAll ? [] : orders.filter((o) => o.fulfillmentState !== 'fulfilled');
+  // A courier's rows never carry a real per-farmer fulfillment state (always
+  // 'pending' — that's the farmer's own prep tracking, not the driver's) —
+  // the "N still waiting" gap banner would otherwise fire for every order,
+  // every time. Same suppression as the multi-farmer «Всички» view.
+  const isDriver = role === 'driver';
+  const gaps = isAll || isDriver ? [] : orders.filter((o) => o.fulfillmentState !== 'fulfilled');
 
   return (
     <div className="animate-ff-fade-up">
@@ -217,28 +222,50 @@ export function PrepClient({
           Няма потвърдени поръчки за този ден.
         </div>
       ) : view === 'orders' ? (
-        <OrdersView orders={orderViewOrders} gaps={gaps} busyId={busyId} onMark={onMark} readOnly={isAll} />
+        <OrdersView
+          orders={orderViewOrders}
+          gaps={gaps}
+          busyId={busyId}
+          onMark={onMark}
+          readOnly={isAll || isDriver}
+          readOnlyNote={
+            isDriver
+              ? 'Готовността на продуктите се отмята от фермера — тук е само за преглед.'
+              : undefined
+          }
+          hideState={isDriver}
+        />
       ) : (
-        <ProductsView rows={productRows} pickedQty={pickedQty} totalQty={totalQty} allDone={allDone} />
+        <ProductsView
+          rows={productRows}
+          pickedQty={pickedQty}
+          totalQty={totalQty}
+          allDone={allDone}
+          isDriver={isDriver}
+        />
       )}
     </div>
   );
 }
 
 function OrdersView({
-  orders, gaps, busyId, onMark, readOnly = false,
+  orders, gaps, busyId, onMark, readOnly = false, readOnlyNote, hideState = false,
 }: {
   orders: TomorrowOrder[];
   gaps: TomorrowOrder[];
   busyId: string | null;
   onMark: (id: string, state: FulfillmentState) => void;
   readOnly?: boolean;
+  readOnlyNote?: string;
+  /** Drop the "Чака/В процес/Готово" badge — it's a farmer's own prep state,
+   *  meaningless (always 'pending') on a courier's read-only leg view. */
+  hideState?: boolean;
 }) {
   return (
     <>
       {readOnly && (
         <div className="mb-4 rounded-xl border border-ff-border bg-ff-surface-2 px-4 py-3 text-[13px] leading-[1.5] text-ff-muted">
-          Изглед за всички фермери — избери конкретен фермер горе, за да отмяташ поръчки.
+          {readOnlyNote ?? 'Изглед за всички фермери — избери конкретен фермер горе, за да отмяташ поръчки.'}
         </div>
       )}
       {gaps.length > 0 && (
@@ -259,9 +286,11 @@ function OrdersView({
                 <span className="text-[13px] font-extrabold text-ff-ink">№{o.orderNumber ?? '—'}</span>
                 <span className="text-[12.5px] text-ff-muted">{deliveryMeta(o)}</span>
               </div>
-              <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', STATE_CLS[o.fulfillmentState])}>
-                {STATE_LABEL[o.fulfillmentState]}
-              </span>
+              {!hideState && (
+                <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', STATE_CLS[o.fulfillmentState])}>
+                  {STATE_LABEL[o.fulfillmentState]}
+                </span>
+              )}
             </div>
             <div className="mb-2 text-[13.5px] font-bold text-ff-ink-2">{o.customerName ?? '—'}</div>
             <Contact o={o} />
@@ -305,12 +334,13 @@ function OrdersView({
 }
 
 function ProductsView({
-  rows, pickedQty, totalQty, allDone,
+  rows, pickedQty, totalQty, allDone, isDriver = false,
 }: {
   rows: ReturnType<typeof aggregateByProduct>;
   pickedQty: number;
   totalQty: number;
   allDone: boolean;
+  isDriver?: boolean;
 }) {
   return (
     <div className="grid grid-cols-[1fr_300px] items-start gap-4 max-[900px]:grid-cols-1">
@@ -385,9 +415,11 @@ function ProductsView({
               <Clock size={19} />
             </span>
             <div>
-              <div className="text-[14px] font-extrabold">Преди бране</div>
+              <div className="text-[14px] font-extrabold">{isDriver ? 'Преди тръгване' : 'Преди бране'}</div>
               <div className="mt-0.5 text-[13px] leading-[1.5] text-ff-ink-2">
-                {'Отмятай поръчките в „По поръчка" — тук виждаш общо колко да набереш от всеки продукт.'}
+                {isDriver
+                  ? 'Общо количество за твоя маршрут днес — провери, че си натоварил всичко, преди да потеглиш.'
+                  : 'Отмятай поръчките в „По поръчка" — тук виждаш общо колко да набереш от всеки продукт.'}
               </div>
             </div>
           </div>

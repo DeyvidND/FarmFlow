@@ -132,9 +132,10 @@ export const FARMER_NAV: NavItem[] = [
   { href: '/farmer-delivery', label: 'Доставки', Icon: Truck, desc: 'Свържи Speedy/Econt и пращай куриерски поръчки.' },
 ];
 
-/** Nav for a driver login (role='driver') — route-only panel, just the one screen. */
+/** Nav for a driver login (role='driver') — route + a packing checklist for it. */
 export const DRIVER_NAV: NavItem[] = [
   { href: '/route', label: 'Маршрут', Icon: RouteIcon, desc: 'Твоят маршрут за днес — спирки и адреси за доставка.' },
+  { href: '/prep', label: 'Подготовка', Icon: CalendarCheck, desc: 'Продуктите за твоя маршрут днес — какво да натовариш.' },
 ];
 
 const NAV_ORDER_PREFIX = 'navorder:';

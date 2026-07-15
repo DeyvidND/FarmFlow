@@ -6,11 +6,11 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { OrdersService } from './orders.service';
+import { OrdersService, type PrepSummary } from './orders.service';
 import { CheckoutService } from './checkout.service';
 import { RoutingService } from '../routing/routing.service';
 import { CourierAssignmentService } from '../routing/courier-assignment.service';
-import { bgDateOf } from '../../common/time/bg-time';
+import { bgDateOf, bgToday } from '../../common/time/bg-time';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
@@ -145,8 +145,11 @@ export class OrdersController {
   // orders for a day (default tomorrow) with fulfillment state + contact, plus the
   // day's pending count. Same scope rule as /mine — a producer is forced to its own
   // farmerId; an owner MUST pass ?farmerId. Not gated (every farmer preps).
+  // Opened to courier logins (role='driver'): a driver has no farmerId at all, so
+  // it's routed to prepForDriver instead — packing list for their OWN route leg
+  // (any farmer's items), not one producer's harvest.
   @Get('prep')
-  @Roles('admin', 'farmer')
+  @Roles('admin', 'farmer', 'driver')
   @ApiQuery({ name: 'date', required: false })
   @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
   prep(
@@ -154,9 +157,39 @@ export class OrdersController {
     @Query('date') date?: string,
     @Query('farmerId') farmerId?: string,
   ) {
+    if (user.role === 'driver') {
+      return this.prepForDriver(user.tenantId, user, date);
+    }
     const scope = effectiveFarmerId(user.role, user.farmerId, farmerId);
     if (!scope) throw new BadRequestException('farmerId required for admin');
     return this.ordersService.prepSummary(user.tenantId, scope, date);
+  }
+
+  /**
+   * «Подготовка» for a courier login (role='driver'): defaults to TODAY, not
+   * the farmer feed's tomorrow — a courier preps for the route they're about
+   * to drive, not tomorrow's. Resolves the driver's leg the same way as
+   * assertDriverOwnsOrder (CourierAssignmentService.resolveMyLeg, the
+   * date-scoped board — not the JWT's retired courierIndex), then recomputes
+   * the route to collect that leg's stop/order ids. No assignment for the
+   * day → empty summary (nothing to load yet), same as an unassigned driver
+   * owning no stops in assertDriverOwnsOrder.
+   */
+  private async prepForDriver(
+    tenantId: string,
+    user: TenantRequestUser,
+    date?: string,
+  ): Promise<PrepSummary> {
+    const day = date ?? bgToday();
+    const myLeg = await this.courierAssignmentService.resolveMyLeg(tenantId, user.userId, day);
+    if (myLeg == null) {
+      return { date: day, confirmedOrders: 0, pendingOrders: 0, orders: [] };
+    }
+    const route = await this.routingService.getRoute(tenantId, day);
+    const orderIds = route.routes
+      .filter((r) => r.courierIndex === myLeg)
+      .flatMap((r) => r.stops.map((s) => s.id));
+    return this.ordersService.prepForCourierLeg(tenantId, orderIds, day);
   }
 
   // Literal route — declared before `:id`. Own-delivery orders that can be moved to
