@@ -236,6 +236,17 @@ describe('slotRuleSlots', () => {
   describe('DST transition regression (Europe/Sofia 2026)', () => {
     // isoAddDays/slotRuleSlots are UTC-string-based so DST should never affect
     // them — this guards against a future accidental switch to local-TZ Date math.
+    // Pinned to Europe/Sofia: under the process's default TZ (UTC in CI) a
+    // local-Date regression would go undetected — these tests only prove
+    // anything under a TZ that actually observes the transition.
+    const prevTz = process.env.TZ;
+    beforeEach(() => {
+      process.env.TZ = 'Europe/Sofia';
+    });
+    afterEach(() => {
+      process.env.TZ = prevTz;
+    });
+
     it('spring-forward 2026-03-29 does not shift or drop the weekly Sunday sequence', () => {
       const r: SlotRule = { ...base, days: [{ dow: 0, capacity: 8 }], anchorDate: '2026-01-01', horizonDays: 14 };
       expect(slotRuleSlots(r, '2026-03-22')).toEqual([
