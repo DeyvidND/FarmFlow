@@ -1242,7 +1242,10 @@ export function RouteClient({
               {!isDriver && (
                 <button
                   onClick={() => setShowReorder(true)}
-                  disabled={orderedStops.length < 2}
+                  // Day-wide gate, not per-leg: the modal shows every leg, so
+                  // even a 1-stop active tab is worth opening when there's
+                  // another stop anywhere to swap/move it against.
+                  disabled={allStops.length < 2}
                   title="Подреди ръчно реда на доставка"
                   className={cn(
                     'inline-flex items-center gap-1.5 rounded-[9px] border px-[11px] py-[7px] text-[13px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50',
