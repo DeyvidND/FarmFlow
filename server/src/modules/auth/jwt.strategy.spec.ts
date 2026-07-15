@@ -128,4 +128,18 @@ describe('JwtStrategy.validate', () => {
     } as any);
     expect((result as any).courierIndex).toBeUndefined();
   });
+
+  // Regression guard: courierIndex 0 is the FIRST courier and a common real value,
+  // but it's falsy — a future accidental `user.courierIndex ? ... : ...` truthy-check
+  // regression would silently drop it. Must stay present in the result.
+  it('includes courierIndex 0 in RequestUser for a driver token (falsy but valid — first courier)', async () => {
+    const driverStrategy = makeStrategy({ tokenVersion: 0, courierIndex: 0 });
+    await expect(
+      driverStrategy.validate({
+        sub: 'u1', type: 'tenant', tenantId: 't1', role: 'driver', tv: 0, courierIndex: 0,
+      } as any),
+    ).resolves.toEqual({
+      type: 'tenant', userId: 'u1', tenantId: 't1', role: 'driver', courierIndex: 0,
+    });
+  });
 });
