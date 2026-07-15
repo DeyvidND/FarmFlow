@@ -1,12 +1,15 @@
 import {
   Controller, Get, Post, Patch,
   Param, Body, Query, UseGuards,
-  ParseUUIDPipe, BadRequestException,
+  ParseUUIDPipe, BadRequestException, ForbiddenException,
+  Inject, forwardRef,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { OrdersService } from './orders.service';
 import { CheckoutService } from './checkout.service';
+import { RoutingService } from '../routing/routing.service';
+import { bgDateOf } from '../../common/time/bg-time';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
@@ -29,7 +32,41 @@ import type { TenantRequestUser } from '@fermeribg/types';
 @UseGuards(JwtAuthGuard)
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    @Inject(forwardRef(() => RoutingService)) private readonly routingService: RoutingService,
+  ) {}
+
+  /**
+   * Own-leg ownership check for a driver (role='driver'), reusing the same
+   * recompute+check pattern as POST /orders/route/measure: recompute the
+   * driver's own leg for the order's day and verify the order is on it.
+   * `statuses: ['confirmed', 'delivered']` (not the route screen's
+   * 'confirmed'-only default) so a driver can still revert an order they just
+   * marked delivered — which would otherwise have already dropped off a
+   * 'confirmed'-only recompute, wrongly 403ing the undo-accidental-finish flow.
+   */
+  private async assertDriverOwnsOrder(
+    tenantId: string,
+    user: TenantRequestUser,
+    order: { id: string; slotDate: string | null; createdAt: Date | string | null },
+  ): Promise<void> {
+    const day = order.slotDate ?? bgDateOf(new Date(order.createdAt ?? Date.now()));
+    const own = await this.routingService.getRoute(
+      tenantId,
+      day,
+      undefined,
+      undefined,
+      undefined,
+      ['confirmed', 'delivered'],
+    );
+    const ownIds = new Set(
+      own.routes.filter((r) => r.courierIndex === user.courierIndex).flatMap((r) => r.stops.map((s) => s.id)),
+    );
+    if (!ownIds.has(order.id)) {
+      throw new ForbiddenException('Нямате достъп до тази поръчка.');
+    }
+  }
 
   @Get()
   @ApiQuery({ name: 'page', required: false })
@@ -131,12 +168,19 @@ export class OrdersController {
   }
 
   // Task C3 — opened to role='driver' (OrderPanel is used from the route screen
-  // too). Tenant-scoping alone (ordersService.findOne) is sufficient here; no
-  // ownership-narrowing beyond tenant for this read.
+  // too). Fast-follow (ledger finding #1): tenant-scoping alone let a driver
+  // holding another leg's order UUID read full customer PII — now gated by the
+  // same own-leg recompute+check as POST /orders/route/measure.
   @Get(':id')
   @Roles('admin', 'farmer', 'driver')
-  findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentTenant() tenantId: string) {
-    return this.ordersService.findOne(id, tenantId);
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+  ) {
+    const order = await this.ordersService.findOne(id, tenantId);
+    if (user.role === 'driver') await this.assertDriverOwnsOrder(tenantId, user, order);
+    return order;
   }
 
   // Opened to producer sub-accounts (role='farmer') so they can mark their OWN COD
@@ -145,15 +189,19 @@ export class OrdersController {
   // finish from the route screen. Owner edits any order; a producer is forced to
   // its own farmerId and routed to the IDOR-scoped method (verifies ownership +
   // restricts to the delivered transition); a driver is routed to the
-  // transition-restricted (delivered/confirmed) courier method.
+  // transition-restricted (delivered/confirmed) courier method, gated (fast-follow,
+  // ledger finding #1) by the same own-leg recompute+check as route/measure —
+  // previously any same-tenant order id could be flipped by a driver.
   @Patch(':id/status')
   @Roles('admin', 'farmer', 'driver')
-  updateStatus(
+  async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: TenantRequestUser,
     @Body() dto: UpdateOrderStatusDto,
   ) {
     if (user.role === 'driver') {
+      const order = await this.ordersService.findOne(id, user.tenantId);
+      await this.assertDriverOwnsOrder(user.tenantId, user, order);
       return this.ordersService.updateStatusForCourier(id, user.tenantId, dto);
     }
     const scope = effectiveFarmerId(user.role, user.farmerId, undefined);

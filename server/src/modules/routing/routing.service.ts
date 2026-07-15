@@ -1,6 +1,7 @@
 import {
   Injectable,
   Inject,
+  forwardRef,
   Logger,
   NotFoundException,
   BadRequestException,
@@ -300,7 +301,10 @@ export class RoutingService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly maps: MapsService,
-    private readonly ordersService: OrdersService,
+    // forwardRef: OrdersModule now imports RoutingModule back (OrdersController
+    // needs RoutingService for the driver own-leg check), making this a genuine
+    // provider-level circular dependency, not just a module-level one.
+    @Inject(forwardRef(() => OrdersService)) private readonly ordersService: OrdersService,
     private readonly orderEmail: OrderConfirmationService,
   ) {}
 
@@ -318,6 +322,11 @@ export class RoutingService {
     endMode?: RouteEndMode,
     couriers?: number,
     endModes?: (RouteEndMode | undefined)[],
+    // Own-leg ownership checks (findOne / updateStatus / route/measure, driver
+    // role) pass ['confirmed', 'delivered'] so an order the driver just marked
+    // delivered still resolves to their own leg — the plain route screen keeps
+    // the 'confirmed'-only default so finished stops drop off the live view.
+    statuses: readonly ('confirmed' | 'delivered')[] = ['confirmed'],
   ): Promise<MultiRouteResult> {
     const day = date ?? bgToday();
 
@@ -355,7 +364,7 @@ export class RoutingService {
       .where(
         and(
           eq(orders.tenantId, tenantId),
-          eq(orders.status, 'confirmed'),
+          inArray(orders.status, statuses),
           eq(orders.deliveryType, 'address'),
           // The route is "stops to DELIVER on this date" — key off the chosen
           // delivery slot's date, not when the order was placed. Shared with the

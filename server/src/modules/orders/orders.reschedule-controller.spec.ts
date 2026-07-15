@@ -5,7 +5,7 @@ function ctrl() {
     reschedulable: jest.fn().mockResolvedValue([{ id: 'o1' }]),
     rescheduleOrders: jest.fn().mockResolvedValue({ moved: 2, toDate: '2026-07-10' }),
   };
-  return { c: new OrdersController(service as any), service };
+  return { c: new OrdersController(service as any, {} as any), service };
 }
 
 describe('OrdersController reschedule routes', () => {

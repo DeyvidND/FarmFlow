@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { OrdersController, PublicOrdersController } from './orders.controller';
 import { CheckoutService } from './checkout.service';
@@ -12,6 +12,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { CodRiskModule } from '../cod-risk/cod-risk.module';
 import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
 import { VendorFinanceModule } from '../vendor-finance/vendor-finance.module';
+import { RoutingModule } from '../routing/routing.module';
 
 @Module({
   imports: [
@@ -24,6 +25,10 @@ import { VendorFinanceModule } from '../vendor-finance/vendor-finance.module';
     CodRiskModule,
     CatalogCacheModule,
     VendorFinanceModule,
+    // forwardRef: RoutingModule imports this module back (RoutingService needs
+    // OrdersService.reschedulable); OrdersController needs RoutingService for
+    // the driver own-leg ownership check on findOne/updateStatus.
+    forwardRef(() => RoutingModule),
   ],
   controllers: [OrdersController, PublicOrdersController, PublicCheckoutController],
   providers: [OrdersService, CheckoutService],

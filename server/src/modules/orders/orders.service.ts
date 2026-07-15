@@ -1637,16 +1637,12 @@ export class OrdersService {
    *  undo an accidental finish from the route screen. Restricted to exactly
    *  those two transitions — a driver has no business setting any other
    *  status (pending/preparing/out_for_delivery/cancelled are operator-only
-   *  decisions). NOTE: unlike updateStatusForFarmer, this does NOT verify the
-   *  order is actually on the driver's own courier leg — route-leg membership
-   *  is computed live by RoutingService.getRoute (sweep-split + manual pins),
-   *  not stored on the order, so a cheap ownership check here isn't possible
-   *  without re-running that computation. The client only ever exposes this
-   *  action for orders visible on the driver's own filtered route (Task C5),
-   *  so no legitimate path constructs a cross-leg request; a malicious driver
-   *  could still mark an arbitrary same-tenant order delivered/confirmed via a
-   *  crafted request. Flagged for the final branch review to weigh whether
-   *  this residual gap needs closing. */
+   *  decisions). Unlike updateStatusForFarmer, ownership isn't checked HERE —
+   *  route-leg membership is computed live by RoutingService.getRoute
+   *  (sweep-split + manual pins), not stored on the order, so it can't be a
+   *  cheap WHERE clause. The caller (OrdersController.updateStatus) recomputes
+   *  the driver's own leg and 403s before reaching this method — see
+   *  OrdersController.assertDriverOwnsOrder (ledger finding #1 fast-follow). */
   async updateStatusForCourier(
     id: string,
     tenantId: string,

@@ -10,15 +10,20 @@ import type { PgColumn } from 'drizzle-orm/pg-core';
  */
 export const BG_TZ = 'Europe/Sofia';
 
-/** Current calendar date (YYYY-MM-DD) in Bulgaria local time. */
-export function bgToday(): string {
+/** The calendar date (YYYY-MM-DD) in Bulgaria local time for a given instant. */
+export function bgDateOf(instant: Date): string {
   // en-CA formats as YYYY-MM-DD.
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: BG_TZ,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date());
+  }).format(instant);
+}
+
+/** Current calendar date (YYYY-MM-DD) in Bulgaria local time. */
+export function bgToday(): string {
+  return bgDateOf(new Date());
 }
 
 /** SQL fragment: a UTC-stored timestamp column reduced to its BG-local date.
