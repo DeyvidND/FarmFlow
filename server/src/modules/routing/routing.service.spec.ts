@@ -492,4 +492,32 @@ describe('RoutingService.getRoute — assignment board overrides leg count', () 
     const ptsLeg2 = maps.routeFixed.mock.calls.at(-1)![0] as Pt[];
     expect(ptsLeg2).toHaveLength(2); // origin, stop — no return leg (one-way)
   });
+
+  // A real reported failure mode: orderItems.variantLabel (e.g. "500г") is
+  // snapshotted at purchase time and already reaches the client via
+  // OrdersService.attachItems' unqualified select — but getRoute's SEPARATE
+  // items query for the stop-card quick summary explicitly whitelisted
+  // columns and omitted variantLabel, so a courier glancing at the route page
+  // (not opening the full order panel) had no way to tell which weight/variant
+  // was ordered. Guards the fix: the stop-card summary line must include it.
+  it("a stop's item summary includes the ordered variant/weight, not just the product name", async () => {
+    const db = makeDb([
+      [tenant()],
+      stops(),
+      [
+        { orderId: 'A', productName: 'Домати', variantLabel: '500г', quantity: 2, priceStotinki: 300 },
+        { orderId: 'A', productName: 'Краставици', variantLabel: null, quantity: 1, priceStotinki: 150 },
+      ],
+    ]);
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([]),
+    } as any);
+
+    const result = await svc.getRoute('t1', '2026-07-15');
+    const stopA = result.routes.flatMap((r) => r.stops).find((s) => s.id === 'A')!;
+
+    expect(stopA.summary).toContain('Домати (500г) × 2');
+    // A variant-less item keeps the plain "name × qty" form.
+    expect(stopA.summary).toContain('Краставици × 1');
+  });
 });

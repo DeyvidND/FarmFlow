@@ -597,6 +597,10 @@ export interface OrderItem {
   productId: string | null;
   variantId: string | null;
   productName: string | null;
+  /** Snapshotted at purchase time (e.g. "500г", "1кг") — the variant/weight
+   *  actually ordered, distinct from `productName`. Null for products sold
+   *  without variants. */
+  variantLabel: string | null;
   quantity: number;
   priceStotinki: number;
 }

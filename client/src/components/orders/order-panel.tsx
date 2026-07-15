@@ -276,7 +276,12 @@ export function OrderDetailBody({
             className={`flex items-center justify-between px-3.5 py-3 ${i < order.items.length - 1 ? 'border-b border-ff-border-2' : ''}`}
           >
             <div className="min-w-0 pr-3">
-              <div className="truncate text-sm font-semibold">{it.productName}</div>
+              <div className="truncate text-sm font-semibold">
+                {it.productName}
+                {it.variantLabel && (
+                  <span className="ml-1.5 font-normal text-ff-muted">· {it.variantLabel}</span>
+                )}
+              </div>
               <div className="mt-px text-xs text-ff-muted">
                 × {it.quantity} · {moneyFromStotinki(it.priceStotinki)}
               </div>

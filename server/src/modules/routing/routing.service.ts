@@ -394,6 +394,7 @@ export class RoutingService {
         .select({
           orderId: orderItems.orderId,
           productName: orderItems.productName,
+          variantLabel: orderItems.variantLabel,
           quantity: orderItems.quantity,
           priceStotinki: orderItems.priceStotinki,
         })
@@ -401,7 +402,11 @@ export class RoutingService {
         .where(inArray(orderItems.orderId, ids));
       for (const it of items) {
         const list = itemsByOrder.get(it.orderId!) ?? [];
-        list.push(`${it.productName} × ${it.quantity}`);
+        // Variant/weight (e.g. "500г") must be visible on the stop card, not
+        // just the full order panel — a courier delivering the wrong weight
+        // variant is a real, reported failure mode.
+        const label = it.variantLabel ? `${it.productName} (${it.variantLabel})` : it.productName;
+        list.push(`${label} × ${it.quantity}`);
         itemsByOrder.set(it.orderId!, list);
         subtotalByOrder.set(
           it.orderId!,
