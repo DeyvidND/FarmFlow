@@ -13,6 +13,7 @@ import {
   numeric,
   index,
   uniqueIndex,
+  unique,
   bigserial,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
@@ -578,6 +579,38 @@ export const handoverProtocols = pgTable(
     tenantNumberUnique: uniqueIndex('handover_tenant_number_unique').on(t.tenantId, t.protocolNumber),
     farmerIdx: index('handover_farmer_idx').on(t.farmerId),
     orderIdx: index('handover_order_idx').on(t.orderId),
+  }),
+);
+
+// Per-day courier leg board (migr 0109): "who runs which leg on date X" —
+// replaces the fixed users.courierIndex login↔leg binding with a per-day
+// assignment. Source of truth for `resolveMyLeg` (Task A2) and driver-facing
+// leg-ownership checks. See docs/superpowers/specs/2026-07-15-courier-assignment-board-design.md §1.
+export const routeCourierAssignments = pgTable(
+  'route_courier_assignments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    // ISO YYYY-MM-DD, Europe/Sofia — same convention as deliverySlots.date / scheduledForDay.
+    date: text('date').notNull(),
+    // The assigned login: a role='driver' row OR the tenant owner's role='admin' row.
+    // Deliberately NOT discriminated by role (spec §1.1) — the caller always knows
+    // the role from context.
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // 0-based leg number, same indexing as orders.courierIndex / settings.routing.couriers[].
+    legIndex: smallint('leg_index').notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    // One leg per account per day — an account can't be two legs at once.
+    accountUniq: unique('route_courier_assign_tenant_date_account_uniq').on(t.tenantId, t.date, t.accountId),
+    // One account per leg per day — a leg can't have two drivers. Hard DB
+    // constraints (not app checks) so concurrent board edits can't double-book.
+    legUniq: unique('route_courier_assign_tenant_date_leg_uniq').on(t.tenantId, t.date, t.legIndex),
   }),
 );
 

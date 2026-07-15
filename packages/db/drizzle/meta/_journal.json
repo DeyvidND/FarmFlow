@@ -750,6 +750,13 @@
       "when": 1784500000000,
       "tag": "0108_users_courier_index_uniq",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1784600000000,
+      "tag": "0109_route_courier_assignments",
+      "breakpoints": true
     }
   ]
 }
