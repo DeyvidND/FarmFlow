@@ -190,13 +190,14 @@ export interface FarmerAccess {
   invitePending: boolean;
 }
 
-/** A courier leg's driver login (Task C2 grant/revoke), keyed by 0-based
- *  `courierIndex`. Normalizes the server's two endpoints (list returns
- *  `email`, grant returns `loginEmail`) into one shape — see api-client.ts. */
-export interface CourierAccess {
-  courierIndex: number;
+/** One entry in the read-only tenant courier roster (`GET
+ *  orders/route/couriers`) — drivers with an account plus the caller's own
+ *  account, flagged via `isSelf`. Account creation itself happens in the
+ *  super-admin console, not here. */
+export interface RouteCourier {
+  accountId: string;
   email: string;
-  invitePending: boolean;
+  isSelf: boolean;
 }
 
 export interface Subcategory {

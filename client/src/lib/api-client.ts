@@ -4,7 +4,6 @@ import type {
   Article,
   AvailabilityWindow,
   BundleMember,
-  CourierAccess,
   DashboardSummary,
   DayProtocolRow,
   DaySuggestionResult,
@@ -28,6 +27,7 @@ import type {
   ReschedulableOrder,
   ReviewStatus,
   MultiRouteResult,
+  RouteCourier,
   RouteEndMode,
   Shipment,
   Slot,
@@ -737,22 +737,11 @@ export const setOrderSequence = (body: { date?: string; courierIndex: number; st
     'Неуспешно запазване на реда',
   );
 
-// ---- Route: admin-only grant/revoke/list of a courier leg's driver login
-// (Task C2). `grantAccess` returns `loginEmail`, `listAccess` returns `email`
-// — an inconsistency already present server-side — normalize both to `email`
-// here so no component has to know about the mismatch. ----
-export const listCourierAccess = () =>
-  apiFetch<CourierAccess[]>('orders/route/courier-access');
-
-export const grantCourierAccess = (courierIndex: number, email: string) =>
-  apiFetch<{ courierIndex: number; loginEmail: string; invitePending: boolean }>(
-    'orders/route/courier-access',
-    { method: 'POST', ...json({ courierIndex, email }) },
-    'Неуспешна покана',
-  ).then((r): CourierAccess => ({ courierIndex: r.courierIndex, email: r.loginEmail, invitePending: r.invitePending }));
-
-export const revokeCourierAccess = (courierIndex: number) =>
-  apiFetch<{ ok: true }>(`orders/route/courier-access/${courierIndex}`, { method: 'DELETE' }, 'Неуспешно премахване');
+// ---- Route: read-only roster of the tenant's couriers (drivers + own
+// account), for the farmer panel. Account creation itself now happens in the
+// super-admin console — this endpoint is read-only by design. ----
+export const listRouteCouriers = () =>
+  apiFetch<RouteCourier[]>('orders/route/couriers');
 
 // ---- Route: per-order delivery time windows (task #13) ----
 export const generateDeliveryWindows = (body: { date?: string; couriers?: number; ends?: string }) =>

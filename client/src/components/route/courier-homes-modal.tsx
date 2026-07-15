@@ -1,19 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Home as HomeIcon, Trash2, KeyRound, Send, Check } from 'lucide-react';
+import { X, Home as HomeIcon, Trash2, KeyRound, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AddressAutocomplete } from './address-autocomplete';
-import {
-  ApiError,
-  getTenant,
-  grantCourierAccess,
-  listCourierAccess,
-  revokeCourierAccess,
-  updateTenant,
-} from '@/lib/api-client';
-import type { CourierAccess, RouteEndMode, RoutingConfig } from '@/lib/types';
+import { getTenant, listRouteCouriers, updateTenant } from '@/lib/api-client';
+import type { RouteCourier, RouteEndMode, RoutingConfig } from '@/lib/types';
 
 interface CourierHomeRow {
   homeAddress: string;
@@ -84,27 +77,12 @@ export function CourierHomesModal({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Driver-login status per courier leg (Task C2 grant/revoke), keyed by
-  // 0-based courierIndex. Loaded once alongside the tenant fetch below —
-  // independent of `rows`/`originalCouriers` (addresses), so a grant/revoke
-  // never has to touch the address-save flow or vice versa.
-  const [access, setAccess] = useState<Record<number, CourierAccess>>({});
-  // Typed-but-not-yet-invited email, per row — only relevant while that row
-  // has no access entry yet.
-  const [inviteEmails, setInviteEmails] = useState<Record<number, string>>({});
-  // courierIndexes with a grant/resend/revoke call in flight — a Set (not a
-  // single index) so two rows can genuinely be busy at once; a single
-  // `number | null` would let a second row's call clobber the first's busy
-  // flag, letting a duplicate request through while the first is still in
-  // flight.
-  const [busyRows, setBusyRows] = useState<Set<number>>(new Set());
-  const setRowBusy = (i: number, busy: boolean) =>
-    setBusyRows((cur) => {
-      const next = new Set(cur);
-      if (busy) next.add(i);
-      else next.delete(i);
-      return next;
-    });
+  // Read-only tenant courier roster (drivers + own account) — Task C1.
+  // Loaded once alongside the tenant fetch below, independent of
+  // `rows`/`originalCouriers` (addresses); accounts are created/removed by
+  // the platform operator in the super-admin console, not from here.
+  const [couriers, setCouriers] = useState<RouteCourier[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(true);
 
   useEffect(() => {
     getTenant()
@@ -128,66 +106,12 @@ export function CourierHomesModal({
       .catch(() => {})
       .finally(() => setLoading(false));
 
-    listCourierAccess()
-      .then((list) => {
-        const byIndex: Record<number, CourierAccess> = {};
-        for (const a of list) byIndex[a.courierIndex] = a;
-        setAccess(byIndex);
-      })
-      .catch(() => {});
+    listRouteCouriers()
+      .then(setCouriers)
+      .catch(() => {})
+      .finally(() => setRosterLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courierCount]);
-
-  async function inviteCourier(i: number) {
-    const email = (inviteEmails[i] ?? '').trim();
-    if (!email) {
-      toast.error('Въведи имейл');
-      return;
-    }
-    setRowBusy(i, true);
-    try {
-      const res = await grantCourierAccess(i, email);
-      setAccess((cur) => ({ ...cur, [i]: res }));
-      setInviteEmails((cur) => ({ ...cur, [i]: '' }));
-      toast.success('Поканата е изпратена');
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'Грешка');
-    } finally {
-      setRowBusy(i, false);
-    }
-  }
-
-  async function resendCourierInvite(i: number) {
-    const current = access[i];
-    if (!current) return;
-    setRowBusy(i, true);
-    try {
-      const res = await grantCourierAccess(i, current.email);
-      setAccess((cur) => ({ ...cur, [i]: res }));
-      toast.success('Поканата е изпратена отново');
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'Грешка');
-    } finally {
-      setRowBusy(i, false);
-    }
-  }
-
-  async function revokeCourier(i: number) {
-    setRowBusy(i, true);
-    try {
-      await revokeCourierAccess(i);
-      setAccess((cur) => {
-        const next = { ...cur };
-        delete next[i];
-        return next;
-      });
-      toast.success('Достъпът е премахнат');
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'Грешка');
-    } finally {
-      setRowBusy(i, false);
-    }
-  }
 
   const setAddress = (i: number, v: string) =>
     setRows((cur) => cur.map((r, idx) => (idx === i ? { ...r, homeAddress: v, homePin: null } : r)));
@@ -276,72 +200,38 @@ export function CourierHomesModal({
                     onPick={(pin) => setPin(i, pin)}
                     apiKey={placesKey}
                   />
-
-                  {/* driver login for this leg (Task C2) — separate from the
-                      home address above, saved/removed immediately (not part
-                      of the "Запази" address save below). */}
-                  <div className="flex flex-col gap-2 rounded-lg border border-ff-border-2 bg-ff-surface-2 px-3 py-2.5">
-                    <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wide text-ff-muted">
-                      <KeyRound size={13} /> Акаунт за куриера
-                    </div>
-                    {access[i] ? (
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
-                          {access[i].invitePending ? (
-                            <>
-                              <Send size={13} className="text-ff-amber-600" /> Поканен · {access[i].email}
-                            </>
-                          ) : (
-                            <>
-                              <Check size={13} className="text-ff-green-700" /> Активен · {access[i].email}
-                            </>
-                          )}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {access[i].invitePending && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={busyRows.has(i)}
-                              onClick={() => void resendCourierInvite(i)}
-                            >
-                              Изпрати отново
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={busyRows.has(i)}
-                            onClick={() => void revokeCourier(i)}
-                            title="Премахни достъп"
-                          >
-                            <X size={14} /> Премахни достъп
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          type="email"
-                          value={inviteEmails[i] ?? ''}
-                          onChange={(e) =>
-                            setInviteEmails((cur) => ({ ...cur, [i]: e.target.value }))
-                          }
-                          placeholder="имейл на куриера"
-                          aria-label={`Имейл за достъп на Куриер ${i + 1}`}
-                          disabled={busyRows.has(i)}
-                          className="min-w-0 flex-1 rounded-md border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12.5px] text-ff-ink outline-none disabled:opacity-50"
-                        />
-                        <Button size="sm" variant="ghost" disabled={busyRows.has(i)} onClick={() => void inviteCourier(i)}>
-                          <Send size={14} /> Покани
-                        </Button>
-                      </div>
-                    )}
-                  </div>
                 </div>
               ))}
             </div>
           )}
+
+          {/* Read-only courier account roster (Task C1) — separate concern
+              from the home addresses above; accounts are created/removed by
+              the platform operator, not from this modal. */}
+          <div className="mt-6 flex flex-col gap-2 rounded-lg border border-ff-border-2 bg-ff-surface-2 px-3 py-3">
+            <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wide text-ff-muted">
+              <KeyRound size={13} /> Куриери на фермата
+            </div>
+            {rosterLoading ? (
+              <p className="text-[12.5px] text-ff-muted">Зареждане…</p>
+            ) : couriers.length === 0 ? (
+              <p className="text-[12.5px] text-ff-muted">Все още няма създадени акаунти за куриери.</p>
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {couriers.map((c) => (
+                  <li key={c.accountId} className="flex items-center gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
+                    <UserRound size={13} className="text-ff-muted" />
+                    {c.email}
+                    {c.isSelf && <span className="font-normal text-ff-muted">(ти)</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-[12px] leading-relaxed text-ff-muted">
+              Акаунтите за куриерите се създават от екипа на платформата — свържи се с нас, ако трябва
+              нов достъп.
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-ff-border px-5 py-4">
