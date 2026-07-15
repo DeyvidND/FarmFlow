@@ -429,6 +429,41 @@ export const resetTenantPassword = (id: string) =>
     'Неуспешно нулиране на паролата',
   );
 
+// ── Courier accounts (Task B2 — flat roster, driver logins, platform-guarded) ──
+
+export interface TenantCourierAccess {
+  accountId: string;
+  email: string;
+  invitePending: boolean;
+}
+
+/** Flat roster of driver logins for this tenant (no per-leg binding — that's the board). */
+export const listTenantCourierAccess = (tenantId: string) =>
+  apiFetch<TenantCourierAccess[]>(
+    `platform/tenants/${tenantId}/courier-access`,
+    undefined,
+    'Неуспешно зареждане на куриерите',
+  );
+
+/** Grant (or re-invite, same call/email) a driver login for this tenant. */
+export const grantTenantCourierAccess = (tenantId: string, email: string) =>
+  apiFetch<TenantCourierAccess>(
+    `platform/tenants/${tenantId}/courier-access`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email }),
+    },
+    'Неуспешно изпращане на покана',
+  );
+
+export const revokeTenantCourierAccess = (tenantId: string, accountId: string) =>
+  apiFetch<{ ok: true }>(
+    `platform/tenants/${tenantId}/courier-access/${accountId}`,
+    { method: 'DELETE' },
+    'Неуспешно премахване на достъпа',
+  );
+
 // ── AI product import (super-admin onboarding) ──
 
 /** One AI-extracted product row, editable in the preview before commit. */

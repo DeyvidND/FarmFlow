@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -19,10 +19,19 @@ import {
   Check,
   X,
   UserPlus,
+  Send,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, dmy, eur } from '@/lib/utils';
-import { ApiError, enableDeliveryOnFarm, type PlatformTenantDetail } from '@/lib/api-client';
+import {
+  ApiError,
+  enableDeliveryOnFarm,
+  grantTenantCourierAccess,
+  listTenantCourierAccess,
+  revokeTenantCourierAccess,
+  type PlatformTenantDetail,
+  type TenantCourierAccess,
+} from '@/lib/api-client';
 import { EnterPanelButton } from '@/components/enter-panel-button';
 import { ProducerOnboardDialog } from '@/components/producer-onboard-dialog';
 
@@ -137,6 +146,170 @@ function Toggle({
       </span>
       <span className="text-[13.5px] font-semibold text-ff-ink-2">{label}</span>
     </button>
+  );
+}
+
+const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
+
+/**
+ * Task B2 — flat driver-login roster for this tenant. Accounts are no longer
+ * bound to a fixed leg number (that binding now happens per-day on the
+ * assignment board, Task C2), so this is just email + invite-pending status,
+ * with invite / re-invite / revoke actions. Mirrors the old
+ * `CourierHomesModal` account UX (farmer panel), moved here because account
+ * creation is now a super-admin-only action — see `PlatformCourierController`.
+ */
+function CourierAccessSection({ tenantId }: { tenantId: string }) {
+  const [rows, setRows] = useState<TenantCourierAccess[] | null>(null);
+  const [loadErr, setLoadErr] = useState('');
+  const [email, setEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    listTenantCourierAccess(tenantId)
+      .then((list) => alive && setRows(list))
+      .catch((e) => alive && setLoadErr(errMsg(e)));
+    return () => {
+      alive = false;
+    };
+  }, [tenantId]);
+
+  async function invite() {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      toast.error('Въведи имейл');
+      return;
+    }
+    setInviting(true);
+    try {
+      const res = await grantTenantCourierAccess(tenantId, trimmed);
+      setRows((cur) => [...(cur ?? []).filter((r) => r.accountId !== res.accountId), res]);
+      setEmail('');
+      toast.success('Поканата е изпратена');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  async function resend(row: TenantCourierAccess) {
+    setBusyId(row.accountId);
+    try {
+      const res = await grantTenantCourierAccess(tenantId, row.email);
+      setRows((cur) => (cur ?? []).map((r) => (r.accountId === row.accountId ? res : r)));
+      toast.success('Поканата е изпратена отново');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function revoke(row: TenantCourierAccess) {
+    setBusyId(row.accountId);
+    try {
+      await revokeTenantCourierAccess(tenantId, row.accountId);
+      setRows((cur) => (cur ?? []).filter((r) => r.accountId !== row.accountId));
+      toast.success('Достъпът е премахнат');
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ff-border-2 px-5 py-3.5">
+        <h2 className="flex items-center gap-2 text-[15px] font-extrabold">
+          <Truck size={16} className="text-ff-green-600" /> Куриери
+        </h2>
+        {!!rows?.length && (
+          <span className="text-[12.5px] text-ff-muted">
+            {rows.length} {rows.length === 1 ? 'куриер' : 'куриери'}
+          </span>
+        )}
+      </div>
+
+      <div className="px-5 py-3.5">
+        {loadErr && <p className="mb-3 text-[13px] font-semibold text-ff-red">{loadErr}</p>}
+
+        {rows === null && !loadErr && <p className="py-4 text-center text-sm text-ff-muted">Зарежда…</p>}
+
+        {rows?.length === 0 && (
+          <p className="py-4 text-center text-sm text-ff-muted">Тази ферма няма поканени куриери.</p>
+        )}
+
+        {!!rows?.length && (
+          <ul className="flex flex-col divide-y divide-ff-border-2">
+            {rows.map((row) => (
+              <li key={row.accountId} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                <span className="inline-flex flex-wrap items-center gap-2 text-[13.5px] text-ff-ink-2">
+                  {row.email}
+                  {row.invitePending ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-ff-amber-soft px-2 py-0.5 text-[11px] font-bold text-ff-amber-600">
+                      <Send size={11} /> поканен
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-ff-green-50 px-2 py-0.5 text-[11px] font-bold text-ff-green-700">
+                      <Check size={11} /> активен
+                    </span>
+                  )}
+                </span>
+                <div className="flex items-center gap-2">
+                  {row.invitePending && (
+                    <button
+                      type="button"
+                      onClick={() => void resend(row)}
+                      disabled={busyId === row.accountId}
+                      className="rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12px] font-bold text-ff-ink-2 hover:bg-ff-surface-2 disabled:opacity-60"
+                    >
+                      Изпрати отново
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void revoke(row)}
+                    disabled={busyId === row.accountId}
+                    className="inline-flex items-center gap-1 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[12px] font-bold text-ff-red hover:bg-ff-red-soft disabled:opacity-60"
+                  >
+                    <X size={13} /> Премахни достъп
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void invite();
+          }}
+          className="mt-3 flex flex-wrap items-center gap-2 border-t border-ff-border-2 pt-3.5"
+        >
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="имейл на куриера"
+            aria-label="Имейл за покана на куриер"
+            disabled={inviting}
+            className={cn(INPUT, 'max-w-[280px]')}
+          />
+          <button
+            type="submit"
+            disabled={inviting}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-ff-green-700 px-3.5 py-2 text-[13px] font-bold text-white hover:brightness-95 disabled:opacity-60"
+          >
+            <UserPlus size={14} /> {inviting ? 'Кани се…' : 'Покани куриер'}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -493,6 +666,9 @@ export function TenantDetailClient({ detail: d }: { detail: PlatformTenantDetail
           </div>
         )}
       </div>
+
+      {/* driver logins (Task B2) */}
+      <CourierAccessSection tenantId={d.id} />
 
       {/* recent orders */}
       <div className="mt-4 overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
