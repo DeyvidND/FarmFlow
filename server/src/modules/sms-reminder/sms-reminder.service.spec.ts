@@ -21,12 +21,14 @@ describe('SmsReminderService.sendForTenant', () => {
   const dialect = new PgDialect();
   function makeDb(rows: any[], claimWins: boolean[]) {
     let claimCall = 0;
+    let lastWhereSql = '';
     const select = () => {
       const q: any = {};
       q.from = () => q;
       q.leftJoin = () => q;
       q.where = (cond: unknown) => {
         const sqlText = dialect.sqlToQuery(cond as SQL).sql;
+        lastWhereSql = sqlText;
         q._rows = sqlText.includes('"reminder_opt_out"')
           ? rows.filter((r) => r.reminderOptOut !== true)
           : rows;
@@ -42,7 +44,11 @@ describe('SmsReminderService.sendForTenant', () => {
       q.returning = async () => (claimWins[claimCall++] ? [{ id: 'x' }] : []);
       return q;
     };
-    return { select, update } as any;
+    // Exposes the actual rendered WHERE SQL from the last select() call, so a
+    // test can assert on the *structure* of the production condition (e.g.
+    // that it's an isNull-OR-eq, not a bare eq) — not just simulate row
+    // filtering in JS, which can't distinguish those two shapes.
+    return { select, update, whereSql: () => lastWhereSql } as any;
   }
 
   const baseRow = {
@@ -170,5 +176,13 @@ describe('SmsReminderService.sendForTenant', () => {
     const res = await svc.sendForTenant('t1', 'sms', '2026-07-13');
     expect(sms.sendSms).toHaveBeenCalled();
     expect(res).toMatchObject({ sent: 1, total: 1 });
+    // Structural proof, not just a JS-level row-filter outcome: the actual
+    // rendered WHERE clause must contain isNull(reminder_opt_out) — i.e.
+    // `"reminder_opt_out" is null` — alongside the eq. A regression to a bare
+    // eq(deliverySlots.reminderOptOut, false) (which would silently drop this
+    // exact slotless-order case in real Postgres, since NULL = false is
+    // UNKNOWN) removes that `is null` text even though the mock's row filter
+    // above can't tell the two shapes apart. This assertion can.
+    expect(db.whereSql()).toMatch(/"reminder_opt_out"\s+is\s+null/i);
   });
 });
