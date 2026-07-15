@@ -23,7 +23,6 @@ import type {
   Product,
   ProductOption,
   ProductVariant,
-  ProductionSummary,
   ProtocolDraft,
   ProtocolRow,
   ReschedulableOrder,
@@ -684,9 +683,6 @@ export const confirmPendingOrders = (date?: string) =>
     'Неуспешно потвърждаване',
   );
 
-export const getProduction = (date?: string) =>
-  apiFetch<ProductionSummary>(`orders/production${date ? `?date=${date}` : ''}`);
-
 export const getRoute = (opts?: { date?: string; end?: string; couriers?: number; ends?: string[] }) => {
   const p = new URLSearchParams();
   if (opts?.date) p.set('date', opts.date);
@@ -979,6 +975,7 @@ export type FulfillmentState = 'pending' | 'in_production' | 'fulfilled';
 export interface TomorrowOrderItem {
   productId: string;
   productName: string;
+  variantLabel?: string | null;
   quantity: number;
 }
 
@@ -996,17 +993,27 @@ export interface TomorrowOrder {
   items: TomorrowOrderItem[];
 }
 
-/** `farmerId` is required for an owner (no tenant-wide "tomorrow" — mirrors
- *  /orders/mine); a producer token always resolves to its own scope server-side. */
-export const getTomorrow = (farmerId?: string) =>
-  apiFetch<TomorrowOrder[]>(`orders/tomorrow${farmerId ? `?farmerId=${encodeURIComponent(farmerId)}` : ''}`);
-
 export const setFulfillment = (id: string, state: FulfillmentState, farmerId?: string) =>
   apiFetch<{ orderId: string; farmerId: string; state: FulfillmentState }>(
     `orders/${id}/fulfillment${farmerId ? `?farmerId=${encodeURIComponent(farmerId)}` : ''}`,
     { method: 'PATCH', ...json({ state }) },
     'Неуспешно отбелязване',
   );
+
+export interface PrepSummary {
+  date: string;
+  confirmedOrders: number;
+  pendingOrders: number;
+  orders: TomorrowOrder[];
+}
+
+export const getPrep = (date?: string, farmerId?: string) => {
+  const qs = new URLSearchParams();
+  if (date) qs.set('date', date);
+  if (farmerId) qs.set('farmerId', farmerId);
+  const q = qs.toString();
+  return apiFetch<PrepSummary>(`orders/prep${q ? `?${q}` : ''}`);
+};
 
 /**
  * Create (if needed) the farm's Standard connected account and get a hosted

@@ -17,7 +17,6 @@ import { OrdersQueryDto } from './dto/orders-query.dto';
 import { MyOrdersQueryDto } from './dto/my-orders-query.dto';
 import { RescheduleOrdersDto } from './dto/reschedule-orders.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -52,14 +51,6 @@ export class OrdersController {
   @ApiQuery({ name: 'date', required: false })
   confirmPending(@CurrentTenant() tenantId: string, @Query('date') date?: string) {
     return this.ordersService.confirmPending(tenantId, date);
-  }
-
-  // Literal route — must precede `:id` so it isn't captured as an order id.
-  @Get('production')
-  @UseGuards(ActiveSubscriptionGuard)
-  @ApiQuery({ name: 'date', required: false })
-  production(@CurrentTenant() tenantId: string, @Query('date') date?: string) {
-    return this.ordersService.production(tenantId, date);
   }
 
   // Literal route — declared before `:id` so it isn't captured as an order id.
@@ -101,18 +92,22 @@ export class OrdersController {
     return this.ordersService.ordersForFarmer(user.tenantId, scope, query);
   }
 
-  // Literal route — must precede `:id`. Task #14 «Утре» panel: tomorrow's
-  // confirmed orders containing this farmer's own products, plus each order's
-  // self-tracked fulfilment state and the customer's contact (who to call about
-  // a gap). Same scope rule as /mine — a producer is always forced to its own
-  // farmerId; an owner MUST pass ?farmerId.
-  @Get('tomorrow')
+  // Literal route — declared before `:id`. «Подготовка» feed: one farmer's confirmed
+  // orders for a day (default tomorrow) with fulfillment state + contact, plus the
+  // day's pending count. Same scope rule as /mine — a producer is forced to its own
+  // farmerId; an owner MUST pass ?farmerId. Not gated (every farmer preps).
+  @Get('prep')
   @Roles('admin', 'farmer')
+  @ApiQuery({ name: 'date', required: false })
   @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
-  tomorrow(@CurrentUser() user: TenantRequestUser, @Query('farmerId') farmerId?: string) {
+  prep(
+    @CurrentUser() user: TenantRequestUser,
+    @Query('date') date?: string,
+    @Query('farmerId') farmerId?: string,
+  ) {
     const scope = effectiveFarmerId(user.role, user.farmerId, farmerId);
     if (!scope) throw new BadRequestException('farmerId required for admin');
-    return this.ordersService.tomorrowForFarmer(user.tenantId, scope);
+    return this.ordersService.prepSummary(user.tenantId, scope, date);
   }
 
   // Literal route — declared before `:id`. Own-delivery orders that can be moved to
