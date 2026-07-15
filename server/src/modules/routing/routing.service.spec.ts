@@ -431,4 +431,65 @@ describe('RoutingService.getRoute — assignment board overrides leg count', () 
     const avg = (total0 + total1) / 2;
     expect(Math.max(total0, total1)).toBeLessThanOrEqual(avg * 1.6 + 1e-6);
   });
+
+  // Audit follow-up Task 3: consistency regression guard. e1b3d9fe (server)
+  // and 0479dcef (client) both fixed the same class of bug — a per-courier
+  // saved config (name/home/endMode) resolved by dense array POSITION instead
+  // of the REAL (possibly non-contiguous) legIndex, so a driver on leg 2 of a
+  // [0, 2] board got courier-array-index-1's config instead of couriers[2]'s.
+  // This guard would fail immediately if getRoute and measureExplicitOrder
+  // ever resolved a DIFFERENT end for the same leg/date again — e.g. if a
+  // future change made either method index couriersCfg by array position.
+  it('getRoute and measureExplicitOrder resolve the SAME end config for the same (non-contiguous) leg', async () => {
+    // Leg 2's config only sets endMode (no home address) — deliberately
+    // avoids the courier-home case, which exercises an unrelated pre-existing
+    // quirk in `endPoint()` (its `mode` param doesn't reflect endForCourier's
+    // mode->'custom' upgrade for a per-courier home); keeping this guard
+    // scoped to the ALREADY-FIXED position-vs-legIndex indexing bug only.
+    const couriersCfg = [{}, {}, { endMode: 'last' }];
+    const assignments = {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([
+        { accountId: 'driver-1', legIndex: 0 },
+        { accountId: 'driver-3', legIndex: 2 }, // leg 1 deliberately unassigned
+      ]),
+    } as any;
+    // Google disabled (route -> null) so getRoute's totals come from the
+    // `end.lat/end.lng`-driven fallback path, matching what
+    // measureExplicitOrder always uses (it never reorders/calls Google).
+    const maps = {
+      route: jest.fn().mockResolvedValue(null),
+      routeFixed: jest.fn().mockResolvedValue({ distanceM: 900, durationS: 600, polyline: 'r' }),
+      geocode: jest.fn(),
+    } as any;
+
+    const routeDb = makeDb([[tenant({ couriers: couriersCfg })], stops(), []]);
+    const routeSvc = new RoutingService(routeDb, maps, {} as any, {} as any, assignments);
+    const route = await routeSvc.getRoute('t1', '2026-07-15');
+    const leg0 = route.routes.find((r) => r.courierIndex === 0)!;
+    const leg2 = route.routes.find((r) => r.courierIndex === 2)!;
+    expect(leg0.endMode).toBe('home');
+    expect(leg2.endMode).toBe('last');
+    expect(leg2.endLat).toBeNull();
+    expect(leg2.endLng).toBeNull();
+
+    // measureExplicitOrder for leg 0 (day-wide default 'home'): round trip —
+    // the last point fed to the Maps call must be the SAME depot leg0 ended at.
+    maps.routeFixed.mockClear();
+    const db0 = makeDb([[tenant({ couriers: couriersCfg })], [{ id: 'A', lat: '43.24', lng: '27.9' }]]);
+    const svc0 = new RoutingService(db0, maps, {} as any, {} as any, assignments);
+    await svc0.measureExplicitOrder('t1', '2026-07-15', ['A'], 0);
+    const ptsLeg0 = maps.routeFixed.mock.calls.at(-1)![0] as Pt[];
+    expect(ptsLeg0).toHaveLength(3); // origin, stop, return-to-depot end point
+    expect(ptsLeg0.at(-1)).toEqual({ lat: leg0.endLat, lng: leg0.endLng });
+
+    // measureExplicitOrder for leg 2 — passed the REAL leg number (2), not
+    // its array POSITION (1) in this non-contiguous [0, 2] board — must
+    // resolve couriers[2]'s endMode: 'last' too, same as getRoute did.
+    maps.routeFixed.mockClear();
+    const db2 = makeDb([[tenant({ couriers: couriersCfg })], [{ id: 'A', lat: '43.24', lng: '27.9' }]]);
+    const svc2 = new RoutingService(db2, maps, {} as any, {} as any, assignments);
+    await svc2.measureExplicitOrder('t1', '2026-07-15', ['A'], 2);
+    const ptsLeg2 = maps.routeFixed.mock.calls.at(-1)![0] as Pt[];
+    expect(ptsLeg2).toHaveLength(2); // origin, stop — no return leg (one-way)
+  });
 });
