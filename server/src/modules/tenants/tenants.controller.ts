@@ -9,7 +9,9 @@ import { TenantsService } from './tenants.service';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import type { RequestUser } from '@fermeribg/types';
 import {
   UploadImageDto,
   PRODUCT_IMAGE_MIME_REGEX,
@@ -34,8 +36,9 @@ export class TenantsController {
   @ApiOperation({ summary: 'Current tenant profile' })
   @Roles('admin', 'farmer', 'driver')
   @Get('me')
-  me(@CurrentTenant() tenantId: string) {
-    return this.tenantsService.getMe(tenantId);
+  me(@CurrentTenant() tenantId: string, @CurrentUser() user: RequestUser) {
+    const role = user.type === 'tenant' ? user.role : 'admin';
+    return this.tenantsService.getMe(tenantId, role);
   }
 
   @ApiOperation({ summary: 'Update current tenant profile' })

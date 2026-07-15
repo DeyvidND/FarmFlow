@@ -185,11 +185,29 @@ export type PublicAvailabilityWindow = {
 };
 
 /**
- * Tenant profile for the admin panel. `settings` + `stripeAccountId` are stripped,
- * but the delivery config (kept under `settings.delivery`) is surfaced as `delivery`
- * so the panel can hydrate its saved settings. Shape is owned by the client.
+ * Tenant profile for the admin panel. `settings` + `stripeAccountId` are always
+ * stripped; the delivery config (kept under `settings.delivery`) is surfaced as
+ * `delivery` so the panel can hydrate its saved settings. Shape is owned by the
+ * client. Stripe/billing fields are owner-only — the server omits them entirely
+ * for the `driver` role, so they're typed optional here rather than required.
  */
-export type PublicTenant = Omit<Tenant, 'stripeAccountId' | 'settings'> & {
+export type PublicTenant = Omit<
+  Tenant,
+  | 'stripeAccountId' | 'settings'
+  | 'stripeCustomerId' | 'stripeSubscriptionId' | 'subscriptionStatus' | 'subscriptionSince'
+  | 'premium' | 'graceUntil'
+  | 'stripeChargesEnabled' | 'stripePayoutsEnabled' | 'stripeDetailsSubmitted' | 'stripeStatusUpdatedAt'
+> & {
+  stripeCustomerId?: Tenant['stripeCustomerId'];
+  stripeSubscriptionId?: Tenant['stripeSubscriptionId'];
+  subscriptionStatus?: Tenant['subscriptionStatus'];
+  subscriptionSince?: Tenant['subscriptionSince'];
+  premium?: Tenant['premium'];
+  graceUntil?: Tenant['graceUntil'];
+  stripeChargesEnabled?: Tenant['stripeChargesEnabled'];
+  stripePayoutsEnabled?: Tenant['stripePayoutsEnabled'];
+  stripeDetailsSubmitted?: Tenant['stripeDetailsSubmitted'];
+  stripeStatusUpdatedAt?: Tenant['stripeStatusUpdatedAt'];
   delivery?: unknown;
   routing?: unknown;
   sms?: { dayOfReminder: boolean };

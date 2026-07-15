@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { type Database, tenants, products } from '@fermeribg/db';
-import type { PublicTenant, Tenant, LegalIdentity } from '@fermeribg/types';
+import type { PublicTenant, Tenant, LegalIdentity, TenantRole } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
@@ -123,14 +123,14 @@ export class TenantsService {
     private readonly config: ConfigService,
   ) {}
 
-  async getMe(tenantId: string): Promise<PublicTenant> {
+  async getMe(tenantId: string, role?: TenantRole): Promise<PublicTenant> {
     const [row] = await this.db
       .select()
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
     if (!row) throw new NotFoundException('Фермата не е намерена');
-    return toPublicTenant(row);
+    return toPublicTenant(row, role);
   }
 
   /**
@@ -778,12 +778,28 @@ export function toPublicMedia(media: unknown): PublicMediaMap {
 }
 
 /** Strip internal fields the client should never see, but surface the delivery
- *  config from `settings` so the admin panel can read its saved settings back. */
-function toPublicTenant(t: Tenant): PublicTenant {
-  const { stripeAccountId, settings, ...rest } = t;
+ *  config from `settings` so the admin panel can read its saved settings back.
+ *  Stripe/billing fields (customer/subscription ids, subscription status,
+ *  premium, grace period, charges/payouts flags) are owner-only — `role`
+ *  gates them out for the lower-trust `driver` login (often an externally
+ *  hired courier), which otherwise has no legitimate reason to see them. */
+function toPublicTenant(t: Tenant, role?: TenantRole): PublicTenant {
+  const {
+    stripeAccountId, settings,
+    stripeCustomerId, stripeSubscriptionId, subscriptionStatus, subscriptionSince,
+    premium, graceUntil, stripeChargesEnabled, stripePayoutsEnabled,
+    stripeDetailsSubmitted, stripeStatusUpdatedAt,
+    ...rest
+  } = t;
   const s = settings as Record<string, unknown> | null;
+  const billing = role === 'driver' ? {} : {
+    stripeCustomerId, stripeSubscriptionId, subscriptionStatus, subscriptionSince,
+    premium, graceUntil, stripeChargesEnabled, stripePayoutsEnabled,
+    stripeDetailsSubmitted, stripeStatusUpdatedAt,
+  };
   return {
     ...rest,
+    ...billing,
     delivery: stripCarrierSecrets(s?.delivery) ?? null,
     routing: s?.routing ?? null,
     sms: parseSmsSettings(settings),

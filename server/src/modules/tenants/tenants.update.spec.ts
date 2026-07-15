@@ -74,6 +74,43 @@ describe('TenantsService.getMe', () => {
     expect(me.delivery.econt.passwordEnc).toBeUndefined();
     expect(me.stripeAccountId).toBeUndefined();
   });
+
+  it('strips Stripe/billing fields for the driver role but keeps them for admin/farmer', async () => {
+    const row = {
+      id: 't1',
+      slug: 'shop',
+      name: 'Ферма',
+      stripeAccountId: 'acct_1',
+      stripeCustomerId: 'cus_1',
+      stripeSubscriptionId: 'sub_1',
+      subscriptionStatus: 'past_due',
+      subscriptionSince: '2026-01-01',
+      premium: true,
+      graceUntil: '2026-08-01',
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDetailsSubmitted: true,
+      stripeStatusUpdatedAt: '2026-07-01',
+      settings: {},
+    };
+    const billingFields = [
+      'stripeCustomerId', 'stripeSubscriptionId', 'subscriptionStatus', 'subscriptionSince',
+      'premium', 'graceUntil', 'stripeChargesEnabled', 'stripePayoutsEnabled',
+      'stripeDetailsSubmitted', 'stripeStatusUpdatedAt',
+    ] as const;
+
+    const driverDb = makeDb([[row]], {}).db;
+    const driverMe: any = await svcWith(driverDb, maps(), publicCache()).getMe('t1', 'driver');
+    for (const f of billingFields) expect(driverMe[f]).toBeUndefined();
+    expect(driverMe.stripeAccountId).toBeUndefined(); // always stripped, regardless of role
+
+    const adminDb = makeDb([[row]], {}).db;
+    const adminMe: any = await svcWith(adminDb, maps(), publicCache()).getMe('t1', 'admin');
+    expect(adminMe.subscriptionStatus).toBe('past_due');
+    expect(adminMe.premium).toBe(true);
+    expect(adminMe.graceUntil).toBe('2026-08-01');
+    expect(adminMe.stripeCustomerId).toBe('cus_1');
+  });
 });
 
 describe('TenantsService.updateMe', () => {
