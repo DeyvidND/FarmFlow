@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reconcileOrder, moveInOrder, dragInOrder } from './route-order';
+import { reconcileOrder, moveInOrder, dragInOrder, transferInLegs } from './route-order';
 
 const stop = (id: string) => ({ id });
 
@@ -59,5 +59,59 @@ describe('dragInOrder', () => {
 
   it('is a no-op when from === to', () => {
     expect(dragInOrder(['a', 'b', 'c'], 1, 1)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('transferInLegs', () => {
+  const legs = () => [
+    ['a', 'b', 'c'],
+    ['x', 'y'],
+  ];
+
+  it('moves an id to another leg at a specific index (drop onto a row)', () => {
+    expect(transferInLegs(legs(), { leg: 0, idx: 1 }, 1, 1)).toEqual([
+      ['a', 'c'],
+      ['x', 'b', 'y'],
+    ]);
+  });
+
+  it('appends to the target leg when no index is given (dropdown / tail drop zone)', () => {
+    expect(transferInLegs(legs(), { leg: 0, idx: 0 }, 1)).toEqual([
+      ['b', 'c'],
+      ['x', 'y', 'a'],
+    ]);
+  });
+
+  it('can empty a leg entirely and fill another (moving every stop across)', () => {
+    let cur = [['a'], ['x']];
+    cur = transferInLegs(cur, { leg: 0, idx: 0 }, 1);
+    expect(cur).toEqual([[], ['x', 'a']]);
+  });
+
+  it('same-leg move with an index delegates to a drag reorder', () => {
+    expect(transferInLegs(legs(), { leg: 0, idx: 0 }, 0, 2)).toEqual([
+      ['b', 'c', 'a'],
+      ['x', 'y'],
+    ]);
+  });
+
+  it('same-leg move without an index is a no-op (dropdown re-picking the current leg)', () => {
+    const cur = legs();
+    expect(transferInLegs(cur, { leg: 0, idx: 1 }, 0)).toBe(cur);
+  });
+
+  it('is a no-op for a missing source id or an unknown target leg', () => {
+    const cur = legs();
+    expect(transferInLegs(cur, { leg: 0, idx: 9 }, 1)).toBe(cur);
+    expect(transferInLegs(cur, { leg: 0, idx: 0 }, 5)).toBe(cur);
+  });
+
+  it('never mutates the input arrays', () => {
+    const cur = legs();
+    transferInLegs(cur, { leg: 0, idx: 1 }, 1, 0);
+    expect(cur).toEqual([
+      ['a', 'b', 'c'],
+      ['x', 'y'],
+    ]);
   });
 });

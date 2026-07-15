@@ -25,6 +25,7 @@ import { SuggestDaysDto } from './dto/suggest-days.dto';
 import { MeasureOrderDto } from './dto/measure-order.dto';
 import { SetOrderCourierDto } from './dto/set-order-courier.dto';
 import { SetOrderSequenceDto } from './dto/set-order-sequence.dto';
+import { RebalanceRouteDto } from './dto/rebalance-route.dto';
 import { AssignmentsQueryDto, SetAssignmentsDto } from './dto/courier-assignment.dto';
 import {
   DeliveryWindowDayDto,
@@ -181,6 +182,16 @@ export class RoutingController {
   @UseGuards(ActiveSubscriptionGuard)
   setOrderSequence(@CurrentTenant() tenantId: string, @Body() dto: SetOrderSequenceDto) {
     return this.routingService.setOrderSequence(tenantId, dto.courierIndex, dto.stopIds);
+  }
+
+  // Reset the day to full auto-distribution — clears every manual courier pin
+  // and manual stop order for the date, so the next route fetch re-splits by
+  // geography. Admin-only by default (no @Roles), like the pin/sequence
+  // endpoints above. Multi-segment path so OrdersModule's `:id` can't catch it.
+  @Patch('route/rebalance')
+  @UseGuards(ActiveSubscriptionGuard)
+  rebalanceRoute(@CurrentTenant() tenantId: string, @Body() dto: RebalanceRouteDto) {
+    return this.routingService.resetDayOverrides(tenantId, dto.date);
   }
 
   // Task #13 — generate a draft delivery time-window per order for the day from

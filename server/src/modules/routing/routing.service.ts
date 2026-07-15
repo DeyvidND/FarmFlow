@@ -1139,6 +1139,46 @@ export class RoutingService {
     return { courierIndex, count: stopIds.length };
   }
 
+  /**
+   * Reset the day back to full auto-distribution: clear every manual courier
+   * pin AND manual stop order (route_seq) on the day's own-courier address
+   * orders, so the next getRoute re-runs the geographic sweep-split from
+   * scratch. Exists because setOrderSequence pins the WHOLE leg it saves (pin
+   * and sequence must agree), so a single drag-reorder permanently opts that
+   * leg's orders out of auto-balancing — with no bulk undo, a lopsided day
+   * (e.g. 17 pinned vs 7 auto stops) could only be fixed by un-pinning orders
+   * one at a time. Includes 'pending' (not just getRoute's 'confirmed') so a
+   * pin left on a not-yet-confirmed order doesn't resurface on confirmation.
+   */
+  async resetDayOverrides(
+    tenantId: string,
+    date?: string,
+  ): Promise<{ cleared: number; date: string }> {
+    const day = date ?? bgToday();
+    // scheduledForDay references deliverySlots.date, but an UPDATE can't
+    // leftJoin (and UPDATE … FROM would inner-join, dropping slotless orders).
+    // Same subselect-that-joins pattern as approveDeliveryWindows.
+    const eligible = this.db
+      .select({ id: orders.id })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          inArray(orders.status, ['pending', 'confirmed']),
+          eq(orders.deliveryType, 'address'),
+          scheduledForDay(day),
+          or(isNotNull(orders.courierIndex), isNotNull(orders.routeSeq)),
+        ),
+      );
+    const res = await this.db
+      .update(orders)
+      .set({ courierIndex: null, routeSeq: null })
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, eligible)))
+      .returning({ id: orders.id });
+    return { cleared: res.length, date: day };
+  }
+
   // ── Delivery time windows (task #13) ──────────────────────────────────────
 
   /** This tenant's `settings.routing` blob (or {}), for window params. */

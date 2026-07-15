@@ -195,6 +195,86 @@ describe('RoutingService.setOrderSequence', () => {
   });
 });
 
+describe('RoutingService.resetDayOverrides', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  function buildDb(returningResult: unknown[]) {
+    const subWhereCalls: unknown[] = [];
+    const updWhereCalls: unknown[] = [];
+    const setCalls: unknown[] = [];
+    // The eligible-ids subselect: select().from().leftJoin().where() — never
+    // awaited, passed straight into inArray() on the update's WHERE.
+    const subChain: any = {};
+    subChain.from = jest.fn(() => subChain);
+    subChain.leftJoin = jest.fn(() => subChain);
+    subChain.where = jest.fn((w: unknown) => {
+      subWhereCalls.push(w);
+      return subChain;
+    });
+    const updChain: any = {};
+    updChain.set = jest.fn((v: unknown) => {
+      setCalls.push(v);
+      return updChain;
+    });
+    updChain.where = jest.fn((w: unknown) => {
+      updWhereCalls.push(w);
+      return { returning: jest.fn(() => Promise.resolve(returningResult)) };
+    });
+    const db: any = {
+      select: jest.fn(() => subChain),
+      update: jest.fn(() => updChain),
+    };
+    return { db, subChain, subWhereCalls, updWhereCalls, setCalls };
+  }
+
+  function makeSvc(db: unknown) {
+    return new RoutingService(db as never, {} as never, {} as never, {} as never, {} as never);
+  }
+
+  it('clears both courierIndex and routeSeq and reports how many orders were reset', async () => {
+    const { db, setCalls } = buildDb([{ id: 'o1' }, { id: 'o2' }, { id: 'o3' }]);
+    const svc = makeSvc(db);
+    const result = await svc.resetDayOverrides('tenant-1', '2026-07-16');
+
+    expect(result).toEqual({ cleared: 3, date: '2026-07-16' });
+    expect(setCalls).toEqual([{ courierIndex: null, routeSeq: null }]);
+  });
+
+  it('subselect scopes on tenant + address orders + pending/confirmed + the requested day, and only rows with an override', async () => {
+    const { db, subChain, subWhereCalls } = buildDb([]);
+    const svc = makeSvc(db);
+    await svc.resetDayOverrides('tenant-1', '2026-07-16');
+
+    // scheduledForDay references deliverySlots.date — the subselect MUST join,
+    // or the real query throws "missing FROM-clause entry" in Postgres.
+    expect(subChain.leftJoin).toHaveBeenCalledTimes(1);
+
+    expect(subWhereCalls).toHaveLength(1);
+    const where = subWhereCalls[0];
+    expect(hasColumn(where, orders.tenantId)).toBe(true);
+    expect(hasColumn(where, orders.status)).toBe(true);
+    expect(hasColumn(where, orders.deliveryType)).toBe(true);
+    expect(hasColumn(where, orders.courierIndex)).toBe(true);
+    expect(hasColumn(where, orders.routeSeq)).toBe(true);
+    expect(paramValues(where)).toEqual(
+      expect.arrayContaining(['tenant-1', 'pending', 'confirmed', 'address', '2026-07-16']),
+    );
+  });
+
+  it('the UPDATE itself is tenant-scoped and keyed to the eligible-ids subselect (never a bare day-wide write)', async () => {
+    const { db, subChain, updWhereCalls } = buildDb([]);
+    const svc = makeSvc(db);
+    await svc.resetDayOverrides('tenant-1', '2026-07-16');
+
+    expect(updWhereCalls).toHaveLength(1);
+    const where = updWhereCalls[0];
+    expect(hasColumn(where, orders.tenantId)).toBe(true);
+    expect(hasColumn(where, orders.id)).toBe(true);
+    // The subselect chain object rides into the WHERE as inArray's value.
+    expect(paramValues(where)).toEqual(expect.arrayContaining(['tenant-1', subChain]));
+  });
+});
+
 // Task A3 — the per-day assignment board (Task A2's getAssignmentsForDay) takes
 // precedence over BOTH the ?couriers= dropdown and the tenant's saved
 // settings.routing.courierCount default: any assignment rows for the date mean

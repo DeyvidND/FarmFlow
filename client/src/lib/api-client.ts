@@ -738,6 +738,16 @@ export const setOrderSequence = (body: { date?: string; courierIndex: number; st
     'Неуспешно запазване на реда',
   );
 
+// ---- Route: reset the day back to full auto-distribution — clears every
+// manual courier pin AND manual stop order for the date, so the next route
+// fetch re-runs the geographic split from scratch. ----
+export const rebalanceRoute = (date?: string) =>
+  apiFetch<{ cleared: number; date: string }>(
+    'orders/route/rebalance',
+    { method: 'PATCH', ...json({ date }) },
+    'Неуспешно авто-разпределение',
+  );
+
 // ---- Route: read-only roster of the tenant's couriers (drivers + own
 // account), for the farmer panel. Account creation itself now happens in the
 // super-admin console — this endpoint is read-only by design. ----

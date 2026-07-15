@@ -26,6 +26,7 @@ import {
   getOrder,
   getRouteAssignments,
   measureRoute,
+  rebalanceRoute,
   setOrderCourier,
   setOrderSequence,
   updateOrderStatus,
@@ -288,28 +289,8 @@ export function RouteClient({
       ? null
       : selfPos ?? (lastFinishedStop ? { lat: lastFinishedStop.lat, lng: lastFinishedStop.lng } : null);
 
-  const persistOrder = (ids: string[]) => {
-    setManualIds(ids);
-    try {
-      localStorage.setItem(orderKey, JSON.stringify(ids));
-    } catch {
-      /* localStorage unavailable (private mode) — order just won't persist */
-    }
-    // Best-effort: also persist server-side (route_seq) so slot generation
-    // (delivery windows) honours this order too, not just this browser's
-    // localStorage. Fire-and-forget — never blocks the UI, errors swallowed
-    // (the localStorage copy above already drives this browser's display).
-    // NB: the server wants the REAL leg number (active.courierIndex), not the
-    // tab position — on a board day with a gap (legs [0, 2]) the second tab is
-    // leg 2, and a position-keyed pin would target the unassigned leg 1.
-    void setOrderSequence({
-      date: route.date,
-      courierIndex: active.courierIndex,
-      stopIds: ids,
-    }).catch(() => {});
-  };
-
-  // Drop the override — fall back to the server's auto-optimized order.
+  // Drop the active leg's override — fall back to the server's auto-optimized
+  // order (the leg's pins stay; the day-wide undo is rebalanceDay below).
   const resetOrder = () => {
     setManualIds(null);
     try {
@@ -318,12 +299,78 @@ export function RouteClient({
       /* ignore */
     }
     // Clear the server-side override too (empty stopIds = clear semantics).
-    // Real leg number, not tab position — see persistOrder above.
+    // NB: the server wants the REAL leg number (active.courierIndex), not the
+    // tab position — on a board day with a gap (legs [0, 2]) the second tab is
+    // leg 2, and a position-keyed clear would target the unassigned leg 1.
     void setOrderSequence({
       date: route.date,
       courierIndex: active.courierIndex,
       stopIds: [],
     }).catch(() => {});
+  };
+
+  // Multi-leg save from the reorder modal: each leg's full id list is
+  // persisted server-side (route_seq + whole-leg pin — pin and sequence agree
+  // by design), so a stop moved into another leg's list is re-pinned there. A
+  // leg emptied by moves gets NO call: empty stopIds means "clear the
+  // override", and its former stops were already re-pinned by the target
+  // leg's own save. Awaited (unlike persistOrder's fire-and-forget) because a
+  // cross-leg move only shows up via the refetch — refreshing before the
+  // server has the pins would snap stops back to their old legs.
+  const persistMultiOrder = async (perLeg: { legIndex: number; ids: string[] }[]) => {
+    try {
+      await Promise.all(
+        perLeg
+          .filter((l) => l.ids.length > 0)
+          .map((l) =>
+            setOrderSequence({ date: route.date, courierIndex: l.legIndex, stopIds: l.ids }),
+          ),
+      );
+    } catch {
+      toast.error('Неуспешно запазване на реда');
+      return;
+    }
+    // Update the local overlays per TAB position (the localStorage keys are
+    // position-keyed): the active tab in place, the rest so a later tab
+    // switch shows the saved order. perLeg is parallel to `routes`.
+    perLeg.forEach((l, pos) => {
+      try {
+        localStorage.setItem(`ff:order:${route.date}:${pos}`, JSON.stringify(l.ids));
+      } catch {
+        /* ignore */
+      }
+    });
+    setManualIds(perLeg[activeCourierIdx]?.ids ?? null);
+    toast.success('Редът е запазен');
+    router.refresh();
+  };
+
+  // Day-wide reset from the reorder modal: clears every manual courier pin AND
+  // manual stop order for the date server-side, then drops the local overlays,
+  // so the refetched route is a fresh geographic split. This is the bulk undo
+  // for a lopsided day — setOrderSequence pins the whole leg it saves, and
+  // without this the only way back was un-pinning stops one at a time.
+  const rebalanceDay = async () => {
+    try {
+      const res = await rebalanceRoute(route.date);
+      routes.forEach((_, pos) => {
+        try {
+          localStorage.removeItem(`ff:order:${route.date}:${pos}`);
+        } catch {
+          /* ignore */
+        }
+      });
+      setManualIds(null);
+      setShowReorder(false);
+      toast.success(
+        res.cleared > 0
+          ? `Върнато на авто-разпределение (${res.cleared} поръчки)`
+          : 'Няма ръчни премествания за изчистване',
+      );
+      router.refresh();
+    } catch {
+      toast.error('Неуспешно авто-разпределение');
+    }
   };
 
   // The compact reorder modal (single line per stop) — the full side-list cards
@@ -824,7 +871,7 @@ export function RouteClient({
               {/* where the ACTIVE courier's van goes after its last delivery */}
               {multi && (
                 <span className="text-[12px] font-bold text-ff-muted">
-                  Край за Маршрут {activeCourierIdx + 1}:
+                  Край за Маршрут {active.courierIndex + 1}:
                 </span>
               )}
               <div className="flex items-center gap-1 rounded-xl border border-ff-border bg-ff-surface p-1 shadow-ff-sm">
@@ -1168,7 +1215,7 @@ export function RouteClient({
           {/* per-courier delivery revenue for the ACTIVE tab (task #6) — the
               day-wide total already sits in the summary line above. */}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-bold text-ff-muted">
-            <span>Маршрут {activeCourierIdx + 1}:</span>
+            <span>Маршрут {active.courierIndex + 1}:</span>
             <span>Доставки {moneyFromStotinki(active.deliveryFeeStotinki)}</span>
             <span className="text-ff-ink-2">Оборот {moneyFromStotinki(active.totalStotinki)}</span>
           </div>
@@ -1354,17 +1401,21 @@ export function RouteClient({
 
       {!isDriver && showReorder && (
         <ReorderStopsModal
-          stops={orderedStops}
+          // All legs, not just the active tab, so a stop can be moved to
+          // another courier. Labels use the REAL leg number (courierIndex),
+          // matching the page tabs on a board day with gaps. The active tab
+          // shows its local manual overlay; the rest use server order.
+          legs={routes.map((r, i) => ({
+            legIndex: r.courierIndex,
+            label: `Маршрут ${r.courierIndex + 1}`,
+            stops: i === activeCourierIdx ? orderedStops : r.stops,
+          }))}
           dateLabel={dateLabel}
-          isManual={isManualOrder}
-          onSave={(ids) => {
-            persistOrder(ids);
+          onSave={(perLeg) => {
+            void persistMultiOrder(perLeg);
             setShowReorder(false);
           }}
-          onReset={() => {
-            resetOrder();
-            setShowReorder(false);
-          }}
+          onRebalance={() => void rebalanceDay()}
           onClose={() => setShowReorder(false)}
         />
       )}

@@ -48,3 +48,34 @@ export function dragInOrder(ids: string[], from: number, to: number): string[] {
   next.splice(to, 0, moved);
   return next;
 }
+
+/**
+ * Multi-leg variant for the reorder modal: `byLeg` is one ordered id list per
+ * courier leg. Move the id at `from` (leg + index) to `toLeg` — within the
+ * same leg it's a dragInOrder to `toIdx`; across legs the id leaves its list
+ * and lands at `toIdx` of the target (or is appended when `toIdx` is omitted,
+ * e.g. the per-row courier dropdown or the section-tail drop zone). A missing
+ * source id returns `byLeg` unchanged.
+ */
+export function transferInLegs(
+  byLeg: string[][],
+  from: { leg: number; idx: number },
+  toLeg: number,
+  toIdx?: number,
+): string[][] {
+  if (from.leg === toLeg) {
+    if (toIdx == null) return byLeg;
+    return byLeg.map((ids, li) => (li === toLeg ? dragInOrder(ids, from.idx, toIdx) : ids));
+  }
+  const id = byLeg[from.leg]?.[from.idx];
+  if (id == null || byLeg[toLeg] == null) return byLeg;
+  return byLeg.map((ids, li) => {
+    if (li === from.leg) return ids.filter((x) => x !== id);
+    if (li === toLeg) {
+      const next = [...ids];
+      next.splice(toIdx ?? next.length, 0, id);
+      return next;
+    }
+    return ids;
+  });
+}
