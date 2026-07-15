@@ -1,4 +1,4 @@
-import { RoutingService } from './routing.service';
+﻿import { RoutingService } from './routing.service';
 
 // Service-level proof that a Google visit order which delivers a driven-past
 // stop out of sequence gets re-sorted for the human eye — and that the road-time
@@ -49,6 +49,9 @@ describe('RoutingService.getRoute — human-readable order smoothing', () => {
     lng: String(lng),
   });
 
+  // Task A3 — no per-day assignment board rows here; leg-count precedence is a no-op.
+  const noAssignments = () => ({ getAssignmentsForDay: jest.fn().mockResolvedValue([]) }) as any;
+
   it('pulls a driven-past stop back into sequence (one-way route)', async () => {
     // Three stops on an east-running line; M sits between A and B.
     const A = geoOrder('A', 42.0, 23.0);
@@ -68,7 +71,7 @@ describe('RoutingService.getRoute — human-readable order smoothing', () => {
       routeFixed: jest.fn().mockResolvedValue({ distanceM: 900, durationS: 610, polyline: 'r' }),
       geocode: jest.fn(),
     } as any;
-    const svc = new RoutingService(db, maps, {} as any, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
 
     // One-way (`last`): the last stop is free, so in-sequence is a clear win.
     const result = await svc.getRoute('t1', '2026-07-07', 'last', 1);
@@ -100,7 +103,7 @@ describe('RoutingService.getRoute — human-readable order smoothing', () => {
       routeFixed: jest.fn().mockResolvedValue({ distanceM: 5000, durationS: 99999, polyline: 'r' }),
       geocode: jest.fn(),
     } as any;
-    const svc = new RoutingService(db, maps, {} as any, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
 
     // Home (round trip): reordered + dest!=null → the guard branch runs.
     const result = await svc.getRoute('t1', '2026-07-07', 'home', 1);

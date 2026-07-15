@@ -28,7 +28,7 @@ describe('RoutingService.measureExplicitOrder — en-route start point (task #7 
     const routeFixed = jest.fn().mockResolvedValue({ distanceM: 1000, durationS: 300, polyline: 'p' });
     const maps = { route: jest.fn(), routeFixed, geocode: jest.fn() } as any;
     const db = makeDb([[TENANT], [STOP]]);
-    const svc = new RoutingService(db, maps, {} as any, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, {} as any);
 
     const start = { lat: 43.02, lng: 23.02 };
     // endMode 'last' (one-way) keeps the point sequence to exactly
@@ -45,7 +45,7 @@ describe('RoutingService.measureExplicitOrder — en-route start point (task #7 
     const routeFixed = jest.fn().mockResolvedValue({ distanceM: 1000, durationS: 300, polyline: 'p' });
     const maps = { route: jest.fn(), routeFixed, geocode: jest.fn() } as any;
     const db = makeDb([[TENANT], [STOP]]);
-    const svc = new RoutingService(db, maps, {} as any, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, {} as any);
 
     await svc.measureExplicitOrder('t1', '2026-07-07', ['s1'], undefined, 'last');
 

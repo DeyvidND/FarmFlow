@@ -59,7 +59,7 @@ describe('RoutingService.setOrderCourier', () => {
   }
 
   function makeSvc(db: unknown) {
-    return new RoutingService(db as never, {} as never, {} as never, {} as never);
+    return new RoutingService(db as never, {} as never, {} as never, {} as never, {} as never);
   }
 
   it('rejects a negative courierIndex', async () => {
@@ -143,7 +143,7 @@ describe('RoutingService.setOrderSequence', () => {
   }
 
   function makeSvc(db: unknown) {
-    return new RoutingService(db as never, {} as never, {} as never, {} as never);
+    return new RoutingService(db as never, {} as never, {} as never, {} as never, {} as never);
   }
 
   it('empty stopIds clears routeSeq for every order pinned to that courierIndex (scoped by tenant, not stop ids)', async () => {
@@ -191,5 +191,107 @@ describe('RoutingService.setOrderSequence', () => {
     // an id from another courier's leg that wasn't passed in never appears.
     expect(paramValues(where)).toEqual(expect.arrayContaining(['stop-a', 'stop-b', 'tenant-1']));
     expect(paramValues(where)).not.toContain('other-couriers-stop');
+  });
+});
+
+// Task A3 — the per-day assignment board (Task A2's getAssignmentsForDay) takes
+// precedence over BOTH the ?couriers= dropdown and the tenant's saved
+// settings.routing.courierCount default: any assignment rows for the date mean
+// the split uses the count of DISTINCT assigned legIndex values instead. Zero
+// assignment rows for the date leave today's dropdown/settings behavior intact.
+describe('RoutingService.getRoute — assignment board overrides leg count', () => {
+  function makeDb(selectResults: any[][]) {
+    const results = [...selectResults];
+    const db = {
+      select: () => {
+        const result = results.length ? results.shift()! : [];
+        const chain: any = {
+          from: () => chain,
+          leftJoin: () => chain,
+          where: () => chain,
+          orderBy: () => Promise.resolve(result),
+          limit: () => Promise.resolve(result),
+          then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
+        };
+        return chain;
+      },
+    } as any;
+    return db;
+  }
+
+  const geoOrder = (id: string, lat: number, lng: number) => ({
+    id,
+    customer: null,
+    phone: null,
+    email: null,
+    address: `адрес ${id}`,
+    note: null,
+    lat: String(lat),
+    lng: String(lng),
+  });
+
+  // Six geocoded stops around the depot, same fixture shape as
+  // routing.courier-default.spec.ts, so a sweep split has room to carve out
+  // however many legs the test requests.
+  const stops = () => [
+    geoOrder('A', 43.24, 27.9),
+    geoOrder('B', 43.23, 27.95),
+    geoOrder('C', 43.2, 27.98),
+    geoOrder('D', 43.16, 27.96),
+    geoOrder('E', 43.14, 27.9),
+    geoOrder('F', 43.18, 27.86),
+  ];
+
+  const makeMaps = () =>
+    ({
+      route: jest.fn(async (_o: any, pts: any[]) => ({
+        order: pts.map((_: any, i: number) => i),
+        distanceM: 1000,
+        durationS: 600,
+        polyline: 'g',
+      })),
+      routeFixed: jest.fn().mockResolvedValue({ distanceM: 900, durationS: 600, polyline: 'r' }),
+      geocode: jest.fn(),
+    }) as any;
+
+  const tenant = (routing: Record<string, unknown> = {}) => ({
+    farmAddress: 'Ферма',
+    farmLat: '43.17',
+    farmLng: '27.84',
+    settings: { routing },
+  });
+
+  it('(a) assignment rows for the date override BOTH ?couriers= and the saved default', async () => {
+    const db = makeDb([[tenant({ courierCount: 3 })], stops(), []]);
+    const assignments = {
+      getAssignmentsForDay: jest
+        .fn()
+        .mockResolvedValue([
+          { accountId: 'driver-1', legIndex: 0 },
+          { accountId: 'driver-2', legIndex: 1 },
+        ]),
+    } as any;
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, assignments);
+
+    // ?couriers=1 AND a saved courierCount of 3 — the 2 DISTINCT assigned legs
+    // (0 and 1) must win over both.
+    const result = await svc.getRoute('t1', '2026-07-15', undefined, 1);
+
+    expect(assignments.getAssignmentsForDay).toHaveBeenCalledWith('t1', '2026-07-15');
+    expect(result.couriers).toBe(2);
+    expect(result.routes).toHaveLength(2);
+  });
+
+  it('(b) zero assignment rows for the date leave the ?couriers= dropdown behavior unchanged', async () => {
+    const db = makeDb([[tenant({ courierCount: 3 })], stops(), []]);
+    const assignments = {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([]),
+    } as any;
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, assignments);
+
+    const result = await svc.getRoute('t1', '2026-07-15', undefined, 1);
+
+    expect(result.couriers).toBe(1);
+    expect(result.routes).toHaveLength(1);
   });
 });

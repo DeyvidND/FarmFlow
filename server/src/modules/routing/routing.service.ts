@@ -17,6 +17,7 @@ import { sweepSplit, haversineKm, type Pt } from './route-split';
 import { humanizeStopOrder } from './route-humanize';
 import { OrdersService } from '../orders/orders.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
+import { CourierAssignmentService } from './courier-assignment.service';
 import { positionCase } from '../../common/db/reorder.util';
 import {
   assembleDaySuggestion,
@@ -306,6 +307,7 @@ export class RoutingService {
     // provider-level circular dependency, not just a module-level one.
     @Inject(forwardRef(() => OrdersService)) private readonly ordersService: OrdersService,
     private readonly orderEmail: OrderConfirmationService,
+    private readonly courierAssignments: CourierAssignmentService,
   ) {}
 
   /**
@@ -468,10 +470,22 @@ export class RoutingService {
       ? { lat: origin.lat as number, lng: origin.lng as number }
       : null;
 
+    // Task A3 — per-day assignment board (Task A2) precedence: if the operator
+    // has assigned ANY courier to this date via the board, the route splits
+    // into exactly as many legs as there are DISTINCT assigned legIndex values
+    // — overriding BOTH the ?couriers= dropdown and the tenant's saved
+    // courierCount default. Zero assignments for the day → unchanged current
+    // behavior (dropdown/settings → effectiveCourierCount below).
+    const assignments = await this.courierAssignments.getAssignmentsForDay(tenantId, day);
+    const assignedLegCount = new Set(assignments.map((a) => a.legIndex)).size;
+
     // Effective courier count: the route-page „Куриери" dropdown (?couriers=) wins
     // per request; when omitted, fall back to the tenant's saved default
     // (settings.routing.courierCount), else 1. Both are clamped to [1,10].
-    const n = effectiveCourierCount(couriers ?? (routingCfg.courierCount as number | undefined));
+    const n =
+      assignedLegCount > 0
+        ? assignedLegCount
+        : effectiveCourierCount(couriers ?? (routingCfg.courierCount as number | undefined));
 
     // Operator-pinned stops (task #6): an order the operator manually moved onto a
     // specific courier keeps that courier regardless of geography. Out-of-range

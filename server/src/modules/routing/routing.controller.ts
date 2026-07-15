@@ -79,12 +79,18 @@ export class RoutingController {
       isDriver ? undefined : endModes,
     );
     if (!isDriver) return result;
-    // A driver whose courierIndex is unbound (Task C2) naturally gets routes: []
-    // — no CourierRoute.courierIndex is ever undefined. `couriers` is kept in
-    // sync with the filtered `routes.length` — it's documented as the
+    // Task A3 — the driver's leg is resolved per DATE via the per-day
+    // assignment board (Task A2's resolveMyLeg), replacing the JWT's global,
+    // date-less `user.courierIndex`. A driver not assigned on `date` (or no
+    // date given) gets the "не участва днес" empty state; `couriers` is kept
+    // in sync with the filtered `routes.length` — it's documented as the
     // effective count of `routes`, and a client trusting that invariant
     // (Task C4/C5) shouldn't see a stale tenant-wide count here.
-    const routes = result.routes.filter((r) => r.courierIndex === user.courierIndex);
+    const myLeg = date
+      ? await this.courierAssignmentService.resolveMyLeg(tenantId, user.userId, date)
+      : null;
+    if (myLeg == null) return { ...result, routes: [], couriers: 0 };
+    const routes = result.routes.filter((r) => r.courierIndex === myLeg);
     return { ...result, routes, couriers: routes.length };
   }
 
@@ -119,6 +125,12 @@ export class RoutingController {
   // applies, it doesn't scope which orders' coords get measured, so without
   // this check a driver could pass another courier's order ids and read back
   // that leg's polyline/distance.
+  // Task A3 — the driver's own leg is now resolved per DATE via
+  // resolveMyLeg(tenantId, user.userId, dto.date) (Task A2), not the JWT's
+  // global `user.courierIndex`. A driver with no date, or unassigned on that
+  // date, resolves to null: they own no stops that day, so any non-empty
+  // stopIds is rejected below and the resolved courierIndex passed downstream
+  // is undefined.
   @Post('route/measure')
   @UseGuards(ActiveSubscriptionGuard)
   @Roles('admin', 'driver')
@@ -127,11 +139,16 @@ export class RoutingController {
     @CurrentUser() user: TenantRequestUser,
     @Body() dto: MeasureOrderDto,
   ) {
-    const courierIndex = user.role === 'driver' ? user.courierIndex : dto.courierIndex;
-    if (user.role === 'driver' && dto.stopIds.length > 0) {
+    const isDriver = user.role === 'driver';
+    const myLeg =
+      isDriver && dto.date
+        ? await this.courierAssignmentService.resolveMyLeg(tenantId, user.userId, dto.date)
+        : null;
+    const courierIndex = isDriver ? myLeg ?? undefined : dto.courierIndex;
+    if (isDriver && dto.stopIds.length > 0) {
       const own = await this.routingService.getRoute(tenantId, dto.date, dto.endMode);
       const ownIds = new Set(
-        own.routes.filter((r) => r.courierIndex === user.courierIndex).flatMap((r) => r.stops.map((s) => s.id)),
+        own.routes.filter((r) => r.courierIndex === myLeg).flatMap((r) => r.stops.map((s) => s.id)),
       );
       if (dto.stopIds.some((id) => !ownIds.has(id))) {
         throw new ForbiddenException('Не може да измервате чужд маршрут.');

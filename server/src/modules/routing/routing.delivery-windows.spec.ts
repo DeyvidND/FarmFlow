@@ -55,6 +55,11 @@ const geoOrder = (
   ...extra,
 });
 
+// Task A3 — no per-day assignment board rows in these tests; getRoute's
+// leg-count precedence check is a no-op (falls through to the ?couriers=
+// dropdown / saved default, which these tests exercise directly).
+const noAssignments = () => ({ getAssignmentsForDay: jest.fn().mockResolvedValue([]) }) as any;
+
 // ─── (a) persisted manual order (route_seq) wins over the optimizer ────────
 describe('RoutingService.getRoute — route_seq honoured over re-optimization', () => {
   it('sorts by route_seq even when the maps-optimize mock would reorder differently', async () => {
@@ -86,7 +91,7 @@ describe('RoutingService.getRoute — route_seq honoured over re-optimization', 
       geoOrder('C', 43.16, 27.9, { routeSeq: 1 }),
     ];
     const db = makeDb([[TENANT], rows, []]);
-    const svc = new RoutingService(db, maps, {} as any, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
 
     const result = await svc.getRoute('t1', '2026-07-07');
 
@@ -116,7 +121,7 @@ describe('RoutingService.getRoute — route_seq honoured over re-optimization', 
     };
     const rows = [geoOrder('A', 43.24, 27.9), geoOrder('B', 43.2, 27.95)];
     const db = makeDb([[TENANT], rows, []]);
-    const svc = new RoutingService(db, maps, {} as any, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
 
     await svc.getRoute('t1', '2026-07-07');
 
@@ -149,7 +154,7 @@ describe('RoutingService.generateDeliveryWindows — sent windows are not clobbe
     });
     const db = makeDb([[TENANT], [rowUnchanged, rowChanged], [], [TENANT]]);
     const maps = { route: jest.fn(), routeFixed: jest.fn(), geocode: jest.fn() } as any;
-    const svc = new RoutingService(db, maps, {} as any, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
 
     const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07');
 
@@ -183,7 +188,7 @@ describe('RoutingService.generateDeliveryWindows — return-leg timing fix', () 
       routeFixed: jest.fn().mockResolvedValue({ distanceM: 5000, durationS: 1200, polyline: 'g' }),
       geocode: jest.fn(),
     } as any;
-    const svc = new RoutingService(db, maps, {} as any, {} as any);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
 
     const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07');
 
@@ -239,7 +244,7 @@ describe('RoutingService.notifyDeliveryWindows — partial-failure resilience', 
         .mockRejectedValueOnce(new Error('smtp down'))
         .mockResolvedValueOnce(undefined),
     };
-    const svc = new RoutingService(db, {} as any, {} as any, orderEmail as any);
+    const svc = new RoutingService(db, {} as any, {} as any, orderEmail as any, {} as any);
 
     const result = await svc.notifyDeliveryWindows('t1', '2026-07-07');
 
@@ -277,7 +282,7 @@ describe('RoutingService.notifyDeliveryWindows — partial-failure resilience', 
       }),
     } as any;
     const orderEmail = { sendDeliveryWindow: jest.fn() };
-    const svc = new RoutingService(db, {} as any, {} as any, orderEmail as any);
+    const svc = new RoutingService(db, {} as any, {} as any, orderEmail as any, {} as any);
 
     const result = await svc.notifyDeliveryWindows('t1', '2026-07-07');
 
@@ -318,7 +323,7 @@ describe('RoutingService.approveDeliveryWindows — joins delivery_slots', () =>
         }),
       }),
     } as any;
-    const svc = new RoutingService(db, {} as any, {} as any, {} as any);
+    const svc = new RoutingService(db, {} as any, {} as any, {} as any, {} as any);
 
     const result = await svc.approveDeliveryWindows('t1', '2026-07-07');
 
