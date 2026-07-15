@@ -13,7 +13,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday } from '../../common/time/bg-time';
 import { scheduledForDay } from '../orders/order-scheduling';
-import { sweepSplit, haversineKm, type Pt } from './route-split';
+import { sweepSplit, haversineKm, estimateWorkloadS, type Pt } from './route-split';
 import { humanizeStopOrder } from './route-humanize';
 import { OrdersService } from '../orders/orders.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
@@ -521,7 +521,23 @@ export class RoutingService {
       // Feed the split the point every courier returns to after its last stop,
       // so workload balancing counts the return leg (round trip vs one-way).
       const splitEnd = endPoint(mode, originPt, end);
-      groups = sweepSplit(originPt, free, n, splitEnd);
+      // Pin-aware balancing (audit follow-up): a courier who already has
+      // pinned stops shouldn't ALSO get an even share of the free stops on
+      // top — that's exactly the mechanism that produced a real 4.56:1
+      // imbalance (14/20 stops pinned to one courier, the splitter still
+      // handed out the remaining 6 as if every courier started from zero).
+      // Estimate each POSITION's already-committed workload from its pinned
+      // stops (same estimate the splitter itself uses for balancing) and feed
+      // it in as sweepSplit's baseWorkloads — position-indexed the same way
+      // posToLeg/legToPos already are, so it lines up with pinned's placement
+      // below.
+      const baseWorkloads = posToLeg.map((_, pos) => {
+        const pinnedHere = pinned.filter((s) => legToPos.get(s.courierIndex as number) === pos);
+        if (!pinnedHere.length) return 0;
+        const pts = pinnedHere.map((s) => ptOf(s) as Pt);
+        return estimateWorkloadS(originPt, pts, splitEnd);
+      });
+      groups = sweepSplit(originPt, free, n, splitEnd, baseWorkloads);
     } else if (free.length) {
       const chain = greedyByDistance(null, free);
       groups = Array.from({ length: Math.min(n, chain.length) }, () => []);

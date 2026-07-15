@@ -248,3 +248,88 @@ describe('sweepSplit', () => {
     expect(sweepSplit(d, west, 5)).toHaveLength(west.length);
   });
 });
+
+// Audit follow-up Task 1: pin-aware balancing. A farmer-reported 20-delivery
+// split showed a 4.56:1 imbalance because manual per-order pins are dumped
+// onto their courier AFTER the free (unpinned) stops are split — the splitter
+// treated every courier as starting from zero, so free stops got evenly
+// divided ON TOP of an already-uneven pin distribution. `baseWorkloads` lets
+// the caller (routing.service's getRoute) tell sweepSplit "courier i already
+// has this many committed seconds of pinned work", so balancing (seed
+// selection AND local search) minimizes makespan INCLUDING that base.
+describe('sweepSplit — pin-aware balancing (baseWorkloads)', () => {
+  const d: Pt = { lat: 42.5, lng: 25.0 };
+
+  it('omitting baseWorkloads is byte-identical to today (no breaking change)', () => {
+    expect(sweepSplit(d, twoClusters, 2, d)).toEqual(sweepSplit(d, twoClusters, 2, d, undefined));
+  });
+
+  it('an all-zero baseWorkloads behaves exactly like omitting it', () => {
+    expect(sweepSplit(d, twoClusters, 2, d, [0, 0])).toEqual(sweepSplit(d, twoClusters, 2, d));
+  });
+
+  it('gives the courier with more already-pinned base workload fewer (or zero) of the free stops', () => {
+    // Zero base: the two geographic clusters split 3/3 (see the "gives each
+    // geographic cluster to its own courier" test above).
+    const zero = sweepSplit(d, twoClusters, 2, d, [0, 0]);
+    expect(zero.map((g) => g.length).sort()).toEqual([3, 3]);
+
+    // Courier 0 already has ~2.8h (10000s) of pinned work — far more than
+    // this whole 6-stop day is worth. It should end up with fewer stops than
+    // the zero-base split gave it (ideally none), and courier 1 more.
+    const skewed = sweepSplit(d, twoClusters, 2, d, [10000, 0]);
+    expect(skewed).toHaveLength(2);
+    expect(skewed.flat()).toHaveLength(twoClusters.length); // no stop lost
+    expect(new Set(skewed.flat().map((s) => `${s.lat},${s.lng}`)).size).toBe(twoClusters.length);
+    expect(skewed[0].length).toBeLessThan(zero[0].length);
+    expect(skewed[1].length).toBeGreaterThan(zero[1].length);
+
+    // Courier 0's TOTAL workload (base + assigned free stops) must stay much
+    // closer to courier 1's than it would under the old "split evenly on top
+    // of the base" behaviour — i.e. the fix actually compensates, it doesn't
+    // just relabel the same even split. Compare like-for-like: the naive gap
+    // uses the ZERO-base split's own two groups (what the old code would have
+    // produced, base bolted on after), the fixed gap uses the new algorithm's
+    // own two groups.
+    const naiveGap = Math.abs(
+      __test.partitionCost(d, [zero[0]], d).makespan +
+        10000 -
+        __test.partitionCost(d, [zero[1]], d).makespan,
+    );
+    const fixedGap = Math.abs(
+      __test.partitionCost(d, [skewed[0]], d).makespan +
+        10000 -
+        __test.partitionCost(d, [skewed[1]], d).makespan,
+    );
+    expect(fixedGap).toBeLessThan(naiveGap);
+  });
+
+  it('is deterministic with baseWorkloads set', () => {
+    expect(sweepSplit(d, twoClusters, 2, d, [3000, 500])).toEqual(
+      sweepSplit(d, twoClusters, 2, d, [3000, 500]),
+    );
+  });
+});
+
+describe('partitionCost with baseWorkloads', () => {
+  const d: Pt = { lat: 42.5, lng: 25.0 };
+
+  it('adds each group\'s base workload to its computed workload before scoring', () => {
+    // Two roughly-symmetric single-stop groups, so the busier one (makespan)
+    // is ambiguous without a base — adding a large base to group 0 must make
+    // IT the busier one and lift the makespan by roughly that base amount.
+    const groups = [[{ lat: 42.5, lng: 25.1 }], [{ lat: 42.5, lng: 24.9 }]];
+    const noBase = __test.partitionCost(d, groups, null);
+    const withBase = __test.partitionCost(d, groups, null, [5000, 0]);
+
+    expect(withBase.total).toBeCloseTo(noBase.total + 5000, 5);
+    expect(withBase.makespan).toBeGreaterThan(noBase.makespan + 4000);
+  });
+
+  it('defaults missing entries in a short baseWorkloads array to zero', () => {
+    const groups = [[{ lat: 42.5, lng: 25.1 }], [{ lat: 42.5, lng: 24.9 }]];
+    const noBase = __test.partitionCost(d, groups, null);
+    const shortBase = __test.partitionCost(d, groups, null, []);
+    expect(shortBase).toEqual(noBase);
+  });
+});

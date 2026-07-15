@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { SQL, Param } from 'drizzle-orm';
 import { orders } from '@fermeribg/db';
 import { RoutingService } from './routing.service';
+import { estimateWorkloadS, type Pt } from './route-split';
 
 // positionCase itself is exercised elsewhere (reorder.util is shared with
 // products/farmers/subcategories); here we only need to assert setOrderSequence
@@ -373,5 +374,61 @@ describe('RoutingService.getRoute — assignment board overrides leg count', () 
 
     const leg2 = result.routes.find((r) => r.courierIndex === 2)!;
     expect(leg2.stops.some((s) => s.id === 'A')).toBe(true);
+  });
+
+  // Audit follow-up Task 1: pin-aware balancing. Before the fix, getRoute fed
+  // sweepSplit ONLY the free stops and dumped pins on afterward with zero
+  // visibility into how loaded a pinned courier already was — the exact
+  // mechanism behind a real 20-delivery, 4.56:1 imbalance. Pin 2 of the 6
+  // stops (A, B) to courier 0, leaving 4 free (C, D, E, F, more than the 2
+  // couriers so sweepSplit's real balancing engages, not its "≤ n stops"
+  // one-each shortcut) — courier 0 should come back with FEWER of those free
+  // stops than courier 1, and the two couriers' estimated total workloads
+  // (pinned base + assigned free stops) should land in the same ballpark
+  // rather than courier 0 being pinned-base-heavy AND getting an even share
+  // of the free stops on top.
+  it('getRoute gives a courier with pinned stops fewer of the remaining free stops, keeping total workload balanced', async () => {
+    const pinnedStops = stops().map((s, i) => (i < 2 ? { ...s, courierIndex: 0 } : s)); // A, B -> courier 0
+    const db = makeDb([[tenant()], pinnedStops, []]);
+    const assignments = { getAssignmentsForDay: jest.fn().mockResolvedValue([]) } as any;
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, assignments);
+
+    const result = await svc.getRoute('t1', '2026-07-15', undefined, 2);
+
+    expect(result.routes).toHaveLength(2);
+    const leg0 = result.routes.find((r) => r.courierIndex === 0)!;
+    const leg1 = result.routes.find((r) => r.courierIndex === 1)!;
+    const freeIds = ['C', 'D', 'E', 'F'];
+    const leg0FreeCount = leg0.stops.filter((s) => freeIds.includes(s.id)).length;
+    const leg1FreeCount = leg1.stops.filter((s) => freeIds.includes(s.id)).length;
+
+    // All 4 free stops accounted for, none duplicated/lost.
+    expect(leg0FreeCount + leg1FreeCount).toBe(4);
+    // The already-pinned courier gets strictly fewer of the free stops than
+    // an even 2/2 split would have given it.
+    expect(leg0FreeCount).toBeLessThan(2);
+    expect(leg1FreeCount).toBeGreaterThan(2);
+
+    // Concrete balance property: estimate each courier's TOTAL workload
+    // (pinned base, estimated the same way getRoute itself does, + its
+    // assigned free stops) and assert neither courier is wildly more loaded
+    // than the other — the failure mode this guards against is courier 0
+    // ending up near base-alone while courier 1 silently absorbs everything.
+    const depot: Pt = { lat: 43.17, lng: 27.84 };
+    const pinnedPts: Pt[] = [
+      { lat: 43.24, lng: 27.9 }, // A
+      { lat: 43.23, lng: 27.95 }, // B
+    ];
+    const base0 = estimateWorkloadS(depot, pinnedPts, depot);
+    const leg0FreePts = leg0.stops
+      .filter((s) => freeIds.includes(s.id))
+      .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
+    const leg1FreePts = leg1.stops
+      .filter((s) => freeIds.includes(s.id))
+      .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
+    const total0 = base0 + estimateWorkloadS(depot, leg0FreePts, depot);
+    const total1 = estimateWorkloadS(depot, leg1FreePts, depot);
+    const avg = (total0 + total1) / 2;
+    expect(Math.max(total0, total1)).toBeLessThanOrEqual(avg * 1.6 + 1e-6);
   });
 });

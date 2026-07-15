@@ -16,6 +16,13 @@
  * only a balancing proxy — the real per-group visit order is produced later by
  * routing.service's optimizeGroup (Google or greedy). Deterministic throughout
  * (no Math.random, no wall-clock): same input → same output.
+ *
+ * `baseWorkloads` (optional, on `sweepSplit`/`sweepSeed`/`localSearch`) lets a
+ * caller pin-aware-balance: pass courier `i`'s already-committed workload
+ * (e.g. its pinned stops, computed by the caller) and every cost computation
+ * here scores group `i` as base[i] + its assigned free stops, so a courier
+ * who already has hours of pinned work gets proportionally fewer of the free
+ * stops. Omitted (or all-zero) is byte-identical to not having this feature.
  */
 
 export type Pt = { lat: number; lng: number };
@@ -249,9 +256,21 @@ function workloadReplace(depot: Pt, g: Geo[], idx: number, repl: Geo, endPt: Pt 
 
 type PartCost = { makespan: number; total: number };
 
-/** Hybrid cost of a partition: makespan (busiest courier) + total workload. */
-function partitionCost(depot: Pt, groups: Geo[][], endPt: Pt | null): PartCost {
-  return costFromWorkloads(groups.map((g) => workloadNnS(depot, g, endPt)));
+/** Hybrid cost of a partition: makespan (busiest courier) + total workload.
+ * `baseWorkloads[i]` (default 0), when given, is added to group `i`'s
+ * computed workload before scoring — a courier's already-committed pinned
+ * workload, so the split is scored on TOTAL load (base + free stops), not
+ * just the free stops being partitioned. Index-aligned with `groups`; a
+ * missing/short entry defaults to 0 (fully backward compatible). */
+function partitionCost(
+  depot: Pt,
+  groups: Geo[][],
+  endPt: Pt | null,
+  baseWorkloads?: number[],
+): PartCost {
+  return costFromWorkloads(
+    groups.map((g, i) => workloadNnS(depot, g, endPt) + (baseWorkloads?.[i] ?? 0)),
+  );
 }
 
 /** Hybrid cost derived from a per-group workload array (makespan + total). */
@@ -278,14 +297,29 @@ function betterCost(a: PartCost, b: PartCost): boolean {
  * (swap), across ALL courier pairs, applying the single move that most lowers
  * the hybrid cost. Stops when no move improves, or after 60 iterations
  * (deterministic bound; ample for farm-scale N). Group count is preserved.
+ *
+ * `baseWorkloads[i]` (default 0) is each group's already-committed workload
+ * (e.g. a courier's pinned stops) — added into every workload this function
+ * computes for group `i`, so a relocate/swap is scored against TOTAL load
+ * (base + the free stops being balanced here), not just the free stops. The
+ * `work` cache therefore always holds "group i's workload INCLUDING its
+ * base", and every recompute (`workloadMinus`/`Plus`/`Replace`) re-adds that
+ * group's base so the invariant holds after every move.
  */
-function localSearch<T extends Geo>(depot: Pt, groups: T[][], endPt: Pt | null): T[][] {
+function localSearch<T extends Geo>(
+  depot: Pt,
+  groups: T[][],
+  endPt: Pt | null,
+  baseWorkloads?: number[],
+): T[][] {
   const cur = groups.map((g) => [...g]);
-  // Cache each group's workload (indexed the same as `cur`). A relocate/swap
-  // move only touches 1–2 groups, so scoring a candidate recomputes the
-  // workload for just those two groups and reads the rest from this cache —
-  // instead of re-running the workload estimate on every group every time.
-  const work = cur.map((g) => workloadNnS(depot, g, endPt));
+  const base = (i: number): number => baseWorkloads?.[i] ?? 0;
+  // Cache each group's workload (indexed the same as `cur`), base included. A
+  // relocate/swap move only touches 1–2 groups, so scoring a candidate
+  // recomputes the workload for just those two groups and reads the rest from
+  // this cache — instead of re-running the workload estimate on every group
+  // every time.
+  const work = cur.map((g, i) => workloadNnS(depot, g, endPt) + base(i));
   let curCost = costFromWorkloads(work);
   const maxIters = 60;
 
@@ -320,11 +354,11 @@ function localSearch<T extends Geo>(depot: Pt, groups: T[][], endPt: Pt | null):
       for (let si = 0; si < cur[gi].length; si++) {
         // Source workload depends only on (gi, si) — compute once per stop,
         // not once per destination courier.
-        const wi = workloadMinus(depot, cur[gi], si, endPt);
+        const wi = workloadMinus(depot, cur[gi], si, endPt) + base(gi);
         const moved = cur[gi][si];
         for (let gj = 0; gj < cur.length; gj++) {
           if (gi === gj) continue;
-          const wj = workloadPlus(depot, cur[gj], moved, endPt);
+          const wj = workloadPlus(depot, cur[gj], moved, endPt) + base(gj);
           const c = costWith(gi, wi, gj, wj);
           if (betterCost(c, bestCost)) {
             bestCost = c;
@@ -344,8 +378,8 @@ function localSearch<T extends Geo>(depot: Pt, groups: T[][], endPt: Pt | null):
       for (let gj = gi + 1; gj < cur.length; gj++) {
         for (let si = 0; si < cur[gi].length; si++) {
           for (let sj = 0; sj < cur[gj].length; sj++) {
-            const wi = workloadReplace(depot, cur[gi], si, cur[gj][sj], endPt);
-            const wj = workloadReplace(depot, cur[gj], sj, cur[gi][si], endPt);
+            const wi = workloadReplace(depot, cur[gi], si, cur[gj][sj], endPt) + base(gi);
+            const wj = workloadReplace(depot, cur[gj], sj, cur[gi][si], endPt) + base(gj);
             const c = costWith(gi, wi, gj, wj);
             if (betterCost(c, bestCost)) {
               bestCost = c;
@@ -396,12 +430,20 @@ function localSearch<T extends Geo>(depot: Pt, groups: T[][], endPt: Pt | null):
  * a custom end, or null for one-way) — it makes the workload estimate match the
  * real route. Returns exactly `couriers` groups when there are more stops than
  * couriers; otherwise one stop per group.
+ *
+ * `baseWorkloads[i]` (optional, default all-zero — see module doc) is courier
+ * `i`'s already-committed workload (from that courier's pinned stops); every
+ * cost comparison below (seed selection AND local search) scores group `i` as
+ * base[i] + its assigned free stops. The STOPS returned are still only the
+ * `stops` being partitioned here — `baseWorkloads` only changes what the
+ * algorithm optimizes for, never what's placed in a group.
  */
 export function sweepSplit<T extends Geo>(
   depot: Pt,
   stops: T[],
   couriers: number,
   endPt: Pt | null = null,
+  baseWorkloads?: number[],
 ): T[][] {
   const n = Math.max(1, Math.floor(couriers));
   if (stops.length === 0) return [];
@@ -409,22 +451,22 @@ export function sweepSplit<T extends Geo>(
   if (stops.length <= n) return stops.map((s) => [s]);
 
   const seeds: T[][][] = [
-    sweepSeed(depot, stops, n, endPt),
+    sweepSeed(depot, stops, n, endPt, baseWorkloads),
     kmeansSeed(depot, stops, n),
     radialSeed(depot, stops, n),
   ];
 
   let best = seeds[0];
-  let bestCost = partitionCost(depot, best, endPt);
+  let bestCost = partitionCost(depot, best, endPt, baseWorkloads);
   for (let i = 1; i < seeds.length; i++) {
-    const c = partitionCost(depot, seeds[i], endPt);
+    const c = partitionCost(depot, seeds[i], endPt, baseWorkloads);
     if (betterCost(c, bestCost)) {
       best = seeds[i];
       bestCost = c;
     }
   }
 
-  return localSearch(depot, best, endPt);
+  return localSearch(depot, best, endPt, baseWorkloads);
 }
 
 /** Pad a group list with empty groups up to exactly `n`. */
@@ -445,8 +487,17 @@ function offsetPt(o: Pt, km: number, theta: number): Pt {
  * Angular-arc fill (the classic sweep): sort stops by polar angle around the
  * depot, walk the circle closing an arc once its workload meets the remaining
  * average, over ≤24 rotations, keep the best by makespan. Padded to `n` groups.
+ * `baseWorkloads`, when given, is folded into the per-rotation cost used to
+ * pick the best offset (see module doc) — it does not change how an
+ * individual arc is filled, only which rotation's resulting split wins.
  */
-function sweepSeed<T extends Geo>(depot: Pt, stops: T[], n: number, endPt: Pt | null): T[][] {
+function sweepSeed<T extends Geo>(
+  depot: Pt,
+  stops: T[],
+  n: number,
+  endPt: Pt | null,
+  baseWorkloads?: number[],
+): T[][] {
   // Defensive: no stops means no `best` fill below, and padGroups(best!, n)
   // would deref null. sweepSplit already guards this, but guard here too so the
   // seed is safe if ever called directly.
@@ -486,7 +537,7 @@ function sweepSeed<T extends Geo>(depot: Pt, stops: T[], n: number, endPt: Pt | 
   for (let r = 0; r < rotations; r++) {
     const offset = Math.floor((r * sorted.length) / rotations);
     const g = fill(offset);
-    const c = partitionCost(depot, g, endPt);
+    const c = partitionCost(depot, g, endPt, baseWorkloads);
     if (!bestCost || betterCost(c, bestCost)) {
       bestCost = c;
       best = g;
