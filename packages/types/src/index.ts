@@ -232,6 +232,9 @@ export type JwtPayload = {
   /** Present only on producer sub-account tokens (role='farmer'): the farmers.id
    *  this login is scoped to. */
   farmerId?: string;
+  /** Present only on driver logins bound to a courier leg (role='driver'):
+   *  the 0-based courier index into settings.routing.couriers[]. */
+  courierIndex?: number;
   mustChangePassword?: boolean;
   // Session epoch — must equal the principal's current tokenVersion in the DB,
   // else the token has been revoked (password change/reset). Absent on legacy
@@ -250,6 +253,8 @@ export type TenantRequestUser = {
   role: TenantRole;
   /** Producer scope for role='farmer' (else undefined). */
   farmerId?: string;
+  /** Courier-leg scope for role='driver' (else undefined). */
+  courierIndex?: number;
   /** Present only on an impersonation session — the acting super-admin's id. */
   actingAdminId?: string;
 };

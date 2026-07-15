@@ -50,8 +50,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       if (!payload.tenantId) {
         throw new UnauthorizedException();
       }
+      // Read courierIndex fresh from the DB here (not from payload.courierIndex):
+      // a driver's courier binding can be granted/revoked (Task C2) without a
+      // re-login, and — unlike role/tenantId, fixed at issuance — a rebind should
+      // take effect on the driver's NEXT request, not wait for token expiry. Piggy-
+      // backs on the tokenVersion select already run on every request.
       const [user] = await this.db
-        .select({ tokenVersion: users.tokenVersion })
+        .select({ tokenVersion: users.tokenVersion, courierIndex: users.courierIndex })
         .from(users)
         .where(eq(users.id, payload.sub))
         .limit(1);
@@ -65,6 +70,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role: (payload.role ?? 'admin') as TenantRole,
         ...(payload.farmerId ? { farmerId: payload.farmerId } : {}),
         ...(payload.actingAdminId ? { actingAdminId: payload.actingAdminId } : {}),
+        ...(user.courierIndex != null ? { courierIndex: user.courierIndex } : {}),
       };
     }
     throw new UnauthorizedException();

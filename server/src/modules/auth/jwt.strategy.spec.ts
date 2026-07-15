@@ -3,8 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 
 /** Chainable Drizzle stub: `.select().from().where().limit()` resolves to [row]
- *  (or [] when row is null), matching the tokenVersion lookup the strategy runs. */
-function makeDb(row: { tokenVersion: number } | null = { tokenVersion: 0 }) {
+ *  (or [] when row is null), matching the tokenVersion (+ courierIndex) lookup
+ *  the strategy runs. */
+function makeDb(row: { tokenVersion: number; courierIndex?: number | null } | null = { tokenVersion: 0 }) {
   const chain: any = {
     select: () => chain,
     from: () => chain,
@@ -14,7 +15,7 @@ function makeDb(row: { tokenVersion: number } | null = { tokenVersion: 0 }) {
   return chain;
 }
 
-function makeStrategy(row: { tokenVersion: number } | null = { tokenVersion: 0 }): JwtStrategy {
+function makeStrategy(row: { tokenVersion: number; courierIndex?: number | null } | null = { tokenVersion: 0 }): JwtStrategy {
   const config = {
     getOrThrow: jest.fn().mockReturnValue('test-secret'),
   } as unknown as ConfigService;
@@ -105,5 +106,26 @@ describe('JwtStrategy.validate', () => {
       sub: 'u1', type: 'tenant', tenantId: 't1', role: 'admin', tv: 0,
     } as any);
     expect((result as any).farmerId).toBeUndefined();
+  });
+
+  it('returns courierIndex in RequestUser for a driver token, read fresh from the DB row (not the payload)', async () => {
+    const driverStrategy = makeStrategy({ tokenVersion: 0, courierIndex: 2 });
+    await expect(
+      driverStrategy.validate({
+        // Payload deliberately carries a stale/different value than the DB row —
+        // the strategy must use the freshly-queried DB value, not this one.
+        sub: 'u1', type: 'tenant', tenantId: 't1', role: 'driver', tv: 0, courierIndex: 9,
+      } as any),
+    ).resolves.toEqual({
+      type: 'tenant', userId: 'u1', tenantId: 't1', role: 'driver', courierIndex: 2,
+    });
+  });
+
+  it('omits courierIndex from RequestUser when the DB row has courier_index null', async () => {
+    const ownerStrategy = makeStrategy({ tokenVersion: 0, courierIndex: null });
+    const result = await ownerStrategy.validate({
+      sub: 'u1', type: 'tenant', tenantId: 't1', role: 'admin', tv: 0,
+    } as any);
+    expect((result as any).courierIndex).toBeUndefined();
   });
 });

@@ -155,6 +155,12 @@ export const users = pgTable(
     // data. NULL for owner/driver/customer rows. CASCADE so deleting the producer
     // deletes its login. (See farmers table below — forward ref via thunk.)
     farmerId: uuid('farmer_id').references(() => farmers.id, { onDelete: 'cascade' }),
+    // Courier-leg binding for role='driver' logins (0-based, matches
+    // orders.courierIndex / settings.routing.couriers[] indexing). NULL = not
+    // yet bound to a leg (or not a driver). Set by the courier-access grant
+    // flow (Task C2), read by the route API to scope a driver to their own leg
+    // (Task C3).
+    courierIndex: smallint('courier_index'),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => ({
