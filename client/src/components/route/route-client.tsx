@@ -293,9 +293,14 @@ export function RouteClient({
     // (delivery windows) honours this order too, not just this browser's
     // localStorage. Fire-and-forget — never blocks the UI, errors swallowed
     // (the localStorage copy above already drives this browser's display).
-    void setOrderSequence({ date: route.date, courierIndex: activeCourierIdx, stopIds: ids }).catch(
-      () => {},
-    );
+    // NB: the server wants the REAL leg number (active.courierIndex), not the
+    // tab position — on a board day with a gap (legs [0, 2]) the second tab is
+    // leg 2, and a position-keyed pin would target the unassigned leg 1.
+    void setOrderSequence({
+      date: route.date,
+      courierIndex: active.courierIndex,
+      stopIds: ids,
+    }).catch(() => {});
   };
 
   // Drop the override — fall back to the server's auto-optimized order.
@@ -307,9 +312,12 @@ export function RouteClient({
       /* ignore */
     }
     // Clear the server-side override too (empty stopIds = clear semantics).
-    void setOrderSequence({ date: route.date, courierIndex: activeCourierIdx, stopIds: [] }).catch(
-      () => {},
-    );
+    // Real leg number, not tab position — see persistOrder above.
+    void setOrderSequence({
+      date: route.date,
+      courierIndex: active.courierIndex,
+      stopIds: [],
+    }).catch(() => {});
   };
 
   // The compact reorder modal (single line per stop) — the full side-list cards
@@ -458,7 +466,9 @@ export function RouteClient({
     measureRoute({
       date: route.date,
       stopIds: ids,
-      courierIndex: activeCourierIdx,
+      // Real leg number, not tab position: the server resolves this courier's
+      // saved end config (home) via settings.routing.couriers[courierIndex].
+      courierIndex: active.courierIndex,
       endMode: activeEndMode,
       // Anchor the measured line to where the courier actually is (live GPS or
       // the last finished drop) once en route, instead of always the depot.
@@ -1137,7 +1147,11 @@ export function RouteClient({
                     className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{ backgroundColor: on ? 'rgba(255,255,255,0.9)' : color }}
                   />
-                  Маршрут {i + 1} ({r.stops.length} {r.stops.length === 1 ? 'спирка' : 'спирки'}
+                  {/* Real leg number, not tab position — keeps the label in
+                      sync with the board („Курс N"), the homes modal
+                      („Куриер N") and the windows modal on a gap day. */}
+                  Маршрут {r.courierIndex + 1} ({r.stops.length}{' '}
+                  {r.stops.length === 1 ? 'спирка' : 'спирки'}
                   {rDist ? ` · ${rDist}` : ''}
                   {rDur ? ` · ~${rDur}` : ''})
                   {r.endMode === 'home' ? <Home size={12} /> : <Flag size={12} />}
@@ -1255,6 +1269,7 @@ export function RouteClient({
             onEmail={onEmail}
             onEditAddress={setEditStop}
             courierCount={route.couriers}
+            courierLegs={routes.map((r) => r.courierIndex)}
             onMoveCourier={(id, idx) => void moveCourier(id, idx)}
           />
         </div>
@@ -1388,6 +1403,7 @@ export function RouteClient({
         <AddOrdersModal
           routeDate={route.date}
           courierCount={route.couriers}
+          courierLegs={routes.map((r) => r.courierIndex)}
           onClose={() => setShowAddOrders(false)}
           onAdded={() => router.refresh()}
         />

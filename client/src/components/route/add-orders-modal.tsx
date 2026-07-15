@@ -16,11 +16,18 @@ const orderNo = (o: ReschedulableOrder) =>
 export function AddOrdersModal({
   routeDate,
   courierCount,
+  courierLegs,
   onClose,
   onAdded,
 }: {
   routeDate: string;
   courierCount: number;
+  /** The day's REAL leg numbers (route.courierIndex per leg), in tab order —
+   *  non-contiguous on a board day with a gap (e.g. [0, 2]). The courier
+   *  select's option values must be these legs, not 0..count-1, or the pin
+   *  would target an unassigned leg (silently treated as auto). Falls back to
+   *  0..courierCount-1 when absent. */
+  courierLegs?: number[];
   onClose: () => void;
   /** Called after a successful move so the parent can reload its list. */
   onAdded: () => void;
@@ -170,11 +177,13 @@ export function AddOrdersModal({
                     className="mb-4 h-11 w-full rounded-xl border border-ff-border bg-ff-surface px-3 text-[14.5px] outline-none focus:border-ff-green-500"
                   >
                     <option value="">Автоматично</option>
-                    {Array.from({ length: courierCount }, (_, i) => (
-                      <option key={i} value={i}>
-                        Куриер {i + 1}
-                      </option>
-                    ))}
+                    {(courierLegs ?? Array.from({ length: courierCount }, (_, i) => i)).map(
+                      (leg) => (
+                        <option key={leg} value={leg}>
+                          Куриер {leg + 1}
+                        </option>
+                      ),
+                    )}
                   </select>
                 </>
               )}

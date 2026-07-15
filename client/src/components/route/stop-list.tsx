@@ -19,6 +19,12 @@ interface StopListProps {
   /** Total courier count for this date — the per-stop courier-move select only
    *  renders when there's more than one (task #6). */
   courierCount?: number;
+  /** The day's REAL leg numbers (route.courierIndex per leg), in tab order.
+   *  On a board day with a gap (e.g. legs [0, 2]) these are non-contiguous —
+   *  the move-select's option values must be these legs, not 0..count-1, or a
+   *  move would pin the order to an unassigned leg (silently treated as auto).
+   *  Falls back to 0..courierCount-1 when absent (legacy dropdown days). */
+  courierLegs?: number[];
   /** Move a stop to another courier's leg, or back to auto (null) (task #6). */
   onMoveCourier?: (stopId: string, courierIndex: number | null) => void;
 }
@@ -82,8 +88,11 @@ export function StopList({
   onEmail,
   onEditAddress,
   courierCount,
+  courierLegs,
   onMoveCourier,
 }: StopListProps) {
+  // Real leg numbers the move-select can target (see StopListProps.courierLegs).
+  const legs = courierLegs ?? Array.from({ length: courierCount ?? 0 }, (_, i) => i);
   if (stops.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center text-ff-muted">
@@ -278,8 +287,8 @@ export function StopList({
                     className="rounded-lg border border-ff-border bg-ff-surface-2 px-1.5 py-1 text-[12px] font-bold text-ff-ink outline-none"
                   >
                     <option value="">Авто</option>
-                    {Array.from({ length: courierCount }, (_, ci) => (
-                      <option key={ci} value={ci}>{`Куриер ${ci + 1}`}</option>
+                    {legs.map((leg) => (
+                      <option key={leg} value={leg}>{`Куриер ${leg + 1}`}</option>
                     ))}
                   </select>
                 </div>
