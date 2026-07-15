@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { RoutingService, parseEndModes, type RouteEndMode } from './routing.service';
 import { CourierAccessService } from './courier-access.service';
@@ -64,8 +76,12 @@ export class RoutingController {
     );
     if (!isDriver) return result;
     // A driver whose courierIndex is unbound (Task C2) naturally gets routes: []
-    // — no CourierRoute.courierIndex is ever undefined.
-    return { ...result, routes: result.routes.filter((r) => r.courierIndex === user.courierIndex) };
+    // — no CourierRoute.courierIndex is ever undefined. `couriers` is kept in
+    // sync with the filtered `routes.length` — it's documented as the
+    // effective count of `routes`, and a client trusting that invariant
+    // (Task C4/C5) shouldn't see a stale tenant-wide count here.
+    const routes = result.routes.filter((r) => r.courierIndex === user.courierIndex);
+    return { ...result, routes, couriers: routes.length };
   }
 
   // Fix a stop with no map pin: re-geocode a corrected address, or save a manual
@@ -94,17 +110,29 @@ export class RoutingController {
   // real street-following polyline for the given sequence instead of straight
   // pin-to-pin lines. Multi-segment path so OrdersModule's `:id` can't catch it.
   // Task C3 — opened to role='driver'. dto.courierIndex is ignored for them and
-  // forced to their own — a driver must not be able to measure a leg that isn't
-  // theirs via a crafted request body.
+  // forced to their own. dto.stopIds is also checked against the driver's own
+  // leg (via getRoute) — courierIndex alone only picks which saved end config
+  // applies, it doesn't scope which orders' coords get measured, so without
+  // this check a driver could pass another courier's order ids and read back
+  // that leg's polyline/distance.
   @Post('route/measure')
   @UseGuards(ActiveSubscriptionGuard)
   @Roles('admin', 'driver')
-  measure(
+  async measure(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: TenantRequestUser,
     @Body() dto: MeasureOrderDto,
   ) {
     const courierIndex = user.role === 'driver' ? user.courierIndex : dto.courierIndex;
+    if (user.role === 'driver' && dto.stopIds.length > 0) {
+      const own = await this.routingService.getRoute(tenantId, dto.date, dto.endMode);
+      const ownIds = new Set(
+        own.routes.filter((r) => r.courierIndex === user.courierIndex).flatMap((r) => r.stops.map((s) => s.id)),
+      );
+      if (dto.stopIds.some((id) => !ownIds.has(id))) {
+        throw new ForbiddenException('Не може да измервате чужд маршрут.');
+      }
+    }
     return this.routingService.measureExplicitOrder(
       tenantId,
       dto.date,
