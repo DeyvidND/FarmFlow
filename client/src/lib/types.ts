@@ -200,6 +200,14 @@ export interface RouteCourier {
   isSelf: boolean;
 }
 
+/** One row of the per-day leg board (`GET/PUT orders/route/assignments`) —
+ *  "this account drives leg N on this date." Whole-day replace semantics on
+ *  write; see `client/src/components/route/courier-assignment-board.tsx`. */
+export interface RouteAssignment {
+  accountId: string;
+  legIndex: number;
+}
+
 export interface Subcategory {
   id: string;
   name: string;

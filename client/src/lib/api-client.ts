@@ -27,6 +27,7 @@ import type {
   ReschedulableOrder,
   ReviewStatus,
   MultiRouteResult,
+  RouteAssignment,
   RouteCourier,
   RouteEndMode,
   Shipment,
@@ -742,6 +743,23 @@ export const setOrderSequence = (body: { date?: string; courierIndex: number; st
 // super-admin console — this endpoint is read-only by design. ----
 export const listRouteCouriers = () =>
   apiFetch<RouteCourier[]>('orders/route/couriers');
+
+// ---- Route: per-day courier assignment board (Task C2) — which account
+// drives which leg on a given date. Whole-day replace on write: the PUT
+// always sends the FULL set of rows for that date, matching
+// CourierAssignmentService.setAssignmentsForDay's delete-then-insert
+// semantics (not a per-row patch). A double-book (same account or same leg
+// twice, incl. a concurrent-edit race) comes back as a 409 with a
+// user-facing BG message — see `assignmentErrorMessage` in
+// `components/route/courier-assignment.ts`. ----
+export const getRouteAssignments = (date: string) =>
+  apiFetch<RouteAssignment[]>(`orders/route/assignments?date=${encodeURIComponent(date)}`);
+export const setRouteAssignments = (date: string, assignments: RouteAssignment[]) =>
+  apiFetch<RouteAssignment[]>(
+    'orders/route/assignments',
+    { method: 'PUT', ...json({ date, assignments }) },
+    'Неуспешно запазване на разпределението',
+  );
 
 // ---- Route: per-order delivery time windows (task #13) ----
 export const generateDeliveryWindows = (body: { date?: string; couriers?: number; ends?: string }) =>

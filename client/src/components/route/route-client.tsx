@@ -13,6 +13,7 @@ import {
   Settings,
   AlertTriangle,
   ArrowUpDown,
+  Users,
   Wand2,
   X,
   ClipboardList,
@@ -23,13 +24,14 @@ import {
 import { toast } from 'sonner';
 import {
   getOrder,
+  getRouteAssignments,
   measureRoute,
   setOrderCourier,
   setOrderSequence,
   updateOrderStatus,
   updateTenant,
 } from '@/lib/api-client';
-import type { MultiRouteResult, CourierRoute, RouteStop, RouteEndMode } from '@/lib/types';
+import type { MultiRouteResult, CourierRoute, RouteAssignment, RouteStop, RouteEndMode } from '@/lib/types';
 import type { Order } from '@/lib/types';
 import type { OrderStatus } from '@/lib/utils';
 import { moneyFromStotinki } from '@/lib/utils';
@@ -48,6 +50,8 @@ import { reconcileOrder } from './route-order';
 import { ReorderStopsModal } from './reorder-stops-modal';
 import { RouteDaySuggesterModal } from './route-day-suggester-modal';
 import { CourierHomesModal } from './courier-homes-modal';
+import { CourierAssignmentBoard } from './courier-assignment-board';
+import { deriveLegCount, isBoardActive } from './courier-assignment';
 import { DeliveryWindowsModal } from './delivery-windows-modal';
 import { AddOrdersModal } from './add-orders-modal';
 
@@ -320,6 +324,34 @@ export function RouteClient({
   const [showHomes, setShowHomes] = useState(false);
   const [showWindows, setShowWindows] = useState(false);
   const [showAddOrders, setShowAddOrders] = useState(false);
+  const [showAssignBoard, setShowAssignBoard] = useState(false);
+
+  // Per-day courier assignment board (Task C2) — which accounts work today
+  // and which leg each drives (`routeCourierAssignments`, Task A1/A2). Fetched
+  // independently of the modal's own open state so the couriers-count
+  // dropdown's precedence (spec §4.2) is correct even before the farmer ever
+  // opens the board. Re-fetched whenever the viewed date changes.
+  const [assignments, setAssignments] = useState<RouteAssignment[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    getRouteAssignments(route.date)
+      .then((a) => {
+        if (!cancelled) setAssignments(a);
+      })
+      .catch(() => {
+        // Fetch failed — fall back to "no board" so the dropdown stays live
+        // (today's behavior) instead of silently locking it.
+        if (!cancelled) setAssignments([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [route.date]);
+  // Precedence (spec §4.2): ≥1 assignment for the date → the board defines
+  // the day and the dropdown goes inert; zero assignments → the dropdown's
+  // own count applies, unchanged from before this feature.
+  const boardActive = isBoardActive(assignments);
+  const boardLegCount = deriveLegCount(assignments, route.couriers);
   // The stop whose address is being edited (drives the „Смени адрес" modal).
   const [editStop, setEditStop] = useState<RouteStop | null>(null);
   // Remaining legs of a long (>9-waypoint) route — opened one-by-one on click so
@@ -796,22 +828,50 @@ export function RouteClient({
                   </button>
                 ))}
               </div>
-              {/* how many people split today's deliveries */}
-              <label className="flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm">
+              {/* how many people split today's deliveries — inert once the
+                  per-day board (Task C2) has any assignment for this date;
+                  the board alone drives the split then (spec §4.2 — never
+                  both at once). */}
+              <label
+                className="flex items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3 py-2.5 text-[13px] font-bold text-ff-ink-2 shadow-ff-sm"
+                title={
+                  boardActive
+                    ? 'Броят курсове идва от таблото „Куриери за деня“ — промени го оттам.'
+                    : undefined
+                }
+              >
                 Куриери
-                <select
-                  value={route.couriers}
-                  onChange={(e) => setCouriers(parseInt(e.target.value, 10))}
-                  aria-label="Брой куриери"
-                  className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
-                >
-                  {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
+                {boardActive ? (
+                  <span className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink">
+                    {boardLegCount}
+                  </span>
+                ) : (
+                  <select
+                    value={route.couriers}
+                    onChange={(e) => setCouriers(parseInt(e.target.value, 10))}
+                    aria-label="Брой куриери"
+                    className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
+                  >
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </label>
+              <button
+                onClick={() => setShowAssignBoard(true)}
+                title="Задай кой доставя днес и кой курс кара"
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-[13px] font-bold shadow-ff-sm transition',
+                  boardActive
+                    ? 'border-ff-green-500 bg-ff-green-100 text-ff-green-800'
+                    : 'border-ff-border bg-ff-surface text-ff-ink-2 hover:bg-ff-surface-2',
+                )}
+              >
+                <Users size={16} /> Куриери за деня
+              </button>
             </>
           )}
           <label className="relative flex cursor-pointer items-center gap-2 rounded-xl border border-ff-border bg-ff-surface px-3.5 py-2.5 text-[13.5px] font-bold text-ff-ink-2 shadow-ff-sm transition-colors hover:bg-ff-surface-2">
@@ -1297,6 +1357,20 @@ export function RouteClient({
           onClose={() => setShowHomes(false)}
           onSaved={() => {
             setShowHomes(false);
+            router.refresh();
+          }}
+        />
+      )}
+      {showAssignBoard && (
+        <CourierAssignmentBoard
+          date={route.date}
+          onClose={() => setShowAssignBoard(false)}
+          onChanged={(next) => {
+            // Reflect the new board immediately (dropdown precedence updates
+            // without waiting on the refresh below) and refetch the route so
+            // the actual stop split (Task A3's server-side precedence)
+            // catches up with the new assignment.
+            setAssignments(next);
             router.refresh();
           }}
         />
