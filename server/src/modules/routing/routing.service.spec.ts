@@ -294,4 +294,51 @@ describe('RoutingService.getRoute — assignment board overrides leg count', () 
     expect(result.couriers).toBe(1);
     expect(result.routes).toHaveLength(1);
   });
+
+  // Bug found investigating a real-world imbalance report: each roster row on
+  // the assignment board picks its leg independently, so a NON-contiguous set
+  // of assigned legs (e.g. [0, 2], leg 1 left unassigned) is a normal, expected
+  // shape — not an edge case. sweepSplit/optimizeGroup work over a dense
+  // 0..n-1 array position internally; without a position->leg mapping, a
+  // route's `courierIndex` output was the array position, not the real leg —
+  // so a driver assigned leg 2 would never match any route (array positions
+  // only ever go up to n-1=1) and would silently see zero stops.
+  it('(c) non-contiguous assigned legs (e.g. [0, 2]) come back with their REAL legIndex, not a dense 0..n-1 position', async () => {
+    const db = makeDb([[tenant()], stops(), []]);
+    const assignments = {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([
+        { accountId: 'driver-1', legIndex: 0 },
+        { accountId: 'driver-3', legIndex: 2 }, // leg 1 deliberately unassigned
+      ]),
+    } as any;
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, assignments);
+
+    const result = await svc.getRoute('t1', '2026-07-15');
+
+    expect(result.couriers).toBe(2);
+    expect(result.routes.map((r) => r.courierIndex).sort((a, b) => a - b)).toEqual([0, 2]);
+    // Never a stray dense-position leg (1) that no assigned account owns.
+    expect(result.routes.some((r) => r.courierIndex === 1)).toBe(false);
+  });
+
+  // Same non-contiguous-leg fix, from the order-pin side: a pin's
+  // courierIndex is a REAL leg number, and must land in the array slot that
+  // actually corresponds to that leg — not be used as a raw (and, for a
+  // non-contiguous leg set, out-of-bounds-relative-to-n) array index.
+  it('(d) an order pinned to a non-contiguous assigned leg lands on that leg\'s route, not a mismatched slot', async () => {
+    const pinnedStops = stops().map((s, i) => (i === 0 ? { ...s, courierIndex: 2 } : s));
+    const db = makeDb([[tenant()], pinnedStops, []]);
+    const assignments = {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([
+        { accountId: 'driver-1', legIndex: 0 },
+        { accountId: 'driver-3', legIndex: 2 },
+      ]),
+    } as any;
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, assignments);
+
+    const result = await svc.getRoute('t1', '2026-07-15');
+
+    const leg2 = result.routes.find((r) => r.courierIndex === 2)!;
+    expect(leg2.stops.some((s) => s.id === 'A')).toBe(true);
+  });
 });

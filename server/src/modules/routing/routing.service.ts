@@ -477,7 +477,12 @@ export class RoutingService {
     // courierCount default. Zero assignments for the day → unchanged current
     // behavior (dropdown/settings → effectiveCourierCount below).
     const assignments = await this.courierAssignments.getAssignmentsForDay(tenantId, day);
-    const assignedLegCount = new Set(assignments.map((a) => a.legIndex)).size;
+    // Sorted DISTINCT legIndex values, e.g. [0, 2] if the board has leg 1
+    // unassigned today — the board lets each roster row pick any leg
+    // independently, so non-contiguous sets are a normal, expected shape,
+    // not an edge case.
+    const assignedLegs = [...new Set(assignments.map((a) => a.legIndex))].sort((a, b) => a - b);
+    const assignedLegCount = assignedLegs.length;
 
     // Effective courier count: the route-page „Куриери" dropdown (?couriers=) wins
     // per request; when omitted, fall back to the tenant's saved default
@@ -487,11 +492,25 @@ export class RoutingService {
         ? assignedLegCount
         : effectiveCourierCount(couriers ?? (routingCfg.courierCount as number | undefined));
 
+    // `groups`/`sweepSplit` work over a DENSE 0..n-1 array position ("pos").
+    // With no board (legacy dropdown), pos === legIndex === courierIndex,
+    // always contiguous from 0. With a board that has gaps (e.g. legs
+    // [0, 2]), pos and legIndex diverge — pos 0 is leg 0, pos 1 is leg 2.
+    // `posToLeg[pos]` recovers the real leg for a route's `courierIndex`
+    // output; `legToPos` is the inverse, for placing a pin (which stores the
+    // real leg) into the correctly-positioned array slot. Not maintaining
+    // this mapping was a real bug: a driver assigned a non-contiguous leg
+    // (e.g. leg 2 when only legs [0, 2] are assigned) would never match any
+    // route's array-position-derived courierIndex and see zero stops.
+    const posToLeg = assignedLegCount > 0 ? assignedLegs : Array.from({ length: n }, (_, i) => i);
+    const legToPos = new Map(posToLeg.map((leg, pos) => [leg, pos]));
+
     // Operator-pinned stops (task #6): an order the operator manually moved onto a
-    // specific courier keeps that courier regardless of geography. Out-of-range
-    // pins (courier count later lowered) are treated as auto. The rest are split
+    // specific courier keeps that courier regardless of geography. Pins that don't
+    // resolve to a currently-active leg (courier count later lowered, or the
+    // board no longer assigns that leg) are treated as auto. The rest are split
     // geographically as before, then the pins are dropped into their courier.
-    const inRange = (ci: number | null): ci is number => ci != null && ci >= 0 && ci < n;
+    const inRange = (ci: number | null): ci is number => ci != null && legToPos.has(ci);
     const pinned = located.filter((s) => inRange(s.courierIndex));
     const free = located.filter((s) => !inRange(s.courierIndex));
 
@@ -515,7 +534,7 @@ export class RoutingService {
     // stick across reloads and lets an explicitly-chosen 2-courier day show both.
     if (pinned.length) {
       while (groups.length < n) groups.push([]);
-      for (const s of pinned) groups[s.courierIndex as number].push(s);
+      for (const s of pinned) groups[legToPos.get(s.courierIndex as number)!].push(s);
     }
     if (!groups.length) groups = [[]];
 
@@ -553,7 +572,10 @@ export class RoutingService {
           group,
           modes[i],
           this.endForCourier(modes[i], origin, end, couriersCfg[i]),
-          i,
+          // The real (possibly non-contiguous) leg, not the dense array
+          // position — this is what a driver's resolveMyLeg comparison and
+          // order pins match against.
+          posToLeg[i],
           (couriersCfg[i]?.name as string | null) ?? null,
           preserveOrderFlags[i],
         ),
