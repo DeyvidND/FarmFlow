@@ -319,6 +319,7 @@ export type FulfillmentState = 'pending' | 'in_production' | 'fulfilled';
 export interface TomorrowOrderItem {
   productId: string;
   productName: string;
+  variantLabel?: string | null;
   quantity: number;
 }
 
@@ -990,6 +991,7 @@ export class OrdersService {
         state: orderFulfillments.state,
         productId: orderItems.productId,
         productName: products.name,
+        variantLabel: orderItems.variantLabel,
         quantity: orderItems.quantity,
       })
       .from(orderItems)
@@ -1024,6 +1026,7 @@ export class OrdersService {
       state: FulfillmentState | null;
       productId: string | null;
       productName: string | null;
+      variantLabel: string | null;
       quantity: number;
     }>) {
       let o = byOrder.get(r.orderId);
@@ -1044,7 +1047,12 @@ export class OrdersService {
         byOrder.set(r.orderId, o);
       }
       if (r.productId) {
-        o.items.push({ productId: r.productId, productName: r.productName ?? '—', quantity: r.quantity });
+        o.items.push({
+          productId: r.productId,
+          productName: r.productName ?? '—',
+          variantLabel: r.variantLabel,
+          quantity: r.quantity,
+        });
       }
     }
     return [...byOrder.values()];

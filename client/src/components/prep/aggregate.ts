@@ -2,23 +2,29 @@ import type { TomorrowOrder, FulfillmentState } from '@/lib/api-client';
 
 export interface PrepProductRow {
   productName: string;
+  variantLabel: string | null;
   totalQty: number;
   pickedQty: number;
   orderCount: number;
 }
 
-/** Aggregate the order feed into per-product rows. Progress ("picked") is derived
- *  purely from each order's fulfillmentState, so it can never disagree with the
- *  order view — orders are the single source of truth. */
+/** Aggregate the order feed into per-product rows. Rows are keyed by product +
+ *  variant so different-sized packs of the same product (e.g. 500г vs 1кг) never
+ *  collapse into one "бройки" count that hides what was actually ordered.
+ *  Progress ("picked") is derived purely from each order's fulfillmentState, so
+ *  it can never disagree with the order view — orders are the single source of
+ *  truth. */
 export function aggregateByProduct(orders: TomorrowOrder[]): PrepProductRow[] {
   const map = new Map<string, PrepProductRow & { orderIds: Set<string> }>();
   for (const o of orders) {
     const picked = o.fulfillmentState === 'fulfilled';
     for (const it of o.items) {
-      let row = map.get(it.productName);
+      const variantLabel = it.variantLabel ?? null;
+      const key = `${it.productName}::${variantLabel ?? ''}`;
+      let row = map.get(key);
       if (!row) {
-        row = { productName: it.productName, totalQty: 0, pickedQty: 0, orderCount: 0, orderIds: new Set() };
-        map.set(it.productName, row);
+        row = { productName: it.productName, variantLabel, totalQty: 0, pickedQty: 0, orderCount: 0, orderIds: new Set() };
+        map.set(key, row);
       }
       row.totalQty += it.quantity;
       if (picked) row.pickedQty += it.quantity;

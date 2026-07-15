@@ -266,7 +266,12 @@ function OrdersView({
             <div className="mb-2 text-[13.5px] font-bold text-ff-ink-2">{o.customerName ?? '—'}</div>
             <Contact o={o} />
             <ul className="my-2.5 flex flex-col gap-0.5 text-[12.5px] text-ff-muted">
-              {o.items.map((it) => (<li key={it.productId}>{it.productName} × {it.quantity}</li>))}
+              {o.items.map((it) => (
+                <li key={it.productId}>
+                  {it.productName}
+                  {it.variantLabel && <span className="text-ff-muted-2"> ({it.variantLabel})</span>} × {it.quantity}
+                </li>
+              ))}
             </ul>
             {!readOnly && o.fulfillmentState !== 'fulfilled' && (
               <div className="flex flex-wrap gap-1.5">
@@ -320,7 +325,7 @@ function ProductsView({
           const isDone = r.totalQty > 0 && r.pickedQty === r.totalQty;
           return (
             <div
-              key={r.productName}
+              key={`${r.productName}::${r.variantLabel ?? ''}`}
               className={cn(
                 'grid w-full grid-cols-[1fr_auto] items-center gap-[18px] px-[22px] py-5 text-left',
                 i < rows.length - 1 && 'border-b border-ff-border-2',
@@ -329,6 +334,16 @@ function ProductsView({
               <div className="min-w-0">
                 <div className={cn('text-[18px] font-extrabold tracking-[-0.01em]', isDone ? 'text-ff-muted' : 'text-ff-ink')}>
                   {r.productName}
+                  {r.variantLabel && (
+                    <span
+                      className={cn(
+                        'ml-2 rounded-md px-1.5 py-0.5 text-[13px] font-bold tracking-normal',
+                        isDone ? 'text-ff-muted-2' : 'bg-ff-surface-2 text-ff-ink-2',
+                      )}
+                    >
+                      {r.variantLabel}
+                    </span>
+                  )}
                 </div>
                 <div className="mt-0.5 text-[13px] text-ff-muted">
                   от {r.orderCount} {r.orderCount === 1 ? 'поръчка' : 'поръчки'}

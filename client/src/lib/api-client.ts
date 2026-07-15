@@ -956,6 +956,7 @@ export type FulfillmentState = 'pending' | 'in_production' | 'fulfilled';
 export interface TomorrowOrderItem {
   productId: string;
   productName: string;
+  variantLabel?: string | null;
   quantity: number;
 }
 
