@@ -14,7 +14,7 @@ import { HelpAskDto } from './dto/help-ask.dto';
 export class HelpController {
   constructor(private readonly helpAi: HelpAiService) {}
 
-  @Roles('admin', 'farmer')
+  @Roles('admin', 'farmer', 'driver')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('ai/ask')
   async ask(@Body() dto: HelpAskDto) {

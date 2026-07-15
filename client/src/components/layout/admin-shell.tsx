@@ -6,6 +6,7 @@ import { Topbar } from '@/components/layout/topbar';
 import { ForcePasswordModal } from '@/components/auth/force-password-modal';
 import { AdblockNotice } from '@/components/layout/adblock-notice';
 import { FarmerRouteGuard } from '@/components/layout/farmer-route-guard';
+import { DriverRouteGuard } from '@/components/layout/driver-route-guard';
 import { FarmerOnboardingModal } from '@/components/layout/farmer-onboarding-modal';
 import { ImpersonationBanner } from '@/components/layout/impersonation-banner';
 import { RoleProvider } from '@/components/layout/role-context';
@@ -83,6 +84,7 @@ export function AdminShell({
         {!mustChangePassword && <AdblockNotice />}
 
         {role === 'farmer' && <FarmerRouteGuard />}
+        {role === 'driver' && <DriverRouteGuard />}
         {role === 'farmer' && !mustChangePassword && <FarmerOnboardingModal />}
 
         <Toaster

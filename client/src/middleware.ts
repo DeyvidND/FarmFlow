@@ -47,6 +47,11 @@ const FARMER_ALLOWED = [
   '/help',
 ];
 
+// Driver (courier) logins only ever need the route screen + help; bounce anything
+// else to /route. UX only — the server's default-deny guard is the real boundary.
+// Keep in sync with DRIVER_ALLOWED in components/layout/driver-route-guard.tsx.
+const DRIVER_ALLOWED = ['/route', '/help'];
+
 /** Decode the JWT payload without verifying signature (UX guard only). */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
@@ -107,16 +112,25 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Farmer role on a screen outside their allow-list → bounce before any render,
-  // so admin-only content never paints for them (was a client-side useEffect
-  // redirect, which flashed the admin dashboard for a frame first).
+  // Farmer/driver role on a screen outside their allow-list → bounce before any
+  // render, so admin-only content never paints for them (was a client-side
+  // useEffect redirect, which flashed the admin dashboard for a frame first).
   if (authed && isProtected) {
     const role = token ? decodeJwtPayload(token)?.role : undefined;
-    const allowed = FARMER_ALLOWED.some((p) => pathname === p || pathname.startsWith(p + '/'));
-    if (role === 'farmer' && !allowed) {
-      const url = req.nextUrl.clone();
-      url.pathname = '/stats';
-      return NextResponse.redirect(url);
+    if (role === 'farmer') {
+      const allowed = FARMER_ALLOWED.some((p) => pathname === p || pathname.startsWith(p + '/'));
+      if (!allowed) {
+        const url = req.nextUrl.clone();
+        url.pathname = '/stats';
+        return NextResponse.redirect(url);
+      }
+    } else if (role === 'driver') {
+      const allowed = DRIVER_ALLOWED.some((p) => pathname === p || pathname.startsWith(p + '/'));
+      if (!allowed) {
+        const url = req.nextUrl.clone();
+        url.pathname = '/route';
+        return NextResponse.redirect(url);
+      }
     }
   }
 

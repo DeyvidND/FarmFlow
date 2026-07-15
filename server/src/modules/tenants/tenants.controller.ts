@@ -32,7 +32,7 @@ export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
   @ApiOperation({ summary: 'Current tenant profile' })
-  @Roles('admin', 'farmer')
+  @Roles('admin', 'farmer', 'driver')
   @Get('me')
   me(@CurrentTenant() tenantId: string) {
     return this.tenantsService.getMe(tenantId);

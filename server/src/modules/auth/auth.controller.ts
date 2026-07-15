@@ -58,7 +58,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Return the current authenticated user profile' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @Roles('admin', 'farmer')
+  @Roles('admin', 'farmer', 'driver')
   @Get('me')
   @HttpCode(200)
   getMe(@CurrentUserId() userId: string) {

@@ -110,9 +110,10 @@ export function ForcePasswordModal({ role = 'admin' }: { role?: string }) {
 
   function enterPanel() {
     // Re-run the server layout so the fresh token (mustChangePassword=false)
-    // unmounts this modal. Farmer sub-accounts have no /dashboard access
-    // (FarmerRouteGuard bounces them to /stats) — land there directly.
-    router.push(role === 'farmer' ? '/stats' : '/dashboard');
+    // unmounts this modal. Farmer sub-accounts and driver logins have no
+    // /dashboard access (FarmerRouteGuard/DriverRouteGuard bounce them back) —
+    // land each directly on their own allowed screen.
+    router.push(role === 'farmer' ? '/stats' : role === 'driver' ? '/route' : '/dashboard');
     router.refresh();
   }
 

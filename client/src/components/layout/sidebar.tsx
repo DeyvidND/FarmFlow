@@ -134,6 +134,11 @@ export const FARMER_NAV: NavItem[] = [
   { href: '/farmer-delivery', label: 'Доставки', Icon: Truck, desc: 'Свържи Speedy/Econt и пращай куриерски поръчки.' },
 ];
 
+/** Nav for a driver login (role='driver') — route-only panel, just the one screen. */
+export const DRIVER_NAV: NavItem[] = [
+  { href: '/route', label: 'Маршрут', Icon: RouteIcon, desc: 'Твоят маршрут за днес — спирки и адреси за доставка.' },
+];
+
 const NAV_ORDER_PREFIX = 'navorder:';
 const DEFAULT_NAV_ORDER = NAV_GROUPS.map((g) => g.title);
 
@@ -321,7 +326,9 @@ export function Sidebar({
       </div>
 
       <nav className="ff-nav-scroll mt-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
-        {role === 'farmer' ? (
+        {role === 'driver' ? (
+          <div className="flex flex-col gap-1">{DRIVER_NAV.map(renderItem)}</div>
+        ) : role === 'farmer' ? (
           <div className="flex flex-col gap-1">{FARMER_NAV.map(renderItem)}</div>
         ) : (
           <>
@@ -366,21 +373,23 @@ export function Sidebar({
           visible with text labels (not hidden behind an avatar/chevron), so a
           non-digital farmer can find Настройки without discovering that menu. */}
       <div className="mt-2 flex shrink-0 items-center gap-1 border-t border-ff-border pt-2.5">
-        <Link
-          href="/settings"
-          onClick={closeDrawer}
-          data-on={settingsActive}
-          aria-label="Настройки"
-          className={cn(
-            'flex h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-[10px] text-[11px] font-bold transition-colors',
-            settingsActive
-              ? 'bg-ff-green-50 text-ff-green-800'
-              : 'text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
-          )}
-        >
-          <Settings size={19} strokeWidth={settingsActive ? 2 : 1.8} />
-          Настройки
-        </Link>
+        {role !== 'driver' && (
+          <Link
+            href="/settings"
+            onClick={closeDrawer}
+            data-on={settingsActive}
+            aria-label="Настройки"
+            className={cn(
+              'flex h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-[10px] text-[11px] font-bold transition-colors',
+              settingsActive
+                ? 'bg-ff-green-50 text-ff-green-800'
+                : 'text-ff-muted hover:bg-ff-green-50 hover:text-ff-ink',
+            )}
+          >
+            <Settings size={19} strokeWidth={settingsActive ? 2 : 1.8} />
+            Настройки
+          </Link>
+        )}
         <Link
           href="/help"
           onClick={closeDrawer}

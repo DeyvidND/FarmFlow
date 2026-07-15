@@ -54,3 +54,16 @@ describe('AuthController — POST /auth/register no longer exists', () => {
     expect(svc.updateHiddenNav).toHaveBeenCalledWith('user-1', ['/orders']);
   });
 });
+
+// Task C4 — GET /auth/me is the server-side auth gate every admin-panel page
+// load hits (client/src/app/(admin)/layout.tsx); a driver login must not 403
+// here or it gets bounced back to /login before any client-side route work runs.
+describe('AuthController getMe role metadata', () => {
+  it('allows admin, farmer, and driver', () => {
+    expect(Reflect.getMetadata('roles', AuthController.prototype.getMe)).toEqual([
+      'admin',
+      'farmer',
+      'driver',
+    ]);
+  });
+});
