@@ -8,6 +8,10 @@ import { SubcategoriesModule } from '../subcategories/subcategories.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
 import { VendorFinanceModule } from '../vendor-finance/vendor-finance.module';
+// Task B1 — super-admin courier-account CRUD reuses RoutingModule's
+// CourierAccessService (exported there). No forwardRef needed: RoutingModule
+// itself never imports PlatformModule, so there's no cycle.
+import { RoutingModule } from '../routing/routing.module';
 import { PlatformMarketplaceFinanceController } from './marketplace-finance.controller';
 import { PlatformMarketplaceFinanceService } from './marketplace-finance.service';
 import { PlatformService } from './platform.service';
@@ -15,6 +19,7 @@ import { PlatformInsightsService } from './insights.service';
 import { ProblemsService } from './problems.service';
 import { HealthBoardService } from './health-board.service';
 import { PlatformController, PlatformAuthController } from './platform.controller';
+import { PlatformCourierController } from './platform-courier.controller';
 import { AiImportModule } from '../ai-import/ai-import.module';
 import { ProducerOnboardService } from './producer-onboard.service';
 import { OperatorDigestService } from './operator-digest.service';
@@ -51,6 +56,7 @@ import { RUN_WORKERS } from '../../config/app-role';
     // marketplace-finance oversight controller.
     VendorFinanceModule,
     AiImportModule,
+    RoutingModule,
     // Product public-catalog Redis cache (`catalog:{tenantId}`) — busted by
     // setProductFeatured (matches ProductsService's own invalidate-on-write pattern).
     CatalogCacheModule,
@@ -92,7 +98,12 @@ import { RUN_WORKERS } from '../../config/app-role';
     BullModule.registerQueue({ name: BILLING_QUEUE }),
     BullModule.registerQueue({ name: ANALYTICS_QUEUE }),
   ],
-  controllers: [PlatformAuthController, PlatformController, PlatformMarketplaceFinanceController],
+  controllers: [
+    PlatformAuthController,
+    PlatformController,
+    PlatformMarketplaceFinanceController,
+    PlatformCourierController,
+  ],
   providers: [
     PlatformService,
     PlatformMarketplaceFinanceService,

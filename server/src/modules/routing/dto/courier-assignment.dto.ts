@@ -4,8 +4,11 @@ import { IsArray, IsInt, IsString, IsUUID, Matches, Max, Min, ValidateNested } f
 /**
  * Task A2 — per-day courier leg board. `date` is Europe/Sofia ISO `YYYY-MM-DD`
  * (matches `deliverySlots.date` / `routeCourierAssignments.date`). `legIndex`
- * uses the same 0-based range as `GrantCourierAccessDto.courierIndex`
- * (orders.courierIndex / settings.routing.couriers[] indexing, 1–10 couriers).
+ * uses the same 0-based range as `orders.courierIndex` /
+ * `settings.routing.couriers[]` indexing (1–10 couriers). `accountId` is
+ * granted out-of-band by the super-admin console (Task B1's
+ * `GrantCourierAccessDto`), which no longer carries a leg index — assignment
+ * happens here, on the board.
  */
 class AssignmentRowDto {
   @IsUUID()

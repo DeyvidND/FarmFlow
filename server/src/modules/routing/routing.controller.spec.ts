@@ -16,7 +16,7 @@ describe('RoutingController getRoute driver-scoping', () => {
   const courierAssignmentService = {
     resolveMyLeg: jest.fn(),
   };
-  const c = new RoutingController(service as any, {} as any, courierAssignmentService as any);
+  const c = new RoutingController(service as any, courierAssignmentService as any);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -87,7 +87,7 @@ describe('RoutingController measure driver-scoping', () => {
   const courierAssignmentService = {
     resolveMyLeg: jest.fn(),
   };
-  const c = new RoutingController(service as any, {} as any, courierAssignmentService as any);
+  const c = new RoutingController(service as any, courierAssignmentService as any);
 
   beforeEach(() => jest.clearAllMocks());
   beforeEach(() => service.getRoute.mockResolvedValue(ownRoute));

@@ -1,11 +1,9 @@
 import {
   Body,
   Controller,
-  Delete,
   ForbiddenException,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
   Put,
@@ -14,7 +12,6 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { RoutingService, parseEndModes, type RouteEndMode } from './routing.service';
-import { CourierAccessService } from './courier-access.service';
 import { CourierAssignmentService } from './courier-assignment.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
@@ -28,7 +25,6 @@ import { SuggestDaysDto } from './dto/suggest-days.dto';
 import { MeasureOrderDto } from './dto/measure-order.dto';
 import { SetOrderCourierDto } from './dto/set-order-courier.dto';
 import { SetOrderSequenceDto } from './dto/set-order-sequence.dto';
-import { GrantCourierAccessDto } from './dto/courier-access.dto';
 import { AssignmentsQueryDto, SetAssignmentsDto } from './dto/courier-assignment.dto';
 import {
   DeliveryWindowDayDto,
@@ -44,7 +40,6 @@ import {
 export class RoutingController {
   constructor(
     private readonly routingService: RoutingService,
-    private readonly courierAccessService: CourierAccessService,
     private readonly courierAssignmentService: CourierAssignmentService,
   ) {}
 
@@ -233,34 +228,6 @@ export class RoutingController {
   @Roles('admin')
   suggestDays(@CurrentTenant() tenantId: string, @Body() dto: SuggestDaysDto) {
     return this.routingService.suggestDays(tenantId, dto.days);
-  }
-
-  // Task C2 — admin-only grant/revoke/list of role='driver' logins bound to a
-  // courier leg. Explicit @Roles('admin') even though that's already the
-  // guard's default (mirrors suggestDays above) — this is a security-sensitive
-  // account-management surface.
-  @Get('route/courier-access')
-  @Roles('admin')
-  listCourierAccess(@CurrentTenant() tenantId: string) {
-    return this.courierAccessService.listAccess(tenantId);
-  }
-
-  @Post('route/courier-access')
-  @Roles('admin')
-  grantCourierAccess(
-    @CurrentTenant() tenantId: string,
-    @Body() dto: GrantCourierAccessDto,
-  ) {
-    return this.courierAccessService.grantAccess(tenantId, dto.courierIndex, dto.email);
-  }
-
-  @Delete('route/courier-access/:index')
-  @Roles('admin')
-  revokeCourierAccess(
-    @CurrentTenant() tenantId: string,
-    @Param('index', ParseIntPipe) index: number,
-  ) {
-    return this.courierAccessService.revokeAccess(tenantId, index);
   }
 
   // Task A2 — the per-day leg board: which account (driver login or the

@@ -8,14 +8,14 @@ import { AuthService } from '../auth/auth.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
 /**
- * Task C2 — admin-only grant/revoke/list for `role='driver'` logins bound to a
- * courier leg (0-based `courierIndex`, matches `orders.courierIndex` /
- * `settings.routing.couriers[]`). Mirrors `FarmersService`'s
- * listAccess/grantAccess/revokeAccess almost line-for-line. "At most one driver
- * login per (tenantId, courierIndex)" is backed by the partial unique index
- * `users_tenant_courier_index_uniq` (mirrors `users_farmer_id_uniq` for
- * farmers) — grantAccess's own lookup+insert is a plain read-then-write, so the
- * DB constraint is what actually closes the race on concurrent grants.
+ * Task B1 — super-admin-only (platform-guarded, see `PlatformAdminGuard`)
+ * grant/revoke/list for `role='driver'` logins. Account creation moved OUT of
+ * the farmer panel here; leg assignment no longer happens at grant time —
+ * `courierIndex` is left NULL on every insert and the per-day assignment
+ * board (Task A2/C2, `routeCourierAssignments` + `CourierAssignmentService`)
+ * is now the sole source of truth for "who runs which leg on date X."
+ * Mirrors `FarmersService`'s listAccess/grantAccess/revokeAccess almost
+ * line-for-line, keyed by `accountId` (`users.id`) instead of a leg index.
  */
 @Injectable()
 export class CourierAccessService {
@@ -27,32 +27,25 @@ export class CourierAccessService {
     private readonly config: ConfigService,
   ) {}
 
-  /** Courier-leg → login status list for the admin route access screen. */
+  /** Flat roster of driver logins for the super-admin console. */
   async listAccess(
     tenantId: string,
-  ): Promise<{ courierIndex: number; email: string; invitePending: boolean }[]> {
+  ): Promise<{ accountId: string; email: string; invitePending: boolean }[]> {
     const rows = await this.db
-      .select({ courierIndex: users.courierIndex, email: users.email, mustChange: users.mustChangePassword })
+      .select({ accountId: users.id, email: users.email, mustChange: users.mustChangePassword })
       .from(users)
       .where(and(eq(users.tenantId, tenantId), eq(users.role, 'driver')));
-    const list: { courierIndex: number; email: string; invitePending: boolean }[] = [];
-    for (const r of rows) {
-      // A driver not yet bound to a leg shouldn't appear in this list.
-      if (r.courierIndex !== null) {
-        list.push({ courierIndex: r.courierIndex, email: r.email, invitePending: r.mustChange });
-      }
-    }
-    return list;
+    return rows.map((r) => ({ accountId: r.accountId, email: r.email, invitePending: r.mustChange }));
   }
 
-  /** Grant (or re-invite) a driver login bound to one courier leg. Idempotent
-   *  re-invite resends to the (optionally updated) email. Email must be free
-   *  across all users. */
+  /** Grant (or re-invite) a driver login for this tenant. Idempotent re-invite
+   *  (same email → resend) resends to the same account. Email must be free
+   *  across all users. Created with `courierIndex` NULL — leg assignment
+   *  happens on the per-day board, not here. */
   async grantAccess(
     tenantId: string,
-    courierIndex: number,
     email: string,
-  ): Promise<{ courierIndex: number; loginEmail: string; invitePending: boolean }> {
+  ): Promise<{ accountId: string; email: string; invitePending: boolean }> {
     // Normalize so the stored address matches what the courier types at login
     // (the login lookup is case-sensitive).
     const normalizedEmail = email.trim().toLowerCase();
@@ -60,10 +53,10 @@ export class CourierAccessService {
     const [existing] = await this.db
       .select()
       .from(users)
-      .where(and(eq(users.tenantId, tenantId), eq(users.role, 'driver'), eq(users.courierIndex, courierIndex)))
+      .where(and(eq(users.tenantId, tenantId), eq(users.role, 'driver'), eq(users.email, normalizedEmail)))
       .limit(1);
 
-    // Email collision check (ignore this courier leg's own current row on re-invite).
+    // Email collision check (ignore this same login's own row on re-invite).
     const [emailOwner] = await this.db
       .select({ id: users.id })
       .from(users)
@@ -77,7 +70,7 @@ export class CourierAccessService {
     if (existing) {
       const [updated] = await this.db
         .update(users)
-        .set({ email: normalizedEmail, mustChangePassword: true, tokenVersion: sql`${users.tokenVersion} + 1` })
+        .set({ mustChangePassword: true, tokenVersion: sql`${users.tokenVersion} + 1` })
         .where(eq(users.id, existing.id))
         .returning({ id: users.id });
       userId = updated.id;
@@ -88,7 +81,6 @@ export class CourierAccessService {
           .insert(users)
           .values({
             tenantId,
-            courierIndex,
             email: normalizedEmail,
             role: 'driver',
             passwordHash,
@@ -97,12 +89,12 @@ export class CourierAccessService {
           .returning({ id: users.id });
         userId = created.id;
       } catch (err) {
-        // users_tenant_courier_index_uniq (partial, role='driver') backstops the
-        // read-then-write above: two concurrent grantAccess calls for the same leg
-        // (e.g. an admin double-clicking "Покани") can both see existing=undefined
-        // and race to insert — the DB constraint lets only one through.
+        // users_email_unique backstops the read-then-write above: two concurrent
+        // grantAccess calls for the same email (e.g. a double-clicked "Покани")
+        // can both see existing=undefined/emailOwner=undefined and race to
+        // insert — the DB constraint lets only one through.
         if ((err as { code?: string }).code === '23505') {
-          throw new ConflictException('Достъп за този куриер вече е предоставен');
+          throw new ConflictException('Този имейл вече се използва');
         }
         throw err;
       }
@@ -119,15 +111,15 @@ export class CourierAccessService {
         `Courier invite email failed for user ${userId}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    return { courierIndex, loginEmail: normalizedEmail, invitePending: true };
+    return { accountId: userId, email: normalizedEmail, invitePending: true };
   }
 
-  /** Revoke a courier leg's login: kill live sessions (token_version bump) then delete. */
-  async revokeAccess(tenantId: string, courierIndex: number): Promise<{ ok: true }> {
+  /** Revoke a driver login: kill live sessions (token_version bump) then delete. */
+  async revokeAccess(tenantId: string, accountId: string): Promise<{ ok: true }> {
     const [login] = await this.db
       .select({ id: users.id })
       .from(users)
-      .where(and(eq(users.tenantId, tenantId), eq(users.role, 'driver'), eq(users.courierIndex, courierIndex)))
+      .where(and(eq(users.tenantId, tenantId), eq(users.role, 'driver'), eq(users.id, accountId)))
       .limit(1);
     if (!login) throw new NotFoundException('Този куриер няма достъп');
     // Clear the FK references to this login BEFORE deleting it — audit_logs.user_id

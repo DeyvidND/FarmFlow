@@ -13,6 +13,8 @@ import { AuthModule } from '../auth/auth.module';
   imports: [forwardRef(() => OrdersModule), OrderEmailModule, AuthModule],
   controllers: [RoutingController],
   providers: [RoutingService, CourierAccessService, CourierAssignmentService],
-  exports: [RoutingService, CourierAssignmentService],
+  // CourierAccessService exported for PlatformModule (Task B1 — super-admin
+  // courier-account controller lives there, guarded by PlatformAdminGuard).
+  exports: [RoutingService, CourierAssignmentService, CourierAccessService],
 })
 export class RoutingModule {}
