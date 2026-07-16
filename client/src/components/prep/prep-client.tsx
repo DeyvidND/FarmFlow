@@ -12,7 +12,7 @@ import {
   type PrepSummary, type TomorrowOrder, type FulfillmentState,
 } from '@/lib/api-client';
 import { DateNavBar } from '@/components/production/date-nav-bar';
-import { aggregateByProduct, mergeOrderSlices } from './aggregate';
+import { aggregateByProduct, aggregateByCourier, mergeOrderSlices } from './aggregate';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 const plural = (n: number) => (n === 1 ? 'бройка' : 'бройки');
@@ -139,6 +139,11 @@ export function PrepClient({
   const totalQty = productRows.reduce((s, r) => s + r.totalQty, 0);
   const pickedQty = productRows.reduce((s, r) => s + r.pickedQty, 0);
   const allDone = totalQty > 0 && pickedQty === totalQty;
+  // Per-courier product groups drive both the „По продукт" split AND whether the
+  // „Раздели по куриери" option is even offered — it only makes sense with more
+  // than one delivery leg (2+ couriers, or one courier plus off-route orders).
+  const courierGroups = aggregateByCourier(orders);
+  const canSplitByCourier = role !== 'driver' && courierGroups.length >= 2;
   const orderViewOrders = isAll ? mergeOrderSlices(orders) : orders;
   // A courier's rows never carry a real per-farmer fulfillment state (always
   // 'pending' — that's the farmer's own prep tracking, not the driver's) —
@@ -209,9 +214,10 @@ export function PrepClient({
           ))}
         </div>
         <div className="flex items-center gap-3">
-          {/* Group by courier — only in the per-order view, and never for a
-              driver (they already see a single leg). */}
-          {view === 'orders' && !isDriver && (
+          {/* Group by courier — offered in BOTH views (per-order cards and the
+              per-product harvest totals), but only when the day actually has
+              more than one delivery leg, and never for a driver (single leg). */}
+          {canSplitByCourier && (
             <label className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
               <input
                 type="checkbox"
@@ -257,6 +263,8 @@ export function PrepClient({
       ) : (
         <ProductsView
           rows={productRows}
+          groups={courierGroups}
+          splitByCourier={splitByCourier && canSplitByCourier}
           pickedQty={pickedQty}
           totalQty={totalQty}
           allDone={allDone}
@@ -439,10 +447,81 @@ function OrdersView({
   );
 }
 
+/** Header label for a courier leg — matches the per-order view's grouping. */
+function courierLabel(courierIndex: number | null, courierName: string | null): string {
+  if (courierIndex == null) return 'Без маршрут (взимане на място / куриерска фирма)';
+  return `Маршрут ${courierIndex + 1}${courierName ? ` · ${courierName}` : ''}`;
+}
+
+/** One harvest-totals card: a header (title + picked/total) over per-product
+ *  rows. Reused for the single combined table and each per-courier section. */
+function ProductTable({
+  title, rows, pickedQty, totalQty,
+}: {
+  title: string;
+  rows: ReturnType<typeof aggregateByProduct>;
+  pickedQty: number;
+  totalQty: number;
+}) {
+  const done = totalQty > 0 && pickedQty === totalQty;
+  return (
+    <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
+      <div className="flex items-center justify-between border-b border-ff-border-2 px-[22px] pb-[15px] pt-[18px]">
+        <h2 className="text-[17px] font-extrabold">{title}</h2>
+        <span className={cn('text-[13px] font-bold', done ? 'text-ff-green-700' : 'text-ff-muted')}>
+          {pickedQty}/{totalQty} набрани
+        </span>
+      </div>
+      {rows.map((r, i) => {
+        const isDone = r.totalQty > 0 && r.pickedQty === r.totalQty;
+        return (
+          <div
+            key={`${r.productName}::${r.variantLabel ?? ''}`}
+            className={cn(
+              'grid w-full grid-cols-[1fr_auto] items-center gap-[18px] px-[22px] py-5 text-left',
+              i < rows.length - 1 && 'border-b border-ff-border-2',
+            )}
+          >
+            <div className="min-w-0">
+              <div className={cn('text-[18px] font-extrabold tracking-[-0.01em]', isDone ? 'text-ff-muted' : 'text-ff-ink')}>
+                {r.productName}
+                {r.variantLabel && (
+                  <span
+                    className={cn(
+                      'ml-2 rounded-md px-1.5 py-0.5 text-[13px] font-bold tracking-normal',
+                      isDone ? 'text-ff-muted-2' : 'bg-ff-surface-2 text-ff-ink-2',
+                    )}
+                  >
+                    {r.variantLabel}
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[13px] text-ff-muted">
+                от {r.orderCount} {r.orderCount === 1 ? 'поръчка' : 'поръчки'}
+                {r.pickedQty > 0 && !isDone && <span className="text-ff-green-700"> · {r.pickedQty} набрани</span>}
+                {isDone && <span className="text-ff-green-700"> · готово</span>}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-baseline gap-1.5">
+              <span className={cn('ff-fig text-[34px] font-extrabold leading-none tracking-[-0.03em]', isDone ? 'text-ff-muted-2' : 'text-ff-green-700')}>
+                {r.totalQty}
+              </span>
+              <span className="text-[15px] font-bold text-ff-muted">бр</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProductsView({
-  rows, pickedQty, totalQty, allDone, isDriver = false,
+  rows, groups, splitByCourier = false, pickedQty, totalQty, allDone, isDriver = false,
 }: {
   rows: ReturnType<typeof aggregateByProduct>;
+  /** Per-courier product groups, for the „Раздели по куриери" split. */
+  groups: ReturnType<typeof aggregateByCourier>;
+  splitByCourier?: boolean;
   pickedQty: number;
   totalQty: number;
   allDone: boolean;
@@ -450,57 +529,30 @@ function ProductsView({
 }) {
   return (
     <div className="grid grid-cols-[1fr_300px] items-start gap-4 max-[900px]:grid-cols-1">
-      <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
-        <div className="flex items-center justify-between border-b border-ff-border-2 px-[22px] pb-[15px] pt-[18px]">
-          <h2 className="text-[17px] font-extrabold">За приготвяне</h2>
-          <span className={cn('text-[13px] font-bold', allDone ? 'text-ff-green-700' : 'text-ff-muted')}>
-            {pickedQty}/{totalQty} набрани
-          </span>
+      {/* Left: one combined harvest table, or one table per courier leg when
+          split — so a farmer with several couriers packs each van separately.
+          Either way the sidebar keeps the day-wide „общо" progress. */}
+      {splitByCourier ? (
+        <div className="flex flex-col gap-4">
+          {groups.map((g) => (
+            <ProductTable
+              key={String(g.courierIndex)}
+              title={courierLabel(g.courierIndex, g.courierName)}
+              rows={g.rows}
+              pickedQty={g.pickedQty}
+              totalQty={g.totalQty}
+            />
+          ))}
         </div>
-        {rows.map((r, i) => {
-          const isDone = r.totalQty > 0 && r.pickedQty === r.totalQty;
-          return (
-            <div
-              key={`${r.productName}::${r.variantLabel ?? ''}`}
-              className={cn(
-                'grid w-full grid-cols-[1fr_auto] items-center gap-[18px] px-[22px] py-5 text-left',
-                i < rows.length - 1 && 'border-b border-ff-border-2',
-              )}
-            >
-              <div className="min-w-0">
-                <div className={cn('text-[18px] font-extrabold tracking-[-0.01em]', isDone ? 'text-ff-muted' : 'text-ff-ink')}>
-                  {r.productName}
-                  {r.variantLabel && (
-                    <span
-                      className={cn(
-                        'ml-2 rounded-md px-1.5 py-0.5 text-[13px] font-bold tracking-normal',
-                        isDone ? 'text-ff-muted-2' : 'bg-ff-surface-2 text-ff-ink-2',
-                      )}
-                    >
-                      {r.variantLabel}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-0.5 text-[13px] text-ff-muted">
-                  от {r.orderCount} {r.orderCount === 1 ? 'поръчка' : 'поръчки'}
-                  {r.pickedQty > 0 && !isDone && <span className="text-ff-green-700"> · {r.pickedQty} набрани</span>}
-                  {isDone && <span className="text-ff-green-700"> · готово</span>}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-baseline gap-1.5">
-                <span className={cn('ff-fig text-[34px] font-extrabold leading-none tracking-[-0.03em]', isDone ? 'text-ff-muted-2' : 'text-ff-green-700')}>
-                  {r.totalQty}
-                </span>
-                <span className="text-[15px] font-bold text-ff-muted">бр</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      ) : (
+        <ProductTable title="За приготвяне" rows={rows} pickedQty={pickedQty} totalQty={totalQty} />
+      )}
 
       <div className="sticky top-0 flex flex-col gap-4 max-[900px]:static">
         <div className="rounded-xl border border-ff-border border-t-[3px] border-t-ff-green-600 bg-ff-surface p-5 shadow-ff-sm">
-          <div className="mb-3 text-[13.5px] font-bold text-ff-muted">Напредък</div>
+          <div className="mb-3 text-[13.5px] font-bold text-ff-muted">
+            {splitByCourier ? 'Напредък (общо)' : 'Напредък'}
+          </div>
           <div className="flex items-baseline gap-2">
             <span className="ff-fig text-[40px] font-extrabold tracking-[-0.03em] text-ff-ink">{pickedQty}</span>
             <span className="text-[18px] font-bold text-ff-muted-2">/ {totalQty}</span>
