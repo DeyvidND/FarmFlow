@@ -101,6 +101,7 @@ describe('HandoverService.buildDraft farmer_to_operator', () => {
       { productName: 'Краставици', variantLabel: undefined, quantity: 1, unit: 'бр', priceStotinki: 120, orderNumber: undefined },
     ]);
     expect(draft.total).toBe(5 * 300 + 1 * 120);
+    expect(draft.orderNumbers).toEqual([5, 7]); // distinct, sorted, across the farmer's orders in the slot
   });
 
   it('falls back to the plain farmer/operator name when legal identity is unset', async () => {
@@ -130,7 +131,7 @@ describe('HandoverService.buildDraft operator_to_customer', () => {
   it('uses the order items + customer identity; total is the COD amount', async () => {
     const db = makeDb();
     db.queue([{ legal: { name: 'ЕТ Оператор' } }]); // tenant settings.legal
-    db.queue([{ id: 'o9', customerName: 'Иван Петров', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720 }]); // order
+    db.queue([{ id: 'o9', customerName: 'Иван Петров', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720, orderNumber: 9 }]); // order
     db.queue([
       { productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' },
       { productName: 'Краставици', variantLabel: null, quantity: 1, priceStotinki: 120, unit: 'бр', name: 'Краставици' },
@@ -142,6 +143,7 @@ describe('HandoverService.buildDraft operator_to_customer', () => {
     expect(draft.items.map((i) => i.quantity)).toEqual([2, 1]);
     expect(draft.items[0].unit).toBe('кг');
     expect(draft.total).toBe(720);
+    expect(draft.orderNumbers).toEqual([9]); // the single order's number
   });
 
   it('falls back to the operator plain name when operator legal is unset', async () => {
@@ -179,7 +181,7 @@ describe('HandoverService.createSigned', () => {
     expect(inserted.protocolNumber).toBe(41);
     expect(inserted.fromSnapshot).toEqual({ name: 'ЕТ Васил' });      // frozen, not client-supplied
     expect(inserted.totalStotinki).toBe(1500);                        // re-derived, not trusted from client
-    expect(inserted.meta).toEqual({ device: 'ipad', userAgent: 'Mozilla/5.0' }); // e-signature evidence, not dropped
+    expect(inserted.meta).toEqual({ device: 'ipad', userAgent: 'Mozilla/5.0', orderNumbers: [5] }); // e-sig evidence + order refs, not dropped
   });
 
   it('rejects a duplicate signed protocol for the same target', async () => {

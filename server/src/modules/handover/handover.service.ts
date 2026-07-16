@@ -95,6 +95,7 @@ export class HandoverService {
     to: LegalIdentity | CustomerParty;
     items: ProtocolItemDto[];
     total: number;
+    orderNumbers: number[];
   }> {
     if (q.kind === 'operator_to_customer') {
       return this.buildCustomerLegDraft(tenantId, q);
@@ -124,6 +125,7 @@ export class HandoverService {
       quantity: number;
       unit: string | null;
       priceStotinki: number;
+      orderNumber: number | null;
     }[] = await this.db
       .select({
         productName: orderItems.productName,
@@ -131,6 +133,7 @@ export class HandoverService {
         quantity: orderItems.quantity,
         unit: products.unit,
         priceStotinki: orderItems.priceStotinki,
+        orderNumber: orders.orderNumber,
       })
       .from(orderItems)
       .innerJoin(products, eq(products.id, orderItems.productId))
@@ -165,14 +168,24 @@ export class HandoverService {
 
     const items = [...byKey.values()];
     const total = items.reduce((s, i) => s + i.quantity * i.priceStotinki, 0);
+    const orderNumbers = [...new Set(rows.map((r) => r.orderNumber).filter((n): n is number => n != null))].sort(
+      (a, b) => a - b,
+    );
 
-    return { kind: q.kind, from: farmerLegal, to: operatorLegal, items, total };
+    return { kind: q.kind, from: farmerLegal, to: operatorLegal, items, total, orderNumbers };
   }
 
   private async buildCustomerLegDraft(
     tenantId: string,
     q: DraftQueryDto,
-  ): Promise<{ kind: string; from: LegalIdentity; to: CustomerParty; items: ProtocolItemDto[]; total: number }> {
+  ): Promise<{
+    kind: string;
+    from: LegalIdentity;
+    to: CustomerParty;
+    items: ProtocolItemDto[];
+    total: number;
+    orderNumbers: number[];
+  }> {
     if (!q.orderId) {
       throw new BadRequestException('Изисква се поръчка.');
     }
@@ -191,6 +204,7 @@ export class HandoverService {
         customerPhone: orders.customerPhone,
         deliveryAddress: orders.deliveryAddress,
         totalStotinki: orders.totalStotinki,
+        orderNumber: orders.orderNumber,
       })
       .from(orders)
       .where(and(eq(orders.tenantId, tenantId), eq(orders.id, q.orderId)))
@@ -234,7 +248,9 @@ export class HandoverService {
       unit: r.unit ?? undefined,
     }));
 
-    return { kind: q.kind, from: operatorLegal, to, items, total: order.totalStotinki };
+    const orderNumbers = order.orderNumber != null ? [order.orderNumber] : [];
+
+    return { kind: q.kind, from: operatorLegal, to, items, total: order.totalStotinki, orderNumbers };
   }
 
   /**
@@ -300,7 +316,7 @@ export class HandoverService {
           totalStotinki: draft.total,
           fromSignaturePng: dto.fromSignaturePng,
           toSignaturePng: dto.toSignaturePng,
-          meta: dto.meta ?? null,
+          meta: { ...(dto.meta ?? {}), orderNumbers: draft.orderNumbers },
           signMode: 'digital',
           status: 'signed',
           signedAt: new Date(),
@@ -447,6 +463,7 @@ export class HandoverService {
             items: draft.items,
             orderIds: target.kind === 'operator_to_customer' ? [target.orderId] : null,
             totalStotinki: draft.total,
+            meta: { orderNumbers: draft.orderNumbers },
             signMode: 'pending',
             status: 'draft',
           })
@@ -540,6 +557,7 @@ export class HandoverService {
           items: draft.items,
           orderIds: dto.orderId ? [dto.orderId] : null,
           totalStotinki: draft.total,
+          meta: { orderNumbers: draft.orderNumbers },
           signMode: 'pending',
           status: 'draft',
         })
@@ -598,6 +616,7 @@ export class HandoverService {
           items: draft.items,
           orderIds: dto.orderId ? [dto.orderId] : null,
           totalStotinki: draft.total,
+          meta: { orderNumbers: draft.orderNumbers },
           signMode: 'paper',
           status: 'signed',
           signedAt: new Date(),
@@ -801,6 +820,7 @@ export class HandoverService {
       toSnapshot: draft.to,
       items: draft.items,
       totalStotinki: draft.total,
+      meta: { orderNumbers: draft.orderNumbers },
       fromSignaturePng: null,
       toSignaturePng: null,
     });
