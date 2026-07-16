@@ -126,6 +126,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/orders': 'Поръчки',
   '/prep': 'Подготовка',
   '/route': 'Маршрут',
+  '/my-turnover': 'Моят оборот',
   '/payments': 'Плащания',
   '/stats': 'Статистика',
   '/products': 'Продукти',

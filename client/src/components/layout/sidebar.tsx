@@ -28,6 +28,7 @@ import {
   Truck,
   LineChart,
   FileSignature,
+  Wallet,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -136,6 +137,7 @@ export const FARMER_NAV: NavItem[] = [
 export const DRIVER_NAV: NavItem[] = [
   { href: '/route', label: 'Маршрут', Icon: RouteIcon, desc: 'Твоят маршрут за днес — спирки и адреси за доставка.' },
   { href: '/prep', label: 'Подготовка', Icon: CalendarCheck, desc: 'Продуктите за твоя маршрут днес — какво да натовариш.' },
+  { href: '/my-turnover', label: 'Моят оборот', Icon: Wallet, desc: 'Твоят оборот от доставките — по избран ден.' },
 ];
 
 const NAV_ORDER_PREFIX = 'navorder:';

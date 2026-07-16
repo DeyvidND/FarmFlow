@@ -16,6 +16,7 @@ const PROTECTED = [
   '/features',
   '/help',
   '/marketing-tracking',
+  '/my-turnover',
   '/newsletters',
   '/orders',
   '/payments',
@@ -52,7 +53,7 @@ const FARMER_ALLOWED = [
 // checklist, + help; bounce anything else to /route. UX only — the server's
 // default-deny guard is the real boundary. Keep in sync with DRIVER_ALLOWED
 // in components/layout/driver-route-guard.tsx.
-const DRIVER_ALLOWED = ['/route', '/prep', '/help'];
+const DRIVER_ALLOWED = ['/route', '/prep', '/my-turnover', '/help'];
 
 /** Decode the JWT payload without verifying signature (UX guard only). */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -164,6 +165,8 @@ export const config = {
     '/help/:path*',
     '/marketing-tracking',
     '/marketing-tracking/:path*',
+    '/my-turnover',
+    '/my-turnover/:path*',
     '/newsletters',
     '/newsletters/:path*',
     '/orders',
