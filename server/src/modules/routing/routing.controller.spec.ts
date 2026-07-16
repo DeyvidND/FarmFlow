@@ -67,6 +67,65 @@ describe('RoutingController getRoute driver-scoping', () => {
   });
 });
 
+// «Моят оборот» — a courier's personal turnover must count BOTH confirmed AND
+// delivered orders, so the number does NOT shrink as they mark stops delivered
+// (the reported bug: delivered 11, saw 9 because the live confirmed-only route
+// dropped the two finished stops). Driver-scoped to their own leg; admins get
+// the whole day.
+describe('RoutingController myTurnover (personal courier turnover)', () => {
+  const routes = [
+    { courierIndex: 0, stops: ['a'], totalStotinki: 1000 },
+    { courierIndex: 1, stops: ['b'], totalStotinki: 2000 },
+  ];
+  const service = {
+    getRoute: jest.fn().mockResolvedValue({ date: '2026-07-15', routes, couriers: 2 }),
+  };
+  const courierAssignmentService = { resolveMyLeg: jest.fn() };
+  const c = new RoutingController(service as any, courierAssignmentService as any);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('asks getRoute for confirmed AND delivered (turnover must not shrink as stops are delivered)', async () => {
+    const user = { type: 'tenant', role: 'driver', userId: 'u1' } as any;
+    courierAssignmentService.resolveMyLeg.mockResolvedValue(1);
+    await c.myTurnover('t1', user, '2026-07-15');
+    expect(service.getRoute).toHaveBeenCalledWith(
+      't1',
+      '2026-07-15',
+      undefined,
+      undefined,
+      undefined,
+      ['confirmed', 'delivered'],
+    );
+  });
+
+  it("filters to the driver's own leg, resolved for the returned day", async () => {
+    const user = { type: 'tenant', role: 'driver', userId: 'u1' } as any;
+    courierAssignmentService.resolveMyLeg.mockResolvedValue(1);
+    const result = await c.myTurnover('t1', user, '2026-07-15');
+    expect(courierAssignmentService.resolveMyLeg).toHaveBeenCalledWith('t1', 'u1', '2026-07-15');
+    expect(result).toEqual({
+      date: '2026-07-15',
+      routes: [{ courierIndex: 1, stops: ['b'], totalStotinki: 2000 }],
+      couriers: 1,
+    });
+  });
+
+  it('an unassigned driver gets an empty turnover', async () => {
+    const user = { type: 'tenant', role: 'driver', userId: 'u1' } as any;
+    courierAssignmentService.resolveMyLeg.mockResolvedValue(null);
+    const result = await c.myTurnover('t1', user, '2026-07-15');
+    expect(result).toEqual({ date: '2026-07-15', routes: [], couriers: 0 });
+  });
+
+  it('an admin/operator sees the whole day (all legs); resolveMyLeg is never called', async () => {
+    const user = { type: 'tenant', role: 'admin' } as any;
+    const result = await c.myTurnover('t1', user, '2026-07-15');
+    expect(courierAssignmentService.resolveMyLeg).not.toHaveBeenCalled();
+    expect(result).toEqual({ date: '2026-07-15', routes, couriers: 2 });
+  });
+});
+
 // Task A3 — a driver may only ever measure the leg resolved for them ON THAT
 // DATE via resolveMyLeg; the request body's courierIndex is ignored and
 // overridden, and the requested stopIds are checked against that resolved

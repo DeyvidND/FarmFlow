@@ -694,6 +694,15 @@ export const getRoute = (opts?: { date?: string; end?: string; couriers?: number
   return apiFetch<MultiRouteResult>(`orders/route${q ? `?${q}` : ''}`);
 };
 
+// «Моят оборот» — a courier's own turnover for a day. Unlike getRoute (live,
+// confirmed-only), this counts confirmed AND delivered orders, so the number
+// doesn't shrink as the courier marks deliveries done. Driver-scoped to their
+// own leg server-side.
+export const getMyTurnover = (date?: string) =>
+  apiFetch<MultiRouteResult>(
+    `orders/route/my-turnover${date ? `?date=${encodeURIComponent(date)}` : ''}`,
+  );
+
 /** Geography-first proposal: spread pending address orders across the given days,
  *  each with its own courier count. */
 export const suggestDays = (days: { date: string; couriers: number }[]) =>

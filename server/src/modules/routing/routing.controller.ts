@@ -90,6 +90,43 @@ export class RoutingController {
     return { ...result, routes, couriers: routes.length };
   }
 
+  // «Моят оборот» — a courier's personal turnover for a day. Unlike the live
+  // GET route (confirmed-only, so finished stops drop off the map), turnover
+  // counts BOTH confirmed AND delivered orders: the courier earned that money
+  // whether or not the stop is still pending, so the number must NOT shrink as
+  // they mark deliveries done. ['confirmed','delivered'] is the same leg-
+  // ownership basis the driver findOne/updateStatus checks already use. Result
+  // is the driver's own leg only (admins/operators get the whole day).
+  @Get('route/my-turnover')
+  @UseGuards(ActiveSubscriptionGuard)
+  @Roles('admin', 'driver')
+  @ApiQuery({ name: 'date', required: false })
+  async myTurnover(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Query('date') date?: string,
+  ) {
+    const result = await this.routingService.getRoute(
+      tenantId,
+      date,
+      undefined,
+      undefined,
+      undefined,
+      ['confirmed', 'delivered'],
+    );
+    if (user.role !== 'driver') return result;
+    // Resolve the driver's leg for the day the same way the live route does
+    // (per-day board, not the retired JWT courierIndex). Unassigned → empty.
+    const myLeg = await this.courierAssignmentService.resolveMyLeg(
+      tenantId,
+      user.userId,
+      result.date,
+    );
+    if (myLeg == null) return { ...result, routes: [], couriers: 0 };
+    const routes = result.routes.filter((r) => r.courierIndex === myLeg);
+    return { ...result, routes, couriers: routes.length };
+  }
+
   // Fix a stop with no map pin: re-geocode a corrected address, or save a manual
   // pin. Multi-segment path so it can't be captured by OrdersModule's `:id`.
   @Patch('route/stop/:id')

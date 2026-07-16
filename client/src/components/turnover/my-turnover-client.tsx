@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Wallet, PackageCheck, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
-import { getRoute } from '@/lib/api-client';
+import { getMyTurnover } from '@/lib/api-client';
 import type { MultiRouteResult, CourierRoute } from '@/lib/types';
 import { moneyFromStotinki, relDayLabel } from '@/lib/utils';
 import { DateNavBar } from '@/components/production/date-nav-bar';
@@ -34,7 +34,7 @@ export function MyTurnoverClient({
     }
     let live = true;
     setLoading(true);
-    getRoute({ date })
+    getMyTurnover(date)
       .then((r) => {
         if (live) setRoute(r);
       })

@@ -16,13 +16,13 @@ function bgToday(): string {
 }
 
 /**
- * «Моят оборот» — a courier's personal turnover for one day. Reuses the
- * driver-scoped GET /orders/route (which already filters to the caller's own
- * leg and carries each leg's summed money), so no dedicated backend is needed:
- * the courier's leg money IS their turnover. `routes` empty ⇒ not on a route
- * that day (the client shows the „не участваш" empty state).
+ * «Моят оборот» — a courier's personal turnover for one day. Uses the
+ * driver-scoped GET /orders/route/my-turnover, which filters to the caller's own
+ * leg and — unlike the live route — counts confirmed AND delivered orders, so
+ * the turnover doesn't shrink as the courier marks deliveries done. `routes`
+ * empty ⇒ not on a route that day (the client shows the „не участваш" empty state).
  */
-async function fetchRoute(date: string): Promise<MultiRouteResult> {
+async function fetchTurnover(date: string): Promise<MultiRouteResult> {
   const empty: MultiRouteResult = {
     date,
     origin: { address: null, lat: null, lng: null },
@@ -34,7 +34,7 @@ async function fetchRoute(date: string): Promise<MultiRouteResult> {
   if (!token) return empty;
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/orders/route?date=${date}`, {
+    res = await fetch(`${API_BASE}/orders/route/my-turnover?date=${date}`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: 'no-store',
     });
@@ -50,7 +50,7 @@ export default async function MyTurnoverPage(props: {
 }) {
   const { date } = await props.searchParams;
   const day = date || bgToday();
-  const initial = await fetchRoute(day);
+  const initial = await fetchTurnover(day);
   return (
     <div className="max-w-[720px]">
       <MyTurnoverClient initial={initial} initialDate={day} />
