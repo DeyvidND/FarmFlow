@@ -22,6 +22,19 @@
       "port": 3001
     },
     {
+      "name": "api-dev-cab",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "C:/Users/Lenovo/source/repos/FarmFlow/.claude/worktrees/courier-assignment-board", "--filter", "@fermeribg/api", "dev"],
+      "port": 3001
+    },
+    {
+      "name": "web-dev-cab",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "C:/Users/Lenovo/source/repos/FarmFlow/.claude/worktrees/courier-assignment-board", "--filter", "@fermeribg/web", "exec", "next", "dev", "-p", "3006"],
+      "port": 3006,
+      "autoPort": false
+    },
+    {
       "name": "api-dev-prq",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "C:/Users/Lenovo/source/repos/FarmFlow-prq", "--filter", "@fermeribg/api", "dev"],
