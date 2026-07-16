@@ -51,6 +51,7 @@ import { reconcileOrder } from './route-order';
 import { ReorderStopsModal } from './reorder-stops-modal';
 import { RouteDaySuggesterModal } from './route-day-suggester-modal';
 import { CourierHomesModal } from './courier-homes-modal';
+import { CourierStartsModal } from './courier-starts-modal';
 import { CourierAssignmentBoard } from './courier-assignment-board';
 import { deriveLegCount, isBoardActive } from './courier-assignment';
 import { hasPinCausedImbalance } from './pin-imbalance';
@@ -144,6 +145,9 @@ const EMPTY_ROUTE: CourierRoute = {
   endAddress: null,
   endLat: null,
   endLng: null,
+  startAddress: null,
+  startLat: null,
+  startLng: null,
   courierIndex: 0,
   name: null,
   itemsSubtotalStotinki: 0,
@@ -388,6 +392,7 @@ export function RouteClient({
   const [showWindows, setShowWindows] = useState(false);
   const [showAddOrders, setShowAddOrders] = useState(false);
   const [showAssignBoard, setShowAssignBoard] = useState(false);
+  const [showStarts, setShowStarts] = useState(false);
   // The consolidated „Настройки" drawer (audit P1) — one entry point for the
   // set-once config (base/end, couriers, homes, windows). Stays mounted behind
   // the sub-modal it launches, so closing that modal lands back here.
@@ -589,6 +594,14 @@ export function RouteClient({
         ? { address: end.address, lat: end.lat, lng: end.lng }
         : null;
 
+  // Deep-link START for the ACTIVE courier: their per-courier start override,
+  // else the farm base. Google Maps navigation opens from here (until en route,
+  // when it switches to live GPS below).
+  const activeStart: Point =
+    active.startLat != null && active.startLng != null
+      ? { address: active.startAddress, lat: active.startLat, lng: active.startLng }
+      : { address: origin.address, lat: origin.lat, lng: origin.lng };
+
   // The end pager in „Настройки" targets ANY courier by tab position (not just
   // the active tab); the ends csv carries every leg. The chosen mode is also
   // saved as the tenant's default (fire-and-forget) so a fresh visit reopens with
@@ -615,7 +628,7 @@ export function RouteClient({
     // (planning the day) keep the farm as the start. Always route the REMAINING
     // stops only.
     const navOrigin: Point =
-      finishedIds.size > 0 ? { address: null, lat: null, lng: null } : origin;
+      finishedIds.size > 0 ? { address: null, lat: null, lng: null } : activeStart;
     const urls = dirUrls(navOrigin, remainingStops, endPoint);
     if (!urls.length) {
       toast.error('Няма спирки за маршрут');
@@ -1365,6 +1378,17 @@ export function RouteClient({
           }}
         />
       )}
+      {showStarts && (
+        <CourierStartsModal
+          courierCount={route.couriers}
+          placesKey={placesKey}
+          onClose={() => setShowStarts(false)}
+          onSaved={() => {
+            setShowStarts(false);
+            router.refresh();
+          }}
+        />
+      )}
       {showAssignBoard && (
         <CourierAssignmentBoard
           date={route.date}
@@ -1401,9 +1425,14 @@ export function RouteClient({
         <RouteSettingsDrawer
           baseAddress={origin.address}
           endOptions={END_OPTIONS}
-          couriers={routes.map((r) => ({ label: `Маршрут ${r.courierIndex + 1}`, endMode: r.endMode }))}
+          couriers={routes.map((r) => ({
+            label: `Маршрут ${r.courierIndex + 1}`,
+            endMode: r.endMode,
+            startAddress: r.startAddress,
+          }))}
           initialCourierPos={activeCourierIdx}
           onSetEndAt={setCourierEndAt}
+          onOpenStarts={() => setShowStarts(true)}
           courierCount={route.couriers}
           onSetCouriers={setCouriers}
           boardActive={boardActive}

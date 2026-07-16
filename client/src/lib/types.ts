@@ -285,6 +285,10 @@ export interface RoutingConfig {
     homeAddress?: string | null;
     homeLat?: string | null;
     homeLng?: string | null;
+    /** Per-courier START override — where this courier's leg begins (else base). */
+    startAddress?: string | null;
+    startLat?: string | null;
+    startLng?: string | null;
   }[];
   /** Delivery day-plan tuning (task #13 window generation). */
   dayStartHour?: number;
@@ -769,6 +773,11 @@ export interface CourierRoute {
   endAddress: string | null;
   endLat: number | null;
   endLng: number | null;
+  /** Where THIS courier's leg STARTS: the per-courier start override, or the
+   *  farm origin when unset. Drives the drawn line + deep-link nav origin. */
+  startAddress: string | null;
+  startLat: number | null;
+  startLng: number | null;
   /** 0-based index of this courier (== position in routes). */
   courierIndex: number;
   /** Operator-set courier name, else null. */

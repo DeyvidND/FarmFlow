@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Clock, Home, MapPin, Users, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Home, MapPin, Play, Users, X } from 'lucide-react';
 import type { RouteEndMode } from '@/lib/types';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -22,6 +22,7 @@ export function RouteSettingsDrawer({
   couriers,
   initialCourierPos,
   onSetEndAt,
+  onOpenStarts,
   courierCount,
   onSetCouriers,
   boardActive,
@@ -34,11 +35,13 @@ export function RouteSettingsDrawer({
 }: {
   baseAddress: string | null;
   endOptions: EndOption[];
-  /** Per-courier (tab-order) end config for the pager. Length 1 = single courier. */
-  couriers: { label: string; endMode: RouteEndMode }[];
-  /** Which courier the end pager opens on (usually the active tab). */
+  /** Per-courier (tab-order) start+end config for the pager. Length 1 = single courier. */
+  couriers: { label: string; endMode: RouteEndMode; startAddress: string | null }[];
+  /** Which courier the pager opens on (usually the active tab). */
   initialCourierPos: number;
   onSetEndAt: (pos: number, mode: RouteEndMode) => void;
+  /** Open the per-courier START editor (CourierStartsModal). */
+  onOpenStarts: () => void;
   courierCount: number;
   onSetCouriers: (n: number) => void;
   boardActive: boolean;
@@ -85,9 +88,9 @@ export function RouteSettingsDrawer({
           />
 
           <div className="mt-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <span className="text-[12.5px] font-bold text-ff-ink-2">
-                Край на маршрута{multiCourier ? ` · ${cur?.label ?? ''}` : ''}
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[12.5px] font-extrabold text-ff-ink">
+                {multiCourier ? (cur?.label ?? 'Куриер') : 'Край на маршрута'}
               </span>
               {multiCourier && (
                 <div className="flex items-center gap-1">
@@ -115,6 +118,35 @@ export function RouteSettingsDrawer({
                 </div>
               )}
             </div>
+
+            {/* per-courier START (independent of the end) — paged with the courier
+                above; opens the stacked editor for all couriers */}
+            {multiCourier && (
+              <button
+                type="button"
+                onClick={onOpenStarts}
+                className="mb-2.5 flex w-full items-center justify-between gap-2 rounded-lg border border-ff-border bg-ff-surface px-2.5 py-2 text-left transition hover:bg-ff-surface-2"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Play size={13} className="shrink-0 text-ff-muted" />
+                  <span className="min-w-0">
+                    <span className="block text-[10.5px] font-bold uppercase tracking-[0.04em] text-ff-muted">
+                      Тръгва от
+                    </span>
+                    <span className="block truncate text-[12.5px] font-bold text-ff-ink">
+                      {cur?.startAddress?.trim() || 'базата на фермата'}
+                    </span>
+                  </span>
+                </span>
+                <span className="shrink-0 text-[12px] font-bold text-ff-green-700">Смени</span>
+              </button>
+            )}
+
+            {multiCourier && (
+              <div className="mb-1 text-[10.5px] font-bold uppercase tracking-[0.04em] text-ff-muted">
+                Край на маршрута
+              </div>
+            )}
             <div className="flex gap-1 rounded-xl border border-ff-border bg-ff-surface p-1">
               {endOptions.map(({ mode, label, Icon }) => (
                 <button
@@ -135,7 +167,8 @@ export function RouteSettingsDrawer({
             <p className="mt-1.5 text-[11.5px] leading-relaxed text-ff-muted">{curHint}</p>
             {multiCourier && (
               <p className="mt-1 text-[11px] text-ff-muted">
-                Всеки куриер може да има различен край — превърти със стрелките.
+                Всеки куриер може да тръгва от различно място и да завършва различно — превърти със
+                стрелките.
               </p>
             )}
           </div>

@@ -128,6 +128,7 @@ export function RouteMap({
             color={routeColor(ri)}
             opacity={ri === activeRoute ? 0.9 : 0.45}
             start={ri === activeRoute ? start : undefined}
+            legStart={{ lat: r.startLat, lng: r.startLng }}
           />
         ))}
 
@@ -139,6 +140,27 @@ export function RouteMap({
             <FarmPin />
           </AdvancedMarker>
         )}
+
+        {/* Per-courier start override: a colored ▶ pin where a courier's leg
+            begins when that isn't the farm ★ (drawn per leg, colored to match). */}
+        {routes.map((r, ri) => {
+          if (r.startLat == null || r.startLng == null) return null;
+          const atFarm =
+            origin.lat != null &&
+            origin.lng != null &&
+            Math.abs(r.startLat - origin.lat) < 1e-6 &&
+            Math.abs(r.startLng - origin.lng) < 1e-6;
+          if (atFarm) return null;
+          return (
+            <AdvancedMarker
+              key={`start-${ri}`}
+              position={{ lat: r.startLat, lng: r.startLng }}
+              title={`Начало · ${r.name ?? `Маршрут ${r.courierIndex + 1}`}`}
+            >
+              <StartPin color={routeColor(ri)} />
+            </AdvancedMarker>
+          );
+        })}
 
         {customEnd && (
           <AdvancedMarker position={customEnd} title={end.address ?? 'Край'}>
@@ -208,6 +230,20 @@ function EndPin() {
   return (
     <span className="grid h-[28px] w-[28px] place-items-center rounded-full bg-white text-[14px] font-bold text-ff-amber-600 shadow-ff-md ring-2 ring-ff-amber">
       ⚑
+    </span>
+  );
+}
+
+/** Per-courier start override marker — a white ▶ pin bordered in the courier's
+ *  route color, so it reads as "this leg begins here" without looking like a
+ *  stop pin or the farm ★. */
+function StartPin({ color }: { color: string }) {
+  return (
+    <span
+      className="grid h-[22px] w-[22px] place-items-center rounded-full bg-white text-[11px] font-extrabold shadow-ff-md"
+      style={{ border: `2px solid ${color}`, color }}
+    >
+      ▶
     </span>
   );
 }
@@ -298,6 +334,7 @@ function RouteLine({
   color,
   opacity,
   start,
+  legStart,
 }: {
   origin: Origin;
   stops: RouteStop[];
@@ -306,6 +343,9 @@ function RouteLine({
   color: string;
   opacity: number;
   start?: { lat: number | null; lng: number | null } | null;
+  /** This leg's own start (per-courier base override), used for the straight-
+   *  line fallback origin when there's no en-route GPS start. */
+  legStart?: { lat: number | null; lng: number | null } | null;
 }) {
   const map = useMap();
   const maps = useMapsLibrary('maps');
@@ -339,7 +379,14 @@ function RouteLine({
     // else from the farm; the „home" return always goes back to the farm.
     const path: { lat: number; lng: number }[] = [];
     const home = origin.lat != null && origin.lng != null ? { lat: origin.lat, lng: origin.lng } : null;
-    const from = start && start.lat != null && start.lng != null ? { lat: start.lat, lng: start.lng } : home;
+    // This leg's base: its per-courier start override, else the farm.
+    const legFrom =
+      legStart && legStart.lat != null && legStart.lng != null
+        ? { lat: legStart.lat, lng: legStart.lng }
+        : home;
+    // En-route GPS start wins; otherwise begin from this courier's own base.
+    const from =
+      start && start.lat != null && start.lng != null ? { lat: start.lat, lng: start.lng } : legFrom;
     if (from) path.push(from);
     stops.forEach((s) => path.push({ lat: s.lat as number, lng: s.lng as number }));
     if (endMode === 'home' && home) {
@@ -354,7 +401,7 @@ function RouteLine({
     });
     line.setMap(map);
     return () => line.setMap(null);
-  }, [map, maps, geometry, origin, stops, endMode, polyline, color, opacity, start]);
+  }, [map, maps, geometry, origin, stops, endMode, polyline, color, opacity, start, legStart]);
   return null;
 }
 

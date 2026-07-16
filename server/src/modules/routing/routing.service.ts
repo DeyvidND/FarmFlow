@@ -97,6 +97,12 @@ export interface CourierRoute {
   endAddress: string | null;
   endLat: number | null;
   endLng: number | null;
+  /** Where THIS courier's leg STARTS: the resolved per-courier start override,
+   *  or the farm origin when unset. Lets the client draw the leg + deep-link
+   *  navigation from the right place. */
+  startAddress: string | null;
+  startLat: number | null;
+  startLng: number | null;
   /** 0-based index of this courier (== position in `routes`). */
   courierIndex: number;
   /** Operator-set courier name (settings.routing.couriers[i].name), else null. */
@@ -121,6 +127,12 @@ export interface CourierConfig {
   homeAddress?: string | null;
   homeLat?: number | string | null;
   homeLng?: number | string | null;
+  /** Per-courier START override. When set, this courier's leg BEGINS here
+   *  instead of the shared farm origin (independent of the end/home). Unset →
+   *  the courier starts from the farm base, unchanged. */
+  startAddress?: string | null;
+  startLat?: number | string | null;
+  startLng?: number | string | null;
 }
 
 export interface MultiRouteResult {
@@ -134,6 +146,23 @@ export interface MultiRouteResult {
 }
 
 const toNum = (v: string | null): number | null => (v == null ? null : Number(v));
+
+/**
+ * A courier's resolved START point: their saved per-courier start override when
+ * both coords are set, else the shared farm origin (unchanged behaviour). Pure +
+ * shared by getRoute and measureExplicitOrder so the leg begins from the same
+ * place in both the drawn route and a re-measured manual order.
+ */
+function courierStartOf(
+  cfg: CourierConfig | undefined,
+  origin: RouteOrigin,
+): { address: string | null; lat: number | null; lng: number | null } {
+  const lat = toNum((cfg?.startLat ?? null) as string | null);
+  const lng = toNum((cfg?.startLng ?? null) as string | null);
+  return lat != null && lng != null
+    ? { address: cfg?.startAddress ?? null, lat, lng }
+    : { address: origin.address, lat: origin.lat, lng: origin.lng };
+}
 
 /** Sum one money field over a group of stops (task #6 per-courier totals). */
 const sumMoney = (
@@ -598,7 +627,11 @@ export class RoutingService {
     const routes: CourierRoute[] = await Promise.all(
       groups.map((group, i) =>
         this.optimizeGroup(
-          originPt,
+          // Per-courier START (independent of the end): this courier's saved
+          // start override, else the shared farm origin. The geographic split
+          // above still balances around the farm — only each leg's routing +
+          // deep-link start moves to the courier's own base.
+          courierStartOf(couriersCfg[posToLeg[i]], origin),
           group,
           modes[i],
           this.endForCourier(modes[i], origin, end, couriersCfg[posToLeg[i]]),
@@ -706,6 +739,14 @@ export class RoutingService {
         : { mode, address: origin.address, lat: origin.lat, lng: origin.lng };
     const end = this.endForCourier(mode, origin, sharedEnd, cfg);
 
+    // This leg's depot start = the courier's per-courier start override, else the
+    // farm origin. `start` (live GPS / last drop, when en route) still wins over it.
+    const legStart = courierStartOf(cfg, origin);
+    const legStartPt: Pt =
+      legStart.lat != null && legStart.lng != null
+        ? { lat: legStart.lat, lng: legStart.lng }
+        : originPt;
+
     // Load coords for the requested ids (tenant-scoped), then re-order them to the
     // caller's sequence. Ids without coords are dropped (can't be routed).
     const rows = await this.db
@@ -713,12 +754,18 @@ export class RoutingService {
       .from(orders)
       .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, stopIds))!);
     const byId = new Map(rows.map((r) => [r.id, { lat: toNum(r.lat), lng: toNum(r.lng) }]));
-    const pts: Pt[] = [start ?? originPt];
+    const pts: Pt[] = [start ?? legStartPt];
     for (const id of stopIds) {
       const c = byId.get(id);
       if (c && c.lat != null && c.lng != null) pts.push({ lat: c.lat, lng: c.lng });
     }
-    const dest = endPoint(mode, originPt, end);
+    // Dest from the resolved end coords (home already baked to farm/home by
+    // endForCourier) — not endPoint(…, originPt, …), which would loop a
+    // per-courier start back to itself.
+    const dest =
+      mode !== 'last' && end.lat != null && end.lng != null
+        ? { lat: end.lat, lng: end.lng }
+        : null;
     if (dest) pts.push(dest);
     if (pts.length < 2) return { polyline: null, totalDistanceM: null, totalDurationS: null };
 
@@ -765,7 +812,7 @@ export class RoutingService {
    * the old single-route distance mode.
    */
   private async optimizeGroup(
-    originPt: Pt | null,
+    start: { address: string | null; lat: number | null; lng: number | null },
     group: RouteStop[],
     mode: RouteEndMode,
     end: RouteEnd,
@@ -773,6 +820,16 @@ export class RoutingService {
     name: string | null = null,
     preserveOrder = false,
   ): Promise<CourierRoute> {
+    // This leg's start point — the per-courier override or the farm origin,
+    // already resolved by the caller. null lat/lng = no origin at all (greedy
+    // fallback order). Kept named `originPt` so the body below is unchanged.
+    const originPt: Pt | null =
+      start.lat != null && start.lng != null ? { lat: start.lat, lng: start.lng } : null;
+    const startFields = {
+      startAddress: start.address,
+      startLat: start.lat,
+      startLng: start.lng,
+    };
     // Per-courier day money (task #6) — order-independent, so summed once here.
     const money = {
       itemsSubtotalStotinki: sumMoney(group, 'itemsSubtotalStotinki'),
@@ -790,6 +847,7 @@ export class RoutingService {
         endAddress: end.address,
         endLat: end.lat,
         endLng: end.lng,
+        ...startFields,
         courierIndex,
         name,
         ...money,
@@ -814,7 +872,15 @@ export class RoutingService {
       // one-way / custom-end route isn't optimized as a round trip.
       const cap = group.slice(0, MAX_OPTIMIZE_STOPS);
       const rest = group.slice(MAX_OPTIMIZE_STOPS);
-      const dest = endPoint(mode, originPt, end);
+      // Destination from the resolved end coords, NOT endPoint(mode, originPt,…):
+      // with a per-courier start ≠ farm, „home" must still return to the farm/
+      // configured home (already baked into `end` by endForCourier), not loop
+      // back to this courier's start. Equivalent to the old endPoint result when
+      // start == farm origin.
+      const dest =
+        mode !== 'last' && end.lat != null && end.lng != null
+          ? { lat: end.lat, lng: end.lng }
+          : null;
       const plan = await this.maps.route(
         originPt,
         cap.map((s) => ({ lat: s.lat as number, lng: s.lng as number })),
@@ -916,6 +982,7 @@ export class RoutingService {
       endAddress: end.address,
       endLat: end.lat,
       endLng: end.lng,
+      ...startFields,
       courierIndex,
       name,
       ...money,

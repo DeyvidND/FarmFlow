@@ -439,6 +439,40 @@ describe('RoutingService.getRoute — assignment board overrides leg count', () 
     expect(leg0.name).toBe('Куриер А');
   });
 
+  // Per-courier START override: a courier with a saved start begins their leg
+  // there (independent of the end); an unconfigured courier still starts from
+  // the farm origin. Verified both on the exposed route.start* fields AND on the
+  // origin fed into the visit-order optimizer (the leg is actually routed from
+  // that point, not just labelled with it).
+  it('(f) a per-courier start override routes that leg from its own base; an unset leg starts from the farm', async () => {
+    const couriersCfg = [
+      { name: 'Куриер А', startAddress: 'Склад Каварна', startLat: '43.43', startLng: '28.34' },
+      { name: 'Куриер Б' }, // no start → falls back to the farm origin
+    ];
+    const maps = makeMaps();
+    const db = makeDb([[tenant({ couriers: couriersCfg })], stops(), []]);
+    const assignments = { getAssignmentsForDay: jest.fn().mockResolvedValue([]) } as any;
+    const svc = new RoutingService(db, maps, {} as any, {} as any, assignments);
+
+    const result = await svc.getRoute('t1', '2026-07-15', undefined, 2);
+
+    const leg0 = result.routes.find((r) => r.courierIndex === 0)!;
+    expect(leg0.startAddress).toBe('Склад Каварна');
+    expect(leg0.startLat).toBe(43.43);
+    expect(leg0.startLng).toBe(28.34);
+
+    const leg1 = result.routes.find((r) => r.courierIndex === 1)!;
+    expect(leg1.startAddress).toBe('Ферма'); // the farm origin address
+    expect(leg1.startLat).toBe(43.17);
+    expect(leg1.startLng).toBe(27.84);
+
+    // The optimizer was actually fed the override as the leg's origin (proves the
+    // leg is routed FROM there, not merely tagged with the address).
+    const origins = maps.route.mock.calls.map((c: any[]) => c[0]);
+    expect(origins).toContainEqual({ lat: 43.43, lng: 28.34 });
+    expect(origins).toContainEqual({ lat: 43.17, lng: 27.84 });
+  });
+
   it('(d) an order pinned to a non-contiguous assigned leg lands on that leg\'s route, not a mismatched slot', async () => {
     const pinnedStops = stops().map((s, i) => (i === 0 ? { ...s, courierIndex: 2 } : s));
     const db = makeDb([[tenant()], pinnedStops, []]);

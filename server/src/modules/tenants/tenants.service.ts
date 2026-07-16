@@ -666,6 +666,19 @@ export class TenantsService {
               cfg.homeLat = null;
               cfg.homeLng = null;
             }
+            // Per-courier START override — same geocode-on-typed-address contract
+            // as the home above (map-picked coords pass through untouched; a
+            // cleared address clears the coords so the leg falls back to the base).
+            const startAddress = typeof cfg.startAddress === 'string' ? cfg.startAddress.trim() : '';
+            const hasStartCoords = cfg.startLat != null && cfg.startLng != null;
+            if (startAddress && !hasStartCoords) {
+              const geo = await this.maps.geocode(startAddress);
+              cfg.startLat = geo ? String(geo.lat) : null;
+              cfg.startLng = geo ? String(geo.lng) : null;
+            } else if (!startAddress) {
+              cfg.startLat = null;
+              cfg.startLng = null;
+            }
             return cfg;
           }),
         )
