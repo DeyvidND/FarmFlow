@@ -10,8 +10,9 @@
  * it with **inter-route local search** (relocate a stop to another courier, or
  * swap two stops between couriers) accepting only cost-lowering moves.
  *
- * Workload is estimated as drive time at urban speed + fixed service time per
- * stop. Candidate ranking during seed construction and local search uses a
+ * Workload is estimated as per-leg drive time (leg-speed model: short hops
+ * crawl, long legs approach open-road speed) + fixed service time per stop.
+ * Candidate ranking during seed construction and local search uses a
  * cheap nearest-neighbour tour proxy (no 2-opt); the internal tour order is
  * only a balancing proxy — the real per-group visit order is produced later by
  * routing.service's optimizeGroup (Google or greedy). Deterministic throughout
@@ -44,10 +45,28 @@ export function haversineKm(a: Pt, b: Pt): number {
   return havLL(a.lat, a.lng, b.lat, b.lng);
 }
 
-const URBAN_KMH = 30; // pessimistic city driving speed for the estimate
 const SERVICE_S = 300; // handover time per stop (park, ring, deliver)
 
-const kmToS = (km: number) => (km / URBAN_KMH) * 3600;
+// Leg-speed model: the straight-line-equivalent speed of a leg grows with its
+// length. Short hops crawl (city blocks, turns, parking approach); long legs
+// are mostly open road. Calibrated against measured farm routes (Google road
+// durations vs haversine distances): ~21 km/h for sub-km hops, ~36 at 5 km,
+// ~45 at 10 km, approaching 60 for highway legs. Replaces a flat 30 km/h,
+// which over-costed far rural clusters ~2× — the splitter then starved the
+// "far" courier of stops and a day that should split ~3h/3h came out 4h/1h
+// in real (measured) driving time.
+const V_MIN_KMH = 20; // crawl speed as leg length → 0
+const V_MAX_KMH = 60; // long-leg asymptote (straight-line equivalent)
+const V_RAMP_KM = 10; // e-folding distance of the crawl→open-road ramp
+
+function legSpeedKmh(dKm: number): number {
+  return V_MAX_KMH - (V_MAX_KMH - V_MIN_KMH) * Math.exp(-dKm / V_RAMP_KM);
+}
+
+/** Estimated seconds to drive one leg of straight-line length `dKm`. */
+function legS(dKm: number): number {
+  return (dKm / legSpeedKmh(dKm)) * 3600;
+}
 
 type Geo = { lat: number | null; lng: number | null };
 const pt = (s: Geo): Pt => ({ lat: s.lat as number, lng: s.lng as number });
@@ -73,16 +92,24 @@ function nnOrder(depot: Pt, stops: Pt[]): Pt[] {
   return out;
 }
 
-/** Total km along depot -> ordered stops -> endPt (endPt skipped when null). */
-function pathKm(depot: Pt, ordered: Pt[], endPt: Pt | null): number {
+/** Total km + drive seconds (leg-speed model, no service time) along
+ * depot -> ordered stops -> endPt (endPt skipped when null). */
+function pathMetrics(depot: Pt, ordered: Pt[], endPt: Pt | null): { km: number; driveS: number } {
   let km = 0;
+  let driveS = 0;
   let cursor = depot;
   for (const p of ordered) {
-    km += haversineKm(cursor, p);
+    const d = haversineKm(cursor, p);
+    km += d;
+    driveS += legS(d);
     cursor = p;
   }
-  if (endPt) km += haversineKm(cursor, endPt);
-  return km;
+  if (endPt) {
+    const d = haversineKm(cursor, endPt);
+    km += d;
+    driveS += legS(d);
+  }
+  return { km, driveS };
 }
 
 /**
@@ -118,8 +145,8 @@ function twoOpt(depot: Pt, ordered: Pt[], endPt: Pt | null): Pt[] {
 
 /**
  * Estimated route metrics for `stops` served from `depot`, returning to `endPt`
- * after the last stop (null = one-way). Greedy NN order, 2-opt improved, at
- * urban speed + fixed service time per stop. Pure. `estimateWorkloadS` is the
+ * after the last stop (null = one-way). Greedy NN order, 2-opt improved, per-leg
+ * speed model + fixed service time per stop. Pure. `estimateWorkloadS` is the
  * seconds half of this — kept as a thin wrapper so existing callers are unchanged.
  */
 export function estimateRoute(
@@ -129,14 +156,14 @@ export function estimateRoute(
 ): { km: number; seconds: number } {
   if (!stops.length) return { km: 0, seconds: 0 };
   const ordered = twoOpt(depot, nnOrder(depot, stops), endPt);
-  const km = pathKm(depot, ordered, endPt);
-  return { km, seconds: kmToS(km) + stops.length * SERVICE_S };
+  const { km, driveS } = pathMetrics(depot, ordered, endPt);
+  return { km, seconds: driveS + stops.length * SERVICE_S };
 }
 
 /**
  * Estimated seconds to serve `stops` from `depot`, returning to `endPt` after
  * the last stop (null = one-way, no return leg). Greedy NN order, 2-opt
- * improved, at urban speed + fixed service time per stop. A comparable
+ * improved, per-leg speed model + fixed service time per stop. A comparable
  * workload number for balancing — not the real route (that's built later).
  *
  * NOTE: the 2-opt pass makes this O(stops²) per pass × up to 30 passes. That is
@@ -183,7 +210,7 @@ function nnWorkloadScratch(depot: Pt, m: number, endPt: Pt | null): number {
   for (let i = 0; i < m; i++) scVis[i] = 0;
   let curLat = depot.lat;
   let curLng = depot.lng;
-  let km = 0;
+  let driveS = 0;
   for (let step = 0; step < m; step++) {
     let best = -1;
     let bestD = Infinity;
@@ -196,12 +223,12 @@ function nnWorkloadScratch(depot: Pt, m: number, endPt: Pt | null): number {
       }
     }
     scVis[best] = 1;
-    km += bestD;
+    driveS += legS(bestD);
     curLat = scLat[best];
     curLng = scLng[best];
   }
-  if (endPt) km += havLL(curLat, curLng, endPt.lat, endPt.lng);
-  return kmToS(km) + m * SERVICE_S;
+  if (endPt) driveS += legS(havLL(curLat, curLng, endPt.lat, endPt.lng));
+  return driveS + m * SERVICE_S;
 }
 
 /** Workload of a group as-is. */

@@ -311,6 +311,85 @@ describe('sweepSplit — pin-aware balancing (baseWorkloads)', () => {
   });
 });
 
+// Leg-speed model regression (the real 4h/1h day): a flat straight-line speed
+// over-costs long rural/highway legs ~2× vs reality, so the splitter starved
+// the "far" courier of stops — its route measured ~1h real driving while the
+// dense-chain courier measured ~4h. The estimator now prices each leg at a
+// length-dependent speed (short hops crawl, long legs approach open road).
+// These tests score splits under an INDEPENDENT "true road" model (haversine ×
+// road factor, realistic per-band road speeds) so they fail on any estimator
+// whose bias re-creates the imbalance, not just on the old constant.
+describe('sweepSplit — leg-speed model balances real (road-time) makespan', () => {
+  const d: Pt = { lat: 42.5, lng: 25.0 };
+  const SERVICE = 300;
+  const KM_PER_LNG = 111.32 * Math.cos((42.5 * Math.PI) / 180); // ≈82 km/°
+
+  /** True road seconds for a group served one-way from the depot: NN visit
+   * order, road km = haversine × 1.3, road speed by leg length (city crawl /
+   * secondary road / highway), + service per stop. Independent of the
+   * estimator under test. */
+  function trueRoadS(group: Pt[]): number {
+    const remaining = [...group];
+    let cursor = d;
+    let secs = 0;
+    while (remaining.length) {
+      let best = 0;
+      let bestKm = Infinity;
+      remaining.forEach((p, i) => {
+        const dd = Math.hypot(
+          (p.lat - cursor.lat) * 111.32,
+          (p.lng - cursor.lng) * KM_PER_LNG,
+        );
+        if (dd < bestKm) {
+          bestKm = dd;
+          best = i;
+        }
+      });
+      cursor = remaining.splice(best, 1)[0];
+      const roadKm = bestKm * 1.3;
+      const kmh = roadKm < 4 ? 25 : roadKm < 13 ? 55 : 85;
+      secs += (roadKm / kmh) * 3600 + SERVICE;
+    }
+    return secs;
+  }
+
+  // A village chain east of the depot (20 stops, ~2 km hops — slow local
+  // roads) and a far spread north (4 stops: ~55 km highway out, then ~5 km
+  // hops). This is the shape that produced the real 4h/1h split.
+  const chain: Pt[] = Array.from({ length: 20 }, (_, i) => ({
+    lat: 42.5,
+    lng: 25.0 + (2 * (i + 1)) / KM_PER_LNG,
+  }));
+  const far: Pt[] = Array.from({ length: 4 }, (_, i) => ({
+    lat: 42.5 + (55 + 5 * i) / 111.32,
+    lng: 25.0,
+  }));
+  const stops = [...chain, ...far];
+
+  it('keeps the two couriers within 1.5× of each other in TRUE road time', () => {
+    const g = sweepSplit(d, stops, 2, null);
+    expect(g).toHaveLength(2);
+    expect(g.flat()).toHaveLength(stops.length);
+    const times = g.map((grp) => trueRoadS(grp as Pt[]));
+    const ratio = Math.max(...times) / Math.min(...times);
+    expect(ratio).toBeLessThanOrEqual(1.5);
+  });
+
+  it('prices one long highway leg cheaper than the same straight km in short hops', () => {
+    // 55 straight-line km as ONE leg vs as 25 × 2.2 km hops: drive-time cost
+    // (service subtracted) must be much lower for the single long leg — a flat
+    // speed makes them equal, which is exactly the bias that starved the far
+    // courier.
+    const oneFar = estimateWorkloadS(d, [{ lat: 42.5 + 55 / 111.32, lng: 25.0 }], null) - SERVICE;
+    const hops: Pt[] = Array.from({ length: 25 }, (_, i) => ({
+      lat: 42.5 + (2.2 * (i + 1)) / 111.32,
+      lng: 25.0,
+    }));
+    const manyHops = estimateWorkloadS(d, hops, null) - 25 * SERVICE;
+    expect(manyHops).toBeGreaterThan(oneFar * 1.8);
+  });
+});
+
 describe('partitionCost with baseWorkloads', () => {
   const d: Pt = { lat: 42.5, lng: 25.0 };
 
