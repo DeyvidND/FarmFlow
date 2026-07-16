@@ -589,12 +589,12 @@ export function RouteClient({
         ? { address: end.address, lat: end.lat, lng: end.lng }
         : null;
 
-  // The end toggle applies to the ACTIVE courier only; the ends csv carries all.
-  // The chosen mode is also saved as the tenant's default (fire-and-forget) so a
-  // fresh visit reopens with it instead of resetting — the farmer doesn't have to
-  // re-pick every time.
-  const setCourierEnd = (mode: RouteEndMode) => {
-    const next = routes.map((r, i) => (i === activeCourierIdx ? mode : r.endMode));
+  // The end pager in „Настройки" targets ANY courier by tab position (not just
+  // the active tab); the ends csv carries every leg. The chosen mode is also
+  // saved as the tenant's default (fire-and-forget) so a fresh visit reopens with
+  // it instead of resetting — the farmer doesn't have to re-pick every time.
+  const setCourierEndAt = (pos: number, mode: RouteEndMode) => {
+    const next = routes.map((r, i) => (i === pos ? mode : r.endMode));
     router.push(`/route?date=${route.date}&couriers=${route.couriers}&ends=${next.join(',')}`);
     void updateTenant({ routing: { endMode: mode } }).catch(() => {});
   };
@@ -608,8 +608,6 @@ export function RouteClient({
   };
   const setDate = (date: string) =>
     router.push(`/route?date=${date}&end=${activeEndMode}&couriers=${route.couriers}`);
-
-  const endHint = END_OPTIONS.find((o) => o.mode === activeEndMode)?.hint ?? '';
 
   const openRoute = () => {
     // Once any stop is finished the courier is en route, not at the farm — omit
@@ -1403,10 +1401,9 @@ export function RouteClient({
         <RouteSettingsDrawer
           baseAddress={origin.address}
           endOptions={END_OPTIONS}
-          activeEndMode={activeEndMode}
-          endHint={endHint}
-          onSetEnd={setCourierEnd}
-          activeCourierLabel={multi ? `Маршрут ${active.courierIndex + 1}` : null}
+          couriers={routes.map((r) => ({ label: `Маршрут ${r.courierIndex + 1}`, endMode: r.endMode }))}
+          initialCourierPos={activeCourierIdx}
+          onSetEndAt={setCourierEndAt}
           courierCount={route.couriers}
           onSetCouriers={setCouriers}
           boardActive={boardActive}

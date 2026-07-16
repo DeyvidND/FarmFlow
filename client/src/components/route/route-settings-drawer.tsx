@@ -1,7 +1,7 @@
 'use client';
 
-import type { ReactNode } from 'react';
-import { ChevronRight, Clock, Home, MapPin, Users, X } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, Clock, Home, MapPin, Users, X } from 'lucide-react';
 import type { RouteEndMode } from '@/lib/types';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -19,10 +19,9 @@ type EndOption = { mode: RouteEndMode; label: string; Icon: typeof Home; hint: s
 export function RouteSettingsDrawer({
   baseAddress,
   endOptions,
-  activeEndMode,
-  endHint,
-  onSetEnd,
-  activeCourierLabel,
+  couriers,
+  initialCourierPos,
+  onSetEndAt,
   courierCount,
   onSetCouriers,
   boardActive,
@@ -35,11 +34,11 @@ export function RouteSettingsDrawer({
 }: {
   baseAddress: string | null;
   endOptions: EndOption[];
-  activeEndMode: RouteEndMode;
-  endHint: string;
-  onSetEnd: (m: RouteEndMode) => void;
-  /** „Маршрут N" when the day is split, else null (single courier). */
-  activeCourierLabel: string | null;
+  /** Per-courier (tab-order) end config for the pager. Length 1 = single courier. */
+  couriers: { label: string; endMode: RouteEndMode }[];
+  /** Which courier the end pager opens on (usually the active tab). */
+  initialCourierPos: number;
+  onSetEndAt: (pos: number, mode: RouteEndMode) => void;
   courierCount: number;
   onSetCouriers: (n: number) => void;
   boardActive: boolean;
@@ -50,6 +49,12 @@ export function RouteSettingsDrawer({
   onOpenBoard: () => void;
   onClose: () => void;
 }) {
+  const multiCourier = couriers.length > 1;
+  const [endPos, setEndPos] = useState(() =>
+    Math.min(Math.max(initialCourierPos, 0), Math.max(couriers.length - 1, 0)),
+  );
+  const cur = couriers[endPos] ?? couriers[0];
+  const curHint = endOptions.find((o) => o.mode === cur?.endMode)?.hint ?? '';
   return (
     <>
       <div onClick={onClose} className="animate-ff-fade fixed inset-0 z-[78] bg-[rgba(30,28,15,0.32)]" />
@@ -80,18 +85,45 @@ export function RouteSettingsDrawer({
           />
 
           <div className="mt-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
-            <div className="mb-1.5 text-[12.5px] font-bold text-ff-ink-2">
-              Край на маршрута{activeCourierLabel ? ` · ${activeCourierLabel}` : ''}
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-[12.5px] font-bold text-ff-ink-2">
+                Край на маршрута{multiCourier ? ` · ${cur?.label ?? ''}` : ''}
+              </span>
+              {multiCourier && (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setEndPos((p) => Math.max(0, p - 1))}
+                    disabled={endPos === 0}
+                    aria-label="Предишен куриер"
+                    className="grid h-7 w-7 place-items-center rounded-lg border border-ff-border bg-ff-surface text-ff-ink-2 transition hover:bg-ff-surface-2 disabled:opacity-40"
+                  >
+                    <ChevronLeft size={15} />
+                  </button>
+                  <span className="min-w-[34px] text-center text-[12px] font-bold tabular-nums text-ff-muted">
+                    {endPos + 1}/{couriers.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEndPos((p) => Math.min(couriers.length - 1, p + 1))}
+                    disabled={endPos === couriers.length - 1}
+                    aria-label="Следващ куриер"
+                    className="grid h-7 w-7 place-items-center rounded-lg border border-ff-border bg-ff-surface text-ff-ink-2 transition hover:bg-ff-surface-2 disabled:opacity-40"
+                  >
+                    <ChevronRight size={15} />
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex gap-1 rounded-xl border border-ff-border bg-ff-surface p-1">
               {endOptions.map(({ mode, label, Icon }) => (
                 <button
                   key={mode}
                   type="button"
-                  onClick={() => onSetEnd(mode)}
+                  onClick={() => onSetEndAt(endPos, mode)}
                   className={cn(
                     'inline-flex flex-1 items-center justify-center gap-1.5 rounded-[8px] px-2.5 py-2 text-[12.5px] font-bold transition',
-                    activeEndMode === mode
+                    cur?.endMode === mode
                       ? 'bg-ff-green-100 text-ff-green-800'
                       : 'text-ff-ink-2 hover:bg-ff-surface',
                   )}
@@ -100,7 +132,12 @@ export function RouteSettingsDrawer({
                 </button>
               ))}
             </div>
-            <p className="mt-1.5 text-[11.5px] leading-relaxed text-ff-muted">{endHint}</p>
+            <p className="mt-1.5 text-[11.5px] leading-relaxed text-ff-muted">{curHint}</p>
+            {multiCourier && (
+              <p className="mt-1 text-[11px] text-ff-muted">
+                Всеки куриер може да има различен край — превърти със стрелките.
+              </p>
+            )}
           </div>
 
           <SectionLabel className="mt-5">Куриери</SectionLabel>
