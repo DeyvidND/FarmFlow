@@ -38,7 +38,7 @@ import type { OrderStatus } from '@/lib/utils';
 import { moneyFromStotinki } from '@/lib/utils';
 import { OrderPanel } from '@/components/orders/order-panel';
 import { useRole } from '@/components/layout/role-context';
-import { nextUnfinishedId } from './route-finish';
+import { nextUnfinishedId, nextUnfinishedAfter } from './route-finish';
 import { StopList } from './stop-list';
 import { EditAddressModal } from './edit-address-modal';
 import { RouteMap, ROUTE_COLORS } from './route-map';
@@ -686,9 +686,15 @@ export function RouteClient({
     router.refresh();
   };
 
-  // The first stop not yet finished this session — drives the finish button's
-  // target and disabled state. Recomputed each render from the current order.
-  const currentFinishId = nextUnfinishedId(orderedStops, finishedIds);
+  // The finish button's target: the SELECTED stop (tap any list card or map
+  // pin to pick it) when it's still unfinished on this leg, else the first
+  // unfinished stop in route order — „Готово" is not strictly sequential, the
+  // courier can finish whichever stop they actually delivered. Recomputed each
+  // render from the current order.
+  const currentFinishId =
+    activeId && !finishedIds.has(activeId) && orderedStops.some((s) => s.id === activeId)
+      ? activeId
+      : nextUnfinishedId(orderedStops, finishedIds);
 
   // Revert an accidental finish: flip the order back to confirmed, un-hide it,
   // and re-select it. Wired to the „Отмени" action on the finish toast.
@@ -707,7 +713,8 @@ export function RouteClient({
     }
   };
 
-  // Mark the current (first unfinished) stop delivered and advance the highlight.
+  // Mark the targeted (selected, else first unfinished) stop delivered and
+  // advance the highlight to the next unfinished stop AFTER it in route order.
   // One click, no dialog — but a generous „Отмени" toast (top-right, 10s) makes an
   // accidental tap a one-touch revert. No router.refresh: the finished stop stays
   // hidden via `finishedIds`, and refreshing would drop the now-delivered order
@@ -721,7 +728,7 @@ export function RouteClient({
       await updateOrderStatus(cur.id, 'delivered');
       const next = new Set(finishedIds).add(cur.id);
       setFinishedIds(next);
-      const nextId = nextUnfinishedId(orderedStops, next);
+      const nextId = nextUnfinishedAfter(orderedStops, next, cur.id);
       setActiveId(nextId ?? cur.id);
       // Count by live membership, not set size — a stop finished here can later
       // drop out of orderedStops via an unrelated refresh, leaving a stale id in
@@ -1068,8 +1075,9 @@ export function RouteClient({
               към този маршрут) и „Подреди реда“ (ръчно пренареди спирките).
             </li>
             <li>
-              <b>Готово</b> (зеленият бутон) — маркира текущата поръчка като доставена, изчезва от
-              списъка и картата, и се минава на следващата, една по една. Останалият маршрут продължава
+              <b>Готово</b> (зеленият бутон) — маркира <b>избраната</b> поръчка като доставена (докосни
+              карта от списъка или пин, за да избереш друга; иначе е първата поред), тя изчезва от
+              списъка и картата, и се минава на следващата. Останалият маршрут продължава
               от <b>текущата ти позиция</b> (GPS), не от базата — синята точка на картата показва къде
               си. Сгрешил? Горе вдясно излиза „Отмени“ за 10 секунди — връща поръчката.
             </li>
@@ -1180,10 +1188,10 @@ export function RouteClient({
                 disabled={!currentFinishId || finishingOne}
                 title={
                   currentFinishId
-                    ? `Завърши текущата поръчка (остават ${orderedStops.filter((s) => !finishedIds.has(s.id)).length})`
+                    ? `Завърши избраната поръчка (остават ${orderedStops.filter((s) => !finishedIds.has(s.id)).length})`
                     : 'Всички поръчки в маршрута са завършени'
                 }
-                aria-label="Завърши текущата поръчка"
+                aria-label="Завърши избраната поръчка"
                 className="inline-flex items-center gap-1.5 rounded-[9px] bg-ff-green-700 px-[13px] py-[7px] text-[13px] font-bold text-white shadow-ff-sm transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <PackageCheck size={15} /> Готово
