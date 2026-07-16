@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Phone, Mail, Check, Loader2, AlertTriangle, PackageCheck, ShoppingBasket, Clock,
 } from 'lucide-react';
@@ -8,11 +8,17 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { cn, hhmm, relDayLabel, shiftIsoDate, todayIso } from '@/lib/utils';
 import {
-  ApiError, getPrep, setFulfillment,
+  ApiError, getPrep, setFulfillment, listRouteCouriers, getRouteAssignments,
   type PrepSummary, type TomorrowOrder, type FulfillmentState,
 } from '@/lib/api-client';
+import type { RouteCourier, RouteAssignment } from '@/lib/types';
 import { DateNavBar } from '@/components/production/date-nav-bar';
 import { aggregateByProduct, aggregateByCourier, mergeOrderSlices } from './aggregate';
+
+/** Which courier account drives a given leg (0-based courierIndex), resolved
+ *  from the day's assignment board + the tenant roster. Email + „(аз)" for the
+ *  caller's own account. */
+export type LegCourier = { email: string; isSelf: boolean };
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 const plural = (n: number) => (n === 1 ? 'бройка' : 'бройки');
@@ -90,6 +96,12 @@ export function PrepClient({
   // Group the „По поръчка" list by delivery courier (operator choice). A driver
   // only ever sees their own leg, so the option is hidden for them.
   const [splitByCourier, setSplitByCourier] = useState(false);
+  // Courier identity per leg (email + „(аз)"), shown on the courier group
+  // headers so the farmer knows WHO drives each route. Farmer-panel only —
+  // never fetched for a driver (they see a single leg, no email needed).
+  // Roster (drivers + own account) is date-independent; the leg board is per day.
+  const [couriers, setCouriers] = useState<RouteCourier[]>([]);
+  const [assignments, setAssignments] = useState<RouteAssignment[]>([]);
   const firstRun = useRef(true);
 
   // Refetch whenever the day or the selected farmer changes (skip the SSR-provided
@@ -115,6 +127,32 @@ export function PrepClient({
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [date, farmerId, role, farmers]);
+
+  // Courier roster + per-day leg board, for the „Маршрут N · email (аз)" headers.
+  // Farmer panel only (not the driver app). Failures fall back to no email —
+  // the headers still show the route name, so this never blocks the view.
+  useEffect(() => {
+    if (role === 'driver') return;
+    let live = true;
+    Promise.all([
+      listRouteCouriers().catch(() => [] as RouteCourier[]),
+      getRouteAssignments(date).catch(() => [] as RouteAssignment[]),
+    ]).then(([cs, as]) => {
+      if (live) { setCouriers(cs); setAssignments(as); }
+    });
+    return () => { live = false; };
+  }, [date, role]);
+
+  // leg (0-based courierIndex) → the assigned account's email + „(аз)" flag.
+  const legCourier = useMemo(() => {
+    const byAccount = new Map(couriers.map((c) => [c.accountId, c]));
+    const m = new Map<number, LegCourier>();
+    for (const a of assignments) {
+      const c = byAccount.get(a.accountId);
+      if (c) m.set(a.legIndex, { email: c.email, isSelf: c.isSelf });
+    }
+    return m;
+  }, [couriers, assignments]);
 
   const onMark = useCallback(
     async (id: string, state: FulfillmentState) => {
@@ -258,12 +296,14 @@ export function PrepClient({
               : undefined
           }
           hideState={isDriver}
-          splitByCourier={splitByCourier && !isDriver}
+          splitByCourier={splitByCourier && canSplitByCourier}
+          legCourier={legCourier}
         />
       ) : (
         <ProductsView
           rows={productRows}
           groups={courierGroups}
+          legCourier={legCourier}
           splitByCourier={splitByCourier && canSplitByCourier}
           pickedQty={pickedQty}
           totalQty={totalQty}
@@ -370,7 +410,7 @@ function OrderCard({
 }
 
 function OrdersView({
-  orders, gaps, busyId, onMark, readOnly = false, readOnlyNote, hideState = false, splitByCourier = false,
+  orders, gaps, busyId, onMark, readOnly = false, readOnlyNote, hideState = false, splitByCourier = false, legCourier,
 }: {
   orders: TomorrowOrder[];
   gaps: TomorrowOrder[];
@@ -383,11 +423,13 @@ function OrdersView({
   hideState?: boolean;
   /** Group the list by delivery courier (leg), each under its own header. */
   splitByCourier?: boolean;
+  /** leg → assigned courier account (email + „(аз)"), for the group headers. */
+  legCourier?: Map<number, LegCourier>;
 }) {
   const sorted = sortByRoute(orders);
 
   // Groups by courierIndex, in leg order; the off-route bucket (null) goes last.
-  const groups: { key: string; label: string; items: TomorrowOrder[] }[] = [];
+  const groups: { key: string; courierIndex: number | null; name: string | null; items: TomorrowOrder[] }[] = [];
   if (splitByCourier) {
     const byLeg = new Map<number | null, TomorrowOrder[]>();
     for (const o of sorted) {
@@ -398,11 +440,7 @@ function OrdersView({
     const keys = [...byLeg.keys()].sort((a, b) => (a ?? Infinity) - (b ?? Infinity));
     for (const k of keys) {
       const items = byLeg.get(k)!;
-      const label =
-        k == null
-          ? 'Без маршрут (взимане на място / куриерска фирма)'
-          : `Маршрут ${k + 1}${items[0]?.courierName ? ` · ${items[0].courierName}` : ''}`;
-      groups.push({ key: String(k), label, items });
+      groups.push({ key: String(k), courierIndex: k, name: items[0]?.courierName ?? null, items });
     }
   }
 
@@ -427,7 +465,10 @@ function OrdersView({
         <div className="flex flex-col gap-5">
           {groups.map((g) => (
             <div key={g.key}>
-              <h3 className="mb-2 text-[13px] font-extrabold text-ff-ink">{g.label}</h3>
+              <h3 className="mb-2 text-[13px] font-extrabold text-ff-ink">
+                {courierLabel(g.courierIndex, g.name)}
+                <CourierEmail courier={g.courierIndex != null ? legCourier?.get(g.courierIndex) : undefined} />
+              </h3>
               <ul className="flex flex-col gap-3">
                 {g.items.map((o) => (
                   <OrderCard key={o.id} o={o} busyId={busyId} onMark={onMark} readOnly={readOnly} hideState={hideState} />
@@ -453,21 +494,40 @@ function courierLabel(courierIndex: number | null, courierName: string | null): 
   return `Маршрут ${courierIndex + 1}${courierName ? ` · ${courierName}` : ''}`;
 }
 
+/** The assigned courier's email (and „(аз)" when it's the caller's own account),
+ *  appended to a route header. Renders nothing for an off-route group or a leg
+ *  with no assigned account (no board / roster fetch failed). */
+function CourierEmail({ courier }: { courier?: LegCourier }) {
+  if (!courier) return null;
+  return (
+    <span className="font-semibold text-ff-muted">
+      {' · '}
+      {courier.email}
+      {courier.isSelf && <span className="text-ff-green-700"> (аз)</span>}
+    </span>
+  );
+}
+
 /** One harvest-totals card: a header (title + picked/total) over per-product
  *  rows. Reused for the single combined table and each per-courier section. */
 function ProductTable({
-  title, rows, pickedQty, totalQty,
+  title, rows, pickedQty, totalQty, courier,
 }: {
   title: string;
   rows: ReturnType<typeof aggregateByProduct>;
   pickedQty: number;
   totalQty: number;
+  /** Assigned courier account for a per-leg table (email + „(аз)" in the header). */
+  courier?: LegCourier;
 }) {
   const done = totalQty > 0 && pickedQty === totalQty;
   return (
     <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
       <div className="flex items-center justify-between border-b border-ff-border-2 px-[22px] pb-[15px] pt-[18px]">
-        <h2 className="text-[17px] font-extrabold">{title}</h2>
+        <h2 className="text-[17px] font-extrabold">
+          {title}
+          <CourierEmail courier={courier} />
+        </h2>
         <span className={cn('text-[13px] font-bold', done ? 'text-ff-green-700' : 'text-ff-muted')}>
           {pickedQty}/{totalQty} набрани
         </span>
@@ -516,11 +576,13 @@ function ProductTable({
 }
 
 function ProductsView({
-  rows, groups, splitByCourier = false, pickedQty, totalQty, allDone, isDriver = false,
+  rows, groups, legCourier, splitByCourier = false, pickedQty, totalQty, allDone, isDriver = false,
 }: {
   rows: ReturnType<typeof aggregateByProduct>;
   /** Per-courier product groups, for the „Раздели по куриери" split. */
   groups: ReturnType<typeof aggregateByCourier>;
+  /** leg → assigned courier account (email + „(аз)"), for the per-leg headers. */
+  legCourier?: Map<number, LegCourier>;
   splitByCourier?: boolean;
   pickedQty: number;
   totalQty: number;
@@ -538,6 +600,7 @@ function ProductsView({
             <ProductTable
               key={String(g.courierIndex)}
               title={courierLabel(g.courierIndex, g.courierName)}
+              courier={g.courierIndex != null ? legCourier?.get(g.courierIndex) : undefined}
               rows={g.rows}
               pickedQty={g.pickedQty}
               totalQty={g.totalQty}
