@@ -204,6 +204,7 @@ export class RoutingController {
       dto.date,
       dto.couriers,
       parseEndModes(dto.ends),
+      dto.startHour,
     );
   }
 

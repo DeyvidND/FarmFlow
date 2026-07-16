@@ -52,6 +52,11 @@ export function DeliveryWindowsModal({
   const [cutoffLoading, setCutoffLoading] = useState(true);
   const [cutoffSaving, setCutoffSaving] = useState(false);
 
+  // When the round starts (Europe/Sofia hour) — seeds the window generation.
+  // Asked here every time rather than buried in settings; seeded from the saved
+  // dayStartHour (default 9) and remembered on generate.
+  const [startHour, setStartHour] = useState(9);
+
   // The day's slot row (for the reminder opt-out toggle) — separate from the
   // per-order windows above.
   const [slot, setSlot] = useState<Slot | null>(null);
@@ -63,6 +68,8 @@ export function DeliveryWindowsModal({
         const c = t.routing?.cutoff ?? { weekday: 3, hour: 17 };
         setWeekday(c.weekday);
         setHour(c.hour);
+        const dsh = t.routing?.dayStartHour;
+        if (typeof dsh === 'number' && dsh >= 0 && dsh <= 23) setStartHour(dsh);
       })
       .catch(() => {})
       .finally(() => setCutoffLoading(false));
@@ -82,7 +89,11 @@ export function DeliveryWindowsModal({
   async function generate() {
     setGenerating(true);
     try {
-      const res = await generateDeliveryWindows({ date, couriers, ends });
+      const res = await generateDeliveryWindows({ date, couriers, ends, startHour });
+      // Remember the chosen start hour as the default for next time (fire-and-
+      // forget — the windows are already generated; a failed persist just means
+      // the picker re-seeds from the old value next open).
+      void updateTenant({ routing: { dayStartHour: startHour } }).catch(() => {});
       setProposal(res);
       const seed: Record<string, { start: string; end: string }> = {};
       for (const c of res.couriers) {
@@ -216,6 +227,26 @@ export function DeliveryWindowsModal({
               />
             </label>
           )}
+
+          <label className="mb-3 flex flex-wrap items-center gap-2 text-[13px] font-bold text-ff-ink-2">
+            Начало на доставката:
+            <select
+              value={startHour}
+              onChange={(e) => setStartHour(parseInt(e.target.value, 10))}
+              disabled={cutoffLoading || generating}
+              aria-label="Начален час на доставката"
+              className="rounded-md border border-ff-border bg-ff-surface-2 px-2.5 py-1.5 text-[13px] font-bold text-ff-ink outline-none"
+            >
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>
+                  {String(h).padStart(2, '0')}:00
+                </option>
+              ))}
+            </select>
+            <span className="text-[12px] font-normal text-ff-muted">
+              от кога куриерът тръгва — часовете се смятат оттук
+            </span>
+          </label>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" size="sm" disabled={generating} onClick={() => void generate()}>

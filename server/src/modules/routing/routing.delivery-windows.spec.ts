@@ -204,6 +204,56 @@ describe('RoutingService.generateDeliveryWindows — return-leg timing fix', () 
   });
 });
 
+describe('RoutingService.generateDeliveryWindows — start hour override', () => {
+  const TENANT = {
+    farmAddress: 'Ферма',
+    farmLat: '43.0',
+    farmLng: '23.0',
+    // Saved default is 09:00; the explicit startHour below must win over it.
+    settings: { routing: { dayStartHour: 9, slotSizeMin: 15, serviceMin: 0 } },
+  };
+  const maps = {
+    route: jest.fn().mockResolvedValue({ order: [0], distanceM: 5000, durationS: 1200, polyline: 'g' }),
+    routeFixed: jest.fn().mockResolvedValue({ distanceM: 5000, durationS: 1200, polyline: 'g' }),
+    geocode: jest.fn(),
+  } as any;
+
+  it('an explicit startHour shifts the first stop window off the saved dayStartHour default', async () => {
+    const row = geoOrder('S1', 43.01, 23.0);
+    const db = makeDb([[TENANT], [row], [], [TENANT]]);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
+
+    // Same single 'home' round-trip leg as the return-leg test above: the only
+    // stop lands ~10min after the start hour, floored to the 15-min grid. With
+    // startHour=14 that's 14:00–14:15, not the 09:00 the saved default gives.
+    const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07', undefined, undefined, 14);
+
+    expect(proposal.couriers[0].stops[0].windowStart).toBe('14:00');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('14:15');
+  });
+
+  it('startHour 0 (midnight) is honoured, not mistaken for "unset"', async () => {
+    const row = geoOrder('S1', 43.01, 23.0);
+    const db = makeDb([[TENANT], [row], [], [TENANT]]);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
+
+    const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07', undefined, undefined, 0);
+
+    expect(proposal.couriers[0].stops[0].windowStart).toBe('00:00');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('00:15');
+  });
+
+  it('omitting startHour falls back to the saved dayStartHour', async () => {
+    const row = geoOrder('S1', 43.01, 23.0);
+    const db = makeDb([[TENANT], [row], [], [TENANT]]);
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
+
+    const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07');
+
+    expect(proposal.couriers[0].stops[0].windowStart).toBe('09:00');
+  });
+});
+
 // ─── (d) notify continues past one send failure ────────────────────────────
 describe('RoutingService.notifyDeliveryWindows — partial-failure resilience', () => {
   it('continues past a failed send, reports it, and does not mark that order sent', async () => {

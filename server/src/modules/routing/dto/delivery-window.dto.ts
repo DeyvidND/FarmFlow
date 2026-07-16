@@ -18,6 +18,16 @@ export class DeliveryWindowDayDto {
   @IsOptional()
   @IsString()
   ends?: string;
+
+  /** When the courier starts the round (Europe/Sofia hour, 0–23). Overrides the
+   *  saved settings.routing.dayStartHour for this generation; the operator is
+   *  asked each time in the „Часове за доставка" modal. Omitted ⇒ fall back to
+   *  the stored default. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  startHour?: number;
 }
 
 /** Task #13 — operator lightly edits one order's generated window. */

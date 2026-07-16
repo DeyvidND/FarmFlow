@@ -772,7 +772,13 @@ export const setRouteAssignments = (date: string, assignments: RouteAssignment[]
   );
 
 // ---- Route: per-order delivery time windows (task #13) ----
-export const generateDeliveryWindows = (body: { date?: string; couriers?: number; ends?: string }) =>
+export const generateDeliveryWindows = (body: {
+  date?: string;
+  couriers?: number;
+  ends?: string;
+  /** When the round starts (Europe/Sofia hour 0–23); overrides the saved default. */
+  startHour?: number;
+}) =>
   apiFetch<DeliveryWindowProposal>(
     'orders/route/windows/generate',
     { method: 'POST', ...json(body) },

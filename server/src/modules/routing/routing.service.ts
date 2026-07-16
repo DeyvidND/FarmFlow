@@ -1206,12 +1206,21 @@ export class RoutingService {
     date?: string,
     couriers?: number,
     endModes?: (RouteEndMode | undefined)[],
+    startHour?: number,
   ): Promise<DeliveryWindowProposal> {
     const route = await this.getRoute(tenantId, date, undefined, couriers, endModes);
     const cfg = await this.routingSettings(tenantId);
+    // The operator is asked the start hour each time in the modal; an explicit
+    // `startHour` (0–23) wins over the saved settings.routing.dayStartHour,
+    // which itself falls back to the 9:00 default. `?? undefined` keeps a valid
+    // 0 (midnight) from being mistaken for "unset" by Number.isFinite.
+    const requestedStart = Number.isFinite(Number(startHour)) ? Number(startHour) : null;
     const dayStartMin =
-      (Number.isFinite(Number(cfg.dayStartHour)) ? Number(cfg.dayStartHour) : DEFAULT_DAY_START_HOUR) *
-      60;
+      (requestedStart != null
+        ? requestedStart
+        : Number.isFinite(Number(cfg.dayStartHour))
+          ? Number(cfg.dayStartHour)
+          : DEFAULT_DAY_START_HOUR) * 60;
     const slotMin =
       Number.isFinite(Number(cfg.slotSizeMin)) && Number(cfg.slotSizeMin) > 0
         ? Number(cfg.slotSizeMin)
