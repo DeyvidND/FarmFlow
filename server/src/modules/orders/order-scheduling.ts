@@ -1,6 +1,6 @@
 import { and, eq, gte, isNull, lt, lte, or } from 'drizzle-orm';
 import { orders, deliverySlots } from '@fermeribg/db';
-import { bgDayBounds } from '../../common/time/bg-time';
+import { bgAddDays, bgDayBounds } from '../../common/time/bg-time';
 
 /**
  * Drizzle WHERE condition selecting orders "scheduled for" the BG calendar day
@@ -35,4 +35,23 @@ export function scheduledForRange(from: string, to: string) {
     and(gte(deliverySlots.date, from), lte(deliverySlots.date, to)),
     and(isNull(orders.slotId), gte(orders.createdAt, lo), lt(orders.createdAt, hi)),
   )!;
+}
+
+/**
+ * Pure day-picker behind «Подготовка»'s smart default: return `anchor` when it
+ * has orders, else the NEAREST day within ±`span` that does, checking each
+ * distance outward and preferring the FUTURE side on a tie (prep looks forward).
+ * `hasOrders` is the set of BG days (YYYY-MM-DD) that have orders. No day in
+ * range has any → `anchor` (caller shows the empty state). Extracted pure so the
+ * nearest/tie-break rule is unit-tested without a DB.
+ */
+export function pickNearestDay(anchor: string, hasOrders: ReadonlySet<string>, span: number): string {
+  if (hasOrders.has(anchor)) return anchor;
+  for (let d = 1; d <= span; d++) {
+    const up = bgAddDays(anchor, d);
+    if (hasOrders.has(up)) return up;
+    const down = bgAddDays(anchor, -d);
+    if (hasOrders.has(down)) return down;
+  }
+  return anchor;
 }

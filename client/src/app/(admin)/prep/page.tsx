@@ -16,12 +16,13 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
   return res.json();
 }
 
-// «Подготовка» — merged Производство + Утре. One farmer, one day (default tomorrow),
-// two axes. Scope rule mirrors /tomorrow: single-farmer shop auto-scopes; multi-farmer
-// owner defaults to the first producer and can switch client-side.
+// «Подготовка» — merged Производство + Утре. One day (default: the nearest day
+// with orders, ±2 of tomorrow), two axes. Scope rule mirrors /tomorrow: a
+// single-farmer shop auto-scopes; a multi-farmer owner now lands on «Всички»
+// (all producers) and can switch client-side.
 export default async function PrepPage(props: { searchParams: Promise<{ date?: string }> }) {
   const searchParams = await props.searchParams;
-  const date = searchParams.date;
+  const explicitDate = searchParams.date;
 
   const [account, profile] = await Promise.all([
     getJson<{ role?: string }>('auth/me', {}),
@@ -31,19 +32,53 @@ export default async function PrepPage(props: { searchParams: Promise<{ date?: s
   const multiFarmer = profile.multiFarmer === true;
 
   const farmers = role === 'admin' ? await getJson<{ id: string; name: string }[]>('farmers', []) : [];
-  const defaultFarmerId = role === 'admin' ? (farmers[0]?.id ?? '') : '';
-
-  const empty: PrepSummary = { date: date ?? '', confirmedOrders: 0, pendingOrders: 0, orders: [] };
+  const firstFarmerId = role === 'admin' ? (farmers[0]?.id ?? '') : '';
+  const showPicker = role === 'admin' && multiFarmer && farmers.length > 1;
+  // Owner with a multi-producer picker defaults to «Всички»; a single-producer
+  // shop (or one-producer owner) stays scoped to that producer.
+  const initialFarmerId = showPicker ? 'all' : firstFarmerId;
   // A driver has no farmerId at all — the server resolves their own route leg
   // from the JWT instead, same as a farmer resolving their own farmerId.
-  const canFetch = role === 'farmer' || role === 'driver' || defaultFarmerId !== '';
-  const qs = new URLSearchParams();
-  if (date) qs.set('date', date);
-  if (defaultFarmerId) qs.set('farmerId', defaultFarmerId);
-  const q = qs.toString();
-  const initial = canFetch
-    ? await getJson<PrepSummary>(`orders/prep${q ? `?${q}` : ''}`, empty)
-    : empty;
+  const canFetch = role === 'farmer' || role === 'driver' || firstFarmerId !== '';
+
+  // Resolve the day server-side (no empty-day flash): an explicit ?date wins;
+  // otherwise ask the API for the best default — tomorrow, or the nearest day
+  // within ±2 that actually has orders. Scope the probe to what we'll show
+  // («Всички» = tenant-wide, no farmerId). Failure → let prep fall back to its
+  // own tomorrow default.
+  let day = explicitDate;
+  if (!day && canFetch) {
+    const probeQs = initialFarmerId && initialFarmerId !== 'all' ? `?farmerId=${initialFarmerId}` : '';
+    const dd = await getJson<{ date: string }>(`orders/prep/default-day${probeQs}`, { date: '' });
+    day = dd.date || undefined;
+  }
+
+  const empty: PrepSummary = { date: day ?? '', confirmedOrders: 0, pendingOrders: 0, orders: [] };
+  const loadFor = (farmerId?: string) => {
+    const qs = new URLSearchParams();
+    if (day) qs.set('date', day);
+    if (farmerId) qs.set('farmerId', farmerId);
+    const q = qs.toString();
+    return getJson<PrepSummary>(`orders/prep${q ? `?${q}` : ''}`, empty);
+  };
+
+  let initial: PrepSummary;
+  if (!canFetch) {
+    initial = empty;
+  } else if (initialFarmerId === 'all') {
+    // «Всички»: fan out one feed per producer and flatten to raw per-farmer
+    // slices — exactly what PrepClient's own «Всички» branch expects, so the
+    // first render matches and no client refetch (or flash) is needed.
+    const sums = await Promise.all(farmers.map((f) => loadFor(f.id)));
+    initial = {
+      date: sums[0]?.date ?? day ?? '',
+      confirmedOrders: sums.reduce((n, s) => n + s.confirmedOrders, 0),
+      pendingOrders: sums.reduce((n, s) => n + s.pendingOrders, 0),
+      orders: sums.flatMap((s) => s.orders),
+    };
+  } else {
+    initial = await loadFor(initialFarmerId || undefined);
+  }
 
   return (
     <div className="max-w-[1100px]">
@@ -53,7 +88,7 @@ export default async function PrepPage(props: { searchParams: Promise<{ date?: s
         role={role}
         farmers={farmers}
         multiFarmer={multiFarmer}
-        defaultFarmerId={defaultFarmerId}
+        defaultFarmerId={initialFarmerId}
       />
     </div>
   );

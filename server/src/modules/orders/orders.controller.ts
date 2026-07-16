@@ -10,7 +10,7 @@ import { OrdersService, applyRouteOrder, type PrepSummary } from './orders.servi
 import { CheckoutService } from './checkout.service';
 import { RoutingService } from '../routing/routing.service';
 import { CourierAssignmentService } from '../routing/courier-assignment.service';
-import { bgDateOf, bgToday } from '../../common/time/bg-time';
+import { bgDateOf, bgToday, bgAddDays } from '../../common/time/bg-time';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateCodOutcomeDto } from './dto/update-cod-outcome.dto';
@@ -205,6 +205,29 @@ export class OrdersController {
     // Same route-ordering as the operator feed, but the courier only ever sees
     // their own leg — so their list is purely the visit order (stop 1, 2, 3…).
     return { ...summary, orders: applyRouteOrder(summary.orders, route) };
+  }
+
+  // Literal route — declared before `:id`. The best default day for «Подготовка»:
+  // tomorrow when it has confirmed orders, else the nearest day within ±2 that
+  // does — so an empty tomorrow doesn't hide a Thursday full of orders. Owner
+  // «Всички» = tenant-wide (no farmerId); a producer is scoped to their own
+  // products; a driver keeps their own anchor (they prep their leg for the day
+  // they drive, so hopping to another day's orders wouldn't match their leg).
+  @Get('prep/default-day')
+  @Roles('admin', 'farmer', 'driver')
+  @ApiQuery({ name: 'date', required: false })
+  @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
+  async prepDefaultDay(
+    @CurrentUser() user: TenantRequestUser,
+    @Query('date') date?: string,
+    @Query('farmerId') farmerId?: string,
+  ): Promise<{ date: string }> {
+    if (user.role === 'driver') {
+      return { date: date ?? bgToday() };
+    }
+    const anchor = date ?? bgAddDays(bgToday(), 1);
+    const scope = user.role === 'farmer' ? user.farmerId ?? null : farmerId ?? null;
+    return { date: await this.ordersService.nearestPrepDay(user.tenantId, scope, anchor) };
   }
 
   // Literal route — declared before `:id`. Own-delivery orders that can be moved to

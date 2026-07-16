@@ -1,4 +1,4 @@
-import { scheduledForRange } from './order-scheduling';
+import { scheduledForRange, pickNearestDay } from './order-scheduling';
 import { bgDayBounds } from '../../common/time/bg-time';
 
 /**
@@ -104,5 +104,43 @@ describe('scheduledForRange', () => {
     expect(shortDateValues).toContainEqual('2026-07-12');
     expect(longDateValues).toContainEqual('2026-07-20');
     expect(shortDateValues).not.toContainEqual('2026-07-20');
+  });
+});
+
+describe('pickNearestDay', () => {
+  const anchor = '2026-07-16'; // a Thursday
+
+  it('returns the anchor unchanged when it has orders', () => {
+    expect(pickNearestDay(anchor, new Set([anchor, '2026-07-18']), 2)).toBe(anchor);
+  });
+
+  it('jumps to the nearest day with orders when the anchor is empty', () => {
+    // Orders only two days ahead → land there (nothing nearer).
+    expect(pickNearestDay(anchor, new Set(['2026-07-18']), 2)).toBe('2026-07-18');
+    // Orders one day behind → nearer than anything else.
+    expect(pickNearestDay(anchor, new Set(['2026-07-15', '2026-07-13']), 2)).toBe('2026-07-15');
+  });
+
+  it('prefers the FUTURE side on a tie (equal distance both ways)', () => {
+    // Both ±1 have orders → the future one (+1) wins.
+    expect(pickNearestDay(anchor, new Set(['2026-07-15', '2026-07-17']), 2)).toBe('2026-07-17');
+    // Both ±2 have orders, ±1 empty → future +2 wins.
+    expect(pickNearestDay(anchor, new Set(['2026-07-14', '2026-07-18']), 2)).toBe('2026-07-18');
+  });
+
+  it('checks distance outward — a nearer past day beats a farther future day', () => {
+    // -1 (near) vs +2 (far): the nearer past day wins over the farther future.
+    expect(pickNearestDay(anchor, new Set(['2026-07-15', '2026-07-18']), 2)).toBe('2026-07-15');
+  });
+
+  it('stays on the anchor when no day in the ±span window has orders', () => {
+    // Orders exist, but outside the ±2 window → no jump.
+    expect(pickNearestDay(anchor, new Set(['2026-07-25']), 2)).toBe(anchor);
+    expect(pickNearestDay(anchor, new Set(), 2)).toBe(anchor);
+  });
+
+  it('respects the span bound (span=1 ignores a ±2 day)', () => {
+    expect(pickNearestDay(anchor, new Set(['2026-07-18']), 1)).toBe(anchor);
+    expect(pickNearestDay(anchor, new Set(['2026-07-17']), 1)).toBe('2026-07-17');
   });
 });

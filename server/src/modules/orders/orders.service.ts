@@ -42,7 +42,7 @@ import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { CommissionService } from '../vendor-finance/commission.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
-import { scheduledForDay } from './order-scheduling';
+import { scheduledForDay, scheduledForRange, pickNearestDay } from './order-scheduling';
 import { subtotalStotinki, recomputeTotalStotinki } from './order-total.util';
 import { decideDecrement, decideDecrementPooled, restoreRemaining } from '../availability/availability.util';
 import { slotIsFull, slotUnavailableReason, migrateRule, ruleProducesDate } from '../slots/slot-rule';
@@ -1008,6 +1008,48 @@ export class OrdersService {
   /** «Подготовка» feed for one farmer on one day. Orders are the source of truth
    *  for prep progress; the product view aggregates them client-side. `date`
    *  defaults to tomorrow (the main prep horizon). */
+  /**
+   * The best default day for «Подготовка»: `anchor` (default tomorrow) when it
+   * already has confirmed orders, else the NEAREST day within ±`span` that does
+   * — so a farmer whose only orders are, say, this Thursday lands there instead
+   * of on an empty tomorrow. Ties (a day equally near on both sides) resolve to
+   * the FUTURE day (prep looks forward). No orders anywhere in the window →
+   * `anchor` unchanged (the caller then shows the normal empty state).
+   *
+   * `farmerId` null = tenant-wide (owner «Всички»); set = scope to that
+   * producer's own products (mirrors {@link prepOrders}). Same
+   * `leftJoin(deliverySlots)` contract as every scheduledFor* query.
+   */
+  async nearestPrepDay(
+    tenantId: string,
+    farmerId: string | null,
+    anchor?: string,
+    span = 2,
+  ): Promise<string> {
+    const day = anchor ?? bgAddDays(bgToday(), 1);
+    const lo = bgAddDays(day, -span);
+    const hi = bgAddDays(day, span);
+    const dayExpr = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
+
+    const base = this.db
+      .selectDistinct({ day: dayExpr })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id));
+    // Scope to one producer's own products only when asked — an extra join that
+    // an owner-wide default (farmerId null) skips entirely.
+    const scoped = farmerId
+      ? base.innerJoin(
+          orderItems,
+          and(eq(orderItems.orderId, orders.id))!,
+        ).innerJoin(products, and(eq(products.id, orderItems.productId), eq(products.farmerId, farmerId))!)
+      : base;
+    const rows = await scoped.where(
+      and(eq(orders.tenantId, tenantId), eq(orders.status, 'confirmed'), scheduledForRange(lo, hi))!,
+    );
+
+    return pickNearestDay(day, new Set(rows.map((r) => r.day)), span);
+  }
+
   async prepSummary(tenantId: string, farmerId: string, date?: string): Promise<PrepSummary> {
     const day = date ?? bgAddDays(bgToday(), 1);
     const [orders, pendingOrders] = await Promise.all([
