@@ -162,11 +162,29 @@ export function RouteMap({
           );
         })}
 
-        {customEnd && (
-          <AdvancedMarker position={customEnd} title={end.address ?? 'Край'}>
-            <EndPin />
-          </AdvancedMarker>
-        )}
+        {/* Where each courier's leg ENDS — their „У дома" home (task #7) or a
+            custom end. Marked with a home pin in the courier's color so a line
+            running off to a home no longer reads as a stray remnant. One-way
+            legs (mode 'last') and legs that just return to the farm ★ get no
+            separate pin (the ★ already marks the farm). */}
+        {routes.map((r, ri) => {
+          if (r.endMode === 'last' || r.endLat == null || r.endLng == null) return null;
+          const atFarm =
+            origin.lat != null &&
+            origin.lng != null &&
+            Math.abs(r.endLat - origin.lat) < 1e-6 &&
+            Math.abs(r.endLng - origin.lng) < 1e-6;
+          if (atFarm) return null;
+          return (
+            <AdvancedMarker
+              key={`end-${ri}`}
+              position={{ lat: r.endLat, lng: r.endLng }}
+              title={`Дом · ${r.name ?? `Маршрут ${r.courierIndex + 1}`}`}
+            >
+              <HomePin color={routeColor(ri)} />
+            </AdvancedMarker>
+          );
+        })}
 
         {/* „You are here" — where the remaining route now starts once the courier
             is en route (live GPS or the last finished drop), so the line no longer
@@ -226,10 +244,16 @@ function FarmPin() {
   );
 }
 
-function EndPin() {
+/** Per-courier route end („У дома", task #7) — a home icon bordered in the
+ *  courier's route color, so a leg that ends at the courier's home reads as a
+ *  real destination, not a stray line running off the map. */
+function HomePin({ color }: { color: string }) {
   return (
-    <span className="grid h-[28px] w-[28px] place-items-center rounded-full bg-white text-[14px] font-bold text-ff-amber-600 shadow-ff-md ring-2 ring-ff-amber">
-      ⚑
+    <span
+      className="grid h-[26px] w-[26px] place-items-center rounded-full bg-white text-[13px] shadow-ff-md"
+      style={{ border: `2px solid ${color}` }}
+    >
+      🏠
     </span>
   );
 }
