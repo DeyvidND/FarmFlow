@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { OrdersService } from './orders.service';
+import { OrdersService, applyRouteOrder } from './orders.service';
+import type { TomorrowOrder } from './orders.service';
 
 /**
  * OrdersService.prepOrders / setFulfillment (Task #14). Mirrors the
@@ -139,10 +140,12 @@ describe('OrdersService.prepSummary', () => {
     const orders = [
       { id: 'o1', orderNumber: 1, customerName: null, customerPhone: null, customerEmail: null,
         deliveryType: 'pickup', day: '2026-07-15', slotFrom: null, slotTo: null,
-        fulfillmentState: 'pending' as const, items: [] },
+        fulfillmentState: 'pending' as const, items: [],
+        routeSeq: null, courierIndex: null, courierName: null },
       { id: 'o2', orderNumber: 2, customerName: null, customerPhone: null, customerEmail: null,
         deliveryType: 'pickup', day: '2026-07-15', slotFrom: null, slotTo: null,
-        fulfillmentState: 'fulfilled' as const, items: [] },
+        fulfillmentState: 'fulfilled' as const, items: [],
+        routeSeq: null, courierIndex: null, courierName: null },
     ];
     jest.spyOn(svc, 'prepOrders').mockResolvedValue(orders);
     jest.spyOn(svc as never, 'pendingCountForFarmer' as never).mockResolvedValue(3 as never);
@@ -232,5 +235,55 @@ describe('OrdersService.prepForCourierLeg', () => {
     const result = await svc.prepForCourierLeg('t', ['o1', 'o2'], '2026-07-16');
     expect(result.orders.map((o) => o.id)).toEqual(['o1', 'o2']);
     expect(result.confirmedOrders).toBe(2);
+  });
+});
+
+describe('applyRouteOrder', () => {
+  const mk = (id: string, over: Partial<TomorrowOrder> = {}): TomorrowOrder => ({
+    id,
+    orderNumber: null,
+    customerName: null,
+    customerPhone: null,
+    customerEmail: null,
+    deliveryType: 'address',
+    day: '2026-07-16',
+    slotFrom: null,
+    slotTo: null,
+    fulfillmentState: 'pending',
+    items: [],
+    routeSeq: null,
+    courierIndex: null,
+    courierName: null,
+    ...over,
+  });
+  const route = {
+    routes: [
+      { courierIndex: 0, name: 'Иван', stops: [{ id: 'a' }, { id: 'b' }] },
+      { courierIndex: 1, name: 'Васил', stops: [{ id: 'c' }] },
+    ],
+  };
+
+  it('sorts to route order (leg then visit position) and stamps each order', () => {
+    // Deliberately scrambled input.
+    const out = applyRouteOrder([mk('c'), mk('a'), mk('b')], route);
+    expect(out.map((o) => o.id)).toEqual(['a', 'b', 'c']);
+    expect(out[0]).toMatchObject({ id: 'a', courierIndex: 0, routeSeq: 1, courierName: 'Иван' });
+    expect(out[1]).toMatchObject({ id: 'b', courierIndex: 0, routeSeq: 2, courierName: 'Иван' });
+    expect(out[2]).toMatchObject({ id: 'c', courierIndex: 1, routeSeq: 1, courierName: 'Васил' });
+  });
+
+  it('puts off-route orders (no matching stop) last, keeping their given order, with null route fields', () => {
+    const out = applyRouteOrder([mk('pickup-2'), mk('c'), mk('pickup-1')], route);
+    expect(out.map((o) => o.id)).toEqual(['c', 'pickup-2', 'pickup-1']);
+    const c = out.find((o) => o.id === 'c')!;
+    expect(c.routeSeq).toBe(1);
+    const p = out.find((o) => o.id === 'pickup-1')!;
+    expect(p).toMatchObject({ routeSeq: null, courierIndex: null, courierName: null });
+  });
+
+  it('is a no-op-ish passthrough when the route has no stops (everything off-route, order preserved)', () => {
+    const out = applyRouteOrder([mk('x'), mk('y')], { routes: [] });
+    expect(out.map((o) => o.id)).toEqual(['x', 'y']);
+    expect(out.every((o) => o.routeSeq === null)).toBe(true);
   });
 });

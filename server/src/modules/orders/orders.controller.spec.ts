@@ -354,15 +354,17 @@ describe('OrdersController prep routing', () => {
     expect(svc.prepSummary).toHaveBeenCalledWith('t', 'farmer-1', '2026-07-15');
   });
 
-  it('an owner without ?farmerId gets a 400', () => {
-    expect(() => ctrl.prep(tenant({ role: 'admin' }), undefined, undefined)).toThrow(
+  it('an owner without ?farmerId gets a 400', async () => {
+    // prep() is async (it also fetches the route to order the feed) — the guard
+    // now rejects the promise rather than throwing synchronously.
+    await expect(ctrl.prep(tenant({ role: 'admin' }), undefined, undefined)).rejects.toThrow(
       BadRequestException,
     );
     expect(svc.prepSummary).not.toHaveBeenCalled();
   });
 
-  it('rejects a malformed farmer token (role=farmer, no farmerId) with 403', () => {
-    expect(() => ctrl.prep(tenant({ role: 'farmer' }), undefined, undefined)).toThrow(
+  it('rejects a malformed farmer token (role=farmer, no farmerId) with 403', async () => {
+    await expect(ctrl.prep(tenant({ role: 'farmer' }), undefined, undefined)).rejects.toThrow(
       ForbiddenException,
     );
     expect(svc.prepSummary).not.toHaveBeenCalled();
@@ -375,7 +377,16 @@ describe('OrdersController prep routing', () => {
 // assertDriverOwnsOrder), then collect that leg's order ids from the
 // recomputed route and hand them to a leg-scoped service method.
 describe('OrdersController prep routing — driver', () => {
-  const svc = { prepSummary: jest.fn(), prepForCourierLeg: jest.fn().mockResolvedValue('leg-scoped') };
+  const legSummary = (orders: any[]) => ({
+    date: '2026-07-16',
+    confirmedOrders: orders.length,
+    pendingOrders: 0,
+    orders,
+  });
+  const svc = {
+    prepSummary: jest.fn(),
+    prepForCourierLeg: jest.fn().mockResolvedValue(legSummary([])),
+  };
   const routing = { getRoute: jest.fn() };
   const assignments = { resolveMyLeg: jest.fn() };
   const ctrl = new OrdersController(svc as any, routing as any, assignments as any);
@@ -395,21 +406,32 @@ describe('OrdersController prep routing — driver', () => {
     expect(result).toEqual({ date: '2026-07-16', confirmedOrders: 0, pendingOrders: 0, orders: [] });
   });
 
-  it('an assigned driver gets ONLY their own leg\'s order ids, from the recomputed route, never a raw farmerId path', async () => {
+  it('an assigned driver gets ONLY their own leg\'s order ids, route-ordered, never a raw farmerId path', async () => {
     assignments.resolveMyLeg.mockResolvedValue(1);
     routing.getRoute.mockResolvedValue({
       routes: [
-        { courierIndex: 0, stops: [{ id: 'order-a' }, { id: 'order-b' }] },
-        { courierIndex: 1, stops: [{ id: 'order-c' }] },
+        { courierIndex: 0, name: null, stops: [{ id: 'order-a' }, { id: 'order-b' }] },
+        { courierIndex: 1, name: 'Васил', stops: [{ id: 'order-c' }, { id: 'order-d' }] },
       ],
     });
+    // Service returns the leg's orders in a NON-route order; the controller must
+    // re-sort them to the route (order-c stop 1, order-d stop 2) and stamp each.
+    svc.prepForCourierLeg.mockResolvedValueOnce(
+      legSummary([
+        { id: 'order-d', routeSeq: null, courierIndex: null, courierName: null },
+        { id: 'order-c', routeSeq: null, courierIndex: null, courierName: null },
+      ]),
+    );
 
     const result = await ctrl.prep(driver(), '2026-07-16', undefined);
 
     expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-16');
-    expect(svc.prepForCourierLeg).toHaveBeenCalledWith('t', ['order-c'], '2026-07-16');
+    expect(svc.prepForCourierLeg).toHaveBeenCalledWith('t', ['order-c', 'order-d'], '2026-07-16');
     expect(svc.prepSummary).not.toHaveBeenCalled();
-    expect(result).toBe('leg-scoped');
+    // Sorted to route order + stamped with leg 1's position and courier name.
+    expect(result.orders.map((o: any) => o.id)).toEqual(['order-c', 'order-d']);
+    expect(result.orders[0]).toMatchObject({ routeSeq: 1, courierIndex: 1, courierName: 'Васил' });
+    expect(result.orders[1]).toMatchObject({ routeSeq: 2, courierIndex: 1, courierName: 'Васил' });
   });
 
   it('ignores a query ?farmerId entirely for a driver — no farmerId concept applies', async () => {

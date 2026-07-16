@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { OrdersService, type PrepSummary } from './orders.service';
+import { OrdersService, applyRouteOrder, type PrepSummary } from './orders.service';
 import { CheckoutService } from './checkout.service';
 import { RoutingService } from '../routing/routing.service';
 import { CourierAssignmentService } from '../routing/courier-assignment.service';
@@ -152,17 +152,29 @@ export class OrdersController {
   @Roles('admin', 'farmer', 'driver')
   @ApiQuery({ name: 'date', required: false })
   @ApiQuery({ name: 'farmerId', required: false, description: 'Owner-only: scope to one producer' })
-  prep(
+  async prep(
     @CurrentUser() user: TenantRequestUser,
     @Query('date') date?: string,
     @Query('farmerId') farmerId?: string,
-  ) {
+  ): Promise<PrepSummary> {
     if (user.role === 'driver') {
       return this.prepForDriver(user.tenantId, user, date);
     }
     const scope = effectiveFarmerId(user.role, user.farmerId, farmerId);
     if (!scope) throw new BadRequestException('farmerId required for admin');
-    return this.ordersService.prepSummary(user.tenantId, scope, date);
+    const summary = await this.ordersService.prepSummary(user.tenantId, scope, date);
+    // Order the feed to match the delivery route (pin #1 = first order) and stamp
+    // each order's courier + visit position, so the client can show the stop
+    // number and optionally group by courier. getRoute on the SAME resolved day
+    // (summary.date), so the split/pins/optimized order line up with the route
+    // screen. A best-effort enrichment — if the route can't be built, fall back
+    // to the unordered feed rather than failing the whole prep load.
+    try {
+      const route = await this.routingService.getRoute(user.tenantId, summary.date);
+      return { ...summary, orders: applyRouteOrder(summary.orders, route) };
+    } catch {
+      return summary;
+    }
   }
 
   /**
@@ -189,7 +201,10 @@ export class OrdersController {
     const orderIds = route.routes
       .filter((r) => r.courierIndex === myLeg)
       .flatMap((r) => r.stops.map((s) => s.id));
-    return this.ordersService.prepForCourierLeg(tenantId, orderIds, day);
+    const summary = await this.ordersService.prepForCourierLeg(tenantId, orderIds, day);
+    // Same route-ordering as the operator feed, but the courier only ever sees
+    // their own leg — so their list is purely the visit order (stop 1, 2, 3…).
+    return { ...summary, orders: applyRouteOrder(summary.orders, route) };
   }
 
   // Literal route — declared before `:id`. Own-delivery orders that can be moved to

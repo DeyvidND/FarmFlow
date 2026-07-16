@@ -87,6 +87,9 @@ export function PrepClient({
   const [view, setView] = useState<'orders' | 'products'>('orders');
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Group the „По поръчка" list by delivery courier (operator choice). A driver
+  // only ever sees their own leg, so the option is hidden for them.
+  const [splitByCourier, setSplitByCourier] = useState(false);
   const firstRun = useRef(true);
 
   // Refetch whenever the day or the selected farmer changes (skip the SSR-provided
@@ -205,9 +208,24 @@ export function PrepClient({
             </button>
           ))}
         </div>
-        <span className={cn('text-[13px] font-bold', allDone ? 'text-ff-green-700' : 'text-ff-muted')}>
-          {pickedQty}/{totalQty} {plural(totalQty)} готови
-        </span>
+        <div className="flex items-center gap-3">
+          {/* Group by courier — only in the per-order view, and never for a
+              driver (they already see a single leg). */}
+          {view === 'orders' && !isDriver && (
+            <label className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
+              <input
+                type="checkbox"
+                checked={splitByCourier}
+                onChange={(e) => setSplitByCourier(e.target.checked)}
+                className="h-3.5 w-3.5 accent-ff-green-600"
+              />
+              Раздели по куриери
+            </label>
+          )}
+          <span className={cn('text-[13px] font-bold', allDone ? 'text-ff-green-700' : 'text-ff-muted')}>
+            {pickedQty}/{totalQty} {plural(totalQty)} готови
+          </span>
+        </div>
       </div>
 
       {loading && (
@@ -234,6 +252,7 @@ export function PrepClient({
               : undefined
           }
           hideState={isDriver}
+          splitByCourier={splitByCourier && !isDriver}
         />
       ) : (
         <ProductsView
@@ -248,8 +267,102 @@ export function PrepClient({
   );
 }
 
+/** Stable sort by route: leg (courierIndex) then visit position (routeSeq);
+ *  off-route orders (null) keep their given order at the end. */
+function sortByRoute(list: TomorrowOrder[]): TomorrowOrder[] {
+  return list
+    .map((o, i) => ({ o, i }))
+    .sort((a, b) => {
+      const al = a.o.courierIndex ?? Infinity;
+      const bl = b.o.courierIndex ?? Infinity;
+      if (al !== bl) return al - bl;
+      const as = a.o.routeSeq ?? Infinity;
+      const bs = b.o.routeSeq ?? Infinity;
+      if (as !== bs) return as - bs;
+      return a.i - b.i;
+    })
+    .map((e) => e.o);
+}
+
+/** The green route-position pill (the stop number), matching the route screen's
+ *  stop list. Muted dash for an order not on the route. */
+function RouteBadge({ seq }: { seq: number | null }) {
+  return (
+    <span
+      className={cn(
+        'grid h-6 w-6 shrink-0 place-items-center rounded-full text-[12.5px] font-extrabold',
+        seq != null ? 'bg-ff-green-100 text-ff-green-800' : 'bg-ff-surface-2 text-ff-muted-2',
+      )}
+      title={seq != null ? `Спирка ${seq} по маршрута` : 'Извън маршрута за доставка'}
+    >
+      {seq ?? '–'}
+    </span>
+  );
+}
+
+function OrderCard({
+  o, busyId, onMark, readOnly, hideState,
+}: {
+  o: TomorrowOrder;
+  busyId: string | null;
+  onMark: (id: string, state: FulfillmentState) => void;
+  readOnly: boolean;
+  hideState: boolean;
+}) {
+  return (
+    <li className="rounded-[12px] border border-ff-border bg-ff-surface p-4 shadow-ff-sm">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <RouteBadge seq={o.routeSeq} />
+          <span className="text-[13px] font-extrabold text-ff-ink">№{o.orderNumber ?? '—'}</span>
+          <span className="text-[12.5px] text-ff-muted">{deliveryMeta(o)}</span>
+        </div>
+        {!hideState && (
+          <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', STATE_CLS[o.fulfillmentState])}>
+            {STATE_LABEL[o.fulfillmentState]}
+          </span>
+        )}
+      </div>
+      <div className="mb-2 text-[13.5px] font-bold text-ff-ink-2">{o.customerName ?? '—'}</div>
+      <Contact o={o} />
+      <ul className="my-2.5 flex flex-col gap-0.5 text-[12.5px] text-ff-muted">
+        {o.items.map((it) => (
+          <li key={it.productId}>
+            {it.productName}
+            {it.variantLabel && <span className="text-ff-muted-2"> ({it.variantLabel})</span>} × {it.quantity}
+          </li>
+        ))}
+      </ul>
+      {!readOnly && o.fulfillmentState !== 'fulfilled' && (
+        <div className="flex flex-wrap gap-1.5">
+          {o.fulfillmentState === 'pending' && (
+            <button
+              type="button"
+              onClick={() => onMark(o.id, 'in_production')}
+              disabled={busyId === o.id}
+              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-ff-border bg-ff-surface-2 px-2.5 py-1 text-[11px] font-extrabold text-ff-ink-2 hover:bg-ff-border-2 disabled:opacity-60"
+            >
+              {busyId === o.id ? <Loader2 size={12} className="animate-spin" /> : null}
+              Започвам
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onMark(o.id, 'fulfilled')}
+            disabled={busyId === o.id}
+            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-ff-green-100 bg-ff-green-50 px-2.5 py-1 text-[11px] font-extrabold text-ff-green-700 hover:bg-ff-green-100 disabled:opacity-60"
+          >
+            {busyId === o.id ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+            Готово
+          </button>
+        </div>
+      )}
+    </li>
+  );
+}
+
 function OrdersView({
-  orders, gaps, busyId, onMark, readOnly = false, readOnlyNote, hideState = false,
+  orders, gaps, busyId, onMark, readOnly = false, readOnlyNote, hideState = false, splitByCourier = false,
 }: {
   orders: TomorrowOrder[];
   gaps: TomorrowOrder[];
@@ -260,7 +373,31 @@ function OrdersView({
   /** Drop the "Чака/В процес/Готово" badge — it's a farmer's own prep state,
    *  meaningless (always 'pending') on a courier's read-only leg view. */
   hideState?: boolean;
+  /** Group the list by delivery courier (leg), each under its own header. */
+  splitByCourier?: boolean;
 }) {
+  const sorted = sortByRoute(orders);
+
+  // Groups by courierIndex, in leg order; the off-route bucket (null) goes last.
+  const groups: { key: string; label: string; items: TomorrowOrder[] }[] = [];
+  if (splitByCourier) {
+    const byLeg = new Map<number | null, TomorrowOrder[]>();
+    for (const o of sorted) {
+      const k = o.courierIndex;
+      if (!byLeg.has(k)) byLeg.set(k, []);
+      byLeg.get(k)!.push(o);
+    }
+    const keys = [...byLeg.keys()].sort((a, b) => (a ?? Infinity) - (b ?? Infinity));
+    for (const k of keys) {
+      const items = byLeg.get(k)!;
+      const label =
+        k == null
+          ? 'Без маршрут (взимане на място / куриерска фирма)'
+          : `Маршрут ${k + 1}${items[0]?.courierName ? ` · ${items[0].courierName}` : ''}`;
+      groups.push({ key: String(k), label, items });
+    }
+  }
+
   return (
     <>
       {readOnly && (
@@ -278,57 +415,26 @@ function OrdersView({
           </div>
         </div>
       )}
-      <ul className="flex flex-col gap-3">
-        {orders.map((o) => (
-          <li key={o.id} className="rounded-[12px] border border-ff-border bg-ff-surface p-4 shadow-ff-sm">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] font-extrabold text-ff-ink">№{o.orderNumber ?? '—'}</span>
-                <span className="text-[12.5px] text-ff-muted">{deliveryMeta(o)}</span>
-              </div>
-              {!hideState && (
-                <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', STATE_CLS[o.fulfillmentState])}>
-                  {STATE_LABEL[o.fulfillmentState]}
-                </span>
-              )}
+      {splitByCourier ? (
+        <div className="flex flex-col gap-5">
+          {groups.map((g) => (
+            <div key={g.key}>
+              <h3 className="mb-2 text-[13px] font-extrabold text-ff-ink">{g.label}</h3>
+              <ul className="flex flex-col gap-3">
+                {g.items.map((o) => (
+                  <OrderCard key={o.id} o={o} busyId={busyId} onMark={onMark} readOnly={readOnly} hideState={hideState} />
+                ))}
+              </ul>
             </div>
-            <div className="mb-2 text-[13.5px] font-bold text-ff-ink-2">{o.customerName ?? '—'}</div>
-            <Contact o={o} />
-            <ul className="my-2.5 flex flex-col gap-0.5 text-[12.5px] text-ff-muted">
-              {o.items.map((it) => (
-                <li key={it.productId}>
-                  {it.productName}
-                  {it.variantLabel && <span className="text-ff-muted-2"> ({it.variantLabel})</span>} × {it.quantity}
-                </li>
-              ))}
-            </ul>
-            {!readOnly && o.fulfillmentState !== 'fulfilled' && (
-              <div className="flex flex-wrap gap-1.5">
-                {o.fulfillmentState === 'pending' && (
-                  <button
-                    type="button"
-                    onClick={() => onMark(o.id, 'in_production')}
-                    disabled={busyId === o.id}
-                    className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-ff-border bg-ff-surface-2 px-2.5 py-1 text-[11px] font-extrabold text-ff-ink-2 hover:bg-ff-border-2 disabled:opacity-60"
-                  >
-                    {busyId === o.id ? <Loader2 size={12} className="animate-spin" /> : null}
-                    Започвам
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onMark(o.id, 'fulfilled')}
-                  disabled={busyId === o.id}
-                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-ff-green-100 bg-ff-green-50 px-2.5 py-1 text-[11px] font-extrabold text-ff-green-700 hover:bg-ff-green-100 disabled:opacity-60"
-                >
-                  {busyId === o.id ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                  Готово
-                </button>
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
+          ))}
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {sorted.map((o) => (
+            <OrderCard key={o.id} o={o} busyId={busyId} onMark={onMark} readOnly={readOnly} hideState={hideState} />
+          ))}
+        </ul>
+      )}
     </>
   );
 }

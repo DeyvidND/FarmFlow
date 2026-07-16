@@ -336,6 +336,58 @@ export interface TomorrowOrder {
   slotTo: string | null;
   fulfillmentState: FulfillmentState;
   items: TomorrowOrderItem[];
+  /** Route ordering (attached by applyRouteOrder in the controller from
+   *  getRoute): the 1-based visit position within `courierIndex`'s leg, the real
+   *  leg index, and that courier's name. All null for an order not on the day's
+   *  route (pickup/Econt, or an un-geocoded address) — those sort last. */
+  routeSeq: number | null;
+  courierIndex: number | null;
+  courierName: string | null;
+}
+
+/** Minimal route shape applyRouteOrder needs — a subset of MultiRouteResult so
+ *  this helper stays free of a routing-module import (avoids a service cycle). */
+export interface RouteOrderView {
+  routes: Array<{ courierIndex: number; name: string | null; stops: Array<{ id: string }> }>;
+}
+
+/**
+ * Stamp each prep order with its route position (which courier, what visit
+ * order) and sort the list to match the route: leg 0 stop 1, stop 2, …, then
+ * leg 1, and so on — so «Подготовка» reads in the exact order the driver
+ * delivers (route pin #1 = first order), same as the route screen. Orders not
+ * on the route (no matching stop) keep null route fields and fall to the end in
+ * their original order. Pure (no DB/`this`) so it unit-tests cleanly.
+ */
+export function applyRouteOrder(list: TomorrowOrder[], route: RouteOrderView): TomorrowOrder[] {
+  const pos = new Map<string, { courierIndex: number; routeSeq: number; courierName: string | null }>();
+  for (const leg of route.routes) {
+    leg.stops.forEach((s, i) => {
+      pos.set(s.id, { courierIndex: leg.courierIndex, routeSeq: i + 1, courierName: leg.name });
+    });
+  }
+  const enriched = list.map((o, idx) => {
+    const p = pos.get(o.id);
+    return {
+      order: {
+        ...o,
+        courierIndex: p?.courierIndex ?? null,
+        routeSeq: p?.routeSeq ?? null,
+        courierName: p?.courierName ?? null,
+      },
+      idx, // original position — the stable tiebreaker for off-route orders
+    };
+  });
+  enriched.sort((a, b) => {
+    const al = a.order.courierIndex ?? Infinity;
+    const bl = b.order.courierIndex ?? Infinity;
+    if (al !== bl) return al - bl;
+    const as = a.order.routeSeq ?? Infinity;
+    const bs = b.order.routeSeq ?? Infinity;
+    if (as !== bs) return as - bs;
+    return a.idx - b.idx;
+  });
+  return enriched.map((e) => e.order);
 }
 
 /** The «Подготовка» feed for one farmer on one day: per-order rows (the source of
@@ -1043,6 +1095,10 @@ export class OrdersService {
           slotTo: r.slotTo,
           fulfillmentState: r.state ?? 'pending',
           items: [],
+          // Route ordering is stamped later by applyRouteOrder (controller).
+          routeSeq: null,
+          courierIndex: null,
+          courierName: null,
         };
         byOrder.set(r.orderId, o);
       }
@@ -1122,6 +1178,10 @@ export class OrdersService {
           slotTo: r.slotTo,
           fulfillmentState: 'pending',
           items: [],
+          // Route ordering is stamped later by applyRouteOrder (controller).
+          routeSeq: null,
+          courierIndex: null,
+          courierName: null,
         };
         byOrder.set(r.orderId, o);
       }

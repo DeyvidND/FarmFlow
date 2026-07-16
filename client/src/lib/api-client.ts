@@ -1014,6 +1014,13 @@ export interface TomorrowOrder {
   slotTo: string | null;
   fulfillmentState: FulfillmentState;
   items: TomorrowOrderItem[];
+  /** Route ordering (server-stamped from the day's delivery route): 1-based visit
+   *  position within its courier's leg, the real leg index, and that courier's
+   *  name. All null for an order not on the route (pickup/Econt, or un-geocoded).
+   *  The feed comes pre-sorted to match the route (pin #1 first). */
+  routeSeq: number | null;
+  courierIndex: number | null;
+  courierName: string | null;
 }
 
 export const setFulfillment = (id: string, state: FulfillmentState, farmerId?: string) =>
