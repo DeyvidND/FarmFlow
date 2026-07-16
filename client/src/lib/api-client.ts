@@ -377,7 +377,7 @@ export const updateTenant = (data: {
       homeLng?: string | number | null;
     }[];
   };
-  sms?: { dayOfReminder?: boolean };
+  sms?: { dayOfReminder?: boolean; sendHour?: number };
 }) => apiFetch<TenantProfile>('tenants/me', { method: 'PATCH', ...json(data) }, 'Неуспешна промяна');
 
 // ---- Route stops ----

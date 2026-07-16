@@ -4,6 +4,7 @@ import { Job, Queue } from 'bullmq';
 import { SmsReminderService } from './sms-reminder.service';
 import { SMS_QUEUE } from '../../common/queue/queue.constants';
 import { registerRepeatable } from '../../common/queue/register-repeatable';
+import { bgNowMinutes } from '../../common/time/bg-time';
 
 @Processor(SMS_QUEUE)
 export class SmsReminderProcessor extends WorkerHost implements OnModuleInit {
@@ -16,19 +17,26 @@ export class SmsReminderProcessor extends WorkerHost implements OnModuleInit {
     super();
   }
 
-  // 08:00 Europe/Sofia, once per worker boot (idempotent). Windows must be
-  // approved by the operator the evening before for the send to have content.
+  // Ticks HOURLY (top of every hour, Europe/Sofia); each tick fans out only the
+  // tenants whose configured send hour matches — so a per-tenant send time is a
+  // pure settings change, no new schedule. Idempotent per worker boot. Windows
+  // must be approved by the operator the evening before to have content.
   async onModuleInit(): Promise<void> {
-    await registerRepeatable(this.queue, 'sms-daily', '0 8 * * *');
+    await registerRepeatable(this.queue, 'sms-daily', '0 * * * *');
   }
 
   async process(job: Job): Promise<void> {
     if (job.name === 'sms-daily') {
-      const tenants = await this.reminder.eligibleTenants();
-      for (const t of tenants) {
+      const currentHour = Math.floor(bgNowMinutes() / 60);
+      const all = await this.reminder.eligibleTenants();
+      // Only the tenants whose chosen send hour is THIS hour (default 8).
+      const due = all.filter((t) => t.sendHour === currentHour);
+      for (const t of due) {
         await this.queue.add('sms-tenant', { tenantId: t.id, channel: t.channel });
       }
-      this.logger.log(`[reminder] fanned out ${tenants.length} tenant reminder job(s)`);
+      this.logger.log(
+        `[reminder] hour ${currentHour}: fanned out ${due.length}/${all.length} tenant reminder job(s)`,
+      );
       return;
     }
     if (job.name === 'sms-tenant') {

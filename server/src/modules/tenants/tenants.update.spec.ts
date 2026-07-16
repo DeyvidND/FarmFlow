@@ -177,6 +177,33 @@ describe('TenantsService.updateMe', () => {
     });
   });
 
+  it('merges sms.sendHour without clobbering an existing dayOfReminder (partial update)', async () => {
+    const existing = { sms: { dayOfReminder: true, channel: 'email' } };
+    const { db, captured } = makeDb([[{ settings: existing }]], baseRow);
+    const svc = svcWith(db, maps(), publicCache());
+
+    // Payload carries ONLY sendHour — the stored master flag + channel survive.
+    await svc.updateMe('t1', { sms: { sendHour: 6 } } as never);
+
+    const set = captured.set as { settings: Record<string, any> };
+    expect(set.settings.sms).toEqual({
+      dayOfReminder: true,
+      channel: 'email',
+      sendHour: 6,
+    });
+  });
+
+  it('ignores an out-of-range sms.sendHour, leaving the stored value intact', async () => {
+    const existing = { sms: { dayOfReminder: true, sendHour: 8 } };
+    const { db, captured } = makeDb([[{ settings: existing }]], baseRow);
+    const svc = svcWith(db, maps(), publicCache());
+
+    await svc.updateMe('t1', { sms: { sendHour: 99 } } as never);
+
+    const set = captured.set as { settings: Record<string, any> };
+    expect(set.settings.sms).toEqual({ dayOfReminder: true, sendHour: 8 });
+  });
+
   it('busts the profile + farmers + subcategories caches on save', async () => {
     const { db } = makeDb([], baseRow);
     const pc = publicCache();

@@ -5,6 +5,7 @@ import { X, Clock, Mail, MailX, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { cn } from '@/lib/utils';
 import {
   getTenant,
   updateTenant,
@@ -57,6 +58,13 @@ export function DeliveryWindowsModal({
   // dayStartHour (default 9) and remembered on generate.
   const [startHour, setStartHour] = useState(9);
 
+  // Tenant-level auto-reminder config (settings.sms): master on/off for sending
+  // the time-window email to customers, and the Europe/Sofia hour it goes out.
+  // Both persist on change (optimistic, like the settings card / cutoff).
+  const [reminderOn, setReminderOn] = useState(false);
+  const [sendHour, setSendHour] = useState(8);
+  const [savingReminderCfg, setSavingReminderCfg] = useState(false);
+
   // The day's slot row (for the reminder opt-out toggle) — separate from the
   // per-order windows above.
   const [slot, setSlot] = useState<Slot | null>(null);
@@ -70,6 +78,9 @@ export function DeliveryWindowsModal({
         setHour(c.hour);
         const dsh = t.routing?.dayStartHour;
         if (typeof dsh === 'number' && dsh >= 0 && dsh <= 23) setStartHour(dsh);
+        setReminderOn(!!t.sms?.dayOfReminder);
+        const sh = t.sms?.sendHour;
+        if (typeof sh === 'number' && sh >= 0 && sh <= 23) setSendHour(sh);
       })
       .catch(() => {})
       .finally(() => setCutoffLoading(false));
@@ -170,6 +181,39 @@ export function DeliveryWindowsModal({
     }
   }
 
+  // Master on/off for the auto-reminder (settings.sms.dayOfReminder). Optimistic
+  // + persist, mirroring the settings card; reverts on error.
+  async function toggleReminderMaster(next: boolean) {
+    const prev = reminderOn;
+    setReminderOn(next);
+    setSavingReminderCfg(true);
+    try {
+      await updateTenant({ sms: { dayOfReminder: next } });
+      toast.success(next ? 'Автоматичното напомняне е включено' : 'Автоматичното напомняне е изключено');
+    } catch {
+      setReminderOn(prev);
+      toast.error('Неуспешна промяна');
+    } finally {
+      setSavingReminderCfg(false);
+    }
+  }
+
+  // The Europe/Sofia hour the reminder goes out (settings.sms.sendHour).
+  async function saveSendHour(h: number) {
+    const prev = sendHour;
+    setSendHour(h);
+    setSavingReminderCfg(true);
+    try {
+      await updateTenant({ sms: { sendHour: h } });
+      toast.success('Часът на изпращане е запазен');
+    } catch {
+      setSendHour(prev);
+      toast.error('Неуспешна промяна');
+    } finally {
+      setSavingReminderCfg(false);
+    }
+  }
+
   async function toggleReminder(send: boolean) {
     if (!slot) return;
     setSavingReminder(true);
@@ -212,18 +256,68 @@ export function DeliveryWindowsModal({
         </p>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {slot && (
-            <label className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5">
+          {/* Tenant-level auto-reminder: master on/off (whether customers get a
+              time-window email at all) + the hour it's sent. Both persist on
+              change. The per-day override below only applies when this is on. */}
+          <div className="mb-3 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5">
+            <label className="flex items-center justify-between gap-3">
               <span className="flex flex-col">
-                <span className="text-[13.5px] font-bold text-ff-ink">Напомняне в деня на доставка</span>
+                <span className="text-[13.5px] font-bold text-ff-ink">
+                  Изпращай часовия диапазон на клиентите
+                </span>
                 <span className="text-[12px] text-ff-muted">
-                  Имейл на клиента сутринта с очаквания час на доставка за {date}.
+                  Клиентът получава имейл в деня на доставка с очаквания час. Изисква одобрени часове.
+                </span>
+              </span>
+              <ToggleSwitch
+                checked={reminderOn}
+                onChange={(v) => void toggleReminderMaster(v)}
+                disabled={cutoffLoading || savingReminderCfg}
+              />
+            </label>
+            <div
+              className={cn(
+                'mt-2.5 flex flex-wrap items-center gap-2 border-t border-ff-border-2 pt-2.5 text-[13px] font-bold text-ff-ink-2',
+                !reminderOn && 'opacity-50',
+              )}
+            >
+              Час на изпращане:
+              <select
+                value={sendHour}
+                onChange={(e) => void saveSendHour(parseInt(e.target.value, 10))}
+                disabled={!reminderOn || cutoffLoading || savingReminderCfg}
+                aria-label="Час на изпращане на напомнянето"
+                className="rounded-md border border-ff-border bg-ff-surface px-2.5 py-1.5 text-[13px] font-bold text-ff-ink outline-none disabled:cursor-not-allowed"
+              >
+                {Array.from({ length: 24 }, (_, h) => (
+                  <option key={h} value={h}>
+                    {String(h).padStart(2, '0')}:00
+                  </option>
+                ))}
+              </select>
+              <span className="text-[12px] font-normal text-ff-muted">сутринта в деня на доставка</span>
+            </div>
+          </div>
+
+          {slot && (
+            <label
+              className={cn(
+                'mb-3 flex items-center justify-between gap-3 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5',
+                !reminderOn && 'opacity-50',
+              )}
+            >
+              <span className="flex flex-col">
+                <span className="text-[13.5px] font-bold text-ff-ink">Напомни за този ден</span>
+                <span className="text-[12px] text-ff-muted">
+                  {reminderOn
+                    ? `Изключи, за да пропуснеш напомнянето само за ${date}.`
+                    : 'Включи автоматичното напомняне горе, за да важи.'}
                 </span>
               </span>
               <ToggleSwitch
                 checked={!slot.reminderOptOut}
                 onChange={(v) => void toggleReminder(v)}
-                disabled={savingReminder}
+                disabled={savingReminder || !reminderOn}
               />
             </label>
           )}

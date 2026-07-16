@@ -215,9 +215,21 @@ export class TenantsService {
         nextSettings.routing = await this.resolveRouting(existing.routing, routing);
       }
       if (sms !== undefined) {
-        // Sanitize to the one boolean we support; never store arbitrary keys.
+        // Sanitize to the keys we support; never store arbitrary ones. PARTIAL:
+        // only touch a key the payload actually carries, so saving the send-hour
+        // alone doesn't clobber the master toggle (and vice-versa).
         const curSms = (existing.sms as Record<string, unknown> | undefined) ?? {};
-        nextSettings.sms = { ...curSms, dayOfReminder: (sms as { dayOfReminder?: unknown }).dayOfReminder === true };
+        const nextSms: Record<string, unknown> = { ...curSms };
+        const payload = sms as { dayOfReminder?: unknown; sendHour?: unknown };
+        if ('dayOfReminder' in payload) {
+          nextSms.dayOfReminder = payload.dayOfReminder === true;
+        }
+        if ('sendHour' in payload) {
+          const h = Number(payload.sendHour);
+          // Ignore out-of-range/garbage — leave the stored value (or default) intact.
+          if (Number.isInteger(h) && h >= 0 && h <= 23) nextSms.sendHour = h;
+        }
+        nextSettings.sms = nextSms;
       }
       set.settings = nextSettings;
     }

@@ -262,9 +262,11 @@ export interface TenantProfile {
   delivery: DeliveryConfig | null;
   /** Route-end config (settings.routing): { endMode, endAddress, endLat, endLng }. */
   routing: RoutingConfig | null;
-  /** Day-of SMS reminder toggle (settings.sms). Always present — defaults to
-   *  { dayOfReminder: false } server-side even when settings.sms is unset. */
-  sms: { dayOfReminder: boolean };
+  /** Day-of SMS reminder config (settings.sms). Always present — defaults to
+   *  { dayOfReminder: false, channel: 'email', sendHour: 8 } server-side even
+   *  when settings.sms is unset. `sendHour` is the Europe/Sofia hour (0–23) the
+   *  morning reminder goes out. */
+  sms: { dayOfReminder: boolean; sendHour: number };
 }
 
 export type RouteEndMode = 'home' | 'last' | 'custom';

@@ -35,15 +35,20 @@ export class SmsReminderService {
   ) {}
 
   /**
-   * Tenants that opted into the day-of reminder, with each one's channel.
-   * Channel defaults to 'email' (free) until the SMS gateway is wired.
+   * Tenants that opted into the day-of reminder, with each one's channel and
+   * configured send hour (Europe/Sofia, default 8). Channel defaults to 'email'
+   * (free) until the SMS gateway is wired. The processor fans these out only
+   * when their `sendHour` matches the current hourly tick.
    */
-  async eligibleTenants(): Promise<Array<{ id: string; channel: ReminderChannel }>> {
+  async eligibleTenants(): Promise<Array<{ id: string; channel: ReminderChannel; sendHour: number }>> {
     const rows = await this.db
       .select({ id: tenants.id, settings: tenants.settings })
       .from(tenants)
       .where(sql`(${tenants.settings} #>> '{sms,dayOfReminder}') = 'true'`);
-    return rows.map((r) => ({ id: r.id, channel: parseSmsSettings(r.settings).channel }));
+    return rows.map((r) => {
+      const cfg = parseSmsSettings(r.settings);
+      return { id: r.id, channel: cfg.channel, sendHour: cfg.sendHour };
+    });
   }
 
   /**
