@@ -38,7 +38,7 @@ import type { OrderStatus } from '@/lib/utils';
 import { moneyFromStotinki } from '@/lib/utils';
 import { OrderPanel } from '@/components/orders/order-panel';
 import { useRole } from '@/components/layout/role-context';
-import { nextUnfinishedId, nextUnfinishedAfter } from './route-finish';
+import { nextUnfinishedId, nextUnfinishedAfter, resolveRemainingStart } from './route-finish';
 import { StopList } from './stop-list';
 import { EditAddressModal } from './edit-address-modal';
 import { RouteMap, ROUTE_COLORS } from './route-map';
@@ -268,32 +268,59 @@ export function RouteClient({
     return null;
   }, [orderedStops, finishedIds]);
 
-  // The phone's live position, once the courier is en route (has finished ≥1
-  // drop). This is the real „where I am now" — same GPS start Google Maps/Waze
-  // use — and, unlike the last-finished-stop fallback, it works even when that
-  // stop had no coordinates. Re-requested on every finish (position moves as the
-  // courier drives). Cleared back to null when nothing is finished.
+  // The phone's live position — the real „where I am now" (same GPS start
+  // Google Maps/Waze use), which unlike the last-finished-stop fallback works
+  // even when that stop had no coordinates. Live GPS is a DRIVER concept: the
+  // courier is physically on the route, so the remaining line should begin where
+  // they actually are. An operator watching from the office has no meaningful
+  // position, so we never use theirs. Requested on mount (so a driver re-opening
+  // mid-run starts from their spot, not the farm) and refreshed on each finish.
   const [selfPos, setSelfPos] = useState<{ lat: number; lng: number } | null>(null);
   useEffect(() => {
-    if (finishedIds.size === 0) {
+    if (!isDriver) {
       setSelfPos(null);
       return;
     }
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (p) => setSelfPos({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => {}, // denied / unavailable → the last-finished-stop fallback stands
+      () => {}, // denied / unavailable → the last-finished / persisted fallback stands
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
     );
-  }, [finishedIds]);
+  }, [isDriver, finishedIds]);
 
-  // Where the remaining route line starts on the in-app map once en route: the
-  // phone's real position if we have it, else the last finished drop, else null
-  // (start from the farm, as before finishing anything).
-  const mapStart: { lat: number | null; lng: number | null } | null =
-    finishedIds.size === 0
-      ? null
-      : selfPos ?? (lastFinishedStop ? { lat: lastFinishedStop.lat, lng: lastFinishedStop.lng } : null);
+  // The courier's last delivered-stop position, PERSISTED per day+leg. `finishedIds`
+  // is per session and a delivered order also drops out of the confirmed-only route
+  // on refetch — so after a reload neither remembers where the courier left off, and
+  // the line would snap back to the farm. This restores that anchor across reloads:
+  // „start from the last order I marked done", exactly as the operator asked.
+  const [persistedStart, setPersistedStart] = useState<{ lat: number; lng: number } | null>(null);
+  const startKey = `ff:route-start:${route.date}:${activeCourierIdx}`;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`ff:route-start:${route.date}:${activeCourierIdx}`);
+      const p = raw ? JSON.parse(raw) : null;
+      setPersistedStart(p && typeof p.lat === 'number' && typeof p.lng === 'number' ? p : null);
+    } catch {
+      setPersistedStart(null);
+    }
+  }, [route.date, activeCourierIdx]);
+
+  // Where the remaining route line starts on the in-app map once the courier is en
+  // route: their live GPS if we have it, else the last finished drop (this session),
+  // else the persisted last-delivered position (survives reload), else null (start
+  // from the farm, as before anything is delivered). Only the drawn line moves — the
+  // farm marker and „home" return leg are unchanged.
+  const mapStart: { lat: number | null; lng: number | null } | null = resolveRemainingStart({
+    isDriver,
+    finishedCount: finishedIds.size,
+    selfPos,
+    lastFinished:
+      lastFinishedStop
+        ? { lat: lastFinishedStop.lat as number, lng: lastFinishedStop.lng as number }
+        : null,
+    persisted: persistedStart,
+  });
 
   // Drop the active leg's override — fall back to the server's auto-optimized
   // order (the leg's pins stay; the day-wide undo is rebalanceDay below).
@@ -513,7 +540,12 @@ export function RouteClient({
     .filter((s) => s.lat != null && s.lng != null)
     .map((s) => s.id)
     .join(',');
-  const needsMeasuredPolyline = isManualOrder || finishedIds.size > 0;
+  // Re-measure (and swap in) a fresh road line whenever it must start somewhere
+  // other than the farm: a manual reorder, any finished stop, OR a courier start
+  // anchor (live GPS / last-delivered, incl. one restored from a reload). Without
+  // the `mapStart` clause a driver re-opening mid-run would keep the farm-anchored
+  // server polyline and the line would still begin at the depot.
+  const needsMeasuredPolyline = isManualOrder || finishedIds.size > 0 || mapStart != null;
   useEffect(() => {
     if (!needsMeasuredPolyline) {
       setMeasuredPolyline(null);
@@ -576,11 +608,14 @@ export function RouteClient({
           ? {
               ...r,
               stops: remainingStops,
-              polyline: isManualOrder || finishedIds.size > 0 ? measuredPolyline : r.polyline,
+              polyline:
+                isManualOrder || finishedIds.size > 0 || mapStart != null
+                  ? measuredPolyline
+                  : r.polyline,
             }
           : r,
       ),
-    [routes, activeCourierIdx, remainingStops, isManualOrder, finishedIds, measuredPolyline],
+    [routes, activeCourierIdx, remainingStops, isManualOrder, finishedIds, measuredPolyline, mapStart],
   );
 
   // Where the van goes after the last delivery, for the Google Maps deep link
@@ -728,6 +763,19 @@ export function RouteClient({
       await updateOrderStatus(cur.id, 'delivered');
       const next = new Set(finishedIds).add(cur.id);
       setFinishedIds(next);
+      // Remember where the courier now is (this just-delivered drop), so the map
+      // still starts the remaining line from here after a reload — when the
+      // delivered order has dropped out of the confirmed-only route and this
+      // session's `finishedIds` is gone. Only when the stop has coordinates.
+      if (cur.lat != null && cur.lng != null) {
+        const here = { lat: cur.lat, lng: cur.lng };
+        try {
+          localStorage.setItem(startKey, JSON.stringify(here));
+        } catch {
+          /* localStorage unavailable (private mode) — start just won't persist */
+        }
+        setPersistedStart(here);
+      }
       const nextId = nextUnfinishedAfter(orderedStops, next, cur.id);
       setActiveId(nextId ?? cur.id);
       // Count by live membership, not set size — a stop finished here can later

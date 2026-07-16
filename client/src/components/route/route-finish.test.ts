@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextUnfinishedId, nextUnfinishedAfter } from './route-finish';
+import { nextUnfinishedId, nextUnfinishedAfter, resolveRemainingStart } from './route-finish';
 
 const stops = (...ids: string[]) => ids.map((id) => ({ id }));
 
@@ -52,5 +52,34 @@ describe('nextUnfinishedAfter', () => {
 
   it('handles an empty list', () => {
     expect(nextUnfinishedAfter([], new Set(), 'a')).toBeNull();
+  });
+});
+
+describe('resolveRemainingStart', () => {
+  const gps = { lat: 1, lng: 1 };
+  const last = { lat: 2, lng: 2 };
+  const saved = { lat: 3, lng: 3 };
+  const base = { isDriver: false, finishedCount: 0, selfPos: null, lastFinished: null, persisted: null };
+
+  it('prefers live GPS, then the last finished drop, then the persisted position', () => {
+    expect(resolveRemainingStart({ ...base, isDriver: true, selfPos: gps, lastFinished: last, persisted: saved })).toEqual(gps);
+    expect(resolveRemainingStart({ ...base, isDriver: true, lastFinished: last, persisted: saved })).toEqual(last);
+    expect(resolveRemainingStart({ ...base, isDriver: true, persisted: saved })).toEqual(saved);
+  });
+
+  it('a driver anchors to the persisted position even before finishing anything this session (survives reload)', () => {
+    // finishedCount 0 (fresh page), but a saved anchor from an earlier session.
+    expect(resolveRemainingStart({ ...base, isDriver: true, finishedCount: 0, persisted: saved })).toEqual(saved);
+  });
+
+  it('a driver with no signal at all starts from the farm (null)', () => {
+    expect(resolveRemainingStart({ ...base, isDriver: true })).toBeNull();
+  });
+
+  it('an operator does NOT anchor until a stop is finished this session (no farm→GPS drift)', () => {
+    // Nothing finished this session → farm start, even if a stale persisted value exists.
+    expect(resolveRemainingStart({ ...base, isDriver: false, finishedCount: 0, persisted: saved })).toBeNull();
+    // Once they finish one this session, the last-finished anchor kicks in.
+    expect(resolveRemainingStart({ ...base, isDriver: false, finishedCount: 1, lastFinished: last })).toEqual(last);
   });
 });
