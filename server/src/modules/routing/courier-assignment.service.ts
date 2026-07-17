@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { type Database, routeCourierAssignments, users } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { isUniqueViolation } from '../../common/db/pg-error';
@@ -45,8 +45,10 @@ export class CourierAssignmentService {
    * Whole-board replace for one day. Validates the payload itself has no
    * duplicate accountId/legIndex BEFORE hitting the DB (a clear 409 the UI
    * can surface inline), then atomically delete-then-inserts inside one
-   * transaction. The two DB unique constraints (Task A1) are the real race
-   * guard for concurrent board edits — a 23505 here still maps to a 409.
+   * transaction serialized by a per-(tenant,date) advisory lock. The lock — NOT
+   * the two DB unique constraints — is the real race guard: the constraints only
+   * stop double-booking ONE leg, they do NOT stop two concurrent replaces from
+   * merging into a UNION when their rows are disjoint. A 23505 still maps to 409.
    */
   async setAssignmentsForDay(
     tenantId: string,
@@ -64,6 +66,13 @@ export class CourierAssignmentService {
 
     try {
       return await this.db.transaction(async (tx) => {
+        // Serialize concurrent whole-board replaces for this (tenant, date). Without
+        // it, two replaces can both DELETE-all before either INSERTs, then insert
+        // disjoint rows → the board becomes the UNION of both submissions (neither
+        // operator's board). Releases on commit/rollback (order-number lock pattern).
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${tenantId} || ':' || ${date}, 0))`,
+        );
         await tx
           .delete(routeCourierAssignments)
           .where(and(eq(routeCourierAssignments.tenantId, tenantId), eq(routeCourierAssignments.date, date)));
