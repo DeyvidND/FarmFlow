@@ -505,14 +505,11 @@ export class SpeedyService implements CarrierAdapter {
     if (!siteId) throw new BadRequestException('Населеното място не е намерено в Speedy');
 
     const creds = await this.resolveCreds(tenantId, farmerId);
-    const input = buildOrderShipmentInput(speedy, order, siteId, overrides);
-    const body = buildShipmentRequest(speedy, input);
-    const data = await this.client.call(creds, 'shipment', body);
-
-    const shipmentId: string | null = data?.id != null ? String(data.id) : null;
-    const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
-    const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
-    const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
+    // Read the consolidation master's group COD BEFORE building the request, so the
+    // Speedy waybill INSTRUCTS the courier to collect the summed amount — not just
+    // this order's total. Reading it only after the carrier call (as before) fixed
+    // the persisted column but left the actual door-collection wrong: the DB said
+    // 1800 while Speedy was told 500.
     const [existingShipment] = await this.db
       .select({
         id: shipments.id,
@@ -523,6 +520,19 @@ export class SpeedyService implements CarrierAdapter {
       .where(eq(shipments.orderId, orderId))
       .limit(1);
     const override = consolidatedCodOverride(existingShipment ?? null);
+
+    const input = buildOrderShipmentInput(speedy, order, siteId, overrides);
+    // Consolidation master collects the whole group's COD. Only override the AMOUNT
+    // when this order is already collecting COD (buildOrderShipmentInput sets
+    // codAmountStotinki only for an unpaid COD order) — a paid master stays at 0.
+    if (override != null && input.codAmountStotinki != null) input.codAmountStotinki = override;
+    const body = buildShipmentRequest(speedy, input);
+    const data = await this.client.call(creds, 'shipment', body);
+
+    const shipmentId: string | null = data?.id != null ? String(data.id) : null;
+    const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
+    const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
+    const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
     const codAmount =
       override != null
         ? override

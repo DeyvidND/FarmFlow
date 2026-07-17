@@ -231,7 +231,16 @@ describe('SpeedyService.createLabelForOrder', () => {
 
     await svc.createLabelForOrder('t1', 'order-1', 'farmer-1');
 
-    // The persisted COD must be the master's group sum (1800), NOT the order's own
+    // The REQUEST SENT TO SPEEDY must instruct collection of the group sum (1800 →
+    // 18.00 EUR), NOT the collector's own order total (500 → 5.00). This is what the
+    // courier collects at the door; asserting only the persisted column (below) let
+    // the bug ship — the DB said 1800 while Speedy was told 500.
+    const body = call.mock.calls[0][2] as {
+      service: { additionalServices?: { cod?: { amount?: number } } };
+    };
+    expect(body.service.additionalServices?.cod?.amount).toBe(18);
+
+    // The persisted COD must also be the master's group sum (1800), NOT the order's own
     // total (500) — proves the live createLabelForOrder path actually applies the override.
     const insertVals = values.mock.calls[0][0];
     expect(insertVals.codAmountStotinki).toBe(1800);
