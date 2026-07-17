@@ -2,6 +2,7 @@ import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { type Database, routeCourierAssignments, users } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { isUniqueViolation } from '../../common/db/pg-error';
 
 export type AssignmentRow = { accountId: string; legIndex: number };
 export type CourierRosterEntry = { accountId: string; email: string; isSelf: boolean };
@@ -74,7 +75,7 @@ export class CourierAssignmentService {
         return assignments;
       });
     } catch (err) {
-      if ((err as { code?: string }).code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new ConflictException('Разписанието се промени едновременно — опресни и опитай пак.');
       }
       throw err;

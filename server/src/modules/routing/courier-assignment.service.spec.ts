@@ -1,5 +1,5 @@
 import { ConflictException } from '@nestjs/common';
-import { SQL, Param } from 'drizzle-orm';
+import { SQL, Param, DrizzleQueryError } from 'drizzle-orm';
 import { routeCourierAssignments, users } from '@fermeribg/db';
 import { CourierAssignmentService } from './courier-assignment.service';
 
@@ -169,9 +169,18 @@ describe('CourierAssignmentService', () => {
     });
 
     it('maps a DB 23505 to a 409', async () => {
-      const uniqueViolation = Object.assign(
-        new Error('duplicate key value violates unique constraint "route_courier_assign_tenant_date_leg_uniq"'),
-        { code: '23505' },
+      // As DRIZZLE raises it, not as pg does: drizzle-orm >= 0.44 wraps every
+      // pg-core error in DrizzleQueryError, which has no `code` of its own — the
+      // driver's error hangs off `cause`. Rejecting with a BARE pg error here (as
+      // this test used to) passes against a shape production never produces, which
+      // is how `err.code === '23505'` shipped dead: green test, inert guard.
+      const uniqueViolation = new DrizzleQueryError(
+        'insert into "route_courier_assignments" ...',
+        [],
+        Object.assign(
+          new Error('duplicate key value violates unique constraint "route_courier_assign_tenant_date_leg_uniq"'),
+          { code: '23505' },
+        ),
       );
       db.values.mockRejectedValueOnce(uniqueViolation);
 

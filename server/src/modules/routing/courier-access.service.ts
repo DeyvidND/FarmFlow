@@ -6,6 +6,7 @@ import { type Database, users, auditLogs, orders } from '@fermeribg/db';
 import * as argon2 from 'argon2';
 import { AuthService } from '../auth/auth.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { isUniqueViolation } from '../../common/db/pg-error';
 
 /**
  * Task B1 — super-admin-only (platform-guarded, see `PlatformAdminGuard`)
@@ -93,7 +94,7 @@ export class CourierAccessService {
         // grantAccess calls for the same email (e.g. a double-clicked "Покани")
         // can both see existing=undefined/emailOwner=undefined and race to
         // insert — the DB constraint lets only one through.
-        if ((err as { code?: string }).code === '23505') {
+        if (isUniqueViolation(err)) {
           throw new ConflictException('Този имейл вече се използва');
         }
         throw err;

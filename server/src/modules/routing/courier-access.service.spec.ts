@@ -3,6 +3,7 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { CourierAccessService } from './courier-access.service';
 import { GrantCourierAccessDto } from './dto/courier-access.dto';
+import { DrizzleQueryError } from 'drizzle-orm';
 
 jest.mock('argon2', () => ({ hash: jest.fn().mockResolvedValue('hash') }));
 
@@ -124,9 +125,15 @@ describe('CourierAccessService', () => {
       db.limit
         .mockResolvedValueOnce([]) // this request's own read sees no existing login yet
         .mockResolvedValueOnce([]); // email not taken
-      const uniqueViolation = Object.assign(
-        new Error('duplicate key value violates unique constraint "users_email_unique"'),
-        { code: '23505' },
+      // As DRIZZLE raises it: drizzle-orm >= 0.44 wraps pg-core errors in
+      // DrizzleQueryError (no `code` of its own — the driver error is on `cause`).
+      // A bare pg error here would pass against a shape production never produces.
+      const uniqueViolation = new DrizzleQueryError(
+        'insert into "users" ...',
+        [],
+        Object.assign(new Error('duplicate key value violates unique constraint "users_email_unique"'), {
+          code: '23505',
+        }),
       );
       db.returning.mockRejectedValueOnce(uniqueViolation);
 
