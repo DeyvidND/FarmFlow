@@ -164,7 +164,8 @@ describe('HandoverService.createSigned', () => {
     db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
     db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);
     db.queue([{ productName: 'Домати', variantLabel: null, quantity: 5, unit: 'кг', priceStotinki: 300, orderNumber: 5 }]);
-    db.queue([]);                                  // dup-check: none found
+    db.queue([]);                                  // outer dup-check (fast-path): none found
+    db.queue([]);                                  // in-tx dup re-check under the lock: none found
     db.queue([{ max: 40 }]);                       // current max protocol_number
     db.queue([{ id: 'p1', protocolNumber: 41 }]);  // insert ... returning
     const svc = await build(db);
@@ -196,6 +197,24 @@ describe('HandoverService.createSigned', () => {
       items: [{ productName: 'Домати', quantity: 1, priceStotinki: 300 }],
     } as any)).rejects.toThrow(/вече/);
   });
+
+  // Race guard: a duplicate that lands AFTER the pre-lock fast-path check but before
+  // this call's insert must be caught by the IN-TX re-check under the advisory lock —
+  // otherwise two signed protocols for one target are created with distinct numbers.
+  it('the in-tx re-check rejects a target that appears after the fast-path check', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);        // buildDraft: tenant
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]); // buildDraft: farmer
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 1, unit: 'кг', priceStotinki: 300 }]); // buildDraft: items
+    db.queue([]);                                          // outer fast-path check: none (race window opens)
+    db.queue([{ id: 'raced' }]);                           // IN-TX re-check under lock: a concurrent sign committed
+    const svc = await build(db);
+    await expect(svc.createSigned('t1', {
+      kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1',
+      items: [{ productName: 'Домати', quantity: 1, priceStotinki: 300 }],
+    } as any)).rejects.toThrow(/вече/);
+    expect(db.calls.values).toEqual([]); // blocked before any insert
+  });
 });
 
 describe('HandoverService.createBatch', () => {
@@ -209,6 +228,7 @@ describe('HandoverService.createBatch', () => {
     db.queue([                                              // buildDraft: order_items ⋈ products
       { productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 },
     ]);
+    db.queue([]);                                          // in-tx dup re-check under the lock: none
     db.queue([{ max: 5 }]);                                 // tx: current max protocol_number (per-target)
     db.queue([{ id: 'p-new' }]);                            // tx: insert ... returning
     db.queue([{ id: 'existing' }]);                         // customer target o1: already covered
@@ -237,6 +257,7 @@ describe('HandoverService.createBatch', () => {
     db.queue([                                              // buildDraft: order_items ⋈ products
       { productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' },
     ]);
+    db.queue([]);                                          // in-tx dup re-check under the lock: none
     db.queue([{ max: 5 }]);                                 // tx: current max protocol_number (customer target)
     db.queue([{ id: 'p-customer' }]);                       // tx: insert ... returning
 
@@ -329,6 +350,7 @@ describe('HandoverService.createBatch kind filter', () => {
     db.queue([{ legal: { name: 'ЕТ Оператор' } }]); // buildDraft: tenant
     db.queue([{ id: 'o1', customerName: 'Иван', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720 }]);
     db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' }]);
+    db.queue([]);                                   // in-tx dup re-check under the lock: none
     db.queue([{ max: 2 }]);                         // tx max
     db.queue([{ id: 'p-cust' }]);                   // insert returning
 
@@ -350,6 +372,7 @@ describe('HandoverService.signAllForDay', () => {
     db.queue([{ legal: null, name: 'Оп' }]);        // buildDraft tenant
     db.queue([{ id: 'f1', legal: null, name: 'Васил' }]); // buildDraft farmer
     db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 }]);
+    db.queue([]);                                   // in-tx dup re-check under the lock: none
     db.queue([{ max: 0 }]);                          // tx max
     db.queue([{ id: 'p1' }]);                       // insert returning
 
@@ -368,6 +391,7 @@ describe('HandoverService.ensureDraftTarget', () => {
     db.queue([{ legal: null, name: 'Оп' }]);        // buildDraft: tenant
     db.queue([{ id: 'f1', legal: null, name: 'Васил' }]); // buildDraft: farmer
     db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 }]);
+    db.queue([]);                                   // in-tx dup re-check under the lock: none
     db.queue([{ max: 3 }]);                          // tx: max protocol_number
     db.queue([{ id: 'p1' }]);                       // tx: insert returning
     const svc = await build(db);
@@ -396,6 +420,7 @@ describe('HandoverService.signPaperTarget', () => {
     db.queue([{ legal: null, name: 'Оп' }]);        // buildDraft: tenant
     db.queue([{ id: 'f1', legal: null, name: 'Васил' }]); // buildDraft: farmer
     db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 }]);
+    db.queue([]);                                   // in-tx dup re-check under the lock: none
     db.queue([{ max: 7 }]);                          // tx: max protocol_number
     db.queue([{ id: 'p-new' }]);                    // tx: insert returning
     const svc = await build(db);

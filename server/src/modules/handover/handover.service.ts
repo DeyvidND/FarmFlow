@@ -293,6 +293,27 @@ export class HandoverService {
     // pattern as orders.service.ts's order-number assignment.
     const inserted = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+      // Authoritative duplicate-target guard, re-run INSIDE the lock. The pre-lock
+      // check above is only a fast-path: two concurrent signs for the same target can
+      // both pass it (neither insert is committed yet), then serialize on this
+      // per-tenant advisory lock. The loser now sees the winner's committed row and
+      // aborts. Without this, the advisory lock guards only the NUMBER, and — since
+      // there is no DB unique constraint on the target — two signed protocols for one
+      // handover would be created with distinct numbers (double-counted totals/PDF).
+      const [dupe] = await tx
+        .select({ id: handoverProtocols.id })
+        .from(handoverProtocols)
+        .where(
+          and(
+            eq(handoverProtocols.tenantId, tenantId),
+            eq(handoverProtocols.kind, dto.kind),
+            eq(handoverProtocols.status, 'signed'),
+            targetMatch,
+          ),
+        )
+        .limit(1);
+      if (dupe) throw new ConflictException('Протокол вече е издаден за това предаване.');
+
       const [{ max }] = await tx
         .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
         .from(handoverProtocols)
@@ -443,6 +464,15 @@ export class HandoverService {
       // createSigned can't ever claim the same number.
       const inserted = await this.db.transaction(async (tx) => {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+        // Re-check the target INSIDE the lock (the pre-lock check above is a fast-path):
+        // a concurrent batch/sign for the same target serializes here, so its committed
+        // row is now visible → skip instead of creating a duplicate protocol for it.
+        const [dupe] = await tx
+          .select({ id: handoverProtocols.id })
+          .from(handoverProtocols)
+          .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.kind, target.kind), targetMatch))
+          .limit(1);
+        if (dupe) return null;
         const [{ max }] = await tx
           .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
           .from(handoverProtocols)
@@ -471,6 +501,7 @@ export class HandoverService {
         return row;
       });
 
+      if (!inserted) continue; // a concurrent writer already created this target's protocol
       ids.push(inserted.id);
     }
 
@@ -539,6 +570,15 @@ export class HandoverService {
     const draft = await this.buildDraft(tenantId, dto);
     const inserted = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+      // Re-check the target INSIDE the lock (the pre-lock check above is a fast-path): a
+      // concurrent create/sign for this target serializes here, so return its committed
+      // row instead of inserting a duplicate (there is no DB unique on the target).
+      const [dupe] = await tx
+        .select({ id: handoverProtocols.id })
+        .from(handoverProtocols)
+        .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.kind, dto.kind), targetMatch))
+        .limit(1);
+      if (dupe) return dupe;
       const [{ max }] = await tx
         .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
         .from(handoverProtocols)
@@ -598,6 +638,15 @@ export class HandoverService {
     const draft = await this.buildDraft(tenantId, dto);
     const inserted = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+      // Re-check the target INSIDE the lock (the pre-lock check above is a fast-path): a
+      // concurrent create/sign for this target serializes here, so return its committed
+      // row instead of inserting a duplicate (there is no DB unique on the target).
+      const [dupe] = await tx
+        .select({ id: handoverProtocols.id })
+        .from(handoverProtocols)
+        .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.kind, dto.kind), targetMatch))
+        .limit(1);
+      if (dupe) return dupe;
       const [{ max }] = await tx
         .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
         .from(handoverProtocols)
