@@ -35,6 +35,32 @@ describe('mergeCourierRows', () => {
     expect(out[2]).toEqual(original[2]);
   });
 
+  it('does not wipe a field this modal never edits — the per-courier start base', () => {
+    // «Тръгва от» (startAddress/startLat/startLng) is owned by CourierStartsModal.
+    // Saving „Домове на куриерите" must not touch it: the server replaces the
+    // stored couriers array wholesale, so a dropped field is a deleted field.
+    const original = [
+      {
+        name: 'Иван',
+        homeAddress: 'адрес А',
+        homeLat: '43.1',
+        homeLng: '27.9',
+        startAddress: 'Каварна, ул. Добротица 5',
+        startLat: '43.43',
+        startLng: '28.34',
+      },
+    ];
+
+    const out = mergeCourierRows([row('нов адрес А', 43.15, 27.95)], original);
+
+    // The home fields are the edit...
+    expect(out[0].homeAddress).toBe('нов адрес А');
+    // ...and the start base survives it untouched.
+    expect(out[0].startAddress).toBe('Каварна, ул. Добротица 5');
+    expect(out[0].startLat).toBe('43.43');
+    expect(out[0].startLng).toBe('28.34');
+  });
+
   it('lets an edited row clear its home (address + pin both cleared)', () => {
     const original = [{ name: 'Иван', homeAddress: 'адрес А', homeLat: '43.1', homeLng: '27.9' }];
     const out = mergeCourierRows([row('')], original);

@@ -19,10 +19,21 @@ interface CourierHomeRow {
 /** One entry of the server-stored `settings.routing.couriers[]` array. */
 type StoredCourier = NonNullable<RoutingConfig['couriers']>[number];
 
-/** One edited row → its server payload shape (unresolved coords — the server
- *  geocodes `homeAddress` when no pin was picked). */
-function rowToPayload(r: CourierHomeRow): StoredCourier {
+/**
+ * One edited row → its server payload shape (unresolved coords — the server
+ * geocodes `homeAddress` when no pin was picked).
+ *
+ * PATCHES `original` rather than rebuilding it: this modal owns only the three
+ * home* fields, and the server replaces the stored couriers array wholesale, so
+ * anything not carried over here is DELETED. Listing the fields to preserve
+ * instead goes stale the moment one is added elsewhere — which is exactly how
+ * saving „Домове" came to wipe the per-courier start base (startAddress/Lat/Lng,
+ * added later by CourierStartsModal). Spread first, own last: a field this modal
+ * has never heard of survives by default.
+ */
+function rowToPayload(r: CourierHomeRow, original?: StoredCourier): StoredCourier {
   return {
+    ...original,
     ...(r.name !== undefined ? { name: r.name } : {}),
     ...(r.endMode !== undefined ? { endMode: r.endMode } : {}),
     homeAddress: r.homeAddress || null,
@@ -45,9 +56,10 @@ export function mergeCourierRows(
   editedRows: CourierHomeRow[],
   originalCouriers: StoredCourier[],
 ): StoredCourier[] {
-  const edited = editedRows.map(rowToPayload);
-  const length = Math.max(edited.length, originalCouriers.length);
-  return Array.from({ length }, (_, i) => (i < edited.length ? edited[i] : originalCouriers[i]));
+  const length = Math.max(editedRows.length, originalCouriers.length);
+  return Array.from({ length }, (_, i) =>
+    i < editedRows.length ? rowToPayload(editedRows[i], originalCouriers[i]) : originalCouriers[i],
+  );
 }
 
 /**
