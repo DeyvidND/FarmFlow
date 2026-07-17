@@ -867,10 +867,31 @@ export class EcontService implements CarrierAdapter {
             },
           }
         : econt;
+    // A consolidation master's draft shipment already holds the whole group's COD.
+    // Read it BEFORE building the label so the waybill INSTRUCTS the courier to
+    // collect the summed amount — not just this order's total. Reading it only
+    // after the carrier call (as before) fixed the persisted column but left the
+    // actual door-collection wrong: the DB said 1800 while Econt was told 500.
+    const [existingShipment] = await this.db
+      .select({
+        id: shipments.id,
+        consolidationGroupId: shipments.consolidationGroupId,
+        codAmountStotinki: shipments.codAmountStotinki,
+      })
+      .from(shipments)
+      .where(eq(shipments.orderId, orderId))
+      .limit(1);
+    const codOverride = consolidatedCodOverride(existingShipment ?? null);
+    const codAmount = codOverride ?? this.codAmountFor(order);
     const label = buildLabel(
       econtForLabel,
       {
         ...order,
+        // Inject the group-sum COD (same pattern as the estimate path) so
+        // buildLabel emits services.cdAmount = the amount actually collected.
+        // Only the amount changes — the COD gate stays on the order's own
+        // paymentMethod/paidAt, so a paid master still collects nothing.
+        ...(codOverride != null ? { totalStotinki: codOverride } : {}),
         refrigerated: handling.refrigerated,
         inspectBeforePay: handling.inspectBeforePay,
         declaredValueStotinki: overrides?.declaredValueStotinki ?? null,
@@ -887,18 +908,6 @@ export class EcontService implements CarrierAdapter {
     // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted
     // price and the persisted/charged price can't diverge. EUR (BG euro 2026) → ×100 = stotinki.
     const priceEur: number | undefined = out.totalPrice ?? out.totalPriceVAT;
-    // A consolidation master's draft shipment already holds the whole group's COD;
-    // prefer it so the waybill collects the summed amount, not just this order's total.
-    const [existingShipment] = await this.db
-      .select({
-        id: shipments.id,
-        consolidationGroupId: shipments.consolidationGroupId,
-        codAmountStotinki: shipments.codAmountStotinki,
-      })
-      .from(shipments)
-      .where(eq(shipments.orderId, orderId))
-      .limit(1);
-    const codAmount = consolidatedCodOverride(existingShipment ?? null) ?? this.codAmountFor(order);
     // The owning farmer for a finalized waybill: prefer the order's own farmer_id
     // (the true owner, set on a Phase-3 courier split) and fall back to the caller's
     // farmerId arg. Stays null for legacy tenant-level Econt orders.

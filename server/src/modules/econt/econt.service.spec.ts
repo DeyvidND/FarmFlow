@@ -645,8 +645,18 @@ describe('EcontService.createLabel (finalize courier draft)', () => {
 
     await svc.createLabel('t1', 'order-1', 'farmer-1');
 
-    // The persisted COD must be the master's group sum (1800), NOT the order's own
-    // total (500) — proves the live createLabel path actually applies the override.
+    // The WAYBILL SENT TO ECONT must instruct collection of the group sum (1800 →
+    // 18.00 EUR), NOT the collector's own order total (500 → 5.00). This is the
+    // amount the courier actually collects at the door; asserting only the persisted
+    // column (below) let the bug ship — the DB said 1800 while Econt was told 500.
+    // callTenant(tenantId, path, { label, mode }, ...) → the payload is arg [2].
+    const sentLabel = callTenant.mock.calls[0][2].label as {
+      services: { cdAmount?: number; cdType?: string };
+    };
+    expect(sentLabel.services.cdAmount).toBe(18);
+
+    // The persisted COD must also be the master's group sum (1800), NOT the order's
+    // own total (500) — proves the live createLabel path actually applies the override.
     const insertVals = values.mock.calls[0][0];
     expect(insertVals.codAmountStotinki).toBe(1800);
     const updateSet = onConflictDoUpdate.mock.calls[0][0].set;
