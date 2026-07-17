@@ -16,6 +16,7 @@ import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { ConfigService } from '@nestjs/config';
 import { auditLogs, users, orderItems, orders, products, emailPushes, newsletterCampaigns, shipments } from '@fermeribg/db';
 import { withEcontActive } from '../econt-app/econt-app.helpers';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 // Mock argon2 at module level so native bindings are not called.
 jest.mock('argon2', () => ({
@@ -872,11 +873,18 @@ describe('PlatformService', () => {
     });
 
     it('merges econtApp into an existing farm additively', async () => {
-      db.limit.mockResolvedValueOnce([{ id: 'f1', settings: { delivery: { cod: { enabled: true } } } }]);
+      const existing = { delivery: { cod: { enabled: true } } };
+      db.limit.mockResolvedValueOnce([{ id: 'f1', settings: existing }]);
       const res = await service.enableDeliveryOnFarm('f1');
       expect(res).toEqual({ id: 'f1', delivery: true });
-      const written = db.set.mock.calls[0][0].settings;
-      expect(written.delivery).toEqual({ cod: { enabled: true } });
+      // settings is now an atomic jsonbDeepMerge SQL expr (not a whole-blob spread);
+      // render it and apply the same merge to prove econtApp lands additively.
+      const { params } = new PgDialect().sqlToQuery(db.set.mock.calls[0][0].settings);
+      const value = JSON.parse(
+        params.find((p: unknown) => typeof p === 'string' && (p as string).trim().startsWith('{')) as string,
+      );
+      const written = { ...existing, econtApp: value };
+      expect(written.delivery).toEqual({ cod: { enabled: true } }); // sibling preserved
       expect(written.econtApp).toEqual({ active: true });
     });
 
