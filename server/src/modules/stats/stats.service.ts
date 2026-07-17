@@ -844,7 +844,9 @@ export class StatsService {
       ? this.db
           .select({ commissionRateBps: farmers.commissionRateBps })
           .from(farmers)
-          .where(eq(farmers.id, opts.farmerId))
+          // Tenant-scope the lookup: without it, a foreign farmerId returns another
+          // tenant's farmer's private commissionRateBps in the response.
+          .where(and(eq(farmers.id, opts.farmerId), eq(farmers.tenantId, tenantId)))
           .limit(1)
       : Promise.resolve([] as { commissionRateBps: number | null }[]);
 

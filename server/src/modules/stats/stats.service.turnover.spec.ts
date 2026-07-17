@@ -1,4 +1,53 @@
+import { SQL, Param } from 'drizzle-orm';
 import { StatsService } from './stats.service';
+
+/** Pull every embedded Param value out of a drizzle SQL tree (mirrors the
+ *  routing/courier-assignment spec helpers) so a test can assert a WHERE clause
+ *  actually constrained on a given value. */
+function paramValues(node: unknown, out: unknown[] = []): unknown[] {
+  if (node instanceof Param) out.push(node.value);
+  else if (node instanceof SQL)
+    for (const c of (node as unknown as { queryChunks: unknown[] }).queryChunks) paramValues(c, out);
+  else if (Array.isArray(node)) for (const c of node) paramValues(c, out);
+  return out;
+}
+
+/**
+ * A db mock that RECORDS the WHERE argument of each concurrent query, keyed by
+ * its projection — so a test can inspect the farmerRate lookup's clause rather
+ * than trust a passthrough mock (which, per makeDb's own note, cannot see the
+ * SQL). Used only for the tenant-scoping assertion below.
+ */
+function makeCapturingDb() {
+  const wheres: Record<string, unknown> = {};
+  const tag = (proj: Record<string, unknown>) => {
+    const keys = Object.keys(proj ?? {});
+    if (keys.includes('turnover')) return 'agg';
+    if (keys.includes('t')) return 'series';
+    if (keys.includes('settings')) return 'tenant';
+    if (keys.includes('commissionRateBps')) return 'farmerRate';
+    return 'other';
+  };
+  const canned = (t: string): unknown[] => {
+    if (t === 'agg')
+      return [{ turnover: 0, orderCount: 0, toDate: 0, undeliveredRevenue: 0, undeliveredCount: 0 }];
+    if (t === 'tenant') return [{ settings: null }];
+    return []; // series, farmerRate (no matching row for a foreign farmer)
+  };
+  const chain = (proj: Record<string, unknown>) => {
+    const b: any = {};
+    for (const m of ['from', 'innerJoin', 'leftJoin', 'groupBy', 'orderBy']) b[m] = jest.fn(() => b);
+    b.where = jest.fn((w: unknown) => {
+      wheres[tag(proj)] = w;
+      return b;
+    });
+    b.limit = jest.fn(async () => canned(tag(proj)));
+    b.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
+      Promise.resolve(canned(tag(proj))).then(res, rej);
+    return b;
+  };
+  return { db: { select: jest.fn((proj: Record<string, unknown>) => chain(proj)) }, wheres };
+}
 
 /**
  * StatsService.turnoverBreakdown (Task #9/#10 follow-up, MEDIUM #9/#10 coverage gap).
@@ -166,6 +215,26 @@ describe('StatsService.turnoverBreakdown', () => {
       const result = await svc.turnoverBreakdown('t1', {});
       expect(result.undeliveredRevenueStotinki).toBe(4_200);
       expect(result.undeliveredOrderCount).toBe(3);
+    });
+  });
+
+  describe('tenant scoping of the per-farmer commission-rate lookup', () => {
+    it('constrains the farmers lookup by tenant, so a foreign farmerId can not leak another tenant\'s rate', async () => {
+      // Cross-tenant leak: the money aggregates are tenant-scoped (0 rows for a
+      // foreign farmer), but the farmerRate lookup was `where(eq(farmers.id, id))`
+      // with no tenant filter — so tenant A passing tenant B's farmer UUID got
+      // back B's private negotiated commissionRateBps in the response.
+      const { db, wheres } = makeCapturingDb();
+      const cache = { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue(undefined) };
+      const svc = new StatsService(db as never, cache as never);
+
+      await svc.turnoverBreakdown('tenant-A', { farmerId: 'farmer-of-tenant-B' });
+
+      // The farmerRate query must carry BOTH ids, so a foreign farmer id matches
+      // no row under this tenant.
+      const params = paramValues(wheres.farmerRate);
+      expect(params).toContain('farmer-of-tenant-B');
+      expect(params).toContain('tenant-A');
     });
   });
 });
