@@ -30,6 +30,17 @@ describe('composeProtocol (pure text)', () => {
     expect(t.toName).toBe('ЕТ Оператор');
   });
 
+  it('dates the protocol in Europe/Sofia even when the process runs UTC (as prod does)', () => {
+    // The suite runs UTC (see test/set-tz.ts) because prod and CI do, while dev
+    // machines here run Europe/Sofia — where the local-getter bug produced the
+    // right answer and hid. 2026-07-16T22:30:00Z is 01:30 on the 17th in Sofia
+    // (EEST, UTC+3): the протокол is a legal document and must carry the date it
+    // was actually signed.
+    const t = composeProtocol({ ...ROW, signedAt: new Date('2026-07-16T22:30:00Z') });
+    expect(t.sentence).toContain('17.07.2026 г.');
+    expect(t.sentence).not.toContain('16.07.2026 г.');
+  });
+
   it('folds meta.orderNumbers into the farmer reason line', () => {
     const t = composeProtocol({ ...ROW, meta: { orderNumbers: [1041, 1042] } });
     expect(t.sentence).toContain('по поръчки № 1041, 1042');

@@ -2,6 +2,7 @@ import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { bgDateOf } from '../../common/time/bg-time';
 
 const FONT = readFileSync(join(__dirname, '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf'));
 
@@ -13,11 +14,18 @@ const INK = rgb(0.11, 0.1, 0.09);
 const BODY_SIZE = 11;
 const BODY_LH = BODY_SIZE + 5;
 
-/** Bulgarian short date, e.g. "16.07.2026 г." */
+/**
+ * Bulgarian short date in Europe/Sofia, e.g. "16.07.2026 г."
+ *
+ * Goes through bgDateOf rather than Date's local getters: no TZ is set in the
+ * Dockerfile or compose, so prod runs UTC while every dev machine here runs
+ * Europe/Sofia. `d.getDate()` was therefore right locally and wrong in prod —
+ * a протокол signed at 01:30 Sofia (22:30Z the day before) printed yesterday's
+ * date on a legal document.
+ */
 function dateBg(d: Date): string {
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}.${mm}.${d.getFullYear()} г.`;
+  const [year, month, day] = bgDateOf(d).split('-');
+  return `${day}.${month}.${year} г.`;
 }
 
 /** Greedy word-wrap: split `text` into lines no wider than `maxWidth` at `size`. */
