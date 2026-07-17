@@ -412,3 +412,31 @@ describe('partitionCost with baseWorkloads', () => {
     expect(shortBase).toEqual(noBase);
   });
 });
+
+describe('sweepSplit — the few-free-stops fast path honours baseWorkloads', () => {
+  const d: Pt = { lat: 43.2, lng: 27.9 };
+
+  it('gives a free stop to the LEAST-loaded courier, not the one it sits next to by position', () => {
+    // Real shape: 2 couriers, most orders pinned to courier 0, so only a couple of
+    // FREE stops remain. baseWorkloads carries courier 0's already-committed pinned
+    // workload; courier 1 starts empty. With free.length (2) <= n (2), the old fast
+    // path returned [[f0],[f1]] by array POSITION — handing f0 to the busy courier 0
+    // and defeating the pin-aware balancing feeefc43 added. Both free stops should
+    // land on the empty courier 1 (it can absorb them and still be lighter).
+    const free = [
+      { id: 'f0', lat: 43.25, lng: 27.95 },
+      { id: 'f1', lat: 43.15, lng: 27.85 },
+    ];
+    const baseWorkloads = [50_000, 0]; // courier 0 already heavily pinned, courier 1 idle
+
+    const g = sweepSplit(d, free, 2, d, baseWorkloads);
+
+    // Both free stops land TOGETHER on the idle courier; none is forced onto the
+    // already-overloaded one. (sweepSplit drops empty groups, so the loaded
+    // courier's leg simply isn't present — assert on grouping, not slot index.)
+    const groupOf = (id: string) => g.findIndex((grp) => grp.some((s: any) => s.id === id));
+    expect(groupOf('f0')).toBeGreaterThanOrEqual(0);
+    expect(groupOf('f0')).toBe(groupOf('f1'));
+    expect(g).toHaveLength(1);
+  });
+});

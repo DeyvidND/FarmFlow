@@ -475,7 +475,24 @@ export function sweepSplit<T extends Geo>(
   const n = Math.max(1, Math.floor(couriers));
   if (stops.length === 0) return [];
   if (n === 1) return [stops.slice()];
-  if (stops.length <= n) return stops.map((s) => [s]);
+  if (stops.length <= n) {
+    // Few free stops (≤ courier count) — no partition to optimize, one per group.
+    // But WHICH group matters when couriers start uneven: baseWorkloads carries
+    // each courier's already-pinned load, so handing stops out by array position
+    // can pile a free stop onto an already-overloaded courier while another sits
+    // idle — the exact imbalance pin-aware balancing exists to prevent. Assign
+    // each stop to the currently-lightest courier instead. With no/flat
+    // baseWorkloads this is identical to the old position order.
+    const groups: T[][] = Array.from({ length: n }, () => []);
+    const load = baseWorkloads?.length === n ? [...baseWorkloads] : new Array(n).fill(0);
+    for (const s of stops) {
+      let lightest = 0;
+      for (let i = 1; i < n; i++) if (load[i] < load[lightest]) lightest = i;
+      groups[lightest].push(s);
+      load[lightest] += estimateWorkloadS(depot, [pt(s)], endPt);
+    }
+    return groups.filter((g) => g.length > 0);
+  }
 
   const seeds: T[][][] = [
     sweepSeed(depot, stops, n, endPt, baseWorkloads),
