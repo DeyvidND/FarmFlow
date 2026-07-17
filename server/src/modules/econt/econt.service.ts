@@ -5,6 +5,7 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, desc, inArray, ne, isNotNull, isNull, sql } from 'drizzle-orm';
@@ -920,10 +921,54 @@ export class EcontService implements CarrierAdapter {
       items,
       { packCount: overrides?.parcelCount },
     );
-    const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
-      label,
-      mode: 'create',
-    }, undefined, store, credsFarmerId);
+    // Consolidation master: CLAIM it for labeling BEFORE the carrier network call.
+    // The master's waybill collects the WHOLE group's COD, but its econtShipmentNumber
+    // is only persisted AFTER the (multi-second) call returns — a window in which a
+    // concurrent unconsolidate reads "no waybill yet", frees the children back to
+    // drafts, and lets each child be shipped again → the customer's COD collected
+    // twice at the door. The claim is a CAS to status='labeling'; unconsolidate's
+    // master CAS refuses a 'labeling' row, so the two serialize. It accepts a prior
+    // 'labeling' too, so a retry after a failed attempt re-claims (self-healing).
+    const isConsolidationMaster =
+      !!existingShipment && existingShipment.consolidationGroupId === existingShipment.id;
+    if (isConsolidationMaster) {
+      const claimed = await this.db
+        .update(shipments)
+        .set({ status: 'labeling', updatedAt: new Date() })
+        .where(
+          and(
+            eq(shipments.id, existingShipment!.id),
+            eq(shipments.consolidationGroupId, existingShipment!.id),
+            isNull(shipments.econtShipmentNumber),
+            isNull(shipments.trackingNumber),
+            inArray(shipments.status, ['draft', 'labeling']),
+          ),
+        )
+        .returning({ id: shipments.id });
+      if (claimed.length === 0) {
+        throw new ConflictException(
+          'Обединената пратка се обработва или е разделена междувременно — опитайте отново.',
+        );
+      }
+    }
+    let data: Awaited<ReturnType<typeof this.callTenant>>;
+    try {
+      data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
+        label,
+        mode: 'create',
+      }, undefined, store, credsFarmerId);
+    } catch (err) {
+      // Carrier call failed → roll the labeling claim back so the master is editable /
+      // unconsolidatable again (the persist below never ran; the row is claim-only).
+      if (isConsolidationMaster) {
+        await this.db
+          .update(shipments)
+          .set({ status: 'draft', updatedAt: new Date() })
+          .where(and(eq(shipments.id, existingShipment!.id), eq(shipments.status, 'labeling')))
+          .catch(() => undefined);
+      }
+      throw err;
+    }
     const out = data?.label ?? {};
     const number: string | null = out.shipmentNumber ?? null;
     // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted

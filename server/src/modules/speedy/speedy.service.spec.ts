@@ -218,7 +218,15 @@ describe('SpeedyService.createLabelForOrder', () => {
     const onConflictDoUpdate = jest.fn().mockReturnValue({ returning });
     const values = jest.fn().mockReturnValue({ onConflictDoUpdate });
     const insert = jest.fn().mockReturnValue({ values });
-    const updWhere = jest.fn().mockResolvedValue(undefined);
+    // db.update(...) serves BOTH the pre-call labeling CLAIM on the master
+    // (.set().where().returning() → 1 row = claimed) and the post-persist orders
+    // carrier update (.set().where() awaited). A promise carrying `.returning`
+    // satisfies both shapes.
+    const updWhere = jest.fn(() => {
+      const p: any = Promise.resolve([{ id: 'ship-1' }]);
+      p.returning = async () => [{ id: 'ship-1' }];
+      return p;
+    });
     const updSet = jest.fn().mockReturnValue({ where: updWhere });
     const update = jest.fn().mockReturnValue({ set: updSet });
     // db.select(...).from(shipments).where(...).limit(1) — this time a real MASTER row:

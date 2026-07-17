@@ -1,6 +1,6 @@
-import { Injectable, Inject, Logger, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, desc, inArray, isNotNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, desc, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
 import { type Database, tenants, shipments, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { jsonbDeepMerge } from '../../common/db/jsonb';
@@ -517,7 +517,46 @@ export class SpeedyService implements CarrierAdapter {
     // codAmountStotinki only for an unpaid COD order) — a paid master stays at 0.
     if (override != null && input.codAmountStotinki != null) input.codAmountStotinki = override;
     const body = buildShipmentRequest(speedy, input);
-    const data = await this.client.call(creds, 'shipment', body);
+    // Consolidation master: CLAIM it for labeling BEFORE the carrier call (mirrors
+    // econt.service.createLabel). The master waybill collects the whole group's COD,
+    // but trackingNumber is persisted only AFTER this call — a window where a
+    // concurrent unconsolidate frees the children and lets their COD be collected a
+    // second time. CAS to status='labeling'; unconsolidate's master CAS refuses it.
+    const isConsolidationMaster =
+      !!existingShipment && existingShipment.consolidationGroupId === existingShipment.id;
+    if (isConsolidationMaster) {
+      const claimed = await this.db
+        .update(shipments)
+        .set({ status: 'labeling', updatedAt: new Date() })
+        .where(
+          and(
+            eq(shipments.id, existingShipment!.id),
+            eq(shipments.consolidationGroupId, existingShipment!.id),
+            isNull(shipments.econtShipmentNumber),
+            isNull(shipments.trackingNumber),
+            inArray(shipments.status, ['draft', 'labeling']),
+          ),
+        )
+        .returning({ id: shipments.id });
+      if (claimed.length === 0) {
+        throw new ConflictException(
+          'Обединената пратка се обработва или е разделена междувременно — опитайте отново.',
+        );
+      }
+    }
+    let data: Awaited<ReturnType<typeof this.client.call>>;
+    try {
+      data = await this.client.call(creds, 'shipment', body);
+    } catch (err) {
+      if (isConsolidationMaster) {
+        await this.db
+          .update(shipments)
+          .set({ status: 'draft', updatedAt: new Date() })
+          .where(and(eq(shipments.id, existingShipment!.id), eq(shipments.status, 'labeling')))
+          .catch(() => undefined);
+      }
+      throw err;
+    }
 
     const shipmentId: string | null = data?.id != null ? String(data.id) : null;
     const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
