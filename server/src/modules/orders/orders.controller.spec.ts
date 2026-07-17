@@ -198,7 +198,7 @@ describe('OrdersController findOne role metadata', () => {
 // user.userId, orderDate), resolved from the ORDER's own delivery date, not
 // user.courierIndex (retired from the JWT by this task).
 describe('OrdersController findOne (driver leg ownership)', () => {
-  const svc = { findOne: jest.fn() };
+  const svc = { findOne: jest.fn(), orderHasFarmerItems: jest.fn() };
   const routing = { getRoute: jest.fn() };
   const courierAssignment = { resolveMyLeg: jest.fn() };
   const ctrl = new OrdersController(svc as any, routing as any, courierAssignment as any);
@@ -209,6 +209,7 @@ describe('OrdersController findOne (driver leg ownership)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     svc.findOne.mockResolvedValue(order);
+    svc.orderHasFarmerItems.mockResolvedValue(true);
   });
 
   it('a driver assigned the leg that owns the order gets it back', async () => {
@@ -242,11 +243,36 @@ describe('OrdersController findOne (driver leg ownership)', () => {
     expect(routing.getRoute).not.toHaveBeenCalled();
   });
 
-  it('a farmer is never leg-checked (resolveMyLeg/getRoute not called)', async () => {
+  it('a farmer is never leg-checked (resolveMyLeg/getRoute not called) but IS membership-checked', async () => {
     const result = await ctrl.findOne('o1', 't', tenant({ role: 'farmer', farmerId: 'farmer-1' }));
     expect(result).toBe(order);
+    // Farmers aren't drivers, so no leg check — but they must be scoped to their
+    // own products, not handed any order in the tenant by UUID.
     expect(courierAssignment.resolveMyLeg).not.toHaveBeenCalled();
     expect(routing.getRoute).not.toHaveBeenCalled();
+    expect(svc.orderHasFarmerItems).toHaveBeenCalledWith('o1', 't', 'farmer-1');
+  });
+
+  it('a producer sub-account whose products ARE in the order gets it back', async () => {
+    svc.orderHasFarmerItems.mockResolvedValue(true);
+    const result = await ctrl.findOne('o1', 't', tenant({ role: 'farmer', farmerId: 'farmer-1' }));
+    expect(result).toBe(order);
+  });
+
+  it('a producer sub-account whose products are NOT in the order is rejected with 403', async () => {
+    // The leak: GET /orders/:id was tenant-scoped only, so any producer sub-account
+    // could read any order's full customer PII + co-producers' line items by UUID.
+    svc.orderHasFarmerItems.mockResolvedValue(false);
+    await expect(
+      ctrl.findOne('o1', 't', tenant({ role: 'farmer', farmerId: 'farmer-1' })),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('a producer sub-account with a malformed token (no farmerId) is rejected', async () => {
+    await expect(ctrl.findOne('o1', 't', tenant({ role: 'farmer' }))).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(svc.orderHasFarmerItems).not.toHaveBeenCalled();
   });
 });
 

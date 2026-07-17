@@ -256,7 +256,27 @@ export class OrdersController {
   ) {
     const order = await this.ordersService.findOne(id, tenantId);
     if (user.role === 'driver') await this.assertDriverOwnsOrder(tenantId, user, order);
+    else if (user.role === 'farmer') await this.assertFarmerOwnsOrder(tenantId, user, order);
     return order;
+  }
+
+  /**
+   * Producer sub-accounts (role='farmer') may open only orders they're a party
+   * to — i.e. that contain at least one of their own products. Tenant-scoping
+   * alone (findOne) let any producer read any order's full customer PII and its
+   * co-producers' line items by UUID; this gates that, mirroring the driver
+   * own-leg check above. Scope is ALWAYS the token's farmerId (effectiveFarmerId
+   * ignores any client-supplied id and 403s a malformed token).
+   */
+  private async assertFarmerOwnsOrder(
+    tenantId: string,
+    user: TenantRequestUser,
+    order: { id: string },
+  ): Promise<void> {
+    const farmerId = effectiveFarmerId(user.role, user.farmerId, undefined);
+    if (!farmerId || !(await this.ordersService.orderHasFarmerItems(order.id, tenantId, farmerId))) {
+      throw new ForbiddenException('Нямате достъп до тази поръчка.');
+    }
   }
 
   // Opened to producer sub-accounts (role='farmer') so they can mark their OWN COD

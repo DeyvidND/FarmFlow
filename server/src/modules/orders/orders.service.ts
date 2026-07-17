@@ -1386,6 +1386,30 @@ export class OrdersService {
   }
 
   /**
+   * Does this order contain at least one of `farmerId`'s products? The
+   * membership test that gates a producer sub-account's access to the full
+   * order (GET /orders/:id) — the same „is this producer a party to the order"
+   * predicate `ordersForFarmer` uses (orderItems ⋈ products on farmerId). Joined
+   * back to `orders` for the tenant scope so a foreign order id can't match.
+   */
+  async orderHasFarmerItems(orderId: string, tenantId: string, farmerId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ one: sql`1` })
+      .from(orderItems)
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(
+        and(
+          eq(orderItems.orderId, orderId),
+          eq(orders.tenantId, tenantId),
+          eq(products.farmerId, farmerId),
+        ),
+      )
+      .limit(1);
+    return !!row;
+  }
+
+  /**
    * Owner-side full order edit. Sets whatever scalar fields the patch carries
    * (re-geocoding a changed address), reassigns the slot with a one-per-slot
    * capacity check, and (Task 3) replaces the line items. Rejects on closed
