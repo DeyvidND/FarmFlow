@@ -1,3 +1,4 @@
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { EcontService, econtSettingsPath } from './econt.service';
 
 describe('econtSettingsPath', () => {
@@ -10,17 +11,22 @@ describe('econtSettingsPath', () => {
 });
 
 /**
- * saveCredentials round-trip: the stored settings blob must land the econt config
- * at the right JSONB path — tenant-level when no farmerId, under the per-farmer
- * sub-namespace otherwise — AND must deep-create the `delivery.farmers.<id>`
- * parents when they don't exist yet.
+ * saveCredentials now writes the econt blob with an ATOMIC jsonb path-merge
+ * (jsonbDeepMerge) instead of a read-modify-write of the whole settings column, so
+ * two farmers — or a farmer and the tenant-level account — connecting in parallel
+ * no longer clobber each other. These tests render the emitted SQL to recover the
+ * written leaf blob, then simulate the SAME coalesce/|| merge Postgres performs to
+ * prove sibling subtrees survive. (jsonb.spec.ts separately proves the SQL renders
+ * to exactly that merge shape.)
  */
 describe('EcontService.saveCredentials farmer scope', () => {
-  /** Build a service whose db/cache are stubs, capturing the settings written. */
+  const dialect = new PgDialect();
+
+  /** Build a service whose db/cache are stubs, capturing the settings SQL written. */
   function makeService(initialSettings: Record<string, unknown>) {
-    const captured: { settings?: Record<string, unknown> } = {};
+    const captured: { settings?: unknown } = {};
     const updateChain = {
-      set: (vals: { settings: Record<string, unknown> }) => {
+      set: (vals: { settings: unknown }) => {
         captured.settings = vals.settings;
         return { where: async () => undefined };
       },
@@ -57,41 +63,67 @@ describe('EcontService.saveCredentials farmer scope', () => {
   const at = (settings: unknown, path: string[]): any =>
     path.reduce((o: any, k) => (o == null ? o : o[k]), settings);
 
+  /** Reproduce the exact `coalesce(x,'{}') || jsonb_build_object(k, child)` deep-merge
+   *  Postgres runs for jsonbDeepMerge, so a captured write can be applied to the
+   *  starting settings and its sibling-preservation asserted. */
+  function simulateMerge(initial: any, path: string[], value: unknown): any {
+    const [head, ...rest] = path;
+    const base = initial && typeof initial === 'object' ? initial : {};
+    const child = rest.length === 0 ? value : simulateMerge(base[head], rest, value);
+    return { ...base, [head]: child };
+  }
+
+  /** Render the captured SQL and recover the written leaf blob (the one JSON param). */
+  function written(captured: { settings?: unknown }): { params: unknown[]; blob: any } {
+    const { params } = dialect.sqlToQuery(captured.settings as never);
+    const jsonParam = params.find(
+      (p) => typeof p === 'string' && (p as string).trim().startsWith('{'),
+    ) as string;
+    return { params, blob: JSON.parse(jsonParam) };
+  }
+
   it('tenant level: writes settings.delivery.econt (farmerId omitted)', async () => {
-    const { svc, captured } = makeService({});
+    const initial = {};
+    const { svc, captured } = makeService(initial);
     await svc.saveCredentials('t1', { username: 'u', password: 'p' });
-    const blob = at(captured.settings, econtSettingsPath(undefined));
-    expect(blob).toBeDefined();
+    const { params, blob } = written(captured);
+    expect(params).toEqual(expect.arrayContaining(['delivery', 'econt']));
+    expect(params).not.toContain('farmers'); // no farmer sub-namespace leaked in
     expect(blob.username).toBe('u');
     expect(blob.configured).toBe(true);
-    // No farmer sub-namespace leaked into the tenant write.
-    expect((captured.settings!.delivery as any).farmers).toBeUndefined();
+    const result = simulateMerge(initial, econtSettingsPath(undefined), blob);
+    expect((result.delivery as any).farmers).toBeUndefined();
   });
 
   it('farmer scope: deep-creates settings.delivery.farmers.<id>.econt from empty settings', async () => {
-    const { svc, captured } = makeService({});
+    const initial = {};
+    const { svc, captured } = makeService(initial);
     await svc.saveCredentials('t1', { username: 'fu', password: 'fp' }, 'f1');
-    const blob = at(captured.settings, econtSettingsPath('f1'));
-    expect(blob).toBeDefined();
+    const { params, blob } = written(captured);
+    expect(params).toEqual(expect.arrayContaining(['delivery', 'farmers', 'f1', 'econt']));
     expect(blob.username).toBe('fu');
     expect(blob.configured).toBe(true);
-    // The tenant-level econt blob is untouched (still absent).
-    expect((captured.settings!.delivery as any).econt).toBeUndefined();
+    const result = simulateMerge(initial, econtSettingsPath('f1'), blob);
+    expect(at(result, econtSettingsPath('f1')).username).toBe('fu');
+    expect((result.delivery as any).econt).toBeUndefined(); // tenant-level still absent
   });
 
   it('farmer scope: preserves an existing tenant-level econt blob + sibling farmers', async () => {
-    const { svc, captured } = makeService({
+    const initial = {
       delivery: {
         econt: { username: 'tenantUser', passwordEnc: 'enc', configured: true },
         farmers: { f2: { econt: { username: 'other', configured: true } } },
       },
-    });
+    };
+    const { svc, captured } = makeService(initial);
     await svc.saveCredentials('t1', { username: 'fu', password: 'fp' }, 'f1');
-    // The new farmer blob is written…
-    expect(at(captured.settings, econtSettingsPath('f1')).username).toBe('fu');
-    // …without clobbering the tenant-level blob…
-    expect(at(captured.settings, econtSettingsPath(undefined)).username).toBe('tenantUser');
-    // …or the sibling farmer.
-    expect(at(captured.settings, econtSettingsPath('f2')).username).toBe('other');
+    const { params, blob } = written(captured);
+    // atomic path-merge at the f1 econt path (NOT a whole-blob overwrite)…
+    expect(params).toEqual(expect.arrayContaining(['delivery', 'farmers', 'f1', 'econt']));
+    // …so applying the SAME merge Postgres runs preserves every sibling subtree.
+    const result = simulateMerge(initial, econtSettingsPath('f1'), blob);
+    expect(at(result, econtSettingsPath('f1')).username).toBe('fu');
+    expect(at(result, econtSettingsPath(undefined)).username).toBe('tenantUser');
+    expect(at(result, econtSettingsPath('f2')).username).toBe('other');
   });
 });

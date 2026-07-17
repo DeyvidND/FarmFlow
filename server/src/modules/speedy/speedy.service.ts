@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { and, eq, desc, inArray, isNotNull, notInArray, sql } from 'drizzle-orm';
 import { type Database, tenants, shipments, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { jsonbDeepMerge } from '../../common/db/jsonb';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { buildKeysetPage, clampLimit, cursorTs, keysetAfter, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
@@ -56,32 +57,6 @@ function readAtPath(settings: unknown, path: string[]): unknown {
   return path.reduce<any>((o, k) => (o == null ? o : o[k]), settings);
 }
 
-/**
- * Return a NEW settings object with `value` set at `path`, deep-creating any
- * missing intermediate objects (e.g. `delivery.farmers.<id>` when a tenant has no
- * farmers yet) and structurally sharing untouched siblings. Pure — no mutation of
- * the input.
- */
-function writeAtPath(
-  settings: Record<string, unknown> | null | undefined,
-  path: string[],
-  value: unknown,
-): Record<string, unknown> {
-  const root: Record<string, unknown> = { ...(settings ?? {}) };
-  let cursor = root;
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i];
-    const existing = cursor[key];
-    const next: Record<string, unknown> =
-      existing && typeof existing === 'object' && !Array.isArray(existing)
-        ? { ...(existing as Record<string, unknown>) }
-        : {};
-    cursor[key] = next;
-    cursor = next;
-  }
-  cursor[path[path.length - 1]] = value;
-  return root;
-}
 
 /** A Speedy shipment row shaped for the standalone shipments table. */
 export interface SpeedyShipment {
@@ -183,8 +158,12 @@ export class SpeedyService implements CarrierAdapter {
   async disconnect(tenantId: string, farmerId?: string): Promise<{ configured: false }> {
     const { tenant, speedy } = await this.loadStored(tenantId, undefined, farmerId);
     const nextSpeedy = this.clearCredsBlob(speedy);
-    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), nextSpeedy);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge — see econt.service.ts saveCredentials. Preserves sibling
+    // carrier/farmer subtrees on the shared tenants.settings row under concurrency.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), nextSpeedy) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`);
     return { configured: false };
   }
@@ -225,10 +204,13 @@ export class SpeedyService implements CarrierAdapter {
       const contact = (tenant.settings.contact ?? null) as { phone?: string | null; address?: string | null } | null;
       seededSpeedy = this.maybeSeedSender(nextSpeedy, tenant.name || tenant.slug, contact, profiles);
     } catch { /* optional */ }
-    // Deep-create the path so a farmer write under an absent `delivery.farmers`
-    // parent still succeeds, while a tenant-level write keeps targeting delivery.speedy.
-    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), seededSpeedy);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge deep-creates the path AND preserves sibling subtrees, so a
+    // concurrent connect by another farmer (or the same farmer's Econt) is not
+    // clobbered — see econt.service.ts saveCredentials.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), seededSpeedy) })
+      .where(eq(tenants.id, tenantId));
     // Connecting flips `configured: true`, which changes the cached TenantMeta
     // (speedyConfigured / comparisonActive) — bust `tenant:` too, else the storefront
     // hides the Speedy option for up to PUBLIC_CACHE_TTL. Mirrors disconnect().
@@ -264,8 +246,12 @@ export class SpeedyService implements CarrierAdapter {
       ...(input.cod !== undefined ? { cod: { ...(speedy.cod ?? {}), ...input.cod } } : {}),
       ...(input.label !== undefined ? { label: { ...(speedy.label ?? {}), ...input.label } } : {}),
     };
-    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), nextSpeedy);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge — see econt.service.ts saveCredentials. Preserves sibling
+    // carrier/farmer subtrees on the shared tenants.settings row under concurrency.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), nextSpeedy) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(`tenant:${tenant.slug}`);
     return { ok: true };
   }
@@ -277,8 +263,12 @@ export class SpeedyService implements CarrierAdapter {
   async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }, farmerId?: string): Promise<{ ok: true }> {
     const { tenant, speedy } = await this.loadStored(tenantId, undefined, farmerId);
     const nextSpeedy = this.buildSenderBlob(speedy, input.senders, input.activeId);
-    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), nextSpeedy);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge — see econt.service.ts saveCredentials. Preserves sibling
+    // carrier/farmer subtrees on the shared tenants.settings row under concurrency.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), nextSpeedy) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(`tenant:${tenant.slug}`);
     return { ok: true };
   }

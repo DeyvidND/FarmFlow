@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { and, eq, desc, inArray, ne, isNotNull, isNull, sql } from 'drizzle-orm';
 import { type Database, tenants, orders, orderItems, shipments } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { jsonbDeepMerge } from '../../common/db/jsonb';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { buildKeysetPage, clampLimit, cursorTs, keysetAfter, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
@@ -282,8 +283,13 @@ export class EcontService implements CarrierAdapter {
 
     // Deep-create the path so a farmer write under an absent `delivery.farmers`
     // parent still succeeds, while a tenant-level write keeps targeting delivery.econt.
-    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge (not a whole-blob read-modify-write): two co-op farmers
+    // connecting in parallel, or one farmer connecting Econt + Speedy at once, no
+    // longer clobber each other's credentials on the shared tenants.settings row.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, econtSettingsPath(farmerId), nextEcont) })
+      .where(eq(tenants.id, tenantId));
     // Bust the tenant profile (econtMode/econtEnabled) AND the nomenclature caches:
     // switching demo↔prod (or to a different account) makes the previously cached
     // office/city lists wrong — a stale demo office code can fail prod label
@@ -327,8 +333,13 @@ export class EcontService implements CarrierAdapter {
       ...(input.cod !== undefined ? { cod: { ...(econt.cod ?? {}), ...input.cod } } : {}),
       ...(input.label !== undefined ? { label: { ...(econt.label ?? {}), ...input.label } } : {}),
     };
-    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge (not a whole-blob read-modify-write): two co-op farmers
+    // connecting in parallel, or one farmer connecting Econt + Speedy at once, no
+    // longer clobber each other's credentials on the shared tenants.settings row.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, econtSettingsPath(farmerId), nextEcont) })
+      .where(eq(tenants.id, tenantId));
     // The sender/package feed the storefront delivery estimate + label payload.
     await this.cache.del(publicCacheKeys.tenant(tenant.slug));
     return { ok: true };
@@ -343,8 +354,13 @@ export class EcontService implements CarrierAdapter {
   async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }, farmerId?: string): Promise<{ ok: true }> {
     const { tenant, econt } = await this.loadStored(tenantId, undefined, farmerId);
     const nextEcont = this.buildSenderBlob(econt, input.senders, input.activeId);
-    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge (not a whole-blob read-modify-write): two co-op farmers
+    // connecting in parallel, or one farmer connecting Econt + Speedy at once, no
+    // longer clobber each other's credentials on the shared tenants.settings row.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, econtSettingsPath(farmerId), nextEcont) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(publicCacheKeys.tenant(tenant.slug));
     return { ok: true };
   }
@@ -616,8 +632,13 @@ export class EcontService implements CarrierAdapter {
   async disconnect(tenantId: string, farmerId?: string): Promise<{ configured: false }> {
     const { tenant, econt } = await this.loadStored(tenantId, undefined, farmerId);
     const nextEcont = this.clearCredsBlob(econt);
-    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge (not a whole-blob read-modify-write): two co-op farmers
+    // connecting in parallel, or one farmer connecting Econt + Speedy at once, no
+    // longer clobber each other's credentials on the shared tenants.settings row.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, econtSettingsPath(farmerId), nextEcont) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(
       publicCacheKeys.tenant(tenant.slug),
       `econt:offices:${tenant.slug}`,
