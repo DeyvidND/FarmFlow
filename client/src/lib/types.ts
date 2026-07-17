@@ -271,6 +271,25 @@ export interface TenantProfile {
 
 export type RouteEndMode = 'home' | 'last' | 'custom';
 
+/**
+ * A REAL courier/leg number — what a route's `courierIndex` and every index into
+ * `settings.routing.couriers[]` mean. Declared here because the client mirrors
+ * shared types rather than depending on @fermeribg/types.
+ *
+ * A day's legs can be NON-CONTIGUOUS: the assignment board lets each roster row
+ * pick any leg, so legs [0, 2] (nobody on leg 1) is a normal shape, while
+ * `routes[]` stays DENSE. A leg's POSITION in that array is therefore not its leg
+ * number. Conflating them has been fixed three times server-side and twice in the
+ * courier modals; the brand makes the mix-up a type error.
+ */
+export type LegIndex = number & { readonly __brand: 'LegIndex' };
+
+/** A position in the DENSE `routes[]` array. Never index couriers[] with this. */
+export type LegPos = number & { readonly __brand: 'LegPos' };
+
+/** Assert a number is a real leg number (e.g. a route's `courierIndex`). */
+export const asLegIndex = (n: number): LegIndex => n as LegIndex;
+
 export interface RoutingConfig {
   endMode?: RouteEndMode;
   endAddress?: string | null;

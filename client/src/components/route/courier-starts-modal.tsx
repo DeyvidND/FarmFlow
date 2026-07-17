@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AddressAutocomplete } from './address-autocomplete';
 import { getTenant, updateTenant } from '@/lib/api-client';
-import type { RoutingConfig } from '@/lib/types';
+import type { LegIndex, RoutingConfig } from '@/lib/types';
 
 interface CourierStartRow {
   startAddress: string;
@@ -28,20 +28,25 @@ function rowToStart(r: CourierStartRow): Pick<StoredCourier, 'startAddress' | 's
 
 /**
  * Merge the edited START rows into the FULL couriers array, preserving every
- * OTHER field (name, endMode, home*) and any higher-index courier not visible
- * today — the server replaces the stored array wholesale, so a partial send
- * would wipe them. Only the three `start*` fields per visible row change.
- * Exported (pure) for unit testing, mirroring `mergeCourierRows`.
+ * OTHER field (name, endMode, home*) and any leg not visible today — the server
+ * replaces the stored array wholesale, so a partial send would wipe them. Only
+ * the three `start*` fields of the edited legs change.
+ *
+ * `legs[pos]` is the REAL leg the row at `pos` edits; on a gap day (legs [0, 2])
+ * row 1 is „Куриер 3" and belongs at couriers[2]. Exported (pure) for unit
+ * testing, mirroring `mergeCourierRows`.
  */
 export function mergeStartRows(
   editedRows: CourierStartRow[],
   originalCouriers: StoredCourier[],
+  legs: LegIndex[],
 ): StoredCourier[] {
-  const length = Math.max(editedRows.length, originalCouriers.length);
-  return Array.from({ length }, (_, i) => {
-    const base = originalCouriers[i] ?? {};
-    return i < editedRows.length ? { ...base, ...rowToStart(editedRows[i]) } : base;
+  const length = Math.max(originalCouriers.length, ...legs.map((l) => l + 1), 0);
+  const out: StoredCourier[] = Array.from({ length }, (_, i) => originalCouriers[i] ?? {});
+  legs.forEach((leg, pos) => {
+    if (pos < editedRows.length) out[leg] = { ...(originalCouriers[leg] ?? {}), ...rowToStart(editedRows[pos]) };
   });
+  return out;
 }
 
 /**
@@ -50,18 +55,20 @@ export function mergeStartRows(
  * base when empty), independently of where the leg ends („Домове").
  */
 export function CourierStartsModal({
-  courierCount,
+  legs,
   placesKey,
   onClose,
   onSaved,
 }: {
-  courierCount: number;
+  /** The REAL leg numbers on the board today, in display order — e.g. [0, 2] on a
+   *  gap day. NOT a count: row `pos` edits `couriers[legs[pos]]`. */
+  legs: LegIndex[];
   placesKey?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [rows, setRows] = useState<CourierStartRow[]>(
-    Array.from({ length: courierCount }, () => ({ startAddress: '', startPin: null })),
+    legs.map(() => ({ startAddress: '', startPin: null })),
   );
   const [originalCouriers, setOriginalCouriers] = useState<StoredCourier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,8 +80,10 @@ export function CourierStartsModal({
         const stored = t.routing?.couriers ?? [];
         setOriginalCouriers(stored);
         setRows(
-          Array.from({ length: courierCount }, (_, i) => {
-            const c = stored[i];
+          // Read each row from its REAL leg — stored[pos] would show leg 1's
+          // start under „Куриер 3" on a gap day.
+          legs.map((leg) => {
+            const c = stored[leg];
             const lat = c?.startLat;
             const lng = c?.startLng;
             return {
@@ -86,7 +95,7 @@ export function CourierStartsModal({
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [courierCount]);
+  }, [legs.join(',')]);
 
   const setAddress = (i: number, v: string) =>
     setRows((cur) => cur.map((r, idx) => (idx === i ? { startAddress: v, startPin: null } : r)));
@@ -98,7 +107,7 @@ export function CourierStartsModal({
   async function save() {
     setSaving(true);
     try {
-      const couriers = mergeStartRows(rows, originalCouriers);
+      const couriers = mergeStartRows(rows, originalCouriers, legs);
       const updated = await updateTenant({ routing: { couriers } });
       const savedCouriers = updated.routing?.couriers ?? [];
       // Surface a geocode miss (typed address the server couldn't place) — the
@@ -153,7 +162,7 @@ export function CourierStartsModal({
               {rows.map((row, i) => (
                 <div key={i} className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-extrabold text-ff-ink">Куриер {i + 1}</span>
+                    <span className="text-[13px] font-extrabold text-ff-ink">Куриер {legs[i] + 1}</span>
                     {(row.startAddress || row.startPin) && (
                       <button
                         type="button"

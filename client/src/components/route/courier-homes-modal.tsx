@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AddressAutocomplete } from './address-autocomplete';
 import { getTenant, listRouteCouriers, updateTenant } from '@/lib/api-client';
-import type { RouteCourier, RouteEndMode, RoutingConfig } from '@/lib/types';
+import type { LegIndex, RouteCourier, RouteEndMode, RoutingConfig } from '@/lib/types';
+
 
 interface CourierHomeRow {
   homeAddress: string;
@@ -43,23 +44,30 @@ function rowToPayload(r: CourierHomeRow, original?: StoredCourier): StoredCourie
 }
 
 /**
- * Build the FULL `couriers` array to send on save. The server replaces the
- * stored array wholesale, index-aligned — so sending only today's visible
- * rows (which can be FEWER than the tenant's configured total on a lighter
- * day) would silently delete the saved home of any higher-index courier not
- * active today. Edited rows (index < editedRows.length) win; any index beyond
- * that is carried over UNCHANGED from `originalCouriers` (the full array as
- * originally loaded, before this modal trimmed it down to today's rows).
+ * Build the FULL `couriers` array to send on save. The server replaces the stored
+ * array wholesale, so every index must be accounted for: any leg this modal did
+ * not show is carried over UNCHANGED from `originalCouriers` (the full array as
+ * loaded), or its saved home is deleted.
+ *
+ * `legs[pos]` is the REAL leg the row at `pos` edits. The rows are NOT a prefix
+ * of couriers[]: on a gap day the board can assign legs [0, 2], so row 1 is
+ * „Куриер 3" and belongs at couriers[2] — writing it to couriers[1] would edit a
+ * leg nobody drives today AND leave leg 2's home unset, silently sending that
+ * courier back to the farm.
+ *
  * Exported (pure, no state) so it can be unit tested directly.
  */
 export function mergeCourierRows(
   editedRows: CourierHomeRow[],
   originalCouriers: StoredCourier[],
+  legs: LegIndex[],
 ): StoredCourier[] {
-  const length = Math.max(editedRows.length, originalCouriers.length);
-  return Array.from({ length }, (_, i) =>
-    i < editedRows.length ? rowToPayload(editedRows[i], originalCouriers[i]) : originalCouriers[i],
-  );
+  const length = Math.max(originalCouriers.length, ...legs.map((l) => l + 1), 0);
+  const out: StoredCourier[] = Array.from({ length }, (_, i) => originalCouriers[i]);
+  legs.forEach((leg, pos) => {
+    if (pos < editedRows.length) out[leg] = rowToPayload(editedRows[pos], originalCouriers[leg]);
+  });
+  return out;
 }
 
 /**
@@ -68,18 +76,20 @@ export function mergeCourierRows(
  * (falls back to the shared base otherwise).
  */
 export function CourierHomesModal({
-  courierCount,
+  legs,
   placesKey,
   onClose,
   onSaved,
 }: {
-  courierCount: number;
+  /** The REAL leg numbers on the board today, in display order — e.g. [0, 2] on a
+   *  gap day. NOT a count: row `pos` edits `couriers[legs[pos]]`. */
+  legs: LegIndex[];
   placesKey?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [rows, setRows] = useState<CourierHomeRow[]>(
-    Array.from({ length: courierCount }, () => ({ homeAddress: '', homePin: null })),
+    legs.map(() => ({ homeAddress: '', homePin: null })),
   );
   // The FULL couriers array as originally loaded from the server — may be
   // longer than `rows` (today's visible/active courier count). Kept around
@@ -102,8 +112,11 @@ export function CourierHomesModal({
         const stored = t.routing?.couriers ?? [];
         setOriginalCouriers(stored);
         setRows(
-          Array.from({ length: courierCount }, (_, i) => {
-            const c = stored[i];
+          // Read each row from its REAL leg, mirroring how the server resolves it
+          // (couriersCfg[posToLeg[i]]) — stored[pos] would show leg 1's home under
+          // „Куриер 3" on a gap day.
+          legs.map((leg) => {
+            const c = stored[leg];
             const lat = c?.homeLat;
             const lng = c?.homeLng;
             return {
@@ -123,7 +136,7 @@ export function CourierHomesModal({
       .catch(() => {})
       .finally(() => setRosterLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courierCount]);
+  }, [legs.join(',')]);
 
   const setAddress = (i: number, v: string) =>
     setRows((cur) => cur.map((r, idx) => (idx === i ? { ...r, homeAddress: v, homePin: null } : r)));
@@ -135,7 +148,7 @@ export function CourierHomesModal({
   async function save() {
     setSaving(true);
     try {
-      const couriers = mergeCourierRows(rows, originalCouriers);
+      const couriers = mergeCourierRows(rows, originalCouriers, legs);
       const updated = await updateTenant({ routing: { couriers } });
       // The server geocodes a typed homeAddress into homeLat/homeLng; on a
       // geocode miss it saves the address with NULL coords — the route then
@@ -143,10 +156,12 @@ export function CourierHomesModal({
       // instead of a plain "Запазено" that hides the failure.
       const savedCouriers = updated.routing?.couriers ?? [];
       const failed = rows
-        .map((r, i) => ({ r, i }))
+        .map((r, i) => ({ r, leg: legs[i] }))
         .filter(({ r }) => r.homeAddress.trim().length > 0)
-        .filter(({ i }) => savedCouriers[i]?.homeLat == null || savedCouriers[i]?.homeLng == null)
-        .map(({ r, i }) => r.name?.trim() || `Куриер ${i + 1}`);
+        // By REAL leg: savedCouriers[pos] would check a leg this row never wrote,
+        // so a failed geocode on a gap day still toasted „Домовете са запазени".
+        .filter(({ leg }) => savedCouriers[leg]?.homeLat == null || savedCouriers[leg]?.homeLng == null)
+        .map(({ r, leg }) => r.name?.trim() || `Куриер ${leg + 1}`);
       if (failed.length) {
         toast.warning(
           `Адресът на ${failed.join(', ')} не е намерен на картата — маршрутът му ще завършва в базата, докато не оправиш адреса.`,
@@ -192,7 +207,7 @@ export function CourierHomesModal({
               {rows.map((row, i) => (
                 <div key={i} className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-extrabold text-ff-ink">Куриер {i + 1}</span>
+                    <span className="text-[13px] font-extrabold text-ff-ink">Куриер {legs[i] + 1}</span>
                     {(row.homeAddress || row.homePin) && (
                       <button
                         type="button"

@@ -22,6 +22,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { asLegIndex } from '@/lib/types';
 import {
   getOrder,
   getRouteAssignments,
@@ -1425,7 +1426,7 @@ export function RouteClient({
 
       {showHomes && (
         <CourierHomesModal
-          courierCount={route.couriers}
+          legs={route.routes.map((r) => asLegIndex(r.courierIndex))}
           placesKey={placesKey}
           onClose={() => setShowHomes(false)}
           onSaved={() => {
@@ -1436,7 +1437,7 @@ export function RouteClient({
       )}
       {showStarts && (
         <CourierStartsModal
-          courierCount={route.couriers}
+          legs={route.routes.map((r) => asLegIndex(r.courierIndex))}
           placesKey={placesKey}
           onClose={() => setShowStarts(false)}
           onSaved={() => {
