@@ -2,7 +2,11 @@ name: Deploy to Production
 
 # Build the app images (+ a migrator image) and push them to GHCR, then SSH to
 # the Hetzner box: apply pending DB migrations, then `docker compose pull && up`.
-# CI (build/lint/test) runs separately in ci.yml.
+#
+# The `test` job below is a REQUIRED GATE: nothing reaches Hetzner — including
+# the migrator, which mutates the prod schema — unless the suite is green. It
+# runs concurrently with `build`, so gating costs no wall-clock: images are
+# built while tests run, they just can't be deployed if tests fail.
 on:
   push:
     branches: [main]
@@ -18,6 +22,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Required gate — same reusable suite ci.yml runs. Runs in parallel with
+  # `build`; `deploy` needs both, so a red suite blocks the Hetzner rollout
+  # and the migrator while wasting no time on the image build.
+  test:
+    uses: ./.github/workflows/test.yml
+
   build:
     name: Build & push (${{ matrix.app }})
     runs-on: ubuntu-latest
@@ -91,7 +101,9 @@ jobs:
     name: Deploy to Hetzner
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [build]
+    # `test` is the gate: images may build regardless, but nothing ships to the
+    # box — and no migration runs — unless the suite passed.
+    needs: [build, test]
     steps:
       # Sync the compose file to the box so service/topology changes (e.g. adding the
       # `econt` delivery service) ship with a normal deploy — no manual copy. Secrets
