@@ -102,3 +102,46 @@ describe('CreateFarmerDto — profile v1 fields', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 });
+
+describe('CreateFarmerDto — optional email/imageUrl empty-string clear', () => {
+  // @IsOptional() only skips null/undefined, so without a @Transform a '' reaches
+  // @IsEmail()/@IsUrl() and 400s a field documented as optional (the repo's recurring
+  // ''-vs-undefined gotcha — first hit on the chaika checkout email). Sending ''
+  // should CLEAR the field, mirroring create-order.dto customerEmail.
+  it('treats an empty email as absent (blank → undefined), not a 400', async () => {
+    const dto = plainToInstance(CreateFarmerDto, { name: 'Петър', email: '' });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'email')).toBe(false);
+    expect(dto.email).toBeUndefined();
+  });
+
+  it('treats a whitespace-only email as absent', async () => {
+    const dto = plainToInstance(CreateFarmerDto, { name: 'Петър', email: '   ' });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'email')).toBe(false);
+    expect(dto.email).toBeUndefined();
+  });
+
+  it('treats an empty imageUrl as absent (blank → undefined), not a 400', async () => {
+    const dto = plainToInstance(CreateFarmerDto, { name: 'Петър', imageUrl: '' });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'imageUrl')).toBe(false);
+    expect(dto.imageUrl).toBeUndefined();
+  });
+
+  it('still accepts a real email + imageUrl', async () => {
+    const dto = plainToInstance(CreateFarmerDto, {
+      name: 'Петър',
+      email: 'petar@ferma.bg',
+      imageUrl: 'https://x.bg/a.jpg',
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('still REJECTS a non-empty invalid email (transform only blanks empty strings)', async () => {
+    const dto = plainToInstance(CreateFarmerDto, { name: 'Петър', email: 'not-an-email' });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'email')).toBe(true);
+  });
+});
