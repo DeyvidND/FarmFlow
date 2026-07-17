@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Clock, Home, MapPin, Play, Users, X } from 'lucide-react';
 import type { RouteEndMode } from '@/lib/types';
+import { clampPos } from './route-settings';
 
 const cn = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -53,10 +54,13 @@ export function RouteSettingsDrawer({
   onClose: () => void;
 }) {
   const multiCourier = couriers.length > 1;
-  const [endPos, setEndPos] = useState(() =>
-    Math.min(Math.max(initialCourierPos, 0), Math.max(couriers.length - 1, 0)),
-  );
-  const cur = couriers[endPos] ?? couriers[0];
+  const [endPos, setEndPos] = useState(() => clampPos(initialCourierPos, couriers.length));
+  // Re-clamp on every render, not just at init: the drawer stays mounted while
+  // the parent re-renders with a shorter `couriers` (the „Раздели маршрута на"
+  // control soft-navigates ?couriers=N). A stale endPos would otherwise feed an
+  // out-of-range index to onSetEndAt below and the end-mode toggle would no-op.
+  const safeEndPos = clampPos(endPos, couriers.length);
+  const cur = couriers[safeEndPos] ?? couriers[0];
   const curHint = endOptions.find((o) => o.mode === cur?.endMode)?.hint ?? '';
   return (
     <>
@@ -96,20 +100,20 @@ export function RouteSettingsDrawer({
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => setEndPos((p) => Math.max(0, p - 1))}
-                    disabled={endPos === 0}
+                    onClick={() => setEndPos(Math.max(0, safeEndPos - 1))}
+                    disabled={safeEndPos === 0}
                     aria-label="Предишен куриер"
                     className="grid h-7 w-7 place-items-center rounded-lg border border-ff-border bg-ff-surface text-ff-ink-2 transition hover:bg-ff-surface-2 disabled:opacity-40"
                   >
                     <ChevronLeft size={15} />
                   </button>
                   <span className="min-w-[34px] text-center text-[12px] font-bold tabular-nums text-ff-muted">
-                    {endPos + 1}/{couriers.length}
+                    {safeEndPos + 1}/{couriers.length}
                   </span>
                   <button
                     type="button"
-                    onClick={() => setEndPos((p) => Math.min(couriers.length - 1, p + 1))}
-                    disabled={endPos === couriers.length - 1}
+                    onClick={() => setEndPos(Math.min(couriers.length - 1, safeEndPos + 1))}
+                    disabled={safeEndPos === couriers.length - 1}
                     aria-label="Следващ куриер"
                     className="grid h-7 w-7 place-items-center rounded-lg border border-ff-border bg-ff-surface text-ff-ink-2 transition hover:bg-ff-surface-2 disabled:opacity-40"
                   >
@@ -152,7 +156,7 @@ export function RouteSettingsDrawer({
                 <button
                   key={mode}
                   type="button"
-                  onClick={() => onSetEndAt(endPos, mode)}
+                  onClick={() => onSetEndAt(safeEndPos, mode)}
                   className={cn(
                     'inline-flex flex-1 items-center justify-center gap-1.5 rounded-[8px] px-2.5 py-2 text-[12.5px] font-bold transition',
                     cur?.endMode === mode
