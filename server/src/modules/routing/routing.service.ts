@@ -293,6 +293,25 @@ export function greedyByDistance(start: Pt | null, stops: RouteStop[]): RouteSto
 }
 
 /**
+ * The stop set the day's partition is computed from — ALWAYS this, never a
+ * caller's choice.
+ *
+ * `sweepSplit` balances whatever set it is handed, so the row filter feeding it
+ * decides which courier owns which stop. Splitting 'confirmed'-only re-partitions
+ * the survivors every time a stop is marked delivered, handing another courier's
+ * stops — and their customer's name, phone, email and address — to whoever asks
+ * next. Keying off confirmed + delivered pins ownership for the whole day: the
+ * set only grows as orders are confirmed, never shrinks as they're completed.
+ *
+ * What a caller may choose is what to DISPLAY (see RouteDisplay), applied after
+ * the partition is fixed.
+ */
+export const ROUTE_BASIS_STATUSES = ['confirmed', 'delivered'] as const;
+
+/** Which stops to render. Never affects the partition. */
+export type RouteDisplay = 'live' | 'all';
+
+/**
  * Effective courier count for a route request. Caller resolves the source (the
  * ?couriers= dropdown, else the tenant's saved default) and passes the result
  * here. Absent / non-finite → 1; always clamped to [1,10] and floored.
@@ -353,11 +372,11 @@ export class RoutingService {
     endMode?: RouteEndMode,
     couriers?: number,
     endModes?: (RouteEndMode | undefined)[],
-    // Own-leg ownership checks (findOne / updateStatus / route/measure, driver
-    // role) pass ['confirmed', 'delivered'] so an order the driver just marked
-    // delivered still resolves to their own leg — the plain route screen keeps
-    // the 'confirmed'-only default so finished stops drop off the live view.
-    statuses: readonly ('confirmed' | 'delivered')[] = ['confirmed'],
+    // What to SHOW — never what to split on. 'live' hides stops already
+    // delivered (the route screen: finished stops drop off the map); 'all' keeps
+    // them (ownership checks, «Моят оборот», the courier's packing list).
+    // The partition is identical either way; see ROUTE_BASIS_STATUSES.
+    display: RouteDisplay = 'live',
   ): Promise<MultiRouteResult> {
     const day = date ?? bgToday();
 
@@ -384,6 +403,7 @@ export class RoutingService {
         lat: orders.deliveryLat,
         lng: orders.deliveryLng,
         total: orders.totalStotinki,
+        status: orders.status,
         courierIndex: orders.courierIndex,
         routeSeq: orders.routeSeq,
         windowStart: orders.deliveryWindowStart,
@@ -395,7 +415,7 @@ export class RoutingService {
       .where(
         and(
           eq(orders.tenantId, tenantId),
-          inArray(orders.status, statuses),
+          inArray(orders.status, ROUTE_BASIS_STATUSES),
           eq(orders.deliveryType, 'address'),
           // The route is "stops to DELIVER on this date" — key off the chosen
           // delivery slot's date, not when the order was placed. Shared with the
@@ -413,6 +433,11 @@ export class RoutingService {
     // module) — used only internally, below, to honour a saved manual reorder
     // instead of always re-optimizing.
     const routeSeqById = new Map<string, number | null>(rows.map((r) => [r.id, r.routeSeq ?? null]));
+
+    // Order status, by id. Kept out of RouteStop for the same reason routeSeq is
+    // (it would ripple into every test factory in this module) — used only below,
+    // to drop finished stops from the LIVE view *after* the partition is fixed.
+    const statusById = new Map<string, string | null>(rows.map((r) => [r.id, r.status]));
 
     // Batch item summaries + goods subtotal per order (no N+1).
     const ids = rows.map((r) => r.id);
@@ -587,6 +612,15 @@ export class RoutingService {
       for (const s of pinned) groups[legToPos.get(s.courierIndex as number)!].push(s);
     }
     if (!groups.length) groups = [[]];
+
+    // Ownership is now fixed for the day: every stop in the basis sits on its
+    // courier's leg, pins included. Only NOW may finished stops be dropped —
+    // doing it before the split would shrink the set and re-partition the rest.
+    // Everything below (reorder, re-optimize, measure) therefore plans the drive
+    // over what's actually left, while the legs themselves no longer move.
+    if (display === 'live') {
+      groups = groups.map((group) => group.filter((s) => statusById.get(s.id) !== 'delivered'));
+    }
 
     // Honour a persisted manual reorder (route_seq, set via PATCH
     // /orders/route/order/sequence): a group with at least one sequenced stop

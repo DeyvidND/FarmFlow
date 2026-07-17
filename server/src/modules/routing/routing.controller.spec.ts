@@ -85,7 +85,7 @@ describe('RoutingController myTurnover (personal courier turnover)', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('asks getRoute for confirmed AND delivered (turnover must not shrink as stops are delivered)', async () => {
+  it('shows delivered stops too (turnover must not shrink as stops are delivered)', async () => {
     const user = { type: 'tenant', role: 'driver', userId: 'u1' } as any;
     courierAssignmentService.resolveMyLeg.mockResolvedValue(1);
     await c.myTurnover('t1', user, '2026-07-15');
@@ -95,7 +95,7 @@ describe('RoutingController myTurnover (personal courier turnover)', () => {
       undefined,
       undefined,
       undefined,
-      ['confirmed', 'delivered'],
+      'all',
     );
   });
 
@@ -157,7 +157,9 @@ describe('RoutingController measure driver-scoping', () => {
     courierAssignmentService.resolveMyLeg.mockResolvedValue(2);
     await c.measure('t1', user, dto);
     expect(courierAssignmentService.resolveMyLeg).toHaveBeenCalledWith('t1', 'u1', '2026-07-15');
-    expect(service.getRoute).toHaveBeenCalledWith('t1', '2026-07-15', 'home');
+    // 'all' — the ownership check must see the driver's already-delivered stops,
+    // or measuring a route containing one of them is wrongly refused.
+    expect(service.getRoute).toHaveBeenCalledWith('t1', '2026-07-15', 'home', undefined, undefined, 'all');
     expect(service.measureExplicitOrder).toHaveBeenCalledWith(
       't1', '2026-07-15', ['s1'], 2, 'home', undefined,
     );

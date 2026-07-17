@@ -63,14 +63,10 @@ export class OrdersController {
     if (myLeg == null) {
       throw new ForbiddenException('Нямате достъп до тази поръчка.');
     }
-    const own = await this.routingService.getRoute(
-      tenantId,
-      day,
-      undefined,
-      undefined,
-      undefined,
-      ['confirmed', 'delivered'],
-    );
+    // 'all' — an order the driver just marked delivered must still resolve to
+    // their own leg. (The partition no longer depends on this: it is always the
+    // day's confirmed+delivered basis. This only asks to SEE the finished stops.)
+    const own = await this.routingService.getRoute(tenantId, day, undefined, undefined, undefined, 'all');
     const ownIds = new Set(
       own.routes.filter((r) => r.courierIndex === myLeg).flatMap((r) => r.stops.map((s) => s.id)),
     );
@@ -197,7 +193,9 @@ export class OrdersController {
     if (myLeg == null) {
       return { date: day, confirmedOrders: 0, pendingOrders: 0, orders: [] };
     }
-    const route = await this.routingService.getRoute(tenantId, day);
+    // 'all' — the packing list is the day's whole load for this leg; it must not
+    // shrink as the courier delivers, and it is prepared before they set off.
+    const route = await this.routingService.getRoute(tenantId, day, undefined, undefined, undefined, 'all');
     const orderIds = route.routes
       .filter((r) => r.courierIndex === myLeg)
       .flatMap((r) => r.stops.map((s) => s.id));

@@ -128,10 +128,9 @@ describe('OrdersController updateStatus routing (driver)', () => {
     courierAssignment.resolveMyLeg.mockResolvedValue(2);
     await ctrl.updateStatus('o1', tenant({ role: 'driver' }), dto);
     expect(courierAssignment.resolveMyLeg).toHaveBeenCalledWith('t', 'u', '2026-07-16');
-    expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-16', undefined, undefined, undefined, [
-      'confirmed',
-      'delivered',
-    ]);
+    // 'all' — an order the driver just marked delivered must still resolve to
+    // their own leg, so the ownership check has to see finished stops.
+    expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-16', undefined, undefined, undefined, 'all');
     expect(svc.updateStatusForCourier).toHaveBeenCalledWith('o1', 't', dto);
     expect(svc.updateStatus).not.toHaveBeenCalled();
     expect(svc.updateStatusForFarmer).not.toHaveBeenCalled();
@@ -161,10 +160,7 @@ describe('OrdersController updateStatus routing (driver)', () => {
     await ctrl.updateStatus('o1', tenant({ role: 'driver' }), dto);
     // 21:30 UTC on 07-16 is past midnight Europe/Sofia (UTC+3 in July) → 07-17.
     expect(courierAssignment.resolveMyLeg).toHaveBeenCalledWith('t', 'u', '2026-07-17');
-    expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-17', undefined, undefined, undefined, [
-      'confirmed',
-      'delivered',
-    ]);
+    expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-17', undefined, undefined, undefined, 'all');
   });
 
   it('the same driver on a different date resolves independently (date-keyed, not frozen)', async () => {
@@ -425,7 +421,11 @@ describe('OrdersController prep routing — driver', () => {
 
     const result = await ctrl.prep(driver(), '2026-07-16', undefined);
 
-    expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-16');
+    // 'all' — the packing list is this leg's whole load for the day and must not
+    // shrink as the courier delivers. Previously this took getRoute's default,
+    // which resolved the leg from a confirmed-only split: the partition moved as
+    // stops were completed and the list could name another courier's orders.
+    expect(routing.getRoute).toHaveBeenCalledWith('t', '2026-07-16', undefined, undefined, undefined, 'all');
     expect(svc.prepForCourierLeg).toHaveBeenCalledWith('t', ['order-c', 'order-d'], '2026-07-16');
     expect(svc.prepSummary).not.toHaveBeenCalled();
     // Sorted to route order + stamped with leg 1's position and courier name.

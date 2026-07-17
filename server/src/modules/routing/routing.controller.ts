@@ -90,13 +90,13 @@ export class RoutingController {
     return { ...result, routes, couriers: routes.length };
   }
 
-  // «Моят оборот» — a courier's personal turnover for a day. Unlike the live
-  // GET route (confirmed-only, so finished stops drop off the map), turnover
-  // counts BOTH confirmed AND delivered orders: the courier earned that money
-  // whether or not the stop is still pending, so the number must NOT shrink as
-  // they mark deliveries done. ['confirmed','delivered'] is the same leg-
-  // ownership basis the driver findOne/updateStatus checks already use. Result
-  // is the driver's own leg only (admins/operators get the whole day).
+  // «Моят оборот» — a courier's personal turnover for a day. Unlike the live GET
+  // route (which hides finished stops), turnover SHOWS delivered ones too: the
+  // courier earned that money whether or not the stop is still pending, so the
+  // number must NOT shrink as they mark deliveries done — hence display 'all'.
+  // The leg each order belongs to is identical either way; the day's partition
+  // is always the confirmed+delivered basis. Result is the driver's own leg only
+  // (admins/operators get the whole day).
   @Get('route/my-turnover')
   @UseGuards(ActiveSubscriptionGuard)
   @Roles('admin', 'driver')
@@ -106,14 +106,7 @@ export class RoutingController {
     @CurrentUser() user: TenantRequestUser,
     @Query('date') date?: string,
   ) {
-    const result = await this.routingService.getRoute(
-      tenantId,
-      date,
-      undefined,
-      undefined,
-      undefined,
-      ['confirmed', 'delivered'],
-    );
+    const result = await this.routingService.getRoute(tenantId, date, undefined, undefined, undefined, 'all');
     if (user.role !== 'driver') return result;
     // Resolve the driver's leg for the day the same way the live route does
     // (per-day board, not the retired JWT courierIndex). Unassigned → empty.
@@ -179,7 +172,9 @@ export class RoutingController {
         : null;
     const courierIndex = isDriver ? myLeg ?? undefined : dto.courierIndex;
     if (isDriver && dto.stopIds.length > 0) {
-      const own = await this.routingService.getRoute(tenantId, dto.date, dto.endMode);
+      // 'all' — an ownership check must see the driver's finished stops too, or
+      // measuring a route that includes one they already delivered is refused.
+      const own = await this.routingService.getRoute(tenantId, dto.date, dto.endMode, undefined, undefined, 'all');
       const ownIds = new Set(
         own.routes.filter((r) => r.courierIndex === myLeg).flatMap((r) => r.stops.map((s) => s.id)),
       );

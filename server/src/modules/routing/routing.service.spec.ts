@@ -635,3 +635,141 @@ describe('RoutingService.getRoute — assignment board overrides leg count', () 
     expect(stopA.summary).toContain('Краставици × 1');
   });
 });
+
+/**
+ * The split basis must not move as the day is worked.
+ *
+ * `sweepSplit` is a balancing partition over whatever stop set it is handed, so
+ * the row filter feeding it decides the PARTITION, not merely what gets
+ * rendered. Filtering to 'confirmed' before the split means every completed
+ * delivery shrinks the set and re-partitions the survivors — migrating another
+ * courier's stops (with their customer's name, phone, email and address) onto
+ * this driver's leg. The day's basis is therefore always confirmed + delivered;
+ * finished stops are dropped for DISPLAY only, after the partition is fixed.
+ *
+ * `makeDb` below applies the WHERE clause's status filter to its rows the way
+ * Postgres would. Without that, a mock returns the same set whatever is asked
+ * of it, the partition trivially matches, and the bug hides.
+ */
+describe('RoutingService.getRoute — the partition is fixed for the day', () => {
+  function makeDb(selectResults: any[][]) {
+    const results = [...selectResults];
+    const whereCalls: unknown[] = [];
+    const db = {
+      select: () => {
+        const result = results.length ? results.shift()! : [];
+        let where: unknown;
+        // Model `status IN (...)`: a row survives only if the WHERE clause asked
+        // for its status. Rows without a status (the tenant row) pass through.
+        const rows = () =>
+          result.filter(
+            (r: any) => r?.status == null || paramValues(where).includes(r.status),
+          );
+        const chain: any = {
+          from: () => chain,
+          leftJoin: () => chain,
+          where: (w: unknown) => {
+            where = w;
+            whereCalls.push(w);
+            return chain;
+          },
+          orderBy: () => Promise.resolve(rows()),
+          limit: () => Promise.resolve(rows()),
+          then: (resolve: any, reject: any) => Promise.resolve(rows()).then(resolve, reject),
+        };
+        return chain;
+      },
+    } as any;
+    return { db, whereCalls };
+  }
+
+  const geoOrder = (id: string, lat: number, lng: number) => ({
+    id,
+    customer: `клиент ${id}`,
+    phone: '0888',
+    email: null,
+    address: `адрес ${id}`,
+    note: null,
+    lat: String(lat),
+    lng: String(lng),
+    status: 'confirmed',
+  });
+
+  /** The day's six orders; `deliveredIds` have already been dropped off. */
+  const dayOrders = (deliveredIds: string[] = []) =>
+    [
+      geoOrder('A', 43.24, 27.9),
+      geoOrder('B', 43.23, 27.95),
+      geoOrder('C', 43.2, 27.98),
+      geoOrder('D', 43.16, 27.96),
+      geoOrder('E', 43.14, 27.9),
+      geoOrder('F', 43.18, 27.86),
+    ].map((s) => (deliveredIds.includes(s.id) ? { ...s, status: 'delivered' } : s));
+
+  const makeMaps = () =>
+    ({
+      route: jest.fn(async (_o: any, pts: any[]) => ({
+        order: pts.map((_: any, i: number) => i),
+        distanceM: 1000,
+        durationS: 600,
+        polyline: 'g',
+      })),
+      routeFixed: jest.fn().mockResolvedValue({ distanceM: 900, durationS: 600, polyline: 'r' }),
+      geocode: jest.fn(),
+    }) as any;
+
+  const tenant = () => ({
+    farmAddress: 'Ферма',
+    farmLat: '43.17',
+    farmLng: '27.84',
+    settings: { routing: {} },
+  });
+
+  const noBoard = () => ({ getAssignmentsForDay: jest.fn().mockResolvedValue([]) }) as any;
+
+  /** stop id → the courierIndex whose leg it landed on. */
+  const legById = (result: { routes: { courierIndex: number; stops: { id: string }[] }[] }) => {
+    const map: Record<string, number> = {};
+    for (const r of result.routes) for (const s of r.stops) map[s.id] = r.courierIndex;
+    return map;
+  };
+
+  it('asks for the whole day — confirmed AND delivered — whatever it ends up showing', async () => {
+    const { db, whereCalls } = makeDb([[tenant()], dayOrders(), []]);
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, noBoard());
+
+    await svc.getRoute('t1', '2026-07-15', undefined, 2);
+
+    // whereCalls[0] is the tenant lookup; [1] is the day's orders query.
+    const params = paramValues(whereCalls[1]);
+    expect(params).toContain('confirmed');
+    expect(params).toContain('delivered');
+  });
+
+  it('keeps every remaining stop on the leg it started the day on, once three are delivered', async () => {
+    const svcFor = (rows: any[]) => {
+      const { db } = makeDb([[tenant()], rows, []]);
+      return new RoutingService(db, makeMaps(), {} as any, {} as any, noBoard());
+    };
+
+    // Morning: nothing delivered — this is the partition the couriers left with.
+    const morning = legById(await svcFor(dayOrders()).getRoute('t1', '2026-07-15', undefined, 2));
+    // Afternoon: A, B and C are done. D, E and F must not have changed hands.
+    const afternoon = legById(
+      await svcFor(dayOrders(['A', 'B', 'C'])).getRoute('t1', '2026-07-15', undefined, 2),
+    );
+
+    for (const id of ['D', 'E', 'F']) {
+      expect(afternoon[id]).toBe(morning[id]);
+    }
+  });
+
+  it('drops the delivered stops from the live route', async () => {
+    const { db } = makeDb([[tenant()], dayOrders(['A', 'B', 'C']), []]);
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, noBoard());
+
+    const result = await svc.getRoute('t1', '2026-07-15', undefined, 2);
+
+    expect(Object.keys(legById(result)).sort()).toEqual(['D', 'E', 'F']);
+  });
+});
