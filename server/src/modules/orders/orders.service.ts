@@ -1475,6 +1475,29 @@ export class OrdersService {
 
     let variantStockTouched = false;
     await this.db.transaction(async (tx) => {
+      // Serialize this edit against a concurrent cancel/restore or a second edit:
+      // lock the order row FIRST — before reading its items below — so the stock
+      // restore runs against the row's committed state exactly once. The cancel path
+      // takes the same row lock via its atomic `UPDATE orders … RETURNING`, and a
+      // second updateOrder blocks here too; the loser then re-reads FRESH oldItems
+      // instead of double-adding a stale snapshot's quantity (which inflated variant
+      // stock / window remaining → oversell, and clobbered the earlier edit).
+      const [locked] = await tx
+        .select({ paidAt: orders.paidAt, codOutcome: orders.codOutcome })
+        .from(orders)
+        .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+        .for('update')
+        .limit(1);
+      if (!locked) throw new NotFoundException('Поръчката не е намерена');
+      // Re-assert the collected-money guard under the lock: a COD 'received' or card
+      // payment that committed between the outer read and acquiring this lock must
+      // still block an item edit (the outer check above raced it).
+      if (dto.items && (locked.paidAt || locked.codOutcome === 'received')) {
+        throw new BadRequestException(
+          'Поръчка с прибрано плащане — артикулите не могат да се променят.',
+        );
+      }
+
       // Slot reassign — only when slotId is present in the patch and differs.
       if (dto.slotId !== undefined && dto.slotId !== current.slotId && dto.slotId !== null) {
         await this.lockAndCheckSlot(tx, tenantId, dto.slotId, id);

@@ -40,6 +40,8 @@ describe('updateOrder guards', () => {
       jest.spyOn(svc, 'findOne').mockResolvedValue({} as any);
       (svc as any).db.transaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({
+          // the FOR UPDATE order-row lock the fix takes first — un-collected here
+          select: () => ({ from: () => ({ where: () => ({ for: () => ({ limit: () => Promise.resolve([{ paidAt: null, codOutcome: null }]) }) }) }) }),
           update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
         }),
       );
@@ -96,6 +98,8 @@ describe('updateOrder geocode-miss clears stale coordinates/city', () => {
       select: jest.fn(() => (selectCall++ === 0 ? orderChain : tenantChain)),
       transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx: any = {
+          // the FOR UPDATE order-row lock the fix takes first — un-collected here
+          select: () => ({ from: () => ({ where: () => ({ for: () => ({ limit: () => Promise.resolve([{ paidAt: null, codOutcome: null }]) }) }) }) }),
           update: jest.fn(() => {
             const c: any = {};
             c.set = jest.fn((v: Record<string, unknown>) => {
@@ -178,11 +182,17 @@ describe('updateOrder item replacement wiring', () => {
     const setCapture: Record<string, unknown>[] = [];
     let insertedRows: unknown[] | undefined;
 
+    let txSel = 0;
     const db: any = {
       select: jest.fn(() => orderChain),
       transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx: any = {
-          select: () => ({ from: () => ({ where: () => Promise.resolve(oldItems) }) }),
+          // call 0 is the FOR UPDATE order-row lock the fix takes first; later calls
+          // are the oldItems / products reads as before.
+          select: () =>
+            txSel++ === 0
+              ? { from: () => ({ where: () => ({ for: () => ({ limit: () => Promise.resolve([orderRow]) }) }) }) }
+              : { from: () => ({ where: () => Promise.resolve(oldItems) }) },
           delete: () => ({
             where: () => {
               calls.push('delete');
@@ -297,11 +307,15 @@ describe('updateOrder item replacement — grandfathers an unchanged inactive-pr
         const tx: any = {
           select: jest.fn(() => {
             const call = txSelectCall++;
+            if (call === 0) {
+              // the FOR UPDATE order-row lock the fix takes first
+              return { from: () => ({ where: () => ({ for: () => ({ limit: () => Promise.resolve([orderRow]) }) }) }) };
+            }
             return {
               from: () => ({
                 where: () =>
                   Promise.resolve(
-                    call === 0
+                    call === 1
                       ? oldItems
                       : [
                           { id: 'p1', isActive: false },
