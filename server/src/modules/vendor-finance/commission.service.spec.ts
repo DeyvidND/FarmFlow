@@ -3,7 +3,7 @@ import { CommissionService } from './commission.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 
 const CHAIN_METHODS = [
-  'select', 'from', 'where', 'innerJoin', 'leftJoin', 'limit', 'orderBy',
+  'select', 'from', 'where', 'innerJoin', 'leftJoin', 'limit', 'orderBy', 'groupBy',
   'update', 'insert', 'onConflictDoNothing', 'returning', 'delete',
 ] as const;
 
@@ -125,12 +125,22 @@ describe('CommissionService.voidForOrder', () => {
 describe('CommissionService.summary', () => {
   it('aggregates per farmer, names, totals', async () => {
     const db = makeDb();
+    // `summary` issues TWO queries: the per-farmer totals (aggregated in Postgres,
+    // names supplied by its leftJoin) and then the tenant's settings. The rows below
+    // are what Postgres returns for this ledger:
+    //   f1 — 700 accrued + 300 settled  → 2 orders, gross 1000, commission 100, settled 30
+    //   f2 — 999 accrued                → 1 order,  gross  999, commission  50, settled  0
+    // Shapes mirror node-pg: sum() arrives as a numeric STRING, count(*)::int as a number.
     db.queue([
-      { farmerId: 'f1', grossStotinki: 700, commissionStotinki: 70, status: 'accrued' },
-      { farmerId: 'f1', grossStotinki: 300, commissionStotinki: 30, status: 'settled' },
-      { farmerId: 'f2', grossStotinki: 999, commissionStotinki: 50, status: 'accrued' },
-    ]); // entries
-    db.queue([{ id: 'f1', name: 'Васил' }, { id: 'f2', name: 'Мариана' }]); // names
+      {
+        farmerId: 'f1', farmerName: 'Васил', orderCount: 2,
+        grossStotinki: '1000', commissionStotinki: '100', settledCommissionStotinki: '30',
+      },
+      {
+        farmerId: 'f2', farmerName: 'Мариана', orderCount: 1,
+        grossStotinki: '999', commissionStotinki: '50', settledCommissionStotinki: '0',
+      },
+    ]); // grouped
     db.queue([{ settings: { vendorFinance: { commissionEnabled: false } } }]); // tenant
 
     const s = await (await build(db)).summary(TENANT);
