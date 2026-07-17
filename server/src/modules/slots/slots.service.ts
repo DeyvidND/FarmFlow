@@ -15,6 +15,9 @@ import { SlotRule, slotRuleSlots, normalizeRule, migrateRule, clampCapacity } fr
 /** A delivery slot plus its live `booked` count (non-cancelled orders). */
 type SlotWithBooked = typeof deliverySlots.$inferSelect & { booked: number };
 
+/** A drizzle transaction handle (same query surface as the db). */
+type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+
 /**
  * Public-facing slot shape for the storefront picker. Internal columns
  * (`tenantId`, `isActive`, `createdAt`) are dropped. `startTime`/`endTime` are
@@ -52,6 +55,22 @@ export class SlotsService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly publicCache: PublicCacheService,
   ) {}
+
+  /**
+   * Run `fn` in a transaction holding a per-tenant advisory lock (seed 11 —
+   * distinct from order-number/handover salt 0, reschedule 1, commission 7), so
+   * every day-row create/materialize path serializes. `delivery_slots` has no
+   * unique on (tenant, date), so this lock is what stops two concurrent
+   * check-then-inserts from both creating the same date's row — a duplicate would
+   * double that date's booking capacity (oversell). DB-level, so it holds across
+   * app instances.
+   */
+  private lockForDayRows<T>(tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 11))`);
+      return fn(tx);
+    });
+  }
 
   /**
    * Slots for the tenant with a computed `booked` (count of non-cancelled orders
@@ -96,37 +115,46 @@ export class SlotsService {
         throw new BadRequestException('Няма дати, отговарящи на избраните дни');
       }
       // Bulk: a date that already has a day-row keeps it untouched — silently
-      // skipped rather than erroring out the whole range.
-      const existingRows = await this.db
-        .select({ date: deliverySlots.date })
-        .from(deliverySlots)
-        .where(and(eq(deliverySlots.tenantId, tenantId), inArray(deliverySlots.date, dates)));
-      const existingDates = new Set(existingRows.map((r) => r.date));
-      const toInsert = dates.filter((d) => !existingDates.has(d));
-      if (!toInsert.length) return [];
-      return this.db
-        .insert(deliverySlots)
-        .values(toInsert.map((date) => ({ ...base, date })))
-        .returning();
+      // skipped rather than erroring out the whole range. The check-then-insert runs
+      // under a per-tenant advisory lock (delivery_slots has no unique on
+      // (tenant,date)), so two concurrent creates/materializes can't both read "date
+      // absent" and each insert it → duplicate day-rows would double a date's booking
+      // capacity (oversell). See lockForDayRows.
+      return this.lockForDayRows(tenantId, async (tx) => {
+        const existingRows = await tx
+          .select({ date: deliverySlots.date })
+          .from(deliverySlots)
+          .where(and(eq(deliverySlots.tenantId, tenantId), inArray(deliverySlots.date, dates)));
+        const existingDates = new Set(existingRows.map((r) => r.date));
+        const toInsert = dates.filter((d) => !existingDates.has(d));
+        if (!toInsert.length) return [];
+        return tx
+          .insert(deliverySlots)
+          .values(toInsert.map((date) => ({ ...base, date })))
+          .returning();
+      });
     }
 
     // One day-row per (tenant, date) — a second create() on an already-open day
     // must not silently double the day up; the farmer edits the existing row's
-    // capacity via update() instead.
-    const [existing] = await this.db
-      .select({ id: deliverySlots.id })
-      .from(deliverySlots)
-      .where(and(eq(deliverySlots.tenantId, tenantId), eq(deliverySlots.date, dto.date)))
-      .limit(1);
-    if (existing) {
-      throw new BadRequestException('Този ден вече е отворен — редактирай капацитета му');
-    }
+    // capacity via update() instead. Under the advisory lock so two concurrent
+    // creates can't both pass the existence check and insert two rows for the date.
+    return this.lockForDayRows(tenantId, async (tx) => {
+      const [existing] = await tx
+        .select({ id: deliverySlots.id })
+        .from(deliverySlots)
+        .where(and(eq(deliverySlots.tenantId, tenantId), eq(deliverySlots.date, dto.date)))
+        .limit(1);
+      if (existing) {
+        throw new BadRequestException('Този ден вече е отворен — редактирай капацитета му');
+      }
 
-    const [row] = await this.db
-      .insert(deliverySlots)
-      .values({ ...base, date: dto.date })
-      .returning();
-    return row;
+      const [row] = await tx
+        .insert(deliverySlots)
+        .values({ ...base, date: dto.date })
+        .returning();
+      return row;
+    });
   }
 
   async update(id: string, tenantId: string, dto: UpdateSlotDto) {
@@ -424,39 +452,45 @@ export class SlotsService {
     const wanted = slotRuleSlots(rule, today);
     if (!wanted.length) return 0;
 
-    const existing = await this.db
-      .select({
-        date: deliverySlots.date,
-      })
-      .from(deliverySlots)
-      .where(
-        and(
-          eq(deliverySlots.tenantId, tenantId),
-          gte(deliverySlots.date, wanted[0].date),
-          lte(deliverySlots.date, wanted[wanted.length - 1].date),
-        ),
-      );
-    // One GenSlot per date now (no more per-window sub-slots), so the diff keys
-    // on date alone — and against ANY row on the date, not just generated ones:
-    // a manual (generated=false) day-row suppresses the rule's row for that date,
-    // preserving the one-day-row-per-(tenant,date) invariant that create()'s
-    // duplicate guard establishes. A rule edit that changes a day's capacity is
-    // handled by the force-rebuild path (saveRule deletes future unbooked
-    // generated rows first), not by this diff.
-    const have = new Set(existing.map((r) => r.date));
-    const missing = wanted.filter((w) => !have.has(w.date));
-    if (missing.length) {
-      await this.db.insert(deliverySlots).values(
-        missing.map((w) => ({
-          tenantId,
-          date: w.date,
-          generated: true,
-          capacity: w.capacity,
-          customerNote: rule.customerNote ?? null,
-          driverNote: rule.driverNote ?? null,
-        })),
-      );
-    }
+    // Diff + insert under the per-tenant advisory lock so a concurrent create() or
+    // a second materialize can't both read a date as absent and each insert its
+    // day-row (duplicate → doubled capacity → oversell).
+    const missingCount = await this.lockForDayRows(tenantId, async (tx) => {
+      const existing = await tx
+        .select({
+          date: deliverySlots.date,
+        })
+        .from(deliverySlots)
+        .where(
+          and(
+            eq(deliverySlots.tenantId, tenantId),
+            gte(deliverySlots.date, wanted[0].date),
+            lte(deliverySlots.date, wanted[wanted.length - 1].date),
+          ),
+        );
+      // One GenSlot per date now (no more per-window sub-slots), so the diff keys
+      // on date alone — and against ANY row on the date, not just generated ones:
+      // a manual (generated=false) day-row suppresses the rule's row for that date,
+      // preserving the one-day-row-per-(tenant,date) invariant that create()'s
+      // duplicate guard establishes. A rule edit that changes a day's capacity is
+      // handled by the force-rebuild path (saveRule deletes future unbooked
+      // generated rows first), not by this diff.
+      const have = new Set(existing.map((r) => r.date));
+      const missing = wanted.filter((w) => !have.has(w.date));
+      if (missing.length) {
+        await tx.insert(deliverySlots).values(
+          missing.map((w) => ({
+            tenantId,
+            date: w.date,
+            generated: true,
+            capacity: w.capacity,
+            customerNote: rule.customerNote ?? null,
+            driverNote: rule.driverNote ?? null,
+          })),
+        );
+      }
+      return missing.length;
+    });
     if (rule.lastMaterializedDate !== today) {
       await this.db
         .update(tenants)
@@ -465,7 +499,7 @@ export class SlotsService {
         })
         .where(eq(tenants.id, tenantId));
     }
-    return missing.length;
+    return missingCount;
   }
 
   /** Append a date to the rule's skipDates so the generator won't recreate it. */
