@@ -43,7 +43,11 @@ import { CommissionService } from '../vendor-finance/commission.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay, scheduledForRange, pickNearestDay } from './order-scheduling';
-import { subtotalStotinki, recomputeTotalStotinki } from './order-total.util';
+import {
+  subtotalStotinki,
+  recomputeTotalStotinki,
+  assertOrderTotalWithinBounds,
+} from './order-total.util';
 import { decideDecrement, decideDecrementPooled, restoreRemaining } from '../availability/availability.util';
 import { slotIsFull, slotUnavailableReason, migrateRule, ruleProducesDate } from '../slots/slot-rule';
 
@@ -2611,6 +2615,9 @@ export class OrdersService {
       } = await this.reserveCartItems(tx, tenant.id, dto.items, slotId, carrierDelivery, true);
       variantStockTouched = touched;
       const total = prepared.reduce((s, i) => s + i.priceStotinki * i.quantity, 0);
+      // Bound the aggregate before it hits the int4 total_stotinki column — the
+      // per-line @Max(10_000) qty guard does not stop the sum overflowing int4.
+      assertOrderTotalWithinBounds(total);
       // order_items has no farmer_id column — strip it before insert.
       const items = prepared.map(({ farmerId: _f, ...line }) => line);
 
@@ -2775,6 +2782,7 @@ export class OrdersService {
       for (const fid of farmerIds) {
         const lines = groups.get(fid)!;
         const total = lines.reduce((s, i) => s + i.priceStotinki * i.quantity, 0);
+        assertOrderTotalWithinBounds(total); // same int4 bound on the per-farmer courier order
         const [order] = await tx
           .insert(orders)
           .values({
