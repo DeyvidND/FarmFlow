@@ -48,6 +48,7 @@ import {
   recomputeTotalStotinki,
   assertOrderTotalWithinBounds,
 } from './order-total.util';
+import { intCaseById } from './order-stock.util';
 import { decideDecrement, decideDecrementPooled, restoreRemaining } from '../availability/availability.util';
 import { slotIsFull, slotUnavailableReason, migrateRule, ruleProducesDate } from '../slots/slot-rule';
 
@@ -2193,11 +2194,17 @@ export class OrdersService {
       const win = winByProduct.get(it.productId);
       if (win) win.remaining = restoreRemaining(win, it.quantity);
     }
-    for (const w of activeWindows) {
+    // One set-based UPDATE (CASE per window) instead of a per-window UPDATE loop —
+    // fewer round-trips while these rows are held under FOR UPDATE.
+    const winUpdates = activeWindows
+      .filter((w) => w.remaining != null)
+      .map((w) => ({ id: w.id, value: w.remaining as number }));
+    const winCase = intCaseById(productAvailabilityWindows.id, winUpdates);
+    if (winCase) {
       await tx
         .update(productAvailabilityWindows)
-        .set({ remaining: w.remaining })
-        .where(eq(productAvailabilityWindows.id, w.id));
+        .set({ remaining: winCase })
+        .where(inArray(productAvailabilityWindows.id, winUpdates.map((u) => u.id)));
     }
   }
 
@@ -2226,10 +2233,17 @@ export class OrdersService {
     for (const it of items) {
       if (it.variantId) add.set(it.variantId, (add.get(it.variantId) ?? 0) + it.quantity);
     }
-    for (const v of rows) {
-      if (v.stockQuantity == null) continue; // unlimited
-      const restored = v.stockQuantity + (add.get(v.id) ?? 0);
-      await tx.update(productVariants).set({ stockQuantity: restored }).where(eq(productVariants.id, v.id));
+    // One set-based UPDATE (CASE per variant) instead of a per-variant UPDATE loop;
+    // each restored value is the locked stock + the released quantity.
+    const stockUpdates = rows
+      .filter((v) => v.stockQuantity != null)
+      .map((v) => ({ id: v.id, value: (v.stockQuantity as number) + (add.get(v.id) ?? 0) }));
+    const stockCase = intCaseById(productVariants.id, stockUpdates);
+    if (stockCase) {
+      await tx
+        .update(productVariants)
+        .set({ stockQuantity: stockCase })
+        .where(inArray(productVariants.id, stockUpdates.map((u) => u.id)));
     }
     return rows.some((v) => v.stockQuantity != null);
   }
@@ -2425,11 +2439,17 @@ export class OrdersService {
         });
       }
     }
-    for (const w of activeWindows) {
+    // One set-based UPDATE (CASE per window) instead of a per-window UPDATE loop —
+    // fewer round-trips while these rows are held under FOR UPDATE.
+    const winUpdates = activeWindows
+      .filter((w) => w.remaining != null)
+      .map((w) => ({ id: w.id, value: w.remaining as number }));
+    const winCase = intCaseById(productAvailabilityWindows.id, winUpdates);
+    if (winCase) {
       await tx
         .update(productAvailabilityWindows)
-        .set({ remaining: w.remaining })
-        .where(eq(productAvailabilityWindows.id, w.id));
+        .set({ remaining: winCase })
+        .where(inArray(productAvailabilityWindows.id, winUpdates.map((u) => u.id)));
     }
 
     // Variant stock decrement (mirrors the window block; stockQuantity null = unlimited).
@@ -2441,10 +2461,17 @@ export class OrdersService {
       if (!decision.ok) throw new ConflictException(`Няма достатъчна наличност: ${v.label}`);
       if (v.stockQuantity != null && decision.newRemaining != null) v.stockQuantity = decision.newRemaining;
     }
-    for (const v of variantRows) {
-      if (v.stockQuantity != null) {
-        await tx.update(productVariants).set({ stockQuantity: v.stockQuantity }).where(eq(productVariants.id, v.id));
-      }
+    // One set-based UPDATE (CASE per variant) instead of a per-variant UPDATE loop —
+    // each row's new stock was already computed in the decrement loop above.
+    const variantUpdates = variantRows
+      .filter((v) => v.stockQuantity != null)
+      .map((v) => ({ id: v.id, value: v.stockQuantity as number }));
+    const variantCase = intCaseById(productVariants.id, variantUpdates);
+    if (variantCase) {
+      await tx
+        .update(productVariants)
+        .set({ stockQuantity: variantCase })
+        .where(inArray(productVariants.id, variantUpdates.map((u) => u.id)));
     }
 
     // Promo expiry is coarse (date-level), so a plain wall-clock Date is correct.
