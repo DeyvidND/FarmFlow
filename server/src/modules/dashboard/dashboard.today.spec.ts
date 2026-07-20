@@ -85,4 +85,36 @@ describe('DashboardService.todaySummary', () => {
     const out = await svc(db).todaySummary('t1', '2026-07-20');
     expect(out.protocols).toEqual({ total: 4, signed: 1, pending: 3 }); // 2+2 expected, 1 signed
   });
+
+  it('maps slots for the day', async () => {
+    const db = makeDb({
+      slots: [
+        { id: 's1', timeFrom: '09:00', timeTo: '10:00', capacity: 3, booked: 1 },
+        { id: 's2', timeFrom: '10:00', timeTo: '11:00', capacity: 2, booked: 2 },
+      ],
+    });
+    const out = await svc(db).todaySummary('t1', '2026-07-20');
+    expect(out.slots).toEqual([
+      { id: 's1', timeFrom: '09:00', timeTo: '10:00', capacity: 3, booked: 1 },
+      { id: 's2', timeFrom: '10:00', timeTo: '11:00', capacity: 2, booked: 2 },
+    ]);
+  });
+
+  it('scopes the pipeline query to the tenant (filter is modelled, not ignored)', async () => {
+    const { PgDialect } = require('drizzle-orm/pg-core');
+    let captured: any;
+    const base = makeDb({});
+    const realSelect = base.select;
+    base.select = jest.fn((proj: any) => {
+      const chain = realSelect(proj);
+      if (Object.keys(proj).includes('status')) {
+        const realWhere = chain.where;
+        chain.where = jest.fn((cond: any) => { captured = cond; return realWhere(cond); });
+      }
+      return chain;
+    });
+    await svc(base).todaySummary('tenant-XYZ', '2026-07-20');
+    const { params } = new PgDialect().sqlToQuery(captured);
+    expect(params).toContain('tenant-XYZ'); // tenant scope present in the WHERE
+  });
 });

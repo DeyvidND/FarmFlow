@@ -113,32 +113,12 @@ export class DashboardService {
       .where(eq(tenants.id, tenantId))
       .limit(1);
 
-    const slotRowsP = this.db
-      .select({
-        id: deliverySlots.id,
-        timeFrom: deliverySlots.timeFrom,
-        timeTo: deliverySlots.timeTo,
-        capacity: deliverySlots.capacity,
-        booked: sql<number>`count(${orders.id}) filter (where ${orders.status} <> 'cancelled')::int`,
-      })
-      .from(deliverySlots)
-      .leftJoin(orders, eq(orders.slotId, deliverySlots.id))
-      .where(
-        and(
-          eq(deliverySlots.tenantId, tenantId),
-          sql`${deliverySlots.date} = ${day}`,
-          eq(deliverySlots.isActive, true),
-        )!,
-      )
-      .groupBy(deliverySlots.id, deliverySlots.date, deliverySlots.timeFrom, deliverySlots.timeTo, deliverySlots.capacity)
-      .orderBy(deliverySlots.date, deliverySlots.timeFrom);
-
     const [[agg], [prod], [{ yesterday }], [tenant], slotRows] = await Promise.all([
       aggP,
       productRevP,
       yesterdayP,
       tenantP,
-      slotRowsP,
+      this.slotsForDay(tenantId, day),
     ]);
 
     const slots: DashboardSlot[] = slotRows.map((s) => ({
@@ -160,6 +140,23 @@ export class DashboardService {
       slots,
       subscriptionActive: tenant?.status !== 'inactive',
     };
+  }
+
+  /** Active slots for `day` with a live non-cancelled booked count. */
+  private slotsForDay(tenantId: string, day: string) {
+    return this.db
+      .select({
+        id: deliverySlots.id,
+        timeFrom: deliverySlots.timeFrom,
+        timeTo: deliverySlots.timeTo,
+        capacity: deliverySlots.capacity,
+        booked: sql<number>`count(${orders.id}) filter (where ${orders.status} <> 'cancelled')::int`,
+      })
+      .from(deliverySlots)
+      .leftJoin(orders, eq(orders.slotId, deliverySlots.id))
+      .where(and(eq(deliverySlots.tenantId, tenantId), sql`${deliverySlots.date} = ${day}`, eq(deliverySlots.isActive, true))!)
+      .groupBy(deliverySlots.id, deliverySlots.date, deliverySlots.timeFrom, deliverySlots.timeTo, deliverySlots.capacity)
+      .orderBy(deliverySlots.date, deliverySlots.timeFrom);
   }
 
   /** Delivery-day operations cockpit — one round of cheap grouped counts. */
@@ -229,8 +226,8 @@ export class DashboardService {
       .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
       .where(and(eq(orders.tenantId, tenantId), eq(orders.deliveryType, 'address'), inArray(orders.status, ['confirmed', 'preparing']), sched));
 
-    const [pipelineRows, courierRows, [cod], fulfilledRows, [signedRow], farmerLegRows, [custRow]] = await Promise.all([
-      pipelineP, couriersP, codP, fulfilledP, signedP, farmerLegsP, customerLegsP,
+    const [pipelineRows, courierRows, [cod], fulfilledRows, [signedRow], farmerLegRows, [custRow], slotRows] = await Promise.all([
+      pipelineP, couriersP, codP, fulfilledP, signedP, farmerLegsP, customerLegsP, this.slotsForDay(tenantId, day),
     ]);
 
     const protoTotal = farmerLegRows.length + (custRow?.customerLegs ?? 0);
@@ -251,6 +248,9 @@ export class DashboardService {
       .reduce((a, r) => a + r.totalStotinki, 0);
     const routeStops = ACTIVE.reduce((a, s) => a + addr(s), 0);
     const routeDelivered = addr('delivered');
+    const slots: DashboardSlot[] = slotRows.map((s) => ({
+      id: s.id, timeFrom: s.timeFrom, timeTo: s.timeTo, booked: s.booked, capacity: s.capacity,
+    }));
 
     return {
       date: day,
@@ -260,7 +260,7 @@ export class DashboardService {
       protocols: { total: protoTotal, signed: protoSigned, pending: Math.max(0, protoTotal - protoSigned) },
       cod: cod ?? { toCollectStotinki: 0, toCollectCount: 0, collectedStotinki: 0, collectedCount: 0 },
       revenueStotinki,
-      slots: [],
+      slots,
     };
   }
 }
