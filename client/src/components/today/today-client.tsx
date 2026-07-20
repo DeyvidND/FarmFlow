@@ -64,20 +64,32 @@ export default function TodayClient({
     }
   }
 
-  /** «Потвърди всички» — confirm every «Нови» order for the day at once. */
+  /** «Потвърди всички» — confirm every «Нови» order for the day at once. The
+   *  mutation and the post-mutation refetch are handled as separate failure
+   *  domains: only a failed `confirmPending` rolls back the optimistic pipeline
+   *  and shows an error — a refetch blip AFTER a successful confirm must not,
+   *  since the confirm itself already succeeded server-side. */
   async function onConfirmAll() {
     const prev = summary;
     setConfirming(true);
     setSummary((s) => ({ ...s, pipeline: applyConfirmAll(s.pipeline) })); // optimistic
     try {
       await confirmPending(date);
+    } catch (e) {
+      setSummary(prev); // rollback — the confirm itself failed
+      toast.error(errMsg(e));
+      setConfirming(false);
+      return;
+    }
+    toast.success('Поръчките са потвърдени');
+    try {
       const [s, page] = await Promise.all([getTodaySummary(date), listOrders({ date, limit: 100 })]);
       setSummary(s);
       setOrders(page.items);
-      toast.success('Поръчките са потвърдени');
     } catch (e) {
-      setSummary(prev); // rollback
-      toast.error(errMsg(e));
+      // Confirm already succeeded — a refetch blip is not a user-facing failure.
+      // Leave the optimistic state in place rather than rolling back a real success.
+      console.error('Днес: post-confirm refetch failed', e);
     } finally {
       setConfirming(false);
     }
