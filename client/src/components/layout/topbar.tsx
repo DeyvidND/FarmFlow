@@ -122,7 +122,7 @@ function toInitials(name: string): string {
 // screen reads the same name in the menu and in the top bar. Every admin route
 // needs an entry — a missing one falls back to a bare "ФермериБГ".
 const PAGE_TITLES: Record<string, string> = {
-  '/dashboard': 'Табло',
+  '/dashboard': 'Днес',
   '/orders': 'Поръчки',
   '/prep': 'Подготовка',
   '/route': 'Маршрут',
