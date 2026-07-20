@@ -25,39 +25,50 @@ should share a branch.
 
 ---
 
-## WP1 — Mobile modal + navigation fixes (items 1–4) · size S
+## WP1 — Comprehensive mobile hardening of the route section (items 1–4) · size M
 
-### Problem
-On a phone (~375px), three route modals overflow the viewport and their action buttons
-are unreachable; map/nav buttons open a new browser tab instead of the Maps/Waze app.
+**Scope broadened per operator:** make the whole `/route` section as phone-usable as
+possible — sweep **every** modal and the main layout for horizontal overflow and
+unreachable controls, not only the three known-broken modals.
 
-### Root causes (file:line)
-- **„Смени адрес" unsaveable:** `client/src/components/route/edit-address-modal.tsx:113`
-  — inner panel has **no `max-height` / `overflow-y-auto`**, but holds a `h-[300px]` map
-  (`:156`) + fields + Save. Content exceeds a phone viewport; because the wrapper is
-  `grid place-items-center`, overflow is clipped top+bottom and „Запази" (`:203`) is
-  off-screen with no scroll. Map uses `gestureHandling="greedy"` (`:163`) so touch-drag
-  pans the map instead of scrolling.
-- **Same missing scroll pattern:** `location-route-card.tsx:77`, `waze-stepper.tsx:46`.
-- **New-tab annoyance:** nav opens via `window.open(url, '_blank')` —
+### Problems (confirmed + to sweep)
+- **„Смени адрес" unsaveable (confirmed):** `edit-address-modal.tsx:113` — inner panel
+  has **no `max-height` / `overflow-y-auto`** but holds a `h-[300px]` map (`:156`) +
+  fields + Save. On a phone the wrapper is `grid place-items-center`, so overflow is
+  clipped top+bottom and „Запази" (`:203`) is off-screen with no scroll. Map uses
+  `gestureHandling="greedy"` (`:163`) → touch-drag pans the map, not the modal.
+- **Same missing-scroll pattern (confirmed):** `location-route-card.tsx:77`,
+  `waze-stepper.tsx:46`.
+- **New-tab annoyance (confirmed):** nav uses `window.open(url, '_blank')` —
   `route-client.tsx:850` (single stop), `:675` (full route), `:692` (Waze), `:1052`
   (extra legs). `tel:`/`mailto:` correctly use `_self` (`:857`, `:861`).
-- **Address clipped:** `stop-list.tsx:214` uses `truncate`; icon buttons are 32px.
+- **Address clipped (confirmed):** `stop-list.tsx:214` uses `truncate`; icon buttons 32px.
+- **To sweep (horizontal overflow / reachability):** every modal opened from the route
+  page (add-orders, courier-assignment-board, courier-homes, courier-starts,
+  delivery-windows, reorder-stops, route-day-suggester, settings-drawer, order-panel,
+  confirm-dialog, help/explainer) **and** the main `route-client.tsx` layout — toolbars,
+  the route-menu, chip rows, the extra-legs bar, stop cards — for: fixed `w-[..px]`
+  without `max-w`, non-wrapping `flex` rows, `min-w`/`whitespace-nowrap` that force a
+  horizontal scrollbar at 375px, and any control pushed off-screen.
 
 ### Fix
 - Add `max-h-[85vh] overflow-y-auto` to the three center modals, copying the working
   sibling pattern (`route-day-suggester-modal.tsx`, `order-panel.tsx` already do this).
 - edit-address: put scroll on the wrapper; shrink the map under a mobile breakpoint
-  (`h-[300px]` → `max-[680px]:h-[200px]`) so Save is always visible. Keep map greedy.
+  (`h-[300px]` → `max-[680px]:h-[200px]`) so Save stays visible. Keep map greedy.
 - Nav buttons: open with `_self` on mobile (deep-links the Maps/Waze app), keep `_blank`
   on desktop. Reuse existing `isMobileBrowser()` (`route-client.tsx:81`).
-- Address line: `line-clamp-2` instead of `truncate`; bump icon buttons to 40px touch
-  target.
+- Address line: `line-clamp-2` instead of `truncate`; icon buttons → 40px touch target.
+- Overflow sweep: for each defect found, cap width (`max-w-full`/`max-w-[..]`), allow
+  wrapping (`flex-wrap`), or make the row horizontally scroll **inside its own
+  container** (`overflow-x-auto`) so the page body never scrolls sideways.
 
 ### Acceptance
-On a 375px viewport: „Смени адрес" opens, scrolls, Save is tappable and persists; the
-other two modals scroll; tapping „Отвори в Google Maps"/„Навигирай с Waze" opens the app
-(or same tab), not a new tab; full address is readable.
+On a 375px viewport across the whole route section: **no horizontal page scroll**
+anywhere; every modal fits, scrolls vertically, and all its actions are reachable;
+„Смени адрес" Save persists; tapping „Отвори в Google Maps"/„Навигирай с Waze" opens the
+app (or same tab), not a new tab; full address is readable; primary toolbars/menus are
+usable one-handed. Verified in-browser at 375px with screenshots.
 
 ---
 
@@ -95,8 +106,10 @@ logs a full stack server-side rather than a silent 500.
 ## WP3 — Board courier-count map rebalance (item 5) · size M
 
 ### Problem
-With the „Куриери за деня" board active, reducing 2 couriers → 1 does not merge stops on
-the map: courier 1 keeps its 3 stops instead of absorbing all 5.
+With the „Куриери за деня" board active (2 couriers, 5 orders split 3 + 2), reducing to
+1 courier for the day does not merge stops: the rendered Google map shows **only 3
+points, no refresh** — the removed courier's 2 stops are never reassigned to the survivor
+and the map never recomputes to 5.
 
 ### Root cause (file:line)
 `server/src/modules/routing/routing.service.ts:557-560` —

@@ -168,7 +168,7 @@ export function StopList({
                       onEditAddress(s);
                     }}
                     title="Смени адрес"
-                    className="grid h-8 w-8 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
+                    className="grid h-8 w-8 max-[680px]:h-10 max-[680px]:w-10 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
                   >
                     <MapPinned size={16} />
                   </button>
@@ -178,7 +178,7 @@ export function StopList({
                       onOpenMaps(s);
                     }}
                     title="Отвори в Google Maps"
-                    className="grid h-8 w-8 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
+                    className="grid h-8 w-8 max-[680px]:h-10 max-[680px]:w-10 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
                   >
                     <Navigation size={16} />
                   </button>
@@ -190,7 +190,7 @@ export function StopList({
                         onCall(s);
                       }}
                       title={`Обади се на ${s.phone}`}
-                      className="grid h-8 w-8 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
+                      className="grid h-8 w-8 max-[680px]:h-10 max-[680px]:w-10 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
                     >
                       <Phone size={16} />
                     </button>
@@ -202,7 +202,7 @@ export function StopList({
                         onEmail(s);
                       }}
                       title={`Имейл до ${s.email}`}
-                      className="grid h-8 w-8 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
+                      className="grid h-8 w-8 max-[680px]:h-10 max-[680px]:w-10 place-items-center rounded-[9px] bg-ff-green-100 text-ff-green-700 transition hover:brightness-95"
                     >
                       <Mail size={16} />
                     </button>
@@ -214,7 +214,7 @@ export function StopList({
               <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-ff-ink-2">
                 <span className="flex min-w-0 items-center gap-[5px]">
                   <MapPin size={14} className="shrink-0" />
-                  <span className="truncate">{s.address ?? 'Няма адрес'}</span>
+                  <span className="line-clamp-2 break-words">{s.address ?? 'Няма адрес'}</span>
                 </span>
                 {s.note && (
                   <span className="w-full pl-[19px] text-[12px] text-ff-muted">{s.note}</span>

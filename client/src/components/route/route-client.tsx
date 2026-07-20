@@ -82,6 +82,12 @@ const isMobileBrowser = () =>
   typeof navigator !== 'undefined' &&
   /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i.test(navigator.userAgent);
 
+/** On phones a new browser tab is disruptive and clutters the tab strip — navigate the
+ *  current tab so the OS deep-links the Google Maps / Waze app instead. Desktop keeps a
+ *  new tab so the panel stays put. Not used for multi-leg opens (those need the panel to
+ *  survive so the remaining-leg buttons stay tappable). */
+const navTarget = () => (isMobileBrowser() ? '_self' : '_blank');
+
 /** Nodes per Google Maps directions leg = origin + N waypoints + destination. */
 const nodesPerLeg = () =>
   (isMobileBrowser() ? WAYPOINTS_PER_LEG_MOBILE : WAYPOINTS_PER_LEG_DESKTOP) + 2;
@@ -671,8 +677,10 @@ export function RouteClient({
       return;
     }
     // Open the first leg now (this click is the user gesture); queue the rest as
-    // buttons so the browser doesn't block a burst of pop-ups.
-    window.open(urls[0], '_blank', 'noopener');
+    // buttons so the browser doesn't block a burst of pop-ups. A single-leg route on
+    // mobile deep-links the Maps app in-place (navTarget); a multi-leg route must keep
+    // the panel alive for the remaining-leg buttons, so it always opens a new tab.
+    window.open(urls[0], urls.length > 1 ? '_blank' : navTarget(), 'noopener');
     if (urls.length > 1) {
       setExtraLegs(urls.slice(1));
       toast.info(`Дълъг маршрут — ${urls.length} отсечки. Отвори всяка с бутоните долу.`);
@@ -689,7 +697,7 @@ export function RouteClient({
       toast.error('Тази спирка не е на картата — провери адреса');
       return;
     }
-    window.open(url, '_blank', 'noopener');
+    window.open(url, navTarget(), 'noopener');
     setWazeIdx(Math.min(i + 1, wazeTargets.length));
   };
   const wazePrev = () => setWazeIdx((v) => Math.max(0, v - 1));
@@ -847,7 +855,7 @@ export function RouteClient({
   };
 
   const onOpenMaps = (s: RouteStop) => {
-    window.open(stopUrl(origin, s), '_blank', 'noopener');
+    window.open(stopUrl(origin, s), navTarget(), 'noopener');
   };
   const onCall = (s: RouteStop) => {
     if (!s.phone) {
