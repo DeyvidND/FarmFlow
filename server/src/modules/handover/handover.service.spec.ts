@@ -2,6 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { deliverySlots } from '@fermeribg/db';
 import { HandoverService } from './handover.service';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { encryptSignature, decryptSignature, looksEncrypted } from '../../common/crypto/signature-crypto';
+
+const FARMER_PNG = 'data:image/png;base64,FARMERSIGNATUREDATA==';
+const OP_PNG = 'data:image/png;base64,OPERATORSIGNATUREDATA==';
 
 /**
  * Drizzle's `and(...)`/`eq(...)` build a tree of `SQL` nodes whose
@@ -125,6 +129,36 @@ describe('HandoverService.buildDraft farmer_to_operator', () => {
     await expect(svc.buildDraft('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' }))
       .rejects.toThrow(/фермер/);
   });
+
+  it('attaches phone/email (party enrichment) + saved, decrypted signatures for the farmer and operator', async () => {
+    const OLD_KEY = process.env.ENCRYPTION_KEY;
+    process.env.ENCRYPTION_KEY = 'k';
+    try {
+      const db = makeDb();
+      db.queue([{
+        legal: { name: 'ЕТ Оператор' },
+        contact: { phone: '0899000000', email: 'op@example.bg' },
+        operatorSignaturePng: encryptSignature(OP_PNG, 'k'),
+      }]); // tenant settings.legal + settings.contact + operator signature
+      db.queue([{
+        id: 'f1',
+        legal: { name: 'ЕТ Васил' },
+        phone: '0888111222',
+        email: 'vasil@example.bg',
+        signaturePng: encryptSignature(FARMER_PNG, 'k'),
+      }]); // farmer + its saved signature
+      db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300, orderNumber: 5 }]);
+      const svc = await build(db);
+      const draft = await svc.buildDraft('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' });
+      expect(draft.from).toEqual({ name: 'ЕТ Васил', phone: '0888111222', email: 'vasil@example.bg' });
+      expect(draft.to).toEqual({ name: 'ЕТ Оператор', phone: '0899000000', email: 'op@example.bg' });
+      expect(draft.savedFromSignature).toBe(FARMER_PNG);
+      expect(draft.savedToSignature).toBe(OP_PNG);
+    } finally {
+      if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY;
+      else process.env.ENCRYPTION_KEY = OLD_KEY;
+    }
+  });
 });
 
 describe('HandoverService.buildDraft operator_to_customer', () => {
@@ -155,10 +189,45 @@ describe('HandoverService.buildDraft operator_to_customer', () => {
     const draft = await svc.buildDraft('t1', { kind: 'operator_to_customer', orderId: 'o9' });
     expect(draft.from).toEqual({ name: 'Фермерски пазари' });
   });
+
+  it('attaches the operator\'s phone/email + saved signature; the customer leg never has a saved "to" signature', async () => {
+    const OLD_KEY = process.env.ENCRYPTION_KEY;
+    process.env.ENCRYPTION_KEY = 'k';
+    try {
+      const db = makeDb();
+      db.queue([{
+        legal: { name: 'ЕТ Оператор' },
+        contact: { phone: '0899000000', email: 'op@example.bg' },
+        operatorSignaturePng: encryptSignature(OP_PNG, 'k'),
+      }]);
+      db.queue([{ id: 'o9', customerName: 'Иван Петров', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720, orderNumber: 9 }]);
+      db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' }]);
+      const svc = await build(db);
+      const draft = await svc.buildDraft('t1', { kind: 'operator_to_customer', orderId: 'o9' });
+      expect(draft.from).toEqual({ name: 'ЕТ Оператор', phone: '0899000000', email: 'op@example.bg' });
+      expect(draft.savedFromSignature).toBe(OP_PNG);
+      expect(draft.savedToSignature).toBeNull();
+    } finally {
+      if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY;
+      else process.env.ENCRYPTION_KEY = OLD_KEY;
+    }
+  });
 });
 
 describe('HandoverService.createSigned', () => {
-  it('assigns the next per-tenant protocol_number and stores digital signatures', async () => {
+  // Signature encryption needs ENCRYPTION_KEY. Set for every test in this describe
+  // (mirrors farmers.signature.spec.ts / tenants.signature.spec.ts); individual tests
+  // that need "no key" delete it locally — the next beforeEach puts it back.
+  const OLD_KEY = process.env.ENCRYPTION_KEY;
+  beforeEach(() => {
+    process.env.ENCRYPTION_KEY = 'test-key';
+  });
+  afterAll(() => {
+    if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY;
+    else process.env.ENCRYPTION_KEY = OLD_KEY;
+  });
+
+  it('assigns the next per-tenant protocol_number and stores ENCRYPTED digital signatures', async () => {
     const db = makeDb();
     // buildDraft re-derivation (farmer leg):
     db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
@@ -183,6 +252,52 @@ describe('HandoverService.createSigned', () => {
     expect(inserted.fromSnapshot).toEqual({ name: 'ЕТ Васил' });      // frozen, not client-supplied
     expect(inserted.totalStotinki).toBe(1500);                        // re-derived, not trusted from client
     expect(inserted.meta).toEqual({ device: 'ipad', userAgent: 'Mozilla/5.0', orderNumbers: [5] }); // e-sig evidence + order refs, not dropped
+    // The DTO-supplied signatures must be ciphertext at rest, and decrypt back to
+    // exactly what was submitted — never stored in plaintext.
+    expect(looksEncrypted(inserted.fromSignaturePng)).toBe(true);
+    expect(looksEncrypted(inserted.toSignaturePng)).toBe(true);
+    expect(decryptSignature(inserted.fromSignaturePng, 'test-key')).toBe('data:image/png;base64,AAA');
+    expect(decryptSignature(inserted.toSignaturePng, 'test-key')).toBe('data:image/png;base64,BBB');
+  });
+
+  it('auto-fills saved farmer + operator signatures when the DTO omits them', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' }, operatorSignaturePng: encryptSignature(OP_PNG, 'test-key') }]);
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' }, signaturePng: encryptSignature(FARMER_PNG, 'test-key') }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 5, unit: 'кг', priceStotinki: 300, orderNumber: 5 }]);
+    db.queue([]);                                  // outer dup-check (fast-path): none found
+    db.queue([]);                                  // in-tx dup re-check under the lock: none found
+    db.queue([{ max: 40 }]);                       // current max protocol_number
+    db.queue([{ id: 'p1', protocolNumber: 41 }]);  // insert ... returning
+    const svc = await build(db);
+    const res = await svc.createSigned('t1', {
+      kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1',
+      items: [{ productName: 'Домати', quantity: 5, priceStotinki: 300 }],
+    } as any); // no fromSignaturePng/toSignaturePng in the DTO
+    expect(res.protocolNumber).toBe(41);
+    const inserted = db.calls.values[0] as any;
+    expect(inserted.signMode).toBe('digital');
+    expect(inserted.fromSignaturePng).not.toBeNull();
+    expect(inserted.toSignaturePng).not.toBeNull();
+    expect(looksEncrypted(inserted.fromSignaturePng)).toBe(true);
+    expect(looksEncrypted(inserted.toSignaturePng)).toBe(true);
+    expect(decryptSignature(inserted.fromSignaturePng, 'test-key')).toBe(FARMER_PNG);
+    expect(decryptSignature(inserted.toSignaturePng, 'test-key')).toBe(OP_PNG);
+  });
+
+  it('fails with a clear error (not a raw crash) when ENCRYPTION_KEY is missing and a fresh signature must be stored', async () => {
+    delete process.env.ENCRYPTION_KEY; // simulate a misconfigured server
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 1, unit: 'кг', priceStotinki: 300 }]);
+    const svc = await build(db);
+    await expect(svc.createSigned('t1', {
+      kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1',
+      items: [{ productName: 'Домати', quantity: 1, priceStotinki: 300 }],
+      fromSignaturePng: 'data:image/png;base64,AAA',
+    } as any)).rejects.toThrow(/ключ за криптиране/);
+    expect(db.calls.values).toEqual([]); // never inserted — fails before the transaction
   });
 
   it('rejects a duplicate signed protocol for the same target', async () => {
@@ -447,6 +562,34 @@ describe('HandoverService.signPaperTarget', () => {
     expect(inserted.signedAt).toBeInstanceOf(Date);
   });
 
+  it('signs DIGITALLY (not paper) when both the farmer and operator already have a saved signature', async () => {
+    const OLD_KEY = process.env.ENCRYPTION_KEY;
+    process.env.ENCRYPTION_KEY = 'k';
+    try {
+      const db = makeDb();
+      db.queue([]);                                  // existing? none
+      db.queue([{ legal: null, name: 'Оп', operatorSignaturePng: encryptSignature(OP_PNG, 'k') }]); // buildDraft: tenant
+      db.queue([{ id: 'f1', legal: null, name: 'Васил', signaturePng: encryptSignature(FARMER_PNG, 'k') }]); // buildDraft: farmer
+      db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 }]);
+      db.queue([]);                                   // in-tx dup re-check under the lock: none
+      db.queue([{ max: 7 }]);                          // tx: max protocol_number
+      db.queue([{ id: 'p-new' }]);                    // tx: insert returning
+      const svc = await build(db);
+      const res = await svc.signPaperTarget('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' });
+      expect(res.id).toBe('p-new');
+      const inserted = db.calls.values[0] as any;
+      expect(inserted.status).toBe('signed');
+      expect(inserted.signMode).toBe('digital');
+      expect(looksEncrypted(inserted.fromSignaturePng)).toBe(true);
+      expect(looksEncrypted(inserted.toSignaturePng)).toBe(true);
+      expect(decryptSignature(inserted.fromSignaturePng, 'k')).toBe(FARMER_PNG);
+      expect(decryptSignature(inserted.toSignaturePng, 'k')).toBe(OP_PNG);
+    } finally {
+      if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY;
+      else process.env.ENCRYPTION_KEY = OLD_KEY;
+    }
+  });
+
   it('marks an existing draft signed(paper) instead of creating a duplicate', async () => {
     const db = makeDb();
     db.queue([{ id: 'p1', status: 'draft' }]); // existing draft
@@ -495,12 +638,32 @@ describe('HandoverService.list', () => {
 });
 
 describe('HandoverService.getById', () => {
-  it('returns the row scoped to tenant', async () => {
+  it('returns the row scoped to tenant, with null signatures when none were ever stored', async () => {
     const db = makeDb();
     db.queue([{ id: 'p1' }]);
     const svc = await build(db);
     const row = await svc.getById('t1', 'p1');
-    expect(row).toEqual({ id: 'p1' });
+    expect(row).toEqual({ id: 'p1', fromSignaturePng: null, toSignaturePng: null });
+  });
+
+  it('decrypts the stored signatures so the PDF renderer gets real PNGs, not ciphertext', async () => {
+    const OLD_KEY = process.env.ENCRYPTION_KEY;
+    process.env.ENCRYPTION_KEY = 'k';
+    try {
+      const db = makeDb();
+      db.queue([{
+        id: 'p1',
+        fromSignaturePng: encryptSignature(FARMER_PNG, 'k'),
+        toSignaturePng: encryptSignature(OP_PNG, 'k'),
+      }]);
+      const svc = await build(db);
+      const row = await svc.getById('t1', 'p1');
+      expect(row.fromSignaturePng).toBe(FARMER_PNG);
+      expect(row.toSignaturePng).toBe(OP_PNG);
+    } finally {
+      if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY;
+      else process.env.ENCRYPTION_KEY = OLD_KEY;
+    }
   });
 
   it('404s when the row is missing', async () => {

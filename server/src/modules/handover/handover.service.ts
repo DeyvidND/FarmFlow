@@ -1,4 +1,11 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { and, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import {
   type Database,
@@ -17,12 +24,19 @@ import type { BatchDto } from './dto/batch.dto';
 import { resolveParty, type LegalIdentity } from './legal.util';
 import { renderProtocolPdf } from './handover-pdf';
 import { mergePdfs } from '../econt/econt.mappers';
+import { encryptSignature, decryptSignature, SignatureKeyMissingError } from '../../common/crypto/signature-crypto';
 
 /** Statuses whose items are handover-ready — matches the prep/delivery window. */
 const HANDOVER_STATUSES = ['confirmed', 'preparing'] as const;
 
 /** Customer identity snapshotted on an order — no legal-entity data required. */
 export type CustomerParty = { name?: string; phone?: string; address?: string };
+
+/** A protocol party's legal identity widened with contact info so the PDF can print
+ *  a phone/email line: farmer from `farmers.phone`/`email`, operator from the
+ *  tenant's `settings.contact.phone`/`email`. Fields are omitted (never invented)
+ *  when the source doesn't have them. */
+export type ProtocolParty = LegalIdentity & { phone?: string; email?: string };
 
 /** Line-item row for the farmer leg — shared by the per-target query and the bulk prefetch. */
 type FarmerLegItemRow = {
@@ -59,8 +73,21 @@ type CustomerLegOrderRow = {
  * draft path performs zero queries.
  */
 export type HandoverDraftContext = {
-  operatorLegal: LegalIdentity;
-  farmerLegalById: Map<string, { legal: LegalIdentity | null; name: string | null }>;
+  operatorLegal: ProtocolParty;
+  /** Operator's saved signature, decrypted once for the whole day — reused by
+   *  every target so signAllForDay/createBatch never re-query per target. */
+  operatorSignature: string | null;
+  farmerLegalById: Map<
+    string,
+    {
+      legal: LegalIdentity | null;
+      name: string | null;
+      phone: string | null;
+      email: string | null;
+      /** This farmer's saved signature, decrypted once for the whole day. */
+      signature: string | null;
+    }
+  >;
   farmerItemsByKey: Map<string, FarmerLegItemRow[]>; // key = farmerLegKey(farmerId, slotId)
   customerOrderById: Map<string, CustomerLegOrderRow>;
   customerItemsByOrderId: Map<string, CustomerLegItemRow[]>;
@@ -137,11 +164,16 @@ export class HandoverService {
     ctx?: HandoverDraftContext,
   ): Promise<{
     kind: string;
-    from: LegalIdentity;
-    to: LegalIdentity | CustomerParty;
+    from: ProtocolParty;
+    to: ProtocolParty | CustomerParty;
     items: ProtocolItemDto[];
     total: number;
     orderNumbers: number[];
+    /** The farmer/operator's saved signature, decrypted — reused by createSigned
+     *  to auto-fill when the sign request doesn't supply one, and by
+     *  signPaperTarget/signAllForDay to decide digital vs paper. */
+    savedFromSignature: string | null;
+    savedToSignature: string | null;
   }> {
     if (q.kind === 'operator_to_customer') {
       return this.buildCustomerLegDraft(tenantId, q, ctx);
@@ -150,30 +182,60 @@ export class HandoverService {
       throw new BadRequestException('Изисква се фермер и слот.');
     }
 
-    let operatorLegal: LegalIdentity;
-    let farmerLegal: LegalIdentity;
+    let operatorLegal: ProtocolParty;
+    let farmerLegal: ProtocolParty;
     let rows: FarmerLegItemRow[];
+    let savedFromSignature: string | null;
+    let savedToSignature: string | null;
     if (ctx) {
       // Bulk path: everything was preloaded once for the whole day (no per-target query).
       operatorLegal = ctx.operatorLegal;
       const f = ctx.farmerLegalById.get(q.farmerId);
-      farmerLegal = resolveParty(f?.legal, f?.name, 'фермер');
+      farmerLegal = {
+        ...resolveParty(f?.legal, f?.name, 'фермер'),
+        phone: f?.phone ?? undefined,
+        email: f?.email ?? undefined,
+      };
       rows = ctx.farmerItemsByKey.get(farmerLegKey(q.farmerId, q.slotId)) ?? [];
+      savedFromSignature = f?.signature ?? null;
+      savedToSignature = ctx.operatorSignature ?? null;
     } else {
       const [tenantRow] = await this.db
-        .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
+        .select({
+          legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`,
+          name: tenants.name,
+          contact: sql<Record<string, unknown> | null>`${tenants.settings}->'contact'`,
+          operatorSignaturePng: tenants.operatorSignaturePng,
+        })
         .from(tenants)
         .where(eq(tenants.id, tenantId))
         .limit(1);
 
       const [farmerRow] = await this.db
-        .select({ id: farmers.id, legal: farmers.legal, name: farmers.name })
+        .select({
+          id: farmers.id,
+          legal: farmers.legal,
+          name: farmers.name,
+          phone: farmers.phone,
+          email: farmers.email,
+          signaturePng: farmers.signaturePng,
+        })
         .from(farmers)
         .where(and(eq(farmers.tenantId, tenantId), eq(farmers.id, q.farmerId)))
         .limit(1);
 
-      operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
-      farmerLegal = resolveParty(farmerRow?.legal, farmerRow?.name, 'фермер');
+      operatorLegal = {
+        ...resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор'),
+        phone: (tenantRow?.contact as any)?.phone ?? undefined,
+        email: (tenantRow?.contact as any)?.email ?? undefined,
+      };
+      farmerLegal = {
+        ...resolveParty(farmerRow?.legal, farmerRow?.name, 'фермер'),
+        phone: farmerRow?.phone ?? undefined,
+        email: farmerRow?.email ?? undefined,
+      };
+      savedFromSignature = decryptSignature(farmerRow?.signaturePng);
+      savedToSignature = decryptSignature(tenantRow?.operatorSignaturePng);
 
       rows = await this.db
         .select({
@@ -222,7 +284,16 @@ export class HandoverService {
       (a, b) => a - b,
     );
 
-    return { kind: q.kind, from: farmerLegal, to: operatorLegal, items, total, orderNumbers };
+    return {
+      kind: q.kind,
+      from: farmerLegal,
+      to: operatorLegal,
+      items,
+      total,
+      orderNumbers,
+      savedFromSignature,
+      savedToSignature,
+    };
   }
 
   private async buildCustomerLegDraft(
@@ -231,22 +302,28 @@ export class HandoverService {
     ctx?: HandoverDraftContext,
   ): Promise<{
     kind: string;
-    from: LegalIdentity;
+    from: ProtocolParty;
     to: CustomerParty;
     items: ProtocolItemDto[];
     total: number;
     orderNumbers: number[];
+    savedFromSignature: string | null;
+    savedToSignature: string | null;
   }> {
     if (!q.orderId) {
       throw new BadRequestException('Изисква се поръчка.');
     }
 
-    let operatorLegal: LegalIdentity;
+    let operatorLegal: ProtocolParty;
     let order: CustomerLegOrderRow;
     let rows: CustomerLegItemRow[];
+    // No customer signature is ever saved/captured for this leg — only the
+    // operator side can be auto-filled.
+    let savedFromSignature: string | null;
     if (ctx) {
       // Bulk path: preloaded once for the whole day (no per-target query).
       operatorLegal = ctx.operatorLegal;
+      savedFromSignature = ctx.operatorSignature ?? null;
       const preloaded = ctx.customerOrderById.get(q.orderId);
       if (!preloaded) {
         throw new NotFoundException('Поръчката не е намерена');
@@ -255,12 +332,22 @@ export class HandoverService {
       rows = ctx.customerItemsByOrderId.get(q.orderId) ?? [];
     } else {
       const [tenantRow] = await this.db
-        .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
+        .select({
+          legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`,
+          name: tenants.name,
+          contact: sql<Record<string, unknown> | null>`${tenants.settings}->'contact'`,
+          operatorSignaturePng: tenants.operatorSignaturePng,
+        })
         .from(tenants)
         .where(eq(tenants.id, tenantId))
         .limit(1);
 
-      operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
+      operatorLegal = {
+        ...resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор'),
+        phone: (tenantRow?.contact as any)?.phone ?? undefined,
+        email: (tenantRow?.contact as any)?.email ?? undefined,
+      };
+      savedFromSignature = decryptSignature(tenantRow?.operatorSignaturePng);
 
       const [dbOrder] = await this.db
         .select({
@@ -309,7 +396,16 @@ export class HandoverService {
 
     const orderNumbers = order.orderNumber != null ? [order.orderNumber] : [];
 
-    return { kind: q.kind, from: operatorLegal, to, items, total: order.totalStotinki, orderNumbers };
+    return {
+      kind: q.kind,
+      from: operatorLegal,
+      to,
+      items,
+      total: order.totalStotinki,
+      orderNumbers,
+      savedFromSignature,
+      savedToSignature: null,
+    };
   }
 
   /**
@@ -328,19 +424,47 @@ export class HandoverService {
     orderIds: string[],
   ): Promise<HandoverDraftContext> {
     const [tenantRow] = await this.db
-      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
+      .select({
+        legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`,
+        name: tenants.name,
+        contact: sql<Record<string, unknown> | null>`${tenants.settings}->'contact'`,
+        operatorSignaturePng: tenants.operatorSignaturePng,
+      })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
-    const operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
+    const operatorLegal: ProtocolParty = {
+      ...resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор'),
+      phone: (tenantRow?.contact as any)?.phone ?? undefined,
+      email: (tenantRow?.contact as any)?.email ?? undefined,
+    };
+    const operatorSignature = decryptSignature(tenantRow?.operatorSignaturePng);
 
-    const farmerLegalById = new Map<string, { legal: LegalIdentity | null; name: string | null }>();
+    const farmerLegalById = new Map<
+      string,
+      { legal: LegalIdentity | null; name: string | null; phone: string | null; email: string | null; signature: string | null }
+    >();
     if (farmerIds.length > 0) {
       const rows = await this.db
-        .select({ id: farmers.id, legal: farmers.legal, name: farmers.name })
+        .select({
+          id: farmers.id,
+          legal: farmers.legal,
+          name: farmers.name,
+          phone: farmers.phone,
+          email: farmers.email,
+          signaturePng: farmers.signaturePng,
+        })
         .from(farmers)
         .where(and(eq(farmers.tenantId, tenantId), inArray(farmers.id, farmerIds)));
-      for (const f of rows) farmerLegalById.set(f.id, { legal: f.legal, name: f.name });
+      for (const f of rows) {
+        farmerLegalById.set(f.id, {
+          legal: f.legal,
+          name: f.name,
+          phone: f.phone,
+          email: f.email,
+          signature: decryptSignature(f.signaturePng),
+        });
+      }
     }
 
     const farmerItemsByKey = new Map<string, FarmerLegItemRow[]>();
@@ -433,7 +557,7 @@ export class HandoverService {
       }
     }
 
-    return { operatorLegal, farmerLegalById, farmerItemsByKey, customerOrderById, customerItemsByOrderId };
+    return { operatorLegal, operatorSignature, farmerLegalById, farmerItemsByKey, customerOrderById, customerItemsByOrderId };
   }
 
   /**
@@ -447,6 +571,31 @@ export class HandoverService {
     dto: CreateProtocolDto,
   ): Promise<{ id: string; protocolNumber: number }> {
     const draft = await this.buildDraft(tenantId, dto);
+
+    // Auto-fill from the saved signature when the DTO omits one (the "one tap"
+    // handover) — encrypted here, right before insert; never stored in plaintext.
+    // The saved source can only be non-null if ENCRYPTION_KEY was configured when
+    // it was decrypted just above, so this can only throw when the CLIENT supplied
+    // a fresh signature and no key is configured right now. Translated into a clean
+    // 503 (not a raw crash) — same pattern as FarmersService.setSignature /
+    // TenantsService.setSignature. Computed before the duplicate check/transaction
+    // so a misconfigured key fails fast, without burning an advisory lock or a
+    // protocol number on a doomed insert.
+    const fromSig = dto.fromSignaturePng ?? draft.savedFromSignature ?? null;
+    const toSig = dto.toSignaturePng ?? draft.savedToSignature ?? null;
+    let fromSignaturePng: string | null;
+    let toSignaturePng: string | null;
+    try {
+      fromSignaturePng = fromSig ? encryptSignature(fromSig) : null;
+      toSignaturePng = toSig ? encryptSignature(toSig) : null;
+    } catch (e) {
+      if (e instanceof SignatureKeyMissingError) {
+        throw new ServiceUnavailableException(
+          'Протоколът не може да бъде подписан — липсва ключ за криптиране на сървъра.',
+        );
+      }
+      throw e;
+    }
 
     const targetMatch =
       dto.kind === 'operator_to_customer'
@@ -518,8 +667,8 @@ export class HandoverService {
           items: draft.items,
           orderIds: dto.orderId ? [dto.orderId] : null,
           totalStotinki: draft.total,
-          fromSignaturePng: dto.fromSignaturePng,
-          toSignaturePng: dto.toSignaturePng,
+          fromSignaturePng,
+          toSignaturePng,
           meta: { ...(dto.meta ?? {}), orderNumbers: draft.orderNumbers },
           signMode: 'digital',
           status: 'signed',
@@ -831,6 +980,18 @@ export class HandoverService {
     }
 
     const draft = await this.buildDraft(tenantId, dto, ctx);
+    // Auto-sign digitally when a saved signature exists for the leg — otherwise
+    // this virtual-target sign stays a bare paper record (no PNG). A customer
+    // never has a saved signature (none is ever captured for that party), so the
+    // customer leg only needs the operator's saved signature to count as digital.
+    // Re-encrypting `savedFromSignature`/`savedToSignature` here can't hit a
+    // missing-key error: those two columns (farmers.signaturePng /
+    // tenants.operatorSignaturePng) never hold legacy plaintext — their own
+    // setSignature always refuses to store unencrypted — so a non-null decrypted
+    // value here proves ENCRYPTION_KEY is configured right now, same process.
+    const fromSig = draft.savedFromSignature ?? null;
+    const toSig = draft.savedToSignature ?? null;
+    const digital = !!(fromSig && (dto.kind === 'operator_to_customer' || toSig));
     const inserted = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
       // Re-check the target INSIDE the lock (the pre-lock check above is a fast-path): a
@@ -860,8 +1021,10 @@ export class HandoverService {
           items: draft.items,
           orderIds: dto.orderId ? [dto.orderId] : null,
           totalStotinki: draft.total,
+          fromSignaturePng: fromSig ? encryptSignature(fromSig) : null,
+          toSignaturePng: toSig ? encryptSignature(toSig) : null,
           meta: { orderNumbers: draft.orderNumbers },
-          signMode: 'paper',
+          signMode: digital ? 'digital' : 'paper',
           status: 'signed',
           signedAt: new Date(),
         })
@@ -1030,7 +1193,9 @@ export class HandoverService {
     return out;
   }
 
-  /** Loads a single protocol scoped to the tenant; 404s if missing. */
+  /** Loads a single protocol scoped to the tenant; 404s if missing. Signatures
+   *  come back DECRYPTED — the client/PDF renderer must never receive a blob it
+   *  can't use. */
   async getById(tenantId: string, id: string) {
     const [row] = await this.db
       .select()
@@ -1041,7 +1206,11 @@ export class HandoverService {
     if (!row) {
       throw new NotFoundException('Протоколът не е намерен.');
     }
-    return row;
+    return {
+      ...row,
+      fromSignaturePng: decryptSignature(row.fromSignaturePng),
+      toSignaturePng: decryptSignature(row.toSignaturePng),
+    };
   }
 
   /** Renders a single protocol (tenant-scoped) to a PDF buffer. */
