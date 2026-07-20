@@ -193,7 +193,7 @@ export type PublicAvailabilityWindow = {
  */
 export type PublicTenant = Omit<
   Tenant,
-  | 'stripeAccountId' | 'settings'
+  | 'stripeAccountId' | 'settings' | 'operatorSignaturePng'
   | 'stripeCustomerId' | 'stripeSubscriptionId' | 'subscriptionStatus' | 'subscriptionSince'
   | 'premium' | 'graceUntil'
   | 'stripeChargesEnabled' | 'stripePayoutsEnabled' | 'stripeDetailsSubmitted' | 'stripeStatusUpdatedAt'

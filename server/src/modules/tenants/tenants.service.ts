@@ -827,6 +827,11 @@ function toPublicTenant(t: Tenant, role?: TenantRole): PublicTenant {
     stripeCustomerId, stripeSubscriptionId, subscriptionStatus, subscriptionSince,
     premium, graceUntil, stripeChargesEnabled, stripePayoutsEnabled,
     stripeDetailsSubmitted, stripeStatusUpdatedAt,
+    // The operator's stored signature is an encrypted blob served only by its own
+    // dedicated endpoint (GET /tenants/me/signature). getMe is reachable by the
+    // 'farmer' and 'driver' roles too, and `...rest` would otherwise hand them the
+    // ciphertext on every call.
+    operatorSignaturePng: _operatorSignaturePng,
     ...rest
   } = t;
   const s = settings as Record<string, unknown> | null;
