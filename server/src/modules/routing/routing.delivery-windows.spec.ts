@@ -227,15 +227,20 @@ describe('RoutingService.generateDeliveryWindows — set-based persist', () => {
     const startCase = dialect.sqlToQuery(db.__lastSet.deliveryWindowStart as SQL);
     const endCase = dialect.sqlToQuery(db.__lastSet.deliveryWindowEnd as SQL);
     const where = dialect.sqlToQuery(db.__lastWhere as SQL);
-    // Both stops land in the deterministic 09:00–10:00 fallback slot.
     expect(startCase.sql.toLowerCase()).toContain('case');
     // The THEN values MUST be cast to ::time — a bare text bind param makes the CASE
     // resolve to text and Postgres rejects the assignment to the `time` column (the
     // prod 500 on POST /orders/route/windows/generate). Lock the cast in.
     expect(startCase.sql.toLowerCase()).toContain('::time');
     expect(endCase.sql.toLowerCase()).toContain('::time');
+    // This test is about the set-based binding — every changed id paired with its own
+    // HH:MM value in one statement. The exact times are the timing specs' business
+    // (windows are smart-width now, not a fixed 09:00–10:00 slot), so assert shape.
+    const hhmm = (p: unknown) => typeof p === 'string' && /^\d{2}:\d{2}$/.test(p);
     expect(startCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b', '09:00']));
-    expect(endCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b', '10:00']));
+    expect(endCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b']));
+    expect(startCase.params.filter(hhmm)).toHaveLength(2);
+    expect(endCase.params.filter(hhmm)).toHaveLength(2);
     // WHERE id IN (both) AND tenant-scoped.
     expect(where.params).toEqual(expect.arrayContaining(['order-a', 'order-b', 't1']));
   });
