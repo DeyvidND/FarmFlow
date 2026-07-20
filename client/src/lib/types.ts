@@ -925,7 +925,7 @@ export interface Order {
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
-  status: 'pending' | 'confirmed' | 'delivered' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'preparing' | 'out_for_delivery' | 'delivered' | 'cancelled';
   /** Paid online (card) / started online but unpaid / cash on delivery. */
   paymentStatus: PaymentStatus;
   /** ISO timestamp the online (Stripe) payment was captured, else null. */

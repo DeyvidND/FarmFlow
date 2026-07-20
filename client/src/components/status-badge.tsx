@@ -6,6 +6,8 @@ const PALETTE: Record<
 > = {
   pending: { bg: 'bg-ff-amber-soft', ink: 'text-ff-amber-600', dot: 'bg-ff-amber' },
   confirmed: { bg: 'bg-ff-green-100', ink: 'text-ff-green-700', dot: 'bg-ff-green-500' },
+  preparing: { bg: 'bg-ff-green-50', ink: 'text-ff-green-700', dot: 'bg-ff-green-500' },
+  out_for_delivery: { bg: 'bg-ff-green-100', ink: 'text-ff-green-800', dot: 'bg-ff-green-700' },
   delivered: { bg: 'bg-ff-badge-bg', ink: 'text-ff-badge-ink', dot: 'bg-ff-muted-2' },
   cancelled: { bg: 'bg-transparent', ink: 'text-ff-muted', dot: 'bg-ff-muted-2', outline: true, strike: true },
 };

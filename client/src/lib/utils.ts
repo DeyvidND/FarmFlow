@@ -16,11 +16,13 @@ export function moneyFromStotinki(cents: number): string {
   return money(cents, { fromStotinki: true });
 }
 
-export type OrderStatus = 'pending' | 'confirmed' | 'delivered' | 'cancelled';
+export type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'out_for_delivery' | 'delivered' | 'cancelled';
 
 export const statusMeta: Record<OrderStatus, { label: string; cls: OrderStatus }> = {
   pending: { label: 'Очаква потвърждение', cls: 'pending' },
   confirmed: { label: 'Потвърдена', cls: 'confirmed' },
+  preparing: { label: 'Приготвя се', cls: 'preparing' },
+  out_for_delivery: { label: 'На път', cls: 'out_for_delivery' },
   delivered: { label: 'Доставена', cls: 'delivered' },
   cancelled: { label: 'Отказана', cls: 'cancelled' },
 };
