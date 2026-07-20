@@ -1,4 +1,6 @@
-import { Injectable, Inject, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import {
+  Injectable, Inject, NotFoundException, ConflictException, ServiceUnavailableException, Logger,
+} from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
@@ -22,6 +24,7 @@ import { PRODUCT_IMAGE_EXT_BY_MIME } from '../storage/dto/upload-image.dto';
 import { optimizeImage } from '../storage/image.util';
 import { smartFocal, smartFocalFromUrl } from '../storage/smart-crop.util';
 import { tenantSlug } from '../../common/tenant-slug.util';
+import { encryptSignature, decryptSignature, SignatureKeyMissingError } from '../../common/crypto/signature-crypto';
 import { farmerCourierReady, farmerDeliveryNamespace } from '../orders/courier-eligibility';
 import { effectiveTier } from './tier-autolink';
 
@@ -216,6 +219,48 @@ export class FarmersService {
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
     return row;
+  }
+
+  /** The farmer's saved signature, decrypted, for the operator panel preview.
+   *  404 on a missing / cross-tenant farmer — never leaks another tenant's row. */
+  async getSignature(id: string, tenantId: string): Promise<{ signaturePng: string | null }> {
+    const [row] = await this.db
+      .select({ signaturePng: farmers.signaturePng })
+      .from(farmers)
+      .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Фермерът не е намерен');
+    return { signaturePng: decryptSignature(row.signaturePng) };
+  }
+
+  /** Store (encrypted) or clear the farmer's reusable signature. Refuses to store
+   *  anything when ENCRYPTION_KEY is unset — a signature is never persisted in
+   *  plaintext. Clearing (png === null) stays allowed with no key. */
+  async setSignature(
+    id: string,
+    tenantId: string,
+    png: string | null,
+  ): Promise<{ signaturePng: string | null }> {
+    let enc: string | null = null;
+    if (png) {
+      try {
+        enc = encryptSignature(png);
+      } catch (e) {
+        if (e instanceof SignatureKeyMissingError) {
+          throw new ServiceUnavailableException(
+            'Подписът не може да бъде запазен — липсва ключ за криптиране на сървъра.',
+          );
+        }
+        throw e;
+      }
+    }
+    const [updated] = await this.db
+      .update(farmers)
+      .set({ signaturePng: enc })
+      .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
+      .returning({ id: farmers.id });
+    if (!updated) throw new NotFoundException('Фермерът не е намерен');
+    return { signaturePng: png };
   }
 
   /** Hard delete; products.farmer_id FK is ON DELETE SET NULL, so products unlink.

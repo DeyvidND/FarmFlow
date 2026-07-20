@@ -226,7 +226,7 @@ export type PublicTenant = Omit<
 export type PublicFarmer = Omit<
   Farmer,
   'tenantId' | 'commissionRateBps' | 'subscriptionFeeStotinki' | 'lat' | 'lng' | 'geocodedAt'
-  | 'internalNotes' | 'payout'
+  | 'internalNotes' | 'payout' | 'signaturePng'
 > & {
   images: string[];
   /** Phase 2: farmer offers nationwide courier (≥1 carrier connected). */

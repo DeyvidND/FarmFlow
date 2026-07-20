@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete,
+  Controller, Get, Post, Patch, Put, Delete,
   Param, Body, UseGuards, UploadedFile, UseInterceptors,
   ParseFilePipe, FileTypeValidator, MaxFileSizeValidator,
 } from '@nestjs/common';
@@ -10,6 +10,7 @@ import { FarmersService } from './farmers.service';
 import { CreateFarmerDto } from './dto/create-farmer.dto';
 import { UpdateFarmerDto } from './dto/update-farmer.dto';
 import { GrantAccessDto } from './dto/grant-access.dto';
+import { SignatureDto } from './dto/signature.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -87,6 +88,22 @@ export class FarmersController {
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.farmersService.remove(id, tenantId);
+  }
+
+  // ---- Reusable signature (encrypted at rest) — admin-only, no @Roles ----
+
+  @Get(':id/signature')
+  getSignature(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.farmersService.getSignature(id, tenantId);
+  }
+
+  @Put(':id/signature')
+  setSignature(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: SignatureDto,
+  ) {
+    return this.farmersService.setSignature(id, tenantId, dto.signaturePng ?? null);
   }
 
   // ---- Farmer sub-account access (admin-only — no @Roles) ----
