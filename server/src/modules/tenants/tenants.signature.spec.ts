@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { TenantsService } from './tenants.service';
 
 const PNG =
@@ -8,22 +8,29 @@ const TENANT = 'tenant-1';
 
 /** Minimal DB stub that tracks the last-written `signaturePng` value and serves it
  *  back on read — enough to prove the encrypt/decrypt round trip through the service
- *  without a real database. Mirrors farmers.signature.spec.ts's dbMock. */
-function dbMock() {
+ *  without a real database. Mirrors farmers.signature.spec.ts's dbMock. `existingRow:
+ *  null` simulates a missing tenant row (empty result set on every query). NOTE: use
+ *  `null`, not `undefined`, for that case — a default parameter also fires on an
+ *  explicitly-passed `undefined`. */
+function dbMock(existingRow: { id: string } | null = { id: TENANT }) {
   const state: { stored?: string | null } = {};
   return {
     state,
     update: jest.fn(() => ({
       set: (v: { operatorSignaturePng: string | null }) => ({
-        where: async () => {
-          state.stored = v.operatorSignaturePng;
-        },
+        where: () => ({
+          returning: async () => {
+            if (!existingRow) return [];
+            state.stored = v.operatorSignaturePng;
+            return [{ id: existingRow.id }];
+          },
+        }),
       }),
     })),
     select: jest.fn(() => ({
       from: () => ({
         where: () => ({
-          limit: async () => [{ signaturePng: state.stored ?? null }],
+          limit: async () => (existingRow ? [{ signaturePng: state.stored ?? null }] : []),
         }),
       }),
     })),
@@ -97,5 +104,17 @@ describe('TenantsService signature', () => {
     const db = dbMock();
     const svc = make(db);
     await expect(svc.getSignature(TENANT)).resolves.toEqual({ signaturePng: null });
+  });
+
+  it('getSignature 404s for a missing tenant row', async () => {
+    const db = dbMock(null);
+    const svc = make(db);
+    await expect(svc.getSignature(TENANT)).rejects.toThrow(NotFoundException);
+  });
+
+  it('setSignature 404s for a missing tenant row', async () => {
+    const db = dbMock(null);
+    const svc = make(db);
+    await expect(svc.setSignature(TENANT, PNG)).rejects.toThrow(NotFoundException);
   });
 });

@@ -475,19 +475,22 @@ export class TenantsService {
 
   // ---- Operator signature (handover-protocol приел/предал auto-sign) ----
 
-  /** Operator's saved signature, decrypted, for the settings preview + auto-sign. */
+  /** Operator's saved signature, decrypted, for the settings preview + auto-sign.
+   *  404 on a missing tenant row — never confused with "no signature set". */
   async getSignature(tenantId: string): Promise<{ signaturePng: string | null }> {
     const [row] = await this.db
       .select({ signaturePng: tenants.operatorSignaturePng })
       .from(tenants)
       .where(eq(tenants.id, tenantId))
       .limit(1);
-    return { signaturePng: decryptSignature(row?.signaturePng ?? null) };
+    if (!row) throw new NotFoundException('Фермата не е намерена');
+    return { signaturePng: decryptSignature(row.signaturePng) };
   }
 
   /** Store (encrypted) or clear the operator's reusable signature. Refuses to store
    *  anything when ENCRYPTION_KEY is unset — a signature is never persisted in
-   *  plaintext. Clearing (png === null) stays allowed with no key. */
+   *  plaintext. Clearing (png === null) stays allowed with no key. 404s on a missing
+   *  tenant row instead of silently reporting success on a write that matched nothing. */
   async setSignature(tenantId: string, png: string | null): Promise<{ signaturePng: string | null }> {
     let enc: string | null = null;
     if (png) {
@@ -502,10 +505,12 @@ export class TenantsService {
         throw e;
       }
     }
-    await this.db
+    const [updated] = await this.db
       .update(tenants)
       .set({ operatorSignaturePng: enc })
-      .where(eq(tenants.id, tenantId));
+      .where(eq(tenants.id, tenantId))
+      .returning({ id: tenants.id });
+    if (!updated) throw new NotFoundException('Фермата не е намерена');
     return { signaturePng: png };
   }
 
