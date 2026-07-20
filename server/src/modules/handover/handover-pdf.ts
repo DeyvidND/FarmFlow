@@ -89,14 +89,29 @@ function partyText(p: any, role: string, withId: boolean): PartyText {
 }
 
 /**
+ * „по поръчка № 101" / „по поръчки № 101, 102" fragment for the intro line —
+ * singular for exactly one order, plural for 2+, empty when the row carries
+ * no order numbers (old rows, or `meta` absent entirely) so the intro falls
+ * back to the plain „…за долуописаните стоки:" with no dangling „по поръчки №".
+ */
+function orderNumbersFragment(row: any): string {
+  const nums: number[] = row?.meta?.orderNumbers ?? [];
+  if (!nums.length) return '';
+  const word = nums.length === 1 ? 'поръчка' : 'поръчки';
+  return ` по ${word} № ${nums.join(', ')}`;
+}
+
+/**
  * Pure text composition for a handover protocol — everything printable derived
  * from the frozen row, no drawing. Kind-aware: farmer leg →
  * „ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ" with legal ids on both parties; customer leg →
  * „РАЗПИСКА ЗА ПОЛУЧЕНА СТОКА" with the customer (no id) as receiver. Matches
  * the structure of the customer's real bilateral .doc: title → № → opening →
  * ПРЕДАВА/ПРИЕМА party blocks → intro → numbered items → footer → signatures.
- * A line with no value (no phone, no address, …) is simply omitted — never
- * rendered as an empty labelled field. `itemLines` includes 2 dotted
+ * The intro cites `row.meta.orderNumbers` (the orders this protocol covers)
+ * when present; absent/empty (old rows) → the „по поръчки №" fragment is
+ * dropped. A line with no value (no phone, no address, …) is simply omitted —
+ * never rendered as an empty labelled field. `itemLines` includes 2 dotted
  * continuation slots for hand-written additions on the round (added at draw
  * time, not here — this stays pure text of the actual items).
  */
@@ -120,6 +135,7 @@ export function composeProtocol(row: any): ProtocolText {
   });
 
   const docNoun = isCustomer ? 'настоящата разписка за получена стока' : 'настоящият приемо-предавателен протокол';
+  const orderFragment = orderNumbersFragment(row);
 
   return {
     title: isCustomer ? 'РАЗПИСКА ЗА ПОЛУЧЕНА СТОКА' : 'ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ',
@@ -127,7 +143,7 @@ export function composeProtocol(row: any): ProtocolText {
     opening: `Днес, ${when}${cityClause}, между:`,
     from,
     to,
-    intro: `се състави ${docNoun} за долуописаните стоки:`,
+    intro: `се състави ${docNoun}${orderFragment} за долуописаните стоки:`,
     itemLines,
     footer: `${isCustomer ? 'Настоящата разписка' : 'Настоящият протокол'} се състави в два еднообразни екземпляра — по един за всяка страна.`,
     fromName: from.name,
@@ -203,8 +219,8 @@ export async function renderProtocolPdf(row: any): Promise<Buffer> {
 
   // ── Signature blocks (fixed near the foot) ───────────────────────────────
   const sigY = Math.min(y - 40, 150);
-  await sigBlock(doc, page, font, MARGIN, sigY, 'Предал', t.fromName, row.fromSignaturePng);
-  await sigBlock(doc, page, font, PAGE_W / 2 + 10, sigY, 'Приел', t.toName, row.toSignaturePng);
+  await sigBlock(doc, page, font, MARGIN, sigY, 'ПРЕДАЛ', t.fromName, row.fromSignaturePng);
+  await sigBlock(doc, page, font, PAGE_W / 2 + 10, sigY, 'ПРИЕЛ', t.toName, row.toSignaturePng);
 
   return Buffer.from(await doc.save());
 }
@@ -249,7 +265,7 @@ async function sigBlock(
   const nameX = x + font.widthOfTextAtSize(`${label}: `, 10);
   page.drawText(`${label}: ______________________`, { x, y, size: 10, font, color: INK });
   if (name) {
-    page.drawText(String(name), { x: nameX, y: y - 13, size: 9, font, color: INK });
+    page.drawText(`/${String(name)}/`, { x: nameX, y: y - 13, size: 9, font, color: INK });
   }
   if (png) {
     try {

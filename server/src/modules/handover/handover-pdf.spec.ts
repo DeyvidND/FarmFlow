@@ -83,6 +83,39 @@ describe('composeProtocol (bilateral)', () => {
   });
 });
 
+describe('composeProtocol — order-number reference in the intro (task 7 fix)', () => {
+  it('farmer leg cites all order numbers, plural „поръчки №" for 2+', () => {
+    const t = composeProtocol(base); // meta.orderNumbers: [101, 102]
+    expect(t.intro).toBe('се състави настоящият приемо-предавателен протокол по поръчки № 101, 102 за долуописаните стоки:');
+  });
+
+  it('customer leg cites a single order number, singular „поръчка №"', () => {
+    const t = composeProtocol({
+      ...base,
+      kind: 'operator_to_customer',
+      meta: { orderNumbers: [101] },
+      toSnapshot: { name: 'Иван Петров', phone: '0899', address: 'гр. Варна' },
+    });
+    expect(t.intro).toBe('се състави настоящата разписка за получена стока по поръчка № 101 за долуописаните стоки:');
+  });
+
+  it('farmer leg with no meta falls back to the plain intro (old rows — no dangling „по поръчки №")', () => {
+    const { meta, ...noMeta } = base;
+    const t = composeProtocol(noMeta);
+    expect(t.intro).toBe('се състави настоящият приемо-предавателен протокол за долуописаните стоки:');
+  });
+
+  it('customer leg with an empty orderNumbers array falls back to the plain intro', () => {
+    const t = composeProtocol({
+      ...base,
+      kind: 'operator_to_customer',
+      meta: { orderNumbers: [] },
+      toSnapshot: { name: 'Иван Петров', phone: '0899', address: 'гр. Варна' },
+    });
+    expect(t.intro).toBe('се състави настоящата разписка за получена стока за долуописаните стоки:');
+  });
+});
+
 describe('wrap keeps every line inside the content width', () => {
   it('never emits a line wider than CONTENT_W', async () => {
     const doc = await PDFDocument.create();
