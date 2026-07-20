@@ -285,7 +285,21 @@ export class ProductsService {
     // but a Date in the DB — convert here.
     const { stock, variants, saleEndsAt, ...rest } = dto;
     const saleEndsAtDate = saleEndsAt != null ? new Date(saleEndsAt) : saleEndsAt;
-    const promoOverride = resolvePromoOverride(rest, variants, dto.priceStotinki);
+    // A partial update can set a fixed sale price without resending priceStotinki;
+    // resolvePromoOverride needs the regular price to validate "sale < regular", so
+    // fall back to the product's EXISTING price when the DTO omits it. Without this
+    // the guard would either be skipped (old bug: sale > regular accepted) or reject
+    // a legitimate sale-only edit.
+    let regularPrice = dto.priceStotinki;
+    if (regularPrice == null && rest.salePriceStotinki != null) {
+      const [existing] = await this.db
+        .select({ priceStotinki: products.priceStotinki })
+        .from(products)
+        .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
+        .limit(1);
+      regularPrice = existing?.priceStotinki;
+    }
+    const promoOverride = resolvePromoOverride(rest, variants, regularPrice);
     // Producers can edit their own product's fields but not its ownership.
     const data = farmerScope !== null
       ? { ...rest, saleEndsAt: saleEndsAtDate, ...promoOverride, farmerId: undefined }
@@ -1094,7 +1108,12 @@ export function resolvePromoOverride(
   }
   const fixed = promo.salePriceStotinki ?? null;
   if (fixed != null) {
-    if (priceStotinki != null && fixed >= priceStotinki) {
+    // A fixed sale price MUST be validated against the regular price. If none was
+    // supplied (a partial update that set salePriceStotinki without resending
+    // priceStotinki), the guard can't run — reject rather than silently write a
+    // sale price that may exceed the regular price. The caller must pass the
+    // existing price for a partial update.
+    if (priceStotinki == null || fixed >= priceStotinki) {
       throw new BadRequestException('Промо цената трябва да е под редовната цена');
     }
     return { salePercent: null, saleEndsAt: null };

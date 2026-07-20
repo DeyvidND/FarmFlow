@@ -118,23 +118,37 @@ export class CommissionService {
         };
       });
 
-      // Idempotent: the (order, farmer) unique index makes a re-accrue a no-op —
-      // the FIRST snapshot (amounts AND rate) always wins.
-      await this.db.insert(commissionEntries).values(rows).onConflictDoNothing();
-
-      // Revive entries a COD refusal voided when the outcome is re-marked received
-      // (manual re-marks are authoritative). Keeps the original snapshot; settled
-      // rows are final and untouched.
-      await this.db
-        .update(commissionEntries)
-        .set({ status: 'accrued' })
-        .where(
-          and(
-            eq(commissionEntries.orderId, orderId),
-            eq(commissionEntries.tenantId, tenantId),
-            eq(commissionEntries.status, 'voided'),
-          ),
-        );
+      // Serialize the ledger transition per order against a concurrent voidForOrder:
+      // take a per-order advisory lock, then RE-READ the order's outcome under it. The
+      // insert+revive below runs atomically so the revive step can't resurrect a
+      // voided entry on an order a concurrent COD-refusal/cancel just committed —
+      // which would leave commission accrued on money that never arrived. Same lock
+      // key as voidForOrder (salt 7).
+      await this.db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${orderId}, 7))`);
+        const [fresh] = await tx
+          .select({ status: orders.status, codOutcome: orders.codOutcome })
+          .from(orders)
+          .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
+          .limit(1);
+        if (!fresh || fresh.status === 'cancelled' || fresh.codOutcome === 'refused') return;
+        // Idempotent: the (order, farmer) unique index makes a re-accrue a no-op —
+        // the FIRST snapshot (amounts AND rate) always wins.
+        await tx.insert(commissionEntries).values(rows).onConflictDoNothing();
+        // Revive entries a COD refusal voided when the outcome is re-marked received
+        // (manual re-marks are authoritative). Keeps the original snapshot; settled
+        // rows are final and untouched.
+        await tx
+          .update(commissionEntries)
+          .set({ status: 'accrued' })
+          .where(
+            and(
+              eq(commissionEntries.orderId, orderId),
+              eq(commissionEntries.tenantId, tenantId),
+              eq(commissionEntries.status, 'voided'),
+            ),
+          );
+      });
     } catch (e) {
       this.logger.warn(`commission accrue failed for order ${orderId}: ${(e as Error).message}`);
     }
@@ -143,16 +157,28 @@ export class CommissionService {
   /** Void the accrued (never settled) entries of a cancelled/refused order. */
   async voidForOrder(orderId: string, tenantId: string): Promise<void> {
     try {
-      await this.db
-        .update(commissionEntries)
-        .set({ status: 'voided' })
-        .where(
-          and(
-            eq(commissionEntries.orderId, orderId),
-            eq(commissionEntries.tenantId, tenantId),
-            eq(commissionEntries.status, 'accrued'),
-          ),
-        );
+      await this.db.transaction(async (tx) => {
+        // Same per-order advisory lock as accrueForOrder (salt 7) so the two never
+        // interleave. Re-read under it: only void if the order is STILL cancelled/
+        // refused — a concurrent re-mark to 'received' that committed keeps its accrual.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${orderId}, 7))`);
+        const [fresh] = await tx
+          .select({ status: orders.status, codOutcome: orders.codOutcome })
+          .from(orders)
+          .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
+          .limit(1);
+        if (fresh && fresh.status !== 'cancelled' && fresh.codOutcome !== 'refused') return;
+        await tx
+          .update(commissionEntries)
+          .set({ status: 'voided' })
+          .where(
+            and(
+              eq(commissionEntries.orderId, orderId),
+              eq(commissionEntries.tenantId, tenantId),
+              eq(commissionEntries.status, 'accrued'),
+            ),
+          );
+      });
     } catch (e) {
       this.logger.warn(`commission void failed for order ${orderId}: ${(e as Error).message}`);
     }

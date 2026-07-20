@@ -11,6 +11,7 @@ import { Response } from 'express';
 import * as Sentry from '@sentry/nestjs';
 import { type Database, errorEvents } from '@fermeribg/db';
 import { DB_TOKEN } from '../drizzle/drizzle.constants';
+import { isDataException } from '../db/pg-error';
 
 // Caps mirror the errorEvents schema comment (packages/db/src/schema.ts) — keep an
 // oversized Error.message/stack from bloating a row indefinitely.
@@ -39,6 +40,19 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       message = exception.getResponse();
+    } else if (isDataException(exception) || this.isInvalidDateValue(exception)) {
+      // Malformed request input reached a typed layer: a garbage uuid/date string
+      // hit a Postgres uuid/date column (22P02/22007/22008), or a bad date string
+      // reached `new Date(NaN)` and Intl/Date threw "Invalid time value" *before*
+      // any query. Both mean the CLIENT sent junk — a 400, not a 500 + Sentry page.
+      // The underlying message can leak column/type detail, so it is never returned.
+      status = 400;
+      message = 'Невалидни данни в заявката.';
+      this.logger.warn(
+        `400 malformed input on ${request?.method} ${request?.originalUrl ?? request?.url}: ${
+          exception instanceof Error ? exception.message : String(exception)
+        }`,
+      );
     } else if (exception instanceof Error) {
       // Raw Error.message from lower layers (pg/Drizzle, fetch, AWS SDK) can leak
       // schema/constraint/infra details. Log it server-side; return a generic
@@ -61,6 +75,16 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  /**
+   * A `RangeError: Invalid time value` — thrown by `Date`/`Intl.DateTimeFormat`
+   * when a NaN date reaches formatting (e.g. `bgDayBounds('garbage')` from an
+   * untyped `@Query('date')`). Narrowly matched on the exact message so an
+   * unrelated RangeError (recursion, array bounds) still surfaces as a 500.
+   */
+  private isInvalidDateValue(exception: unknown): boolean {
+    return exception instanceof RangeError && exception.message === 'Invalid time value';
   }
 
   /**

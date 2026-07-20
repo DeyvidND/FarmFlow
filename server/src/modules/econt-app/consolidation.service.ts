@@ -1,5 +1,5 @@
 import { Injectable, Inject, BadRequestException, ConflictException } from '@nestjs/common';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { type Database, orders, shipments, farmers, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { consolidateCourierEnabled, type DeliveryConfig } from '../orders/delivery-pricing';
@@ -226,7 +226,11 @@ export class ConsolidationService {
         .where(and(eq(shipments.consolidationGroupId, masterShipmentId), sql`${shipments.id} <> ${masterShipmentId}`))
         .returning({ id: shipments.id });
       // Compare-and-set on the master: re-assert it's still a master (not already
-      // unconsolidated by a concurrent call) and still has no waybill, at write time.
+      // unconsolidated by a concurrent call), still has no waybill, AND is not being
+      // labeled right now (status='labeling', set by econt/speedy createLabel across
+      // the carrier network call). Refusing a 'labeling' row closes the double-COD
+      // race: a waybill collecting the whole group's COD is being created, so the
+      // children must NOT be freed to ship (and collect) again.
       const masterClaimed = await tx
         .update(shipments)
         .set({ consolidationGroupId: null, codAmountStotinki: ownCod, updatedAt: new Date() })
@@ -236,6 +240,7 @@ export class ConsolidationService {
             eq(shipments.consolidationGroupId, masterShipmentId),
             isNull(shipments.econtShipmentNumber),
             isNull(shipments.trackingNumber),
+            ne(shipments.status, 'labeling'),
           ),
         )
         .returning({ id: shipments.id });

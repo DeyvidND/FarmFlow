@@ -7,8 +7,9 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { type Database, tenants, products } from '@fermeribg/db';
+import { jsonbDeepMerge } from '../../common/db/jsonb';
 import type { PublicTenant, Tenant, LegalIdentity, TenantRole } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
@@ -204,15 +205,27 @@ export class TenantsService {
         .limit(1);
       if (!cur) throw new NotFoundException('Фермата не е намерена');
       const existing = (cur.settings as Record<string, unknown> | null) ?? {};
-      const nextSettings: Record<string, unknown> = { ...existing };
+      // Write each touched sub-key with an ATOMIC path-merge instead of rewriting the
+      // WHOLE settings blob. A concurrent atomic write to a SIBLING key (settings.
+      // marketing / brand.favicon / farmerOfWeek / landing / media — all jsonb_set)
+      // committed during this method's read→geocode→write window is no longer reverted.
+      // (The `delivery` sub-tree is still written wholesale, so a concurrent per-farmer
+      // carrier-cred save under delivery.farmers.* can still be clobbered — a narrower
+      // race than the top-level-key clobber this closes.)
+      let settingsExpr: SQL = sql`${tenants.settings}`;
+      let settingsTouched = false;
+      const mergeInto = (key: string, value: unknown) => {
+        settingsExpr = jsonbDeepMerge(settingsExpr, [key], value);
+        settingsTouched = true;
+      };
       if (delivery !== undefined) {
         // Carry the encrypted Econt password over from storage — the client no
         // longer receives it (toPublicTenant strips it), so a plain
         // delivery-settings save must not wipe it.
-        nextSettings.delivery = applyDeliverySecrets(existing.delivery, delivery);
+        mergeInto('delivery', applyDeliverySecrets(existing.delivery, delivery));
       }
       if (routing !== undefined) {
-        nextSettings.routing = await this.resolveRouting(existing.routing, routing);
+        mergeInto('routing', await this.resolveRouting(existing.routing, routing));
       }
       if (sms !== undefined) {
         // Sanitize to the keys we support; never store arbitrary ones. PARTIAL:
@@ -229,9 +242,9 @@ export class TenantsService {
           // Ignore out-of-range/garbage — leave the stored value (or default) intact.
           if (Number.isInteger(h) && h >= 0 && h <= 23) nextSms.sendHour = h;
         }
-        nextSettings.sms = nextSms;
+        mergeInto('sms', nextSms);
       }
-      set.settings = nextSettings;
+      if (settingsTouched) set.settings = settingsExpr;
     }
 
     const [row] = await this.db

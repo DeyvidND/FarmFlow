@@ -64,6 +64,16 @@ describe('resolvePromoOverride', () => {
   it('rejects a fixed price not below the regular price', () => {
     expect(() => resolvePromoOverride({ salePriceStotinki: 300 }, [], 300)).toThrow(BadRequestException);
   });
+  it('rejects a fixed sale price when there is no regular price to validate against', () => {
+    // A partial update that sets salePriceStotinki without resending priceStotinki
+    // used to skip the "below regular" guard entirely (priceStotinki undefined), so
+    // a sale price ABOVE the regular price was written and charged. A fixed sale
+    // with nothing to validate against is always invalid — the caller must supply
+    // the existing price.
+    expect(() => resolvePromoOverride({ salePriceStotinki: 700 }, [], undefined)).toThrow(
+      BadRequestException,
+    );
+  });
   it('varianted product clears any product-level fixed price', () => {
     expect(resolvePromoOverride({ salePriceStotinki: 240 }, [{ label: 'A', priceStotinki: 300 }], 300)).toEqual({ salePriceStotinki: null });
   });

@@ -24,6 +24,51 @@ const HANDOVER_STATUSES = ['confirmed', 'preparing'] as const;
 /** Customer identity snapshotted on an order — no legal-entity data required. */
 export type CustomerParty = { name?: string; phone?: string; address?: string };
 
+/** Line-item row for the farmer leg — shared by the per-target query and the bulk prefetch. */
+type FarmerLegItemRow = {
+  productName: string | null;
+  variantLabel: string | null;
+  quantity: number;
+  unit: string | null;
+  priceStotinki: number;
+  orderNumber: number | null;
+};
+/** Line-item row for the customer leg — shared by the per-target query and the bulk prefetch. */
+type CustomerLegItemRow = {
+  productName: string | null;
+  variantLabel: string | null;
+  quantity: number;
+  priceStotinki: number;
+  unit: string | null;
+  name: string | null;
+};
+type CustomerLegOrderRow = {
+  customerName: string | null;
+  customerPhone: string | null;
+  deliveryAddress: string | null;
+  totalStotinki: number;
+  orderNumber: number | null;
+};
+
+/**
+ * Reads preloaded ONCE for a whole day's targets so the bulk handover actions
+ * (createBatch / signAllForDay) assemble every protocol draft in-memory instead
+ * of re-issuing the operator-legal SELECT (identical every target), the farmer/order
+ * SELECT and the per-order items SELECT once per target — the buildDraft N+1. Built
+ * by {@link HandoverService.prefetchDraftContext}; when passed to buildDraft the
+ * draft path performs zero queries.
+ */
+export type HandoverDraftContext = {
+  operatorLegal: LegalIdentity;
+  farmerLegalById: Map<string, { legal: LegalIdentity | null; name: string | null }>;
+  farmerItemsByKey: Map<string, FarmerLegItemRow[]>; // key = farmerLegKey(farmerId, slotId)
+  customerOrderById: Map<string, CustomerLegOrderRow>;
+  customerItemsByOrderId: Map<string, CustomerLegItemRow[]>;
+};
+
+/** Stable key pairing a farmer with a slot for the farmer-leg item map. */
+const farmerLegKey = (farmerId: string, slotId: string) => `${farmerId}␟${slotId}`;
+
 /**
  * A row in the day's live protocol view. A persisted protocol has a real `id`
  * and number; a not-yet-created (virtual) target has `id: null`,
@@ -89,6 +134,7 @@ export class HandoverService {
   async buildDraft(
     tenantId: string,
     q: DraftQueryDto,
+    ctx?: HandoverDraftContext,
   ): Promise<{
     kind: string;
     from: LegalIdentity;
@@ -98,54 +144,58 @@ export class HandoverService {
     orderNumbers: number[];
   }> {
     if (q.kind === 'operator_to_customer') {
-      return this.buildCustomerLegDraft(tenantId, q);
+      return this.buildCustomerLegDraft(tenantId, q, ctx);
     }
     if (!q.farmerId || !q.slotId) {
       throw new BadRequestException('Изисква се фермер и слот.');
     }
 
-    const [tenantRow] = await this.db
-      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
-      .from(tenants)
-      .where(eq(tenants.id, tenantId))
-      .limit(1);
+    let operatorLegal: LegalIdentity;
+    let farmerLegal: LegalIdentity;
+    let rows: FarmerLegItemRow[];
+    if (ctx) {
+      // Bulk path: everything was preloaded once for the whole day (no per-target query).
+      operatorLegal = ctx.operatorLegal;
+      const f = ctx.farmerLegalById.get(q.farmerId);
+      farmerLegal = resolveParty(f?.legal, f?.name, 'фермер');
+      rows = ctx.farmerItemsByKey.get(farmerLegKey(q.farmerId, q.slotId)) ?? [];
+    } else {
+      const [tenantRow] = await this.db
+        .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
 
-    const [farmerRow] = await this.db
-      .select({ id: farmers.id, legal: farmers.legal, name: farmers.name })
-      .from(farmers)
-      .where(and(eq(farmers.tenantId, tenantId), eq(farmers.id, q.farmerId)))
-      .limit(1);
+      const [farmerRow] = await this.db
+        .select({ id: farmers.id, legal: farmers.legal, name: farmers.name })
+        .from(farmers)
+        .where(and(eq(farmers.tenantId, tenantId), eq(farmers.id, q.farmerId)))
+        .limit(1);
 
-    const operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
-    const farmerLegal = resolveParty(farmerRow?.legal, farmerRow?.name, 'фермер');
+      operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
+      farmerLegal = resolveParty(farmerRow?.legal, farmerRow?.name, 'фермер');
 
-    const rows: {
-      productName: string | null;
-      variantLabel: string | null;
-      quantity: number;
-      unit: string | null;
-      priceStotinki: number;
-      orderNumber: number | null;
-    }[] = await this.db
-      .select({
-        productName: orderItems.productName,
-        variantLabel: orderItems.variantLabel,
-        quantity: orderItems.quantity,
-        unit: products.unit,
-        priceStotinki: orderItems.priceStotinki,
-        orderNumber: orders.orderNumber,
-      })
-      .from(orderItems)
-      .innerJoin(products, eq(products.id, orderItems.productId))
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .where(
-        and(
-          eq(products.farmerId, q.farmerId),
-          eq(orders.tenantId, tenantId),
-          eq(orders.slotId, q.slotId),
-          inArray(orders.status, [...HANDOVER_STATUSES]),
-        ),
-      );
+      rows = await this.db
+        .select({
+          productName: orderItems.productName,
+          variantLabel: orderItems.variantLabel,
+          quantity: orderItems.quantity,
+          unit: products.unit,
+          priceStotinki: orderItems.priceStotinki,
+          orderNumber: orders.orderNumber,
+        })
+        .from(orderItems)
+        .innerJoin(products, eq(products.id, orderItems.productId))
+        .innerJoin(orders, eq(orders.id, orderItems.orderId))
+        .where(
+          and(
+            eq(products.farmerId, q.farmerId),
+            eq(orders.tenantId, tenantId),
+            eq(orders.slotId, q.slotId),
+            inArray(orders.status, [...HANDOVER_STATUSES]),
+          ),
+        );
+    }
 
     // Group by (productName, variantLabel): sum quantity, keep the first unit/price.
     const byKey = new Map<string, ProtocolItemDto>();
@@ -178,6 +228,7 @@ export class HandoverService {
   private async buildCustomerLegDraft(
     tenantId: string,
     q: DraftQueryDto,
+    ctx?: HandoverDraftContext,
   ): Promise<{
     kind: string;
     from: LegalIdentity;
@@ -190,28 +241,56 @@ export class HandoverService {
       throw new BadRequestException('Изисква се поръчка.');
     }
 
-    const [tenantRow] = await this.db
-      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
-      .from(tenants)
-      .where(eq(tenants.id, tenantId))
-      .limit(1);
+    let operatorLegal: LegalIdentity;
+    let order: CustomerLegOrderRow;
+    let rows: CustomerLegItemRow[];
+    if (ctx) {
+      // Bulk path: preloaded once for the whole day (no per-target query).
+      operatorLegal = ctx.operatorLegal;
+      const preloaded = ctx.customerOrderById.get(q.orderId);
+      if (!preloaded) {
+        throw new NotFoundException('Поръчката не е намерена');
+      }
+      order = preloaded;
+      rows = ctx.customerItemsByOrderId.get(q.orderId) ?? [];
+    } else {
+      const [tenantRow] = await this.db
+        .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
 
-    const operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
+      operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
 
-    const [order] = await this.db
-      .select({
-        customerName: orders.customerName,
-        customerPhone: orders.customerPhone,
-        deliveryAddress: orders.deliveryAddress,
-        totalStotinki: orders.totalStotinki,
-        orderNumber: orders.orderNumber,
-      })
-      .from(orders)
-      .where(and(eq(orders.tenantId, tenantId), eq(orders.id, q.orderId)))
-      .limit(1);
+      const [dbOrder] = await this.db
+        .select({
+          customerName: orders.customerName,
+          customerPhone: orders.customerPhone,
+          deliveryAddress: orders.deliveryAddress,
+          totalStotinki: orders.totalStotinki,
+          orderNumber: orders.orderNumber,
+        })
+        .from(orders)
+        .where(and(eq(orders.tenantId, tenantId), eq(orders.id, q.orderId)))
+        .limit(1);
 
-    if (!order) {
-      throw new NotFoundException('Поръчката не е намерена');
+      if (!dbOrder) {
+        throw new NotFoundException('Поръчката не е намерена');
+      }
+      order = dbOrder;
+
+      rows = await this.db
+        .select({
+          productName: orderItems.productName,
+          variantLabel: orderItems.variantLabel,
+          quantity: orderItems.quantity,
+          priceStotinki: orderItems.priceStotinki,
+          unit: products.unit,
+          name: products.name,
+        })
+        .from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(eq(orderItems.orderId, q.orderId));
     }
 
     const to: CustomerParty = {
@@ -219,26 +298,6 @@ export class HandoverService {
       phone: order.customerPhone ?? undefined,
       address: order.deliveryAddress ?? undefined,
     };
-
-    const rows: {
-      productName: string | null;
-      variantLabel: string | null;
-      quantity: number;
-      priceStotinki: number;
-      unit: string | null;
-      name: string | null;
-    }[] = await this.db
-      .select({
-        productName: orderItems.productName,
-        variantLabel: orderItems.variantLabel,
-        quantity: orderItems.quantity,
-        priceStotinki: orderItems.priceStotinki,
-        unit: products.unit,
-        name: products.name,
-      })
-      .from(orderItems)
-      .leftJoin(products, eq(orderItems.productId, products.id))
-      .where(eq(orderItems.orderId, q.orderId));
 
     const items: ProtocolItemDto[] = rows.map((r) => ({
       productName: r.productName ?? r.name ?? '',
@@ -251,6 +310,130 @@ export class HandoverService {
     const orderNumbers = order.orderNumber != null ? [order.orderNumber] : [];
 
     return { kind: q.kind, from: operatorLegal, to, items, total: order.totalStotinki, orderNumbers };
+  }
+
+  /**
+   * Preload every read buildDraft needs for a whole day's targets in a fixed number
+   * of set-based queries (operator legal once; all farmers' legal via one inArray;
+   * all farmer-leg items in one grouped join over the slots; all customer orders +
+   * their items via inArray on the order ids). Passed to buildDraft so the
+   * createBatch / signAllForDay loops assemble each draft in-memory instead of
+   * fanning out ~3 SELECTs per target (the buildDraft N+1). Constant DB work
+   * regardless of how many orders/farmers the day has.
+   */
+  private async prefetchDraftContext(
+    tenantId: string,
+    farmerIds: string[],
+    slotIds: string[],
+    orderIds: string[],
+  ): Promise<HandoverDraftContext> {
+    const [tenantRow] = await this.db
+      .select({ legal: sql<LegalIdentity | null>`${tenants.settings}->'legal'`, name: tenants.name })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const operatorLegal = resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор');
+
+    const farmerLegalById = new Map<string, { legal: LegalIdentity | null; name: string | null }>();
+    if (farmerIds.length > 0) {
+      const rows = await this.db
+        .select({ id: farmers.id, legal: farmers.legal, name: farmers.name })
+        .from(farmers)
+        .where(and(eq(farmers.tenantId, tenantId), inArray(farmers.id, farmerIds)));
+      for (const f of rows) farmerLegalById.set(f.id, { legal: f.legal, name: f.name });
+    }
+
+    const farmerItemsByKey = new Map<string, FarmerLegItemRow[]>();
+    if (farmerIds.length > 0 && slotIds.length > 0) {
+      const rows = await this.db
+        .select({
+          farmerId: products.farmerId,
+          slotId: orders.slotId,
+          productName: orderItems.productName,
+          variantLabel: orderItems.variantLabel,
+          quantity: orderItems.quantity,
+          unit: products.unit,
+          priceStotinki: orderItems.priceStotinki,
+          orderNumber: orders.orderNumber,
+        })
+        .from(orderItems)
+        .innerJoin(products, eq(products.id, orderItems.productId))
+        .innerJoin(orders, eq(orders.id, orderItems.orderId))
+        .where(
+          and(
+            eq(orders.tenantId, tenantId),
+            inArray(orders.slotId, slotIds),
+            inArray(orders.status, [...HANDOVER_STATUSES]),
+          ),
+        );
+      for (const r of rows) {
+        if (!r.farmerId || !r.slotId) continue;
+        const key = farmerLegKey(r.farmerId, r.slotId);
+        const list = farmerItemsByKey.get(key) ?? [];
+        list.push({
+          productName: r.productName,
+          variantLabel: r.variantLabel,
+          quantity: r.quantity,
+          unit: r.unit,
+          priceStotinki: r.priceStotinki,
+          orderNumber: r.orderNumber,
+        });
+        farmerItemsByKey.set(key, list);
+      }
+    }
+
+    const customerOrderById = new Map<string, CustomerLegOrderRow>();
+    const customerItemsByOrderId = new Map<string, CustomerLegItemRow[]>();
+    if (orderIds.length > 0) {
+      const orderRows = await this.db
+        .select({
+          id: orders.id,
+          customerName: orders.customerName,
+          customerPhone: orders.customerPhone,
+          deliveryAddress: orders.deliveryAddress,
+          totalStotinki: orders.totalStotinki,
+          orderNumber: orders.orderNumber,
+        })
+        .from(orders)
+        .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)));
+      for (const o of orderRows) {
+        customerOrderById.set(o.id, {
+          customerName: o.customerName,
+          customerPhone: o.customerPhone,
+          deliveryAddress: o.deliveryAddress,
+          totalStotinki: o.totalStotinki,
+          orderNumber: o.orderNumber,
+        });
+      }
+      const itemRows = await this.db
+        .select({
+          orderId: orderItems.orderId,
+          productName: orderItems.productName,
+          variantLabel: orderItems.variantLabel,
+          quantity: orderItems.quantity,
+          priceStotinki: orderItems.priceStotinki,
+          unit: products.unit,
+          name: products.name,
+        })
+        .from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, orderIds));
+      for (const r of itemRows) {
+        if (r.orderId == null) continue; // rows come from inArray(orderId, …) → always set; guard for the type
+        const list = customerItemsByOrderId.get(r.orderId) ?? [];
+        list.push({
+          productName: r.productName,
+          variantLabel: r.variantLabel,
+          quantity: r.quantity,
+          priceStotinki: r.priceStotinki,
+          unit: r.unit,
+          name: r.name,
+        });
+        customerItemsByOrderId.set(r.orderId, list);
+      }
+    }
+
+    return { operatorLegal, farmerLegalById, farmerItemsByKey, customerOrderById, customerItemsByOrderId };
   }
 
   /**
@@ -293,6 +476,27 @@ export class HandoverService {
     // pattern as orders.service.ts's order-number assignment.
     const inserted = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+      // Authoritative duplicate-target guard, re-run INSIDE the lock. The pre-lock
+      // check above is only a fast-path: two concurrent signs for the same target can
+      // both pass it (neither insert is committed yet), then serialize on this
+      // per-tenant advisory lock. The loser now sees the winner's committed row and
+      // aborts. Without this, the advisory lock guards only the NUMBER, and — since
+      // there is no DB unique constraint on the target — two signed protocols for one
+      // handover would be created with distinct numbers (double-counted totals/PDF).
+      const [dupe] = await tx
+        .select({ id: handoverProtocols.id })
+        .from(handoverProtocols)
+        .where(
+          and(
+            eq(handoverProtocols.tenantId, tenantId),
+            eq(handoverProtocols.kind, dto.kind),
+            eq(handoverProtocols.status, 'signed'),
+            targetMatch,
+          ),
+        )
+        .limit(1);
+      if (dupe) throw new ConflictException('Протокол вече е издаден за това предаване.');
+
       const [{ max }] = await tx
         .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
         .from(handoverProtocols)
@@ -403,6 +607,14 @@ export class HandoverService {
       return { ids, skipped };
     }
 
+    // Preload every read buildDraft needs for the whole day ONCE, so the per-target
+    // loop assembles each draft in-memory instead of fanning out ~3 SELECTs per target.
+    const ctxFarmerIds = [
+      ...new Set(targets.flatMap((t) => (t.kind === 'farmer_to_operator' ? [t.farmerId] : []))),
+    ];
+    const ctxOrderIds = targets.flatMap((t) => (t.kind === 'operator_to_customer' ? [t.orderId] : []));
+    const draftCtx = await this.prefetchDraftContext(tenantId, ctxFarmerIds, slotIds, ctxOrderIds);
+
     for (const target of targets) {
       const targetMatch =
         target.kind === 'operator_to_customer'
@@ -425,7 +637,7 @@ export class HandoverService {
       // farmer's and every customer's protocol for the day.
       let draft: Awaited<ReturnType<HandoverService['buildDraft']>>;
       try {
-        draft = await this.buildDraft(tenantId, target as DraftQueryDto);
+        draft = await this.buildDraft(tenantId, target as DraftQueryDto, draftCtx);
       } catch (e) {
         skipped.push({
           kind: target.kind,
@@ -443,6 +655,15 @@ export class HandoverService {
       // createSigned can't ever claim the same number.
       const inserted = await this.db.transaction(async (tx) => {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+        // Re-check the target INSIDE the lock (the pre-lock check above is a fast-path):
+        // a concurrent batch/sign for the same target serializes here, so its committed
+        // row is now visible → skip instead of creating a duplicate protocol for it.
+        const [dupe] = await tx
+          .select({ id: handoverProtocols.id })
+          .from(handoverProtocols)
+          .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.kind, target.kind), targetMatch))
+          .limit(1);
+        if (dupe) return null;
         const [{ max }] = await tx
           .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
           .from(handoverProtocols)
@@ -471,6 +692,7 @@ export class HandoverService {
         return row;
       });
 
+      if (!inserted) continue; // a concurrent writer already created this target's protocol
       ids.push(inserted.id);
     }
 
@@ -539,6 +761,15 @@ export class HandoverService {
     const draft = await this.buildDraft(tenantId, dto);
     const inserted = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+      // Re-check the target INSIDE the lock (the pre-lock check above is a fast-path): a
+      // concurrent create/sign for this target serializes here, so return its committed
+      // row instead of inserting a duplicate (there is no DB unique on the target).
+      const [dupe] = await tx
+        .select({ id: handoverProtocols.id })
+        .from(handoverProtocols)
+        .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.kind, dto.kind), targetMatch))
+        .limit(1);
+      if (dupe) return dupe;
       const [{ max }] = await tx
         .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
         .from(handoverProtocols)
@@ -572,7 +803,11 @@ export class HandoverService {
    *  built, numbered (advisory lock, same race-safe path as createSigned) and
    *  inserted straight as signed(paper). This is how a virtual (id=null) row gets
    *  signed on paper — a number is assigned only now, at sign time. */
-  async signPaperTarget(tenantId: string, dto: DraftQueryDto): Promise<{ id: string }> {
+  async signPaperTarget(
+    tenantId: string,
+    dto: DraftQueryDto,
+    ctx?: HandoverDraftContext,
+  ): Promise<{ id: string }> {
     const targetMatch =
       dto.kind === 'operator_to_customer'
         ? eq(handoverProtocols.orderId, dto.orderId!)
@@ -595,9 +830,18 @@ export class HandoverService {
       return { id: existing.id };
     }
 
-    const draft = await this.buildDraft(tenantId, dto);
+    const draft = await this.buildDraft(tenantId, dto, ctx);
     const inserted = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${tenantId}, 0))`);
+      // Re-check the target INSIDE the lock (the pre-lock check above is a fast-path): a
+      // concurrent create/sign for this target serializes here, so return its committed
+      // row instead of inserting a duplicate (there is no DB unique on the target).
+      const [dupe] = await tx
+        .select({ id: handoverProtocols.id })
+        .from(handoverProtocols)
+        .where(and(eq(handoverProtocols.tenantId, tenantId), eq(handoverProtocols.kind, dto.kind), targetMatch))
+        .limit(1);
+      if (dupe) return dupe;
       const [{ max }] = await tx
         .select({ max: sql<number | null>`max(${handoverProtocols.protocolNumber})` })
         .from(handoverProtocols)
@@ -892,10 +1136,18 @@ export class HandoverService {
       }
     }
 
+    // Preload buildDraft's reads for the whole day ONCE so signPaperTarget assembles
+    // each draft in-memory instead of re-querying tenant/farmer/order/items per target.
+    const ctxFarmerIds = [
+      ...new Set(targets.flatMap((t) => (t.kind === 'farmer_to_operator' && t.farmerId ? [t.farmerId] : []))),
+    ];
+    const ctxOrderIds = targets.flatMap((t) => (t.kind === 'operator_to_customer' && t.orderId ? [t.orderId] : []));
+    const draftCtx = await this.prefetchDraftContext(tenantId, ctxFarmerIds, slotIds, ctxOrderIds);
+
     let signed = 0;
     for (const t of targets) {
       try {
-        await this.signPaperTarget(tenantId, t);
+        await this.signPaperTarget(tenantId, t, draftCtx);
         signed++;
       } catch {
         // Already signed, or a target that can't be built (e.g. no name anywhere) —

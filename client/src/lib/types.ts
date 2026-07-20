@@ -655,6 +655,32 @@ export interface DashboardSummary {
   subscriptionActive: boolean;
 }
 
+/** Order-status bucket counts for „Днес" (GET /dashboard/today?date=). Mirrors
+ *  TodayPipeline in server/src/modules/dashboard/dashboard.service.ts verbatim. */
+export interface TodayPipeline {
+  new: number;
+  confirmed: number;
+  preparing: number;
+  outForDelivery: number;
+  delivered: number;
+  cancelled: number;
+  /** active = all except cancelled. */
+  total: number;
+}
+
+/** „Днес" delivery-day operations cockpit (GET /dashboard/today?date=). Mirrors
+ *  TodaySummary in server/src/modules/dashboard/dashboard.service.ts verbatim. */
+export interface TodaySummary {
+  date: string;
+  pipeline: TodayPipeline;
+  prep: { ordersToPrep: number; fulfilled: number };
+  route: { stops: number; delivered: number; pending: number; couriers: number };
+  protocols: { total: number; signed: number; pending: number };
+  cod: { toCollectStotinki: number; toCollectCount: number; collectedStotinki: number; collectedCount: number };
+  revenueStotinki: number;
+  slots: DashboardSlot[];
+}
+
 // ── Sales statistics (GET /stats?range=) — the over-time companion to the
 //    today-only dashboard. ──
 export type StatsRange = '7d' | '30d' | '90d' | '1y';

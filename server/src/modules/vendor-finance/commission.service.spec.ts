@@ -28,6 +28,11 @@ function makeDb() {
 
   const db: any = { queue: (v: unknown) => queue.push(v), calls };
   for (const m of CHAIN_METHODS) db[m] = jest.fn(() => step);
+  // accrueForOrder/voidForOrder wrap the ledger mutation in db.transaction(...) with a
+  // per-order advisory lock + authoritative re-read. execute() (the lock) doesn't
+  // consume the FIFO queue; transaction() runs the callback against this same db mock.
+  db.execute = jest.fn(() => Promise.resolve(undefined));
+  db.transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn(db));
   return db;
 }
 
@@ -53,6 +58,7 @@ describe('CommissionService.accrueForOrder', () => {
     ]); // items
     db.queue([{ settings: { vendorFinance: { commissionEnabled: true, defaultCommissionRateBps: 500 } } }]); // tenant
     db.queue([{ id: 'f1', commissionRateBps: 1000 }, { id: 'f2', commissionRateBps: null }]); // overrides
+    db.queue([{ status: 'confirmed', codOutcome: 'received' }]); // re-read under the lock: still collectible
     db.queue(undefined); // insert
     db.queue(undefined); // revive update
 
@@ -78,6 +84,7 @@ describe('CommissionService.accrueForOrder', () => {
     db.queue([{ farmerId: 'f1', quantity: 1, priceStotinki: 1000 }]);
     db.queue([{ settings: {} }]); // no vendorFinance at all
     db.queue([{ id: 'f1', commissionRateBps: 700 }]); // override present but feature OFF
+    db.queue([{ status: 'confirmed', codOutcome: null }]); // re-read under the lock: still collectible
     db.queue(undefined);
     db.queue(undefined);
 
@@ -111,14 +118,41 @@ describe('CommissionService.accrueForOrder', () => {
     db.queue(new Error('boom'));
     await expect((await build(db)).accrueForOrder(ORDER, TENANT)).resolves.toBeUndefined();
   });
+
+  // The initial guard passes (codOutcome null when the gross is computed), but a
+  // concurrent COD-refusal commits before the ledger write; the authoritative re-read
+  // UNDER the advisory lock sees 'refused' and skips insert+revive, so no commission
+  // is accrued on money that never arrived.
+  it('skips accrual when the order is refused between the gross computation and the lock', async () => {
+    const db = makeDb();
+    db.queue([{ id: ORDER, status: 'confirmed', codOutcome: null }]); // initial guard: passes
+    db.queue([{ farmerId: 'f1', quantity: 1, priceStotinki: 1000 }]); // items
+    db.queue([{ settings: { vendorFinance: { commissionEnabled: true, defaultCommissionRateBps: 500 } } }]); // tenant
+    db.queue([{ id: 'f1', commissionRateBps: null }]); // overrides
+    db.queue([{ status: 'confirmed', codOutcome: 'refused' }]); // RE-READ under the lock: concurrently refused
+    // no insert / revive queued — they must NOT run
+    await (await build(db)).accrueForOrder(ORDER, TENANT);
+    expect(db.calls.values).toHaveLength(0); // no insert
+    expect(db.calls.set).toEqual([]); // no revive
+  });
 });
 
 describe('CommissionService.voidForOrder', () => {
   it('voids accrued entries only', async () => {
     const db = makeDb();
+    db.queue([{ status: 'cancelled', codOutcome: null }]); // re-read under the lock: order is cancelled
     db.queue(undefined); // update
     await (await build(db)).voidForOrder(ORDER, TENANT);
     expect(db.calls.set).toEqual([{ status: 'voided' }]);
+  });
+
+  // Authoritative re-read under the per-order lock: a concurrent re-mark to 'received'
+  // that committed must keep its accrual — void must NOT run.
+  it('skips voiding when the order was concurrently re-marked received', async () => {
+    const db = makeDb();
+    db.queue([{ status: 'confirmed', codOutcome: 'received' }]); // re-read: not cancelled/refused
+    await (await build(db)).voidForOrder(ORDER, TENANT);
+    expect(db.calls.set).toEqual([]); // no void
   });
 });
 

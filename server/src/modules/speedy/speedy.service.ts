@@ -1,8 +1,9 @@
-import { Injectable, Inject, Logger, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, desc, inArray, isNotNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, desc, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
 import { type Database, tenants, shipments, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { jsonbDeepMerge } from '../../common/db/jsonb';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { buildKeysetPage, clampLimit, cursorTs, keysetAfter, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
@@ -56,32 +57,6 @@ function readAtPath(settings: unknown, path: string[]): unknown {
   return path.reduce<any>((o, k) => (o == null ? o : o[k]), settings);
 }
 
-/**
- * Return a NEW settings object with `value` set at `path`, deep-creating any
- * missing intermediate objects (e.g. `delivery.farmers.<id>` when a tenant has no
- * farmers yet) and structurally sharing untouched siblings. Pure — no mutation of
- * the input.
- */
-function writeAtPath(
-  settings: Record<string, unknown> | null | undefined,
-  path: string[],
-  value: unknown,
-): Record<string, unknown> {
-  const root: Record<string, unknown> = { ...(settings ?? {}) };
-  let cursor = root;
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i];
-    const existing = cursor[key];
-    const next: Record<string, unknown> =
-      existing && typeof existing === 'object' && !Array.isArray(existing)
-        ? { ...(existing as Record<string, unknown>) }
-        : {};
-    cursor[key] = next;
-    cursor = next;
-  }
-  cursor[path[path.length - 1]] = value;
-  return root;
-}
 
 /** A Speedy shipment row shaped for the standalone shipments table. */
 export interface SpeedyShipment {
@@ -183,8 +158,12 @@ export class SpeedyService implements CarrierAdapter {
   async disconnect(tenantId: string, farmerId?: string): Promise<{ configured: false }> {
     const { tenant, speedy } = await this.loadStored(tenantId, undefined, farmerId);
     const nextSpeedy = this.clearCredsBlob(speedy);
-    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), nextSpeedy);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge — see econt.service.ts saveCredentials. Preserves sibling
+    // carrier/farmer subtrees on the shared tenants.settings row under concurrency.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), nextSpeedy) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`);
     return { configured: false };
   }
@@ -225,10 +204,13 @@ export class SpeedyService implements CarrierAdapter {
       const contact = (tenant.settings.contact ?? null) as { phone?: string | null; address?: string | null } | null;
       seededSpeedy = this.maybeSeedSender(nextSpeedy, tenant.name || tenant.slug, contact, profiles);
     } catch { /* optional */ }
-    // Deep-create the path so a farmer write under an absent `delivery.farmers`
-    // parent still succeeds, while a tenant-level write keeps targeting delivery.speedy.
-    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), seededSpeedy);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge deep-creates the path AND preserves sibling subtrees, so a
+    // concurrent connect by another farmer (or the same farmer's Econt) is not
+    // clobbered — see econt.service.ts saveCredentials.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), seededSpeedy) })
+      .where(eq(tenants.id, tenantId));
     // Connecting flips `configured: true`, which changes the cached TenantMeta
     // (speedyConfigured / comparisonActive) — bust `tenant:` too, else the storefront
     // hides the Speedy option for up to PUBLIC_CACHE_TTL. Mirrors disconnect().
@@ -264,8 +246,12 @@ export class SpeedyService implements CarrierAdapter {
       ...(input.cod !== undefined ? { cod: { ...(speedy.cod ?? {}), ...input.cod } } : {}),
       ...(input.label !== undefined ? { label: { ...(speedy.label ?? {}), ...input.label } } : {}),
     };
-    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), nextSpeedy);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge — see econt.service.ts saveCredentials. Preserves sibling
+    // carrier/farmer subtrees on the shared tenants.settings row under concurrency.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), nextSpeedy) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(`tenant:${tenant.slug}`);
     return { ok: true };
   }
@@ -277,8 +263,12 @@ export class SpeedyService implements CarrierAdapter {
   async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }, farmerId?: string): Promise<{ ok: true }> {
     const { tenant, speedy } = await this.loadStored(tenantId, undefined, farmerId);
     const nextSpeedy = this.buildSenderBlob(speedy, input.senders, input.activeId);
-    const nextSettings = writeAtPath(tenant.settings, speedySettingsPath(farmerId), nextSpeedy);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge — see econt.service.ts saveCredentials. Preserves sibling
+    // carrier/farmer subtrees on the shared tenants.settings row under concurrency.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), nextSpeedy) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(`tenant:${tenant.slug}`);
     return { ok: true };
   }
@@ -505,14 +495,11 @@ export class SpeedyService implements CarrierAdapter {
     if (!siteId) throw new BadRequestException('Населеното място не е намерено в Speedy');
 
     const creds = await this.resolveCreds(tenantId, farmerId);
-    const input = buildOrderShipmentInput(speedy, order, siteId, overrides);
-    const body = buildShipmentRequest(speedy, input);
-    const data = await this.client.call(creds, 'shipment', body);
-
-    const shipmentId: string | null = data?.id != null ? String(data.id) : null;
-    const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
-    const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
-    const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
+    // Read the consolidation master's group COD BEFORE building the request, so the
+    // Speedy waybill INSTRUCTS the courier to collect the summed amount — not just
+    // this order's total. Reading it only after the carrier call (as before) fixed
+    // the persisted column but left the actual door-collection wrong: the DB said
+    // 1800 while Speedy was told 500.
     const [existingShipment] = await this.db
       .select({
         id: shipments.id,
@@ -523,6 +510,58 @@ export class SpeedyService implements CarrierAdapter {
       .where(eq(shipments.orderId, orderId))
       .limit(1);
     const override = consolidatedCodOverride(existingShipment ?? null);
+
+    const input = buildOrderShipmentInput(speedy, order, siteId, overrides);
+    // Consolidation master collects the whole group's COD. Only override the AMOUNT
+    // when this order is already collecting COD (buildOrderShipmentInput sets
+    // codAmountStotinki only for an unpaid COD order) — a paid master stays at 0.
+    if (override != null && input.codAmountStotinki != null) input.codAmountStotinki = override;
+    const body = buildShipmentRequest(speedy, input);
+    // Consolidation master: CLAIM it for labeling BEFORE the carrier call (mirrors
+    // econt.service.createLabel). The master waybill collects the whole group's COD,
+    // but trackingNumber is persisted only AFTER this call — a window where a
+    // concurrent unconsolidate frees the children and lets their COD be collected a
+    // second time. CAS to status='labeling'; unconsolidate's master CAS refuses it.
+    const isConsolidationMaster =
+      !!existingShipment && existingShipment.consolidationGroupId === existingShipment.id;
+    if (isConsolidationMaster) {
+      const claimed = await this.db
+        .update(shipments)
+        .set({ status: 'labeling', updatedAt: new Date() })
+        .where(
+          and(
+            eq(shipments.id, existingShipment!.id),
+            eq(shipments.consolidationGroupId, existingShipment!.id),
+            isNull(shipments.econtShipmentNumber),
+            isNull(shipments.trackingNumber),
+            inArray(shipments.status, ['draft', 'labeling']),
+          ),
+        )
+        .returning({ id: shipments.id });
+      if (claimed.length === 0) {
+        throw new ConflictException(
+          'Обединената пратка се обработва или е разделена междувременно — опитайте отново.',
+        );
+      }
+    }
+    let data: Awaited<ReturnType<typeof this.client.call>>;
+    try {
+      data = await this.client.call(creds, 'shipment', body);
+    } catch (err) {
+      if (isConsolidationMaster) {
+        await this.db
+          .update(shipments)
+          .set({ status: 'draft', updatedAt: new Date() })
+          .where(and(eq(shipments.id, existingShipment!.id), eq(shipments.status, 'labeling')))
+          .catch(() => undefined);
+      }
+      throw err;
+    }
+
+    const shipmentId: string | null = data?.id != null ? String(data.id) : null;
+    const parcels: any[] = Array.isArray(data?.parcels) ? data.parcels : [];
+    const barcode: string | null = parcels.length ? String(parcels[0]?.barcode ?? parcels[0]?.id ?? '') || null : null;
+    const priceEur: number | undefined = data?.price?.total ?? data?.price?.amount;
     const codAmount =
       override != null
         ? override
@@ -979,9 +1018,10 @@ export class SpeedyService implements CarrierAdapter {
       .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')));
 
     const out: Array<{ shipmentId: string; expectedStotinki: number | null; settledAt: string | null }> = [];
-    // Collect newly-settled rows, then write them in one parallel batch instead of a
-    // serial UPDATE-per-row on the request path (set is bounded by the 60-day window).
-    const settleWrites: Array<Promise<unknown>> = [];
+    // Collect the newly-settled (id, settledAt) pairs, then stamp them all in ONE
+    // set-based UPDATE (a CASE per shipment) instead of firing K concurrent single-row
+    // UPDATEs (K = shipments settled this run) that each grab a pool connection.
+    const settleTuples: Array<{ id: string; ts: Date }> = [];
     for (const r of rows) {
       if (r.expected == null) continue;
       const payout = r.barcode ? settledByBarcode.get(r.barcode) : undefined;
@@ -989,15 +1029,23 @@ export class SpeedyService implements CarrierAdapter {
       if (payout?.settledAt && !r.settledAt) {
         const d = new Date(payout.settledAt);
         if (!Number.isNaN(d.getTime())) {
-          settleWrites.push(
-            this.db.update(shipments).set({ codSettledAt: d, updatedAt: new Date() }).where(eq(shipments.id, r.shipmentId)),
-          );
+          settleTuples.push({ id: r.shipmentId, ts: d });
           settledAt = d.toISOString();
         }
       }
       out.push({ shipmentId: r.shipmentId, expectedStotinki: r.expected, settledAt });
     }
-    if (settleWrites.length) await Promise.all(settleWrites);
+    if (settleTuples.length > 0) {
+      const ids = settleTuples.map((t) => t.id);
+      const tsCase = sql.join(
+        settleTuples.map((t) => sql`when ${shipments.id} = ${t.id}::uuid then ${t.ts}::timestamptz`),
+        sql` `,
+      );
+      await this.db
+        .update(shipments)
+        .set({ codSettledAt: sql`case ${tsCase} end`, updatedAt: new Date() })
+        .where(inArray(shipments.id, ids));
+    }
     return out;
   }
 

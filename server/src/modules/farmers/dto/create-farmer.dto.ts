@@ -1,7 +1,12 @@
 import {
   IsString, IsOptional, IsInt, IsUrl, IsEmail, Min, Max, MaxLength, ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+
+/** Normalise a blank/whitespace string to undefined so @IsOptional() truly skips it
+ *  (class-validator only skips null/undefined) — the repo's ''-vs-undefined gotcha. */
+const blankToUndefined = ({ value }: { value: unknown }) =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CoverCropDto } from '../../../common/dto/cover-crop.dto';
 import { BrandingDto } from './branding.dto';
@@ -33,6 +38,7 @@ export class CreateFarmerDto {
   phone?: string;
 
   @ApiPropertyOptional({ example: 'petar@ferma.bg' })
+  @Transform(blankToUndefined)
   @IsOptional()
   @IsEmail()
   email?: string;
@@ -56,6 +62,7 @@ export class CreateFarmerDto {
   tint?: string;
 
   @ApiPropertyOptional()
+  @Transform(blankToUndefined)
   @IsOptional()
   @IsUrl()
   imageUrl?: string;

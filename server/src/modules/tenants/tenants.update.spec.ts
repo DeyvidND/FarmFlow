@@ -1,5 +1,36 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { TenantsService } from './tenants.service';
+
+/**
+ * updateMe now writes touched settings sub-keys with an ATOMIC nested jsonbDeepMerge
+ * (not a whole-blob read-modify-write), so `captured.set.settings` is an SQL
+ * expression rather than a JS object. Render it and apply the SAME coalesce/|| merge
+ * Postgres runs against the starting settings, so the effective result can be
+ * asserted (proving touched keys land AND untouched siblings survive) without a DB.
+ */
+const dialect = new PgDialect();
+function mergedSettings(
+  capturedSet: Record<string, unknown> | undefined,
+  existing: Record<string, any>,
+): Record<string, any> {
+  const { params } = dialect.sqlToQuery((capturedSet as any)?.settings);
+  let result: Record<string, any> = { ...existing };
+  // Each touched top-level key contributes one (key, jsonValue) pair; pair every
+  // JSON-object leaf param with the nearest preceding key param.
+  for (let n = 0; n < params.length; n++) {
+    const p = params[n];
+    if (typeof p === 'string' && p.trim().startsWith('{')) {
+      let key: string | undefined;
+      for (let m = n - 1; m >= 0; m--) {
+        const q = params[m];
+        if (typeof q === 'string' && !q.trim().startsWith('{')) { key = q; break; }
+      }
+      if (key) result = { ...result, [key]: JSON.parse(p) };
+    }
+  }
+  return result;
+}
 
 /**
  * getMe / updateMe — the service methods no existing tenant spec constructs the
@@ -157,10 +188,10 @@ describe('TenantsService.updateMe', () => {
 
     await svc.updateMe('t1', { delivery: { speedy: { enabled: true } } } as never);
 
-    const set = captured.set as { settings: Record<string, any> };
+    const result = mergedSettings(captured.set, existing);
     // Untouched key preserved; delivery rewritten.
-    expect(set.settings.marketing).toEqual({ ga4: 'G-1' });
-    expect(set.settings.delivery).toBeDefined();
+    expect(result.marketing).toEqual({ ga4: 'G-1' });
+    expect(result.delivery).toBeDefined();
   });
 
   it('merges sms.dayOfReminder into settings without dropping other keys', async () => {
@@ -170,7 +201,7 @@ describe('TenantsService.updateMe', () => {
 
     await svc.updateMe('t1', { sms: { dayOfReminder: true } } as never);
 
-    expect(captured.set?.settings).toMatchObject({
+    expect(mergedSettings(captured.set, existing)).toMatchObject({
       delivery: { foo: 1 },
       media: { hero: {} },
       sms: { dayOfReminder: true },
@@ -185,8 +216,8 @@ describe('TenantsService.updateMe', () => {
     // Payload carries ONLY sendHour — the stored master flag + channel survive.
     await svc.updateMe('t1', { sms: { sendHour: 6 } } as never);
 
-    const set = captured.set as { settings: Record<string, any> };
-    expect(set.settings.sms).toEqual({
+    const result = mergedSettings(captured.set, existing);
+    expect(result.sms).toEqual({
       dayOfReminder: true,
       channel: 'email',
       sendHour: 6,
@@ -200,8 +231,8 @@ describe('TenantsService.updateMe', () => {
 
     await svc.updateMe('t1', { sms: { sendHour: 99 } } as never);
 
-    const set = captured.set as { settings: Record<string, any> };
-    expect(set.settings.sms).toEqual({ dayOfReminder: true, sendHour: 8 });
+    const result = mergedSettings(captured.set, existing);
+    expect(result.sms).toEqual({ dayOfReminder: true, sendHour: 8 });
   });
 
   it('busts the profile + farmers + subcategories caches on save', async () => {

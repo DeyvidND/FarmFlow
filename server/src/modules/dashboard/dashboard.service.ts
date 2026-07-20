@@ -1,8 +1,12 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { and, eq, gte, lt, sql } from 'drizzle-orm';
-import { type Database, orders, orderItems, deliverySlots, tenants } from '@fermeribg/db';
+import { and, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import {
+  type Database, orders, orderItems, products, deliverySlots, tenants,
+  orderFulfillments, handoverProtocols, routeCourierAssignments,
+} from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { bgToday, bgDayBounds, bgAddDays } from '../../common/time/bg-time';
+import { scheduledForDay } from '../orders/order-scheduling';
 
 export interface DashboardSlot {
   id: string;
@@ -28,6 +32,23 @@ export interface DashboardSummary {
   slots: DashboardSlot[];
   /** false → show the storefront "subscription inactive" banner; history limited to 7 days. */
   subscriptionActive: boolean;
+}
+
+export interface TodayPipeline {
+  new: number; confirmed: number; preparing: number;
+  outForDelivery: number; delivered: number; cancelled: number;
+  total: number; // active = all except cancelled
+}
+
+export interface TodaySummary {
+  date: string;
+  pipeline: TodayPipeline;
+  prep: { ordersToPrep: number; fulfilled: number };
+  route: { stops: number; delivered: number; pending: number; couriers: number };
+  protocols: { total: number; signed: number; pending: number };
+  cod: { toCollectStotinki: number; toCollectCount: number; collectedStotinki: number; collectedCount: number };
+  revenueStotinki: number;
+  slots: DashboardSlot[];
 }
 
 @Injectable()
@@ -92,32 +113,12 @@ export class DashboardService {
       .where(eq(tenants.id, tenantId))
       .limit(1);
 
-    const slotRowsP = this.db
-      .select({
-        id: deliverySlots.id,
-        timeFrom: deliverySlots.timeFrom,
-        timeTo: deliverySlots.timeTo,
-        capacity: deliverySlots.capacity,
-        booked: sql<number>`count(${orders.id}) filter (where ${orders.status} <> 'cancelled')::int`,
-      })
-      .from(deliverySlots)
-      .leftJoin(orders, eq(orders.slotId, deliverySlots.id))
-      .where(
-        and(
-          eq(deliverySlots.tenantId, tenantId),
-          sql`${deliverySlots.date} = ${day}`,
-          eq(deliverySlots.isActive, true),
-        )!,
-      )
-      .groupBy(deliverySlots.id, deliverySlots.date, deliverySlots.timeFrom, deliverySlots.timeTo, deliverySlots.capacity)
-      .orderBy(deliverySlots.date, deliverySlots.timeFrom);
-
     const [[agg], [prod], [{ yesterday }], [tenant], slotRows] = await Promise.all([
       aggP,
       productRevP,
       yesterdayP,
       tenantP,
-      slotRowsP,
+      this.slotsForDay(tenantId, day),
     ]);
 
     const slots: DashboardSlot[] = slotRows.map((s) => ({
@@ -138,6 +139,152 @@ export class DashboardService {
       nextSlot: slots.find((s) => s.booked < s.capacity) ?? null,
       slots,
       subscriptionActive: tenant?.status !== 'inactive',
+    };
+  }
+
+  /** Active slots for `day` with a live non-cancelled booked count. */
+  private slotsForDay(tenantId: string, day: string) {
+    return this.db
+      .select({
+        id: deliverySlots.id,
+        timeFrom: deliverySlots.timeFrom,
+        timeTo: deliverySlots.timeTo,
+        capacity: deliverySlots.capacity,
+        booked: sql<number>`count(${orders.id}) filter (where ${orders.status} <> 'cancelled')::int`,
+      })
+      .from(deliverySlots)
+      .leftJoin(orders, eq(orders.slotId, deliverySlots.id))
+      .where(and(eq(deliverySlots.tenantId, tenantId), sql`${deliverySlots.date} = ${day}`, eq(deliverySlots.isActive, true))!)
+      .groupBy(deliverySlots.id, deliverySlots.date, deliverySlots.timeFrom, deliverySlots.timeTo, deliverySlots.capacity)
+      .orderBy(deliverySlots.date, deliverySlots.timeFrom);
+  }
+
+  /** Delivery-day operations cockpit — one round of cheap grouped counts. */
+  async todaySummary(tenantId: string, date?: string): Promise<TodaySummary> {
+    const day = date ?? bgToday();
+    const sched = scheduledForDay(day); // MUST pair with leftJoin(deliverySlots)
+    const HANDOVER_READY = ['confirmed', 'preparing'] as const;
+
+    const pipelineP = this.db
+      .select({
+        status: orders.status,
+        count: sql<number>`count(*)::int`,
+        totalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}), 0)::int`,
+        addr: sql<number>`count(*) filter (where ${orders.deliveryType} = 'address')::int`,
+      })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orders.tenantId, tenantId), sched))
+      .groupBy(orders.status);
+
+    const couriersP = this.db
+      .select({ legIndex: routeCourierAssignments.legIndex })
+      .from(routeCourierAssignments)
+      .where(and(eq(routeCourierAssignments.tenantId, tenantId), eq(routeCourierAssignments.date, day)))
+      .groupBy(routeCourierAssignments.legIndex);
+
+    const CASH = sql`${orders.status} in ('confirmed','preparing','out_for_delivery','delivered')`;
+    const codP = this.db
+      .select({
+        toCollectStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.codOutcome} is null and ${CASH}), 0)::int`,
+        toCollectCount:    sql<number>`count(*) filter (where ${orders.codOutcome} is null and ${CASH})::int`,
+        collectedStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.codOutcome} = 'received'), 0)::int`,
+        collectedCount:    sql<number>`count(*) filter (where ${orders.codOutcome} = 'received')::int`,
+      })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.paymentMethod, 'cod'), sched));
+
+    // An order is "prepared" when every farmer-leg fulfillment row is 'fulfilled'.
+    const fulfilledP = this.db
+      .select({ orderId: orderFulfillments.orderId })
+      .from(orderFulfillments)
+      .innerJoin(orders, eq(orders.id, orderFulfillments.orderId))
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orderFulfillments.tenantId, tenantId), inArray(orders.status, [...HANDOVER_READY]), sched))
+      .groupBy(orderFulfillments.orderId)
+      .having(sql`bool_and(${orderFulfillments.state} = 'fulfilled')`);
+
+    const signedFarmerP = this.db
+      .select({ signedFarmer: sql<number>`count(*)::int` })
+      .from(handoverProtocols)
+      .innerJoin(deliverySlots, eq(deliverySlots.id, handoverProtocols.slotId))
+      .where(and(
+        eq(handoverProtocols.tenantId, tenantId),
+        eq(handoverProtocols.kind, 'farmer_to_operator'),
+        eq(handoverProtocols.status, 'signed'),
+        eq(deliverySlots.date, day),
+      ));
+
+    // Slotless customer legs (address order with no slot picked) sign a protocol
+    // keyed by orderId, not slotId — join through orders/scheduledForDay so those
+    // still count as signed instead of being invisible to an innerJoin(slotId).
+    const signedCustomerP = this.db
+      .select({ signedCustomer: sql<number>`count(*)::int` })
+      .from(handoverProtocols)
+      .innerJoin(orders, eq(orders.id, handoverProtocols.orderId))
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(
+        eq(handoverProtocols.tenantId, tenantId),
+        eq(handoverProtocols.kind, 'operator_to_customer'),
+        eq(handoverProtocols.status, 'signed'),
+        scheduledForDay(day),
+      ));
+
+    // Distinct (farmer, slot) legs among handover-ready line items scheduled today.
+    // Slot-filtered: handover only ever creates farmer_to_operator protocols for
+    // slotted legs (farmerId && slotId both set), so an unfiltered groupBy would
+    // count a phantom (farmerId, NULL) leg for slotless orders that can never sign.
+    const farmerLegsP = this.db
+      .select({ farmerId: products.farmerId, slotId: orders.slotId })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.status, [...HANDOVER_READY]), isNotNull(orders.slotId), sched))
+      .groupBy(products.farmerId, orders.slotId);
+
+    const customerLegsP = this.db
+      .select({ customerLegs: sql<number>`count(*)::int` })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.deliveryType, 'address'), inArray(orders.status, [...HANDOVER_READY]), sched));
+
+    const [pipelineRows, courierRows, [cod], fulfilledRows, [signedFarmerRow], [signedCustomerRow], farmerLegRows, [custRow], slotRows] = await Promise.all([
+      pipelineP, couriersP, codP, fulfilledP, signedFarmerP, signedCustomerP, farmerLegsP, customerLegsP, this.slotsForDay(tenantId, day),
+    ]);
+
+    const protoTotal = farmerLegRows.length + (custRow?.customerLegs ?? 0);
+    const protoSigned = (signedFarmerRow?.signedFarmer ?? 0) + (signedCustomerRow?.signedCustomer ?? 0);
+
+    const by = (s: string) => pipelineRows.find((r) => r.status === s);
+    const cnt = (s: string) => by(s)?.count ?? 0;
+    const addr = (s: string) => by(s)?.addr ?? 0;
+    const ACTIVE = ['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered'] as const;
+
+    const pipeline: TodayPipeline = {
+      new: cnt('pending'), confirmed: cnt('confirmed'), preparing: cnt('preparing'),
+      outForDelivery: cnt('out_for_delivery'), delivered: cnt('delivered'), cancelled: cnt('cancelled'),
+      total: ACTIVE.reduce((a, s) => a + cnt(s), 0),
+    };
+    const revenueStotinki = pipelineRows
+      .filter((r) => r.status !== 'cancelled')
+      .reduce((a, r) => a + r.totalStotinki, 0);
+    const routeStops = ACTIVE.reduce((a, s) => a + addr(s), 0);
+    const routeDelivered = addr('delivered');
+    const slots: DashboardSlot[] = slotRows.map((s) => ({
+      id: s.id, timeFrom: s.timeFrom, timeTo: s.timeTo, booked: s.booked, capacity: s.capacity,
+    }));
+
+    return {
+      date: day,
+      pipeline,
+      prep: { ordersToPrep: pipeline.confirmed + pipeline.preparing, fulfilled: fulfilledRows.length },
+      route: { stops: routeStops, delivered: routeDelivered, pending: routeStops - routeDelivered, couriers: courierRows.length },
+      protocols: { total: protoTotal, signed: protoSigned, pending: Math.max(0, protoTotal - protoSigned) },
+      cod: cod ?? { toCollectStotinki: 0, toCollectCount: 0, collectedStotinki: 0, collectedCount: 0 },
+      revenueStotinki,
+      slots,
     };
   }
 }

@@ -4,6 +4,8 @@
  * edits once money has been collected (paidAt / codOutcome='received').
  */
 import { BadRequestException } from '@nestjs/common';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { OrdersService } from './orders.service';
 import { subtotalStotinki, recomputeTotalStotinki } from './order-total.util';
 
@@ -40,6 +42,8 @@ describe('updateOrder guards', () => {
       jest.spyOn(svc, 'findOne').mockResolvedValue({} as any);
       (svc as any).db.transaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({
+          // the FOR UPDATE order-row lock the fix takes first — un-collected here
+          select: () => ({ from: () => ({ where: () => ({ for: () => ({ limit: () => Promise.resolve([{ paidAt: null, codOutcome: null }]) }) }) }) }),
           update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
         }),
       );
@@ -96,6 +100,8 @@ describe('updateOrder geocode-miss clears stale coordinates/city', () => {
       select: jest.fn(() => (selectCall++ === 0 ? orderChain : tenantChain)),
       transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx: any = {
+          // the FOR UPDATE order-row lock the fix takes first — un-collected here
+          select: () => ({ from: () => ({ where: () => ({ for: () => ({ limit: () => Promise.resolve([{ paidAt: null, codOutcome: null }]) }) }) }) }),
           update: jest.fn(() => {
             const c: any = {};
             c.set = jest.fn((v: Record<string, unknown>) => {
@@ -178,11 +184,17 @@ describe('updateOrder item replacement wiring', () => {
     const setCapture: Record<string, unknown>[] = [];
     let insertedRows: unknown[] | undefined;
 
+    let txSel = 0;
     const db: any = {
       select: jest.fn(() => orderChain),
       transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx: any = {
-          select: () => ({ from: () => ({ where: () => Promise.resolve(oldItems) }) }),
+          // call 0 is the FOR UPDATE order-row lock the fix takes first; later calls
+          // are the oldItems / products reads as before.
+          select: () =>
+            txSel++ === 0
+              ? { from: () => ({ where: () => ({ for: () => ({ limit: () => Promise.resolve([orderRow]) }) }) }) }
+              : { from: () => ({ where: () => Promise.resolve(oldItems) }) },
           delete: () => ({
             where: () => {
               calls.push('delete');
@@ -297,11 +309,15 @@ describe('updateOrder item replacement — grandfathers an unchanged inactive-pr
         const tx: any = {
           select: jest.fn(() => {
             const call = txSelectCall++;
+            if (call === 0) {
+              // the FOR UPDATE order-row lock the fix takes first
+              return { from: () => ({ where: () => ({ for: () => ({ limit: () => Promise.resolve([orderRow]) }) }) }) };
+            }
             return {
               from: () => ({
                 where: () =>
                   Promise.resolve(
-                    call === 0
+                    call === 1
                       ? oldItems
                       : [
                           { id: 'p1', isActive: false },
@@ -380,8 +396,8 @@ describe('updateOrder item replacement — grandfathers an unchanged inactive-pr
 });
 
 describe('restoreVariantStock (via a captured tx)', () => {
-  it('adds quantities back per variant, skips unlimited (null) stock', async () => {
-    const updates: Array<{ id: string; stockQuantity: number }> = [];
+  it('adds quantities back in ONE set-based UPDATE (CASE), skipping unlimited (null) stock', async () => {
+    const captured: Array<{ set: SQL; where: SQL }> = [];
     const rows = [
       { id: 'v1', stockQuantity: 2 },
       { id: 'v2', stockQuantity: null },
@@ -391,9 +407,9 @@ describe('restoreVariantStock (via a captured tx)', () => {
         from: () => ({ where: () => ({ for: () => ({ orderBy: () => Promise.resolve(rows) }) }) }),
       }),
       update: () => ({
-        set: (vals: { stockQuantity: number }) => ({
-          where: (_: unknown) => {
-            updates.push({ id: 'captured', stockQuantity: vals.stockQuantity });
+        set: (vals: { stockQuantity: SQL }) => ({
+          where: (w: SQL) => {
+            captured.push({ set: vals.stockQuantity, where: w });
             return Promise.resolve();
           },
         }),
@@ -404,7 +420,15 @@ describe('restoreVariantStock (via a captured tx)', () => {
       { variantId: 'v1', quantity: 3 },
       { variantId: 'v2', quantity: 1 },
     ]);
-    // Only v1 (finite stock) is written: 2 + 3 = 5. v2 (null) is skipped.
-    expect(updates).toEqual([{ id: 'captured', stockQuantity: 5 }]);
+    // ONE UPDATE, not two — a CASE over the finite-stock variants only.
+    expect(captured).toHaveLength(1);
+    const dialect = new PgDialect();
+    const set = dialect.sqlToQuery(captured[0].set);
+    const where = dialect.sqlToQuery(captured[0].where);
+    expect(set.sql.toLowerCase()).toContain('case');
+    // v1 finite → 2 + 3 = 5 written; v2 (null) skipped entirely (not in the CASE or the WHERE).
+    expect(set.params).toEqual(expect.arrayContaining(['v1', 5]));
+    expect(set.params).not.toContain('v2');
+    expect(where.params).toEqual(['v1']); // inArray over only the finite variant
   });
 });

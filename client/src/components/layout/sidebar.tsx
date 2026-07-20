@@ -61,9 +61,19 @@ export const navGroupKey = (title: string) => `group:${title}`;
  *  (the post-login landing page + a safe anchor), so it is never hideable. */
 export const HOME: NavItem = {
   href: '/dashboard',
+  label: 'Днес',
+  Icon: LayoutDashboard,
+  desc: 'Днешните поръчки, подготовка, маршрут и пари — всичко за деня.',
+};
+
+/** Business overview — the old „Табло" screen (KPIs, order tracking, store
+ *  readiness). Stands alone right under HOME, same as HOME: always visible,
+ *  never hideable. Admin-only (not shown for the driver/farmer sub-nav). */
+export const OVERVIEW: NavItem = {
+  href: '/overview',
   label: 'Табло',
   Icon: LayoutDashboard,
-  desc: 'Начален преглед — обобщение на продажби и поръчки.',
+  desc: 'Бизнес преглед — оборот, поръчки и готовност на магазина.',
 };
 
 // Grouped by function — the everyday order pipeline (Продажби) stays open; the
@@ -334,7 +344,10 @@ export function Sidebar({
         ) : (
           <>
             {/* Home — always on top, no group header */}
-            <div className="flex flex-col gap-1">{renderItem(HOME)}</div>
+            <div className="flex flex-col gap-1">
+              {renderItem(HOME)}
+              {renderItem(OVERVIEW)}
+            </div>
 
             {sortedGroups.map((group) => {
               // Whole section hidden by the farmer, or every item in it hidden/off.

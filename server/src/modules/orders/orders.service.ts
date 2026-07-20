@@ -7,7 +7,7 @@ import {
   ForbiddenException,
   Optional,
 } from '@nestjs/common';
-import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   type Database,
   orders,
@@ -25,7 +25,7 @@ import type { Product, ProductVariant } from '@fermeribg/types';
 import { effectivePriceStotinki } from '../products/promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
-import { bgToday, bgDayBounds, bgDate, bgAddDays } from '../../common/time/bg-time';
+import { bgToday, bgDate, bgAddDays } from '../../common/time/bg-time';
 import { buildKeysetPage, clampLimit, cursorTs, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -43,7 +43,12 @@ import { CommissionService } from '../vendor-finance/commission.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay, scheduledForRange, pickNearestDay } from './order-scheduling';
-import { subtotalStotinki, recomputeTotalStotinki } from './order-total.util';
+import {
+  subtotalStotinki,
+  recomputeTotalStotinki,
+  assertOrderTotalWithinBounds,
+} from './order-total.util';
+import { intCaseById } from './order-stock.util';
 import { decideDecrement, decideDecrementPooled, restoreRemaining } from '../availability/availability.util';
 import { slotIsFull, slotUnavailableReason, migrateRule, ruleProducesDate } from '../slots/slot-rule';
 
@@ -1475,6 +1480,29 @@ export class OrdersService {
 
     let variantStockTouched = false;
     await this.db.transaction(async (tx) => {
+      // Serialize this edit against a concurrent cancel/restore or a second edit:
+      // lock the order row FIRST — before reading its items below — so the stock
+      // restore runs against the row's committed state exactly once. The cancel path
+      // takes the same row lock via its atomic `UPDATE orders … RETURNING`, and a
+      // second updateOrder blocks here too; the loser then re-reads FRESH oldItems
+      // instead of double-adding a stale snapshot's quantity (which inflated variant
+      // stock / window remaining → oversell, and clobbered the earlier edit).
+      const [locked] = await tx
+        .select({ paidAt: orders.paidAt, codOutcome: orders.codOutcome })
+        .from(orders)
+        .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+        .for('update')
+        .limit(1);
+      if (!locked) throw new NotFoundException('Поръчката не е намерена');
+      // Re-assert the collected-money guard under the lock: a COD 'received' or card
+      // payment that committed between the outer read and acquiring this lock must
+      // still block an item edit (the outer check above raced it).
+      if (dto.items && (locked.paidAt || locked.codOutcome === 'received')) {
+        throw new BadRequestException(
+          'Поръчка с прибрано плащане — артикулите не могат да се променят.',
+        );
+      }
+
       // Slot reassign — only when slotId is present in the patch and differs.
       if (dto.slotId !== undefined && dto.slotId !== current.slotId && dto.slotId !== null) {
         await this.lockAndCheckSlot(tx, tenantId, dto.slotId, id);
@@ -2041,17 +2069,30 @@ export class OrdersService {
     return this.setCodOutcome(id, tenantId, dto);
   }
 
-  /** Bulk confirm all pending orders (optionally for a single day). */
+  /**
+   * Bulk confirm all pending orders (optionally scoped to a single DELIVERY
+   * day). `date` is a delivery day (scheduledForDay), matching the „Днес"
+   * page's pipeline.new count — NOT the placed day. An UPDATE can't
+   * leftJoin(deliverySlots) directly (landmine — see server/CLAUDE.md), so the
+   * day scoping goes through `id IN (subselect that joins)`.
+   */
   async confirmPending(tenantId: string, date?: string): Promise<{ confirmed: number }> {
-    const conds = [eq(orders.tenantId, tenantId), eq(orders.status, 'pending')];
+    const baseConds = [eq(orders.tenantId, tenantId), eq(orders.status, 'pending')];
+    let whereClause: SQL | undefined;
     if (date) {
-      const { from, to } = bgDayBounds(date);
-      conds.push(gte(orders.createdAt, from), lt(orders.createdAt, to));
+      const scheduledIds = this.db
+        .select({ id: orders.id })
+        .from(orders)
+        .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+        .where(and(eq(orders.tenantId, tenantId), eq(orders.status, 'pending'), scheduledForDay(date)));
+      whereClause = and(...baseConds, inArray(orders.id, scheduledIds));
+    } else {
+      whereClause = and(...baseConds);
     }
     const rows = await this.db
       .update(orders)
       .set({ status: 'confirmed' })
-      .where(and(...conds))
+      .where(whereClause)
       .returning({ id: orders.id });
     // Each row was pending → confirmed (one-time): notify each buyer + (for Econt
     // orders on an auto-create farm) generate the waybill. Drained with a small
@@ -2166,11 +2207,17 @@ export class OrdersService {
       const win = winByProduct.get(it.productId);
       if (win) win.remaining = restoreRemaining(win, it.quantity);
     }
-    for (const w of activeWindows) {
+    // One set-based UPDATE (CASE per window) instead of a per-window UPDATE loop —
+    // fewer round-trips while these rows are held under FOR UPDATE.
+    const winUpdates = activeWindows
+      .filter((w) => w.remaining != null)
+      .map((w) => ({ id: w.id, value: w.remaining as number }));
+    const winCase = intCaseById(productAvailabilityWindows.id, winUpdates);
+    if (winCase) {
       await tx
         .update(productAvailabilityWindows)
-        .set({ remaining: w.remaining })
-        .where(eq(productAvailabilityWindows.id, w.id));
+        .set({ remaining: winCase })
+        .where(inArray(productAvailabilityWindows.id, winUpdates.map((u) => u.id)));
     }
   }
 
@@ -2199,10 +2246,17 @@ export class OrdersService {
     for (const it of items) {
       if (it.variantId) add.set(it.variantId, (add.get(it.variantId) ?? 0) + it.quantity);
     }
-    for (const v of rows) {
-      if (v.stockQuantity == null) continue; // unlimited
-      const restored = v.stockQuantity + (add.get(v.id) ?? 0);
-      await tx.update(productVariants).set({ stockQuantity: restored }).where(eq(productVariants.id, v.id));
+    // One set-based UPDATE (CASE per variant) instead of a per-variant UPDATE loop;
+    // each restored value is the locked stock + the released quantity.
+    const stockUpdates = rows
+      .filter((v) => v.stockQuantity != null)
+      .map((v) => ({ id: v.id, value: (v.stockQuantity as number) + (add.get(v.id) ?? 0) }));
+    const stockCase = intCaseById(productVariants.id, stockUpdates);
+    if (stockCase) {
+      await tx
+        .update(productVariants)
+        .set({ stockQuantity: stockCase })
+        .where(inArray(productVariants.id, stockUpdates.map((u) => u.id)));
     }
     return rows.some((v) => v.stockQuantity != null);
   }
@@ -2398,11 +2452,17 @@ export class OrdersService {
         });
       }
     }
-    for (const w of activeWindows) {
+    // One set-based UPDATE (CASE per window) instead of a per-window UPDATE loop —
+    // fewer round-trips while these rows are held under FOR UPDATE.
+    const winUpdates = activeWindows
+      .filter((w) => w.remaining != null)
+      .map((w) => ({ id: w.id, value: w.remaining as number }));
+    const winCase = intCaseById(productAvailabilityWindows.id, winUpdates);
+    if (winCase) {
       await tx
         .update(productAvailabilityWindows)
-        .set({ remaining: w.remaining })
-        .where(eq(productAvailabilityWindows.id, w.id));
+        .set({ remaining: winCase })
+        .where(inArray(productAvailabilityWindows.id, winUpdates.map((u) => u.id)));
     }
 
     // Variant stock decrement (mirrors the window block; stockQuantity null = unlimited).
@@ -2414,10 +2474,17 @@ export class OrdersService {
       if (!decision.ok) throw new ConflictException(`Няма достатъчна наличност: ${v.label}`);
       if (v.stockQuantity != null && decision.newRemaining != null) v.stockQuantity = decision.newRemaining;
     }
-    for (const v of variantRows) {
-      if (v.stockQuantity != null) {
-        await tx.update(productVariants).set({ stockQuantity: v.stockQuantity }).where(eq(productVariants.id, v.id));
-      }
+    // One set-based UPDATE (CASE per variant) instead of a per-variant UPDATE loop —
+    // each row's new stock was already computed in the decrement loop above.
+    const variantUpdates = variantRows
+      .filter((v) => v.stockQuantity != null)
+      .map((v) => ({ id: v.id, value: v.stockQuantity as number }));
+    const variantCase = intCaseById(productVariants.id, variantUpdates);
+    if (variantCase) {
+      await tx
+        .update(productVariants)
+        .set({ stockQuantity: variantCase })
+        .where(inArray(productVariants.id, variantUpdates.map((u) => u.id)));
     }
 
     // Promo expiry is coarse (date-level), so a plain wall-clock Date is correct.
@@ -2588,6 +2655,9 @@ export class OrdersService {
       } = await this.reserveCartItems(tx, tenant.id, dto.items, slotId, carrierDelivery, true);
       variantStockTouched = touched;
       const total = prepared.reduce((s, i) => s + i.priceStotinki * i.quantity, 0);
+      // Bound the aggregate before it hits the int4 total_stotinki column — the
+      // per-line @Max(10_000) qty guard does not stop the sum overflowing int4.
+      assertOrderTotalWithinBounds(total);
       // order_items has no farmer_id column — strip it before insert.
       const items = prepared.map(({ farmerId: _f, ...line }) => line);
 
@@ -2752,6 +2822,7 @@ export class OrdersService {
       for (const fid of farmerIds) {
         const lines = groups.get(fid)!;
         const total = lines.reduce((s, i) => s + i.priceStotinki * i.quantity, 0);
+        assertOrderTotalWithinBounds(total); // same int4 bound on the per-farmer courier order
         const [order] = await tx
           .insert(orders)
           .values({

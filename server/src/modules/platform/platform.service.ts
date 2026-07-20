@@ -62,6 +62,7 @@ import { ChangePasswordDto } from '../auth/dto/change-password.dto';
 import { sanitizeSiteUrl } from '../tenants/site-copy';
 import { DEMO_SEED } from './demo-seed';
 import { econtTenantSettings, withEcontActive } from '../econt-app/econt-app.helpers';
+import { jsonbDeepMerge } from '../../common/db/jsonb';
 import { farmDefaultSettings, farmerSellerReadiness, type SellerReadiness } from './platform.helpers';
 import { CreateDeliveryAccountDto } from './dto/create-delivery-account.dto';
 import {
@@ -1296,9 +1297,11 @@ export class PlatformService {
       .where(eq(tenants.id, tenantId))
       .limit(1);
     if (!t) throw new NotFoundException('Акаунтът не е намерен');
+    // Atomic path-merge (was a whole-blob read-modify-write via withEcontActive) so a
+    // concurrent settings edit isn't reverted — only econtApp.active is touched.
     await this.db
       .update(tenants)
-      .set({ settings: withEcontActive(t.settings, active) })
+      .set({ settings: jsonbDeepMerge(tenants.settings, ['econtApp', 'active'], active) })
       .where(eq(tenants.id, tenantId));
     return { id: tenantId, active };
   }
@@ -1605,9 +1608,11 @@ export class PlatformService {
 
     const s = (t.settings ?? {}) as Record<string, any>;
     if (s.econtApp == null) {
+      // Atomic path-merge (was a whole-blob spread) — creates econtApp without
+      // reverting a concurrent sibling settings edit.
       await this.db
         .update(tenants)
-        .set({ settings: { ...s, econtApp: { active: true } } })
+        .set({ settings: jsonbDeepMerge(tenants.settings, ['econtApp'], { active: true }) })
         .where(eq(tenants.id, tenantId));
     }
     return { id: tenantId, delivery: true };

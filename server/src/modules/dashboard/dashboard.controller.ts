@@ -16,4 +16,10 @@ export class DashboardController {
   summary(@CurrentTenant() tenantId: string, @Query('date') date?: string) {
     return this.dashboardService.summary(tenantId, date);
   }
+
+  @Get('today')
+  @ApiQuery({ name: 'date', required: false })
+  today(@CurrentTenant() tenantId: string, @Query('date') date?: string) {
+    return this.dashboardService.todaySummary(tenantId, date);
+  }
 }

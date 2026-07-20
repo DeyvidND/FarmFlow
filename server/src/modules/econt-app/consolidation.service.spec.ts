@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { ConsolidationService } from './consolidation.service';
 
 function makeDb(deliveryCfg: unknown) {
@@ -196,6 +197,53 @@ describe('ConsolidationService.unconsolidate race guards', () => {
     const db = makeUnconsolidateDb({ masterClaimed: [{ id: 'master-1' }] });
     const svc = new ConsolidationService(db);
     await expect(svc.unconsolidate('t1', 'master-1')).resolves.toEqual({ restored: 1 });
+  });
+
+  // The master CAS must also refuse a shipment currently being labeled (status=
+  // 'labeling', set by econt/speedy createLabel across the carrier network call).
+  // Without this guard, unconsolidate frees the children while the master waybill
+  // is being created with the whole group's COD → double collection at the door.
+  // The mock above ignores the WHERE, so capture + render it and assert the guard.
+  it('the master compare-and-set carries a status<>labeling guard', async () => {
+    const dialect = new PgDialect();
+    const capturedWheres: unknown[] = [];
+    const selectMock = jest
+      .fn()
+      .mockImplementationOnce(() => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [
+              { id: 'master-1', groupId: 'master-1', econtNo: null, trackingNo: null, orderId: 'order-1' },
+            ],
+          }),
+        }),
+      }))
+      .mockImplementationOnce(() => ({
+        from: () => ({ where: () => ({ limit: async () => [{ total: 1500, method: 'cod', paidAt: null }] }) }),
+      }));
+    const updateMock = jest
+      .fn()
+      .mockImplementationOnce(() => ({
+        set: () => ({ where: () => ({ returning: async () => [{ id: 'ship-2' }] }) }),
+      }))
+      .mockImplementationOnce(() => ({
+        set: () => ({
+          where: (w: unknown) => {
+            capturedWheres.push(w);
+            return { returning: async () => [{ id: 'master-1' }] };
+          },
+        }),
+      }));
+    const db = {
+      select: selectMock,
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({ update: updateMock }),
+    } as unknown as ConstructorParameters<typeof ConsolidationService>[0];
+
+    await new ConsolidationService(db).unconsolidate('t1', 'master-1');
+    expect(capturedWheres).toHaveLength(1);
+    const { sql: text, params } = dialect.sqlToQuery(capturedWheres[0] as never);
+    expect(text).toContain('status'); // references the status column…
+    expect(params).toContain('labeling'); // …and binds the 'labeling' guard value
   });
 });
 

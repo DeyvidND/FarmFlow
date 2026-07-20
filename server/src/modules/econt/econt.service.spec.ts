@@ -631,8 +631,15 @@ describe('EcontService.createLabel (finalize courier draft)', () => {
     const onConflictDoUpdate = jest.fn().mockReturnValue({ returning });
     const values = jest.fn().mockReturnValue({ onConflictDoUpdate });
     const insert = jest.fn().mockReturnValue({ values });
-    // db.update(orders).set(...).where(...)
-    const updWhere = jest.fn().mockResolvedValue(undefined);
+    // db.update(...) serves BOTH the pre-call labeling CLAIM on the master
+    // (.set().where().returning() → 1 row = claimed) and the post-persist orders
+    // carrier update (.set().where() awaited). A promise carrying `.returning`
+    // satisfies both shapes.
+    const updWhere = jest.fn(() => {
+      const p: any = Promise.resolve([{ id: 'ship-1' }]);
+      p.returning = async () => [{ id: 'ship-1' }];
+      return p;
+    });
     const updSet = jest.fn().mockReturnValue({ where: updWhere });
     const update = jest.fn().mockReturnValue({ set: updSet });
     // db.select(...).from(shipments).where(...).limit(1) — this time a real MASTER row:
@@ -645,12 +652,71 @@ describe('EcontService.createLabel (finalize courier draft)', () => {
 
     await svc.createLabel('t1', 'order-1', 'farmer-1');
 
-    // The persisted COD must be the master's group sum (1800), NOT the order's own
-    // total (500) — proves the live createLabel path actually applies the override.
+    // The WAYBILL SENT TO ECONT must instruct collection of the group sum (1800 →
+    // 18.00 EUR), NOT the collector's own order total (500 → 5.00). This is the
+    // amount the courier actually collects at the door; asserting only the persisted
+    // column (below) let the bug ship — the DB said 1800 while Econt was told 500.
+    // callTenant(tenantId, path, { label, mode }, ...) → the payload is arg [2].
+    const sentLabel = callTenant.mock.calls[0][2].label as {
+      services: { cdAmount?: number; cdType?: string };
+    };
+    expect(sentLabel.services.cdAmount).toBe(18);
+
+    // The persisted COD must also be the master's group sum (1800), NOT the order's
+    // own total (500) — proves the live createLabel path actually applies the override.
     const insertVals = values.mock.calls[0][0];
     expect(insertVals.codAmountStotinki).toBe(1800);
     const updateSet = onConflictDoUpdate.mock.calls[0][0].set;
     expect(updateSet.codAmountStotinki).toBe(1800);
+  });
+
+  // Double-COD race guard: a consolidation master's waybill collects the WHOLE group's
+  // COD, but its econtShipmentNumber is persisted only AFTER the carrier call. createLabel
+  // must CLAIM the master (status='labeling') BEFORE the call so a concurrent unconsolidate
+  // can't free the children mid-flight — and must ROLL the claim back if the call fails.
+  it('consolidation master: claims status=labeling before the carrier call, resets it on failure', async () => {
+    const seq: string[] = [];
+    (svc as any).loadStored = jest.fn().mockResolvedValue({
+      tenant: { id: 't1', settings: {} },
+      econt: { sender: { name: 'Ферма', phone: '0888', mode: 'office', officeCode: '1234' }, defaultPackage: { weightKg: 2 } },
+    });
+    (svc as any).orderForShipment = jest.fn().mockResolvedValue({
+      order: {
+        tenantId: 't1', farmerId: 'farmer-1', customerName: 'Стоян', customerPhone: '0833',
+        deliveryType: 'courier', econtOffice: null, deliveryCity: 'Пловдив',
+        deliveryAddress: 'бул. България 12', totalStotinki: 500, paymentMethod: 'cod', paidAt: null,
+      },
+      items: [{ name: 'Домати', qty: 1 }],
+    });
+    const callTenant = jest.fn(() => {
+      seq.push('call');
+      return Promise.reject(new Error('econt down'));
+    });
+    (svc as any).callTenant = callTenant;
+
+    const updWhere = jest.fn(() => {
+      const p: any = Promise.resolve([{ id: 'ship-1' }]);
+      p.returning = async () => [{ id: 'ship-1' }]; // claim CAS matches 1 row (succeeds)
+      return p;
+    });
+    const updSet = jest.fn((v: any) => {
+      if (v.status) seq.push(`set:${v.status}`);
+      return { where: updWhere };
+    });
+    const update = jest.fn().mockReturnValue({ set: updSet });
+    const values = jest.fn().mockReturnValue({ onConflictDoUpdate: jest.fn().mockReturnValue({ returning: async () => [{}] }) });
+    const insert = jest.fn().mockReturnValue({ values });
+    const selLimit = jest.fn().mockResolvedValue([{ id: 'ship-1', consolidationGroupId: 'ship-1', codAmountStotinki: 1800 }]);
+    const select = jest.fn().mockReturnValue({ from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ limit: selLimit }) }) });
+    (svc as any).db = { insert, update, select };
+
+    await expect(svc.createLabel('t1', 'order-1', 'farmer-1')).rejects.toThrow('econt down');
+    // claim written BEFORE the carrier call…
+    expect(seq).toContain('set:labeling');
+    expect(seq.indexOf('set:labeling')).toBeLessThan(seq.indexOf('call'));
+    // …and rolled back to 'draft' AFTER the call failed (so the master is unconsolidatable again).
+    expect(seq).toContain('set:draft');
+    expect(seq.indexOf('set:draft')).toBeGreaterThan(seq.indexOf('call'));
   });
 
   it('rejects finalizing another farmer\'s courier order (authz) before any carrier call', async () => {

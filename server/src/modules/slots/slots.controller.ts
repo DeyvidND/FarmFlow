@@ -8,6 +8,7 @@ import { CreateSlotDto } from './dto/create-slot.dto';
 import { UpdateSlotDto } from './dto/update-slot.dto';
 import { SaveSlotRuleDto } from './dto/slot-rule.dto';
 import { SlotDayActionDto } from './dto/slot-day-action.dto';
+import { PublicSlotsQueryDto } from './dto/public-slots-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ActiveSubscriptionGuard } from '../../common/guards/active-subscription.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -86,14 +87,10 @@ export class PublicSlotsController {
   @ApiQuery({ name: 'date', required: false, example: '2026-05-30' })
   @ApiQuery({ name: 'from', required: false, example: '2026-05-25' })
   @ApiQuery({ name: 'to', required: false, example: '2026-05-31' })
-  findPublic(
-    @Param('slug') slug: string,
-    @Query('date') date?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ) {
+  findPublic(@Param('slug') slug: string, @Query() q: PublicSlotsQueryDto) {
     // `date` = legacy single-day; `from`/`to` = one ranged request for the whole
-    // picker window (replaces the storefront's one-fetch-per-day fan-out).
-    return this.slotsService.findPublicBySlug(slug, { date, from, to });
+    // picker window (replaces the storefront's one-fetch-per-day fan-out). The DTO
+    // enforces YYYY-MM-DD before these reach the deliverySlots.date column.
+    return this.slotsService.findPublicBySlug(slug, { date: q.date, from: q.from, to: q.to });
   }
 }

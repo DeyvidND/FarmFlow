@@ -36,7 +36,12 @@ function fakeDb(
     },
   };
   const upd = { set: () => ({ where: async () => undefined }) };
-  return { select: () => sel, insert: () => ins, update: () => upd } as never;
+  // create/materialize now wrap the check-then-insert in db.transaction(...) with a
+  // per-tenant advisory lock; execute() (the lock) is a no-op, transaction() runs the
+  // callback against this same stub.
+  const db: any = { select: () => sel, insert: () => ins, update: () => upd, execute: async () => undefined };
+  db.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(db);
+  return db as never;
 }
 
 describe('SlotsService.materializeRule', () => {
@@ -162,7 +167,7 @@ describe('SlotsService.materializeRule', () => {
 describe('SlotsService.create', () => {
   it('creates a day-row slot with no time window', async () => {
     const inserted: Record<string, unknown>[] = [];
-    const db = {
+    const db: any = {
       select: () => ({
         from: () => ({ where: () => ({ limit: async () => [] }) }),
       }),
@@ -174,24 +179,50 @@ describe('SlotsService.create', () => {
           };
         },
       }),
-    } as never;
-    const svc = new SlotsService(db, {} as never);
+      execute: async () => undefined,
+    };
+    db.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(db);
+    const svc = new SlotsService(db as never, {} as never);
     const row = await svc.create('t1', { date: '2026-07-09', capacity: 40 } as never);
     expect(row).toMatchObject({ date: '2026-07-09', capacity: 40, timeFrom: null });
     expect(inserted[0]).not.toHaveProperty('timeFrom');
     expect(inserted[0]).not.toHaveProperty('timeTo');
   });
 
+  // delivery_slots has no unique on (tenant,date): a per-tenant advisory lock, taken
+  // BEFORE the existence check, is what stops two concurrent creates from both seeing
+  // the date absent and inserting duplicate day-rows (doubled capacity → oversell).
+  it('takes a per-tenant advisory lock before the check-then-insert', async () => {
+    const order: string[] = [];
+    let lockSql: SQL | undefined;
+    const db: any = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => { order.push('check'); return []; } }) }) }),
+      insert: () => ({ values: () => { order.push('insert'); return { returning: async () => [{ id: 's1' }] }; } }),
+      execute: async (q: SQL) => { order.push('lock'); lockSql = q; },
+    };
+    db.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(db);
+    const svc = new SlotsService(db as never, {} as never);
+
+    await svc.create('t1', { date: '2026-07-09', capacity: 10 } as never);
+
+    expect(order).toEqual(['lock', 'check', 'insert']); // lock FIRST
+    const rendered = new PgDialect().sqlToQuery(lockSql as SQL);
+    expect(rendered.sql).toContain('pg_advisory_xact_lock');
+    expect(rendered.params).toContain('t1'); // scoped to the tenant
+  });
+
   it('rejects a second day-row on an already-open date', async () => {
-    const db = {
+    const db: any = {
       select: () => ({
         from: () => ({ where: () => ({ limit: async () => [{ id: 'existing' }] }) }),
       }),
       insert: () => {
         throw new Error('must not insert when the date is already open');
       },
-    } as never;
-    const svc = new SlotsService(db, {} as never);
+      execute: async () => undefined,
+    };
+    db.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(db);
+    const svc = new SlotsService(db as never, {} as never);
     await expect(
       svc.create('t1', { date: '2026-07-09', capacity: 10 } as never),
     ).rejects.toThrow('Този ден вече е отворен');
@@ -199,7 +230,7 @@ describe('SlotsService.create', () => {
 
   it('bulk create silently skips dates that already have a day-row', async () => {
     const inserted: Record<string, unknown>[] = [];
-    const db = {
+    const db: any = {
       select: () => ({
         from: () => ({
           where: async () => [{ date: '2026-07-08' }], // Wed already open
@@ -211,8 +242,10 @@ describe('SlotsService.create', () => {
           return { returning: async () => rows.map((r, i) => ({ id: `s${i}`, ...r })) };
         },
       }),
-    } as never;
-    const svc = new SlotsService(db, {} as never);
+      execute: async () => undefined,
+    };
+    db.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(db);
+    const svc = new SlotsService(db as never, {} as never);
     // Mon 07-06 .. Wed 07-08, weekdays [1,3] (Mon, Wed) → wants 07-06 and 07-08.
     await svc.create('t1', {
       date: '2026-07-06',

@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { SQL, Param, DrizzleQueryError } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { routeCourierAssignments, users } from '@fermeribg/db';
 import { CourierAssignmentService } from './courier-assignment.service';
 
@@ -42,6 +43,7 @@ function makeDb() {
     delete: jest.fn().mockReturnThis(),
     insert: jest.fn().mockReturnThis(),
     values: jest.fn().mockResolvedValue(undefined),
+    execute: jest.fn().mockResolvedValue(undefined), // pg_advisory_xact_lock
     transaction: jest.fn(async (cb: (tx: unknown) => unknown) => cb(db)),
   };
   return db;
@@ -158,6 +160,20 @@ describe('CourierAssignmentService', () => {
         { tenantId: TENANT, date: DATE_X, accountId: ACCOUNT_B, legIndex: 1 },
       ]);
       expect(result).toEqual(assignments);
+    });
+
+    it('takes a per-(tenant,date) advisory lock BEFORE the delete (serializes concurrent replaces)', async () => {
+      const order: string[] = [];
+      db.execute.mockImplementation(() => { order.push('lock'); return Promise.resolve(undefined); });
+      db.delete.mockImplementation(() => { order.push('delete'); return db; });
+
+      await svc.setAssignmentsForDay(TENANT, DATE_X, [{ accountId: ACCOUNT_A, legIndex: 0 }]);
+
+      expect(db.execute).toHaveBeenCalled();
+      const rendered = new PgDialect().sqlToQuery(db.execute.mock.calls[0][0] as SQL);
+      expect(rendered.sql).toContain('pg_advisory_xact_lock'); // it's the lock, not some other exec
+      expect(rendered.params).toEqual(expect.arrayContaining([TENANT, DATE_X])); // scoped to this day
+      expect(order).toEqual(['lock', 'delete']); // lock acquired before the delete-all
     });
 
     it('clearing the board (empty array) deletes without inserting', async () => {

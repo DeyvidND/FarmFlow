@@ -5,11 +5,13 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, desc, inArray, ne, isNotNull, isNull, sql } from 'drizzle-orm';
 import { type Database, tenants, orders, orderItems, shipments } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { jsonbDeepMerge } from '../../common/db/jsonb';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { buildKeysetPage, clampLimit, cursorTs, keysetAfter, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
@@ -282,8 +284,13 @@ export class EcontService implements CarrierAdapter {
 
     // Deep-create the path so a farmer write under an absent `delivery.farmers`
     // parent still succeeds, while a tenant-level write keeps targeting delivery.econt.
-    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge (not a whole-blob read-modify-write): two co-op farmers
+    // connecting in parallel, or one farmer connecting Econt + Speedy at once, no
+    // longer clobber each other's credentials on the shared tenants.settings row.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, econtSettingsPath(farmerId), nextEcont) })
+      .where(eq(tenants.id, tenantId));
     // Bust the tenant profile (econtMode/econtEnabled) AND the nomenclature caches:
     // switching demo↔prod (or to a different account) makes the previously cached
     // office/city lists wrong — a stale demo office code can fail prod label
@@ -327,8 +334,13 @@ export class EcontService implements CarrierAdapter {
       ...(input.cod !== undefined ? { cod: { ...(econt.cod ?? {}), ...input.cod } } : {}),
       ...(input.label !== undefined ? { label: { ...(econt.label ?? {}), ...input.label } } : {}),
     };
-    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge (not a whole-blob read-modify-write): two co-op farmers
+    // connecting in parallel, or one farmer connecting Econt + Speedy at once, no
+    // longer clobber each other's credentials on the shared tenants.settings row.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, econtSettingsPath(farmerId), nextEcont) })
+      .where(eq(tenants.id, tenantId));
     // The sender/package feed the storefront delivery estimate + label payload.
     await this.cache.del(publicCacheKeys.tenant(tenant.slug));
     return { ok: true };
@@ -343,8 +355,13 @@ export class EcontService implements CarrierAdapter {
   async saveSenders(tenantId: string, input: { senders: PickupPoint[]; activeId: string }, farmerId?: string): Promise<{ ok: true }> {
     const { tenant, econt } = await this.loadStored(tenantId, undefined, farmerId);
     const nextEcont = this.buildSenderBlob(econt, input.senders, input.activeId);
-    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge (not a whole-blob read-modify-write): two co-op farmers
+    // connecting in parallel, or one farmer connecting Econt + Speedy at once, no
+    // longer clobber each other's credentials on the shared tenants.settings row.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, econtSettingsPath(farmerId), nextEcont) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(publicCacheKeys.tenant(tenant.slug));
     return { ok: true };
   }
@@ -616,8 +633,13 @@ export class EcontService implements CarrierAdapter {
   async disconnect(tenantId: string, farmerId?: string): Promise<{ configured: false }> {
     const { tenant, econt } = await this.loadStored(tenantId, undefined, farmerId);
     const nextEcont = this.clearCredsBlob(econt);
-    const nextSettings = writeAtPath(tenant.settings, econtSettingsPath(farmerId), nextEcont);
-    await this.db.update(tenants).set({ settings: nextSettings }).where(eq(tenants.id, tenantId));
+    // Atomic path-merge (not a whole-blob read-modify-write): two co-op farmers
+    // connecting in parallel, or one farmer connecting Econt + Speedy at once, no
+    // longer clobber each other's credentials on the shared tenants.settings row.
+    await this.db
+      .update(tenants)
+      .set({ settings: jsonbDeepMerge(tenants.settings, econtSettingsPath(farmerId), nextEcont) })
+      .where(eq(tenants.id, tenantId));
     await this.cache.del(
       publicCacheKeys.tenant(tenant.slug),
       `econt:offices:${tenant.slug}`,
@@ -867,28 +889,11 @@ export class EcontService implements CarrierAdapter {
             },
           }
         : econt;
-    const label = buildLabel(
-      econtForLabel,
-      {
-        ...order,
-        refrigerated: handling.refrigerated,
-        inspectBeforePay: handling.inspectBeforePay,
-        declaredValueStotinki: overrides?.declaredValueStotinki ?? null,
-      },
-      items,
-      { packCount: overrides?.parcelCount },
-    );
-    const data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
-      label,
-      mode: 'create',
-    }, undefined, store, credsFarmerId);
-    const out = data?.label ?? {};
-    const number: string | null = out.shipmentNumber ?? null;
-    // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted
-    // price and the persisted/charged price can't diverge. EUR (BG euro 2026) → ×100 = stotinki.
-    const priceEur: number | undefined = out.totalPrice ?? out.totalPriceVAT;
-    // A consolidation master's draft shipment already holds the whole group's COD;
-    // prefer it so the waybill collects the summed amount, not just this order's total.
+    // A consolidation master's draft shipment already holds the whole group's COD.
+    // Read it BEFORE building the label so the waybill INSTRUCTS the courier to
+    // collect the summed amount — not just this order's total. Reading it only
+    // after the carrier call (as before) fixed the persisted column but left the
+    // actual door-collection wrong: the DB said 1800 while Econt was told 500.
     const [existingShipment] = await this.db
       .select({
         id: shipments.id,
@@ -898,7 +903,77 @@ export class EcontService implements CarrierAdapter {
       .from(shipments)
       .where(eq(shipments.orderId, orderId))
       .limit(1);
-    const codAmount = consolidatedCodOverride(existingShipment ?? null) ?? this.codAmountFor(order);
+    const codOverride = consolidatedCodOverride(existingShipment ?? null);
+    const codAmount = codOverride ?? this.codAmountFor(order);
+    const label = buildLabel(
+      econtForLabel,
+      {
+        ...order,
+        // Inject the group-sum COD (same pattern as the estimate path) so
+        // buildLabel emits services.cdAmount = the amount actually collected.
+        // Only the amount changes — the COD gate stays on the order's own
+        // paymentMethod/paidAt, so a paid master still collects nothing.
+        ...(codOverride != null ? { totalStotinki: codOverride } : {}),
+        refrigerated: handling.refrigerated,
+        inspectBeforePay: handling.inspectBeforePay,
+        declaredValueStotinki: overrides?.declaredValueStotinki ?? null,
+      },
+      items,
+      { packCount: overrides?.parcelCount },
+    );
+    // Consolidation master: CLAIM it for labeling BEFORE the carrier network call.
+    // The master's waybill collects the WHOLE group's COD, but its econtShipmentNumber
+    // is only persisted AFTER the (multi-second) call returns — a window in which a
+    // concurrent unconsolidate reads "no waybill yet", frees the children back to
+    // drafts, and lets each child be shipped again → the customer's COD collected
+    // twice at the door. The claim is a CAS to status='labeling'; unconsolidate's
+    // master CAS refuses a 'labeling' row, so the two serialize. It accepts a prior
+    // 'labeling' too, so a retry after a failed attempt re-claims (self-healing).
+    const isConsolidationMaster =
+      !!existingShipment && existingShipment.consolidationGroupId === existingShipment.id;
+    if (isConsolidationMaster) {
+      const claimed = await this.db
+        .update(shipments)
+        .set({ status: 'labeling', updatedAt: new Date() })
+        .where(
+          and(
+            eq(shipments.id, existingShipment!.id),
+            eq(shipments.consolidationGroupId, existingShipment!.id),
+            isNull(shipments.econtShipmentNumber),
+            isNull(shipments.trackingNumber),
+            inArray(shipments.status, ['draft', 'labeling']),
+          ),
+        )
+        .returning({ id: shipments.id });
+      if (claimed.length === 0) {
+        throw new ConflictException(
+          'Обединената пратка се обработва или е разделена междувременно — опитайте отново.',
+        );
+      }
+    }
+    let data: Awaited<ReturnType<typeof this.callTenant>>;
+    try {
+      data = await this.callTenant(tenantId, 'Shipments/LabelService.createLabel.json', {
+        label,
+        mode: 'create',
+      }, undefined, store, credsFarmerId);
+    } catch (err) {
+      // Carrier call failed → roll the labeling claim back so the master is editable /
+      // unconsolidatable again (the persist below never ran; the row is claim-only).
+      if (isConsolidationMaster) {
+        await this.db
+          .update(shipments)
+          .set({ status: 'draft', updatedAt: new Date() })
+          .where(and(eq(shipments.id, existingShipment!.id), eq(shipments.status, 'labeling')))
+          .catch(() => undefined);
+      }
+      throw err;
+    }
+    const out = data?.label ?? {};
+    const number: string | null = out.shipmentNumber ?? null;
+    // Same field expression as the estimate (totalPrice ?? totalPriceVAT) so the quoted
+    // price and the persisted/charged price can't diverge. EUR (BG euro 2026) → ×100 = stotinki.
+    const priceEur: number | undefined = out.totalPrice ?? out.totalPriceVAT;
     // The owning farmer for a finalized waybill: prefer the order's own farmer_id
     // (the true owner, set on a Phase-3 courier split) and fall back to the caller's
     // farmerId arg. Stays null for legacy tenant-level Econt orders.

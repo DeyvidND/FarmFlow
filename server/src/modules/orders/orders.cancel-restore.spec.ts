@@ -7,6 +7,8 @@
  * the private restore helpers are spied, not re-implemented, so this checks
  * that `updateStatus` calls them with the right args, not their internals.
  */
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { OrdersService } from './orders.service';
 
 function makeSvc(opts: {
@@ -142,15 +144,15 @@ describe('restoreVariantStock — real implementation restores an actual DB row'
    *  the piece that was never reached from the cancel branch before this fix. */
   it('adds the reserved quantity back to stockQuantity for a finite-stock variant', async () => {
     const rows = [{ id: 'v1', stockQuantity: 5 }];
-    const updates: Array<{ stockQuantity: number }> = [];
+    const captured: Array<{ set: SQL; where: SQL }> = [];
     const tx: any = {
       select: () => ({
         from: () => ({ where: () => ({ for: () => ({ orderBy: () => Promise.resolve(rows) }) }) }),
       }),
       update: () => ({
-        set: (vals: { stockQuantity: number }) => ({
-          where: () => {
-            updates.push(vals);
+        set: (vals: { stockQuantity: SQL }) => ({
+          where: (w: SQL) => {
+            captured.push({ set: vals.stockQuantity, where: w });
             return Promise.resolve();
           },
         }),
@@ -167,7 +169,13 @@ describe('restoreVariantStock — real implementation restores an actual DB row'
       {} as any,
     );
     const touched = await svc.restoreVariantStock(tx, [{ variantId: 'v1', quantity: 3 }]);
-    expect(updates).toEqual([{ stockQuantity: 8 }]);
+    // One set-based UPDATE: v1's locked stock 5 + released 3 = 8.
+    expect(captured).toHaveLength(1);
+    const dialect = new PgDialect();
+    const set = dialect.sqlToQuery(captured[0].set);
+    expect(set.sql.toLowerCase()).toContain('case');
+    expect(set.params).toEqual(expect.arrayContaining(['v1', 8]));
+    expect(dialect.sqlToQuery(captured[0].where).params).toEqual(['v1']);
     expect(touched).toBe(true);
   });
 });
