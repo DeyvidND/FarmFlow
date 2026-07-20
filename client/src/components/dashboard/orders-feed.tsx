@@ -16,8 +16,16 @@ interface OrdersFeedProps {
   busy?: boolean;
 }
 
-/** An order still awaiting delivery — the only rows the inline action shows on. */
-const canDeliver = (o: Order) => o.status !== 'delivered' && o.status !== 'cancelled';
+/** An order past confirmation but not yet delivered — the only rows the inline
+ *  action shows on. Excludes `pending` (an operator must confirm it first, not
+ *  skip straight to delivered) as well as the terminal `delivered`/`cancelled`.
+ *  `status` is widened to `string` here — the real order-status enum also has
+ *  `preparing`/`out_for_delivery` (see order-scheduling / today-logic), values
+ *  the local `Order['status']` type doesn't declare. */
+const canDeliver = (o: Order) => {
+  const status: string = o.status;
+  return status === 'confirmed' || status === 'preparing' || status === 'out_for_delivery';
+};
 
 export function OrdersFeed({ orders, onOpen, onSeeAll, onDeliver, busy = false }: OrdersFeedProps) {
   return (

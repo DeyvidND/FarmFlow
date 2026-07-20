@@ -10,7 +10,7 @@ import { showConfirmAll, confirmAllLabel } from './tiles-logic';
 const CHIPS: { key: keyof TodayPipeline; label: string; dot: string; ink: string }[] = [
   { key: 'new', label: 'Нови', dot: 'bg-ff-amber', ink: 'text-ff-amber-600' },
   { key: 'confirmed', label: 'Потвърдени', dot: 'bg-ff-green-500', ink: 'text-ff-green-700' },
-  { key: 'preparing', label: 'За подготовка', dot: 'bg-ff-green-500', ink: 'text-ff-green-700' },
+  { key: 'preparing', label: 'За подготовка', dot: 'bg-ff-green-900', ink: 'text-ff-green-900' },
   { key: 'outForDelivery', label: 'На път', dot: 'bg-ff-green-600', ink: 'text-ff-green-800' },
   { key: 'delivered', label: 'Доставени', dot: 'bg-ff-muted-2', ink: 'text-ff-muted' },
 ];
