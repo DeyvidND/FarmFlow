@@ -18,6 +18,7 @@
 - **Client type mirror:** `client` (`@fermeribg/web`) does NOT import `@fermeribg/types`; shared types are hand-mirrored in `client/src/lib/types.ts`. New shared shapes go in BOTH the server source and the client mirror.
 - **Order status enum:** `pending | confirmed | preparing | out_for_delivery | delivered | cancelled`. `payment_method: online | cod`. `cod_outcome: received | refused` (nullable). `delivery_type: pickup | address | econt | econt_address | courier`.
 - **TDD:** write the failing test first, watch it fail, minimal code to pass, commit per task. Full suite green before each commit (`pnpm --filter @fermeribg/api test`; `pnpm --filter @fermeribg/web test`).
+- **Frontend testing convention (IMPORTANT — repo reality):** the `client` app runs **vitest in node env**, `include: ['src/**/*.test.ts']`, with **no jsdom and no @testing-library anywhere in the monorepo** (deliberate — its config says "Pure logic only"). Do **NOT** add jsdom / `@testing-library/*` / `.spec.tsx` render tests. Instead: extract each component's real logic (predicates, label/sub-line builders, optimistic-state transforms) into **pure functions** and unit-test those in `*.test.ts` (vitest, node). Rendering and interactions are verified in the browser during F5 (and the existing playwright e2e). React components themselves carry no unit test — only their extracted pure logic does.
 - **Commits:** end message with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`. Multi-byte (Cyrillic) commit messages via `git commit -F <file>` (a `-m` string with „…" quotes is mangled by the shell).
 
 ## File Structure
@@ -589,58 +590,53 @@ git commit -F <msgfile>   # feat(web): TodaySummary mirror + getTodaySummary/con
 Pure presentational components (props in, deep-link out) so they test without a server. Reuse `StatTile` from `client/src/lib/stat-ui.tsx` and the card convention `rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm`. Money via `moneyFromStotinki`.
 
 **Files:**
-- Create: `client/src/components/today/summary-tiles.tsx`
-- Create: `client/src/components/today/pipeline-strip.tsx`
-- Test: `client/src/components/today/summary-tiles.spec.tsx`, `client/src/components/today/pipeline-strip.spec.tsx`
+- Create: `client/src/components/today/tiles-logic.ts` — pure helpers (labels, sub-lines, predicates).
+- Create: `client/src/components/today/tiles-logic.test.ts` — vitest node tests for the helpers.
+- Create: `client/src/components/today/summary-tiles.tsx` — presentational tiles (no unit test; verified in F5).
+- Create: `client/src/components/today/pipeline-strip.tsx` — presentational strip (no unit test; verified in F5).
 
 **Interfaces:**
-- Consumes: `TodaySummary` (F1).
-- Produces: `PrepTile`, `RouteTile`, `ProtocolsTile`, `CodTile` (props: the matching `TodaySummary` sub-object); `PipelineStrip({ pipeline, onConfirmAll, confirming })`.
+- Consumes: `TodaySummary` (F1); `moneyFromStotinki` (`lib/utils.ts`).
+- Produces pure helpers: `prepSubLine(prep)`, `routeSubLine(route)`, `protocolsSubLine(protocols)`, `codSubLine(cod)`, `tileHref` map (`{prep:'/prep', route:'/route', protocols:'/protocols', cod:'/payments'}`), `showConfirmAll(pipeline): boolean`, `confirmAllLabel(pipeline): string`. Produces components: `PrepTile`, `RouteTile`, `ProtocolsTile`, `CodTile` (props: the matching `TodaySummary` sub-object); `PipelineStrip({ pipeline, onConfirmAll, confirming })`.
 
-- [ ] **Step 1: Write failing tests** for the tiles — each renders its numbers and links to the right href:
+Per the Frontend testing convention: test the PURE LOGIC in `.test.ts`, not the rendered components.
 
-```tsx
-import { render, screen } from '@testing-library/react';
-import { PrepTile, RouteTile, ProtocolsTile, CodTile } from './summary-tiles';
+- [ ] **Step 1: Write failing tests** in `tiles-logic.test.ts` (vitest, node env — `import { describe, it, expect } from 'vitest'`):
 
-it('PrepTile shows X/Y prepared and links to /prep', () => {
-  render(<PrepTile prep={{ ordersToPrep: 10, fulfilled: 4 }} />);
-  expect(screen.getByText(/4/)).toBeInTheDocument();
-  expect(screen.getByRole('link')).toHaveAttribute('href', '/prep');
+```ts
+import { prepSubLine, codSubLine, showConfirmAll, confirmAllLabel, tileHref } from './tiles-logic';
+
+it('prepSubLine shows fulfilled/toPrep', () => {
+  expect(prepSubLine({ ordersToPrep: 10, fulfilled: 4 })).toBe('4/10 готови');
 });
-it('CodTile renders cash-to-collect in leva and links to /payments', () => {
-  render(<CodTile cod={{ toCollectStotinki: 12345, toCollectCount: 3, collectedStotinki: 0, collectedCount: 0 }} />);
-  expect(screen.getByRole('link')).toHaveAttribute('href', '/payments');
+it('codSubLine renders cash-to-collect in leva', () => {
+  expect(codSubLine({ toCollectStotinki: 12345, toCollectCount: 3, collectedStotinki: 500, collectedCount: 1 }))
+    .toContain('за събиране');
 });
-```
-
-And for the strip:
-
-```tsx
-it('PipelineStrip fires onConfirmAll when „Потвърди всички" clicked', () => {
-  const onConfirmAll = jest.fn();
-  render(<PipelineStrip pipeline={{ new: 2, confirmed: 1, preparing: 0, outForDelivery: 0, delivered: 0, cancelled: 0, total: 3 }} onConfirmAll={onConfirmAll} confirming={false} />);
-  screen.getByRole('button', { name: /Потвърди всички/ }).click();
-  expect(onConfirmAll).toHaveBeenCalled();
+it('showConfirmAll is true only with new orders', () => {
+  expect(showConfirmAll({ new: 2, confirmed: 1, preparing: 0, outForDelivery: 0, delivered: 0, cancelled: 0, total: 3 })).toBe(true);
+  expect(showConfirmAll({ new: 0, confirmed: 3, preparing: 0, outForDelivery: 0, delivered: 0, cancelled: 0, total: 3 })).toBe(false);
 });
-it('PipelineStrip hides the confirm button when there are no new orders', () => {
-  render(<PipelineStrip pipeline={{ new: 0, confirmed: 3, preparing: 0, outForDelivery: 0, delivered: 0, cancelled: 0, total: 3 }} onConfirmAll={jest.fn()} confirming={false} />);
-  expect(screen.queryByRole('button', { name: /Потвърди всички/ })).toBeNull();
+it('confirmAllLabel includes the count', () => {
+  expect(confirmAllLabel({ new: 2, confirmed: 0, preparing: 0, outForDelivery: 0, delivered: 0, cancelled: 0, total: 2 })).toContain('2');
+});
+it('tileHref maps each tile to its screen', () => {
+  expect(tileHref).toMatchObject({ prep: '/prep', route: '/route', protocols: '/protocols', cod: '/payments' });
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail.** Run: `pnpm --filter @fermeribg/web test -- today`. Expected: FAIL (modules absent).
+- [ ] **Step 2: Run to verify they fail.** Run: `pnpm --filter @fermeribg/web test -- tiles-logic`. Expected: FAIL (module absent).
 
-- [ ] **Step 3: Implement `summary-tiles.tsx`.** Each tile: a `<Link href=…>` wrapping a card with `StatTile` (or the card markup) showing label (Bulgarian), primary number, and a `sub` line. Labels: Prep „Подготовка" (`{fulfilled}/{ordersToPrep} готови`, href `/prep`), Route „Маршрут" (`{route.delivered}/{route.stops} доставени · {couriers} куриер(и)`, href `/route`), Protocols „Протоколи" (`{signed}/{total} подписани`, href `/protocols`), COD „Пари днес" (`moneyFromStotinki(toCollectStotinki)` за събиране · `moneyFromStotinki(collectedStotinki)` събрани, href `/payments`). Keep each tile a small function; export all four.
+- [ ] **Step 3: Implement `tiles-logic.ts`** — the pure helpers above. `codSubLine` uses `moneyFromStotinki(cod.toCollectStotinki)` + `' за събиране · ' + moneyFromStotinki(cod.collectedStotinki) + ' събрани'`; `showConfirmAll = (p) => p.new > 0`; `confirmAllLabel = (p) => \`Потвърди всички (${p.new})\``; `tileHref` the const map. Run: `pnpm --filter @fermeribg/web test -- tiles-logic` → PASS.
 
-- [ ] **Step 4: Implement `pipeline-strip.tsx`.** A horizontal card with five count chips (Нови/Потвърдени/За подготовка/На път/Доставени) using `StatusBadge` colors where sensible; when `pipeline.new > 0` render a `Button` „Потвърди всички ({new})" calling `onConfirmAll`, disabled while `confirming`.
+- [ ] **Step 4: Implement `summary-tiles.tsx`** (presentational; imports the helpers). Each tile: a `<Link href={tileHref.X}>` wrapping a card (`rounded-xl border border-ff-border bg-ff-surface p-5 shadow-ff-sm` + `border-t-[3px] border-t-ff-green-600`) using `StatTile`/`StatCard` showing the Bulgarian label, a primary number, and the helper's `sub` line. Labels: „Подготовка", „Маршрут", „Протоколи", „Пари днес". Export all four.
 
-- [ ] **Step 5: Run to verify they pass.** Run: `pnpm --filter @fermeribg/web test -- today`. Expected: PASS.
+- [ ] **Step 5: Implement `pipeline-strip.tsx`** (presentational). Horizontal card with five count chips (Нови/Потвърдени/За подготовка/На път/Доставени); when `showConfirmAll(pipeline)`, render a `Button` with `confirmAllLabel(pipeline)` calling `onConfirmAll`, disabled while `confirming`. Run the whole client suite (`pnpm --filter @fermeribg/web test`) → green (only the logic test is new).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add client/src/components/today/summary-tiles.tsx client/src/components/today/pipeline-strip.tsx client/src/components/today/summary-tiles.spec.tsx client/src/components/today/pipeline-strip.spec.tsx
+git add client/src/components/today/tiles-logic.ts client/src/components/today/tiles-logic.test.ts client/src/components/today/summary-tiles.tsx client/src/components/today/pipeline-strip.tsx
 git commit -F <msgfile>   # feat(web): Днес summary tiles + pipeline strip
 ```
 
@@ -651,37 +647,42 @@ git commit -F <msgfile>   # feat(web): Днес summary tiles + pipeline strip
 Wires the tiles, date nav, and orders feed; owns state and the two inline mutations with optimistic updates + `sonner` toast + summary re-fetch (no `router.refresh()`), mirroring `dashboard-client.tsx`.
 
 **Files:**
-- Create: `client/src/components/today/today-client.tsx`
-- Test: `client/src/components/today/today-client.spec.tsx`
+- Create: `client/src/components/today/today-logic.ts` — pure optimistic-state transforms.
+- Create: `client/src/components/today/today-logic.test.ts` — vitest node tests.
+- Create: `client/src/components/today/today-client.tsx` — orchestrator (no unit test; verified in F5).
 
 **Interfaces:**
-- Consumes: `TodaySummary` (F1); `PipelineStrip`, tiles (F2); `getTodaySummary`, `confirmPending`, `updateOrderStatus` (api-client); `OrdersFeed`, `DateNavBar`.
-- Produces: `TodayClient({ summary, orders, date, readiness, deliveryEnabled })` default export.
+- Consumes: `TodaySummary` (F1); `PipelineStrip`, tiles (F2); `getTodaySummary`, `confirmPending`, `updateOrderStatus` (api-client); `OrdersFeed`, `DateNavBar`, `StoreReadinessCard`.
+- Produces pure helpers: `applyConfirmAll(pipeline): TodayPipeline` (moves `new`→`confirmed`, `new`=0), `markDelivered(pipeline, fromStatus): TodayPipeline` (decrement the order's current bucket, increment `delivered`). Produces component `TodayClient({ summary, orders, date, readiness, deliveryEnabled })` default export.
 
-- [ ] **Step 1: Write failing tests** — (a) confirm-all calls `confirmPending(date)` then re-fetches summary; (b) mark-delivered from the feed calls `updateOrderStatus(id,'delivered')`. Mock the api-client module:
+Per the Frontend testing convention: test the pure transforms; the component's wiring (which api-client fn it calls) is covered by F1's api-client tests + browser verification (F5).
 
-```tsx
-jest.mock('@/lib/api-client');
-it('Потвърди всички confirms today then refreshes the summary', async () => {
-  (confirmPending as jest.Mock).mockResolvedValue({ confirmed: 2 });
-  (getTodaySummary as jest.Mock).mockResolvedValue({ ...baseSummary, pipeline: { ...baseSummary.pipeline, new: 0, confirmed: 2 } });
-  render(<TodayClient summary={baseSummary} orders={[]} date="2026-07-20" readiness={fullReadiness} deliveryEnabled />);
-  await userEvent.click(screen.getByRole('button', { name: /Потвърди всички/ }));
-  expect(confirmPending).toHaveBeenCalledWith('2026-07-20');
-  await waitFor(() => expect(getTodaySummary).toHaveBeenCalledWith('2026-07-20'));
+- [ ] **Step 1: Write failing tests** in `today-logic.test.ts`:
+
+```ts
+import { applyConfirmAll, markDelivered } from './today-logic';
+
+const P = { new: 2, confirmed: 1, preparing: 0, outForDelivery: 0, delivered: 3, cancelled: 0, total: 6 };
+it('applyConfirmAll moves new into confirmed and zeroes new', () => {
+  expect(applyConfirmAll(P)).toMatchObject({ new: 0, confirmed: 3, delivered: 3, total: 6 });
+});
+it('markDelivered moves one order from its bucket to delivered', () => {
+  expect(markDelivered(P, 'confirmed')).toMatchObject({ confirmed: 0, delivered: 4 });
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails.** Run: `pnpm --filter @fermeribg/web test -- today-client`. Expected: FAIL.
+- [ ] **Step 2: Run to verify it fails.** Run: `pnpm --filter @fermeribg/web test -- today-logic`. Expected: FAIL.
 
-- [ ] **Step 3: Implement `today-client.tsx`** (`'use client'`): state `summary`, `orders`, `confirming`; `DateNavBar` (default `date`) whose change calls `getTodaySummary(d)` + refetches the feed; render `PipelineStrip` (onConfirmAll → set confirming, `await confirmPending(date)`, `setSummary(await getTodaySummary(date))`, toast), a responsive tile grid (`grid grid-cols-4 gap-4 max-[1024px]:grid-cols-2 max-[640px]:grid-cols-1`) of the four tiles, then `OrdersFeed` with an onDeliver handler calling `updateOrderStatus(id,'delivered')` (optimistic + rollback on throw + toast). Root `<div className="animate-ff-fade-up">`. Show the first-run `StoreReadinessCard` only when `readiness` is incomplete.
+- [ ] **Step 3: Implement `today-logic.ts`** — the two pure transforms (immutable copies; `total` unchanged by both; `markDelivered` clamps the source bucket at 0). Run: `pnpm --filter @fermeribg/web test -- today-logic` → PASS.
 
-- [ ] **Step 4: Run to verify it passes.** Run: `pnpm --filter @fermeribg/web test -- today-client`. Expected: PASS.
+- [ ] **Step 4: Implement `today-client.tsx`** (`'use client'`): state `summary`, `orders`, `confirming`; `DateNavBar` (default `date`) whose change calls `getTodaySummary(d)` + refetches the feed; render `PipelineStrip` (onConfirmAll → `setConfirming(true)`, optimistic `setSummary(s => ({...s, pipeline: applyConfirmAll(s.pipeline)}))`, `await confirmPending(date)`, then `setSummary(await getTodaySummary(date))`, `sonner` toast, rollback on throw); a responsive tile grid (`grid grid-cols-4 gap-4 max-[1024px]:grid-cols-2 max-[640px]:grid-cols-1`) of the four tiles; then `OrdersFeed` with an onDeliver handler → optimistic `markDelivered` + `await updateOrderStatus(id,'delivered')` (rollback + toast on throw). Root `<div className="animate-ff-fade-up">`. Show `StoreReadinessCard` only when `readiness` is incomplete.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the whole client suite.** Run: `pnpm --filter @fermeribg/web test`. Expected: green (today-logic is the only new test).
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add client/src/components/today/today-client.tsx client/src/components/today/today-client.spec.tsx
+git add client/src/components/today/today-logic.ts client/src/components/today/today-logic.test.ts client/src/components/today/today-client.tsx
 git commit -F <msgfile>   # feat(web): Днес orchestrator with inline confirm-all + mark-delivered
 ```
 
