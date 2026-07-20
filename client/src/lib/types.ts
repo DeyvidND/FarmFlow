@@ -182,6 +182,14 @@ export interface Farmer {
   internalNotes?: string | null;
   /** Operator-only payout account for marketplace settlement — never public. */
   payout?: { iban?: string; holder?: string; bic?: string } | null;
+  /** Approximate map pin — geocoded from address/city, or manually overridden.
+   *  NULL = no location known yet ("без локация"). Public (feeds the storefront
+   *  farmer map). */
+  lat?: number | null;
+  lng?: number | null;
+  /** When the pin was last (re)geocoded — operator-only, used only to decide the
+   *  "Автоматично от адреса" status line; never sent to the storefront. */
+  geocodedAt?: string | null;
 }
 
 export interface FarmerAccess {

@@ -7,6 +7,7 @@ import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { AuthService } from '../auth/auth.service';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
+import { MapsService } from '../../common/maps/maps.service';
 
 /** Chainable Drizzle mock: select().from().where().limit() → [fakeFarmer] */
 function makeDb(fakeFarmer: any = { id: 'f1', tenantId: 't1', imageUrl: null }) {
@@ -35,6 +36,7 @@ async function buildSvc(db: any, queue: any): Promise<FarmersService> {
       { provide: PublicCacheService, useValue: { del: jest.fn(), resolveTenant: jest.fn(), get: jest.fn(), set: jest.fn() } },
       { provide: AuthService, useValue: { sendFarmerInvite: jest.fn() } },
       { provide: getQueueToken(IMAGE_QUEUE), useValue: queue },
+      { provide: MapsService, useValue: { enabled: false, geocodeApprox: jest.fn() } },
     ],
   }).compile();
   return mod.get(FarmersService);
@@ -55,6 +57,7 @@ describe('FarmersService.uploadImage (queue path)', () => {
         { provide: PublicCacheService, useValue: { del: jest.fn(), resolveTenant: jest.fn(), get: jest.fn(), set: jest.fn() } },
         { provide: AuthService, useValue: { sendFarmerInvite: jest.fn() } },
         { provide: getQueueToken(IMAGE_QUEUE), useValue: queue },
+        { provide: MapsService, useValue: { enabled: false, geocodeApprox: jest.fn() } },
       ],
     }).compile();
 

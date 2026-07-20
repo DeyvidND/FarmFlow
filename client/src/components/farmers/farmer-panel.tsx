@@ -68,6 +68,10 @@ export function FarmerPanel({
   const [email, setEmail] = useState(farmer.email ?? '');
   const [since, setSince] = useState(farmer.since ?? '2026');
   const [city, setCity] = useState(farmer.city ?? '');
+  // Map pin (feeds the storefront farmer map). Empty string = "leave as-is / let the
+  // server auto-geocode from address/city"; a filled value is a manual override.
+  const [lat, setLat] = useState(farmer.lat != null ? String(farmer.lat) : '');
+  const [lng, setLng] = useState(farmer.lng != null ? String(farmer.lng) : '');
   const [commissionPct, setCommissionPct] = useState(
     farmer.commissionRateBps != null ? String(farmer.commissionRateBps / 100) : '',
   );
@@ -171,6 +175,8 @@ export function FarmerPanel({
         email: email.trim() || null,
         since: since.trim(),
         city: city.trim() || null,
+        lat: lat.trim() === '' ? null : parseFloat(lat),
+        lng: lng.trim() === '' ? null : parseFloat(lng),
         coverCrop,
         legal: hasLegal ? { ...legalParts, confirmedAt: new Date().toISOString() } : null,
         commissionRateBps: commissionPct.trim() === '' ? null : Math.round(parseFloat(commissionPct) * 100),
@@ -350,6 +356,45 @@ export function FarmerPanel({
               <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="напр. Варна" className={field} />
             </label>
           </div>
+
+          <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+            <div className="mb-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+              Локация на картата
+            </div>
+            <p className="text-[12px] font-semibold text-ff-ink-2">
+              {farmer.lat != null && farmer.geocodedAt
+                ? 'Автоматично от адреса'
+                : farmer.lat != null
+                  ? 'Ръчно зададена точка'
+                  : 'Без локация'}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <label className={labelCls}>
+                Ширина (lat)
+                <input
+                  value={lat}
+                  onChange={(e) => setLat(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="напр. 43.2141"
+                  className={field}
+                />
+              </label>
+              <label className={labelCls}>
+                Дължина (lng)
+                <input
+                  value={lng}
+                  onChange={(e) => setLng(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="напр. 27.9147"
+                  className={field}
+                />
+              </label>
+            </div>
+            <span className="mt-1.5 block text-[11px] font-semibold text-ff-muted">
+              Остави празно за автоматично от адреса; попълни, за да коригираш точката ръчно.
+            </span>
+          </div>
+
           <label className={labelCls}>
             Кратко описание
             <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} placeholder="Какво произвежда този фермер…" className={`${field} resize-y leading-relaxed`} />

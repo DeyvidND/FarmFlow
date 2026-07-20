@@ -231,6 +231,14 @@ export type PublicFarmer = Omit<
   images: string[];
   /** Phase 2: farmer offers nationwide courier (≥1 carrier connected). */
   courierReady: boolean;
+  /** Approximate map pin — geocoded from address/city, or manually overridden.
+   *  `null` when no location is known yet. Farmer.lat/lng are Drizzle numeric
+   *  columns (`string | null`); re-declared here as `number | null` because the
+   *  public projection converts to number for the storefront map — hence 'lat' |
+   *  'lng' stay in the Omit above (TS can't narrow a same-named intersection
+   *  member, it only conjoins the two types). */
+  lat: number | null;
+  lng: number | null;
 };
 export type PublicSubcategory = Omit<Subcategory, 'tenantId'> & { images: string[] };
 export type SafeUser = Omit<User, 'passwordHash'>;
