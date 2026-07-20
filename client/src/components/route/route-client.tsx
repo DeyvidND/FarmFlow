@@ -89,6 +89,80 @@ const isMobileBrowser = () =>
  *  survive so the remaining-leg buttons stay tappable). */
 const navTarget = () => (isMobileBrowser() ? '_self' : '_blank');
 
+const isIOSBrowser = () =>
+  typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+/** Google Maps APP deep link for a single destination ("lat,lng" or address text).
+ *  iOS → the comgooglemaps scheme; Android → an intent:// that carries a web fallback,
+ *  so a phone without the app lands on Maps web instead of an ERR_UNKNOWN_URL_SCHEME
+ *  page. Returns null when there is no usable destination. */
+function mapsAppUrl(dest: string, webUrl: string): string | null {
+  if (!dest) return null;
+  const d = encodeURIComponent(dest);
+  if (isIOSBrowser()) return `comgooglemaps://?daddr=${d}&directionsmode=driving`;
+  return (
+    `intent://maps.google.com/maps?daddr=${d}&directionsmode=driving` +
+    `#Intent;scheme=https;package=com.google.android.apps.maps;` +
+    `S.browser_fallback_url=${encodeURIComponent(webUrl)};end`
+  );
+}
+
+/** Waze APP deep link for a single destination (same fallback strategy as maps). */
+function wazeAppUrl(
+  t: { lat: number | null; lng: number | null; address: string | null },
+  webUrl: string,
+): string | null {
+  const q =
+    t.lat != null && t.lng != null
+      ? `ll=${encodeURIComponent(`${t.lat},${t.lng}`)}`
+      : t.address?.trim()
+        ? `q=${encodeURIComponent(t.address.trim())}`
+        : '';
+  if (!q) return null;
+  if (isIOSBrowser()) return `waze://?${q}&navigate=yes`;
+  return (
+    `intent://waze.com/ul?${q}&navigate=yes` +
+    `#Intent;scheme=https;package=com.waze;` +
+    `S.browser_fallback_url=${encodeURIComponent(webUrl)};end`
+  );
+}
+
+/** Open an external navigation target so the FarmFlow tab SURVIVES — like a `tel:`
+ *  link. Desktop opens a new tab. On mobile the maps/Waze app is launched in place and
+ *  the panel stays loaded underneath, so coming back to the browser shows the route,
+ *  not a blank new tab (and not the panel navigated away to Maps web). On iOS the app
+ *  scheme silently no-ops when the app is missing, so a short timer falls back to the
+ *  web URL; Android's intent:// carries its own fallback, so no timer is needed. */
+function openExternalNav(webUrl: string, appUrl: string | null) {
+  if (!isMobileBrowser()) {
+    window.open(webUrl, '_blank', 'noopener');
+    return;
+  }
+  if (!appUrl) {
+    window.location.href = webUrl; // same tab — no new-tab clutter
+    return;
+  }
+  if (isIOSBrowser()) {
+    let handled = false;
+    const cleanup = () => document.removeEventListener('visibilitychange', onHide);
+    const onHide = () => {
+      if (document.hidden) {
+        handled = true;
+        window.clearTimeout(timer);
+        cleanup();
+      }
+    };
+    const timer = window.setTimeout(() => {
+      if (!handled) {
+        cleanup();
+        window.location.href = webUrl;
+      }
+    }, 1500);
+    document.addEventListener('visibilitychange', onHide);
+  }
+  window.location.href = appUrl;
+}
+
 /** Nodes per Google Maps directions leg = origin + N waypoints + destination. */
 const nodesPerLeg = () =>
   (isMobileBrowser() ? WAYPOINTS_PER_LEG_MOBILE : WAYPOINTS_PER_LEG_DESKTOP) + 2;
@@ -693,12 +767,13 @@ export function RouteClient({
 
   // Open Waze for a single target and auto-advance the default to the next one.
   const wazeNavigate = (i: number) => {
-    const url = wazeUrl(wazeTargets[i]);
+    const t = wazeTargets[i];
+    const url = wazeUrl(t);
     if (!url) {
       toast.error('Тази спирка не е на картата — провери адреса');
       return;
     }
-    window.open(url, navTarget(), 'noopener');
+    openExternalNav(url, wazeAppUrl(t, url));
     setWazeIdx(Math.min(i + 1, wazeTargets.length));
   };
   const wazePrev = () => setWazeIdx((v) => Math.max(0, v - 1));
@@ -856,7 +931,8 @@ export function RouteClient({
   };
 
   const onOpenMaps = (s: RouteStop) => {
-    window.open(stopUrl(origin, s), navTarget(), 'noopener');
+    const web = stopUrl(origin, s);
+    openExternalNav(web, mapsAppUrl(pt(s), web));
   };
   const onCall = (s: RouteStop) => {
     if (!s.phone) {
