@@ -834,6 +834,8 @@ export interface DeliveryWindowStop {
   durationFromPrevS: number;
   /** Order grand total incl. delivery (stotinki). */
   valueStotinki: number;
+  /** Producer(s) whose products this order contains (a delivery order can span farmers). */
+  farmers: string[];
 }
 /** POST /orders/route/windows/generate response — proposed windows per courier. */
 export interface DeliveryWindowProposal {

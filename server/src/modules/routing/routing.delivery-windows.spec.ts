@@ -19,6 +19,7 @@ function makeDb(selectResults: any[][]) {
       const chain: any = {
         from: () => chain,
         leftJoin: () => chain,
+        innerJoin: () => chain,
         where: () => chain,
         orderBy: () => Promise.resolve(result),
         limit: () => Promise.resolve(result),
@@ -553,8 +554,23 @@ describe('RoutingService.generateDeliveryWindows — distance-from-previous', ()
     ],
   });
 
+  // Empty-select db (farmersByOrder finds no producers) with a no-op update.
+  const windowsDb = () =>
+    ({
+      update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }),
+      select: () => {
+        const chain: any = {
+          from: () => chain,
+          innerJoin: () => chain,
+          leftJoin: () => chain,
+          where: () => Promise.resolve([]),
+        };
+        return chain;
+      },
+    }) as any;
+
   function mkSvc() {
-    const db = { update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }) } as any;
+    const db = windowsDb();
     const svc = new RoutingService(db, {} as any, {} as any, {} as any, noAssignments());
     jest.spyOn(svc, 'getRoute').mockResolvedValue(routeFromFarm() as any);
     jest
@@ -600,7 +616,7 @@ describe('RoutingService.generateDeliveryWindows — distance-from-previous', ()
         }),
       ),
     } as any;
-    const db = { update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }) } as any;
+    const db = windowsDb();
     const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
     jest.spyOn(svc, 'getRoute').mockResolvedValue(routeFromFarm() as any);
     jest
@@ -615,5 +631,37 @@ describe('RoutingService.generateDeliveryWindows — distance-from-previous', ()
     expect(stops[1].distanceFromPrevM).toBe(2000);
     expect(stops[1].durationFromPrevS).toBe(600);
     expect(p.couriers[0].distanceM).toBe(3000); // real whole-leg total
+  });
+
+  it('tags each stop with its producer(s) — a multi-farmer order lists all', async () => {
+    // farmersByOrder rows: A → Иван; B → Иван + Мария (a shared, cross-farmer order).
+    const farmerRows = [
+      { orderId: 'A', name: 'Иван' },
+      { orderId: 'B', name: 'Иван' },
+      { orderId: 'B', name: 'Мария' },
+    ];
+    const db = {
+      update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }),
+      select: () => {
+        const chain: any = {
+          from: () => chain,
+          innerJoin: () => chain,
+          leftJoin: () => chain,
+          where: () => Promise.resolve(farmerRows),
+        };
+        return chain;
+      },
+    } as any;
+    const svc = new RoutingService(db, {} as any, {} as any, {} as any, noAssignments());
+    jest.spyOn(svc, 'getRoute').mockResolvedValue(routeFromFarm() as any);
+    jest
+      .spyOn(svc as any, 'routingSettings')
+      .mockResolvedValue({ dayStartHour: 9, slotSizeMin: 60, serviceMin: 10 });
+
+    const p = await svc.generateDeliveryWindows('t1', '2026-07-20');
+    const [a, b] = p.couriers[0].stops;
+
+    expect(a.farmers).toEqual(['Иван']);
+    expect(b.farmers).toEqual(['Иван', 'Мария']); // multi-farmer order lists both
   });
 });

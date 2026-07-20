@@ -8,7 +8,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
-import { type Database, orders, orderItems, deliverySlots, tenants } from '@fermeribg/db';
+import { type Database, orders, orderItems, deliverySlots, tenants, products, farmers } from '@fermeribg/db';
 import { type LegIndex, type LegPos, asLegIndex, asLegPos } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
@@ -222,6 +222,9 @@ export interface DeliveryWindowStop {
   durationFromPrevS: number;
   /** Order grand total incl. delivery (stotinki) — the value to hand over / collect. */
   valueStotinki: number;
+  /** Producer(s) whose products this order contains — a delivery order can span
+   *  farmers. Empty when none are linked. Tags the row on a multi-farmer day. */
+  farmers: string[];
 }
 export interface DeliveryWindowProposal {
   date: string;
@@ -1112,6 +1115,32 @@ export class RoutingService {
   }
 
   /**
+   * Distinct farmer (producer) display names per order, for the given order ids.
+   * A delivery (`address`) order can span several farmers — `orders.farmerId` is
+   * null for them, so the link is order_items → products.farmerId → farmers.name
+   * (the same path prep/digest use). One batched query, grouped in JS; used to tag
+   * each delivery-window row with its producer(s) on a multi-farmer day. Orders
+   * whose products have no linked farmer simply get an empty list.
+   */
+  private async farmersByOrder(tenantId: string, orderIds: string[]): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    if (orderIds.length === 0) return out;
+    const rows = await this.db
+      .select({ orderId: orders.id, name: farmers.name })
+      .from(orderItems)
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .innerJoin(products, eq(orderItems.productId, products.id))
+      .innerJoin(farmers, eq(products.farmerId, farmers.id))
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)));
+    for (const r of rows) {
+      const list = out.get(r.orderId) ?? [];
+      if (r.name && !list.includes(r.name)) list.push(r.name);
+      out.set(r.orderId, list);
+    }
+    return out;
+  }
+
+  /**
    * Fix a stop that never got a map pin. Two ways in:
    *  - `lat`+`lng`  → a manual pin the farmer dropped on the map; saved as-is.
    *  - `address`    → re-geocoded (biased to the farm) and the result is saved.
@@ -1403,6 +1432,13 @@ export class RoutingService {
     const updates: { id: string; start: string; end: string }[] = [];
     let withoutEmail = 0;
 
+    // Farmer tags per order (a delivery order can span producers) — one batched
+    // lookup for the whole day, attached to each row below.
+    const farmersMap = await this.farmersByOrder(
+      tenantId,
+      route.routes.flatMap((r) => r.stops.map((s) => s.id)),
+    );
+
     for (const r of route.routes) {
       // Where THIS leg begins: its per-courier base override, else the courier's
       // current position (when supplied) or the farm — see originPt above.
@@ -1492,6 +1528,7 @@ export class RoutingService {
           distanceFromPrevM: Math.round(into.km * 1000),
           durationFromPrevS: Math.round(into.min * 60),
           valueStotinki: s.totalStotinki,
+          farmers: farmersMap.get(s.id) ?? [],
         };
       });
 

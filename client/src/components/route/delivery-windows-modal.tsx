@@ -117,6 +117,17 @@ export function DeliveryWindowsModal({
     [proposal],
   );
 
+  // Per-farmer order counts across the whole day (a multi-farmer order counts for
+  // each of its producers) — drives the „Фермери днес" summary chips. Sorted by
+  // count, descending.
+  const farmerSummary = useMemo<[string, number][]>(() => {
+    if (!proposal) return [];
+    const counts = new Map<string, number>();
+    for (const c of proposal.couriers)
+      for (const s of c.stops) for (const f of s.farmers ?? []) counts.set(f, (counts.get(f) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [proposal]);
+
   async function generate() {
     setGenerating(true);
     try {
@@ -401,6 +412,20 @@ export function DeliveryWindowsModal({
             </div>
           )}
 
+          {proposal && farmerSummary.length > 1 && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-ff-border bg-ff-surface-2 px-3.5 py-2.5">
+              <span className="text-[12px] font-bold text-ff-ink-2">Фермери днес:</span>
+              {farmerSummary.map(([name, count]) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 rounded-md bg-ff-green-100 px-1.5 py-0.5 text-[11.5px] font-bold text-ff-green-800"
+                >
+                  {name} · {count}
+                </span>
+              ))}
+            </div>
+          )}
+
           {proposal && (
             <div className="mt-4 flex flex-col gap-5">
               {proposal.couriers.map((c) => {
@@ -441,6 +466,12 @@ export function DeliveryWindowsModal({
                               {fmtGap(s.distanceFromPrevM, s.durationFromPrevS)}{' '}
                               {i === 0 ? 'от старта' : 'от предната'} · {moneyFromStotinki(s.valueStotinki)}
                             </span>
+                            {s.farmers && s.farmers.length > 0 && (
+                              <span className="truncate text-[11px] font-bold text-ff-green-800">
+                                {s.farmers.join(', ')}
+                                {s.farmers.length > 1 ? ' · споделена' : ''}
+                              </span>
+                            )}
                           </span>
                           {s.hasEmail ? (
                             <Mail size={13} className="shrink-0 text-ff-green-700" />
