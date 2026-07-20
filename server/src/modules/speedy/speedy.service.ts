@@ -1018,9 +1018,10 @@ export class SpeedyService implements CarrierAdapter {
       .where(and(eq(shipments.tenantId, tenantId), eq(shipments.carrier, 'speedy')));
 
     const out: Array<{ shipmentId: string; expectedStotinki: number | null; settledAt: string | null }> = [];
-    // Collect newly-settled rows, then write them in one parallel batch instead of a
-    // serial UPDATE-per-row on the request path (set is bounded by the 60-day window).
-    const settleWrites: Array<Promise<unknown>> = [];
+    // Collect the newly-settled (id, settledAt) pairs, then stamp them all in ONE
+    // set-based UPDATE (a CASE per shipment) instead of firing K concurrent single-row
+    // UPDATEs (K = shipments settled this run) that each grab a pool connection.
+    const settleTuples: Array<{ id: string; ts: Date }> = [];
     for (const r of rows) {
       if (r.expected == null) continue;
       const payout = r.barcode ? settledByBarcode.get(r.barcode) : undefined;
@@ -1028,15 +1029,23 @@ export class SpeedyService implements CarrierAdapter {
       if (payout?.settledAt && !r.settledAt) {
         const d = new Date(payout.settledAt);
         if (!Number.isNaN(d.getTime())) {
-          settleWrites.push(
-            this.db.update(shipments).set({ codSettledAt: d, updatedAt: new Date() }).where(eq(shipments.id, r.shipmentId)),
-          );
+          settleTuples.push({ id: r.shipmentId, ts: d });
           settledAt = d.toISOString();
         }
       }
       out.push({ shipmentId: r.shipmentId, expectedStotinki: r.expected, settledAt });
     }
-    if (settleWrites.length) await Promise.all(settleWrites);
+    if (settleTuples.length > 0) {
+      const ids = settleTuples.map((t) => t.id);
+      const tsCase = sql.join(
+        settleTuples.map((t) => sql`when ${shipments.id} = ${t.id}::uuid then ${t.ts}::timestamptz`),
+        sql` `,
+      );
+      await this.db
+        .update(shipments)
+        .set({ codSettledAt: sql`case ${tsCase} end`, updatedAt: new Date() })
+        .where(inArray(shipments.id, ids));
+    }
     return out;
   }
 
