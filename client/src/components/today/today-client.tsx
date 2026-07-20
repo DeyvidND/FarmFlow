@@ -45,7 +45,11 @@ export default function TodayClient({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const feed = orders.filter((o) => o.createdAt.slice(0, 10) === date);
+  // `orders` already comes from /orders?date= (delivery-day-scoped server-side,
+  // via scheduledForDay) — re-filtering by createdAt here would drop every order
+  // whose delivery slot day differs from its placement day. DateNavBar's loadDay
+  // re-fetch is what keeps this the right set per day, not a client-side filter.
+  const feed = orders;
 
   /** Switch days: re-fetch both the summary and the feed for `d` (client-side, no
    *  full server round-trip). */
