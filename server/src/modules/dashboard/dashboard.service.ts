@@ -1,5 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import {
   type Database, orders, orderItems, products, deliverySlots, tenants,
   orderFulfillments, handoverProtocols, routeCourierAssignments,
@@ -163,6 +163,7 @@ export class DashboardService {
   async todaySummary(tenantId: string, date?: string): Promise<TodaySummary> {
     const day = date ?? bgToday();
     const sched = scheduledForDay(day); // MUST pair with leftJoin(deliverySlots)
+    const HANDOVER_READY = ['confirmed', 'preparing'] as const;
 
     const pipelineP = this.db
       .select({
@@ -200,38 +201,61 @@ export class DashboardService {
       .from(orderFulfillments)
       .innerJoin(orders, eq(orders.id, orderFulfillments.orderId))
       .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
-      .where(and(eq(orderFulfillments.tenantId, tenantId), inArray(orders.status, ['confirmed', 'preparing']), sched))
+      .where(and(eq(orderFulfillments.tenantId, tenantId), inArray(orders.status, [...HANDOVER_READY]), sched))
       .groupBy(orderFulfillments.orderId)
       .having(sql`bool_and(${orderFulfillments.state} = 'fulfilled')`);
 
-    const signedP = this.db
-      .select({ signed: sql<number>`count(*)::int` })
+    const signedFarmerP = this.db
+      .select({ signedFarmer: sql<number>`count(*)::int` })
       .from(handoverProtocols)
       .innerJoin(deliverySlots, eq(deliverySlots.id, handoverProtocols.slotId))
-      .where(and(eq(handoverProtocols.tenantId, tenantId), eq(deliverySlots.date, day), eq(handoverProtocols.status, 'signed')));
+      .where(and(
+        eq(handoverProtocols.tenantId, tenantId),
+        eq(handoverProtocols.kind, 'farmer_to_operator'),
+        eq(handoverProtocols.status, 'signed'),
+        eq(deliverySlots.date, day),
+      ));
+
+    // Slotless customer legs (address order with no slot picked) sign a protocol
+    // keyed by orderId, not slotId — join through orders/scheduledForDay so those
+    // still count as signed instead of being invisible to an innerJoin(slotId).
+    const signedCustomerP = this.db
+      .select({ signedCustomer: sql<number>`count(*)::int` })
+      .from(handoverProtocols)
+      .innerJoin(orders, eq(orders.id, handoverProtocols.orderId))
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(
+        eq(handoverProtocols.tenantId, tenantId),
+        eq(handoverProtocols.kind, 'operator_to_customer'),
+        eq(handoverProtocols.status, 'signed'),
+        scheduledForDay(day),
+      ));
 
     // Distinct (farmer, slot) legs among handover-ready line items scheduled today.
+    // Slot-filtered: handover only ever creates farmer_to_operator protocols for
+    // slotted legs (farmerId && slotId both set), so an unfiltered groupBy would
+    // count a phantom (farmerId, NULL) leg for slotless orders that can never sign.
     const farmerLegsP = this.db
       .select({ farmerId: products.farmerId, slotId: orders.slotId })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .innerJoin(products, eq(products.id, orderItems.productId))
       .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
-      .where(and(eq(orders.tenantId, tenantId), inArray(orders.status, ['confirmed', 'preparing']), sched))
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.status, [...HANDOVER_READY]), isNotNull(orders.slotId), sched))
       .groupBy(products.farmerId, orders.slotId);
 
     const customerLegsP = this.db
       .select({ customerLegs: sql<number>`count(*)::int` })
       .from(orders)
       .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
-      .where(and(eq(orders.tenantId, tenantId), eq(orders.deliveryType, 'address'), inArray(orders.status, ['confirmed', 'preparing']), sched));
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.deliveryType, 'address'), inArray(orders.status, [...HANDOVER_READY]), sched));
 
-    const [pipelineRows, courierRows, [cod], fulfilledRows, [signedRow], farmerLegRows, [custRow], slotRows] = await Promise.all([
-      pipelineP, couriersP, codP, fulfilledP, signedP, farmerLegsP, customerLegsP, this.slotsForDay(tenantId, day),
+    const [pipelineRows, courierRows, [cod], fulfilledRows, [signedFarmerRow], [signedCustomerRow], farmerLegRows, [custRow], slotRows] = await Promise.all([
+      pipelineP, couriersP, codP, fulfilledP, signedFarmerP, signedCustomerP, farmerLegsP, customerLegsP, this.slotsForDay(tenantId, day),
     ]);
 
     const protoTotal = farmerLegRows.length + (custRow?.customerLegs ?? 0);
-    const protoSigned = signedRow?.signed ?? 0;
+    const protoSigned = (signedFarmerRow?.signedFarmer ?? 0) + (signedCustomerRow?.signedCustomer ?? 0);
 
     const by = (s: string) => pipelineRows.find((r) => r.status === s);
     const cnt = (s: string) => by(s)?.count ?? 0;

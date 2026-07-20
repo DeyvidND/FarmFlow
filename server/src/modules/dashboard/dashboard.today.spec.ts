@@ -3,7 +3,7 @@ import { DashboardService } from './dashboard.service';
 /** todaySummary runs ~8 independent reads under one Promise.all; route each by its
  *  projection's distinctive key (no inter-query ordering assumption). */
 function makeDb(r: Partial<{
-  pipeline: unknown[]; cod: unknown[]; fulfilled: unknown[]; signed: unknown[];
+  pipeline: unknown[]; cod: unknown[]; fulfilled: unknown[]; signedFarmer: unknown[]; signedCustomer: unknown[];
   farmerLegs: unknown[]; customerLegs: unknown[]; couriers: unknown[]; slots: unknown[];
 }> = {}) {
   const pick = (proj: Record<string, unknown>): unknown[] => {
@@ -11,7 +11,8 @@ function makeDb(r: Partial<{
     if (k.includes('status')) return r.pipeline ?? [];
     if (k.includes('toCollectStotinki')) return r.cod ?? [];
     if (k.includes('orderId')) return r.fulfilled ?? [];
-    if (k.includes('signed')) return r.signed ?? [];
+    if (k.includes('signedFarmer')) return r.signedFarmer ?? [];
+    if (k.includes('signedCustomer')) return r.signedCustomer ?? [];
     if (k.includes('farmerId')) return r.farmerLegs ?? [];
     if (k.includes('customerLegs')) return r.customerLegs ?? [];
     if (k.includes('legIndex')) return r.couriers ?? [];
@@ -78,12 +79,42 @@ describe('DashboardService.todaySummary', () => {
   it('counts protocols: farmer-legs + customer-legs expected, persisted signed, clamped pending', async () => {
     const db = makeDb({
       pipeline: [{ status: 'confirmed', count: 3, totalStotinki: 6000, addr: 2 }],
-      signed: [{ signed: 1 }],
+      signedFarmer: [{ signedFarmer: 1 }],
+      signedCustomer: [{ signedCustomer: 0 }],
       farmerLegs: [{ farmerId: 'f1', slotId: 's1' }, { farmerId: 'f2', slotId: 's1' }], // 2 farmer legs
       customerLegs: [{ customerLegs: 2 }], // 2 address deliveries
     });
     const out = await svc(db).todaySummary('t1', '2026-07-20');
     expect(out.protocols).toEqual({ total: 4, signed: 1, pending: 3 }); // 2+2 expected, 1 signed
+  });
+
+  it('counts a slotless customer signed protocol (address order with no slot picked)', async () => {
+    const db = makeDb({
+      farmerLegs: [],
+      customerLegs: [{ customerLegs: 1 }],
+      signedFarmer: [{ signedFarmer: 0 }],
+      signedCustomer: [{ signedCustomer: 1 }],
+    });
+    const out = await svc(db).todaySummary('t1', '2026-07-20');
+    expect(out.protocols).toEqual({ total: 1, signed: 1, pending: 0 });
+  });
+
+  it('filters farmerLegsP to slotted orders only (no phantom slotless farmer leg)', async () => {
+    const { PgDialect } = require('drizzle-orm/pg-core');
+    let captured: any;
+    const base = makeDb({});
+    const realSelect = base.select;
+    base.select = jest.fn((proj: any) => {
+      const chain = realSelect(proj);
+      if (Object.keys(proj).includes('farmerId')) {
+        const realWhere = chain.where;
+        chain.where = jest.fn((cond: any) => { captured = cond; return realWhere(cond); });
+      }
+      return chain;
+    });
+    await svc(base).todaySummary('t1', '2026-07-20');
+    const { sql: rendered } = new PgDialect().sqlToQuery(captured);
+    expect(rendered.toLowerCase()).toContain('is not null');
   });
 
   it('maps slots for the day', async () => {
