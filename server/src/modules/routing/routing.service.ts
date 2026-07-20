@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import { type Database, orders, orderItems, deliverySlots, tenants } from '@fermeribg/db';
+import { type LegIndex, type LegPos, asLegIndex, asLegPos } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday } from '../../common/time/bg-time';
@@ -55,9 +56,10 @@ export interface RouteStop {
   itemsSubtotalStotinki: number;
   deliveryFeeStotinki: number;
   totalStotinki: number;
-  /** Operator's manual courier pin (task #6): 0-based courier index, or null for
-   *  auto (geographic sweep-split). */
-  courierIndex: number | null;
+  /** Operator's manual courier pin (task #6): the 0-based REAL leg number
+   *  ({@link LegIndex}, matches `orders.courierIndex`), or null for auto
+   *  (geographic sweep-split). Never a dense `routes[]` position. */
+  courierIndex: LegIndex | null;
   /** Delivery time window (task #13): 'HH:MM' wall-clock (Europe/Sofia) and its
    *  review status (draft → approved → sent). Null until a window is generated. */
   deliveryWindowStart: string | null;
@@ -103,8 +105,11 @@ export interface CourierRoute {
   startAddress: string | null;
   startLat: number | null;
   startLng: number | null;
-  /** 0-based index of this courier (== position in `routes`). */
-  courierIndex: number;
+  /** The REAL 0-based leg number of this courier ({@link LegIndex}) — the value a
+   *  driver's resolveMyLeg and an order pin match against. On a non-contiguous
+   *  board day (legs [0, 2]) this is NOT this leg's position in the dense
+   *  `routes` array; see the posToLeg/legToPos mapping in getRoute. */
+  courierIndex: LegIndex;
   /** Operator-set courier name (settings.routing.couriers[i].name), else null. */
   name: string | null;
   /** This courier's day money (task #6), summed from its stops, in stotinki:
@@ -488,7 +493,8 @@ export class RoutingService {
         // row with a rounding quirk never shows a negative fee).
         deliveryFeeStotinki: Math.max(0, total - subtotal),
         totalStotinki: total,
-        courierIndex: r.courierIndex ?? null,
+        // orders.courierIndex stores the REAL leg number — brand it as such.
+        courierIndex: r.courierIndex != null ? asLegIndex(r.courierIndex) : null,
         deliveryWindowStart: hhmm(r.windowStart),
         deliveryWindowEnd: hhmm(r.windowEnd),
         deliveryWindowStatus: r.windowStatus ?? null,
@@ -540,7 +546,9 @@ export class RoutingService {
     // unassigned today — the board lets each roster row pick any leg
     // independently, so non-contiguous sets are a normal, expected shape,
     // not an edge case.
-    const assignedLegs = [...new Set(assignments.map((a) => a.legIndex))].sort((a, b) => a - b);
+    const assignedLegs: LegIndex[] = [...new Set(assignments.map((a) => asLegIndex(a.legIndex)))].sort(
+      (a, b) => a - b,
+    );
     const assignedLegCount = assignedLegs.length;
 
     // Effective courier count: the route-page „Куриери" dropdown (?couriers=) wins
@@ -561,15 +569,16 @@ export class RoutingService {
     // this mapping was a real bug: a driver assigned a non-contiguous leg
     // (e.g. leg 2 when only legs [0, 2] are assigned) would never match any
     // route's array-position-derived courierIndex and see zero stops.
-    const posToLeg = assignedLegCount > 0 ? assignedLegs : Array.from({ length: n }, (_, i) => i);
-    const legToPos = new Map(posToLeg.map((leg, pos) => [leg, pos]));
+    const posToLeg: LegIndex[] =
+      assignedLegCount > 0 ? assignedLegs : Array.from({ length: n }, (_, i) => asLegIndex(i));
+    const legToPos = new Map<LegIndex, LegPos>(posToLeg.map((leg, pos) => [leg, asLegPos(pos)]));
 
     // Operator-pinned stops (task #6): an order the operator manually moved onto a
     // specific courier keeps that courier regardless of geography. Pins that don't
     // resolve to a currently-active leg (courier count later lowered, or the
     // board no longer assigns that leg) are treated as auto. The rest are split
     // geographically as before, then the pins are dropped into their courier.
-    const inRange = (ci: number | null): ci is number => ci != null && legToPos.has(ci);
+    const inRange = (ci: LegIndex | null): ci is LegIndex => ci != null && legToPos.has(ci);
     const pinned = located.filter((s) => inRange(s.courierIndex));
     const free = located.filter((s) => !inRange(s.courierIndex));
 
@@ -591,7 +600,8 @@ export class RoutingService {
       // posToLeg/legToPos already are, so it lines up with pinned's placement
       // below.
       const baseWorkloads = posToLeg.map((_, pos) => {
-        const pinnedHere = pinned.filter((s) => legToPos.get(s.courierIndex as number) === pos);
+        const here = asLegPos(pos);
+        const pinnedHere = pinned.filter((s) => legToPos.get(s.courierIndex!) === here);
         if (!pinnedHere.length) return 0;
         const pts = pinnedHere.map((s) => ptOf(s) as Pt);
         return estimateWorkloadS(originPt, pts, splitEnd);
@@ -609,7 +619,7 @@ export class RoutingService {
     // stick across reloads and lets an explicitly-chosen 2-courier day show both.
     if (pinned.length) {
       while (groups.length < n) groups.push([]);
-      for (const s of pinned) groups[legToPos.get(s.courierIndex as number)!].push(s);
+      for (const s of pinned) groups[legToPos.get(s.courierIndex!)!].push(s);
     }
     if (!groups.length) groups = [[]];
 
@@ -850,7 +860,9 @@ export class RoutingService {
     group: RouteStop[],
     mode: RouteEndMode,
     end: RouteEnd,
-    courierIndex = 0,
+    // The REAL leg number, not the dense array position — callers pass
+    // posToLeg[i], never the loop index i (which the brand makes a type error).
+    courierIndex: LegIndex = asLegIndex(0),
     name: string | null = null,
     preserveOrder = false,
   ): Promise<CourierRoute> {
@@ -1452,6 +1464,64 @@ export class RoutingService {
       .set({ deliveryWindowStart: start, deliveryWindowEnd: end, deliveryWindowStatus: status })
       .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)));
     return { id: orderId, windowStart: start, windowEnd: end, status };
+  }
+
+  /**
+   * Task #13 — cascade shift. The operator nudged one stop's time by `deltaMin`
+   * minutes (e.g. +5); apply the SAME delta to that stop AND every LATER stop in
+   * its courier leg (visit order), so the rest of the day slides along with it and
+   * the gaps between stops are preserved. Windows are clamped to the valid day; an
+   * already approved/sent window re-arms to 'approved' so a corrected time can be
+   * re-notified. Stops without a window yet are skipped. Tenant-scoped; a foreign
+   * or off-route stop is a 404.
+   */
+  async shiftDeliveryWindows(
+    tenantId: string,
+    date: string,
+    fromStopId: string,
+    deltaMin: number,
+  ): Promise<{ shifted: number }> {
+    if (!Number.isInteger(deltaMin) || deltaMin === 0) {
+      throw new BadRequestException('Отместването трябва да е цяло число минути, различно от 0');
+    }
+    // getRoute hands back each leg's stops already in visit order (manual routeSeq
+    // or the optimizer) — the only reliable source of "which stops come after this
+    // one on the same courier", including on an auto-split day where the orders
+    // carry no persisted courierIndex.
+    const route = await this.getRoute(tenantId, date);
+    const leg = route.routes.find((r) => r.stops.some((s) => s.id === fromStopId));
+    if (!leg) throw new NotFoundException('Поръчката не е намерена в маршрута');
+    const fromIdx = leg.stops.findIndex((s) => s.id === fromStopId);
+    // The nudged stop + everything after it on the same leg that actually has a
+    // window to move. A bounded, operator-initiated set (one leg's tail), so a
+    // small per-stop UPDATE loop is fine here — not a request-scaled fan-out.
+    const affected = leg.stops
+      .slice(fromIdx)
+      .filter((s) => s.deliveryWindowStart != null && s.deliveryWindowEnd != null);
+    if (affected.length === 0) return { shifted: 0 };
+
+    const toMin = (hhmm: string): number => {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    await this.db.transaction(async (tx) => {
+      for (const s of affected) {
+        const status =
+          s.deliveryWindowStatus === 'approved' || s.deliveryWindowStatus === 'sent'
+            ? 'approved'
+            : 'draft';
+        await tx
+          .update(orders)
+          .set({
+            deliveryWindowStart: minToHHMM(toMin(s.deliveryWindowStart!) + deltaMin),
+            deliveryWindowEnd: minToHHMM(toMin(s.deliveryWindowEnd!) + deltaMin),
+            deliveryWindowStatus: status,
+          })
+          .where(and(eq(orders.id, s.id), eq(orders.tenantId, tenantId)));
+      }
+    });
+    return { shifted: affected.length };
   }
 
   /**

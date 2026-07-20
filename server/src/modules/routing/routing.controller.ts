@@ -30,6 +30,7 @@ import { AssignmentsQueryDto, SetAssignmentsDto } from './dto/courier-assignment
 import {
   DeliveryWindowDayDto,
   UpdateDeliveryWindowDto,
+  ShiftDeliveryWindowDto,
 } from './dto/delivery-window.dto';
 
 // NOTE: RoutingModule is imported before OrdersModule in app.module so this
@@ -249,6 +250,14 @@ export class RoutingController {
     @Body() dto: UpdateDeliveryWindowDto,
   ) {
     return this.routingService.updateDeliveryWindow(tenantId, id, { start: dto.start, end: dto.end });
+  }
+
+  // Task #13 — cascade shift: nudge one stop's window by ±minutes and slide every
+  // later stop on the same courier leg by the same amount (inline stop edit).
+  @Post('route/windows/shift')
+  @UseGuards(ActiveSubscriptionGuard)
+  shiftWindows(@CurrentTenant() tenantId: string, @Body() dto: ShiftDeliveryWindowDto) {
+    return this.routingService.shiftDeliveryWindows(tenantId, dto.date, dto.fromStopId, dto.deltaMin);
   }
 
   // Task #13 — approve the day's draft windows (ready to notify).

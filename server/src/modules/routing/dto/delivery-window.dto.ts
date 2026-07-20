@@ -38,3 +38,20 @@ export class UpdateDeliveryWindowDto {
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'end трябва да е ЧЧ:ММ' })
   end!: string;
 }
+
+/** Task #13 — cascade shift: nudge one stop's window by `deltaMin` minutes and
+ *  slide every later stop on the same courier leg by the same amount. */
+export class ShiftDeliveryWindowDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date трябва да е YYYY-MM-DD' })
+  date!: string;
+
+  @IsString()
+  fromStopId!: string;
+
+  /** Signed minutes to shift by (e.g. +5 or -10); 0 is rejected in the service.
+   *  Bounded to a sane single-nudge range so a typo can't wrap the whole day. */
+  @IsInt()
+  @Min(-720)
+  @Max(720)
+  deltaMin!: number;
+}

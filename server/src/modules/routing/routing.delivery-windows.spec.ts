@@ -1,3 +1,4 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { RoutingService } from './routing.service';
 
 // ---------------------------------------------------------------------------
@@ -380,5 +381,124 @@ describe('RoutingService.approveDeliveryWindows — joins delivery_slots', () =>
     expect(result).toEqual({ approved: 2, date: '2026-07-07' });
     // The eligibility subselect MUST join delivery_slots per scheduledForDay's contract.
     expect(leftJoinCalled).toBe(true);
+  });
+});
+
+// ─── cascade shift: nudge one stop, slide the rest of its leg (task #13, WP9) ──
+describe('RoutingService.shiftDeliveryWindows — cascade', () => {
+  // A db whose transaction runs the callback with a tx that RECORDS every UPDATE
+  // .set() payload, so a test can assert exactly which stops were shifted and to
+  // what — the shift is a per-stop UPDATE loop over one leg's tail.
+  function makeShiftDb() {
+    const sets: any[] = [];
+    const tx = {
+      update: () => ({
+        set: (v: any) => {
+          sets.push(v);
+          return { where: () => Promise.resolve(undefined) };
+        },
+      }),
+    };
+    const db = { transaction: async (cb: any) => cb(tx) } as any;
+    return { db, sets };
+  }
+
+  const svcWithRoute = (db: any, route: any) => {
+    const svc = new RoutingService(db, {} as any, {} as any, {} as any, noAssignments());
+    jest.spyOn(svc, 'getRoute').mockResolvedValue(route as any);
+    return svc;
+  };
+
+  const win = (
+    id: string,
+    start: string | null,
+    end: string | null,
+    status: string | null = 'draft',
+  ) => ({ id, deliveryWindowStart: start, deliveryWindowEnd: end, deliveryWindowStatus: status });
+
+  const twoLegRoute = () => ({
+    date: '2026-07-20',
+    routes: [
+      {
+        courierIndex: 0,
+        stops: [win('A', '10:00', '10:30'), win('B', '10:30', '11:00'), win('C', '11:00', '11:30')],
+      },
+      { courierIndex: 1, stops: [win('D', '09:00', '09:30'), win('E', '09:30', '10:00')] },
+    ],
+  });
+
+  it('shifts the nudged stop + every later stop on its leg by the delta; earlier stops and other legs untouched', async () => {
+    const { db, sets } = makeShiftDb();
+    const svc = svcWithRoute(db, twoLegRoute());
+
+    const res = await svc.shiftDeliveryWindows('t1', '2026-07-20', 'B', 5); // +5 from B
+
+    expect(res).toEqual({ shifted: 2 }); // B and C only (A is earlier; D/E are another leg)
+    expect(sets).toEqual([
+      { deliveryWindowStart: '10:35', deliveryWindowEnd: '11:05', deliveryWindowStatus: 'draft' },
+      { deliveryWindowStart: '11:05', deliveryWindowEnd: '11:35', deliveryWindowStatus: 'draft' },
+    ]);
+  });
+
+  it('applies a negative delta too (pull the day earlier)', async () => {
+    const { db, sets } = makeShiftDb();
+    const svc = svcWithRoute(db, twoLegRoute());
+
+    await svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', -10); // whole leg 0 −10
+
+    expect(sets.map((s) => s.deliveryWindowStart)).toEqual(['09:50', '10:20', '10:50']);
+  });
+
+  it('re-arms an approved/sent window to approved so a corrected time can be re-notified', async () => {
+    const { db, sets } = makeShiftDb();
+    const route = {
+      date: '2026-07-20',
+      routes: [
+        { courierIndex: 0, stops: [win('A', '10:00', '10:30', 'sent'), win('B', '10:30', '11:00', 'approved')] },
+      ],
+    };
+    const svc = svcWithRoute(db, route);
+
+    await svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', 10);
+
+    expect(sets.map((s) => s.deliveryWindowStatus)).toEqual(['approved', 'approved']);
+    expect(sets[0].deliveryWindowStart).toBe('10:10');
+  });
+
+  it('skips later stops that have no window yet', async () => {
+    const { db, sets } = makeShiftDb();
+    const route = {
+      date: '2026-07-20',
+      routes: [
+        { courierIndex: 0, stops: [win('A', '10:00', '10:30'), win('B', null, null), win('C', '11:00', '11:30')] },
+      ],
+    };
+    const svc = svcWithRoute(db, route);
+
+    const res = await svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', 5);
+
+    expect(res.shifted).toBe(2); // A and C; B has no window to move
+    expect(sets).toHaveLength(2);
+  });
+
+  it('rejects a zero or non-integer delta (before touching the route)', async () => {
+    const { db } = makeShiftDb();
+    const svc = svcWithRoute(db, twoLegRoute());
+
+    await expect(svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', 0)).rejects.toThrow(
+      BadRequestException,
+    );
+    await expect(svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', 1.5)).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('404s when the stop is not on the route', async () => {
+    const { db } = makeShiftDb();
+    const svc = svcWithRoute(db, twoLegRoute());
+
+    await expect(svc.shiftDeliveryWindows('t1', '2026-07-20', 'ZZZ', 5)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 });

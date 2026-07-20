@@ -284,6 +284,36 @@ export type PlatformRequestUser = {
 
 export type RequestUser = TenantRequestUser | PlatformRequestUser;
 
+// ── Route leg indexing (brands) ─────────────────────────────────────────────
+/**
+ * A REAL courier/leg number — what `orders.courierIndex`, a
+ * `route_courier_assignments.leg_index`, every index into
+ * `settings.routing.couriers[]`, and a route's emitted `courierIndex` all mean.
+ *
+ * A day's legs can be NON-CONTIGUOUS: the assignment board lets each roster row
+ * pick any leg, so legs [0, 2] (nobody on leg 1) is a normal shape, while the
+ * emitted `routes[]` array stays DENSE. A leg's POSITION in that dense array is
+ * therefore NOT its leg number ({@link LegPos}). Conflating the two has been
+ * fixed three times server-side and twice in the client courier modals; these
+ * brands make the mix-up a compile error rather than a silent runtime bug (a
+ * driver on a non-contiguous leg seeing zero stops, a pin landing on the wrong
+ * courier, a leg ending at another courier's home).
+ *
+ * The client (`@fermeribg/web`) deliberately does not depend on this package and
+ * mirrors these declarations in `client/src/lib/types.ts` — keep them in sync.
+ */
+export type LegIndex = number & { readonly __brand: 'LegIndex' };
+
+/** A POSITION in the DENSE `routes[]` array. Never index `couriers[]` / a real
+ *  leg map with this — that's exactly the bug the brands guard against. */
+export type LegPos = number & { readonly __brand: 'LegPos' };
+
+/** Assert a number is a real leg number (e.g. a stored `courierIndex`). */
+export const asLegIndex = (n: number): LegIndex => n as LegIndex;
+
+/** Assert a number is a dense `routes[]` position. */
+export const asLegPos = (n: number): LegPos => n as LegPos;
+
 // ── Newsletter block-builder ───────────────────────────────────────────────
 // Structured email content. Persisted as JSON on newsletter_campaigns.blocks and
 // rendered to email-safe HTML by the server (renderEmail). `image` fields hold
