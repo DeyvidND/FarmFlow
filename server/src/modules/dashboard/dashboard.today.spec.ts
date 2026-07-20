@@ -43,4 +43,24 @@ describe('DashboardService.todaySummary', () => {
       slots: [],
     });
   });
+
+  it('buckets pipeline by status, sums non-cancelled revenue, splits route from address orders', async () => {
+    const db = makeDb({
+      pipeline: [
+        { status: 'pending',          count: 3, totalStotinki: 3000, addr: 2 },
+        { status: 'confirmed',        count: 4, totalStotinki: 8000, addr: 3 },
+        { status: 'preparing',        count: 1, totalStotinki: 2000, addr: 1 },
+        { status: 'out_for_delivery', count: 2, totalStotinki: 5000, addr: 2 },
+        { status: 'delivered',        count: 5, totalStotinki: 9000, addr: 4 },
+        { status: 'cancelled',        count: 1, totalStotinki: 1000, addr: 1 },
+      ],
+      couriers: [{ legIndex: 0 }, { legIndex: 1 }],
+    });
+    const out = await svc(db).todaySummary('t1', '2026-07-20');
+    expect(out.pipeline).toEqual({ new: 3, confirmed: 4, preparing: 1, outForDelivery: 2, delivered: 5, cancelled: 1, total: 15 });
+    expect(out.revenueStotinki).toBe(27000); // 3000+8000+2000+5000+9000 (cancelled excluded)
+    expect(out.prep.ordersToPrep).toBe(5);   // confirmed 4 + preparing 1
+    // route stops = address orders in active statuses (2+3+1+2+4=12); delivered addr = 4
+    expect(out.route).toEqual({ stops: 12, delivered: 4, pending: 8, couriers: 2 });
+  });
 });

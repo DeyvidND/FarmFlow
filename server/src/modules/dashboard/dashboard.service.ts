@@ -166,15 +166,51 @@ export class DashboardService {
   async todaySummary(tenantId: string, date?: string): Promise<TodaySummary> {
     const day = date ?? bgToday();
     const sched = scheduledForDay(day); // MUST pair with leftJoin(deliverySlots)
-    void tenantId; void sched;
+
+    const pipelineP = this.db
+      .select({
+        status: orders.status,
+        count: sql<number>`count(*)::int`,
+        totalStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}), 0)::int`,
+        addr: sql<number>`count(*) filter (where ${orders.deliveryType} = 'address')::int`,
+      })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orders.tenantId, tenantId), sched))
+      .groupBy(orders.status);
+
+    const couriersP = this.db
+      .select({ legIndex: routeCourierAssignments.legIndex })
+      .from(routeCourierAssignments)
+      .where(and(eq(routeCourierAssignments.tenantId, tenantId), eq(routeCourierAssignments.date, day)))
+      .groupBy(routeCourierAssignments.legIndex);
+
+    const [pipelineRows, courierRows] = await Promise.all([pipelineP, couriersP]);
+
+    const by = (s: string) => pipelineRows.find((r) => r.status === s);
+    const cnt = (s: string) => by(s)?.count ?? 0;
+    const addr = (s: string) => by(s)?.addr ?? 0;
+    const ACTIVE = ['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered'] as const;
+
+    const pipeline: TodayPipeline = {
+      new: cnt('pending'), confirmed: cnt('confirmed'), preparing: cnt('preparing'),
+      outForDelivery: cnt('out_for_delivery'), delivered: cnt('delivered'), cancelled: cnt('cancelled'),
+      total: ACTIVE.reduce((a, s) => a + cnt(s), 0),
+    };
+    const revenueStotinki = pipelineRows
+      .filter((r) => r.status !== 'cancelled')
+      .reduce((a, r) => a + r.totalStotinki, 0);
+    const routeStops = ACTIVE.reduce((a, s) => a + addr(s), 0);
+    const routeDelivered = addr('delivered');
+
     return {
       date: day,
-      pipeline: { new: 0, confirmed: 0, preparing: 0, outForDelivery: 0, delivered: 0, cancelled: 0, total: 0 },
-      prep: { ordersToPrep: 0, fulfilled: 0 },
-      route: { stops: 0, delivered: 0, pending: 0, couriers: 0 },
+      pipeline,
+      prep: { ordersToPrep: pipeline.confirmed + pipeline.preparing, fulfilled: 0 },
+      route: { stops: routeStops, delivered: routeDelivered, pending: routeStops - routeDelivered, couriers: courierRows.length },
       protocols: { total: 0, signed: 0, pending: 0 },
       cod: { toCollectStotinki: 0, toCollectCount: 0, collectedStotinki: 0, collectedCount: 0 },
-      revenueStotinki: 0,
+      revenueStotinki,
       slots: [],
     };
   }
