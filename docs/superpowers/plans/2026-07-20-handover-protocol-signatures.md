@@ -1609,7 +1609,40 @@ git commit -m "feat(web): fullscreen offline Проверка view for signed pr
 - Consumes: `getFarmerSignature`, `getOperatorSignature`, `createProtocol`, `SignaturePadField`.
 - Produces: a „Проверка" button linking to `/protocols/check`; a farmer-leg one-tap sign path that posts with no drawn signature (server auto-fills the saved ones).
 
-- [ ] **Step 1: Add the „Проверка" button**
+- [ ] **Step 0: Add the „Проверка" quick action to „Днес" (PRIMARY entry)**
+
+The police stop happens mid-delivery, so the entry must be on the delivery-day home,
+not three taps deep. `client/src/components/dashboard/dashboard-client.tsx` already has
+a „Бързи действия" card holding the delivery-day actions, and the `TodaySummary` it
+renders **already carries `protocols: { total, signed, pending }`** — no backend work
+needed.
+
+Add a third quick action beneath „Виж маршрута за днес", rendered only when
+`summary.protocols.total > 0` (keeps the card clean on non-delivery days):
+
+```tsx
+{summary.protocols.total > 0 && (
+  <Link
+    href="/protocols/check"
+    className="flex w-full items-center gap-[13px] rounded-[13px] border border-ff-border bg-ff-surface-2 p-[13px] text-left transition hover:brightness-95"
+  >
+    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
+      <ShieldCheck size={22} />
+    </span>
+    <span className="flex min-w-0 flex-col gap-0.5 leading-[1.3]">
+      <span className="text-[14.5px] font-extrabold text-ff-ink">Протоколи при проверка</span>
+      <span className="text-[12.5px] text-ff-muted">
+        {summary.protocols.signed} подписани за днес
+      </span>
+    </span>
+  </Link>
+)}
+```
+
+Import `ShieldCheck` from `lucide-react`. Match the existing actions' markup exactly —
+do not invent new layout.
+
+- [ ] **Step 1: Add the „Проверка" button to the protocols screen (secondary entry)**
 
 In `protocols-client.tsx` toolbar (the `flex flex-wrap gap-2` action group), add as the FIRST action (most reachable — this is the roadside button), importing `ShieldCheck` from `lucide-react` and using a plain link so it works even if JS state is mid-load:
 
