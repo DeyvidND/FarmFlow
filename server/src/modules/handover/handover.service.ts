@@ -226,8 +226,11 @@ export class HandoverService {
 
       operatorLegal = {
         ...resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор'),
-        phone: (tenantRow?.contact as any)?.phone ?? undefined,
-        email: (tenantRow?.contact as any)?.email ?? undefined,
+        // `normalizeSiteContact` always writes a trimmed string ('' when blank, never
+        // an absent key) — `??` would freeze `phone: ''` into the snapshot forever.
+        // `||` omits a blank so it's left out instead of stored.
+        phone: (tenantRow?.contact as any)?.phone || undefined,
+        email: (tenantRow?.contact as any)?.email || undefined,
       };
       farmerLegal = {
         ...resolveParty(farmerRow?.legal, farmerRow?.name, 'фермер'),
@@ -344,8 +347,11 @@ export class HandoverService {
 
       operatorLegal = {
         ...resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор'),
-        phone: (tenantRow?.contact as any)?.phone ?? undefined,
-        email: (tenantRow?.contact as any)?.email ?? undefined,
+        // `normalizeSiteContact` always writes a trimmed string ('' when blank, never
+        // an absent key) — `??` would freeze `phone: ''` into the snapshot forever.
+        // `||` omits a blank so it's left out instead of stored.
+        phone: (tenantRow?.contact as any)?.phone || undefined,
+        email: (tenantRow?.contact as any)?.email || undefined,
       };
       savedFromSignature = decryptSignature(tenantRow?.operatorSignaturePng);
 
@@ -435,8 +441,11 @@ export class HandoverService {
       .limit(1);
     const operatorLegal: ProtocolParty = {
       ...resolveParty(tenantRow?.legal, tenantRow?.name, 'оператор'),
-      phone: (tenantRow?.contact as any)?.phone ?? undefined,
-      email: (tenantRow?.contact as any)?.email ?? undefined,
+      // `normalizeSiteContact` always writes a trimmed string ('' when blank, never
+      // an absent key) — `??` would freeze `phone: ''` into the snapshot forever.
+      // `||` omits a blank so it's left out instead of stored.
+      phone: (tenantRow?.contact as any)?.phone || undefined,
+      email: (tenantRow?.contact as any)?.email || undefined,
     };
     const operatorSignature = decryptSignature(tenantRow?.operatorSignaturePng);
 
@@ -581,8 +590,13 @@ export class HandoverService {
     // TenantsService.setSignature. Computed before the duplicate check/transaction
     // so a misconfigured key fails fast, without burning an advisory lock or a
     // protocol number on a doomed insert.
-    const fromSig = dto.fromSignaturePng ?? draft.savedFromSignature ?? null;
-    const toSig = dto.toSignaturePng ?? draft.savedToSignature ?? null;
+    // `undefined` (key omitted) → fall back to the saved signature (one-tap flow).
+    // Explicit `null` → the party declined to sign («Получено без подпис») and that
+    // must be honoured, NOT coalesced onto the saved signature — `??` would treat
+    // both the same and silently stamp a saved signature onto a protocol the party
+    // explicitly refused to sign.
+    const fromSig = dto.fromSignaturePng !== undefined ? dto.fromSignaturePng : (draft.savedFromSignature ?? null);
+    const toSig = dto.toSignaturePng !== undefined ? dto.toSignaturePng : (draft.savedToSignature ?? null);
     let fromSignaturePng: string | null;
     let toSignaturePng: string | null;
     try {
@@ -596,6 +610,15 @@ export class HandoverService {
       }
       throw e;
     }
+    // 'digital' means both required parties actually have a stored signature — either
+    // freshly drawn or auto-filled from a saved one. If either side ends up with none
+    // (explicitly declined, or omitted with no saved signature to fall back to), this
+    // is not a fully digitally-signed protocol; label it 'paper' rather than
+    // misrepresenting a missing signature as digital. (Unlike signPaperTarget/
+    // signAllForDay, the customer leg here CAN capture a live signature via the
+    // dialog's pad, so there is no per-kind exemption — both sides are held to the
+    // same standard.)
+    const signMode = fromSig && toSig ? 'digital' : 'paper';
 
     const targetMatch =
       dto.kind === 'operator_to_customer'
@@ -670,7 +693,7 @@ export class HandoverService {
           fromSignaturePng,
           toSignaturePng,
           meta: { ...(dto.meta ?? {}), orderNumbers: draft.orderNumbers },
-          signMode: 'digital',
+          signMode,
           status: 'signed',
           signedAt: new Date(),
         })

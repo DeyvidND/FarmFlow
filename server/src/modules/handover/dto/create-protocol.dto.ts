@@ -27,7 +27,13 @@ export class CreateProtocolDto {
   @IsOptional() @IsUUID() slotId?: string;
   @IsArray() @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => ProtocolItemDto)
   items!: ProtocolItemDto[];
-  @IsOptional() @IsString() fromSignaturePng?: string;
-  @IsOptional() @IsString() toSignaturePng?: string;
+  // `string | null` (not just optional): the key being ABSENT means "omitted, fall
+  // back to the saved signature" (one-tap flow); an explicit `null` means the party
+  // deliberately gave no signature and must NOT be auto-filled. See createSigned.
+  // `@IsOptional()` skips IsString for both `null` and `undefined` (class-validator
+  // treats missing-or-null the same for validation purposes), so this still rejects
+  // any other non-string value.
+  @IsOptional() @IsString() fromSignaturePng?: string | null;
+  @IsOptional() @IsString() toSignaturePng?: string | null;
   @IsOptional() meta?: Record<string, unknown>;
 }

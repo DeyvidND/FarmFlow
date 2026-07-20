@@ -285,6 +285,40 @@ describe('HandoverService.createSigned', () => {
     expect(decryptSignature(inserted.toSignaturePng, 'test-key')).toBe(OP_PNG);
   });
 
+  // Regression: `dto.toSignaturePng ?? draft.savedToSignature ?? null` used to
+  // coalesce BOTH `undefined` (omitted) and an explicit `null` (party declined —
+  // «Получено без подпис») onto the saved signature. That silently put a signature
+  // on a legal document the party explicitly refused to give. Absent key = auto-fill
+  // (see the previous test); explicit `null` must be honoured and stored as no
+  // signature — this test must fail if someone reverts to `??`.
+  it('honours an explicit null "to" signature — does NOT auto-fill the saved one, and reports signMode "paper"', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' }, operatorSignaturePng: encryptSignature(OP_PNG, 'test-key') }]);
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 5, unit: 'кг', priceStotinki: 300, orderNumber: 5 }]);
+    db.queue([]);                                  // outer dup-check (fast-path): none found
+    db.queue([]);                                  // in-tx dup re-check under the lock: none found
+    db.queue([{ max: 40 }]);                       // current max protocol_number
+    db.queue([{ id: 'p1', protocolNumber: 41 }]);  // insert ... returning
+    const svc = await build(db);
+    const res = await svc.createSigned('t1', {
+      kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1',
+      items: [{ productName: 'Домати', quantity: 5, priceStotinki: 300 }],
+      fromSignaturePng: 'data:image/png;base64,AAA',
+      toSignaturePng: null, // operator explicitly ticked «Получено без подпис»
+    } as any);
+    expect(res.protocolNumber).toBe(41);
+    const inserted = db.calls.values[0] as any;
+    // The operator DOES have a saved signature on file (queued above) — it must not
+    // be substituted for the explicit decline.
+    expect(inserted.toSignaturePng).toBeNull();
+    expect(looksEncrypted(inserted.fromSignaturePng)).toBe(true);
+    expect(decryptSignature(inserted.fromSignaturePng, 'test-key')).toBe('data:image/png;base64,AAA');
+    // Only one of the two required parties actually signed — must not be reported as
+    // fully digital, which would misrepresent an explicitly-declined signature.
+    expect(inserted.signMode).toBe('paper');
+  });
+
   it('fails with a clear error (not a raw crash) when ENCRYPTION_KEY is missing and a fresh signature must be stored', async () => {
     delete process.env.ENCRYPTION_KEY; // simulate a misconfigured server
     const db = makeDb();
