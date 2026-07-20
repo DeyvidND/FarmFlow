@@ -3,6 +3,7 @@ import {
   Inject,
   NotFoundException,
   BadRequestException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -42,6 +43,7 @@ import { SiteEditContentDto } from './dto/site-edit-content.dto';
 import { LegalDto } from './dto/legal.dto';
 import { normalizeLegal } from './legal';
 import { parseSmsSettings } from './sms-settings';
+import { encryptSignature, decryptSignature, SignatureKeyMissingError } from '../../common/crypto/signature-crypto';
 
 /** One stored site-media value. `key` is the R2 object key (for replace/delete);
  *  only `url` is ever exposed publicly. */
@@ -469,6 +471,42 @@ export class TenantsService {
       })
       .where(eq(tenants.id, tenantId));
     return legal;
+  }
+
+  // ---- Operator signature (handover-protocol приел/предал auto-sign) ----
+
+  /** Operator's saved signature, decrypted, for the settings preview + auto-sign. */
+  async getSignature(tenantId: string): Promise<{ signaturePng: string | null }> {
+    const [row] = await this.db
+      .select({ signaturePng: tenants.operatorSignaturePng })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    return { signaturePng: decryptSignature(row?.signaturePng ?? null) };
+  }
+
+  /** Store (encrypted) or clear the operator's reusable signature. Refuses to store
+   *  anything when ENCRYPTION_KEY is unset — a signature is never persisted in
+   *  plaintext. Clearing (png === null) stays allowed with no key. */
+  async setSignature(tenantId: string, png: string | null): Promise<{ signaturePng: string | null }> {
+    let enc: string | null = null;
+    if (png) {
+      try {
+        enc = encryptSignature(png);
+      } catch (e) {
+        if (e instanceof SignatureKeyMissingError) {
+          throw new ServiceUnavailableException(
+            'Подписът не може да бъде запазен — липсва ключ за криптиране на сървъра.',
+          );
+        }
+        throw e;
+      }
+    }
+    await this.db
+      .update(tenants)
+      .set({ operatorSignaturePng: enc })
+      .where(eq(tenants.id, tenantId));
+    return { signaturePng: png };
   }
 
   // ---- Landing-page blocks (settings.landing) ----

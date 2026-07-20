@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Patch, Post, Delete, Body, Param, UseGuards,
+  Controller, Get, Patch, Post, Put, Delete, Body, Param, UseGuards,
   UploadedFile, UseInterceptors,
   ParseFilePipe, FileTypeValidator, MaxFileSizeValidator,
 } from '@nestjs/common';
@@ -25,6 +25,7 @@ import { SiteMarketingDto } from './dto/site-marketing.dto';
 import { LandingDto } from './dto/landing.dto';
 import { MerchandisingDto } from './dto/merchandising.dto';
 import { LegalDto } from './dto/legal.dto';
+import { SignatureDto } from '../farmers/dto/signature.dto';
 
 @ApiTags('tenants')
 @ApiBearerAuth()
@@ -109,6 +110,18 @@ export class TenantsController {
   @Patch('me/legal')
   updateLegal(@CurrentTenant() tenantId: string, @Body() dto: LegalDto) {
     return this.tenantsService.updateLegal(tenantId, dto);
+  }
+
+  @ApiOperation({ summary: 'Operator signature for handover protocols' })
+  @Get('me/signature')
+  getSignature(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.getSignature(tenantId);
+  }
+
+  @ApiOperation({ summary: 'Update operator signature' })
+  @Put('me/signature')
+  setSignature(@CurrentTenant() tenantId: string, @Body() dto: SignatureDto) {
+    return this.tenantsService.setSignature(tenantId, dto.signaturePng ?? null);
   }
 
   // ---- Marketing / tracking IDs ----
