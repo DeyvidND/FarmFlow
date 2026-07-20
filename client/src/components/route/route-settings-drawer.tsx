@@ -62,6 +62,11 @@ export function RouteSettingsDrawer({
   const safeEndPos = clampPos(endPos, couriers.length);
   const cur = couriers[safeEndPos] ?? couriers[0];
   const curHint = endOptions.find((o) => o.mode === cur?.endMode)?.hint ?? '';
+  // A courier home is only ever used when that courier's route actually goes home —
+  // the server returns end-at-customer before it ever looks at homeLat/homeLng. So if
+  // EVERY courier ends at the last client, the homes screen changes nothing, and
+  // saying so beats letting the farmer set addresses that silently do nothing.
+  const homesInert = couriers.length > 0 && couriers.every((c) => c.endMode === 'last');
   return (
     <>
       <div onClick={onClose} className="animate-ff-fade fixed inset-0 z-[78] bg-[rgba(30,28,15,0.32)]" />
@@ -90,6 +95,9 @@ export function RouteSettingsDrawer({
             subtitle={baseAddress ?? 'Не е зададена — задай, за да тръгне маршрутът'}
             onClick={onOpenLocation}
           />
+          <p className="mb-1 mt-1.5 px-1 text-[11.5px] leading-relaxed text-ff-muted">
+            Оттук тръгва маршрутът — това е ★ на картата.
+          </p>
 
           <div className="mt-3 rounded-xl border border-ff-border bg-ff-surface-2 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -177,42 +185,63 @@ export function RouteSettingsDrawer({
             )}
           </div>
 
+          {/* Courier homes live HERE, next to „Край на маршрута" — a home IS an end
+              point (it replaces the base), and splitting the two across sections is
+              what made it impossible to tell which one wins. */}
+          <Row
+            className="mt-3"
+            icon={<Home size={18} />}
+            label="Домове на куриерите"
+            subtitle={
+              homesInert
+                ? 'Не важи сега — маршрутът свършва при клиента, без връщане'
+                : 'Къде свършва всеки куриер, вместо в базата (по избор)'
+            }
+            disabled={homesInert}
+            onClick={onOpenHomes}
+          />
+
           <SectionLabel className="mt-5">Куриери</SectionLabel>
           <Row
             icon={<Users size={18} />}
             label="Куриери за деня"
             subtitle={
               boardActive
-                ? `Табло активно · ${boardLegCount} ${boardLegCount === 1 ? 'курс' : 'курса'}`
-                : 'Задай кой доставя днес и кой курс кара'
+                ? `Табло активно · ${boardLegCount} ${boardLegCount === 1 ? 'маршрут' : 'маршрута'} за деня`
+                : 'Задай поименно кой доставя днес и кой маршрут кара'
             }
             highlight={boardActive}
             onClick={onOpenBoard}
           />
-          {!boardActive && (
-            <label className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-ff-border bg-ff-surface-2 px-3.5 py-3 text-[13px] font-bold text-ff-ink-2">
-              Раздели маршрута на
-              <select
-                value={courierCount}
-                onChange={(e) => onSetCouriers(parseInt(e.target.value, 10))}
-                aria-label="Брой куриери"
-                className="rounded-md border border-ff-border bg-ff-surface px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
-              >
-                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>
-                    {n} {n === 1 ? 'куриер' : 'куриера'}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {/* The board and the auto-split are two ways to decide the same thing — how
+              many routes the day has. The board wins when it's on. Previously this row
+              simply VANISHED then, which reads as a bug; show it inert and say why. */}
+          <label
+            className={cn(
+              'mt-3 flex items-center justify-between gap-2 rounded-xl border border-ff-border bg-ff-surface-2 px-3.5 py-3 text-[13px] font-bold text-ff-ink-2',
+              boardActive && 'opacity-55',
+            )}
+          >
+            Раздели маршрута на
+            <select
+              value={courierCount}
+              onChange={(e) => onSetCouriers(parseInt(e.target.value, 10))}
+              aria-label="Брой куриери"
+              disabled={boardActive}
+              className="rounded-md border border-ff-border bg-ff-surface px-2 py-1 text-[13px] font-bold text-ff-ink outline-none disabled:cursor-not-allowed"
+            >
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n} {n === 1 ? 'куриер' : 'куриера'}
+                </option>
+              ))}
+            </select>
+          </label>
+          {boardActive && (
+            <p className="mt-1.5 px-1 text-[11.5px] leading-relaxed text-ff-muted">
+              Таблото определя маршрутите за деня. Изключи го, за да делиш автоматично на брой.
+            </p>
           )}
-          <Row
-            className="mt-3"
-            icon={<Home size={18} />}
-            label="Домове на куриерите"
-            subtitle="Къде свършва всеки куриер (по избор)"
-            onClick={onOpenHomes}
-          />
 
           <SectionLabel className="mt-5">Доставка</SectionLabel>
           <Row
@@ -242,6 +271,7 @@ function Row({
   onClick,
   highlight,
   className,
+  disabled,
 }: {
   icon: ReactNode;
   label: string;
@@ -249,16 +279,20 @@ function Row({
   onClick: () => void;
   highlight?: boolean;
   className?: string;
+  /** Setting is inert under the current config — dimmed, and the subtitle says why. */
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
         'flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition',
         highlight
           ? 'border-ff-green-500 bg-ff-green-50'
           : 'border-ff-border bg-ff-surface hover:bg-ff-surface-2',
+        disabled && 'cursor-not-allowed opacity-55 hover:bg-ff-surface',
         className,
       )}
     >
@@ -272,7 +306,10 @@ function Row({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[14px] font-bold text-ff-ink">{label}</span>
-        <span className="block truncate text-[12px] text-ff-muted">{subtitle}</span>
+        {/* a disabled row's subtitle explains WHY it's inert — never clip that */}
+        <span className={cn('block text-[12px] text-ff-muted', disabled ? 'leading-snug' : 'truncate')}>
+          {subtitle}
+        </span>
       </span>
       <ChevronRight size={17} className="shrink-0 text-ff-muted" />
     </button>
