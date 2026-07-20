@@ -502,3 +502,68 @@ describe('RoutingService.shiftDeliveryWindows — cascade', () => {
     );
   });
 });
+
+// ─── distance-from-previous + current-position seeding (task #13, WP5) ─────────
+describe('RoutingService.generateDeliveryWindows — distance-from-previous', () => {
+  const stop = (id: string, lat: number, lng: number) => ({
+    id,
+    customer: id,
+    email: 'c@test.bg',
+    lat,
+    lng,
+    deliveryWindowStart: null,
+    deliveryWindowEnd: null,
+    deliveryWindowStatus: null,
+  });
+
+  const routeFromFarm = () => ({
+    date: '2026-07-20',
+    origin: { lat: 43.17, lng: 27.84, address: 'Ферма' },
+    routes: [
+      {
+        courierIndex: 0,
+        name: null,
+        endMode: 'last',
+        endLat: null,
+        endLng: null,
+        totalDurationS: 1800,
+        totalDistanceM: 20000,
+        stops: [stop('A', 43.2, 27.9), stop('B', 43.1, 27.95)],
+      },
+    ],
+  });
+
+  function mkSvc() {
+    const db = { update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }) } as any;
+    const svc = new RoutingService(db, {} as any, {} as any, {} as any, noAssignments());
+    jest.spyOn(svc, 'getRoute').mockResolvedValue(routeFromFarm() as any);
+    jest
+      .spyOn(svc as any, 'routingSettings')
+      .mockResolvedValue({ dayStartHour: 9, slotSizeMin: 60, serviceMin: 10 });
+    return svc;
+  }
+
+  it('populates a positive distanceFromPrevM and durationFromPrevS on every stop', async () => {
+    const p = await mkSvc().generateDeliveryWindows('t1', '2026-07-20');
+    const stops = p.couriers[0].stops;
+    expect(stops).toHaveLength(2);
+    for (const s of stops) {
+      expect(typeof s.distanceFromPrevM).toBe('number');
+      expect(s.distanceFromPrevM).toBeGreaterThan(0);
+      expect(typeof s.durationFromPrevS).toBe('number');
+      expect(s.durationFromPrevS).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('measures the first stop from the courier CURRENT position when supplied, not the farm', async () => {
+    const fromFarm = await mkSvc().generateDeliveryWindows('t1', '2026-07-20');
+    // A current position essentially on top of stop A (43.20, 27.90).
+    const fromHere = await mkSvc().generateDeliveryWindows('t1', '2026-07-20', undefined, undefined, 9, {
+      lat: 43.199,
+      lng: 27.899,
+    });
+    expect(fromHere.couriers[0].stops[0].distanceFromPrevM).toBeLessThan(
+      fromFarm.couriers[0].stops[0].distanceFromPrevM,
+    );
+  });
+});

@@ -23,6 +23,13 @@ const WEEKDAYS = ['Неделя', 'Понеделник', 'Вторник', 'С�
 /** HH:MM strict check — good enough to gate the PATCH call. */
 const isValidTime = (v: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 
+/** Distance + rough drive time from the previous stop, for a proposal row. */
+const fmtGap = (m: number, s: number): string => {
+  const dist = m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} км` : `${Math.round(m)} м`;
+  const min = Math.round(s / 60);
+  return min > 0 ? `${dist} · ~${min} мин` : dist;
+};
+
 /**
  * Generates per-order delivery time windows from the optimized route, lets
  * the operator lightly edit them, approve, then email customers (task #13).
@@ -32,12 +39,16 @@ export function DeliveryWindowsModal({
   date,
   couriers,
   ends,
+  start,
   onClose,
   onChanged,
 }: {
   date: string;
   couriers: number;
   ends: string;
+  /** Courier's current position (route screen's live GPS / last delivered stop);
+   *  when present, the first stop's distance/time is measured from here. */
+  start?: { lat: number | null; lng: number | null } | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -100,7 +111,15 @@ export function DeliveryWindowsModal({
   async function generate() {
     setGenerating(true);
     try {
-      const res = await generateDeliveryWindows({ date, couriers, ends, startHour });
+      const res = await generateDeliveryWindows({
+        date,
+        couriers,
+        ends,
+        startHour,
+        ...(start && start.lat != null && start.lng != null
+          ? { startLat: start.lat, startLng: start.lng }
+          : {}),
+      });
       // Remember the chosen start hour as the default for next time (fire-and-
       // forget — the windows are already generated; a failed persist just means
       // the picker re-seeds from the old value next open).
@@ -382,15 +401,21 @@ export function DeliveryWindowsModal({
                     {c.name ? ` · ${c.name}` : ''}
                   </h3>
                   <div className="flex flex-col gap-2">
-                    {c.stops.map((s) => {
+                    {c.stops.map((s, i) => {
                       const cur = edited[s.id] ?? { start: s.windowStart, end: s.windowEnd };
                       return (
                         <div
                           key={s.id}
                           className="flex flex-wrap items-center gap-2.5 rounded-xl border border-ff-border-2 px-3 py-2"
                         >
-                          <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-ff-ink">
-                            {s.customer ?? 'Клиент'}
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate text-[13px] font-bold text-ff-ink">
+                              {s.customer ?? 'Клиент'}
+                            </span>
+                            <span className="text-[11px] text-ff-muted">
+                              {fmtGap(s.distanceFromPrevM, s.durationFromPrevS)}{' '}
+                              {i === 0 ? 'от старта' : 'от предната'}
+                            </span>
                           </span>
                           {s.hasEmail ? (
                             <Mail size={13} className="shrink-0 text-ff-green-700" />

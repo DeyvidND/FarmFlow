@@ -1489,6 +1489,7 @@ export function RouteClient({
           date={route.date}
           couriers={route.couriers}
           ends={routes.map((r) => r.endMode).join(',')}
+          start={mapStart}
           onClose={() => setShowWindows(false)}
           onChanged={() => router.refresh()}
         />

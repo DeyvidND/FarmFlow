@@ -787,6 +787,9 @@ export const generateDeliveryWindows = (body: {
   ends?: string;
   /** When the round starts (Europe/Sofia hour 0–23); overrides the saved default. */
   startHour?: number;
+  /** Courier's current position — first stop's distance/time is measured from here. */
+  startLat?: number;
+  startLng?: number;
 }) =>
   apiFetch<DeliveryWindowProposal>(
     'orders/route/windows/generate',

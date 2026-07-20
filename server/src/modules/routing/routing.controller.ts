@@ -238,6 +238,9 @@ export class RoutingController {
       dto.couriers,
       parseEndModes(dto.ends),
       dto.startHour,
+      dto.startLat != null && dto.startLng != null
+        ? { lat: dto.startLat, lng: dto.startLng }
+        : null,
     );
   }
 

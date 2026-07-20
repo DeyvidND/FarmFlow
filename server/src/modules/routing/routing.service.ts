@@ -211,6 +211,13 @@ export interface DeliveryWindowStop {
   windowStart: string;
   windowEnd: string;
   hasEmail: boolean;
+  /** Straight-line distance (metres) from the previous stop — for the FIRST stop,
+   *  from the courier's current position when supplied, else the farm. Lets the
+   *  operator see the gap to each order in the review modal and nudge the time. */
+  distanceFromPrevM: number;
+  /** Estimated drive seconds from the previous stop (the per-leg share of the
+   *  route's measured total duration; a flat fallback when Maps gave none). */
+  durationFromPrevS: number;
 }
 export interface DeliveryWindowProposal {
   date: string;
@@ -1320,6 +1327,7 @@ export class RoutingService {
     couriers?: number,
     endModes?: (RouteEndMode | undefined)[],
     startHour?: number,
+    start?: { lat: number; lng: number } | null,
   ): Promise<DeliveryWindowProposal> {
     const route = await this.getRoute(tenantId, date, undefined, couriers, endModes);
     const cfg = await this.routingSettings(tenantId);
@@ -1343,10 +1351,15 @@ export class RoutingService {
         ? Number(cfg.serviceMin)
         : DEFAULT_SERVICE_MIN;
 
+    // Seed the first leg from the courier's CURRENT position when the modal
+    // supplies it (they're already out delivering), else the farm — so the first
+    // stop's distance/time reflects where the van actually is, not the depot.
     const originPt: Pt | null =
-      route.origin.lat != null && route.origin.lng != null
-        ? { lat: route.origin.lat, lng: route.origin.lng }
-        : null;
+      start && Number.isFinite(start.lat) && Number.isFinite(start.lng)
+        ? { lat: start.lat, lng: start.lng }
+        : route.origin.lat != null && route.origin.lng != null
+          ? { lat: route.origin.lat, lng: route.origin.lng }
+          : null;
 
     const proposalCouriers: DeliveryWindowProposal['couriers'] = [];
     const updates: { id: string; start: string; end: string }[] = [];
@@ -1354,15 +1367,21 @@ export class RoutingService {
 
     for (const r of route.routes) {
       // Cumulative crow-flies distance origin→…→stop_i, a cheap proxy that splits
-      // the leg's measured drive time across its stops (no extra Maps calls).
+      // the leg's measured drive time across its stops (no extra Maps calls). Also
+      // capture the per-stop straight-line gap from the previous point (the courier
+      // start for the first stop) so the review modal can show it.
       const cumDist: number[] = [];
+      const distFromPrevKm: number[] = [];
       let prev = originPt;
       let cum = 0;
       let lastLocated: Pt | null = null;
       for (const s of r.stops) {
+        let legKm = 0;
         if (prev && s.lat != null && s.lng != null) {
-          cum += haversineKm(prev, { lat: s.lat, lng: s.lng });
+          legKm = haversineKm(prev, { lat: s.lat, lng: s.lng });
+          cum += legKm;
         }
+        distFromPrevKm.push(legKm);
         cumDist.push(cum);
         if (s.lat != null && s.lng != null) {
           prev = { lat: s.lat, lng: s.lng };
@@ -1381,12 +1400,19 @@ export class RoutingService {
         totalDist += haversineKm(lastLocated, { lat: r.endLat, lng: r.endLng });
       }
       const driveMin = r.totalDurationS != null ? r.totalDurationS / 60 : null;
+      // Cumulative drive minutes to each stop: the measured total apportioned by
+      // distance, or a flat per-leg fallback. The per-leg share (this minus the
+      // previous) is the drive time from the previous stop shown in the modal.
+      const driveTo = r.stops.map((_, i) =>
+        driveMin != null && totalDist > 0
+          ? (cumDist[i] / totalDist) * driveMin
+          : (i + 1) * FALLBACK_LEG_MIN,
+      );
 
       const stops: DeliveryWindowStop[] = r.stops.map((s, i) => {
-        const driveToStop =
-          driveMin != null && totalDist > 0
-            ? (cumDist[i] / totalDist) * driveMin
-            : (i + 1) * FALLBACK_LEG_MIN;
+        const driveToStop = driveTo[i];
+        const durationFromPrevS = Math.max(0, Math.round((driveToStop - (i > 0 ? driveTo[i - 1] : 0)) * 60));
+        const distanceFromPrevM = Math.round(distFromPrevKm[i] * 1000);
         const arrival = dayStartMin + driveToStop + i * serviceMin;
         let startMin = Math.floor(arrival / slotMin) * slotMin;
         let endMin = startMin + slotMin;
@@ -1410,7 +1436,16 @@ export class RoutingService {
         if (!unchangedSent) {
           updates.push({ id: s.id, start: windowStart, end: windowEnd });
         }
-        return { id: s.id, customer: s.customer, email: s.email, windowStart, windowEnd, hasEmail };
+        return {
+          id: s.id,
+          customer: s.customer,
+          email: s.email,
+          windowStart,
+          windowEnd,
+          hasEmail,
+          distanceFromPrevM,
+          durationFromPrevS,
+        };
       });
 
       proposalCouriers.push({ courierIndex: r.courierIndex, name: r.name, stops });

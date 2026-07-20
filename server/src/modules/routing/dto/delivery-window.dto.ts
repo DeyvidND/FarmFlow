@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 
 /** A day + optional courier split, for the delivery-window batch endpoints
  *  (generate / approve / notify). `ends` mirrors the route screen's per-courier
@@ -28,6 +28,21 @@ export class DeliveryWindowDayDto {
   @Min(0)
   @Max(23)
   startHour?: number;
+
+  /** The courier's CURRENT position (from the route screen's live GPS / last
+   *  delivered stop). When present, generation measures the first stop's
+   *  distance/time from here instead of the farm. Both required together. */
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  startLat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  startLng?: number;
 }
 
 /** Task #13 — operator lightly edits one order's generated window. */

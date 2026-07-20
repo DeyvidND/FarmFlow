@@ -826,6 +826,10 @@ export interface DeliveryWindowStop {
   windowStart: string; // 'HH:MM'
   windowEnd: string;    // 'HH:MM'
   hasEmail: boolean;
+  /** Straight-line metres from the previous stop (courier start for the first). */
+  distanceFromPrevM: number;
+  /** Estimated drive seconds from the previous stop. */
+  durationFromPrevS: number;
 }
 /** POST /orders/route/windows/generate response — proposed windows per courier. */
 export interface DeliveryWindowProposal {
@@ -899,7 +903,7 @@ export interface Order {
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
-  status: 'pending' | 'confirmed' | 'delivered' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'preparing' | 'out_for_delivery' | 'delivered' | 'cancelled';
   /** Paid online (card) / started online but unpaid / cash on delivery. */
   paymentStatus: PaymentStatus;
   /** ISO timestamp the online (Stripe) payment was captured, else null. */
