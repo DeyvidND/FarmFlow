@@ -47,6 +47,7 @@ import type {
   TodaySummary,
   UpdateOrderInput,
 } from './types';
+import type { CheckProtocol } from './protocol-cache';
 
 /** Thrown by apiFetch on a non-2xx response, carrying the API's BG message. */
 export class ApiError extends Error {
@@ -1347,6 +1348,11 @@ export const signProtocolPaper = (target: {
   orderId?: string;
   slotId?: string;
 }) => apiFetch<{ id: string }>('handover/sign-paper', { method: 'POST', ...json(target) }, 'Неуспешно подписване');
+
+/** Fullscreen «Проверка» (Task 12) — the day's SIGNED protocols, signatures
+ *  already decrypted as PNG data-URLs, prices/order numbers stripped server-side. */
+export const getCheckProtocols = (date: string) =>
+  apiFetch<CheckProtocol[]>(`handover/check?date=${encodeURIComponent(date)}`);
 
 export const protocolPdfHref = (id: string) => `/bff/handover/${id}/pdf`;
 
