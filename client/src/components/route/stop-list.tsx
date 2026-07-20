@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { cn, moneyFromStotinki } from '@/lib/utils';
 import type { RouteStop } from '@/lib/types';
 import { isMajorRoadAddress } from './major-road';
+import { windowShiftDeltaMin } from './delivery-window-shift';
 
 interface StopListProps {
   stops: RouteStop[];
@@ -27,6 +28,66 @@ interface StopListProps {
   courierLegs?: number[];
   /** Move a stop to another courier's leg, or back to auto (null) (task #6). */
   onMoveCourier?: (stopId: string, courierIndex: number | null) => void;
+  /** Edit a stop's delivery-window START inline (organizer only); the backend
+   *  cascades the same delta to every later stop on the leg (task #13 / WP9).
+   *  Absent (e.g. driver view) → the window badge stays read-only. */
+  onShiftWindow?: (stopId: string, deltaMin: number) => void;
+}
+
+/**
+ * Editable delivery-window badge (organizer). Editing the START time commits a
+ * signed-minute delta; the backend shifts this stop AND every later stop on the
+ * same courier leg by it (so „+5 мин" moves the rest of the day +5). The end and
+ * status color mirror the read-only badge. Remounted (via a key on the start
+ * value) after a refresh so it always reflects the persisted time.
+ */
+function WindowShiftBadge({
+  stopId,
+  start,
+  end,
+  status,
+  onShift,
+}: {
+  stopId: string;
+  start: string;
+  end: string;
+  status: string | null;
+  onShift: (stopId: string, deltaMin: number) => void;
+}) {
+  const [val, setVal] = useState(start);
+  const approved = status === 'approved' || status === 'sent';
+  const commit = () => {
+    const delta = windowShiftDeltaMin(start, val);
+    if (delta == null || delta === 0) {
+      setVal(start); // invalid or unchanged → revert to the persisted time
+      return;
+    }
+    onShift(stopId, delta);
+  };
+  return (
+    <span
+      onClick={(e) => e.stopPropagation()}
+      title="Промени часа — следващите спирки на този куриер се изтеглят със същото време"
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold',
+        approved ? 'bg-ff-green-100 text-ff-green-800' : 'bg-ff-amber-softer text-ff-amber-600',
+      )}
+    >
+      {status === 'sent' ? <Check size={11} /> : <Clock size={11} />}
+      <input
+        type="time"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+        aria-label="Начален час на доставка"
+        className="w-[58px] bg-transparent font-bold tabular-nums outline-none"
+      />
+      <span>–{end}</span>
+    </span>
+  );
 }
 
 /** A stop is "on the map" only when it has been geocoded (has both coords). */
@@ -90,6 +151,7 @@ export function StopList({
   courierCount,
   courierLegs,
   onMoveCourier,
+  onShiftWindow,
 }: StopListProps) {
   // Real leg numbers the move-select can target (see StopListProps.courierLegs).
   const legs = courierLegs ?? Array.from({ length: courierCount ?? 0 }, (_, i) => i);
@@ -140,26 +202,36 @@ export function StopList({
                   <div className="text-[14.5px] font-bold">{s.customer ?? 'Клиент'}</div>
                   {/* delivery time-window badge (task #13, display only) — color
                       reflects review status: draft=amber, approved/sent=green. */}
-                  {s.deliveryWindowStart && (
-                    <span
-                      className={cn(
-                        'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold',
-                        s.deliveryWindowStatus === 'approved' || s.deliveryWindowStatus === 'sent'
-                          ? 'bg-ff-green-100 text-ff-green-800'
-                          : 'bg-ff-amber-softer text-ff-amber-600',
-                      )}
-                      title={
-                        s.deliveryWindowStatus === 'sent'
-                          ? 'Часът е изпратен на клиента'
-                          : s.deliveryWindowStatus === 'approved'
-                            ? 'Часът е одобрен'
-                            : 'Предложен час (чернова)'
-                      }
-                    >
-                      {s.deliveryWindowStatus === 'sent' ? <Check size={11} /> : <Clock size={11} />}
-                      {s.deliveryWindowStart}–{s.deliveryWindowEnd}
-                    </span>
-                  )}
+                  {s.deliveryWindowStart &&
+                    (onShiftWindow ? (
+                      <WindowShiftBadge
+                        key={`${s.id}:${s.deliveryWindowStart}`}
+                        stopId={s.id}
+                        start={s.deliveryWindowStart}
+                        end={s.deliveryWindowEnd ?? ''}
+                        status={s.deliveryWindowStatus}
+                        onShift={onShiftWindow}
+                      />
+                    ) : (
+                      <span
+                        className={cn(
+                          'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-bold',
+                          s.deliveryWindowStatus === 'approved' || s.deliveryWindowStatus === 'sent'
+                            ? 'bg-ff-green-100 text-ff-green-800'
+                            : 'bg-ff-amber-softer text-ff-amber-600',
+                        )}
+                        title={
+                          s.deliveryWindowStatus === 'sent'
+                            ? 'Часът е изпратен на клиента'
+                            : s.deliveryWindowStatus === 'approved'
+                              ? 'Часът е одобрен'
+                              : 'Предложен час (чернова)'
+                        }
+                      >
+                        {s.deliveryWindowStatus === 'sent' ? <Check size={11} /> : <Clock size={11} />}
+                        {s.deliveryWindowStart}–{s.deliveryWindowEnd}
+                      </span>
+                    ))}
                 </div>
                 <div className="flex shrink-0 gap-[7px]">
                   <button

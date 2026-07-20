@@ -799,6 +799,14 @@ export const updateDeliveryWindow = (orderId: string, start: string, end: string
     { method: 'PATCH', ...json({ start, end }) },
     'Неуспешна промяна на часа',
   );
+/** Cascade shift: nudge one stop's window by ±minutes and slide every later stop
+ *  on the same courier leg by the same amount (WP9 — inline stop time edit). */
+export const shiftDeliveryWindow = (date: string, fromStopId: string, deltaMin: number) =>
+  apiFetch<{ shifted: number }>(
+    'orders/route/windows/shift',
+    { method: 'POST', ...json({ date, fromStopId, deltaMin }) },
+    'Неуспешна промяна на часа',
+  );
 export const approveDeliveryWindows = (date?: string) =>
   apiFetch<{ approved: number; date: string }>(
     'orders/route/windows/approve',

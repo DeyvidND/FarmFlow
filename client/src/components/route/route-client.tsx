@@ -30,6 +30,7 @@ import {
   rebalanceRoute,
   setOrderCourier,
   setOrderSequence,
+  shiftDeliveryWindow,
   updateOrderStatus,
   updateTenant,
 } from '@/lib/api-client';
@@ -868,6 +869,20 @@ export function RouteClient({
   const onEmail = (s: RouteStop) => {
     if (s.email) window.open(`mailto:${s.email}`, '_self');
   };
+  // Inline stop time edit (WP9): the operator changed a stop's start; the backend
+  // shifts that stop + every later stop on its leg by the same delta. Refresh so
+  // the whole leg's badges reflect the new times.
+  const shiftWindow = async (stopId: string, deltaMin: number) => {
+    try {
+      const { shifted } = await shiftDeliveryWindow(route.date, stopId, deltaMin);
+      router.refresh();
+      toast.success(
+        shifted > 1 ? `Часът е обновен — и следващите ${shifted - 1} спирки` : 'Часът е обновен',
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Неуспешна промяна на часа');
+    }
+  };
 
   // Stops whose address couldn't be geocoded — no map pin. They're still in the
   // list (nothing dropped), but the farmer must be told so a delivery isn't
@@ -1334,6 +1349,7 @@ export function RouteClient({
             courierCount={route.couriers}
             courierLegs={routes.map((r) => r.courierIndex)}
             onMoveCourier={(id, idx) => void moveCourier(id, idx)}
+            onShiftWindow={isDriver ? undefined : (id, delta) => void shiftWindow(id, delta)}
           />
         </div>
 
