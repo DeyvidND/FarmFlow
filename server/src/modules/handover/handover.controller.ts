@@ -60,6 +60,19 @@ export class HandoverController {
     return this.handover.listForDay(tenantId, { slotId, date });
   }
 
+  /** The day's SIGNED protocols with decrypted signatures — feeds the fullscreen
+   *  „Проверка" offline check view (Task 12), not the PDF pipeline. `check` is a
+   *  static single-segment path; it cannot be swallowed by `:id/pdf` or
+   *  `:id/mark-signed`, which both require a second path segment. */
+  @Get('check')
+  check(
+    @CurrentTenant() tenantId: string,
+    @Query('date') date?: string,
+    @Query('slotId') slotId?: string,
+  ) {
+    return this.handover.listForCheck(tenantId, { date, slotId });
+  }
+
   @Post('batch')
   createBatch(@CurrentTenant() tenantId: string, @Body() dto: BatchDto) {
     return this.handover.createBatch(tenantId, dto);

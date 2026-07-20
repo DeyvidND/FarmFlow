@@ -736,6 +736,80 @@ describe('HandoverService.renderPdf', () => {
   });
 });
 
+describe('HandoverService.listForCheck', () => {
+  const OLD_KEY = process.env.ENCRYPTION_KEY;
+  beforeEach(() => {
+    process.env.ENCRYPTION_KEY = 'test-key';
+  });
+  afterAll(() => {
+    if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY;
+    else process.env.ENCRYPTION_KEY = OLD_KEY;
+  });
+
+  it('returns only signed rows for the date with signatures decrypted, excludes drafts, and joins deliverySlots (not createdAt)', async () => {
+    const db = makeDb();
+    db.queue([
+      {
+        id: 'p1', kind: 'farmer_to_operator', status: 'signed', protocolNumber: 5,
+        signedAt: new Date('2026-07-13T09:00:00Z'),
+        fromSnapshot: { name: 'ЕТ Васил' }, toSnapshot: { name: 'ЕТ Оператор' },
+        items: [{ productName: 'Домати', variantLabel: null, quantity: 5, unit: 'кг', priceStotinki: 300, orderNumber: 5 }],
+        fromSignaturePng: encryptSignature(FARMER_PNG, 'test-key'),
+        toSignaturePng: encryptSignature(OP_PNG, 'test-key'),
+      },
+      {
+        id: 'p2', kind: 'operator_to_customer', status: 'draft', protocolNumber: null,
+        signedAt: null,
+        fromSnapshot: { name: 'ЕТ Оператор' }, toSnapshot: { name: 'Иван Петров' },
+        items: [], fromSignaturePng: null, toSignaturePng: null,
+      },
+    ]); // protocol ⋈ slots (list()'s date path)
+    const svc = await build(db);
+    const rows = await svc.listForCheck('t1', { date: '2026-07-13' });
+
+    expect(rows).toHaveLength(1); // the draft is excluded — not something to show a police officer
+    expect(rows[0].id).toBe('p1');
+    expect(rows[0].status).toBe('signed');
+    // Decrypted back to the ORIGINAL plaintext PNG, and NOT equal to what's actually
+    // stored — proves decryption ran rather than the field merely passing through.
+    const storedFrom = encryptSignature(FARMER_PNG, 'test-key');
+    const storedTo = encryptSignature(OP_PNG, 'test-key');
+    expect(rows[0].fromSignaturePng).toBe(FARMER_PNG);
+    expect(rows[0].toSignaturePng).toBe(OP_PNG);
+    expect(rows[0].fromSignaturePng).not.toBe(storedFrom);
+    expect(rows[0].toSignaturePng).not.toBe(storedTo);
+
+    // handover_protocols has no date column — the date filter MUST go through the
+    // deliverySlots join list() already implements, not a createdAt range.
+    const step = db.select.mock.results[0].value;
+    expect(step.leftJoin).toHaveBeenCalledWith(deliverySlots, expect.anything());
+  });
+
+  it('sorts by protocolNumber and shapes items to productName/variantLabel/quantity/unit only', async () => {
+    const db = makeDb();
+    db.queue([
+      {
+        id: 'p2', kind: 'farmer_to_operator', status: 'signed', protocolNumber: 9,
+        signedAt: new Date('2026-07-13T09:00:00Z'),
+        fromSnapshot: { name: 'A' }, toSnapshot: { name: 'B' },
+        items: [{ productName: 'Мед', variantLabel: 'буркан', quantity: 2, unit: 'бр', priceStotinki: 900, orderNumber: 3 }],
+        fromSignaturePng: null, toSignaturePng: null,
+      },
+      {
+        id: 'p1', kind: 'farmer_to_operator', status: 'signed', protocolNumber: 3,
+        signedAt: new Date('2026-07-13T08:00:00Z'),
+        fromSnapshot: { name: 'A' }, toSnapshot: { name: 'B' },
+        items: [], fromSignaturePng: null, toSignaturePng: null,
+      },
+    ]);
+    const svc = await build(db);
+    const rows = await svc.listForCheck('t1', { slotId: 's1' });
+
+    expect(rows.map((r) => r.id)).toEqual(['p1', 'p2']); // protocolNumber 3 before 9
+    expect(rows[1].items).toEqual([{ productName: 'Мед', variantLabel: 'буркан', quantity: 2, unit: 'бр' }]);
+  });
+});
+
 describe('HandoverService.renderBatchPdf', () => {
   it('merges N protocol rows (via list) into one non-empty PDF buffer', async () => {
     const db = makeDb();

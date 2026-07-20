@@ -116,6 +116,25 @@ export interface DayProtocolRow {
   toSnapshot: LegalIdentity | CustomerParty | null;
 }
 
+/**
+ * A row in the fullscreen „Проверка" check view (Task 12) — a courier's
+ * day-of-signed-protocols, shown offline (e.g. to police mid-delivery).
+ * Shaped down from the raw `handover_protocols` row: only what the view
+ * needs, signatures decrypted for direct `<img src>` use.
+ */
+export interface CheckRow {
+  id: string;
+  protocolNumber: number | null;
+  kind: string;
+  status: string;
+  signedAt: Date | null;
+  fromSnapshot: ProtocolParty | CustomerParty;
+  toSnapshot: ProtocolParty | CustomerParty;
+  items: { productName: string; variantLabel?: string; quantity: number; unit?: string }[];
+  fromSignaturePng: string | null;
+  toSignaturePng: string | null;
+}
+
 /** Target key so a live-computed target lines up with its persisted row. */
 function protocolKey(r: { kind: string; orderId: string | null; farmerId: string | null; slotId: string | null }): string {
   return r.kind === 'operator_to_customer' ? `o:${r.orderId}` : `f:${r.farmerId}:${r.slotId}`;
@@ -1083,6 +1102,45 @@ export class HandoverService {
       .select()
       .from(handoverProtocols)
       .where(and(...conditions));
+  }
+
+  /**
+   * The day's SIGNED protocols for the fullscreen „Проверка" view (Task 12) — a
+   * courier stopped mid-delivery (e.g. by police) shows these fast, often
+   * offline. Reuses `list()`, which already `leftJoin`s `deliverySlots` for
+   * the date filter (`handover_protocols` has no date column of its own — see
+   * `list()`'s doc comment). Only `status === 'signed'` rows qualify; a
+   * draft/pending protocol is not something to present as evidence. Signatures
+   * are decrypted here (unlike `list()`'s raw rows) so the client can render
+   * them straight into an `<img src>`, and each row is reshaped to only the
+   * fields the check view needs — no price/order-number/raw-column leakage.
+   * `list()` already issues a bounded number of queries; decryption below is
+   * pure in-memory work, so this adds no per-row query.
+   */
+  async listForCheck(tenantId: string, q: { date?: string; slotId?: string }): Promise<CheckRow[]> {
+    const rows = (await this.list(tenantId, { slotId: q.slotId, date: q.date })) as Array<
+      typeof handoverProtocols.$inferSelect
+    >;
+    return rows
+      .filter((r) => r.status === 'signed')
+      .sort((a, b) => (a.protocolNumber ?? 0) - (b.protocolNumber ?? 0))
+      .map((r) => ({
+        id: r.id,
+        protocolNumber: r.protocolNumber,
+        kind: r.kind,
+        status: r.status,
+        signedAt: r.signedAt ?? null,
+        fromSnapshot: r.fromSnapshot as ProtocolParty | CustomerParty,
+        toSnapshot: r.toSnapshot as ProtocolParty | CustomerParty,
+        items: ((r.items as ProtocolItemDto[] | null) ?? []).map((i) => ({
+          productName: i.productName,
+          variantLabel: i.variantLabel ?? undefined,
+          quantity: i.quantity,
+          unit: i.unit ?? undefined,
+        })),
+        fromSignaturePng: decryptSignature(r.fromSignaturePng),
+        toSignaturePng: decryptSignature(r.toSignaturePng),
+      }));
   }
 
   /**

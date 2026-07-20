@@ -12,6 +12,7 @@ describe('HandoverController delegation', () => {
     list: jest.fn().mockResolvedValue([{ id: 'p1' }]),
     createBatch: jest.fn().mockResolvedValue({ ids: ['p1'] }),
     listForDay: jest.fn().mockResolvedValue([{ id: null }]),
+    listForCheck: jest.fn().mockResolvedValue([{ id: 'p1', status: 'signed' }]),
     renderPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4')),
     renderBatchPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4')),
     renderPreviewPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4')),
@@ -54,6 +55,11 @@ describe('HandoverController delegation', () => {
   it('GET /handover/day delegates listForDay with tenantId + slot/date', async () => {
     await ctrl.listForDay('t1', 's1', '2026-07-16');
     expect(svc.listForDay).toHaveBeenCalledWith('t1', { slotId: 's1', date: '2026-07-16' });
+  });
+
+  it('GET /handover/check delegates listForCheck with tenantId + date/slot', async () => {
+    await ctrl.check('t1', '2026-07-20', 's1');
+    expect(svc.listForCheck).toHaveBeenCalledWith('t1', { date: '2026-07-20', slotId: 's1' });
   });
 
   it('PATCH /handover/:id/mark-signed delegates markSigned with tenantId + id', async () => {
