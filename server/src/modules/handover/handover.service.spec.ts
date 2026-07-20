@@ -748,14 +748,19 @@ describe('HandoverService.listForCheck', () => {
 
   it('returns only signed rows for the date with signatures decrypted, excludes drafts, and joins deliverySlots (not createdAt)', async () => {
     const db = makeDb();
+    // Captured up front so the "differs from what's stored" assertion below compares
+    // against the EXACT ciphertext handed to the service — AES-GCM uses a random IV,
+    // so a freshly re-encrypted value would differ trivially and prove nothing.
+    const storedFrom = encryptSignature(FARMER_PNG, 'test-key');
+    const storedTo = encryptSignature(OP_PNG, 'test-key');
     db.queue([
       {
         id: 'p1', kind: 'farmer_to_operator', status: 'signed', protocolNumber: 5,
         signedAt: new Date('2026-07-13T09:00:00Z'),
         fromSnapshot: { name: 'ЕТ Васил' }, toSnapshot: { name: 'ЕТ Оператор' },
         items: [{ productName: 'Домати', variantLabel: null, quantity: 5, unit: 'кг', priceStotinki: 300, orderNumber: 5 }],
-        fromSignaturePng: encryptSignature(FARMER_PNG, 'test-key'),
-        toSignaturePng: encryptSignature(OP_PNG, 'test-key'),
+        fromSignaturePng: storedFrom,
+        toSignaturePng: storedTo,
       },
       {
         id: 'p2', kind: 'operator_to_customer', status: 'draft', protocolNumber: null,
@@ -770,10 +775,8 @@ describe('HandoverService.listForCheck', () => {
     expect(rows).toHaveLength(1); // the draft is excluded — not something to show a police officer
     expect(rows[0].id).toBe('p1');
     expect(rows[0].status).toBe('signed');
-    // Decrypted back to the ORIGINAL plaintext PNG, and NOT equal to what's actually
-    // stored — proves decryption ran rather than the field merely passing through.
-    const storedFrom = encryptSignature(FARMER_PNG, 'test-key');
-    const storedTo = encryptSignature(OP_PNG, 'test-key');
+    // Decrypted back to the ORIGINAL plaintext PNG, and NOT equal to the exact
+    // ciphertext that was stored — proves decryption actually ran, not a pass-through.
     expect(rows[0].fromSignaturePng).toBe(FARMER_PNG);
     expect(rows[0].toSignaturePng).toBe(OP_PNG);
     expect(rows[0].fromSignaturePng).not.toBe(storedFrom);
