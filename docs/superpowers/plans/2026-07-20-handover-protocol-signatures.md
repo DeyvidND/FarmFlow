@@ -599,8 +599,17 @@ Import `encryptSignature, decryptSignature` and add near `getLegal`/`updateLegal
     const [row] = await this.db
       .select({ signaturePng: tenants.operatorSignaturePng })
       .from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-    return { signaturePng: decryptSignature(row?.signaturePng ?? null) };
+    if (!row) throw new NotFoundException('Фермата не е намерена');
+    return { signaturePng: decryptSignature(row.signaturePng) };
 ```
+
+> **Both methods must guard the missing row.** Even though `tenantId` comes from
+> `@CurrentTenant()`, a deleted tenant / stale JWT is real here (this repo has admin
+> tenant delete+reset). `loadSettings` in this same service already guards for exactly
+> that reason, and the farmer mirror 404s too. Without it, `getSignature` returns a
+> `null` indistinguishable from "never set" and `setSignature` reports **false success**
+> while persisting nothing. For `setSignature`, use `.returning({ id: tenants.id })` and
+> throw `NotFoundException` when it comes back empty.
 
 - [ ] **Step 4: Add the controller routes**
 
