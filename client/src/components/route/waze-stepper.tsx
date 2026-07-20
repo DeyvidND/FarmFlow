@@ -43,7 +43,7 @@ export function WazeStepper({
       onClick={onClose}
     >
       <div
-        className="animate-ff-pop max-h-[90vh] w-[420px] max-w-full overflow-y-auto overscroll-contain rounded-2xl border border-ff-border bg-ff-surface p-5 shadow-ff-lg"
+        className="animate-ff-pop max-h-[90vh] w-full max-w-[420px] overflow-y-auto overscroll-contain rounded-2xl border border-ff-border bg-ff-surface p-5 shadow-ff-lg"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Навигация с Waze"

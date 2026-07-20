@@ -453,9 +453,9 @@ export function DeliveryWindowsModal({
                       return (
                         <div
                           key={s.id}
-                          className="flex flex-wrap items-center gap-2.5 rounded-xl border border-ff-border-2 px-3 py-2"
+                          className="flex flex-wrap items-center gap-x-2.5 gap-y-2 rounded-xl border border-ff-border-2 px-3 py-2"
                         >
-                          <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="flex min-w-0 flex-1 basis-[58%] flex-col">
                             <span className="truncate text-[13px] font-bold text-ff-ink">
                               {s.customer ?? 'Клиент'}
                             </span>
@@ -472,31 +472,34 @@ export function DeliveryWindowsModal({
                                 {s.farmers.length > 1 ? ' · споделена' : ''}
                               </span>
                             )}
+                            {!s.hasEmail && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-ff-muted">
+                                <MailX size={12} className="shrink-0" /> без имейл
+                              </span>
+                            )}
                           </span>
-                          {s.hasEmail ? (
-                            <Mail size={13} className="shrink-0 text-ff-green-700" />
-                          ) : (
-                            <span className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-ff-muted">
-                              <MailX size={13} /> без имейл
-                            </span>
-                          )}
-                          <input
-                            type="time"
-                            value={cur.start}
-                            onChange={(e) => setField(s.id, 'start', e.target.value)}
-                            onBlur={() => void commit(s.id, s)}
-                            aria-label={`Начало за ${s.customer ?? 'клиента'}`}
-                            className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
-                          />
-                          <span className="text-ff-muted">–</span>
-                          <input
-                            type="time"
-                            value={cur.end}
-                            onChange={(e) => setField(s.id, 'end', e.target.value)}
-                            onBlur={() => void commit(s.id, s)}
-                            aria-label={`Край за ${s.customer ?? 'клиента'}`}
-                            className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
-                          />
+                          <div className="ml-auto flex shrink-0 items-center gap-2">
+                            {s.hasEmail && (
+                              <Mail size={13} className="shrink-0 text-ff-green-700" />
+                            )}
+                            <input
+                              type="time"
+                              value={cur.start}
+                              onChange={(e) => setField(s.id, 'start', e.target.value)}
+                              onBlur={() => void commit(s.id, s)}
+                              aria-label={`Начало за ${s.customer ?? 'клиента'}`}
+                              className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
+                            />
+                            <span className="text-ff-muted">–</span>
+                            <input
+                              type="time"
+                              value={cur.end}
+                              onChange={(e) => setField(s.id, 'end', e.target.value)}
+                              onBlur={() => void commit(s.id, s)}
+                              aria-label={`Край за ${s.customer ?? 'клиента'}`}
+                              className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
+                            />
+                          </div>
                         </div>
                       );
                     })}
