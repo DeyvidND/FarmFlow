@@ -12,7 +12,12 @@
 
 - **Migrations are hand-written.** Next file `packages/db/drizzle/0110_handover_signatures.sql`; journal `packages/db/drizzle/meta/_journal.json` next entry `idx: 108`, `version: "7"`, `tag: "0110_handover_signatures"`. No gaps.
 - **Multi-tenant:** every query scoped by `tenantId`. Never select a signature column in a public projection.
-- **`ENCRYPTION_KEY` is OPTIONAL** (`env.validation.ts:49`). Signature crypto MUST degrade to plaintext when it is unset — never throw for a missing key.
+- **`ENCRYPTION_KEY` is OPTIONAL** (`env.validation.ts:49`) — but a signature is **NEVER stored unencrypted**:
+  - **Writes REFUSE when the key is unset.** `encryptSignature` throws `SignatureKeyMissingError`; the
+    signature endpoints translate it to a clear Bulgarian error. (Dev must set a dummy key in `server/.env`.)
+  - **Reads stay tolerant.** Legacy plaintext passes through unchanged; ciphertext with no key, or a failed
+    decrypt (rotated key / corruption), returns **`null`** (= no signature) so a legal document renders an
+    empty signature slot rather than a garbled blob.
 - **Optional string DTO fields:** class-validator `@IsOptional()` does NOT coerce `''`→`undefined`.
 - **Client `@fermeribg/web` does NOT import `@fermeribg/db`/`@fermeribg/types`** — types live in the hand-synced mirror `client/src/lib/types.ts`.
 - **Frontends call the API only via `/bff/*`** (see `protocolPdfHref = '/bff/handover/...'`).
@@ -31,15 +36,16 @@
 **Interfaces:**
 - Consumes: `encryptSecret`, `decryptSecret` from `./secret.util` (AES-256-GCM, output `iv:tag:ct` base64).
 - Produces:
-  - `encryptSignature(plaintext: string, key?: string): string`
-  - `decryptSignature(blob: string | null | undefined, key?: string): string | null`
+  - `encryptSignature(plaintext: string, key?: string): string` — **throws `SignatureKeyMissingError` when no key**
+  - `decryptSignature(blob: string | null | undefined, key?: string): string | null` — never throws; `null` = no readable signature
   - `looksEncrypted(v: string): boolean`
+  - `class SignatureKeyMissingError extends Error`
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // signature-crypto.spec.ts
-import { encryptSignature, decryptSignature, looksEncrypted } from './signature-crypto';
+import { encryptSignature, decryptSignature, looksEncrypted, SignatureKeyMissingError } from './signature-crypto';
 
 const KEY = 'test-key-123';
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -52,8 +58,9 @@ describe('signature-crypto', () => {
     expect(decryptSignature(enc, KEY)).toEqual(PNG);
   });
 
-  it('degrades to plaintext when no key', () => {
-    expect(encryptSignature(PNG, undefined)).toEqual(PNG);
+  it('REFUSES to encrypt without a key (never stores plaintext)', () => {
+    expect(() => encryptSignature(PNG, undefined)).toThrow(SignatureKeyMissingError);
+    expect(() => encryptSignature(PNG, '')).toThrow(SignatureKeyMissingError);
   });
 
   it('passes legacy plaintext data-URL through decrypt unchanged', () => {
@@ -66,8 +73,18 @@ describe('signature-crypto', () => {
     expect(decryptSignature('', KEY)).toBeNull();
   });
 
-  it('tolerates a malformed ciphertext-shaped value', () => {
-    expect(decryptSignature('aa:bb:cc', KEY)).toBe('aa:bb:cc');
+  it('returns null for ciphertext when no key is configured', () => {
+    const enc = encryptSignature(PNG, KEY);
+    expect(decryptSignature(enc, undefined)).toBeNull();
+  });
+
+  it('returns null for a malformed ciphertext-shaped value', () => {
+    expect(decryptSignature('aa:bb:cc', KEY)).toBeNull();
+  });
+
+  it('returns null when the key does not match (rotated key)', () => {
+    const enc = encryptSignature(PNG, KEY);
+    expect(decryptSignature(enc, 'a-different-key')).toBeNull();
   });
 });
 ```
@@ -97,22 +114,40 @@ export function looksEncrypted(v: string): boolean {
   return parts.length === 3 && parts.every((p) => /^[A-Za-z0-9+/]+=*$/.test(p));
 }
 
+/** Thrown when a signature write is attempted with no ENCRYPTION_KEY configured.
+ *  Callers translate this into a user-facing error — we never store a signature
+ *  in plaintext, even in dev. */
+export class SignatureKeyMissingError extends Error {
+  constructor() {
+    super('ENCRYPTION_KEY is not configured — refusing to store a signature unencrypted');
+    this.name = 'SignatureKeyMissingError';
+  }
+}
+
 export function encryptSignature(plaintext: string, key = process.env.ENCRYPTION_KEY): string {
-  if (!key) return plaintext;
+  if (!key) throw new SignatureKeyMissingError();
   return encryptSecret(plaintext, key);
 }
 
+/**
+ * Read a stored signature. Order matters:
+ *  1. legacy PLAINTEXT data-URL → pass through unchanged (pre-feature rows),
+ *  2. ciphertext but no key → null (we cannot read it; never hand back the blob),
+ *  3. decrypt failure (rotated key / corruption) → null.
+ * null means "no signature" — a legal document then renders an empty slot rather
+ * than a garbled string.
+ */
 export function decryptSignature(
   blob: string | null | undefined,
   key = process.env.ENCRYPTION_KEY,
 ): string | null {
   if (!blob) return null;
-  if (!key || !looksEncrypted(blob)) return blob;
+  if (!looksEncrypted(blob)) return blob;
+  if (!key) return null;
   try {
     return decryptSecret(blob, key);
   } catch {
-    // Never 500 a legal document over one mis-shaped signature value.
-    return blob;
+    return null;
   }
 }
 ```
@@ -353,6 +388,23 @@ describe('FarmersService signature', () => {
     const got = await svc.getSignature('f1', 't1');
     expect(got.signaturePng).toEqual(PNG);               // decrypted on read
   });
+
+  it('refuses to store a signature when ENCRYPTION_KEY is unset', async () => {
+    delete process.env.ENCRYPTION_KEY;
+    const db = dbMock();
+    const svc = await make(db);
+    await expect(svc.setSignature('f1', 't1', PNG)).rejects.toThrow(/ключ за криптиране/);
+    expect(db.state.stored).toBeUndefined();             // nothing written in plaintext
+    process.env.ENCRYPTION_KEY = 'test-key';
+  });
+
+  it('allows CLEARING a signature with no key configured', async () => {
+    delete process.env.ENCRYPTION_KEY;
+    const db = dbMock();
+    const svc = await make(db);
+    await expect(svc.setSignature('f1', 't1', null)).resolves.toEqual({ signaturePng: null });
+    process.env.ENCRYPTION_KEY = 'test-key';
+  });
 });
 ```
 
@@ -368,8 +420,10 @@ Expected: FAIL — `setSignature`/`getSignature` are not functions.
 In `farmers.service.ts`, import at top:
 
 ```ts
-import { encryptSignature, decryptSignature } from '../../common/crypto/signature-crypto';
+import { encryptSignature, decryptSignature, SignatureKeyMissingError } from '../../common/crypto/signature-crypto';
 ```
+
+(also add `ServiceUnavailableException` to the existing `@nestjs/common` import)
 
 Add methods (near `update`):
 
@@ -385,9 +439,23 @@ Add methods (near `update`):
     return { signaturePng: decryptSignature(row.signaturePng) };
   }
 
-  /** Store (encrypted) or clear the farmer's reusable signature. */
+  /** Store (encrypted) or clear the farmer's reusable signature. Refuses to store
+   *  anything when ENCRYPTION_KEY is unset — a signature is never persisted in
+   *  plaintext. Clearing (png === null) stays allowed with no key. */
   async setSignature(id: string, tenantId: string, png: string | null): Promise<{ signaturePng: string | null }> {
-    const enc = png ? encryptSignature(png) : null;
+    let enc: string | null = null;
+    if (png) {
+      try {
+        enc = encryptSignature(png);
+      } catch (e) {
+        if (e instanceof SignatureKeyMissingError) {
+          throw new ServiceUnavailableException(
+            'Подписът не може да бъде запазен — липсва ключ за криптиране на сървъра.',
+          );
+        }
+        throw e;
+      }
+    }
     const [updated] = await this.db
       .update(farmers)
       .set({ signaturePng: enc })
@@ -480,11 +548,25 @@ Import `encryptSignature, decryptSignature` and add near `getLegal`/`updateLegal
     return { signaturePng: decryptSignature(row?.operatorSignaturePng ?? row?.signaturePng ?? null) };
   }
 
-  /** Store (encrypted) or clear the operator's reusable signature. */
+  /** Store (encrypted) or clear the operator's reusable signature. Refuses to store
+   *  when ENCRYPTION_KEY is unset — never persisted in plaintext. Clearing is allowed. */
   async setSignature(tenantId: string, png: string | null): Promise<{ signaturePng: string | null }> {
+    let enc: string | null = null;
+    if (png) {
+      try {
+        enc = encryptSignature(png);
+      } catch (e) {
+        if (e instanceof SignatureKeyMissingError) {
+          throw new ServiceUnavailableException(
+            'Подписът не може да бъде запазен — липсва ключ за криптиране на сървъра.',
+          );
+        }
+        throw e;
+      }
+    }
     await this.db
       .update(tenants)
-      .set({ operatorSignaturePng: png ? encryptSignature(png) : null })
+      .set({ operatorSignaturePng: enc })
       .where(eq(tenants.id, tenantId));
     return { signaturePng: png };
   }

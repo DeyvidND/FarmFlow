@@ -51,6 +51,7 @@ Three pain points in the приемо-предавателен-протокол 
 | Signatures | Save **farmer + operator** signatures once, encrypted; auto-fill → 1-tap sign. |
 | Police view | Fullscreen **„Проверка"** in the operator **panel** (client); **offline-cached**. |
 | Encryption | Reuse existing `encryptSecret`/`decryptSecret` (AES-256-GCM, `ENCRYPTION_KEY`). |
+| Missing key | **Writes refuse** (never store a signature in plaintext); **reads degrade to `null`** (empty signature slot, never a garbled blob). Decided 2026-07-20 after Task-1 review. |
 
 ## Architecture
 
@@ -166,7 +167,9 @@ a11y (canvas labelling, focus, contrast), and polish. Implement P0–P2 findings
 
 ## Rollout / ops notes
 
-- `ENCRYPTION_KEY` already exists in prod env (Econt passwords use it) — no new secret.
+- `ENCRYPTION_KEY` already exists in prod env (Econt passwords use it) — no new secret. **Dev must set
+  one** (any dummy value in `server/.env`) or saving a signature returns a 503 with a clear Bulgarian
+  message — signatures are never written unencrypted.
 - Migration is additive (new nullable columns) — safe; deploy runs migrator before app
   images. No backfill.
 - Backend-first ordering not required (columns are additive, old rows still render), but
