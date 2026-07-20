@@ -9,13 +9,16 @@ import { CompletenessMeter, computeCompleteness } from './completeness-meter';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
 import { ProductAssignPicker } from '@/components/products/product-assign-picker';
+import { SignaturePadField } from '@/components/handover/signature-pad-field';
 import {
   ApiError,
   assignProducts,
   createFarmer,
+  getFarmerSignature,
   grantFarmerAccess,
   revokeFarmerAccess,
   updateFarmer,
+  updateFarmerSignature,
 } from '@/lib/api-client';
 import type { Farmer, ProductOption, CoverCrop, FarmerAccess } from '@/lib/types';
 
@@ -132,6 +135,35 @@ export function FarmerPanel({
     }, 60); // let the panel slide-in finish before scrolling
     return () => clearTimeout(t);
   }, [focusInvite]);
+
+  // Reusable signature for handover protocols — its own endpoint (not part of the
+  // main farmer save), so only meaningful once the farmer has an id. New/unsaved
+  // farmer: skip the fetch and show a "save the farmer first" hint instead of the pad.
+  const [sig, setSig] = useState<string | null>(null);
+  const [sigLoaded, setSigLoaded] = useState(false);
+  useEffect(() => {
+    if (isNew || !farmer.id) {
+      setSigLoaded(true);
+      return;
+    }
+    getFarmerSignature(farmer.id)
+      .then((r) => setSig(r.signaturePng))
+      .catch(() => {})
+      .finally(() => setSigLoaded(true));
+  }, [isNew, farmer.id]);
+
+  async function saveSig(png: string | null) {
+    const prev = sig;
+    setSig(png); // optimistic — signature-pad-field already reflects the new value
+    if (!farmer.id) return;
+    try {
+      await updateFarmerSignature(farmer.id, png);
+      toast.success('Подписът е запазен');
+    } catch (e) {
+      setSig(prev); // don't let the UI claim "saved" when the write failed
+      toast.error(e instanceof ApiError ? e.message : 'Подписът не беше записан');
+    }
+  }
 
   async function save() {
     if (!name.trim()) {
@@ -649,6 +681,25 @@ export function FarmerPanel({
             <p className="mt-1.5 text-[11px] font-semibold text-ff-muted">
               Само за теб — не се показва на клиента.
             </p>
+          </div>
+
+          <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+            <div className="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+              <FileText size={14} /> Подпис за протоколи
+            </div>
+            <p className="mt-1.5 text-[12px] leading-snug text-ff-muted">
+              Подпишете се веднъж — при предаване на продукция протоколът се подписва
+              автоматично.
+            </p>
+            {isNew ? (
+              <p className="mt-3 text-[12.5px] text-ff-muted">Първо запази фермера, после добави подпис.</p>
+            ) : (
+              sigLoaded && (
+                <div className="mt-3">
+                  <SignaturePadField value={sig} onChange={saveSig} label="Подпис на фермера" />
+                </div>
+              )
+            )}
           </div>
 
           {/* Panel access — invite straight from here with the email above. */}

@@ -10,7 +10,14 @@ import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { SaveBar } from '@/components/panels/panel-ui';
-import { ApiError, getTenantLegal, updateTenantLegal } from '@/lib/api-client';
+import { SignaturePadField } from '@/components/handover/signature-pad-field';
+import {
+  ApiError,
+  getOperatorSignature,
+  getTenantLegal,
+  updateOperatorSignature,
+  updateTenantLegal,
+} from '@/lib/api-client';
 import type { LegalIdentity } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -53,6 +60,33 @@ export function LegalCard() {
       active = false;
     };
   }, []);
+
+  // Reusable operator signature for handover protocols — own endpoint, loaded
+  // independently of the legal fields above (no id needed: current tenant).
+  const [sig, setSig] = React.useState<string | null>(null);
+  const [sigLoaded, setSigLoaded] = React.useState(false);
+  React.useEffect(() => {
+    let active = true;
+    getOperatorSignature()
+      .then((r) => active && setSig(r.signaturePng))
+      .catch(() => {})
+      .finally(() => active && setSigLoaded(true));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function saveSig(png: string | null) {
+    const prev = sig;
+    setSig(png);
+    try {
+      await updateOperatorSignature(png);
+      toast.success('Подписът е запазен');
+    } catch (e) {
+      setSig(prev); // don't let the UI claim "saved" when the write failed
+      toast.error(errMsg(e));
+    }
+  }
 
   const current: LegalIdentity = {
     kind: kind || undefined,
@@ -149,6 +183,21 @@ export function LegalCard() {
           )}
         </div>
       )}
+
+      <div className="mt-6 border-t border-ff-border-2 pt-5">
+        <div className="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+          <FileText size={14} /> Подпис за протоколи
+        </div>
+        <p className="mt-1.5 text-[12px] leading-snug text-ff-muted">
+          Подпишете се веднъж — при предаване на продукция протоколът се подписва
+          автоматично.
+        </p>
+        {sigLoaded && (
+          <div className="mt-3">
+            <SignaturePadField value={sig} onChange={saveSig} label="Подпис на оператора" />
+          </div>
+        )}
+      </div>
 
       {dirty && <SaveBar saving={saving} onSave={save} onDiscard={discard} />}
     </section>

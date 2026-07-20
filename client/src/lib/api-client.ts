@@ -228,6 +228,19 @@ export const updateFarmer = (id: string, data: Partial<Farmer>) =>
 export const deleteFarmer = (id: string) =>
   apiFetch<{ id: string }>(`farmers/${id}`, { method: 'DELETE' }, 'Неуспешно изтриване');
 
+// Reusable signature (encrypted at rest) — signs handover protocols in one tap.
+// Separate endpoint: FarmersService.update spreads its DTO straight into the SQL
+// set(), so the signature never travels through the main farmer save.
+export const getFarmerSignature = (id: string) =>
+  apiFetch<{ signaturePng: string | null }>(`farmers/${id}/signature`);
+
+export const updateFarmerSignature = (id: string, signaturePng: string | null) =>
+  apiFetch<{ signaturePng: string | null }>(
+    `farmers/${id}/signature`,
+    { method: 'PUT', ...json({ signaturePng }) },
+    'Подписът не беше записан',
+  );
+
 export const getFarmerAccess = () =>
   apiFetch<Record<string, FarmerAccess>>('farmers/access');
 
@@ -547,6 +560,18 @@ export const updateTenantLegal = (legal: LegalIdentity) =>
     'tenants/me/legal',
     { method: 'PATCH', ...json(legal) },
     'Неуспешна промяна',
+  );
+
+// ---- Operator signature (settings.legal.signature) — same reusable-signature
+// mechanism as the farmer one above; signs handover protocols as the operator. ----
+export const getOperatorSignature = () =>
+  apiFetch<{ signaturePng: string | null }>('tenants/me/signature');
+
+export const updateOperatorSignature = (signaturePng: string | null) =>
+  apiFetch<{ signaturePng: string | null }>(
+    'tenants/me/signature',
+    { method: 'PUT', ...json({ signaturePng }) },
+    'Подписът не беше записан',
   );
 
 export function uploadFavicon(file: File) {
