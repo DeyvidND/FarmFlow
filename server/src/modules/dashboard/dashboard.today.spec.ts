@@ -63,4 +63,15 @@ describe('DashboardService.todaySummary', () => {
     // route stops = address orders in active statuses (2+3+1+2+4=12); delivered addr = 4
     expect(out.route).toEqual({ stops: 12, delivered: 4, pending: 8, couriers: 2 });
   });
+
+  it('splits COD into to-collect vs collected and counts fully-fulfilled orders', async () => {
+    const db = makeDb({
+      pipeline: [{ status: 'confirmed', count: 2, totalStotinki: 4000, addr: 2 }],
+      cod: [{ toCollectStotinki: 4000, toCollectCount: 2, collectedStotinki: 1500, collectedCount: 1 }],
+      fulfilled: [{ orderId: 'o1' }, { orderId: 'o2' }], // 2 orders fully prepared
+    });
+    const out = await svc(db).todaySummary('t1', '2026-07-20');
+    expect(out.cod).toEqual({ toCollectStotinki: 4000, toCollectCount: 2, collectedStotinki: 1500, collectedCount: 1 });
+    expect(out.prep.fulfilled).toBe(2);
+  });
 });

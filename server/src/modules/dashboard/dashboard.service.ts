@@ -185,7 +185,29 @@ export class DashboardService {
       .where(and(eq(routeCourierAssignments.tenantId, tenantId), eq(routeCourierAssignments.date, day)))
       .groupBy(routeCourierAssignments.legIndex);
 
-    const [pipelineRows, courierRows] = await Promise.all([pipelineP, couriersP]);
+    const CASH = sql`${orders.status} in ('confirmed','preparing','out_for_delivery','delivered')`;
+    const codP = this.db
+      .select({
+        toCollectStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.codOutcome} is null and ${CASH}), 0)::int`,
+        toCollectCount:    sql<number>`count(*) filter (where ${orders.codOutcome} is null and ${CASH})::int`,
+        collectedStotinki: sql<number>`coalesce(sum(${orders.totalStotinki}) filter (where ${orders.codOutcome} = 'received'), 0)::int`,
+        collectedCount:    sql<number>`count(*) filter (where ${orders.codOutcome} = 'received')::int`,
+      })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.paymentMethod, 'cod'), sched));
+
+    // An order is "prepared" when every farmer-leg fulfillment row is 'fulfilled'.
+    const fulfilledP = this.db
+      .select({ orderId: orderFulfillments.orderId })
+      .from(orderFulfillments)
+      .innerJoin(orders, eq(orders.id, orderFulfillments.orderId))
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orderFulfillments.tenantId, tenantId), inArray(orders.status, ['confirmed', 'preparing']), sched))
+      .groupBy(orderFulfillments.orderId)
+      .having(sql`bool_and(${orderFulfillments.state} = 'fulfilled')`);
+
+    const [pipelineRows, courierRows, [cod], fulfilledRows] = await Promise.all([pipelineP, couriersP, codP, fulfilledP]);
 
     const by = (s: string) => pipelineRows.find((r) => r.status === s);
     const cnt = (s: string) => by(s)?.count ?? 0;
@@ -206,10 +228,10 @@ export class DashboardService {
     return {
       date: day,
       pipeline,
-      prep: { ordersToPrep: pipeline.confirmed + pipeline.preparing, fulfilled: 0 },
+      prep: { ordersToPrep: pipeline.confirmed + pipeline.preparing, fulfilled: fulfilledRows.length },
       route: { stops: routeStops, delivered: routeDelivered, pending: routeStops - routeDelivered, couriers: courierRows.length },
       protocols: { total: 0, signed: 0, pending: 0 },
-      cod: { toCollectStotinki: 0, toCollectCount: 0, collectedStotinki: 0, collectedCount: 0 },
+      cod: cod ?? { toCollectStotinki: 0, toCollectCount: 0, collectedStotinki: 0, collectedCount: 0 },
       revenueStotinki,
       slots: [],
     };
