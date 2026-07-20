@@ -109,11 +109,11 @@ export function OnboardingModal({ readiness }: { readiness: StoreReadiness }) {
             </div>
           </div>
 
-          {/* Pointer: the running readiness checklist on Табло. */}
+          {/* Pointer: the running readiness checklist on Днес (this home). */}
           <div className="flex items-start gap-2.5 rounded-xl border border-ff-border bg-ff-surface-2 px-4 py-3">
             <ListChecks size={18} className="mt-0.5 shrink-0 text-ff-green-700" />
             <div className="text-[13px] leading-relaxed text-ff-ink-2">
-              На <b>Табло</b> следи списъка <b>„Готовност на магазина“</b> ({done}/4 готови) — показва
+              На <b>Днес</b> следи списъка <b>„Готовност на магазина“</b> ({done}/4 готови) — показва
               какво още липсва: продукти, плащане, доставка, контакти.
             </div>
           </div>
