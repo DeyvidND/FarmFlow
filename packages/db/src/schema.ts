@@ -116,9 +116,10 @@ export const tenants = pgTable('tenants', {
   farmAddress: text('farm_address'),
   farmLat: numeric('farm_lat', { precision: 10, scale: 7 }),
   farmLng: numeric('farm_lng', { precision: 10, scale: 7 }),
-  // Reusable operator signature for handover protocols — ENCRYPTED at rest.
-  // Stored as its own column (NOT settings.legal, which updateLegal replaces
-  // wholesale). NULL = none saved yet. (migration 0110)
+  // Reusable operator signature for handover protocols — ENCRYPTED at rest
+  // (server/src/common/crypto/signature-crypto). Operator-only; never in a public
+  // projection. Stored as its own column (NOT settings.legal, which updateLegal
+  // replaces wholesale). NULL = none saved yet. (migration 0110)
   operatorSignaturePng: text('operator_signature_png'),
   settings: jsonb('settings').default({}),
   createdAt: timestamp('created_at').defaultNow(),
@@ -1218,7 +1219,7 @@ export const farmers = pgTable(
     story: text('story'),
     payout: jsonb('payout').$type<{ iban?: string; holder?: string; bic?: string }>(),
     // Reusable farmer signature for handover protocols — ENCRYPTED at rest
-    // (server/common/crypto/signature-crypto). Operator-only; never in the public
+    // (server/src/common/crypto/signature-crypto). Operator-only; never in the public
     // projection. NULL = none saved yet. (migration 0110)
     signaturePng: text('signature_png'),
     // Marketplace ranking tier (operator-assigned). 1 = базов листинг, 2 = Бранд
