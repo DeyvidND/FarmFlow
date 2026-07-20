@@ -5,7 +5,7 @@ import { X, Clock, Mail, MailX, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
-import { cn } from '@/lib/utils';
+import { cn, moneyFromStotinki } from '@/lib/utils';
 import {
   getTenant,
   updateTenant,
@@ -28,6 +28,15 @@ const fmtGap = (m: number, s: number): string => {
   const dist = m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} км` : `${Math.round(m)} м`;
   const min = Math.round(s / 60);
   return min > 0 ? `${dist} · ~${min} мин` : dist;
+};
+
+/** Whole-route distance (km) for the per-courier summary line. */
+const fmtKmTotal = (m: number): string => `${(m / 1000).toFixed(1).replace('.', ',')} км`;
+
+/** Whole-route drive time (hours/minutes) for the summary line. */
+const fmtDurTotal = (s: number): string => {
+  const m = Math.round(s / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}ч ${m % 60}м` : `${m}м`;
 };
 
 /**
@@ -394,11 +403,24 @@ export function DeliveryWindowsModal({
 
           {proposal && (
             <div className="mt-4 flex flex-col gap-5">
-              {proposal.couriers.map((c) => (
+              {proposal.couriers.map((c) => {
+                const routeValue = c.stops.reduce((n, s) => n + (s.valueStotinki ?? 0), 0);
+                const last = c.stops[c.stops.length - 1];
+                const lastEnd = last ? (edited[last.id]?.end ?? last.windowEnd) : null;
+                return (
                 <div key={c.courierIndex}>
-                  <h3 className="mb-2 text-[13px] font-extrabold text-ff-ink">
-                    Маршрут {c.courierIndex + 1}
-                    {c.name ? ` · ${c.name}` : ''}
+                  <h3 className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13px] font-extrabold text-ff-ink">
+                    <span>
+                      Маршрут {c.courierIndex + 1}
+                      {c.name ? ` · ${c.name}` : ''}
+                    </span>
+                    <span className="text-[11.5px] font-bold text-ff-muted">
+                      {c.stops.length} {c.stops.length === 1 ? 'спирка' : 'спирки'}
+                      {c.distanceM != null ? ` · ${fmtKmTotal(c.distanceM)}` : ''}
+                      {c.durationS != null ? ` · ~${fmtDurTotal(c.durationS)}` : ''}
+                      {lastEnd ? ` · до ${lastEnd}` : ''}
+                      {` · ${moneyFromStotinki(routeValue)}`}
+                    </span>
                   </h3>
                   <div className="flex flex-col gap-2">
                     {c.stops.map((s, i) => {
@@ -412,9 +434,12 @@ export function DeliveryWindowsModal({
                             <span className="truncate text-[13px] font-bold text-ff-ink">
                               {s.customer ?? 'Клиент'}
                             </span>
+                            {s.address && (
+                              <span className="truncate text-[11px] text-ff-muted">{s.address}</span>
+                            )}
                             <span className="text-[11px] text-ff-muted">
                               {fmtGap(s.distanceFromPrevM, s.durationFromPrevS)}{' '}
-                              {i === 0 ? 'от старта' : 'от предната'}
+                              {i === 0 ? 'от старта' : 'от предната'} · {moneyFromStotinki(s.valueStotinki)}
                             </span>
                           </span>
                           {s.hasEmail ? (
@@ -446,7 +471,8 @@ export function DeliveryWindowsModal({
                     })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {totalStops === 0 && (
                 <p className="text-[13px] text-ff-muted">Няма спирки за този ден.</p>
               )}

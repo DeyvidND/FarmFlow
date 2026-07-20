@@ -823,19 +823,30 @@ export interface DeliveryWindowStop {
   id: string;
   customer: string | null;
   email: string | null;
+  /** Delivery address — shown in the review modal. */
+  address: string | null;
   windowStart: string; // 'HH:MM'
   windowEnd: string;    // 'HH:MM'
   hasEmail: boolean;
-  /** Straight-line metres from the previous stop (courier start for the first). */
+  /** Road metres from the previous stop (real per-leg when available, else straight-line). */
   distanceFromPrevM: number;
-  /** Estimated drive seconds from the previous stop. */
+  /** Drive seconds from the previous stop. */
   durationFromPrevS: number;
+  /** Order grand total incl. delivery (stotinki). */
+  valueStotinki: number;
 }
 /** POST /orders/route/windows/generate response — proposed windows per courier. */
 export interface DeliveryWindowProposal {
   date: string;
   slotMin: number;
-  couriers: { courierIndex: number; name: string | null; stops: DeliveryWindowStop[] }[];
+  couriers: {
+    courierIndex: number;
+    name: string | null;
+    stops: DeliveryWindowStop[];
+    /** Whole-leg road totals for the per-courier summary line. */
+    distanceM: number | null;
+    durationS: number | null;
+  }[];
   /** Orders that got a window but have no email (can't be notified). */
   withoutEmail: number;
 }

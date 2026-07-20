@@ -132,40 +132,59 @@ describe('RoutingService.getRoute — route_seq honoured over re-optimization', 
 
 // ─── (b) regenerate must not clobber an already-SENT, unchanged window ──────
 describe('RoutingService.generateDeliveryWindows — sent windows are not clobbered', () => {
-  it('leaves a sent+unchanged window alone but resets a sent+changed one to draft', async () => {
-    // No farm origin → the fallback per-leg timing branch applies, which is
-    // deterministic regardless of stop order (both stops land in the same
-    // 09:00–10:00 slot with the default day-start/slot-size settings), so this
-    // test isn't sensitive to which stop the greedy fallback visits first.
-    const TENANT = {
-      farmAddress: null,
-      farmLat: null,
-      farmLng: null,
-      settings: { routing: {} },
-    };
-    const rowUnchanged = geoOrder('X', 43.0, 23.0, {
+  // A deterministic single-stop leg: the real per-leg mock gives a 10-min drive to
+  // the stop → window 09:00–09:35 (09:00 + 10 min floored to the 15-min grid, plus
+  // the 35-min smart width). Regenerating recomputes the SAME window.
+  const sentTenant = {
+    farmAddress: 'Ферма',
+    farmLat: '43.0',
+    farmLng: '23.0',
+    settings: { routing: { dayStartHour: 9, serviceMin: 0 } },
+  };
+  const tenMinLegsMaps = () =>
+    ({
+      route: jest.fn().mockResolvedValue({ order: [0], distanceM: 5000, durationS: 600, polyline: 'g' }),
+      // legs length always matches the point sequence (works whether or not the leg
+      // has a return leg); each leg is a flat 10 minutes.
+      routeFixed: jest.fn((pts: any[]) =>
+        Promise.resolve({
+          distanceM: 5000 * (pts.length - 1),
+          durationS: 600 * (pts.length - 1),
+          polyline: 'g',
+          legs: pts.slice(1).map(() => ({ distanceM: 5000, durationS: 600 })),
+        }),
+      ),
+      geocode: jest.fn(),
+    }) as any;
+
+  it('leaves a sent window alone when it recomputes to the SAME time (no clobber)', async () => {
+    const row = geoOrder('X', 43.01, 23.0, {
       windowStatus: 'sent',
       windowStart: '09:00',
-      windowEnd: '10:00',
+      windowEnd: '09:35',
     });
-    const rowChanged = geoOrder('Y', 43.01, 23.01, {
+    const db = makeDb([[sentTenant], [row], [], [sentTenant]]);
+    const svc = new RoutingService(db, tenMinLegsMaps(), {} as any, {} as any, noAssignments());
+
+    const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07');
+
+    expect(proposal.couriers[0].stops[0].windowStart).toBe('09:00');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('09:35');
+    expect(db.__updateCount).toBe(0); // sent + unchanged → not rewritten
+  });
+
+  it('rewrites a sent window whose recomputed time changed (back to draft)', async () => {
+    const row = geoOrder('Y', 43.01, 23.0, {
       windowStatus: 'sent',
       windowStart: '08:00',
       windowEnd: '09:00',
     });
-    const db = makeDb([[TENANT], [rowUnchanged, rowChanged], [], [TENANT]]);
-    const maps = { route: jest.fn(), routeFixed: jest.fn(), geocode: jest.fn() } as any;
-    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
+    const db = makeDb([[sentTenant], [row], [], [sentTenant]]);
+    const svc = new RoutingService(db, tenMinLegsMaps(), {} as any, {} as any, noAssignments());
 
     const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07');
 
-    // Both stops compute to the same 09:00–10:00 window (see comment above).
-    for (const stop of proposal.couriers[0].stops) {
-      expect(stop.windowStart).toBe('09:00');
-      expect(stop.windowEnd).toBe('10:00');
-    }
-    // Only Y (whose existing sent window differs from the recomputed one) is
-    // written — X (sent, unchanged) is left alone, not reset to 'draft'.
+    expect(proposal.couriers[0].stops[0].windowStart).toBe('09:00'); // recomputed, differs from 08:00
     expect(db.__updateCount).toBe(1);
   });
 });
@@ -199,9 +218,10 @@ describe('RoutingService.generateDeliveryWindows — return-leg timing fix', () 
     // 50/50: 10 minutes to reach the only stop, not the full 20 the pre-fix
     // ratio (cumDist/onewayDist = 1.0) would have given it. 9:00 + 10min,
     // floored to the 15-min grid, is still the 09:00–09:15 slot; the bugged
-    // (inflated, +20min) version would land one slot later (09:15–09:30).
+    // (inflated, +20min) version would land a 15-min grid slot later (09:15 start).
+    // The END is the smart width (30 min + delay-risk growth), not the old fixed slot.
     expect(proposal.couriers[0].stops[0].windowStart).toBe('09:00');
-    expect(proposal.couriers[0].stops[0].windowEnd).toBe('09:15');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('09:35');
   });
 });
 
@@ -230,7 +250,7 @@ describe('RoutingService.generateDeliveryWindows — start hour override', () =>
     const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07', undefined, undefined, 14);
 
     expect(proposal.couriers[0].stops[0].windowStart).toBe('14:00');
-    expect(proposal.couriers[0].stops[0].windowEnd).toBe('14:15');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('14:35');
   });
 
   it('startHour 0 (midnight) is honoured, not mistaken for "unset"', async () => {
@@ -241,7 +261,7 @@ describe('RoutingService.generateDeliveryWindows — start hour override', () =>
     const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07', undefined, undefined, 0);
 
     expect(proposal.couriers[0].stops[0].windowStart).toBe('00:00');
-    expect(proposal.couriers[0].stops[0].windowEnd).toBe('00:15');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('00:35');
   });
 
   it('omitting startHour falls back to the saved dayStartHour', async () => {
@@ -565,5 +585,35 @@ describe('RoutingService.generateDeliveryWindows — distance-from-previous', ()
     expect(fromHere.couriers[0].stops[0].distanceFromPrevM).toBeLessThan(
       fromFarm.couriers[0].stops[0].distanceFromPrevM,
     );
+  });
+
+  it('uses REAL per-leg road distance/time when Maps returns legs (not straight-line)', async () => {
+    // endMode 'last' → seq = [farm, A, B]; legs = [farm→A, A→B]. The adaptive mock
+    // returns leg k with (k+1)·1000 m and (k+1)·300 s.
+    const maps = {
+      routeFixed: jest.fn((pts: any[]) =>
+        Promise.resolve({
+          distanceM: 3000,
+          durationS: 900,
+          polyline: null,
+          legs: pts.slice(1).map((_: unknown, k: number) => ({ distanceM: (k + 1) * 1000, durationS: (k + 1) * 300 })),
+        }),
+      ),
+    } as any;
+    const db = { update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }) } as any;
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
+    jest.spyOn(svc, 'getRoute').mockResolvedValue(routeFromFarm() as any);
+    jest
+      .spyOn(svc as any, 'routingSettings')
+      .mockResolvedValue({ dayStartHour: 9, slotSizeMin: 60, serviceMin: 10 });
+
+    const p = await svc.generateDeliveryWindows('t1', '2026-07-20');
+    const stops = p.couriers[0].stops;
+
+    expect(stops[0].distanceFromPrevM).toBe(1000);
+    expect(stops[0].durationFromPrevS).toBe(300);
+    expect(stops[1].distanceFromPrevM).toBe(2000);
+    expect(stops[1].durationFromPrevS).toBe(600);
+    expect(p.couriers[0].distanceM).toBe(3000); // real whole-leg total
   });
 });

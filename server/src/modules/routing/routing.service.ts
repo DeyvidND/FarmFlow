@@ -15,6 +15,7 @@ import { MapsService } from '../../common/maps/maps.service';
 import { bgToday } from '../../common/time/bg-time';
 import { scheduledForDay } from '../orders/order-scheduling';
 import { sweepSplit, haversineKm, estimateWorkloadS, type Pt } from './route-split';
+import { serviceMinFor, windowWidthMin, floorToMin, WINDOW_START_GRAN_MIN } from './route-windows';
 import { humanizeStopOrder } from './route-humanize';
 import { OrdersService } from '../orders/orders.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
@@ -208,16 +209,19 @@ export interface DeliveryWindowStop {
   id: string;
   customer: string | null;
   email: string | null;
+  /** Delivery address — shown in the review modal so the operator knows where. */
+  address: string | null;
   windowStart: string;
   windowEnd: string;
   hasEmail: boolean;
-  /** Straight-line distance (metres) from the previous stop — for the FIRST stop,
-   *  from the courier's current position when supplied, else the farm. Lets the
-   *  operator see the gap to each order in the review modal and nudge the time. */
+  /** Road distance (metres) from the previous stop — for the FIRST stop, from the
+   *  courier's current position when supplied, else the farm. Real per-leg travel
+   *  when Maps is available, straight-line fallback otherwise. */
   distanceFromPrevM: number;
-  /** Estimated drive seconds from the previous stop (the per-leg share of the
-   *  route's measured total duration; a flat fallback when Maps gave none). */
+  /** Drive seconds from the previous stop (real per-leg when available). */
   durationFromPrevS: number;
+  /** Order grand total incl. delivery (stotinki) — the value to hand over / collect. */
+  valueStotinki: number;
 }
 export interface DeliveryWindowProposal {
   date: string;
@@ -226,6 +230,10 @@ export interface DeliveryWindowProposal {
     courierIndex: number;
     name: string | null;
     stops: DeliveryWindowStop[];
+    /** Whole-leg road totals (real when Maps available, else the getRoute estimate)
+     *  — for the per-courier summary line in the modal. */
+    distanceM: number | null;
+    durationS: number | null;
   }[];
   /** Orders that got a window but have no customer email (can't be notified). */
   withoutEmail: number;
@@ -1074,6 +1082,36 @@ export class RoutingService {
   }
 
   /**
+   * Real per-leg road distance/duration along a FIXED point sequence — one entry
+   * per consecutive pair (origin→p1, p1→p2, …), chunked over the ≤25-stop Routes
+   * limit and concatenated (the chunk seam is a shared node, not double-counted).
+   * Used to time delivery windows from actual stop-to-stop travel. Returns null if
+   * maps are disabled, any chunk fails, or a chunk's legs don't line up with its
+   * pairs — so the caller can fall back to the straight-line estimate rather than
+   * mis-time the day.
+   */
+  private async measureLegs(
+    pts: Pt[],
+  ): Promise<{ legs: { distanceM: number; durationS: number }[]; distanceM: number; durationS: number } | null> {
+    if (pts.length < 2 || typeof this.maps?.routeFixed !== 'function') return null;
+    const nodesPerLeg = MAX_OPTIMIZE_STOPS + 2;
+    const legs: { distanceM: number; durationS: number }[] = [];
+    let distanceM = 0;
+    let durationS = 0;
+    let i = 0;
+    while (i < pts.length - 1) {
+      const seg = pts.slice(i, i + nodesPerLeg);
+      const plan = await this.maps.routeFixed(seg);
+      if (!plan || !Array.isArray(plan.legs) || plan.legs.length !== seg.length - 1) return null;
+      legs.push(...plan.legs);
+      distanceM += plan.distanceM;
+      durationS += plan.durationS;
+      i += seg.length - 1;
+    }
+    return { legs, distanceM, durationS };
+  }
+
+  /**
    * Fix a stop that never got a map pin. Two ways in:
    *  - `lat`+`lng`  → a manual pin the farmer dropped on the map; saved as-is.
    *  - `address`    → re-geocoded (biased to the farm) and the result is saved.
@@ -1366,69 +1404,76 @@ export class RoutingService {
     let withoutEmail = 0;
 
     for (const r of route.routes) {
-      // Cumulative crow-flies distance origin→…→stop_i, a cheap proxy that splits
-      // the leg's measured drive time across its stops (no extra Maps calls). Also
-      // capture the per-stop straight-line gap from the previous point (the courier
-      // start for the first stop) so the review modal can show it.
-      const cumDist: number[] = [];
-      const distFromPrevKm: number[] = [];
-      let prev = originPt;
-      let cum = 0;
-      let lastLocated: Pt | null = null;
-      for (const s of r.stops) {
-        let legKm = 0;
-        if (prev && s.lat != null && s.lng != null) {
-          legKm = haversineKm(prev, { lat: s.lat, lng: s.lng });
-          cum += legKm;
-        }
-        distFromPrevKm.push(legKm);
-        cumDist.push(cum);
-        if (s.lat != null && s.lng != null) {
-          prev = { lat: s.lat, lng: s.lng };
-          lastLocated = prev;
-        }
-      }
-      // `driveMin` below (measured total duration) includes the return-to-
-      // depot/home leg whenever this courier's route has one (endMode !==
-      // 'last'). `cum` above only covers origin→…→last-stop, so a route WITH
-      // a return leg needs it added to the denominator too — otherwise every
-      // stop's time-share ratio is computed against a too-small total, and
-      // later stops (whose numerator already reflects the full, longer trip)
-      // get an inflated share, pushing their windows systematically late.
-      let totalDist = cum;
-      if (r.endMode !== 'last' && lastLocated && r.endLat != null && r.endLng != null) {
-        totalDist += haversineKm(lastLocated, { lat: r.endLat, lng: r.endLng });
-      }
-      const driveMin = r.totalDurationS != null ? r.totalDurationS / 60 : null;
-      // Cumulative drive minutes to each stop: the measured total apportioned by
-      // distance, or a flat per-leg fallback. The per-leg share (this minus the
-      // previous) is the drive time from the previous stop shown in the modal.
-      const driveTo = r.stops.map((_, i) =>
-        driveMin != null && totalDist > 0
-          ? (cumDist[i] / totalDist) * driveMin
-          : (i + 1) * FALLBACK_LEG_MIN,
-      );
+      // Where THIS leg begins: its per-courier base override, else the courier's
+      // current position (when supplied) or the farm — see originPt above.
+      const legStart: Pt | null =
+        r.startLat != null && r.startLng != null ? { lat: r.startLat, lng: r.startLng } : originPt;
 
-      const stops: DeliveryWindowStop[] = r.stops.map((s, i) => {
-        const driveToStop = driveTo[i];
-        const durationFromPrevS = Math.max(0, Math.round((driveToStop - (i > 0 ? driveTo[i - 1] : 0)) * 60));
-        const distanceFromPrevM = Math.round(distFromPrevKm[i] * 1000);
-        const arrival = dayStartMin + driveToStop + i * serviceMin;
-        let startMin = Math.floor(arrival / slotMin) * slotMin;
-        let endMin = startMin + slotMin;
+      const located = r.stops.filter(
+        (s): s is RouteStop & { lat: number; lng: number } => s.lat != null && s.lng != null,
+      );
+      const endPt: Pt | null =
+        r.endMode !== 'last' && r.endLat != null && r.endLng != null
+          ? { lat: r.endLat, lng: r.endLng }
+          : null;
+
+      // Prefer REAL per-leg road travel (one Routes call, chunked) from the leg
+      // start through the located stops (+ the ignored return leg); fall back to
+      // the crow-flies apportionment of the leg's measured total duration.
+      const seq: Pt[] = legStart
+        ? [legStart, ...located.map((s) => ({ lat: s.lat, lng: s.lng })), ...(endPt ? [endPt] : [])]
+        : [];
+      const real = seq.length >= 2 ? await this.measureLegs(seq) : null;
+
+      // Drive {km, min} INTO each located stop from the previous point.
+      const legInto = new Map<string, { km: number; min: number }>();
+      if (real) {
+        located.forEach((s, k) => {
+          const leg = real.legs[k];
+          legInto.set(s.id, { km: leg.distanceM / 1000, min: leg.durationS / 60 });
+        });
+      } else {
+        let prev = legStart;
+        let cum = 0;
+        const hKm: number[] = [];
+        for (const s of located) {
+          const km = prev ? haversineKm(prev, { lat: s.lat, lng: s.lng }) : 0;
+          hKm.push(km);
+          cum += km;
+          prev = { lat: s.lat, lng: s.lng };
+        }
+        let totalKm = cum;
+        if (endPt && prev) totalKm += haversineKm(prev, endPt);
+        const driveMin = r.totalDurationS != null ? r.totalDurationS / 60 : null;
+        located.forEach((s, k) => {
+          const min = driveMin != null && totalKm > 0 ? (hKm[k] / totalKm) * driveMin : FALLBACK_LEG_MIN;
+          legInto.set(s.id, { km: hKm[k], min });
+        });
+      }
+
+      // Walk the leg in visit order, accumulating real drive + per-stop service
+      // time; each window widens with the delay risk built up before it.
+      let cumDriveMin = 0;
+      let cumServiceMin = 0;
+      const stops: DeliveryWindowStop[] = r.stops.map((s) => {
+        const into = legInto.get(s.id) ?? { km: 0, min: located.length ? 0 : FALLBACK_LEG_MIN };
+        cumDriveMin += into.min;
+        const arrival = dayStartMin + cumDriveMin + cumServiceMin;
+        cumServiceMin += serviceMinFor(s.totalStotinki, serviceMin); // delays LATER stops
+        const width = windowWidthMin(cumDriveMin);
+        let startMin = floorToMin(arrival, WINDOW_START_GRAN_MIN);
+        let endMin = startMin + width;
         if (endMin > MAX_WINDOW_END_MIN) {
           endMin = MAX_WINDOW_END_MIN;
-          startMin = Math.max(0, endMin - slotMin);
+          startMin = Math.max(0, endMin - width);
         }
         const windowStart = minToHHMM(startMin);
         const windowEnd = minToHHMM(endMin);
         const hasEmail = !!s.email?.trim();
         if (!hasEmail) withoutEmail += 1;
         // Don't clobber an already-SENT window when the recomputed time is
-        // identical — regenerating (e.g. after a late add/cancel elsewhere in
-        // the day) must not reset a customer-notified stop back to 'draft'
-        // (risking a duplicate notification on the next approve+notify pass)
-        // unless the time actually changed.
+        // identical — regenerating (e.g. after a late add/cancel) must not reset a
+        // customer-notified stop to 'draft' and risk a duplicate notification.
         const unchangedSent =
           s.deliveryWindowStatus === 'sent' &&
           s.deliveryWindowStart === windowStart &&
@@ -1440,15 +1485,23 @@ export class RoutingService {
           id: s.id,
           customer: s.customer,
           email: s.email,
+          address: s.address,
           windowStart,
           windowEnd,
           hasEmail,
-          distanceFromPrevM,
-          durationFromPrevS,
+          distanceFromPrevM: Math.round(into.km * 1000),
+          durationFromPrevS: Math.round(into.min * 60),
+          valueStotinki: s.totalStotinki,
         };
       });
 
-      proposalCouriers.push({ courierIndex: r.courierIndex, name: r.name, stops });
+      proposalCouriers.push({
+        courierIndex: r.courierIndex,
+        name: r.name,
+        stops,
+        distanceM: real ? real.distanceM : r.totalDistanceM,
+        durationS: real ? real.durationS : r.totalDurationS,
+      });
     }
 
     // Persist as drafts (tenant-scoped). A delivery day is a handful of orders,
