@@ -123,6 +123,7 @@ function toInitials(name: string): string {
 // needs an entry — a missing one falls back to a bare "ФермериБГ".
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Днес',
+  '/overview': 'Табло',
   '/orders': 'Поръчки',
   '/prep': 'Подготовка',
   '/route': 'Маршрут',
