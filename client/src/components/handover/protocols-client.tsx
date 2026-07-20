@@ -1,15 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Printer, FileDown, Check, CheckCheck } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Printer, FileDown, Check, CheckCheck, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { DateNavBar } from '@/components/production/date-nav-bar';
 import { relDayLabel, todayIso } from '@/lib/utils';
 import {
   ApiError,
+  createProtocol,
   createProtocolBatch,
   ensureProtocolDraft,
+  getFarmerSignature,
+  getOperatorSignature,
+  getProtocolDraft,
   listDayProtocols,
   markProtocolSigned,
   protocolBatchPdfHref,
@@ -78,6 +82,9 @@ export function ProtocolsClient() {
   const [busy, setBusy] = useState<null | 'farmers' | 'orders' | 'signall'>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [signTarget, setSignTarget] = useState<{ farmerId: string; slotId: string } | null>(null);
+  // The operator's saved signature is the same for every row on this screen —
+  // fetch it once and reuse instead of re-fetching per quick-sign tap.
+  const operatorSigCache = useRef<{ fetched: boolean; value: string | null }>({ fetched: false, value: null });
 
   const load = useCallback(async (d: string) => {
     setLoading(true);
@@ -146,6 +153,56 @@ export function ProtocolsClient() {
     }
   }
 
+  async function getOperatorSigCached() {
+    if (!operatorSigCache.current.fetched) {
+      const { signaturePng } = await getOperatorSignature();
+      operatorSigCache.current = { fetched: true, value: signaturePng };
+    }
+    return operatorSigCache.current.value;
+  }
+
+  // One-tap sign a farmer leg: if BOTH the farmer's and the operator's saved
+  // signatures exist, sign immediately by posting with the signature keys
+  // OMITTED (the server auto-fills the saved, encrypted signatures — an
+  // explicit null instead means "no signature", which is a different thing).
+  // Otherwise fall back to the draw dialog and explain why.
+  async function quickSign(row: DayProtocolRow) {
+    if (!row.farmerId || !row.slotId) return;
+    if (markingId) return; // a sign/mark action is already in flight — ignore the extra tap
+    const farmerId = row.farmerId;
+    const slotId = row.slotId;
+    const key = rowKey(row);
+    setMarkingId(key);
+    try {
+      const [farmerSig, operatorSignaturePng] = await Promise.all([
+        getFarmerSignature(farmerId),
+        getOperatorSigCached(),
+      ]);
+      if (!farmerSig.signaturePng || !operatorSignaturePng) {
+        toast.info(
+          'Няма запазени подписи за подписване с едно докосване — запишете подпис в профила на фермера и в настройките на оператора.',
+        );
+        setSignTarget({ farmerId, slotId });
+        return;
+      }
+      const draft = await getProtocolDraft({ kind: 'farmer_to_operator', farmerId, slotId });
+      const res = await createProtocol({
+        kind: 'farmer_to_operator',
+        farmerId,
+        slotId,
+        items: draft.items,
+        meta: {},
+        // fromSignaturePng / toSignaturePng intentionally OMITTED — server auto-fills saved signatures
+      });
+      toast.success(`Протокол № ${res.protocolNumber} подписан`);
+      await load(date);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setMarkingId(null);
+    }
+  }
+
   // Open a row's PDF. A saved row streams its stored (numbered) PDF directly. A
   // virtual row is first materialized into a numbered draft (ensureProtocolDraft)
   // so the PDF prints WITH a protocol number — a blank tab is opened synchronously
@@ -177,6 +234,12 @@ export function ProtocolsClient() {
           <DateNavBar date={date} dateLabel={relDayLabel(date)} onSelect={setDate} />
         </div>
         <div className="flex flex-wrap gap-2 max-[680px]:w-full">
+          <a
+            href="/protocols/check"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-ff-ink px-3.5 py-2 text-[13.5px] font-bold text-white max-[680px]:w-full"
+          >
+            <ShieldCheck size={16} /> Проверка
+          </a>
           <Button
             variant="outline"
             onClick={() => void printKind('farmer_to_operator')}
@@ -233,7 +296,8 @@ export function ProtocolsClient() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setSignTarget({ farmerId: row.farmerId!, slotId: row.slotId! })}
+                          disabled={markingId === rowKey(row)}
+                          onClick={() => void quickSign(row)}
                         >
                           Подпиши дигитално
                         </Button>
@@ -271,7 +335,8 @@ export function ProtocolsClient() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setSignTarget({ farmerId: row.farmerId!, slotId: row.slotId! })}
+                      disabled={markingId === rowKey(row)}
+                      onClick={() => void quickSign(row)}
                     >
                       Подпиши дигитално
                     </Button>

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { SignaturePad } from './signature-pad';
+import { SignaturePadField } from './signature-pad-field';
 import { moneyFromStotinki } from '@/lib/utils';
 import { ApiError, createProtocol, getProtocolDraft, protocolPdfHref } from '@/lib/api-client';
 import type { LegalIdentity, ProtocolDraft } from '@/lib/types';
@@ -139,8 +139,10 @@ export function ProtocolDialog({
               </div>
 
               <div className="mb-4 grid grid-cols-2 gap-3">
-                <SignaturePad label="Предал" onChange={setFromSignaturePng} />
-                {!noSignature && <SignaturePad label="Приел" onChange={setToSignaturePng} />}
+                <SignaturePadField value={fromSignaturePng} onChange={setFromSignaturePng} label="Предал" />
+                {!noSignature && (
+                  <SignaturePadField value={toSignaturePng} onChange={setToSignaturePng} label="Приел" />
+                )}
               </div>
 
               <label className="flex cursor-pointer items-center gap-2 text-[13px] font-semibold text-ff-ink-2">

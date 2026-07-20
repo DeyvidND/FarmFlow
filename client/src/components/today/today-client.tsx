@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, relDayLabel, type OrderStatus } from '@/lib/utils';
 import { DateNavBar } from '@/components/production/date-nav-bar';
@@ -165,6 +167,27 @@ export default function TodayClient({
         </div>
         <DateNavBar date={date} dateLabel={relDayLabel(date)} onSelect={loadDay} hrefBase="/dashboard" />
       </div>
+
+      {/* Roadside quick action — a courier pulled over mid-delivery must reach
+          the day's signed protocols in one tap from the landing screen, not
+          three taps deep via the Протоколи tile → Проверка button. Only shown
+          when there's anything to show for today. */}
+      {summary.protocols.total > 0 && (
+        <Link
+          href="/protocols/check"
+          className="mb-4 flex w-full items-center gap-[13px] rounded-[13px] border border-ff-border bg-ff-surface-2 p-[13px] text-left shadow-ff-sm transition hover:brightness-95"
+        >
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-ff-green-100 text-ff-green-700">
+            <ShieldCheck size={22} />
+          </span>
+          <span className="flex min-w-0 flex-col gap-0.5 leading-[1.3]">
+            <span className="text-[14.5px] font-extrabold text-ff-ink">Протоколи при проверка</span>
+            <span className="text-[12.5px] text-ff-muted">
+              {summary.protocols.signed} подписани за днес
+            </span>
+          </span>
+        </Link>
+      )}
 
       {readiness && <StoreReadinessCard readiness={readiness} />}
       {readiness && <OnboardingModal readiness={readiness} />}
