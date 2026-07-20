@@ -1,4 +1,4 @@
-import { encryptSignature, decryptSignature, looksEncrypted } from './signature-crypto';
+import { encryptSignature, decryptSignature, looksEncrypted, SignatureKeyMissingError } from './signature-crypto';
 
 const KEY = 'test-key-123';
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -11,8 +11,9 @@ describe('signature-crypto', () => {
     expect(decryptSignature(enc, KEY)).toEqual(PNG);
   });
 
-  it('degrades to plaintext when no key', () => {
-    expect(encryptSignature(PNG, undefined)).toEqual(PNG);
+  it('REFUSES to encrypt without a key (never stores plaintext)', () => {
+    expect(() => encryptSignature(PNG, undefined)).toThrow(SignatureKeyMissingError);
+    expect(() => encryptSignature(PNG, '')).toThrow(SignatureKeyMissingError);
   });
 
   it('passes legacy plaintext data-URL through decrypt unchanged', () => {
@@ -25,7 +26,17 @@ describe('signature-crypto', () => {
     expect(decryptSignature('', KEY)).toBeNull();
   });
 
-  it('tolerates a malformed ciphertext-shaped value', () => {
-    expect(decryptSignature('aa:bb:cc', KEY)).toBe('aa:bb:cc');
+  it('returns null for ciphertext when no key is configured', () => {
+    const enc = encryptSignature(PNG, KEY);
+    expect(decryptSignature(enc, undefined)).toBeNull();
+  });
+
+  it('returns null for a malformed ciphertext-shaped value', () => {
+    expect(decryptSignature('aa:bb:cc', KEY)).toBeNull();
+  });
+
+  it('returns null when the key does not match (rotated key)', () => {
+    const enc = encryptSignature(PNG, KEY);
+    expect(decryptSignature(enc, 'a-different-key')).toBeNull();
   });
 });
