@@ -2,84 +2,84 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { PDFDocument } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { CONTENT_W, composeProtocol, descriptor, renderProtocolPdf, wrap } from './handover-pdf';
+import { CONTENT_W, composeProtocol, renderProtocolPdf, wrap } from './handover-pdf';
 
+/** Row shape for the render smoke tests (no phone/email — legacy-shaped row). */
 const ROW = {
   kind: 'farmer_to_operator', protocolNumber: 41,
   signedAt: new Date('2026-07-13T09:00:00Z'), createdAt: new Date('2026-07-13T08:00:00Z'),
   fromSnapshot: { name: 'ЕТ Васил Петров', eik: '203912345', address: 'с. Розино' },
-  toSnapshot: { name: 'ЕТ Оператор', eik: '111222333' },
+  toSnapshot: { name: 'ЕТ Оператор', eik: '111222333', address: 'гр. Варна, бул. Сливница 1' },
   items: [{ productName: 'Домати', quantity: 5, unit: 'кг', priceStotinki: 300 }],
   totalStotinki: 1500, fromSignaturePng: null, toSignaturePng: null, signMode: 'pending',
 };
 
 const isPdf = (buf: Buffer) => buf.length > 1000 && buf.subarray(0, 5).toString() === '%PDF-';
 
-describe('composeProtocol (pure text)', () => {
-  it('builds the farmer protocol prose, items and footer', () => {
-    const t = composeProtocol(ROW);
+/** Fixture for the pure-text `composeProtocol` assertions (task-7 brief). */
+const base = {
+  kind: 'farmer_to_operator',
+  protocolNumber: 7,
+  signedAt: new Date('2026-07-20T09:00:00Z'),
+  fromSnapshot: { name: 'ЕТ Димка Четова', eik: '203912345', address: 'гр. Варна, ул. Приморска 12', phone: '0888123456', email: 'dimka@example.bg' },
+  toSnapshot: { name: 'ФермериБГ ЕООД', eik: '206000111', address: 'гр. Варна, бул. Сливница 1', phone: '0700', email: 'ops@fermeri.bg' },
+  items: [{ productName: 'Домати', quantity: 5, unit: 'кг' }],
+  meta: { orderNumbers: [101, 102] },
+};
+
+describe('composeProtocol (bilateral)', () => {
+  it('builds the two-party structure with our data', () => {
+    const t = composeProtocol(base);
     expect(t.title).toBe('ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ');
-    expect(t.number).toBe('№ 41');
-    expect(t.sentence).toContain('13.07.2026 г.');
-    expect(t.sentence).toContain('ЕТ Васил Петров (ЕИК 203912345), адрес с. Розино предаде на');
-    expect(t.sentence).toContain('ЕТ Оператор (ЕИК 111222333)');
-    expect(t.sentence).toContain('във връзка с доставка на селскостопанска продукция, долуописаните стоки:');
-    expect(t.itemLines).toEqual(['1. Домати — 5 кг']);
-    expect(t.footer).toBe('Настоящият протокол се състави в два еднообразни екземпляра — по един за всяка страна.');
-    expect(t.fromName).toBe('ЕТ Васил Петров');
-    expect(t.toName).toBe('ЕТ Оператор');
+    expect(t.number).toBe('№ 7');
+    expect(t.opening).toContain('Днес, 20.07.2026 г.');
+    expect(t.opening).toContain('в гр. Варна');
+    expect(t.from.role).toBe('ПРЕДАВА:');
+    expect(t.from.name).toBe('ЕТ Димка Четова');
+    expect(t.from.idLine).toBe('ЕИК 203912345');
+    expect(t.from.phone).toBe('0888123456');
+    expect(t.to.role).toBe('ПРИЕМА:');
+    expect(t.intro).toContain('се състави настоящият приемо-предавателен протокол');
+    expect(t.itemLines[0]).toBe('1. Домати — 5 кг');
+    expect(t.footer).toContain('два еднообразни екземпляра');
+  });
+
+  it('customer leg → разписка, no ЕИК on the customer', () => {
+    const t = composeProtocol({ ...base, kind: 'operator_to_customer', toSnapshot: { name: 'Иван Петров', phone: '0899', address: 'гр. Варна' } });
+    expect(t.title).toBe('РАЗПИСКА ЗА ПОЛУЧЕНА СТОКА');
+    expect(t.to.idLine).toBeNull();
+  });
+
+  it('drops the „в гр." clause when the operator address has no settlement', () => {
+    const t = composeProtocol({ ...base, fromSnapshot: { ...base.fromSnapshot }, toSnapshot: { ...base.toSnapshot, address: 'ул. без град' } });
+    expect(t.opening).not.toContain('в гр.');
   });
 
   it('dates the protocol in Europe/Sofia even when the process runs UTC (as prod does)', () => {
     // The suite runs UTC (see test/set-tz.ts) because prod and CI do, while dev
-    // machines here run Europe/Sofia — where the local-getter bug produced the
-    // right answer and hid. 2026-07-16T22:30:00Z is 01:30 on the 17th in Sofia
-    // (EEST, UTC+3): the протокол is a legal document and must carry the date it
-    // was actually signed.
-    const t = composeProtocol({ ...ROW, signedAt: new Date('2026-07-16T22:30:00Z') });
-    expect(t.sentence).toContain('17.07.2026 г.');
-    expect(t.sentence).not.toContain('16.07.2026 г.');
+    // machines here run Europe/Sofia — where a local-getter bug would have produced
+    // the right answer and hidden. 2026-07-16T22:30:00Z is 01:30 on the 17th in
+    // Sofia (EEST, UTC+3): the протокол is a legal document and must carry the
+    // date it was actually signed.
+    const t = composeProtocol({ ...base, signedAt: new Date('2026-07-16T22:30:00Z') });
+    expect(t.opening).toContain('17.07.2026 г.');
+    expect(t.opening).not.toContain('16.07.2026 г.');
   });
 
-  it('folds meta.orderNumbers into the farmer reason line', () => {
-    const t = composeProtocol({ ...ROW, meta: { orderNumbers: [1041, 1042] } });
-    expect(t.sentence).toContain('по поръчки № 1041, 1042');
-  });
-
-  it('omits the order-number fragment when meta is absent (back-compat)', () => {
-    const t = composeProtocol(ROW);
-    expect(t.sentence).not.toContain('поръчк');
-    expect(t.sentence).toContain('във връзка с доставка на селскостопанска продукция,');
-  });
-
-  it('uses the receipt title, customer-without-id and single-order wording for the customer leg', () => {
-    const t = composeProtocol({
-      ...ROW, kind: 'operator_to_customer', protocolNumber: 42,
-      toSnapshot: { name: 'Иван Петров', phone: '0888', address: 'гр. Русе, ул. Клиент 5' },
-      meta: { orderNumbers: [1041] },
-    });
-    expect(t.title).toBe('РАЗПИСКА ЗА ПОЛУЧЕНА СТОКА');
-    // Customer (to) carries no legal id: name → address → straight to the reason, no „(ЕИК …)".
-    expect(t.sentence).toContain('предаде на Иван Петров, адрес гр. Русе, ул. Клиент 5, във връзка с поръчка № 1041');
-    expect(t.sentence).toContain('във връзка с поръчка № 1041');
-    expect(t.footer).toContain('Настоящата разписка');
+  it('never prints an empty labelled field — omits idLine/phone/email that have no value', () => {
+    const t = composeProtocol({ ...base, toSnapshot: { name: 'ФермериБГ ЕООД', address: 'гр. Варна, бул. Сливница 1' } });
+    expect(t.to.idLine).toBeNull();
+    expect(t.to.phone).toBeNull();
+    expect(t.to.email).toBeNull();
   });
 
   it('renders a variant label and no number for an unsaved preview row', () => {
     const t = composeProtocol({
-      ...ROW, protocolNumber: null,
-      items: [{ productName: 'Яйца', variantLabel: 'размер L', quantity: 30, unit: 'бр', priceStotinki: 55 }],
+      ...base, protocolNumber: null,
+      items: [{ productName: 'Яйца', variantLabel: 'размер L', quantity: 30, unit: 'бр' }],
     });
     expect(t.number).toBeNull();
     expect(t.itemLines).toEqual(['1. Яйца · размер L — 30 бр']);
-  });
-});
-
-describe('descriptor', () => {
-  it('prefers ЕИК, then рег.№, and appends the address', () => {
-    expect(descriptor({ name: 'Ф', eik: '123', regNo: '9', address: 'ул. 1' }, true)).toBe('Ф (ЕИК 123), адрес ул. 1');
-    expect(descriptor({ name: 'Ф', regNo: '9' }, true)).toBe('Ф (рег.№ 9)');
-    expect(descriptor({ name: 'Клиент', eik: '123', address: 'ул. 1' }, false)).toBe('Клиент, адрес ул. 1');
   });
 });
 
@@ -88,35 +88,35 @@ describe('wrap keeps every line inside the content width', () => {
     const doc = await PDFDocument.create();
     doc.registerFontkit(fontkit);
     const font = await doc.embedFont(readFileSync(join(__dirname, '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf')));
-    const t = composeProtocol({
-      ...ROW,
-      fromSnapshot: { name: '„Земеделска кооперация Слънчоглед и партньори" ООД', eik: '205012345', address: 'гр. Русе, бул. Липник 123, ет. 4, ап. 5' },
-      meta: { orderNumbers: [1041, 1042, 1043, 1044, 1045] },
-    });
-    for (const line of wrap(t.sentence, font, 11, CONTENT_W)) {
+    const long = '„Земеделска кооперация Слънчоглед и партньори" ООД, адрес гр. Русе, бул. Липник 123, ет. 4, ап. 5, тел.: 0888123456, e-mail: office@example.bg';
+    for (const line of wrap(long, font, 11, CONTENT_W)) {
       expect(font.widthOfTextAtSize(line, 11)).toBeLessThanOrEqual(CONTENT_W);
     }
   });
 });
 
 describe('renderProtocolPdf', () => {
-  it('produces a non-empty PDF for a Cyrillic farmer protocol (no encoding error)', async () => {
+  it('produces a non-empty PDF for a Cyrillic farmer protocol with no signatures', async () => {
     expect(isPdf(await renderProtocolPdf(ROW as any))).toBe(true);
   });
 
-  it('renders the customer receipt with order numbers', async () => {
+  it('renders the customer receipt', async () => {
     const buf = await renderProtocolPdf({ ...ROW, kind: 'operator_to_customer',
-      toSnapshot: { name: 'Иван Петров', phone: '0888', address: 'гр. Русе, ул. Клиент 5' },
-      meta: { orderNumbers: [1041] } } as any);
+      toSnapshot: { name: 'Иван Петров', phone: '0888', address: 'гр. Русе, ул. Клиент 5' } } as any);
     expect(isPdf(buf)).toBe(true);
   });
 
-  it('renders a row with no meta (order-number fragment omitted — back-compat)', async () => {
+  it('renders a row with no meta (back-compat)', async () => {
     const { meta, ...noMeta } = { ...ROW } as any;
     expect(isPdf(await renderProtocolPdf(noMeta))).toBe(true);
   });
 
   it('falls back to a blank signature line when fromSignaturePng is malformed (no crash)', async () => {
     expect(isPdf(await renderProtocolPdf({ ...ROW, fromSignaturePng: 'not-a-real-data-uri' } as any))).toBe(true);
+  });
+
+  it('renders a realistic ~12-item protocol without the signature blocks colliding with the list', async () => {
+    const items = Array.from({ length: 12 }, (_, i) => ({ productName: `Продукт ${i + 1}`, quantity: i + 1, unit: 'кг' }));
+    expect(isPdf(await renderProtocolPdf({ ...ROW, items }))).toBe(true);
   });
 });

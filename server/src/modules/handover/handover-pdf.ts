@@ -3,6 +3,7 @@ import fontkit from '@pdf-lib/fontkit';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { bgDateOf } from '../../common/time/bg-time';
+import { cityFromAddress } from './handover-city';
 
 const FONT = readFileSync(join(__dirname, '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf'));
 
@@ -46,55 +47,70 @@ export function wrap(text: string, font: PDFFont, size: number, maxWidth: number
   return lines;
 }
 
-/**
- * Party descriptor for the prose sentence:
- * `Име (ЕИК …)` or `Име (рег.№ …)`, plus `, адрес …` when present. `withId=false`
- * (a customer) prints only the name + address — customers carry no ЕИК/рег.№.
- */
-export function descriptor(p: any, withId: boolean): string {
-  let out = String(p?.name ?? '—');
-  if (withId) {
-    const id = p?.eik ? `ЕИК ${p.eik}` : p?.regNo ? `рег.№ ${p.regNo}` : null;
-    if (id) out += ` (${id})`;
-  }
-  if (p?.address) out += `, адрес ${p.address}`;
-  return out;
+export interface PartyText {
+  role: string; // 'ПРЕДАВА:' | 'ПРИЕМА:'
+  name: string;
+  idLine: string | null; // 'ЕИК 203912345' | 'рег.№ …' | null
+  address: string | null;
+  phone: string | null;
+  email: string | null;
 }
 
 export interface ProtocolText {
   title: string;
   number: string | null;
-  sentence: string;
+  opening: string; // 'Днес, 20.07.2026 г., в гр. Варна, между:'
+  from: PartyText;
+  to: PartyText;
+  intro: string; // 'се състави настоящият приемо-предавателен протокол за долуописаните стоки:'
   itemLines: string[];
   footer: string;
   fromName: string;
   toName: string;
 }
 
+/** ЕИК / рег.№ line for a party (skipped for a customer / no id). */
+function idLineOf(p: any, withId: boolean): string | null {
+  if (!withId) return null;
+  if (p?.eik) return `ЕИК ${p.eik}`;
+  if (p?.regNo) return `рег.№ ${p.regNo}`;
+  return null;
+}
+
+function partyText(p: any, role: string, withId: boolean): PartyText {
+  return {
+    role,
+    name: String(p?.name ?? '—'),
+    idLine: idLineOf(p, withId),
+    address: p?.address ? String(p.address) : null,
+    phone: p?.phone ? String(p.phone) : null,
+    email: p?.email ? String(p.email) : null,
+  };
+}
+
 /**
  * Pure text composition for a handover protocol — everything printable derived
  * from the frozen row, no drawing. Kind-aware: farmer leg →
  * „ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ" with legal ids on both parties; customer leg →
- * „РАЗПИСКА ЗА ПОЛУЧЕНА СТОКА" with the customer (no id) as receiver. Order
- * numbers come from `row.meta.orderNumbers`; absent (old rows) → the „поръчки №"
- * fragment is dropped. `itemLines` includes 2 dotted continuation slots for
- * hand-written additions on the round.
+ * „РАЗПИСКА ЗА ПОЛУЧЕНА СТОКА" with the customer (no id) as receiver. Matches
+ * the structure of the customer's real bilateral .doc: title → № → opening →
+ * ПРЕДАВА/ПРИЕМА party blocks → intro → numbered items → footer → signatures.
+ * A line with no value (no phone, no address, …) is simply omitted — never
+ * rendered as an empty labelled field. `itemLines` includes 2 dotted
+ * continuation slots for hand-written additions on the round (added at draw
+ * time, not here — this stays pure text of the actual items).
  */
 export function composeProtocol(row: any): ProtocolText {
   const isCustomer = row.kind === 'operator_to_customer';
   const when = dateBg(new Date(row.signedAt ?? row.createdAt ?? Date.now()));
-  const fromDesc = descriptor(row.fromSnapshot, true);
-  const toDesc = descriptor(row.toSnapshot, !isCustomer);
 
-  const orderNums: number[] | undefined = row.meta?.orderNumbers;
-  const nums = orderNums?.length ? orderNums.join(', ') : null;
-  const reason = isCustomer
-    ? nums
-      ? `във връзка с поръчка № ${nums}`
-      : 'във връзка с направената поръчка'
-    : nums
-      ? `във връзка с доставка на селскостопанска продукция по поръчки № ${nums}`
-      : 'във връзка с доставка на селскостопанска продукция';
+  // Operator is the receiver on a farmer leg, the sender on a customer leg.
+  const operatorSnap = isCustomer ? row.fromSnapshot : row.toSnapshot;
+  const city = cityFromAddress(operatorSnap?.address);
+  const cityClause = city ? `, в ${city.prefix} ${city.name}` : '';
+
+  const from = partyText(row.fromSnapshot, 'ПРЕДАВА:', true);
+  const to = partyText(row.toSnapshot, 'ПРИЕМА:', !isCustomer);
 
   const items: any[] = row.items ?? [];
   const itemLines = items.map((it, i) => {
@@ -103,16 +119,19 @@ export function composeProtocol(row: any): ProtocolText {
     return `${i + 1}. ${it.productName}${variant} — ${qty}`;
   });
 
-  const noun = isCustomer ? 'Настоящата разписка' : 'Настоящият протокол';
+  const docNoun = isCustomer ? 'настоящата разписка за получена стока' : 'настоящият приемо-предавателен протокол';
 
   return {
     title: isCustomer ? 'РАЗПИСКА ЗА ПОЛУЧЕНА СТОКА' : 'ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ',
     number: row.protocolNumber != null ? `№ ${row.protocolNumber}` : null,
-    sentence: `Днес, ${when}, ${fromDesc} предаде на ${toDesc}, ${reason}, долуописаните стоки:`,
+    opening: `Днес, ${when}${cityClause}, между:`,
+    from,
+    to,
+    intro: `се състави ${docNoun} за долуописаните стоки:`,
     itemLines,
-    footer: `${noun} се състави в два еднообразни екземпляра — по един за всяка страна.`,
-    fromName: String(row.fromSnapshot?.name ?? ''),
-    toName: String(row.toSnapshot?.name ?? ''),
+    footer: `${isCustomer ? 'Настоящата разписка' : 'Настоящият протокол'} се състави в два еднообразни екземпляра — по един за всяка страна.`,
+    fromName: from.name,
+    toName: to.name,
   };
 }
 
@@ -130,28 +149,41 @@ export async function renderProtocolPdf(row: any): Promise<Buffer> {
       y -= lh;
     }
   };
+  /** Draws `text` centered on the page at the current `size` and current `y`; returns its box. */
   const drawCentered = (text: string, size: number) => {
     const w = font.widthOfTextAtSize(text, size);
-    return { x: (PAGE_W - w) / 2, w };
+    const x = (PAGE_W - w) / 2;
+    page.drawText(text, { x, y, size, font, color: INK });
+    return { x, w };
   };
 
   // ── Title (centered, faux-bold, underlined) ──────────────────────────────
   const titleSize = 16;
   const { x: titleX, w: titleW } = drawCentered(t.title, titleSize);
-  page.drawText(t.title, { x: titleX, y, size: titleSize, font, color: INK });
-  page.drawText(t.title, { x: titleX + 0.4, y, size: titleSize, font, color: INK }); // faux-bold
+  page.drawText(t.title, { x: titleX + 0.4, y, size: titleSize, font, color: INK }); // faux-bold overlay
   page.drawLine({ start: { x: titleX, y: y - 4 }, end: { x: titleX + titleW, y: y - 4 }, thickness: 1, color: INK });
   y -= titleSize + 8;
 
   if (t.number) {
-    const { x } = drawCentered(t.number, 11);
-    page.drawText(t.number, { x, y, size: 11, font, color: INK });
+    drawCentered(t.number, 11);
     y -= 11 + 6;
   }
-  y -= 14;
+  y -= 10;
 
-  // ── Prose opening sentence ───────────────────────────────────────────────
-  drawLeft(t.sentence, MARGIN);
+  // ── Opening line ("Днес, <дата>[, в гр. X], между:") ──────────────────────
+  drawLeft(t.opening, MARGIN);
+  y -= 10;
+
+  // ── ПРЕДАВА party, centered „и", ПРИЕМА party ─────────────────────────────
+  y = drawParty(page, font, MARGIN, y, t.from);
+  y -= 6;
+  drawCentered('и', 12);
+  y -= 12 + 6;
+  y = drawParty(page, font, MARGIN, y, t.to);
+  y -= 4;
+
+  // ── Intro line ─────────────────────────────────────────────────────────
+  drawLeft(t.intro, MARGIN);
   y -= 10;
 
   // ── Numbered inventory + 2 dotted continuation lines ─────────────────────
@@ -175,6 +207,33 @@ export async function renderProtocolPdf(row: any): Promise<Buffer> {
   await sigBlock(doc, page, font, PAGE_W / 2 + 10, sigY, 'Приел', t.toName, row.toSignaturePng);
 
   return Buffer.from(await doc.save());
+}
+
+/**
+ * Draws one ПРЕДАВА/ПРИЕМА party block (role, name in faux-bold, then whichever
+ * of idLine/address/contact the party actually has — a field with no value is
+ * simply never drawn, never printed as an empty labelled line). Returns the
+ * cursor `y` after the block so the caller can keep laying out below it.
+ */
+function drawParty(page: PDFPage, font: PDFFont, x: number, startY: number, p: PartyText): number {
+  let y = startY;
+  const line = (text: string, size = BODY_SIZE, bold = false) => {
+    page.drawText(text, { x, y, size, font, color: INK });
+    if (bold) page.drawText(text, { x: x + 0.4, y, size, font, color: INK });
+    y -= BODY_LH;
+  };
+  line(p.role, BODY_SIZE, true);
+  line(p.name, BODY_SIZE, true);
+  if (p.idLine) line(p.idLine);
+  if (p.address) {
+    for (const l of wrap(`адрес: ${p.address}`, font, BODY_SIZE, CONTENT_W)) {
+      page.drawText(l, { x, y, size: BODY_SIZE, font, color: INK });
+      y -= BODY_LH;
+    }
+  }
+  const contact = [p.phone && `тел.: ${p.phone}`, p.email && `e-mail: ${p.email}`].filter(Boolean).join('   ');
+  if (contact) line(contact);
+  return y;
 }
 
 async function sigBlock(
