@@ -7,7 +7,7 @@ import {
   ForbiddenException,
   Optional,
 } from '@nestjs/common';
-import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   type Database,
   orders,
@@ -25,7 +25,7 @@ import type { Product, ProductVariant } from '@fermeribg/types';
 import { effectivePriceStotinki } from '../products/promo.util';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
-import { bgToday, bgDayBounds, bgDate, bgAddDays } from '../../common/time/bg-time';
+import { bgToday, bgDate, bgAddDays } from '../../common/time/bg-time';
 import { buildKeysetPage, clampLimit, cursorTs, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -2069,17 +2069,30 @@ export class OrdersService {
     return this.setCodOutcome(id, tenantId, dto);
   }
 
-  /** Bulk confirm all pending orders (optionally for a single day). */
+  /**
+   * Bulk confirm all pending orders (optionally scoped to a single DELIVERY
+   * day). `date` is a delivery day (scheduledForDay), matching the „Днес"
+   * page's pipeline.new count — NOT the placed day. An UPDATE can't
+   * leftJoin(deliverySlots) directly (landmine — see server/CLAUDE.md), so the
+   * day scoping goes through `id IN (subselect that joins)`.
+   */
   async confirmPending(tenantId: string, date?: string): Promise<{ confirmed: number }> {
-    const conds = [eq(orders.tenantId, tenantId), eq(orders.status, 'pending')];
+    const baseConds = [eq(orders.tenantId, tenantId), eq(orders.status, 'pending')];
+    let whereClause: SQL | undefined;
     if (date) {
-      const { from, to } = bgDayBounds(date);
-      conds.push(gte(orders.createdAt, from), lt(orders.createdAt, to));
+      const scheduledIds = this.db
+        .select({ id: orders.id })
+        .from(orders)
+        .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+        .where(and(eq(orders.tenantId, tenantId), eq(orders.status, 'pending'), scheduledForDay(date)));
+      whereClause = and(...baseConds, inArray(orders.id, scheduledIds));
+    } else {
+      whereClause = and(...baseConds);
     }
     const rows = await this.db
       .update(orders)
       .set({ status: 'confirmed' })
-      .where(and(...conds))
+      .where(whereClause)
       .returning({ id: orders.id });
     // Each row was pending → confirmed (one-time): notify each buyer + (for Econt
     // orders on an auto-create farm) generate the waybill. Drained with a small
