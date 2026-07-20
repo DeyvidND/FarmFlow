@@ -102,9 +102,9 @@ import { encryptSecret, decryptSecret } from './secret.util';
 
 /**
  * Encryption for a stored, reusable signature PNG (data-URL). Wraps the shared
- * AES-256-GCM `secret.util`. `ENCRYPTION_KEY` is OPTIONAL in this deployment, so
- * both helpers DEGRADE to plaintext when no key is configured (dev) — the feature
- * still works; production always has the key set (Econt creds require it too).
+ * AES-256-GCM `secret.util`. A signature must NEVER be stored unencrypted: with no
+ * `ENCRYPTION_KEY` configured, writes are refused (`SignatureKeyMissingError`) rather
+ * than degrading to plaintext.
  */
 
 /** True when `v` has our ciphertext shape: three non-empty base64 parts `iv:tag:ct`.
@@ -155,7 +155,7 @@ export function decryptSignature(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @fermeribg/api test -- signature-crypto`
-Expected: PASS (5 tests).
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
 
