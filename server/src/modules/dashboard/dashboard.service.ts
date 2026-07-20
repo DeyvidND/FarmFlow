@@ -207,7 +207,34 @@ export class DashboardService {
       .groupBy(orderFulfillments.orderId)
       .having(sql`bool_and(${orderFulfillments.state} = 'fulfilled')`);
 
-    const [pipelineRows, courierRows, [cod], fulfilledRows] = await Promise.all([pipelineP, couriersP, codP, fulfilledP]);
+    const signedP = this.db
+      .select({ signed: sql<number>`count(*)::int` })
+      .from(handoverProtocols)
+      .innerJoin(deliverySlots, eq(deliverySlots.id, handoverProtocols.slotId))
+      .where(and(eq(handoverProtocols.tenantId, tenantId), eq(deliverySlots.date, day), eq(handoverProtocols.status, 'signed')));
+
+    // Distinct (farmer, slot) legs among handover-ready line items scheduled today.
+    const farmerLegsP = this.db
+      .select({ farmerId: products.farmerId, slotId: orders.slotId })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.status, ['confirmed', 'preparing']), sched))
+      .groupBy(products.farmerId, orders.slotId);
+
+    const customerLegsP = this.db
+      .select({ customerLegs: sql<number>`count(*)::int` })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.deliveryType, 'address'), inArray(orders.status, ['confirmed', 'preparing']), sched));
+
+    const [pipelineRows, courierRows, [cod], fulfilledRows, [signedRow], farmerLegRows, [custRow]] = await Promise.all([
+      pipelineP, couriersP, codP, fulfilledP, signedP, farmerLegsP, customerLegsP,
+    ]);
+
+    const protoTotal = farmerLegRows.length + (custRow?.customerLegs ?? 0);
+    const protoSigned = signedRow?.signed ?? 0;
 
     const by = (s: string) => pipelineRows.find((r) => r.status === s);
     const cnt = (s: string) => by(s)?.count ?? 0;
@@ -230,7 +257,7 @@ export class DashboardService {
       pipeline,
       prep: { ordersToPrep: pipeline.confirmed + pipeline.preparing, fulfilled: fulfilledRows.length },
       route: { stops: routeStops, delivered: routeDelivered, pending: routeStops - routeDelivered, couriers: courierRows.length },
-      protocols: { total: 0, signed: 0, pending: 0 },
+      protocols: { total: protoTotal, signed: protoSigned, pending: Math.max(0, protoTotal - protoSigned) },
       cod: cod ?? { toCollectStotinki: 0, toCollectCount: 0, collectedStotinki: 0, collectedCount: 0 },
       revenueStotinki,
       slots: [],

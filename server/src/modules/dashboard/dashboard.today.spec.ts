@@ -74,4 +74,15 @@ describe('DashboardService.todaySummary', () => {
     expect(out.cod).toEqual({ toCollectStotinki: 4000, toCollectCount: 2, collectedStotinki: 1500, collectedCount: 1 });
     expect(out.prep.fulfilled).toBe(2);
   });
+
+  it('counts protocols: farmer-legs + customer-legs expected, persisted signed, clamped pending', async () => {
+    const db = makeDb({
+      pipeline: [{ status: 'confirmed', count: 3, totalStotinki: 6000, addr: 2 }],
+      signed: [{ signed: 1 }],
+      farmerLegs: [{ farmerId: 'f1', slotId: 's1' }, { farmerId: 'f2', slotId: 's1' }], // 2 farmer legs
+      customerLegs: [{ customerLegs: 2 }], // 2 address deliveries
+    });
+    const out = await svc(db).todaySummary('t1', '2026-07-20');
+    expect(out.protocols).toEqual({ total: 4, signed: 1, pending: 3 }); // 2+2 expected, 1 signed
+  });
 });
