@@ -61,9 +61,9 @@ export const navGroupKey = (title: string) => `group:${title}`;
  *  (the post-login landing page + a safe anchor), so it is never hideable. */
 export const HOME: NavItem = {
   href: '/dashboard',
-  label: 'Табло',
+  label: 'Днес',
   Icon: LayoutDashboard,
-  desc: 'Начален преглед — обобщение на продажби и поръчки.',
+  desc: 'Днешните поръчки, подготовка, маршрут и пари — всичко за деня.',
 };
 
 // Grouped by function — the everyday order pipeline (Продажби) stays open; the

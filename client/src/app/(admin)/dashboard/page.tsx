@@ -1,51 +1,43 @@
 import { cookies } from 'next/headers';
 import { API_BASE, SESSION_COOKIE } from '@/lib/session';
-import { DashboardClient } from '@/components/dashboard/dashboard-client';
+import TodayClient from '@/components/today/today-client';
 import type { StoreReadiness } from '@/components/dashboard/store-readiness-card';
-import type { DashboardSummary, DeliveryConfig, Order } from '@/lib/types';
-import type { BillingSummary } from '@/lib/api-client';
+import type { DeliveryConfig, Order, TodaySummary } from '@/lib/types';
+import { todayIso } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-const EMPTY: DashboardSummary = {
+/** Zeroed cockpit — the graceful fallback when a fetch fails or the session is
+ *  missing, so the „Днес" home always renders instead of throwing. */
+const EMPTY: TodaySummary = {
   date: '',
-  orderCount: 0,
-  orderDelta: 0,
+  pipeline: { new: 0, confirmed: 0, preparing: 0, outForDelivery: 0, delivered: 0, cancelled: 0, total: 0 },
+  prep: { ordersToPrep: 0, fulfilled: 0 },
+  route: { stops: 0, delivered: 0, pending: 0, couriers: 0 },
+  protocols: { total: 0, signed: 0, pending: 0 },
+  cod: { toCollectStotinki: 0, toCollectCount: 0, collectedStotinki: 0, collectedCount: 0 },
   revenueStotinki: 0,
-  deliveryRevenueStotinki: 0,
-  pendingCount: 0,
-  nextSlot: null,
   slots: [],
-  subscriptionActive: true,
 };
 
-async function load(date: string): Promise<{ summary: DashboardSummary; orders: Order[] }> {
+/** Fetch the day's cockpit summary + its orders feed in one round-trip. Never
+ *  throws — any failure degrades to the zeroed summary / empty feed. */
+async function load(date: string): Promise<{ summary: TodaySummary; orders: Order[] }> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return { summary: { ...EMPTY, date }, orders: [] };
   const headers = { Authorization: `Bearer ${token}` };
-  const [sRes, oRes] = await Promise.all([
-    fetch(`${API_BASE}/dashboard?date=${date}`, { headers, cache: 'no-store' }),
-    // Newest-first + capped: today's orders (the feed) always sit on the first page.
-    fetch(`${API_BASE}/orders?limit=100`, { headers, cache: 'no-store' }),
-  ]);
-  const summary = sRes.ok ? await sRes.json() : { ...EMPTY, date };
-  const orders = oRes.ok ? ((await oRes.json()).items ?? []) : [];
-  return { summary, orders };
-}
-
-/** Show the "add a card" nudge only when billing is live, the farm is on the
- *  standard plan, has no card on file, and isn't already suspended (the suspended
- *  banner covers that case). Never throws — no nudge on any failure. */
-async function shouldNudgeCard(): Promise<boolean> {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token) return false;
-  const res = await fetch(`${API_BASE}/billing/summary`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store',
-  }).catch(() => null);
-  if (!res || !res.ok) return false;
-  const b: BillingSummary = await res.json();
-  return b.enabled && b.plan === 'standard' && !b.hasCard && b.status !== 'inactive';
+  try {
+    const [sRes, oRes] = await Promise.all([
+      fetch(`${API_BASE}/dashboard/today?date=${date}`, { headers, cache: 'no-store' }),
+      // Today's orders (the feed), capped — the day filter keeps the page small.
+      fetch(`${API_BASE}/orders?date=${date}&limit=100`, { headers, cache: 'no-store' }),
+    ]);
+    const summary = sRes.ok ? await sRes.json() : { ...EMPTY, date };
+    const orders = oRes.ok ? ((await oRes.json()).items ?? []) : [];
+    return { summary, orders };
+  } catch {
+    return { summary: { ...EMPTY, date }, orders: [] };
+  }
 }
 
 /** Store-readiness signals for the first-run checklist — all derived from data
@@ -82,17 +74,16 @@ export default async function DashboardPage(
   }
 ) {
   const searchParams = await props.searchParams;
-  const date = searchParams.date ?? new Date().toISOString().slice(0, 10);
-  const [{ summary, orders }, nudgeCard, { readiness, deliveryEnabled }] = await Promise.all([
+  const date = searchParams.date ?? todayIso();
+  const [{ summary, orders }, { readiness, deliveryEnabled }] = await Promise.all([
     load(date),
-    shouldNudgeCard(),
     loadReadiness(),
   ]);
   return (
-    <DashboardClient
+    <TodayClient
       summary={summary}
-      initialOrders={orders}
-      nudgeCard={nudgeCard}
+      orders={orders}
+      date={date}
       readiness={readiness}
       deliveryEnabled={deliveryEnabled}
     />
