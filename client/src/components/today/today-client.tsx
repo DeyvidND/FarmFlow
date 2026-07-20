@@ -3,11 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { relDayLabel } from '@/lib/utils';
+import { cn, relDayLabel, type OrderStatus } from '@/lib/utils';
 import { DateNavBar } from '@/components/production/date-nav-bar';
 import { OrdersFeed } from '@/components/dashboard/orders-feed';
 import { StoreReadinessCard, type StoreReadiness } from '@/components/dashboard/store-readiness-card';
 import { OnboardingModal } from '@/components/dashboard/onboarding-modal';
+import { OrderPanel } from '@/components/orders/order-panel';
 import {
   ApiError,
   confirmPending,
@@ -45,6 +46,8 @@ export default function TodayClient({
   const [date, setDate] = useState(initialDate);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const active = orders.find((o) => o.id === activeId) ?? null;
 
   // `orders` already comes from /orders?date= (delivery-day-scoped server-side,
   // via scheduledForDay) — re-filtering by createdAt here would drop every order
@@ -115,6 +118,37 @@ export default function TodayClient({
     }
   }
 
+  /** Status actions from the OrderPanel drawer — optimistic status update, then
+   *  (mirroring onConfirmAll's failure-domain split) a lean re-fetch of both the
+   *  summary and the feed so the pipeline/tiles reflect the change. Only a failed
+   *  `updateOrderStatus` rolls back; a refetch blip after a successful update must
+   *  not, since the update itself already succeeded server-side. */
+  async function onAction(o: Order, status: OrderStatus) {
+    const prevOrders = orders;
+    setBusy(true);
+    setOrders((p) => p.map((x) => (x.id === o.id ? { ...x, status } : x))); // optimistic
+    try {
+      await updateOrderStatus(o.id, status);
+    } catch (e) {
+      setOrders(prevOrders); // rollback — the update itself failed
+      toast.error(errMsg(e));
+      setBusy(false);
+      return;
+    }
+    toast.success('Статусът е обновен');
+    setActiveId(null);
+    try {
+      const [s, page] = await Promise.all([getTodaySummary(date), listOrders({ date, limit: 100 })]);
+      setSummary(s);
+      setOrders(page.items);
+    } catch (e) {
+      // Update already succeeded — a refetch blip is not a user-facing failure.
+      console.error('Днес: post-action refetch failed', e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const tiles = [
     <PrepTile key="prep" prep={summary.prep} index={0} />,
     deliveryEnabled ? <RouteTile key="route" route={summary.route} index={1} /> : null,
@@ -137,19 +171,34 @@ export default function TodayClient({
 
       <PipelineStrip pipeline={summary.pipeline} onConfirmAll={onConfirmAll} confirming={confirming} />
 
-      <div className="mt-4 grid grid-cols-4 gap-4 max-[1024px]:grid-cols-2 max-[640px]:grid-cols-1">
+      <div
+        className={cn(
+          'mt-4 grid gap-4 max-[1024px]:grid-cols-2 max-[640px]:grid-cols-1',
+          deliveryEnabled ? 'grid-cols-4' : 'grid-cols-3',
+        )}
+      >
         {tiles}
       </div>
 
       <div className="mt-4">
         <OrdersFeed
           orders={feed}
-          onOpen={() => router.push('/orders')}
+          onOpen={setActiveId}
           onSeeAll={() => router.push('/orders')}
           onDeliver={onDeliver}
           busy={busy}
         />
       </div>
+
+      {active && (
+        <OrderPanel
+          order={active}
+          busy={busy}
+          onClose={() => setActiveId(null)}
+          onAction={(s) => onAction(active, s)}
+          onSaved={(updated) => setOrders((p) => p.map((x) => (x.id === updated.id ? updated : x)))}
+        />
+      )}
     </div>
   );
 }
