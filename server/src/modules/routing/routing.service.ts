@@ -1547,12 +1547,17 @@ export class RoutingService {
     // no matched row falls through to a NULL window.
     if (updates.length > 0) {
       const ids = updates.map((u) => u.id);
+      // Each THEN value is a bind param, which Postgres types as `text`; without a
+      // cast the whole CASE resolves to text and `SET delivery_window_start (time) =
+      // <text>` throws "column is of type time ... but expression is of type text"
+      // (a single-column `.set({ deliveryWindowStart })` coerces fine, a CASE does
+      // not). Cast each arm to ::time so the CASE result type matches the column.
       const startCase = sql.join(
-        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.start}`),
+        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.start}::time`),
         sql` `,
       );
       const endCase = sql.join(
-        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.end}`),
+        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.end}::time`),
         sql` `,
       );
       await this.db

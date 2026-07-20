@@ -229,6 +229,11 @@ describe('RoutingService.generateDeliveryWindows — set-based persist', () => {
     const where = dialect.sqlToQuery(db.__lastWhere as SQL);
     // Both stops land in the deterministic 09:00–10:00 fallback slot.
     expect(startCase.sql.toLowerCase()).toContain('case');
+    // The THEN values MUST be cast to ::time — a bare text bind param makes the CASE
+    // resolve to text and Postgres rejects the assignment to the `time` column (the
+    // prod 500 on POST /orders/route/windows/generate). Lock the cast in.
+    expect(startCase.sql.toLowerCase()).toContain('::time');
+    expect(endCase.sql.toLowerCase()).toContain('::time');
     expect(startCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b', '09:00']));
     expect(endCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b', '10:00']));
     // WHERE id IN (both) AND tenant-scoped.
