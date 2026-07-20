@@ -490,7 +490,28 @@ it('scopes the pipeline query to the tenant (filter is modelled, not ignored)', 
 Run: `pnpm --filter @fermeribg/api test -- dashboard.today`
 Expected: FAIL — slots empty / captured undefined.
 
-- [ ] **Step 3: Implement the slots query** (copy the `slotRowsP` builder from `summary()` verbatim — same projection keys `id,timeFrom,timeTo,capacity,booked`), add to `Promise.all`, map to `DashboardSlot[]` exactly as `summary()` does, and wire into the return. Verify the final `Promise.all` destructures every query in a stable order and the return object references the computed locals (no leftover zero constants).
+- [ ] **Step 3: Implement the slots query via a shared private helper** (avoid duplicating the builder). Extract the `summary()` slots query into a private method and reuse it from both places:
+
+```ts
+/** Active slots for `day` with a live non-cancelled booked count. */
+private slotsForDay(tenantId: string, day: string) {
+  return this.db
+    .select({
+      id: deliverySlots.id,
+      timeFrom: deliverySlots.timeFrom,
+      timeTo: deliverySlots.timeTo,
+      capacity: deliverySlots.capacity,
+      booked: sql<number>`count(${orders.id}) filter (where ${orders.status} <> 'cancelled')::int`,
+    })
+    .from(deliverySlots)
+    .leftJoin(orders, eq(orders.slotId, deliverySlots.id))
+    .where(and(eq(deliverySlots.tenantId, tenantId), sql`${deliverySlots.date} = ${day}`, eq(deliverySlots.isActive, true))!)
+    .groupBy(deliverySlots.id, deliverySlots.date, deliverySlots.timeFrom, deliverySlots.timeTo, deliverySlots.capacity)
+    .orderBy(deliverySlots.date, deliverySlots.timeFrom);
+}
+```
+
+Refactor `summary()` to call `this.slotsForDay(tenantId, day)` in place of its inline `slotRowsP`. In `todaySummary`, add `this.slotsForDay(tenantId, day)` to the `Promise.all`, map its rows to `DashboardSlot[]` (`{ id, timeFrom, timeTo, booked, capacity }`), and wire into the return. Verify the final `Promise.all` destructures every query in a stable order and the return references the computed locals (no leftover zero constants).
 
 - [ ] **Step 4: Run the full dashboard suite.**
 
