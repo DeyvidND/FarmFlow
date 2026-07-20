@@ -8,7 +8,7 @@ import { and, eq, asc, desc, inArray, sql } from 'drizzle-orm';
 import { type Database, farmers, farmerMedia, users, auditLogs, orders, tenants } from '@fermeribg/db';
 import * as argon2 from 'argon2';
 import { AuthService } from '../auth/auth.service';
-import type { Farmer, FarmerMedia, PublicFarmer } from '@fermeribg/types';
+import type { Farmer, FarmerMedia, FarmerRow, PublicFarmer } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { IMAGE_QUEUE } from '../../common/queue/queue.constants';
 import { encodeImageJob } from '../../common/queue/image-job';
@@ -43,8 +43,8 @@ export class FarmersService {
 
   /** Farmers for the tenant, ordered by display position then age. `scope` (a
    *  producer's own id) narrows the list to that single farmer; null = all. */
-  findAll(tenantId: string, scope: string | null = null): Promise<Farmer[]> {
-    return this.db
+  async findAll(tenantId: string, scope: string | null = null): Promise<FarmerRow[]> {
+    const rows = await this.db
       .select()
       .from(farmers)
       .where(
@@ -53,6 +53,7 @@ export class FarmersService {
           : eq(farmers.tenantId, tenantId),
       )
       .orderBy(asc(farmers.position), asc(farmers.createdAt));
+    return rows.map((r) => this.stripSignature(r));
   }
 
   /** Persist a new display order for the tenant's farmers. Tenant-scoped, one
@@ -69,14 +70,22 @@ export class FarmersService {
     return { ok: true };
   }
 
-  async findOne(id: string, tenantId: string): Promise<Farmer> {
+  async findOne(id: string, tenantId: string): Promise<FarmerRow> {
     const [row] = await this.db
       .select()
       .from(farmers)
       .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
       .limit(1);
     if (!row) throw new NotFoundException('Фермерът не е намерен');
-    return row;
+    return this.stripSignature(row);
+  }
+
+  /** Strip the encrypted signature blob before a row leaves the general CRUD
+   *  path (findAll/findOne/create/update) — it's served only by its dedicated
+   *  `GET /farmers/:id/signature` endpoint. See `FarmerRow` in @fermeribg/types. */
+  private stripSignature(row: Farmer): FarmerRow {
+    const { signaturePng: _signaturePng, ...rest } = row;
+    return rest;
   }
 
   /** Producer → login status map for the admin Фермери screen. */
@@ -181,14 +190,14 @@ export class FarmersService {
     return { ok: true };
   }
 
-  async create(tenantId: string, dto: CreateFarmerDto): Promise<Farmer> {
+  async create(tenantId: string, dto: CreateFarmerDto): Promise<FarmerRow> {
     const [row] = await this.db.insert(farmers).values({ ...dto, tenantId }).returning();
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
-    return row;
+    return this.stripSignature(row);
   }
 
-  async update(id: string, tenantId: string, dto: UpdateFarmerDto): Promise<Farmer> {
+  async update(id: string, tenantId: string, dto: UpdateFarmerDto): Promise<FarmerRow> {
     // Read (current tier + branding) and write are wrapped in one transaction so two
     // concurrent PATCHes for the same farmer can't both read the same stale state and
     // have the second write silently clobber the first's tier decision (TOCTOU).
@@ -218,7 +227,7 @@ export class FarmersService {
     });
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
-    return row;
+    return this.stripSignature(row);
   }
 
   /** The farmer's saved signature, decrypted, for the operator panel preview.
@@ -303,7 +312,7 @@ export class FarmersService {
     id: string,
     tenantId: string,
     file: Express.Multer.File,
-  ): Promise<Farmer & { imageProcessing: boolean }> {
+  ): Promise<FarmerRow & { imageProcessing: boolean }> {
     const farmer = await this.findOne(id, tenantId);
     await this.imageQueue.add('process', encodeImageJob('farmer-cover', id, tenantId, file));
     return { ...farmer, imageProcessing: true };

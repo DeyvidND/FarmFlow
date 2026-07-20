@@ -38,6 +38,16 @@ export type Farmer = InferSelectModel<typeof farmers>;
 export type NewFarmer = InferInsertModel<typeof farmers>;
 
 /**
+ * A farmer as returned by the operator CRUD endpoints (GET /farmers, GET/PATCH
+ * /farmers/:id). The encrypted signature blob is served only by its dedicated
+ * `GET /farmers/:id/signature` endpoint — never in these general payloads (a
+ * 13-farmer list carrying megabytes of ciphertext would be pure waste, and the
+ * design intent is the blob has exactly one door). Mirrors how `PublicTenant`
+ * strips `operatorSignaturePng` below.
+ */
+export type FarmerRow = Omit<Farmer, 'signaturePng'>;
+
+/**
  * Tier-2 „Бранд идентичност" control layer for a farmer's marketplace subpage.
  * Operator-unlocked, paid. `enabled` is the gate; primary color reuses `farmers.tint`,
  * portrait reuses `farmers.imageUrl`, gallery reuses `farmer_media`. See

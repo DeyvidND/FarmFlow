@@ -105,3 +105,57 @@ describe('FarmersService signature', () => {
     await expect(svc.setSignature(FARMER, TENANT, PNG)).rejects.toThrow(NotFoundException);
   });
 });
+
+// Regression: the encrypted blob must never ride along in the general CRUD
+// payloads (GET /farmers, GET /farmers/:id) — only the dedicated
+// GET /farmers/:id/signature endpoint may return it. This would fail if the
+// `stripSignature` strip in FarmersService.findOne/findAll were ever removed.
+describe('FarmersService general CRUD path never leaks the signature blob', () => {
+  const ENCRYPTED = 'v1:9f2c-stand-in-ciphertext'; // content is irrelevant — presence is the point
+  const ROW = {
+    id: FARMER,
+    tenantId: TENANT,
+    name: 'Иван',
+    position: 0,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    signaturePng: ENCRYPTED,
+  };
+
+  /** Thenable chainable Drizzle mock (mirrors farmers.public-fields.spec.ts):
+   *  builder methods return `this`; awaiting the chain resolves the next queued
+   *  row set (FIFO). */
+  function makeDb() {
+    const queue: unknown[] = [];
+    const db: any = { queue: (v: unknown) => queue.push(v) };
+    const chain = () => db;
+    for (const m of ['select', 'from', 'where', 'orderBy', 'limit']) db[m] = jest.fn(chain);
+    db.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
+      const v = queue.shift();
+      if (v instanceof Error) reject(v);
+      else resolve(v);
+    };
+    return db;
+  }
+
+  it('findOne strips signaturePng even though the stored row carries ciphertext', async () => {
+    const db = makeDb();
+    db.queue([ROW]);
+    const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+
+    const out = await svc.findOne(FARMER, TENANT);
+
+    expect(out).not.toHaveProperty('signaturePng');
+    expect(out).toEqual({ id: FARMER, tenantId: TENANT, name: 'Иван', position: 0, createdAt: ROW.createdAt });
+  });
+
+  it('findAll strips signaturePng from every row in the list', async () => {
+    const db = makeDb();
+    db.queue([ROW, { ...ROW, id: 'farmer-2', signaturePng: 'other-ciphertext' }]);
+    const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+
+    const out = await svc.findAll(TENANT);
+
+    expect(out).toHaveLength(2);
+    for (const f of out) expect(f).not.toHaveProperty('signaturePng');
+  });
+});
