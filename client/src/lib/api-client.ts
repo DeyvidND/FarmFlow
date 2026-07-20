@@ -44,6 +44,7 @@ import type {
   TurnoverBasis,
   Subcategory,
   TenantProfile,
+  TodaySummary,
   UpdateOrderInput,
 } from './types';
 
@@ -677,9 +678,11 @@ export const setCodOutcome = (id: string, outcome: 'received' | 'refused' | 'pen
 /** Revert a resolved COD outcome (received/refused) back to «Очаквано». */
 export const revertCodOutcome = (id: string) => setCodOutcome(id, 'pending');
 
-export const confirmPendingOrders = (date?: string) =>
+/** Confirm every «Нови» (pending) order scheduled for `date` in one call — the
+ *  „Днес" pipeline strip's «Потвърди всички» action. */
+export const confirmPending = (date: string) =>
   apiFetch<{ confirmed: number }>(
-    `orders/confirm-pending${date ? `?date=${date}` : ''}`,
+    `orders/confirm-pending?date=${encodeURIComponent(date)}`,
     { method: 'PATCH' },
     'Неуспешно потвърждаване',
   );
@@ -814,6 +817,10 @@ export const notifyDeliveryWindows = (date?: string) =>
 
 export const getDashboard = (date?: string) =>
   apiFetch<DashboardSummary>(`dashboard${date ? `?date=${date}` : ''}`);
+
+/** „Днес" delivery-day operations cockpit — pipeline, prep, route, protocols, COD. */
+export const getTodaySummary = (date?: string) =>
+  apiFetch<TodaySummary>(`dashboard/today${date ? `?date=${encodeURIComponent(date)}` : ''}`);
 
 // ---- Sales statistics ----
 export const getStats = (
