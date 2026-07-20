@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { RoutingService } from './routing.service';
 
 // ---------------------------------------------------------------------------
@@ -12,6 +14,8 @@ import { RoutingService } from './routing.service';
 function makeDb(selectResults: any[][]) {
   const results = [...selectResults];
   let updateCount = 0;
+  let lastSet: any = null;
+  let lastWhere: any = null;
   const db = {
     select: () => {
       const result = results.length ? results.shift()! : [];
@@ -26,13 +30,25 @@ function makeDb(selectResults: any[][]) {
       return chain;
     },
     update: () => ({
-      set: () => {
+      set: (v: any) => {
         updateCount++;
-        return { where: () => Promise.resolve(undefined) };
+        lastSet = v;
+        return {
+          where: (w: any) => {
+            lastWhere = w;
+            return Promise.resolve(undefined);
+          },
+        };
       },
     }),
     get __updateCount() {
       return updateCount;
+    },
+    get __lastSet() {
+      return lastSet;
+    },
+    get __lastWhere() {
+      return lastWhere;
     },
   } as any;
   return db;
@@ -166,6 +182,36 @@ describe('RoutingService.generateDeliveryWindows — sent windows are not clobbe
     // Only Y (whose existing sent window differs from the recomputed one) is
     // written — X (sent, unchanged) is left alone, not reset to 'draft'.
     expect(db.__updateCount).toBe(1);
+  });
+});
+
+// ─── (b2) many changed windows persist in ONE set-based UPDATE, not N ───────────
+describe('RoutingService.generateDeliveryWindows — set-based persist', () => {
+  it('writes every changed window in a single CASE UPDATE binding each id + window', async () => {
+    const TENANT = { farmAddress: null, farmLat: null, farmLng: null, settings: { routing: {} } };
+    // Two orders with no existing window → both change → both must be persisted.
+    const rowA = geoOrder('order-a', 43.0, 23.0);
+    const rowB = geoOrder('order-b', 43.01, 23.01);
+    const db = makeDb([[TENANT], [rowA, rowB], [], [TENANT]]);
+    const maps = { route: jest.fn(), routeFixed: jest.fn(), geocode: jest.fn() } as any;
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
+
+    await svc.generateDeliveryWindows('t1', '2026-07-07');
+
+    // ONE UPDATE statement for BOTH changed orders (was one per order).
+    expect(db.__updateCount).toBe(1);
+    expect(db.__lastSet.deliveryWindowStatus).toBe('draft');
+
+    const dialect = new PgDialect();
+    const startCase = dialect.sqlToQuery(db.__lastSet.deliveryWindowStart as SQL);
+    const endCase = dialect.sqlToQuery(db.__lastSet.deliveryWindowEnd as SQL);
+    const where = dialect.sqlToQuery(db.__lastWhere as SQL);
+    // Both stops land in the deterministic 09:00–10:00 fallback slot.
+    expect(startCase.sql.toLowerCase()).toContain('case');
+    expect(startCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b', '09:00']));
+    expect(endCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b', '10:00']));
+    // WHERE id IN (both) AND tenant-scoped.
+    expect(where.params).toEqual(expect.arrayContaining(['order-a', 'order-b', 't1']));
   });
 });
 

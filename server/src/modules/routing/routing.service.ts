@@ -7,7 +7,7 @@ import {
   BadRequestException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { type Database, orders, orderItems, deliverySlots, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
@@ -1404,17 +1404,28 @@ export class RoutingService {
       proposalCouriers.push({ courierIndex: r.courierIndex, name: r.name, stops });
     }
 
-    // Persist as drafts (tenant-scoped). A delivery day is a handful of orders,
-    // so a per-order update is fine (and keeps the write dead simple).
-    for (const u of updates) {
+    // Persist as drafts (tenant-scoped) in ONE set-based UPDATE — a CASE per column
+    // over the changed ids — instead of a per-order UPDATE round-trip in a loop. The
+    // CASE has an arm for every id in `updates` and the WHERE is `id IN (updates)`, so
+    // no matched row falls through to a NULL window.
+    if (updates.length > 0) {
+      const ids = updates.map((u) => u.id);
+      const startCase = sql.join(
+        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.start}`),
+        sql` `,
+      );
+      const endCase = sql.join(
+        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.end}`),
+        sql` `,
+      );
       await this.db
         .update(orders)
         .set({
-          deliveryWindowStart: u.start,
-          deliveryWindowEnd: u.end,
+          deliveryWindowStart: sql`case ${startCase} end`,
+          deliveryWindowEnd: sql`case ${endCase} end`,
           deliveryWindowStatus: 'draft',
         })
-        .where(and(eq(orders.id, u.id), eq(orders.tenantId, tenantId)));
+        .where(and(inArray(orders.id, ids), eq(orders.tenantId, tenantId)));
     }
 
     return { date: route.date, slotMin, couriers: proposalCouriers, withoutEmail };
