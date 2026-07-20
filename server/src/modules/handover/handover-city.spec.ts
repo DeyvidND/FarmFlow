@@ -15,4 +15,22 @@ describe('cityFromAddress', () => {
     expect(cityFromAddress('')).toBeNull();
     expect(cityFromAddress(null)).toBeNull();
   });
+
+  it('handles the no-space form (гр.Варна) — common in real addresses', () => {
+    expect(cityFromAddress('гр.Варна, ул. Приморска 12')).toEqual({ prefix: 'гр.', name: 'Варна' });
+    expect(cityFromAddress('с.Кранево')).toEqual({ prefix: 'с.', name: 'Кранево' });
+  });
+
+  it('handles the dotless full words', () => {
+    expect(cityFromAddress('град Варна, ул. Приморска 12')).toEqual({ prefix: 'гр.', name: 'Варна' });
+    expect(cityFromAddress('село Кранево, общ. Балчик')).toEqual({ prefix: 'с.', name: 'Кранево' });
+  });
+
+  it('does NOT mistake the preposition „с" for a village', () => {
+    // The lone „с" only counts as a settlement when it carries its dot. Otherwise
+    // „с ЕГН…" would confidently render „в с. ЕГН" on a legal document — worse than
+    // dropping the clause.
+    expect(cityFromAddress('Иван Петров, с ЕГН 1234567890')).toBeNull();
+    expect(cityFromAddress('до сграда с Магазин Билла')).toBeNull();
+  });
 });
