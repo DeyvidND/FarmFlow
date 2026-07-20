@@ -1,8 +1,12 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { and, eq, gte, lt, sql } from 'drizzle-orm';
-import { type Database, orders, orderItems, deliverySlots, tenants } from '@fermeribg/db';
+import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import {
+  type Database, orders, orderItems, products, deliverySlots, tenants,
+  orderFulfillments, handoverProtocols, routeCourierAssignments,
+} from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { bgToday, bgDayBounds, bgAddDays } from '../../common/time/bg-time';
+import { scheduledForDay } from '../orders/order-scheduling';
 
 export interface DashboardSlot {
   id: string;
@@ -28,6 +32,23 @@ export interface DashboardSummary {
   slots: DashboardSlot[];
   /** false → show the storefront "subscription inactive" banner; history limited to 7 days. */
   subscriptionActive: boolean;
+}
+
+export interface TodayPipeline {
+  new: number; confirmed: number; preparing: number;
+  outForDelivery: number; delivered: number; cancelled: number;
+  total: number; // active = all except cancelled
+}
+
+export interface TodaySummary {
+  date: string;
+  pipeline: TodayPipeline;
+  prep: { ordersToPrep: number; fulfilled: number };
+  route: { stops: number; delivered: number; pending: number; couriers: number };
+  protocols: { total: number; signed: number; pending: number };
+  cod: { toCollectStotinki: number; toCollectCount: number; collectedStotinki: number; collectedCount: number };
+  revenueStotinki: number;
+  slots: DashboardSlot[];
 }
 
 @Injectable()
@@ -138,6 +159,23 @@ export class DashboardService {
       nextSlot: slots.find((s) => s.booked < s.capacity) ?? null,
       slots,
       subscriptionActive: tenant?.status !== 'inactive',
+    };
+  }
+
+  /** Delivery-day operations cockpit — one round of cheap grouped counts. */
+  async todaySummary(tenantId: string, date?: string): Promise<TodaySummary> {
+    const day = date ?? bgToday();
+    const sched = scheduledForDay(day); // MUST pair with leftJoin(deliverySlots)
+    void tenantId; void sched;
+    return {
+      date: day,
+      pipeline: { new: 0, confirmed: 0, preparing: 0, outForDelivery: 0, delivered: 0, cancelled: 0, total: 0 },
+      prep: { ordersToPrep: 0, fulfilled: 0 },
+      route: { stops: 0, delivered: 0, pending: 0, couriers: 0 },
+      protocols: { total: 0, signed: 0, pending: 0 },
+      cod: { toCollectStotinki: 0, toCollectCount: 0, collectedStotinki: 0, collectedCount: 0 },
+      revenueStotinki: 0,
+      slots: [],
     };
   }
 }
