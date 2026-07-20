@@ -7,6 +7,7 @@ import { relDayLabel } from '@/lib/utils';
 import { DateNavBar } from '@/components/production/date-nav-bar';
 import { OrdersFeed } from '@/components/dashboard/orders-feed';
 import { StoreReadinessCard, type StoreReadiness } from '@/components/dashboard/store-readiness-card';
+import { OnboardingModal } from '@/components/dashboard/onboarding-modal';
 import {
   ApiError,
   confirmPending,
@@ -132,6 +133,7 @@ export default function TodayClient({
       </div>
 
       {readiness && <StoreReadinessCard readiness={readiness} />}
+      {readiness && <OnboardingModal readiness={readiness} />}
 
       <PipelineStrip pipeline={summary.pipeline} onConfirmAll={onConfirmAll} confirming={confirming} />
 
