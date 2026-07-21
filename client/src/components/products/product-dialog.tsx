@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Package, PackageCheck, PackageX, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/delivery/ui';
@@ -42,6 +42,7 @@ export function ProductDialog({
   subcats,
   multiFarmer,
   multiSubcat,
+  basketMode,
   onOpenCourierSettings,
   onClose,
   onSubmit,
@@ -53,6 +54,9 @@ export function ProductDialog({
   subcats: Subcategory[];
   multiFarmer: boolean;
   multiSubcat: boolean;
+  /** Create a „кошница" instead of a plain product: forces category='bundle', no
+   *  farmer link, no own stock, and the contents editor is live from the start. */
+  basketMode?: boolean;
   /** Lets the farmer jump straight to the bulk "Куриер" editor instead of toggling one product at a time. */
   onOpenCourierSettings?: () => void;
   onClose: () => void;
@@ -83,7 +87,7 @@ export function ProductDialog({
   // Bundle contents („Съдържание на пакета", task #1) — only for an already-saved
   // product with category==='bundle'. Persisted immediately per add/remove (full
   // replace), independent of the main product save.
-  const isBundle = isEdit && product?.category === 'bundle';
+  const isBundle = basketMode || product?.category === 'bundle';
   const [bundleItems, setBundleItemsState] = useState<BundleMember[]>([]);
   const [bundleOptions, setBundleOptions] = useState<ProductOption[]>([]);
   const [bundleLoading, setBundleLoading] = useState(false);
@@ -91,6 +95,10 @@ export function ProductDialog({
   const [bundleErr, setBundleErr] = useState('');
   const [pickProductId, setPickProductId] = useState('');
   const [pickQty, setPickQty] = useState('1');
+  // `ProductOption` has no farmer name, only `farmerId` — resolve it from the
+  // `farmers` prop already passed in, so the member picker can show the owner
+  // without any backend change (only worth showing in a multi-farmer tenant).
+  const farmerNameById = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
   // Price + stock live in rows: one product is a list of ≥1 priced row. ONE row =
   // a plain product (its price = the product price, its stock = the availability
   // window — same number „Задай наличност" edits, never desync; label optional).
@@ -324,6 +332,18 @@ export function ProductDialog({
           ...(isEdit ? { coverCrop } : { isActive: true }),
           ...(multiFarmer ? { farmerId: farmerId || null } : {}),
           ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
+          // A basket (new or already-saved: `isBundle`, not just `basketMode`) is a
+          // product with category='bundle' and no farmer of its own — `setBundleItems`
+          // only allows cross-farmer members when farmerId is null. Re-asserted on
+          // every save (not just creation), otherwise saving an already-created
+          // basket's name/price re-defaults `farmerId` to `farmers[0]?.id` (the
+          // farmer-select's fallback for a null farmerId) and silently locks the
+          // basket to one farmer, breaking the next cross-farmer member add.
+          // Placed LAST — it must win over the `multiFarmer` spread above, which
+          // would otherwise put the dialog's selected/defaulted farmerId back on it.
+          // Availability and shippability are derived from the members (Task 5),
+          // never the basket's own stock/courier fields.
+          ...(isBundle ? { category: 'bundle', farmerId: null, stock: null, courierDisabled: true } : {}),
         },
         isEdit ? undefined : pending.map((p) => p.file),
       );
@@ -352,6 +372,16 @@ export function ProductDialog({
             <X size={18} />
           </button>
         </div>
+
+        {isBundle && (
+          <div className="mb-4 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[12.5px] leading-relaxed text-ff-ink-2">
+            <b className="text-ff-ink">Кошница</b> — няколко продукта от различни фермери,
+            продавани заедно на една цена. Клиентът вижда една снимка от четири парчета и плаща
+            общата цена. Ти получаваш поръчка с разписаните продукти вътре, готова за подготовка.
+            <br />
+            Кошницата се получава на място или с доставка от фермата — не се изпраща с куриер.
+          </div>
+        )}
 
         <form onSubmit={submit} className="flex flex-col gap-3">
           {isEdit && product && (
@@ -436,7 +466,7 @@ export function ProductDialog({
             </label>
           </div>
 
-          {multiFarmer && farmers.length > 0 && (
+          {multiFarmer && !isBundle && farmers.length > 0 && (
             <label className={labelCls}>
               Фермер
               <select value={farmerId} onChange={(e) => setFarmerId(e.target.value)} className={`${field} cursor-pointer appearance-none`}>
@@ -491,16 +521,18 @@ export function ProductDialog({
                       />
                       <span className="text-[11px] text-ff-muted">Цена</span>
                     </div>
-                    <div className="flex w-20 flex-col gap-1">
-                      <input
-                        value={v.stock}
-                        onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, stock: e.target.value.replace(/[^0-9]/g, '') } : r)))}
-                        inputMode="numeric"
-                        placeholder="бр"
-                        className={field}
-                      />
-                      <span className="text-[11px] text-ff-muted">празно = ∞</span>
-                    </div>
+                    {!isBundle && (
+                      <div className="flex w-20 flex-col gap-1">
+                        <input
+                          value={v.stock}
+                          onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, stock: e.target.value.replace(/[^0-9]/g, '') } : r)))}
+                          inputMode="numeric"
+                          placeholder="бр"
+                          className={field}
+                        />
+                        <span className="text-[11px] text-ff-muted">празно = ∞</span>
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => setVariants((p) => p.filter((_, j) => j !== i))}
@@ -534,6 +566,19 @@ export function ProductDialog({
               </button>
             </div>
           </Collapsible>
+
+          {isBundle && bundleItems.length > 0 && (() => {
+            const sum = bundleItems.reduce((s, b) => s + b.priceStotinki * b.quantity, 0);
+            const own = euroInputToStotinki(variants[0]?.price ?? '') ?? 0;
+            const diff = sum - own;
+            return (
+              <p className={`text-[12.5px] ${diff < 0 ? 'text-ff-red' : 'text-ff-muted'}`}>
+                Стойност поотделно {moneyFromStotinki(sum)}
+                {own > 0 && diff > 0 && ` · спестявате ${moneyFromStotinki(diff)} (${Math.round((diff / sum) * 100)}%)`}
+                {own > 0 && diff < 0 && ' · кошницата излиза по-скъпо от продуктите поотделно'}
+              </p>
+            );
+          })()}
 
           <Collapsible
             key={`promo-${effectivePromoMode}-${product?.salePercent ? 'p' : ''}`}
@@ -593,65 +638,72 @@ export function ProductDialog({
             )}
           </Collapsible>
 
-          {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only. */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={courierEnabled}
-            onClick={() => setCourierEnabled((v) => !v)}
-            className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
-              courierEnabled
-                ? 'border-green-200 bg-green-50'
-                : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
-            }`}
-          >
-            <span
-              className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition ${
-                courierEnabled ? 'bg-green-100 text-green-700' : 'bg-ff-surface text-ff-muted'
-              }`}
-            >
-              {courierEnabled ? <PackageCheck size={18} /> : <PackageX size={18} />}
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-[13.5px] font-bold text-ff-ink">
-                {courierEnabled ? 'С куриер' : 'Без куриер'}
-              </span>
-              <span className="text-[12px] leading-snug text-ff-muted">
-                {courierEnabled
-                  ? 'Продуктът може да се изпраща с Еконт или Спиди.'
-                  : 'Без куриер — лична доставка, вземане от място или местна доставка до адрес.'}
-              </span>
-            </span>
-            <span
-              className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition ${
-                courierEnabled ? 'bg-green-500' : 'bg-ff-border-2'
-              }`}
-            >
-              <span
-                className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
-                  courierEnabled ? 'left-[19px]' : 'left-[3px]'
+          {/* A basket's shippability is fixed (never by courier, Task 5) — the
+              toggle, the explicit line and the bulk-courier shortcut would all
+              lie about a product that has no courier setting of its own. */}
+          {!isBundle && (
+            <>
+              {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only. */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={courierEnabled}
+                onClick={() => setCourierEnabled((v) => !v)}
+                className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
+                  courierEnabled
+                    ? 'border-green-200 bg-green-50'
+                    : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
                 }`}
-              />
-            </span>
-          </button>
+              >
+                <span
+                  className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition ${
+                    courierEnabled ? 'bg-green-100 text-green-700' : 'bg-ff-surface text-ff-muted'
+                  }`}
+                >
+                  {courierEnabled ? <PackageCheck size={18} /> : <PackageX size={18} />}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-[13.5px] font-bold text-ff-ink">
+                    {courierEnabled ? 'С куриер' : 'Без куриер'}
+                  </span>
+                  <span className="text-[12px] leading-snug text-ff-muted">
+                    {courierEnabled
+                      ? 'Продуктът може да се изпраща с Еконт или Спиди.'
+                      : 'Без куриер — лична доставка, вземане от място или местна доставка до адрес.'}
+                  </span>
+                </span>
+                <span
+                  className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition ${
+                    courierEnabled ? 'bg-green-500' : 'bg-ff-border-2'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
+                      courierEnabled ? 'left-[19px]' : 'left-[3px]'
+                    }`}
+                  />
+                </span>
+              </button>
 
-          {/* Explicit shippability line (task #11) — same signal as the toggle above,
-              spelled out unambiguously for the farmer. */}
-          <p className="-mt-1 pl-1 text-[12px] font-semibold text-ff-ink-2">
-            {courierEnabled ? '📦 Може по Еконт/куриер' : '🚫 Само вземане/местна доставка (не се праща по куриер)'}
-          </p>
+              {/* Explicit shippability line (task #11) — same signal as the toggle above,
+                  spelled out unambiguously for the farmer. */}
+              <p className="-mt-1 pl-1 text-[12px] font-semibold text-ff-ink-2">
+                {courierEnabled ? '📦 Може по Еконт/куриер' : '🚫 Само вземане/местна доставка (не се праща по куриер)'}
+              </p>
 
-          {onOpenCourierSettings && (
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onOpenCourierSettings();
-              }}
-              className="pl-1 text-left text-[11.5px] font-semibold text-ff-ink-2 underline underline-offset-2 hover:text-ff-ink"
-            >
-              Управлявай куриера за всички продукти наведнъж →
-            </button>
+              {onOpenCourierSettings && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenCourierSettings();
+                  }}
+                  className="pl-1 text-left text-[11.5px] font-semibold text-ff-ink-2 underline underline-offset-2 hover:text-ff-ink"
+                >
+                  Управлявай куриера за всички продукти наведнъж →
+                </button>
+              )}
+            </>
           )}
 
           {/* Companion rule toggle — ON = the OTHER products in the cart must total
@@ -714,7 +766,9 @@ export function ProductDialog({
               defaultOpen
             >
               {!product ? (
-                <p className="text-[12.5px] text-ff-muted">Запазете пакета, за да добавите продукти.</p>
+                <p className="text-[12.5px] text-ff-muted">
+                  Запишете кошницата с име и цена, после добавете продуктите в нея.
+                </p>
               ) : (
                 <div className="flex flex-col gap-3">
                   {bundleLoading ? (
@@ -763,6 +817,9 @@ export function ProductDialog({
                             <option key={o.id} value={o.id}>
                               {o.name}
                               {o.weight ? ` (${o.weight})` : ''}
+                              {multiFarmer && o.farmerId && farmerNameById.get(o.farmerId)
+                                ? ` — ${farmerNameById.get(o.farmerId)}`
+                                : ''}
                             </option>
                           ))}
                       </select>

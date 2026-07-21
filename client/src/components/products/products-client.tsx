@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Info, ArrowUpDown, Check, Truck, Camera, ClipboardCheck } from 'lucide-react';
+import { Plus, Info, ArrowUpDown, Check, Truck, Camera, ClipboardCheck, ShoppingBasket } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -71,6 +71,7 @@ export function ProductsClient({
   );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [basketOpen, setBasketOpen] = useState(false);
   const [aiImportOpen, setAiImportOpen] = useState(false);
   const [fullEdit, setFullEdit] = useState<Product | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
@@ -369,6 +370,11 @@ export function ProductsClient({
               <Camera size={18} /> Добави от снимка
             </Button>
           )}
+          {!reorderMode && !isFarmer && (
+            <Button variant="outline" onClick={() => setBasketOpen(true)} className="rounded-sm">
+              <ShoppingBasket size={18} /> Създай кошница
+            </Button>
+          )}
           {!reorderMode && (
             <Button variant="primary" onClick={() => setCreateOpen(true)} className="rounded-sm">
               <Plus size={18} /> Добави продукт
@@ -514,6 +520,19 @@ export function ProductsClient({
           multiSubcat={multiSubcat}
           onOpenCourierSettings={() => setCourierOpen(true)}
           onClose={() => setCreateOpen(false)}
+          onSubmit={onCreate}
+        />
+      )}
+
+      {basketOpen && (
+        <ProductDialog
+          open
+          basketMode
+          farmers={farmers}
+          subcats={subcats}
+          multiFarmer={multiFarmer}
+          multiSubcat={multiSubcat}
+          onClose={() => setBasketOpen(false)}
           onSubmit={onCreate}
         />
       )}
