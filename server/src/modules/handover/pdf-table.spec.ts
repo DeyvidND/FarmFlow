@@ -143,15 +143,18 @@ describe('drawTable — what it actually draws', () => {
   // PDFs the tests above already validate as openable.
   let drawTextSpy: jest.SpyInstance;
   let drawLineSpy: jest.SpyInstance;
+  let drawImageSpy: jest.SpyInstance;
 
   beforeEach(() => {
     drawTextSpy = jest.spyOn(PDFPage.prototype, 'drawText');
     drawLineSpy = jest.spyOn(PDFPage.prototype, 'drawLine');
+    drawImageSpy = jest.spyOn(PDFPage.prototype, 'drawImage');
   });
 
   afterEach(() => {
     drawTextSpy.mockRestore();
     drawLineSpy.mockRestore();
+    drawImageSpy.mockRestore();
   });
 
   it('never draws below MARGIN when the cursor starts with less than a header row of headroom and there are no rows', async () => {
@@ -367,5 +370,52 @@ describe('drawTable — what it actually draws', () => {
       ...drawLineSpy.mock.calls.flatMap((c) => [c[0].start.y, c[0].end.y]),
     ];
     expect(Math.min(...ys)).toBeGreaterThanOrEqual(MARGIN);
+  });
+
+  const tinyPng = async (d: Awaited<ReturnType<typeof createDoc>>) => {
+    // 1x1 opaque black PNG
+    const b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    return d.doc.embedPng(Buffer.from(b64, 'base64'));
+  };
+
+  it('sizes a row by its image when the image is taller than the text', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const img = await tinyPng(d);
+    const rows = layoutTable(COLS, [['1', 'ЕТ Петров', { image: img, width: 80, height: 40 }]], d.font, 9, 4);
+    expect(rows[0].height).toBe(40 + 2 * 4);
+  });
+
+  it('draws the image inside its own column, not at the page origin', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const img = await tinyPng(d);
+    drawTable(d, COLS, [['1', 'ЕТ Петров', { image: img, width: 80, height: 40 }]]);
+    expect(drawImageSpy).toHaveBeenCalledTimes(1);
+    const [, opts] = drawImageSpy.mock.calls[0];
+    expect(opts.x).toBe(MARGIN + COLS[0].width + COLS[1].width + 4);
+    expect(opts.width).toBe(80);
+    expect(opts.height).toBe(40);
+    expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+  });
+
+  it('returns where every row landed, in input order, across a page break', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const many = Array.from({ length: 60 }, (_, i) => [String(i + 1), `Фермер ${i + 1}`, 'Домати 5 кг']);
+    const placed = drawTable(d, COLS, many);
+    expect(placed).toHaveLength(60);
+    expect(placed[0].pageIndex).toBe(0);
+    expect(placed[59].pageIndex).toBeGreaterThan(0);
+    // Within one page, each row sits below the previous one.
+    const firstPage = placed.filter((p) => p.pageIndex === 0);
+    for (let i = 1; i < firstPage.length; i++) {
+      expect(firstPage[i].y).toBeLessThan(firstPage[i - 1].y);
+    }
+    for (const p of placed) expect(p.y).toBeGreaterThanOrEqual(MARGIN);
+  });
+
+  it('still accepts plain string rows unchanged', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const placed = drawTable(d, COLS, [['1', 'ЕТ Петров', 'Домати']]);
+    expect(placed).toHaveLength(1);
+    expect(drawImageSpy).not.toHaveBeenCalled();
   });
 });

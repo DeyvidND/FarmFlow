@@ -1,4 +1,4 @@
-import { PDFFont } from 'pdf-lib';
+import { PDFFont, PDFImage } from 'pdf-lib';
 import { Doc, drawBoldText, ensureSpace, INK, MARGIN, newPage, wrap } from './pdf-kit';
 
 export interface Column {
@@ -7,11 +7,27 @@ export interface Column {
   align?: 'left' | 'right';
 }
 
+/** A table cell: wrapped text, or a pre-embedded image drawn at a fixed box. */
+export type Cell = string | { image: PDFImage; width: number; height: number };
+
+export type LaidOutCell = string[] | { image: PDFImage; width: number; height: number };
+
 export interface LaidOutRow {
-  /** One wrapped-line array per column, always `columns.length` long. */
-  cells: string[][];
+  /** One wrapped-line array per text column, or the image cell, always `columns.length` long. */
+  cells: LaidOutCell[];
   height: number;
 }
+
+/** Where a row was actually drawn — фаза 1 needs this to place a
+ *  signatures-by-row-number block against section А's rows. */
+export interface PlacedRow {
+  pageIndex: number;
+  y: number;
+  height: number;
+}
+
+const isImage = (c: LaidOutCell): c is { image: PDFImage; width: number; height: number } =>
+  typeof c === 'object' && !Array.isArray(c);
 
 /**
  * Pure layout: wrap every cell inside its own column and compute the row height
@@ -20,6 +36,13 @@ export interface LaidOutRow {
  *
  * An empty cell becomes `['']` rather than `[]` — a zero-line cell would let the
  * row collapse and knock the grid out of alignment.
+ *
+ * Overloaded on the input: callers passing plain `string[][]` (every
+ * pre-image-cell caller, including this file's own text-only tests) get back
+ * `cells: string[][]` rather than the widened `LaidOutCell[]` — TypeScript
+ * cannot narrow a union return type after the fact, so without this overload
+ * `row.cells[i].length` and `for...of row.cells[i]` would stop compiling for
+ * text-only callers even though every cell really is a `string[]` at runtime.
  */
 export function layoutTable(
   columns: Column[],
@@ -27,19 +50,36 @@ export function layoutTable(
   font: PDFFont,
   size: number,
   padding: number,
+): Array<{ cells: string[][]; height: number }>;
+export function layoutTable(
+  columns: Column[],
+  rows: Cell[][],
+  font: PDFFont,
+  size: number,
+  padding: number,
+): LaidOutRow[];
+export function layoutTable(
+  columns: Column[],
+  rows: Cell[][],
+  font: PDFFont,
+  size: number,
+  padding: number,
 ): LaidOutRow[] {
   const lineHeight = size + 3;
   return rows.map((row) => {
-    const cells = columns.map((col, i) => {
-      const text = row[i] ?? '';
-      const lines = wrap(text, font, size, col.width - 2 * padding);
+    const cells: LaidOutCell[] = columns.map((col, i) => {
+      const cell = row[i] ?? '';
+      if (typeof cell === 'object') return cell;
+      const lines = wrap(cell, font, size, col.width - 2 * padding);
       return lines.length ? lines : [''];
     });
-    // `Math.max()` with no arguments (an empty `columns` list) returns `-Infinity`,
-    // which would poison `paginateRows`'s running `used` total for the rest of the
-    // table. Fall back to 0 lines so the height stays finite (padding alone).
-    const tallest = cells.length ? Math.max(...cells.map((c) => c.length)) : 0;
-    return { cells, height: tallest * lineHeight + 2 * padding };
+    // `Math.max()` with no arguments (an empty `columns` list, or a row with no
+    // image cells) returns `-Infinity`, which would poison `paginateRows`'s
+    // running `used` total for the rest of the table. Fall back to 0 so the
+    // height stays finite (padding alone).
+    const textHeight = Math.max(0, ...cells.map((c) => (isImage(c) ? 0 : c.length * lineHeight)));
+    const imageHeight = Math.max(0, ...cells.map((c) => (isImage(c) ? c.height : 0)));
+    return { cells, height: Math.max(textHeight, imageHeight) + 2 * padding };
   });
 }
 
@@ -81,13 +121,17 @@ export function paginateRows(
 /**
  * Draw a table, breaking pages as needed and repeating the column-header row on
  * every page. Advances `d.y` past the table; `d.page` is left on the last page.
+ *
+ * Returns where every row actually landed, in input order — фаза 1 needs this
+ * to place a signatures-by-row-number block against section А's rows without
+ * re-deriving the pagination itself.
  */
 export function drawTable(
   d: Doc,
   columns: Column[],
-  rows: string[][],
+  rows: Cell[][],
   opts: { size?: number; padding?: number } = {},
-): void {
+): PlacedRow[] {
   const size = opts.size ?? 9;
   const padding = opts.padding ?? 4;
   const lineHeight = size + 3;
@@ -132,12 +176,23 @@ export function drawTable(
     });
   };
 
+  const placed: PlacedRow[] = [];
+
   pages.forEach((pageRows, pageIndex) => {
     if (pageIndex > 0) newPage(d);
     drawHeader();
     for (const row of pageRows) {
-      row.cells.forEach((lines, i) => {
-        lines.forEach((line, lineIndex) => {
+      row.cells.forEach((cell, i) => {
+        if (isImage(cell)) {
+          d.page.drawImage(cell.image, {
+            x: xOf(i) + padding,
+            y: d.y - padding - cell.height,
+            width: cell.width,
+            height: cell.height,
+          });
+          return;
+        }
+        cell.forEach((line, lineIndex) => {
           d.page.drawText(line, {
             x: xOf(i) + padding,
             y: d.y - padding - (lineIndex + 1) * lineHeight + 3,
@@ -147,6 +202,7 @@ export function drawTable(
           });
         });
       });
+      placed.push({ pageIndex, y: d.y - row.height, height: row.height });
       d.y -= row.height;
       d.page.drawLine({
         start: { x: MARGIN, y: d.y },
@@ -156,4 +212,6 @@ export function drawTable(
       });
     }
   });
+
+  return placed;
 }
