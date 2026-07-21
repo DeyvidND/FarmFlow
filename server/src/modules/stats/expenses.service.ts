@@ -1,6 +1,6 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, gte, lte } from 'drizzle-orm';
-import { type Database, manualExpenses, tenants } from '@fermeribg/db';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm';
+import { type Database, manualExpenses, tenants, users } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { jsonbDeepMerge } from '../../common/db/jsonb';
 import { INFO_COMMISSION_PATH } from './stats.settings';
@@ -45,7 +45,29 @@ export class ExpensesService {
       .orderBy(desc(manualExpenses.date), desc(manualExpenses.createdAt));
   }
 
+  /** Спецификацията изисква куриерът да е реален driver/admin акаунт на СЪЩИЯ
+   *  наемател — иначе собственик може да закачи разход към чужд/несъществуващ
+   *  UUID (не е дупка в изолацията, защото P&L заявката пак е tenant-scoped и
+   *  такъв запис просто пада на „Куриер" в разбивката, но е дупка в целостта). */
+  private async assertCourierAccount(tenantId: string, courierAccountId: string): Promise<void> {
+    const [row] = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          eq(users.id, courierAccountId),
+          eq(users.tenantId, tenantId),
+          inArray(users.role, ['driver', 'admin']),
+        ),
+      )
+      .limit(1);
+    if (!row) throw new BadRequestException('Невалиден куриер за тази ферма.');
+  }
+
   async create(tenantId: string, userId: string, dto: CreateExpenseDto): Promise<{ id: string }> {
+    if (dto.courierAccountId != null) {
+      await this.assertCourierAccount(tenantId, dto.courierAccountId);
+    }
     const [row] = await this.db
       .insert(manualExpenses)
       .values({
@@ -66,9 +88,15 @@ export class ExpensesService {
     if (dto.date !== undefined) patch.date = dto.date;
     if (dto.amountStotinki !== undefined) patch.amountStotinki = dto.amountStotinki;
     if (dto.category !== undefined) patch.category = dto.category;
-    // `null` е валидна цел: отвързва разхода от куриер.
-    if ('courierAccountId' in dto) patch.courierAccountId = dto.courierAccountId ?? null;
-    if (dto.note !== undefined) patch.note = dto.note ?? null;
+    // `null` е валидна цел: отвързва разхода от куриер. Валидираме само когато
+    // полето наистина се задава на непразна стойност — не при отсъствие/null.
+    if ('courierAccountId' in dto) {
+      if (dto.courierAccountId != null) await this.assertCourierAccount(tenantId, dto.courierAccountId);
+      patch.courierAccountId = dto.courierAccountId ?? null;
+    }
+    // `null` е валидна цел: изчиства бележката. `'note' in dto`, не `!== undefined`
+    // — иначе изричен `null` (изтрий бележката) не се различава от „непроменена".
+    if ('note' in dto) patch.note = dto.note ?? null;
 
     const [row] = await this.db
       .update(manualExpenses)

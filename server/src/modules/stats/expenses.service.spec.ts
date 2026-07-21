@@ -1,9 +1,11 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { SQL, Param } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { ExpensesService } from './expenses.service';
 import { UpdateExpenseDto } from './dto/expense.dto';
+
+const DRIVER_ID = '11111111-1111-4111-8111-111111111111';
 
 /** Изважда всяка вградена Param стойност от drizzle SQL дърво — така тестът
  *  вижда дали WHERE наистина е стеснил по tenant, вместо да вярва на мока. */
@@ -64,6 +66,33 @@ describe('ExpensesService', () => {
     });
   });
 
+  it('create с courierAccountId на съшия наемател с role driver/admin успява', async () => {
+    // Единствената канна редица служи двойно тук: и за select-а, който проверява
+    // акаунта, и за insert().returning() след него — makeDb няма отделни мокове.
+    const { db, captured } = makeDb([{ id: DRIVER_ID }]);
+    const svc = new ExpensesService(db as any);
+    await svc.create('tenant-1', 'user-9', {
+      date: '2026-07-20',
+      amountStotinki: 5000,
+      category: 'fuel',
+      courierAccountId: DRIVER_ID,
+    });
+    expect(captured.values).toMatchObject({ courierAccountId: DRIVER_ID });
+  });
+
+  it('create с courierAccountId, който не се разрешава (чужд/несъществуващ), хвърля BadRequestException', async () => {
+    const { db } = makeDb([]);
+    const svc = new ExpensesService(db as any);
+    await expect(
+      svc.create('tenant-1', 'user-9', {
+        date: '2026-07-20',
+        amountStotinki: 5000,
+        category: 'fuel',
+        courierAccountId: DRIVER_ID,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('update стеснява по tenant И по id — не само по id', async () => {
     const { db, captured } = makeDb();
     const svc = new ExpensesService(db as any);
@@ -90,6 +119,46 @@ describe('ExpensesService', () => {
     const dto = plainToInstance(UpdateExpenseDto, { courierAccountId: null });
     await svc.update('tenant-1', 'exp-1', dto);
     expect(captured.set).toMatchObject({ courierAccountId: null });
+  });
+
+  it('update, задаващ courierAccountId на валидна стойност, минава проверката и успява', async () => {
+    const { db, captured } = makeDb([{ id: DRIVER_ID }]);
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { courierAccountId: DRIVER_ID });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).toMatchObject({ courierAccountId: DRIVER_ID });
+  });
+
+  it('update, изчистващ courierAccountId на null, изобщо НЕ пуска проверката (select)', async () => {
+    const { db } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { courierAccountId: null });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect((db.select as jest.Mock).mock.calls.length).toBe(0);
+  });
+
+  it('update, който изобщо не пипа courierAccountId, НЕ пуска проверката (select)', async () => {
+    const { db } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { amountStotinki: 700 });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect((db.select as jest.Mock).mock.calls.length).toBe(0);
+  });
+
+  it('update през реален DTO с изричен note: null изчиства бележката', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { note: null });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).toMatchObject({ note: null });
+  });
+
+  it('update през реален DTO (plainToInstance) НЕ пипа note, ако клиентът не го е пратил', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { amountStotinki: 700 });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).not.toHaveProperty('note');
   });
 
   it('update на чужд разход дава 404, не мълчалив успех', async () => {

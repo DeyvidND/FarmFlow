@@ -55,7 +55,7 @@ export function ExpenseDialog({
           amountStotinki,
           category,
           courierAccountId: courierAccountId || null,
-          note,
+          note: note || null,
         });
       } else {
         await createExpense({

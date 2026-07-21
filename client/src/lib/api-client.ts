@@ -894,7 +894,7 @@ export const updateExpense = (
     amountStotinki?: number;
     category?: ExpenseCategory;
     courierAccountId?: string | null;
-    note?: string;
+    note?: string | null;
   },
 ) => apiFetch<{ id: string }>(`stats/expenses/${id}`, { method: 'PATCH', ...json(data) });
 

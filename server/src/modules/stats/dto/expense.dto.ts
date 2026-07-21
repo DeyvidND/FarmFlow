@@ -63,11 +63,13 @@ export class UpdateExpenseDto {
   @IsUUID()
   declare courierAccountId?: string | null;
 
+  /** `null` изрично изчиства бележката. Същият `declare` трик като
+   *  `courierAccountId` по-горе — иначе `'note' in dto` е винаги true. */
   @IsOptional()
   @emptyToUndefined
   @IsString()
   @MaxLength(300)
-  note?: string;
+  declare note?: string | null;
 }
 
 export class ExpenseQueryDto {
