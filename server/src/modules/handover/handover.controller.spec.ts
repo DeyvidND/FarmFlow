@@ -21,7 +21,13 @@ describe('HandoverController delegation', () => {
     signAllForDay: jest.fn().mockResolvedValue({ signed: 3 }),
     ensureDraftTarget: jest.fn().mockResolvedValue({ id: 'p1' }),
   };
-  const ctrl = new HandoverController(svc as any);
+  // RoutingService + CourierAssignmentService are only reached on the driver
+  // branch of `check` (see handover.check-scope.spec.ts); every route asserted
+  // here is the owner path, so bare stubs are enough.
+  const routing = { getRoute: jest.fn() };
+  const courierAssignment = { resolveMyLeg: jest.fn() };
+  const ctrl = new HandoverController(svc as any, routing as any, courierAssignment as any);
+  const OWNER = { role: 'admin', userId: 'u1', tenantId: 't1' } as any;
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -58,8 +64,9 @@ describe('HandoverController delegation', () => {
   });
 
   it('GET /handover/check delegates listForCheck with tenantId + date/slot', async () => {
-    await ctrl.check('t1', '2026-07-20', 's1');
+    await ctrl.check('t1', OWNER, '2026-07-20', 's1');
     expect(svc.listForCheck).toHaveBeenCalledWith('t1', { date: '2026-07-20', slotId: 's1' });
+    expect(courierAssignment.resolveMyLeg).not.toHaveBeenCalled(); // owner path stays unscoped
   });
 
   it('PATCH /handover/:id/mark-signed delegates markSigned with tenantId + id', async () => {

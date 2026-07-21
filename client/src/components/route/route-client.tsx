@@ -20,7 +20,9 @@ import {
   PlusCircle,
   SlidersHorizontal,
   MoreHorizontal,
+  ShieldCheck,
 } from 'lucide-react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { asLegIndex } from '@/lib/types';
 import {
@@ -962,6 +964,18 @@ export function RouteClient({
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
           </label>
+          {/* Roadside „Проверка" — the courier's own entry point. It lives HERE,
+              not on Днес: a driver login never sees Днес, and this is the screen
+              they already have open when they get pulled over. Solid green so it
+              is findable one-handed, under stress, without reading. */}
+          {isDriver && (
+            <Link
+              href="/protocols/check"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-ff-green-700 px-3 py-2.5 text-[13px] font-bold text-white shadow-ff-sm transition hover:bg-ff-green-800"
+            >
+              <ShieldCheck size={16} /> Проверка
+            </Link>
+          )}
           {/* set-once config, collapsed behind one entry point (audit P1); daily
               planning grouped into one menu (audit P4) — both organizer-only */}
           {!isDriver && (

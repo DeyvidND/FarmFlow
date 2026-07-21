@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, TriangleAlert, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useRole } from '@/components/layout/role-context';
 import { todayIso } from '@/lib/utils';
 import { ApiError, getCheckProtocols } from '@/lib/api-client';
 import { readCheckCache, saveCheckCache, type CheckProtocol } from '@/lib/protocol-cache';
@@ -43,6 +44,7 @@ const timeLabel = (ms: number) =>
  * `loading` always resolves via the try/catch/finally below, on every path.
  */
 export function ProtocolCheckClient() {
+  const role = useRole();
   const [date] = useState(() => todayIso());
   const [rows, setRows] = useState<CheckProtocol[]>([]);
   const [cachedAt, setCachedAt] = useState<number | null>(null);
@@ -117,7 +119,13 @@ export function ProtocolCheckClient() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-ff-surface">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-ff-border bg-ff-surface/95 px-4 py-3 backdrop-blur">
-        <a href="/protocols" className="inline-flex items-center gap-1.5 text-[14px] font-bold text-ff-ink">
+        {/* A courier came from /route and cannot open the /protocols list at all
+            (it's an operator screen; GET /handover is admin-only), so sending
+            them there would dead-end on a 403. */}
+        <a
+          href={role === 'driver' ? '/route' : '/protocols'}
+          className="inline-flex items-center gap-1.5 text-[14px] font-bold text-ff-ink"
+        >
           <ArrowLeft size={18} /> Назад
         </a>
         <span className="text-[15px] font-extrabold">

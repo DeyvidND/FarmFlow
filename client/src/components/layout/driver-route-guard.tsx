@@ -7,7 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
  *  checklist, + help; bounce anything else to /route. UX only — the server's
  *  default-deny guard is the real boundary. Keep in sync with DRIVER_ALLOWED
  *  in middleware.ts. */
-const DRIVER_ALLOWED = ['/route', '/prep', '/my-turnover', '/help'];
+const DRIVER_ALLOWED = ['/route', '/prep', '/my-turnover', '/protocols/check', '/help'];
 
 export function DriverRouteGuard() {
   const pathname = usePathname();

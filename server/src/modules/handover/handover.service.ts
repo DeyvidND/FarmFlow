@@ -1117,12 +1117,33 @@ export class HandoverService {
    * `list()` already issues a bounded number of queries; decryption below is
    * pure in-memory work, so this adds no per-row query.
    */
-  async listForCheck(tenantId: string, q: { date?: string; slotId?: string }): Promise<CheckRow[]> {
+  async listForCheck(
+    tenantId: string,
+    q: { date?: string; slotId?: string },
+    /**
+     * Driver scope. When present, only protocols covering one of THESE orders are
+     * returned — the goods actually in this courier's van. Omitted for the owner,
+     * who sees the whole day.
+     *
+     * This is a PII boundary, not a convenience filter: a protocol carries the
+     * counterparty's name and address, so a tenant-wide list would hand every
+     * courier the customer details of deliveries they are not making. Both link
+     * columns are checked — `orderId` for an operator→customer receipt, and the
+     * `orderIds` array for a farmer→operator pickup that covers several orders.
+     */
+    onlyOrderIds?: ReadonlySet<string>,
+  ): Promise<CheckRow[]> {
     const rows = (await this.list(tenantId, { slotId: q.slotId, date: q.date })) as Array<
       typeof handoverProtocols.$inferSelect
     >;
+    const inScope = (r: (typeof rows)[number]) => {
+      if (!onlyOrderIds) return true;
+      if (r.orderId && onlyOrderIds.has(r.orderId)) return true;
+      return (r.orderIds ?? []).some((id) => onlyOrderIds.has(id));
+    };
     return rows
       .filter((r) => r.status === 'signed')
+      .filter(inScope)
       .sort((a, b) => (a.protocolNumber ?? 0) - (b.protocolNumber ?? 0))
       .map((r) => ({
         id: r.id,

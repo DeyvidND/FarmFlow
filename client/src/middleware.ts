@@ -23,6 +23,7 @@ const PROTECTED = [
   '/payments',
   '/prep',
   '/products',
+  '/protocols',
   '/reviews',
   '/route',
   '/settings',
@@ -54,7 +55,13 @@ const FARMER_ALLOWED = [
 // checklist, + help; bounce anything else to /route. UX only — the server's
 // default-deny guard is the real boundary. Keep in sync with DRIVER_ALLOWED
 // in components/layout/driver-route-guard.tsx.
-const DRIVER_ALLOWED = ['/route', '/prep', '/my-turnover', '/help'];
+// `/protocols/check` — and deliberately NOT bare `/protocols`. The roadside
+// „Проверка" is the one handover screen a courier needs (leaving it out made the
+// courier the only persona who couldn't open the feature built for him), while
+// the /protocols LIST is an operator screen whose `GET /handover` is admin-only;
+// letting a driver land there would just render a 403. The server scopes the
+// check data to the driver's own leg, so this list stays UX-only, as ever.
+const DRIVER_ALLOWED = ['/route', '/prep', '/my-turnover', '/protocols/check', '/help'];
 
 /** Decode the JWT payload without verifying signature (UX guard only). */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -180,6 +187,8 @@ export const config = {
     '/prep/:path*',
     '/products',
     '/products/:path*',
+    '/protocols',
+    '/protocols/:path*',
     '/reviews',
     '/reviews/:path*',
     '/route',
