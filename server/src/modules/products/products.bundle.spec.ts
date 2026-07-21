@@ -12,6 +12,8 @@
  * separately to hand the callback a fresh tx proxy backed by its own queue.
  */
 import { BadRequestException } from '@nestjs/common';
+import { and, inArray, isNull } from 'drizzle-orm';
+import { productVariants } from '@fermeribg/db';
 import { ProductsService } from './products.service';
 import type { BundleItemDto } from './dto/bundle-items.dto';
 
@@ -192,11 +194,47 @@ describe('ProductsService.setBundleItems() — atomic circularity + farmer scopi
     const variantRow = { productId: 'm1' };
     const dbQueue = [[bundle]];
     const txQueue = [[member], [variantRow]];
-    const db = makeDb(dbQueue, txQueue);
+    const db = makeChain(dbQueue) as any;
+    let capturedTx: any;
+    db.transaction = jest.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
+      capturedTx = makeChain(txQueue);
+      return cb(capturedTx);
+    });
     const { svc } = makeSvc(db);
 
     await expect(
       svc.setBundleItems('bundle1', TENANT_ID, [item('m1')], 'farmer-A'),
     ).rejects.toThrow('Продукт с варианти не може да е част от кошница: Мед натурален');
+
+    // The FIFO queue above hands back a non-empty variant row regardless of
+    // what the service actually queried for — a mock that ignores its WHERE
+    // args would still make the assertion above pass even if the service
+    // dropped the `isNull(productVariants.deletedAt)` filter (i.e. started
+    // treating soft-deleted variants as live, wrongly blocking a member).
+    // Assert on the captured WHERE call itself to close that gap: it must be
+    // the memberIds-scoped, not-deleted filter, not merely "second call".
+    expect(capturedTx.where.mock.calls[1][0]).toEqual(
+      and(inArray(productVariants.productId, ['m1']), isNull(productVariants.deletedAt)),
+    );
+  });
+
+  it('rejects only the varianted member out of a mixed set (name-filter branch)', async () => {
+    const bundle = bundleRow({ farmerId: 'farmer-A' });
+    const variantedMember = memberRow({ id: 'm1', name: 'Мед натурален', farmerId: 'farmer-A' });
+    const plainMember = memberRow({ id: 'm2', name: 'Домати', farmerId: 'farmer-A' });
+    // Both members pass the category/farmer checks; the productVariants select
+    // returns a live variant row for m1 only, so the reported name list must
+    // include m1's name and exclude m2's — exercises
+    // `members.filter(m => blockedIds.has(m.id))` with a mixed set, not just
+    // a single member.
+    const variantRow = { productId: 'm1' };
+    const dbQueue = [[bundle]];
+    const txQueue = [[variantedMember, plainMember], [variantRow]];
+    const db = makeDb(dbQueue, txQueue);
+    const { svc } = makeSvc(db);
+
+    await expect(
+      svc.setBundleItems('bundle1', TENANT_ID, [item('m1'), item('m2')], 'farmer-A'),
+    ).rejects.toThrow(/^Продукт с варианти не може да е част от кошница: Мед натурален$/);
   });
 });
