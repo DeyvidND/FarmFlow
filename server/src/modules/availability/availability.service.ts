@@ -6,7 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, asc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
-import { type Database, productAvailabilityWindows, products, productVariants } from '@fermeribg/db';
+import {
+  type Database,
+  productAvailabilityWindows,
+  productBundleItems,
+  products,
+  productVariants,
+} from '@fermeribg/db';
 import type { AvailabilityWindow, PublicAvailabilityWindow } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
@@ -16,6 +22,7 @@ import { CreateWindowDto } from './dto/create-window.dto';
 import { CreateWindowsBulkDto } from './dto/create-windows-bulk.dto';
 import { UpdateWindowDto } from './dto/update-window.dto';
 import { rangesOverlap, applyQuantityDelta } from './availability.util';
+import { basketRemaining } from './bundle-availability.util';
 
 // Availability has no date window anymore: a product just has a stock count that
 // is live until depleted or deleted. We still persist an open-ended date range so
@@ -427,13 +434,95 @@ export class AvailabilityService {
           gte(productAvailabilityWindows.endsAt, today),
         ),
       );
-    return rows.map((w) => ({
+    const ordinary = rows.map((w) => ({
       productId: w.productId!,
       startsAt: w.startsAt,
       endsAt: w.endsAt,
       quantity: w.quantity,
       remaining: w.remaining,
     }));
+
+    // Baskets („кошници") have no stock of their own — publish one synthetic window
+    // per basket, computed from its members, and drop any real rows for the basket
+    // product so the storefront (which pools a product's windows by summing them)
+    // can't double-count.
+    const baskets = await this.db
+      .select({ id: products.id })
+      .from(products)
+      .where(
+        and(
+          eq(products.tenantId, tenant.id),
+          eq(products.category, 'bundle'),
+          eq(products.isActive, true),
+          eq(products.needsReview, false),
+          isNull(products.deletedAt),
+        ),
+      );
+    if (!baskets.length) return ordinary;
+    const basketIds = baskets.map((b) => b.id);
+
+    // Tenant-scoped like every other basket-expansion query in this codebase
+    // (orders.service.ts) — bundleId is a specific already-tenant-scoped product id
+    // so this isn't exploitable today, but it's the established convention.
+    const links = await this.db
+      .select({
+        bundleId: productBundleItems.bundleId,
+        productId: productBundleItems.productId,
+        quantity: productBundleItems.quantity,
+      })
+      .from(productBundleItems)
+      .where(
+        and(
+          inArray(productBundleItems.bundleId, basketIds),
+          eq(productBundleItems.tenantId, tenant.id),
+        ),
+      );
+
+    const memberIds = [...new Set(links.map((l) => l.productId))];
+    const liveMembers = memberIds.length
+      ? await this.db
+          .select({ id: products.id })
+          .from(products)
+          .where(
+            and(
+              inArray(products.id, memberIds),
+              eq(products.tenantId, tenant.id),
+              eq(products.isActive, true),
+              eq(products.needsReview, false),
+              isNull(products.deletedAt),
+            ),
+          )
+      : [];
+    const liveIds = new Set(liveMembers.map((m) => m.id));
+
+    // Pool each member's windows the same way checkout does (decideDecrementPooled
+    // in availability.util.ts) — a product can carry more than one active window.
+    const remainingByProduct = new Map<string, number>();
+    for (const w of ordinary) {
+      remainingByProduct.set(w.productId, (remainingByProduct.get(w.productId) ?? 0) + w.remaining);
+    }
+
+    const membersByBasket = new Map<string, { productId: string; quantity: number }[]>();
+    for (const l of links) {
+      const list = membersByBasket.get(l.bundleId) ?? [];
+      list.push({ productId: l.productId, quantity: l.quantity });
+      membersByBasket.set(l.bundleId, list);
+    }
+
+    const basketIdSet = new Set(basketIds);
+    const synthetic: PublicAvailabilityWindow[] = [];
+    for (const id of basketIds) {
+      const remaining = basketRemaining(membersByBasket.get(id) ?? [], remainingByProduct, liveIds);
+      if (remaining == null) continue; // unlimited — publish nothing
+      synthetic.push({
+        productId: id,
+        startsAt: OPEN_START,
+        endsAt: OPEN_END,
+        quantity: remaining,
+        remaining,
+      });
+    }
+    return [...ordinary.filter((w) => !basketIdSet.has(w.productId)), ...synthetic];
   }
 
   /** Busts the admin catalog cache when windows change. */

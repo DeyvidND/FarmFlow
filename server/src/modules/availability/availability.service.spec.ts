@@ -1,4 +1,6 @@
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { and, eq, inArray } from 'drizzle-orm';
+import { productBundleItems } from '@fermeribg/db';
 import { AvailabilityService } from './availability.service';
 
 // ---------------------------------------------------------------------------
@@ -441,11 +443,16 @@ describe('AvailabilityService.findPublicActiveBySlug', () => {
       quantity: 10,
       remaining: 7,
     };
+    // Second select is the basket lookup (products.category='bundle'); empty means
+    // this tenant has no baskets, so the service returns the ordinary rows as-is
+    // via its early-return path.
+    const selectResults = [[fakeRow], []];
     const db = {
       select: () => {
+        const result = selectResults.shift()!;
         const chain: any = {
           from: () => chain,
-          where: () => Promise.resolve([fakeRow]),
+          where: () => Promise.resolve(result),
         };
         return chain;
       },
@@ -454,5 +461,90 @@ describe('AvailabilityService.findPublicActiveBySlug', () => {
     const result = await svc.findPublicActiveBySlug('some-slug');
     expect(result).toHaveLength(1);
     expect(result[0].productId).toBe('p1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findPublicActiveBySlug() — basket („кошница") availability (Task 5)
+// ---------------------------------------------------------------------------
+
+/** Chainable thenable jest.fn proxy, mirroring products.bundle.spec.ts's
+ *  `makeChain`: every builder method returns the same proxy, and awaiting it
+ *  shifts the next canned result off `queue`. Built with jest.fn() (not the
+ *  plain-chain style above) specifically so these tests can assert on the real
+ *  `where()` arguments — proof the tenant filter on the bundle-links query is
+ *  actually applied, not merely that "some select happened" (a queue-only mock
+ *  would pass even if that filter were silently dropped). */
+function makeQueueChain(queue: unknown[]) {
+  const proxy: any = {
+    then: (resolve: (v: unknown) => void) => resolve(queue.shift()),
+  };
+  for (const m of ['select', 'from', 'where']) {
+    proxy[m] = jest.fn(() => proxy);
+  }
+  return proxy;
+}
+
+describe('AvailabilityService.findPublicActiveBySlug — basket availability', () => {
+  it('derives the synthetic basket window from the weakest member and drops its own rows', async () => {
+    const rows = [
+      { productId: 'p1', startsAt: '2000-01-01', endsAt: '9999-12-31', quantity: 10, remaining: 10 },
+      { productId: 'p2', startsAt: '2000-01-01', endsAt: '9999-12-31', quantity: 5, remaining: 3 },
+      // A stale real window on the basket product itself — must be dropped, not
+      // added alongside the synthetic one (the storefront pools by summing, so
+      // both surviving would double the advertised stock).
+      { productId: 'basket1', startsAt: '2000-01-01', endsAt: '9999-12-31', quantity: 99, remaining: 99 },
+    ];
+    const baskets = [{ id: 'basket1' }];
+    const links = [
+      { bundleId: 'basket1', productId: 'p1', quantity: 1 },
+      { bundleId: 'basket1', productId: 'p2', quantity: 1 },
+    ];
+    const liveMembers = [{ id: 'p1' }, { id: 'p2' }];
+    const db = makeQueueChain([rows, baskets, links, liveMembers]);
+    const svc = new AvailabilityService(db as any, cacheStub, publicCacheStub());
+
+    const result = await svc.findPublicActiveBySlug('some-slug');
+
+    expect(result.filter((w) => w.productId === 'basket1')).toHaveLength(1);
+    const basketWindow = result.find((w) => w.productId === 'basket1')!;
+    // p1 caps at 10, p2 caps at 3 — the basket can only be as full as its weakest member.
+    expect(basketWindow.remaining).toBe(3);
+    expect(basketWindow.quantity).toBe(3);
+    expect(result.filter((w) => w.productId === 'p1' || w.productId === 'p2')).toHaveLength(2);
+
+    // Third select() call is the bundle-links query — assert its where() actually
+    // carries the tenant filter (matches the sibling basket-expansion query in
+    // orders.service.ts). This is the one place the brief's sample code omitted it.
+    expect((db.where as jest.Mock).mock.calls[2][0]).toEqual(
+      and(inArray(productBundleItems.bundleId, ['basket1']), eq(productBundleItems.tenantId, 't1')),
+    );
+  });
+
+  it('is sold out when a member has gone inactive (not live)', async () => {
+    const rows = [
+      { productId: 'p1', startsAt: '2000-01-01', endsAt: '9999-12-31', quantity: 10, remaining: 10 },
+    ];
+    const baskets = [{ id: 'basket1' }];
+    const links = [{ bundleId: 'basket1', productId: 'p1', quantity: 1 }];
+    const liveMembers: { id: string }[] = []; // p1 no longer live
+    const db = makeQueueChain([rows, baskets, links, liveMembers]);
+    const svc = new AvailabilityService(db as any, cacheStub, publicCacheStub());
+
+    const result = await svc.findPublicActiveBySlug('some-slug');
+    const basketWindow = result.find((w) => w.productId === 'basket1')!;
+    expect(basketWindow.remaining).toBe(0);
+  });
+
+  it('publishes nothing when no member carries a stock window (unlimited basket)', async () => {
+    const rows: unknown[] = [];
+    const baskets = [{ id: 'basket1' }];
+    const links = [{ bundleId: 'basket1', productId: 'p1', quantity: 1 }];
+    const liveMembers = [{ id: 'p1' }];
+    const db = makeQueueChain([rows, baskets, links, liveMembers]);
+    const svc = new AvailabilityService(db as any, cacheStub, publicCacheStub());
+
+    const result = await svc.findPublicActiveBySlug('some-slug');
+    expect(result.find((w) => w.productId === 'basket1')).toBeUndefined();
   });
 });
