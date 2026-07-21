@@ -1,4 +1,4 @@
--- 0111_manual_expenses.sql
+-- 0110_manual_expenses.sql
 -- Manual expenses table for farm-entered operational costs.
 CREATE TABLE IF NOT EXISTS "manual_expenses" (
   "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4() NOT NULL,
