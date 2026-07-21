@@ -48,6 +48,16 @@ describe('layoutTable', () => {
     expect(row.cells).toHaveLength(3);
     expect(row.cells[2]).toEqual(['']);
   });
+
+  it('produces a finite height when there are no columns, instead of -Infinity', async () => {
+    // `columns = []` makes `cells = []`, so `Math.max(...[])` would be `-Infinity`
+    // if not guarded. That value then poisons paginateRows' running total forever.
+    const d = await createDoc(A4_LANDSCAPE);
+    const [row] = layoutTable([], [[]], d.font, 9, 4);
+    expect(Number.isFinite(row.height)).toBe(true);
+    expect(row.height).not.toBe(-Infinity);
+    expect(row.height).toBe(2 * 4); // no cells → 0 lines tall, just the padding
+  });
 });
 
 const rowsOf = (heights: number[]) => heights.map((h) => ({ cells: [['x']], height: h }));
@@ -76,5 +86,20 @@ describe('paginateRows', () => {
 
   it('returns a single empty page for no rows, so the header still prints', () => {
     expect(paginateRows([], 500, 700, 20)).toEqual([[]]);
+  });
+
+  it('switches from firstPageSpace to laterPageSpace after the first break', () => {
+    // 10 rows of height 20, headerHeight 20.
+    // Page 1 budget = 100 - 20 = 80 → rows 1-4 fill it exactly (used 80);
+    // row 5 would make used 100 > 80, so it breaks to a new page.
+    // Page 2 budget = 200 - 20 = 180 → the remaining 6 rows (used 120) all fit,
+    // so there is no third page.
+    // An implementation that never reassigns `budget` away from the first-page
+    // value (80) would instead break again after 4 more rows (used 80), landing
+    // rows 5-8 on page 2 and rows 9-10 alone on a third page: [4, 4, 2].
+    const pages = paginateRows(rowsOf(Array(10).fill(20)), 100, 200, 20);
+    expect(pages).toHaveLength(2);
+    expect(pages[0]).toHaveLength(4);
+    expect(pages[1]).toHaveLength(6);
   });
 });

@@ -35,7 +35,10 @@ export function layoutTable(
       const lines = wrap(text, font, size, col.width - 2 * padding);
       return lines.length ? lines : [''];
     });
-    const tallest = Math.max(...cells.map((c) => c.length));
+    // `Math.max()` with no arguments (an empty `columns` list) returns `-Infinity`,
+    // which would poison `paginateRows`'s running `used` total for the rest of the
+    // table. Fall back to 0 lines so the height stays finite (padding alone).
+    const tallest = cells.length ? Math.max(...cells.map((c) => c.length)) : 0;
     return { cells, height: tallest * lineHeight + 2 * padding };
   });
 }
