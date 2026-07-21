@@ -205,12 +205,41 @@ export function drawDocumentHeader(d: Doc, h: DocHeader): void {
 }
 
 /**
+ * The widest label `stampPageNumbers`'s default formatter is ever expected to
+ * draw — three digits each side ("стр. 999 от 999") — plus a small gap.
+ * `drawDocumentFooter` reserves this on the right unconditionally (see below).
+ */
+const FOOTER_PAGE_NUMBER_SAMPLE = 'стр. 999 от 999';
+const FOOTER_PAGE_NUMBER_GAP = 10;
+
+/**
  * Footer pinned to the foot of the CURRENT page. Does not move the cursor —
  * callers keep laying out body content after calling it.
+ *
+ * Lays out inside the content width minus a strip reserved on the right for
+ * `stampPageNumbers`'s label, which draws at the same y, right-aligned to the
+ * same content edge. Neither function knows the other is ever called, and
+ * before this the footer centred across the FULL content width — harmless
+ * while every footer string was short, but the footer also carries Bulgarian
+ * legal boilerplate, and a long enough sentence would run its right edge
+ * straight into the page number.
+ *
+ * The strip is reserved even on documents that never call
+ * `stampPageNumbers`: `drawDocumentFooter` has no way to know whether they
+ * will, and a document without page numbers just gets a slightly narrower
+ * footer — cheap insurance that removes the coupling entirely rather than
+ * relying on both call sites staying short forever.
+ *
+ * A footer too long for the reduced width shrinks (reusing `fitTextSize`,
+ * the same shrink-to-fit `drawDocumentHeader` uses for over-long titles)
+ * rather than wrapping — wrapping would change the footer's height, and it is
+ * pinned to a fixed y. It stays visually centred WITHIN the reduced area, not
+ * centred on the full page and then clipped by the reserve.
  */
 export function drawDocumentFooter(d: Doc, text: string): void {
-  const w = contentW(d);
-  const size = 8;
+  const reserve = d.font.widthOfTextAtSize(FOOTER_PAGE_NUMBER_SAMPLE, 8) + FOOTER_PAGE_NUMBER_GAP;
+  const w = contentW(d) - reserve;
+  const size = fitTextSize(d.font, text, 8, w);
   const x = MARGIN + (w - d.font.widthOfTextAtSize(text, size)) / 2;
   d.page.drawText(text, { x, y: MARGIN - 18, size, font: d.font, color: INK });
 }

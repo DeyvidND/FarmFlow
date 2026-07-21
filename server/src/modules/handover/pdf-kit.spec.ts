@@ -254,7 +254,13 @@ describe('shared brand block — what it actually draws', () => {
 
     const calls = drawTextSpy.mock.calls.filter(([t]) => t === text);
     expect(calls).toHaveLength(1);
-    const expectedX = MARGIN + (contentW(d) - d.font.widthOfTextAtSize(text, 8)) / 2;
+    // Centred within the REDUCED width — contentW minus the strip reserved
+    // for stampPageNumbers' label — not the full content width. See the
+    // dedicated 'footer reserves room for the page-number stamp' block below
+    // for why that reserve exists.
+    const reserve = d.font.widthOfTextAtSize('стр. 999 от 999', 8) + 10;
+    const reducedW = contentW(d) - reserve;
+    const expectedX = MARGIN + (reducedW - d.font.widthOfTextAtSize(text, 8)) / 2;
     expect(calls[0][1].x).toBeCloseTo(expectedX, 5);
     expect(calls[0][1].y).toBeLessThan(MARGIN);
     expect(calls[0][1].y).not.toBe(400);
@@ -311,6 +317,81 @@ describe('shared brand block — what it actually draws', () => {
       expect(drawTextSpy.mock.calls.some(([t]) => t === '1/1')).toBe(true);
       expect(d.y).toBe(400);
     });
+  });
+});
+
+describe('footer reserves room for the page-number stamp', () => {
+  // drawDocumentFooter and stampPageNumbers both draw at y = MARGIN - 18, and
+  // stampPageNumbers right-aligns its label to the same content edge the
+  // footer's full-width centring used to reach for. Neither function knows
+  // the other exists — the fix is to have the footer reserve a strip on the
+  // right unconditionally, wide enough for stampPageNumbers' widest expected
+  // label, so a long footer can never collide with it.
+  let drawTextSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    drawTextSpy = jest.spyOn(PDFPage.prototype, 'drawText');
+  });
+
+  afterEach(() => {
+    drawTextSpy.mockRestore();
+  });
+
+  // Hand-traced against the embedded DejaVuSans font: at the nominal 8pt this
+  // string is ~471.6pt wide — under the OLD full content width (485pt on A4
+  // portrait, so the old, unreserved footer would have drawn it un-shrunk)
+  // but over the width left once the page-number strip is reserved. That gap
+  // is exactly what used to let a long-enough footer run into the stamp.
+  const longFooter = 'Настоящият документ е поверителен и не може да бъде възпроизвеждан или разпространяван без съгласие.';
+
+  it('keeps a long footer strictly left of the page-number label drawn on the same page', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const startY = d.y;
+
+    drawDocumentFooter(d, longFooter);
+    stampPageNumbers(d); // single page → default label is "стр. 1 от 1"
+
+    const footerCall = drawTextSpy.mock.calls.find(([t]) => t === longFooter);
+    expect(footerCall).toBeDefined();
+    const [, footerOpts] = footerCall!;
+
+    const pageNumCall = drawTextSpy.mock.calls.find(([t]) => t === 'стр. 1 от 1');
+    expect(pageNumCall).toBeDefined();
+    const [, pageNumOpts] = pageNumCall!;
+
+    // The footer needed to shrink to stay clear — confirms this test is
+    // actually exercising the reserve, not just a footer that happened to
+    // already be short enough.
+    expect(footerOpts.size).toBeLessThan(8);
+
+    const footerRightEdge = footerOpts.x + d.font.widthOfTextAtSize(longFooter, footerOpts.size);
+    expect(footerRightEdge).toBeLessThan(pageNumOpts.x);
+
+    // Drawing (and shrinking) the footer still must not move the cursor.
+    expect(d.y).toBe(startY);
+  });
+
+  it('still draws a short footer at its nominal size, centred within the reduced area rather than the full page', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const text = 'Съставен в два еднообразни екземпляра.';
+
+    drawDocumentFooter(d, text);
+
+    const call = drawTextSpy.mock.calls.find(([t]) => t === text);
+    expect(call).toBeDefined();
+    const [, opts] = call!;
+    expect(opts.size).toBe(8); // comfortably under the reduced width — no shrink
+
+    const reserve = d.font.widthOfTextAtSize('стр. 999 от 999', 8) + 10;
+    const reducedW = contentW(d) - reserve;
+    const expectedX = MARGIN + (reducedW - d.font.widthOfTextAtSize(text, 8)) / 2;
+    expect(opts.x).toBeCloseTo(expectedX, 5);
+
+    // And distinguishably NOT where a naive full-width centring (today's
+    // behaviour minus the fix) would have put it — proving the reserve moved
+    // it, rather than this just being a coincidental match.
+    const fullWidthX = MARGIN + (contentW(d) - d.font.widthOfTextAtSize(text, 8)) / 2;
+    expect(opts.x).toBeLessThan(fullWidthX);
   });
 });
 
