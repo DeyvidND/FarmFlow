@@ -1743,6 +1743,154 @@ Then use `superpowers:finishing-a-development-branch` to choose merge/PR.
 
 ---
 
+---
+
+## Task 15: Make „Проверка" actually work offline
+
+**Why:** live verification proved the headline use case FAILS. With the API unreachable,
+`/protocols/check` redirects to login („Сесията изтече") and the IndexedDB cache never
+renders. Two independent causes, both must be fixed.
+
+**Files:**
+- Modify: `client/src/app/(admin)/layout.tsx`
+- Create: `client/public/sw.js`
+- Create: `client/src/components/handover/register-check-sw.tsx`
+- Modify: `client/src/app/(admin)/protocols/check/page.tsx`
+- Test: `client/src/app/(admin)/layout.session.test.ts` (pure helper)
+
+### Part A — stop treating "API unreachable" as "session invalid"
+
+Current code:
+```ts
+const [res, account] = await Promise.all([
+  fetch(`${API_BASE}/tenants/me`, { ... }).catch(() => null),   // null = NETWORK error
+  ...
+]);
+if (!res || !res.ok) redirect('/api/session/logout?reason=expired');
+```
+
+`res === null` means we could not reach the API — it says nothing about the token. Today
+that logs the user out AND wipes the cookie, so a signal blip forces a re-login. A 5xx is
+the same: the API is broken, not the session.
+
+**Only an explicit rejection may log out.** Extract a pure, testable helper:
+
+```ts
+/** What the admin shell should do with the /tenants/me probe result.
+ *  `null` = the request never completed (offline / DNS / connection refused).
+ *  Only an explicit 401/403 proves the token is bad — everything else (network
+ *  failure, 5xx) must NOT destroy a working session. */
+export function sessionVerdict(res: { ok: boolean; status: number } | null):
+  'ok' | 'reject' | 'unreachable' {
+  if (res === null) return 'unreachable';
+  if (res.ok) return 'ok';
+  if (res.status === 401 || res.status === 403) return 'reject';
+  return 'unreachable';
+}
+```
+
+Wire it:
+- `'reject'` → `redirect('/api/session/logout?reason=expired')` (unchanged behaviour)
+- `'ok'` → parse `me` as today
+- `'unreachable'` → **render the shell** with safe fallbacks: `subscriptionActive = true`
+  (never lock features over a network blip), farm name empty/undefined. Do NOT redirect,
+  do NOT wipe the cookie.
+
+Also make the `if (!me)` branch after `res.json()` tolerate a parse failure the same way
+(unreachable, not reject).
+
+**This does not weaken auth:** the middleware still rejects a missing/expired JWT locally,
+and when the API is down there is no data to leak — every data call fails too.
+
+Unit-test `sessionVerdict` for: null → unreachable, 200 → ok, 401 → reject, 403 → reject,
+500 → unreachable, 502 → unreachable.
+
+### Part B — service worker so the shell loads with no network
+
+In production the Next server is REMOTE. A phone with no signal cannot fetch the page at
+all, so IndexedDB alone can never satisfy "works offline". A service worker must serve the
+cached shell.
+
+`client/public/sw.js` — keep it small and defensive:
+
+```js
+const CACHE = 'ff-check-v1';
+const SHELL = '/protocols/check';
+
+self.addEventListener('install', (e) => { self.skipWaiting(); });
+self.addEventListener('activate', (e) => {
+  e.waitUntil(caches.keys().then((ks) =>
+    Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+  ).then(() => self.clients.claim()));
+});
+
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  // NEVER intercept the API/BFF — those must fail loudly so the page falls back
+  // to its IndexedDB cache and shows the offline banner.
+  if (url.pathname.startsWith('/bff/') || url.pathname.startsWith('/api/')) return;
+
+  // Immutable hashed build assets → cache-first.
+  if (url.pathname.startsWith('/_next/static/')) {
+    event.respondWith(
+      caches.match(req).then((hit) => hit || fetch(req).then((res) => {
+        if (res.ok) { const c = res.clone(); caches.open(CACHE).then((ca) => ca.put(req, c)); }
+        return res;
+      }))
+    );
+    return;
+  }
+
+  // The check screen itself → network-first, fall back to the cached copy.
+  const isCheckNav = req.mode === 'navigate' && url.pathname === SHELL;
+  if (isCheckNav) {
+    event.respondWith(
+      fetch(req).then((res) => {
+        if (res.ok) { const c = res.clone(); caches.open(CACHE).then((ca) => ca.put(SHELL, c)); }
+        return res;
+      }).catch(() => caches.match(SHELL).then((hit) => hit || Response.error()))
+    );
+  }
+});
+```
+
+`register-check-sw.tsx` — a tiny client component rendered by the check page only, so the
+worker is installed for the people who use that screen:
+
+```tsx
+'use client';
+import { useEffect } from 'react';
+
+/** Registers the offline worker for the roadside check screen. Best-effort: an
+ *  unsupported browser or a failed registration must never break the page. */
+export function RegisterCheckSW() {
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }, []);
+  return null;
+}
+```
+
+Render `<RegisterCheckSW />` from `check/page.tsx`.
+
+### Verification (controller does this live)
+
+1. Online: load `/protocols/check`, confirm it renders and the SW is `activated`.
+2. Stop the API → reload → the page must render **from cache** with the „Офлайн" banner
+   and the cached protocol, NOT the login screen.
+3. Confirm the session cookie still exists afterwards (no forced logout).
+
+- [ ] Part A + unit tests green
+- [ ] Part B service worker + registration
+- [ ] `pnpm --filter @fermeribg/web build` clean
+- [ ] Commit
+
+---
+
 ## Self-Review (spec coverage)
 
 - **Spec A (encrypted columns + maybeDecrypt + no public leak):** Tasks 1, 2, 6, 8. ✅
