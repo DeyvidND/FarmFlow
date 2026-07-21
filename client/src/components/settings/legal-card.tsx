@@ -19,6 +19,7 @@ import {
   updateTenantLegal,
 } from '@/lib/api-client';
 import type { LegalIdentity } from '@/lib/types';
+import { buildLegalPayload, type LegalKind } from '@/lib/legal-identity';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -26,7 +27,7 @@ const field =
   'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[16px] sm:text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
-type Kind = '' | 'individual' | 'sole_trader' | 'company';
+type Kind = LegalKind;
 
 const same = (a: LegalIdentity, b: LegalIdentity) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -88,14 +89,12 @@ export function LegalCard() {
     }
   }
 
-  const current: LegalIdentity = {
-    kind: kind || undefined,
-    name: name.trim() || undefined,
-    eik: eik.trim() || undefined,
-    vatNumber: vatNumber.trim() || undefined,
-    address: address.trim() || undefined,
-    regNo: regNo.trim() || undefined,
-  };
+  // Sends ONLY the identifier matching the chosen kind. One input backs two
+  // states here too, so without the filter a физическо лице could ship a value
+  // in both `eik` and `regNo` and the protocol would print the wrong one —
+  // see buildLegalPayload. Also feeds the dirty check, so the comparison is
+  // against what would actually be saved.
+  const current: LegalIdentity = buildLegalPayload({ kind, name, eik, vatNumber, address, regNo });
   const savedForCompare: LegalIdentity = saved
     ? {
         kind: saved.kind,
@@ -146,7 +145,22 @@ export function LegalCard() {
         <div className="mt-5 flex flex-col gap-3">
           <label className={labelCls}>
             Вид оператор
-            <select value={kind} onChange={(e) => setKind(e.target.value as Kind)} className={field}>
+            <select
+              value={kind}
+              onChange={(e) => {
+                const next = e.target.value as Kind;
+                setKind(next);
+                // Drop the identifier that no longer applies, so a value the
+                // operator can no longer SEE can't survive in state.
+                if (next === 'individual') {
+                  setEik('');
+                  setVatNumber('');
+                } else {
+                  setRegNo('');
+                }
+              }}
+              className={field}
+            >
               <option value="">— избери —</option>
               <option value="individual">Физическо лице</option>
               <option value="sole_trader">ЕТ (едноличен търговец)</option>

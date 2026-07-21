@@ -138,10 +138,24 @@ export function ProtocolDialog({
                 <span className="ff-fig text-[20px] font-extrabold">{moneyFromStotinki(draft.total)}</span>
               </div>
 
-              <div className="mb-4 grid grid-cols-2 gap-3">
-                <SignaturePadField value={fromSignaturePng} onChange={setFromSignaturePng} label="Предал" />
+              {/* Stacked on a phone: side-by-side left each pad ~165px wide, which
+                  nobody can sign their name in. `commit="live"` because onChange
+                  here is local state, not a write — the submit button reads it, so
+                  requiring „Готово" first would let someone sign with an empty pad. */}
+              <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <SignaturePadField
+                  value={fromSignaturePng}
+                  onChange={setFromSignaturePng}
+                  label="Предал"
+                  commit="live"
+                />
                 {!noSignature && (
-                  <SignaturePadField value={toSignaturePng} onChange={setToSignaturePng} label="Приел" />
+                  <SignaturePadField
+                    value={toSignaturePng}
+                    onChange={setToSignaturePng}
+                    label="Приел"
+                    commit="live"
+                  />
                 )}
               </div>
 
