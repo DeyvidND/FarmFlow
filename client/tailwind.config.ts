@@ -1,4 +1,9 @@
 import type { Config } from 'tailwindcss';
+// Static ESM import, NOT `require(...)`. This file is ESM (import/export default),
+// and Node >=22 loads such a file through loadESMFromCJS, where `require` is not
+// defined — a bare require() here crashes the dev server with "require is not
+// defined" the moment PostCSS loads this config.
+import tailwindcssAnimate from 'tailwindcss-animate';
 
 const config: Config = {
   darkMode: ['class'],
@@ -111,7 +116,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [tailwindcssAnimate],
 };
 
 export default config;
