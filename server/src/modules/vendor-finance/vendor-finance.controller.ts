@@ -18,11 +18,13 @@ import { effectiveFarmerId } from '../../common/scope/farmer-scope.util';
 import type { TenantRequestUser } from '@fermeribg/types';
 import { CommissionService } from './commission.service';
 import { VendorSubscriptionService } from './vendor-subscription.service';
+import { VendorFinanceSettingsService } from './vendor-finance-settings.service';
 import {
   CommissionSummaryQueryDto,
   GenerateChargesDto,
   ListChargesQueryDto,
   UpdateChargeDto,
+  UpdateVendorFinanceDto,
 } from './dto/vendor-finance.dto';
 
 /**
@@ -39,7 +41,25 @@ export class VendorFinanceController {
   constructor(
     private readonly commission: CommissionService,
     private readonly subscriptions: VendorSubscriptionService,
+    private readonly settings: VendorFinanceSettingsService,
   ) {}
+
+  // ---- The switch that decides whether commission is applied at all ----
+  //
+  // Owner-only: these are the farm's commercial terms. A producer sub-account reads
+  // the resulting rate through its own summary/stats endpoints, never this.
+
+  @Get('settings')
+  @Roles('admin')
+  getSettings(@CurrentTenant() tenantId: string) {
+    return this.settings.get(tenantId);
+  }
+
+  @Patch('settings')
+  @Roles('admin')
+  updateSettings(@CurrentTenant() tenantId: string, @Body() dto: UpdateVendorFinanceDto) {
+    return this.settings.update(tenantId, dto);
+  }
 
   // Owner sees every producer (optionally narrowed via ?farmerId); a producer
   // sub-account is forced to its own farmerId — same IDOR scope as /stats.

@@ -47,3 +47,42 @@ export function buildLegalPayload(f: LegalFormFields): LegalPayload {
     regNo: isIndividual ? clean(f.regNo) : undefined,
   };
 }
+
+/** Everything an operator can actually edit. `confirmedAt` is deliberately absent:
+ *  it is a server-written audit stamp, not a field, so it must never count as a change. */
+const EDITABLE: (keyof LegalPayload)[] = ['kind', 'name', 'address', 'eik', 'vatNumber', 'regNo'];
+
+/** The shape the server hands back (LegalIdentity), structurally — kept local so this
+ *  module stays free of a `@/lib/types` import. */
+type SavedLegal = Partial<Record<keyof LegalPayload, string>>;
+
+/**
+ * Has the operator changed the legal identity relative to what is stored?
+ *
+ * Both sides go through `buildLegalPayload` first, then are compared FIELD BY FIELD.
+ * Both halves of that matter:
+ *
+ * - Field-by-field, not `JSON.stringify(a) === JSON.stringify(b)`. Stringify preserves
+ *   insertion order, and the two objects were built by different literals whose key
+ *   orders disagreed (`…address, eik…` vs `…eik, …, address`). An UNTOUCHED company
+ *   identity carrying both an address and an ЕИК therefore compared unequal, so the
+ *   SaveBar — which renders only while dirty — never went away after a successful
+ *   save. The data was written; the card just never admitted it.
+ * - Normalising the saved side through the same builder collapses the server's `""`
+ *   and the form's untouched blank onto the same `undefined`, and applies the same
+ *   kind filter, so leftover state in a hidden input (an `eik` still populated under
+ *   „Физическо лице") isn't reported as an edit when saving would not change the row.
+ */
+export function isLegalDirty(form: LegalFormFields, saved: SavedLegal | null | undefined): boolean {
+  if (!saved) return false; // not loaded yet — nothing to diff against
+  const next = buildLegalPayload(form);
+  const current = buildLegalPayload({
+    kind: (saved.kind as LegalKind) ?? '',
+    name: saved.name ?? '',
+    eik: saved.eik ?? '',
+    vatNumber: saved.vatNumber ?? '',
+    address: saved.address ?? '',
+    regNo: saved.regNo ?? '',
+  });
+  return EDITABLE.some((k) => next[k] !== current[k]);
+}

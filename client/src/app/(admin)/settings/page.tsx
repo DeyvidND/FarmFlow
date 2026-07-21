@@ -12,6 +12,7 @@ import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
 import { LandingCard } from '@/components/settings/landing-card';
 import { MerchandisingCard } from '@/components/settings/merchandising-card';
 import { LegalCard } from '@/components/settings/legal-card';
+import { CommissionCard } from '@/components/settings/commission-card';
 import {
   SetupSection,
   DeliverySection,
@@ -31,6 +32,7 @@ const CONFIG_KEYS: ConfigKey[] = [
   'landing',
   'marketing',
   'legal',
+  'commission',
 ];
 
 const SECTIONS: { id: Section; label: string }[] = [
@@ -57,6 +59,8 @@ function ConfigSection({ view }: { view: ConfigKey }) {
       return <MarketingSection />;
     case 'legal':
       return <LegalCard />;
+    case 'commission':
+      return <CommissionCard />;
   }
 }
 
