@@ -1,6 +1,6 @@
 import { PDFPage } from 'pdf-lib';
 import { A4_LANDSCAPE, A4_PORTRAIT, contentW, createDoc, MARGIN } from './pdf-kit';
-import { Column, columnWidths, drawTable, layoutTable, paginateRows } from './pdf-table';
+import { Column, columnWidths, drawTable, layoutTable, LaidOutRow, paginateRows, splitRow } from './pdf-table';
 
 const COLS: Column[] = [
   { header: '№', width: 30 },
@@ -435,49 +435,105 @@ describe('drawTable — what it actually draws', () => {
     expect(opts.y).toBe(476);
   });
 
-  it('KNOWN LIMITATION: an image taller than a whole usable page is still drawn at its full height, off the bottom of the page, instead of being fitted or clipped', async () => {
+  describe('splitRow', () => {
+    const textRow = (lines: number): LaidOutRow => ({
+      cells: [Array.from({ length: lines }, (_, i) => `ред ${i + 1}`)],
+      height: lines * 12 + 8,
+    });
+
+    it('returns null when the row already fits', () => {
+      expect(splitRow(textRow(3), 500, 12, 4)).toBeNull();
+    });
+
+    it('splits at a line boundary and conserves every line', () => {
+      const [head, tail] = splitRow(textRow(50), 100, 12, 4)!;
+      const headLines = head.cells[0] as string[];
+      const tailLines = tail.cells[0] as string[];
+      expect(headLines.length + tailLines.length).toBe(50);
+      expect(headLines.concat(tailLines)).toEqual((textRow(50).cells[0] as string[]));
+      expect(head.height).toBeLessThanOrEqual(100);
+    });
+
+    it('never returns an empty head — at least one line stays on this page', () => {
+      const [head] = splitRow(textRow(50), 10, 12, 4)!;
+      expect((head.cells[0] as string[]).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('refuses to split a row containing an image cell', async () => {
+      const d = await createDoc(A4_LANDSCAPE);
+      const img = await tinyPng(d);
+      const row: LaidOutRow = { cells: [{ image: img, width: 80, height: 700 }], height: 708 };
+      expect(splitRow(row, 100, 12, 4)).toBeNull();
+    });
+  });
+
+  it('scales an image taller than a whole usable page down to fit, instead of drawing it off the bottom', async () => {
     // Text rows have five dedicated "never draws below MARGIN" tests above
     // because that invariant is load-bearing for this feature (a farmer's
-    // signature on a legal protocol). Text rows keep that invariant by
-    // `wrap()`-ping to more lines and letting `ensureSpace`/`paginateRows`
-    // push overflow to a fresh page. An image cell has no such escape hatch —
-    // its height is fixed by the caller (whatever the embedded signature
-    // image's dimensions are) and nothing here reduces it. This test pins
-    // down — as CURRENT, UNFIXED behaviour, not a guarantee — what happens
-    // when that height alone already exceeds a full page: the image is
-    // drawn at its real (undiminished) size, at a y far below MARGIN and off
-    // the visible page, rather than being scaled down, clipped, or rejected.
-    // Silently shrinking a signature would be worse than this overflow, so
-    // this gap is intentionally left open here — any real fix (multi-page
-    // image splitting, a hard error, caller-side size validation, etc.) is a
-    // design decision for elsewhere, not something to sneak in via this test.
+    // signature on a legal protocol). Text rows keep it by wrapping to more
+    // lines and letting `ensureSpace`/`paginateRows`/`splitRow` push overflow
+    // to a fresh page or a continuation row. An image cell has no line
+    // boundary to cut — `splitRow` (see below) refuses to split it — so the
+    // only way left to keep it on the page is to shrink it. This used to be
+    // a documented KNOWN LIMITATION (the image drew at its full height, at
+    // y = -369, off the bottom of the page); scaling closes it. Shrinking a
+    // signature is a last resort (real signatures are ~36pt tall and never
+    // come close to tripping this), but a shrunk, visible signature beats
+    // one silently lost off the page.
     const d = await createDoc(A4_LANDSCAPE);
     const img = await tinyPng(d);
     const usablePageHeight = d.size.h - 2 * MARGIN; // 595 - 110 = 485
     const overTallHeight = usablePageHeight + 400; // 885 — no single page can fit this
+    const originalRatio = 80 / overTallHeight;
 
     const placed = drawTable(d, COLS, [['1', 'ЕТ Петров', { image: img, width: 80, height: overTallHeight }]]);
 
     expect(drawImageSpy).toHaveBeenCalledTimes(1);
     const [, opts] = drawImageSpy.mock.calls[0];
-    // Drawn at full size — not shrunk to fit.
-    expect(opts.height).toBe(overTallHeight);
-    expect(opts.width).toBe(80);
-    // Hand-traced: createDoc starts at d.y = 540. `ensureSpace` sees
-    // headerHeight(20) + row.height(overTallHeight + 8 = 893) can never fit
-    // and breaks once to a fresh page (d.y reset to 540 there), but a single
-    // break can't manufacture enough room for an 893-tall row on a 485-tall
-    // usable page — `paginateRows` admits it alone anyway (the same "never
-    // emits an empty page" rule proven above for text rows). `drawHeader`
-    // then does `d.y -= headerHeight` -> 520, and the image draws at
-    // `d.y - padding - cell.height` = 520 - 4 - 885 = -369 — far below
-    // MARGIN (55) and off the page entirely (page height is only 595).
-    expect(opts.y).toBe(-369);
-    expect(opts.y).toBeLessThan(MARGIN);
-    // The cursor and the recorded placement are left in the same bad state —
-    // nothing here recovers after an oversized image.
-    expect(placed[0].y).toBeLessThan(MARGIN);
-    expect(d.y).toBeLessThan(MARGIN);
+
+    // Hand-traced: createDoc starts at d.y = 540. `ensureSpace` can't fit
+    // headerHeight(20) + row.height(893) on any single page and breaks once
+    // (d.y reset to 540 there); `paginateRows` still admits the row alone
+    // (the same "never emits an empty page" rule proven above for text
+    // rows). `drawHeader` then does `d.y -= headerHeight` -> 520. The image
+    // cell is scaled to fit within `d.y - 2*padding - MARGIN` =
+    // 520 - 8 - 55 = 457 — the 2*padding (not 1) leaves room for the row's
+    // own bottom padding too, so the row's closing rule lands exactly on
+    // MARGIN rather than a few points past it (see `fitImageCells`).
+    expect(opts.height).toBe(457);
+    expect(opts.height).toBeLessThanOrEqual(usablePageHeight);
+    expect(opts.width / opts.height).toBeCloseTo(originalRatio, 6);
+    // Drawn at d.y - padding - height = 520 - 4 - 457 = 59 — comfortably at
+    // or above MARGIN (55), not the -369 the unfixed code drew at.
+    expect(opts.y).toBe(59);
+    expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+
+    // The row's own bookkeeping reflects the scaled size, not the original
+    // 885pt height: the cursor and the row's closing rule both stay on the
+    // page instead of drifting deeply negative.
+    expect(placed[0].y).toBeGreaterThanOrEqual(MARGIN);
+    expect(d.y).toBeGreaterThanOrEqual(MARGIN);
+  });
+
+  describe('drawTable with an over-tall row', () => {
+    it('splits it across pages instead of drawing off the paper', async () => {
+      const d = await createDoc(A4_LANDSCAPE);
+      // `wrap()` splits on every whitespace run, so each "позиция N" element
+      // contributes TWO tokens ("позиция" and "N"), not one — 80 elements
+      // (160 tokens) wraps to only 16 lines / 200pt in the ПРОДУКТИ column
+      // (width 300), well short of the 485pt usable page and never
+      // triggering a split. 300 elements (600 tokens) wraps to 65 lines /
+      // 788pt — comfortably past a usable page, and close to the 728pt row
+      // this task's brief measured the original off-paper bug against.
+      const huge = Array.from({ length: 300 }, (_, i) => `позиция ${i + 1}`).join(' ');
+      drawTable(d, COLS, [['1', 'ЕТ Петров', huge]]);
+      expect(d.doc.getPageCount()).toBeGreaterThan(1);
+      const ys = [
+        ...drawTextSpy.mock.calls.map((c) => c[1].y),
+        ...drawLineSpy.mock.calls.flatMap((c) => [c[0].start.y, c[0].end.y]),
+      ];
+      expect(Math.min(...ys)).toBeGreaterThanOrEqual(MARGIN);
+    });
   });
 
   it('returns where every row landed, in input order, across a page break', async () => {
