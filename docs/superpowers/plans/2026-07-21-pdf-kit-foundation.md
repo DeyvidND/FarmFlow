@@ -14,7 +14,7 @@
 - **No new npm dependencies.** `pdf-lib` and `@pdf-lib/fontkit` are already present.
 - **No new font asset.** Only `server/src/assets/fonts/DejaVuSans.ttf` exists (regular). Bold stays emulated, behind the single `drawBoldText` seam — see Task 1. Do not download a font file.
 - All dates go through `bgDateOf` (`server/src/common/time/bg-time`). **Never** use `Date`'s local getters: prod runs UTC, dev machines run Europe/Sofia, and the suite runs UTC via `test/set-tz.ts`.
-- `handover-pdf.ts` must keep exporting `PAGE_W`, `PAGE_H`, `MARGIN`, `CONTENT_W`, `wrap`, `composeProtocol`, `renderProtocolPdf` — `handover-pdf.spec.ts` imports them and must stay green untouched.
+- **Exactly four things are consumed from `handover-pdf.ts` by other files** (verified by grep, not assumed): `handover-pdf.spec.ts` imports `CONTENT_W`, `composeProtocol`, `renderProtocolPdf`, `wrap`; `handover.service.ts:25` imports `renderProtocolPdf`. Those four must keep working and the spec must stay green **untouched**. `PAGE_W` / `PAGE_H` / `MARGIN` are used only *inside* the file (e.g. `PAGE_W / 2 + 10` for the right-hand signature block) — keep them as consts, but do not preserve them as exports for imaginary consumers.
 - Bulgarian is the UI/document language. Keep existing wording verbatim unless a task says otherwise.
 
 ---
@@ -856,12 +856,11 @@ import {
   wrap,
 } from './pdf-kit';
 
-// Re-exported for back-compat: handover-pdf.spec.ts and callers import these
-// from here. Geometry now lives in pdf-kit so both renderers share it.
-export const PAGE_W = A4_PORTRAIT.w;
-export const PAGE_H = A4_PORTRAIT.h;
-export { MARGIN, wrap };
+// Geometry now lives in pdf-kit; these stay for this file's own layout maths.
+const PAGE_W = A4_PORTRAIT.w;
+// CONTENT_W and wrap ARE imported elsewhere (handover-pdf.spec.ts) — keep them exported.
 export const CONTENT_W = PAGE_W - 2 * MARGIN;
+export { wrap };
 
 const BODY_SIZE = 11;
 const BODY_LH = BODY_SIZE + 5;
