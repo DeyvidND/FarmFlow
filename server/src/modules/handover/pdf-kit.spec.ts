@@ -1,4 +1,17 @@
-import { A4_LANDSCAPE, A4_PORTRAIT, contentW, createDoc, dateBg, ensureSpace, MARGIN, newPage, wrap } from './pdf-kit';
+import { PDFPage } from 'pdf-lib';
+import {
+  A4_LANDSCAPE,
+  A4_PORTRAIT,
+  contentW,
+  createDoc,
+  dateBg,
+  drawDocumentFooter,
+  drawDocumentHeader,
+  ensureSpace,
+  MARGIN,
+  newPage,
+  wrap,
+} from './pdf-kit';
 
 describe('pdf-kit geometry', () => {
   it('exposes A4 both ways round', () => {
@@ -55,5 +68,176 @@ describe('dateBg', () => {
   it('dates in Europe/Sofia even though the suite runs UTC', () => {
     // 22:30Z on the 16th is 01:30 on the 17th in Sofia (EEST, UTC+3).
     expect(dateBg(new Date('2026-07-16T22:30:00Z'))).toBe('17.07.2026 г.');
+  });
+});
+
+describe('shared brand block', () => {
+  it('consumes vertical space and leaves the cursor below itself', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const before = d.y;
+    drawDocumentHeader(d, { brand: 'ФермериБГ', title: 'ОБОБЩЕН ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ', number: 'ОБ-7', date: new Date('2026-07-21T06:00:00Z') });
+    expect(d.y).toBeLessThan(before);
+    expect(d.y).toBeGreaterThan(MARGIN);
+  });
+
+  it('takes the same vertical space on both page sizes, so the two documents line up', async () => {
+    const header = { brand: 'ФермериБГ', title: 'ПРОТОКОЛ', number: '7', date: new Date('2026-07-21T06:00:00Z') };
+
+    const p = await createDoc(A4_PORTRAIT);
+    const startP = p.y;
+    drawDocumentHeader(p, header);
+    const usedP = startP - p.y;
+
+    const l = await createDoc(A4_LANDSCAPE);
+    const startL = l.y;
+    drawDocumentHeader(l, header);
+    const usedL = startL - l.y;
+
+    expect(usedP).toBe(usedL);
+  });
+
+  it('omits the number line entirely when there is no number (unsaved preview)', async () => {
+    const withNo = await createDoc(A4_PORTRAIT);
+    const withYes = await createDoc(A4_PORTRAIT);
+    const base = { brand: 'ФермериБГ', title: 'ПРОТОКОЛ', date: new Date('2026-07-21T06:00:00Z') };
+    drawDocumentHeader(withNo, { ...base, number: null });
+    drawDocumentHeader(withYes, { ...base, number: '7' });
+    expect(withNo.y).toBeGreaterThan(withYes.y); // no number → less space used
+  });
+
+  it('footer sits at the foot, not at the cursor', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    d.y = 400;
+    drawDocumentFooter(d, 'Съставен в два еднообразни екземпляра.');
+    expect(d.y).toBe(400); // footer must not move the cursor
+  });
+});
+
+describe('shared brand block — what it actually draws', () => {
+  // Same rationale as pdf-table.spec.ts: `drawText`/`drawLine` are real
+  // prototype methods, so spying on the prototype survives page swaps and
+  // lets us assert on the coordinates actually handed to pdf-lib rather than
+  // on `d.y`, which is decoupled from x, from centering, and from whether
+  // anything was drawn at all.
+  let drawTextSpy: jest.SpyInstance;
+  let drawLineSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    drawTextSpy = jest.spyOn(PDFPage.prototype, 'drawText');
+    drawLineSpy = jest.spyOn(PDFPage.prototype, 'drawLine');
+  });
+
+  afterEach(() => {
+    drawTextSpy.mockRestore();
+    drawLineSpy.mockRestore();
+  });
+
+  it('draws the brand line at the left margin, on the line the cursor started at', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const startY = d.y;
+    drawDocumentHeader(d, { brand: 'ФермериБГ', title: 'ПРОТОКОЛ', number: '7', date: new Date('2026-07-21T06:00:00Z') });
+
+    // drawBoldText overdraws the same string 2-3 times at x, x+0.25, x+0.5 to
+    // fake weight — assert every one of those calls, not just the first.
+    const brandCalls = drawTextSpy.mock.calls.filter(([text]) => text === 'ФермериБГ');
+    expect(brandCalls.length).toBeGreaterThanOrEqual(1);
+    for (const [, opts] of brandCalls) {
+      expect(opts.x).toBeGreaterThanOrEqual(MARGIN);
+      expect(opts.x).toBeLessThan(MARGIN + 1);
+      expect(opts.y).toBe(startY);
+    }
+  });
+
+  it('draws the rule directly under the brand line, spanning the full content width', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const startY = d.y;
+    drawDocumentHeader(d, { brand: 'ФермериБГ', title: 'ПРОТОКОЛ', number: '7', date: new Date('2026-07-21T06:00:00Z') });
+
+    expect(drawLineSpy.mock.calls).toHaveLength(1);
+    const [opts] = drawLineSpy.mock.calls[0];
+    expect(opts.start).toEqual({ x: MARGIN, y: startY - 6 });
+    expect(opts.end).toEqual({ x: MARGIN + contentW(d), y: startY - 6 });
+  });
+
+  it('centres the title using the text width measured on that page, not a fixed x', async () => {
+    const title = 'ОБОБЩЕН ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ';
+    const header = { brand: 'ФермериБГ', title, number: '7', date: new Date('2026-07-21T06:00:00Z') };
+
+    const p = await createDoc(A4_PORTRAIT);
+    drawDocumentHeader(p, header);
+    const titleCallsP = drawTextSpy.mock.calls.filter(([text]) => text === title);
+    expect(titleCallsP.length).toBeGreaterThanOrEqual(1);
+    const expectedXP = MARGIN + (contentW(p) - p.font.widthOfTextAtSize(title, 14)) / 2;
+    const xsP = titleCallsP.map(([, o]) => o.x).sort((a, b) => a - b);
+    expect(xsP[0]).toBeCloseTo(expectedXP, 5);
+
+    drawTextSpy.mockClear();
+    const l = await createDoc(A4_LANDSCAPE);
+    drawDocumentHeader(l, header);
+    const titleCallsL = drawTextSpy.mock.calls.filter(([text]) => text === title);
+    const expectedXL = MARGIN + (contentW(l) - l.font.widthOfTextAtSize(title, 14)) / 2;
+    const xsL = titleCallsL.map(([, o]) => o.x).sort((a, b) => a - b);
+    expect(xsL[0]).toBeCloseTo(expectedXL, 5);
+
+    // The two pages are genuinely different widths, so a real centering
+    // formula must place the title at a different x on each — the exact
+    // difference is half the page-width delta.
+    expect(expectedXL - expectedXP).toBeCloseTo((A4_LANDSCAPE.w - A4_PORTRAIT.w) / 2, 5);
+  });
+
+  it('right-aligns the date to the content edge, on the same row as the number', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const date = new Date('2026-07-21T06:00:00Z');
+    drawDocumentHeader(d, { brand: 'ФермериБГ', title: 'ПРОТОКОЛ', number: '7', date });
+
+    const dateText = dateBg(date);
+    const dateCalls = drawTextSpy.mock.calls.filter(([text]) => text === dateText);
+    expect(dateCalls).toHaveLength(1);
+    const rw = d.font.widthOfTextAtSize(dateText, 10);
+    expect(dateCalls[0][1].x).toBe(MARGIN + contentW(d) - rw);
+
+    const numberCalls = drawTextSpy.mock.calls.filter(([text]) => text === '№ 7');
+    expect(numberCalls).toHaveLength(1);
+    expect(numberCalls[0][1].x).toBe(MARGIN);
+    expect(numberCalls[0][1].y).toBe(dateCalls[0][1].y);
+  });
+
+  it('omits the number/date row draw calls entirely when there is no number, even though a date is supplied', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const date = new Date('2026-07-21T06:00:00Z');
+    drawDocumentHeader(d, { brand: 'ФермериБГ', title: 'ПРОТОКОЛ', number: null, date });
+
+    const dateText = dateBg(date);
+    expect(drawTextSpy.mock.calls.some(([text]) => text === dateText)).toBe(false);
+    expect(drawTextSpy.mock.calls.some(([text]) => typeof text === 'string' && text.startsWith('№'))).toBe(false);
+  });
+
+  it('draws the subtitle, when present, centred between the title and the number row', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    drawDocumentHeader(d, {
+      brand: 'ФермериБГ',
+      title: 'ПРОТОКОЛ',
+      subtitle: 'копие за куриера',
+      number: '7',
+      date: new Date('2026-07-21T06:00:00Z'),
+    });
+    const subtitleCalls = drawTextSpy.mock.calls.filter(([text]) => text === 'копие за куриера');
+    expect(subtitleCalls).toHaveLength(1);
+    const expectedX = MARGIN + (contentW(d) - d.font.widthOfTextAtSize('копие за куриера', 9)) / 2;
+    expect(subtitleCalls[0][1].x).toBeCloseTo(expectedX, 5);
+  });
+
+  it('draws the footer text centred, pinned below the margin — not a no-op that merely leaves the cursor alone', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    d.y = 400;
+    const text = 'Съставен в два еднообразни екземпляра.';
+    drawDocumentFooter(d, text);
+
+    const calls = drawTextSpy.mock.calls.filter(([t]) => t === text);
+    expect(calls).toHaveLength(1);
+    const expectedX = MARGIN + (contentW(d) - d.font.widthOfTextAtSize(text, 8)) / 2;
+    expect(calls[0][1].x).toBeCloseTo(expectedX, 5);
+    expect(calls[0][1].y).toBeLessThan(MARGIN);
+    expect(calls[0][1].y).not.toBe(400);
   });
 });

@@ -96,3 +96,72 @@ export function dateBg(d: Date): string {
   const [year, month, day] = bgDateOf(d).split('-');
   return `${day}.${month}.${year} г.`;
 }
+
+export interface DocHeader {
+  brand: string;
+  title: string;
+  subtitle?: string | null;
+  number?: string | null;
+  date?: Date | null;
+}
+
+/**
+ * The one block that makes every document of ours look like ours: brand line,
+ * rule, centred title, optional subtitle, then № and date on one row.
+ *
+ * Deliberately size-independent — it consumes the same vertical space on A4
+ * portrait and landscape, so the bilateral protocol and the consolidated one
+ * line up despite different page shapes.
+ */
+export function drawDocumentHeader(d: Doc, h: DocHeader): void {
+  const w = contentW(d);
+  const centre = (text: string, size: number, bold: boolean) => {
+    const x = MARGIN + (w - d.font.widthOfTextAtSize(text, size)) / 2;
+    if (bold) drawBoldText(d, text, x, d.y, size);
+    else d.page.drawText(text, { x, y: d.y, size, font: d.font, color: INK });
+  };
+
+  // Brand line, left, small caps-ish.
+  drawBoldText(d, h.brand, MARGIN, d.y, 10);
+  d.y -= 6;
+  d.page.drawLine({
+    start: { x: MARGIN, y: d.y },
+    end: { x: MARGIN + w, y: d.y },
+    thickness: 1.2,
+    color: INK,
+  });
+  d.y -= 22;
+
+  centre(h.title, 14, true);
+  d.y -= 18;
+
+  if (h.subtitle) {
+    centre(h.subtitle, 9, false);
+    d.y -= 13;
+  }
+
+  // Gated on `h.number`, not on `number || date`: an unsaved preview has no
+  // number yet, and printing a bare date without one would make a draft look
+  // like an official, numbered document. So the whole row — date included —
+  // disappears until there is a number to put on it.
+  if (h.number) {
+    d.page.drawText(`№ ${h.number}`, { x: MARGIN, y: d.y, size: 10, font: d.font, color: INK });
+    if (h.date) {
+      const right = dateBg(h.date);
+      const rw = d.font.widthOfTextAtSize(right, 10);
+      d.page.drawText(right, { x: MARGIN + w - rw, y: d.y, size: 10, font: d.font, color: INK });
+    }
+    d.y -= 18;
+  }
+}
+
+/**
+ * Footer pinned to the foot of the CURRENT page. Does not move the cursor —
+ * callers keep laying out body content after calling it.
+ */
+export function drawDocumentFooter(d: Doc, text: string): void {
+  const w = contentW(d);
+  const size = 8;
+  const x = MARGIN + (w - d.font.widthOfTextAtSize(text, size)) / 2;
+  d.page.drawText(text, { x, y: MARGIN - 18, size, font: d.font, color: INK });
+}
