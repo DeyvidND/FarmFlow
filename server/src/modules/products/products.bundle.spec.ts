@@ -145,7 +145,9 @@ describe('ProductsService.setBundleItems() — atomic circularity + farmer scopi
     // setBundleItems' own findOne(), then listBundleItems()'s findOne() (re-checks
     // existence/scope), then the actual bundle-items join select.
     const dbQueue = [[bundle], [bundle], listRows];
-    const txQueue = [[member], undefined, undefined];
+    // tx queue: locked member select, then the no-variants check (empty = none
+    // varianted), then the delete, then the insert.
+    const txQueue = [[member], [], undefined, undefined];
     const db = makeDb(dbQueue, txQueue);
     const { svc, cache } = makeSvc(db);
 
@@ -163,7 +165,9 @@ describe('ProductsService.setBundleItems() — atomic circularity + farmer scopi
     // setBundleItems' own findOne(), then listBundleItems()'s findOne(), then the
     // actual bundle-items join select.
     const dbQueue = [[bundle], [bundle], []];
-    const txQueue = [[member], undefined, undefined];
+    // tx queue: locked member select, then the no-variants check (empty = none
+    // varianted), then the delete, then the insert.
+    const txQueue = [[member], [], undefined, undefined];
     const db = makeChain(dbQueue) as any;
     let capturedTx: any;
     db.transaction = jest.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
@@ -177,5 +181,22 @@ describe('ProductsService.setBundleItems() — atomic circularity + farmer scopi
     expect(db.transaction).toHaveBeenCalledTimes(1);
     expect(capturedTx.select).toHaveBeenCalled();
     expect(capturedTx.for).toHaveBeenCalledWith('update');
+  });
+
+  it('rejects a member product that has variants', async () => {
+    const bundle = bundleRow({ farmerId: 'farmer-A' });
+    const member = memberRow({ id: 'm1', name: 'Мед натурален', farmerId: 'farmer-A' });
+    // The member itself passes the category/farmer checks; the productVariants
+    // select (run against the locked member set) returns one live variant row
+    // for this product id, which must block the whole replace.
+    const variantRow = { productId: 'm1' };
+    const dbQueue = [[bundle]];
+    const txQueue = [[member], [variantRow]];
+    const db = makeDb(dbQueue, txQueue);
+    const { svc } = makeSvc(db);
+
+    await expect(
+      svc.setBundleItems('bundle1', TENANT_ID, [item('m1')], 'farmer-A'),
+    ).rejects.toThrow('Продукт с варианти не може да е част от кошница: Мед натурален');
   });
 });
