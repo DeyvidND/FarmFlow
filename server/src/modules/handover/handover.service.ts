@@ -265,7 +265,14 @@ export class HandoverService {
           variantLabel: orderItems.variantLabel,
           quantity: orderItems.quantity,
           unit: products.unit,
-          priceStotinki: orderItems.priceStotinki,
+          // A basket („кошница") child line is stored at price 0 — the money sits on
+          // the parent basket line, which belongs to no single farm. This protocol
+          // records what THIS farmer physically hands over, so value it at the
+          // product's own price; leaving it 0 would make the farmer sign for goods
+          // the document says are worth nothing, and would understate the total.
+          // Each CASE arm is cast (the repo's documented „CASE…THEN needs ::int").
+          priceStotinki: sql<number>`(case when ${orderItems.bundleParentId} is not null
+            then ${products.priceStotinki}::int else ${orderItems.priceStotinki}::int end)`,
           orderNumber: orders.orderNumber,
         })
         .from(orderItems)
@@ -505,7 +512,14 @@ export class HandoverService {
           variantLabel: orderItems.variantLabel,
           quantity: orderItems.quantity,
           unit: products.unit,
-          priceStotinki: orderItems.priceStotinki,
+          // A basket („кошница") child line is stored at price 0 — the money sits on
+          // the parent basket line, which belongs to no single farm. This protocol
+          // records what THIS farmer physically hands over, so value it at the
+          // product's own price; leaving it 0 would make the farmer sign for goods
+          // the document says are worth nothing, and would understate the total.
+          // Each CASE arm is cast (the repo's documented „CASE…THEN needs ::int").
+          priceStotinki: sql<number>`(case when ${orderItems.bundleParentId} is not null
+            then ${products.priceStotinki}::int else ${orderItems.priceStotinki}::int end)`,
           orderNumber: orders.orderNumber,
         })
         .from(orderItems)
