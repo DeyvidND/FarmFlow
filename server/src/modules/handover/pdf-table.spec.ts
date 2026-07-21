@@ -394,7 +394,64 @@ describe('drawTable — what it actually draws', () => {
     expect(opts.x).toBe(MARGIN + COLS[0].width + COLS[1].width + 4);
     expect(opts.width).toBe(80);
     expect(opts.height).toBe(40);
-    expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+    // Exact expected y, hand-derived from the fixture — a loose `>= MARGIN`
+    // bound is satisfied by several wrong offsets (dropping the padding
+    // subtraction lands at 480; using the post-decrement cursor instead of
+    // the pre-decrement one lands at 428) and would pass silently either way.
+    //   d.y starts at size.h - MARGIN = 595 - 55 = 540 (createDoc).
+    //   headerHeight = lineHeight(9+3=12) + 2*padding(4) = 20.
+    //   row.height = max(textHeight=12, imageHeight=40) + 2*padding = 48.
+    //   ensureSpace(d, headerHeight + row.height = 68): 540 - 68 = 472 >= MARGIN,
+    //   so no page break — d.y stays 540 going into drawHeader().
+    //   drawHeader() does `d.y -= headerHeight` -> d.y = 540 - 20 = 520.
+    //   The image is then drawn at y = d.y - padding - cell.height
+    //                                = 520 - 4 - 40 = 476.
+    expect(opts.y).toBe(476);
+  });
+
+  it('KNOWN LIMITATION: an image taller than a whole usable page is still drawn at its full height, off the bottom of the page, instead of being fitted or clipped', async () => {
+    // Text rows have five dedicated "never draws below MARGIN" tests above
+    // because that invariant is load-bearing for this feature (a farmer's
+    // signature on a legal protocol). Text rows keep that invariant by
+    // `wrap()`-ping to more lines and letting `ensureSpace`/`paginateRows`
+    // push overflow to a fresh page. An image cell has no such escape hatch —
+    // its height is fixed by the caller (whatever the embedded signature
+    // image's dimensions are) and nothing here reduces it. This test pins
+    // down — as CURRENT, UNFIXED behaviour, not a guarantee — what happens
+    // when that height alone already exceeds a full page: the image is
+    // drawn at its real (undiminished) size, at a y far below MARGIN and off
+    // the visible page, rather than being scaled down, clipped, or rejected.
+    // Silently shrinking a signature would be worse than this overflow, so
+    // this gap is intentionally left open here — any real fix (multi-page
+    // image splitting, a hard error, caller-side size validation, etc.) is a
+    // design decision for elsewhere, not something to sneak in via this test.
+    const d = await createDoc(A4_LANDSCAPE);
+    const img = await tinyPng(d);
+    const usablePageHeight = d.size.h - 2 * MARGIN; // 595 - 110 = 485
+    const overTallHeight = usablePageHeight + 400; // 885 — no single page can fit this
+
+    const placed = drawTable(d, COLS, [['1', 'ЕТ Петров', { image: img, width: 80, height: overTallHeight }]]);
+
+    expect(drawImageSpy).toHaveBeenCalledTimes(1);
+    const [, opts] = drawImageSpy.mock.calls[0];
+    // Drawn at full size — not shrunk to fit.
+    expect(opts.height).toBe(overTallHeight);
+    expect(opts.width).toBe(80);
+    // Hand-traced: createDoc starts at d.y = 540. `ensureSpace` sees
+    // headerHeight(20) + row.height(overTallHeight + 8 = 893) can never fit
+    // and breaks once to a fresh page (d.y reset to 540 there), but a single
+    // break can't manufacture enough room for an 893-tall row on a 485-tall
+    // usable page — `paginateRows` admits it alone anyway (the same "never
+    // emits an empty page" rule proven above for text rows). `drawHeader`
+    // then does `d.y -= headerHeight` -> 520, and the image draws at
+    // `d.y - padding - cell.height` = 520 - 4 - 885 = -369 — far below
+    // MARGIN (55) and off the page entirely (page height is only 595).
+    expect(opts.y).toBe(-369);
+    expect(opts.y).toBeLessThan(MARGIN);
+    // The cursor and the recorded placement are left in the same bad state —
+    // nothing here recovers after an oversized image.
+    expect(placed[0].y).toBeLessThan(MARGIN);
+    expect(d.y).toBeLessThan(MARGIN);
   });
 
   it('returns where every row landed, in input order, across a page break', async () => {

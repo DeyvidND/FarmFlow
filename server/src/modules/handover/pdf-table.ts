@@ -7,10 +7,17 @@ export interface Column {
   align?: 'left' | 'right';
 }
 
-/** A table cell: wrapped text, or a pre-embedded image drawn at a fixed box. */
-export type Cell = string | { image: PDFImage; width: number; height: number };
+/** A pre-embedded image drawn at a fixed box — the caller owns its size. */
+export interface ImageCell {
+  image: PDFImage;
+  width: number;
+  height: number;
+}
 
-export type LaidOutCell = string[] | { image: PDFImage; width: number; height: number };
+/** A table cell: wrapped text, or a pre-embedded image drawn at a fixed box. */
+export type Cell = string | ImageCell;
+
+export type LaidOutCell = string[] | ImageCell;
 
 export interface LaidOutRow {
   /** One wrapped-line array per text column, or the image cell, always `columns.length` long. */
@@ -26,8 +33,7 @@ export interface PlacedRow {
   height: number;
 }
 
-const isImage = (c: LaidOutCell): c is { image: PDFImage; width: number; height: number } =>
-  typeof c === 'object' && !Array.isArray(c);
+const isImage = (c: LaidOutCell): c is ImageCell => typeof c === 'object' && !Array.isArray(c);
 
 /**
  * Pure layout: wrap every cell inside its own column and compute the row height
