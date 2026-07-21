@@ -14,6 +14,7 @@ import {
   orderItems,
   products,
   productVariants,
+  productBundleItems,
   productAvailabilityWindows,
   deliverySlots,
   tenants,
@@ -49,6 +50,7 @@ import {
   assertOrderTotalWithinBounds,
 } from './order-total.util';
 import { intCaseById } from './order-stock.util';
+import { expandStockLines, type BundleMemberLine } from './order-bundle.util';
 import { decideDecrement, decideDecrementPooled, restoreRemaining } from '../availability/availability.util';
 import { slotIsFull, slotUnavailableReason, migrateRule, ruleProducesDate } from '../slots/slot-rule';
 
@@ -71,6 +73,10 @@ interface PreparedItem {
   variantId: string | null;
   variantLabel: string | null;
   farmerId: string | null;
+  /** Basket parent line: a per-order unique key its child lines reference. */
+  bundleKey?: string | null;
+  /** Basket child line: the parent's `bundleKey`. Resolved to a row id on insert. */
+  bundleParentKey?: string | null;
 }
 
 const orderWithSlot = {
@@ -1540,6 +1546,24 @@ export class OrdersService {
           ? await tx.select().from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, dtoProductIds)))
           : [];
         const dtoById = new Map(dtoProds.map((p) => [p.id, p]));
+
+        // A basket („кошница") order line owns child rows that this edit path
+        // cannot rebuild: it deletes every order_items row and re-inserts the kept
+        // ones verbatim, dropping only id/orderId. An EXISTING child's
+        // bundleParentId would survive pointing at a deleted parent (a hard FK
+        // violation); a NEWLY submitted basket would insert its children with no
+        // parent link at all (this path has no two-pass parent-then-child insert
+        // like create()'s). Refuse the whole edit in both directions rather than
+        // corrupt the order or silently drop the linkage.
+        if (
+          oldItems.some((o) => o.bundleParentId) ||
+          dto.items.some((it) => dtoById.get(it.productId)?.category === 'bundle')
+        ) {
+          throw new BadRequestException(
+            'Поръчка с кошница не може да се редактира. Откажете я и направете нова.',
+          );
+        }
+
         const itemKey = (o: { productId: string | null; variantId: string | null; quantity: number }) =>
           `${o.productId ?? ''}:${o.variantId ?? ''}:${o.quantity}`;
         const oldByKey = new Map(oldItems.map((o) => [itemKey(o), o]));
@@ -1569,7 +1593,10 @@ export class OrdersService {
           ? await this.reserveCartItems(tx, tenantId, toSubmit, null, carrierDelivery)
           : { items: [] as PreparedItem[], variantStockTouched: false };
         variantStockTouched = oldTouched || newTouched;
-        const newLines = prepared.map(({ farmerId: _f, ...line }) => line);
+        // bundleKey/bundleParentKey are in-memory linking keys only (no such
+        // column here) — the guard above already refused any basket involvement,
+        // so this strip is defensive: every remaining line is an ordinary product.
+        const newLines = prepared.map(({ farmerId: _f, bundleKey: _k, bundleParentKey: _p, ...line }) => line);
         // Kept rows are re-inserted verbatim (their locked-in price/name/variant
         // snapshot untouched) — only `id`/`orderId` are dropped since every edit
         // already deletes + re-inserts the whole order_items set (fresh ids).
@@ -2335,12 +2362,77 @@ export class OrdersService {
       }
     }
 
+    // Basket („кошница") expansion. A basket product carries no stock of its own:
+    // it is replaced, for every stock/courier/companion check below, by its member
+    // products. One query for every basket in the cart — no per-row lookup.
+    const basketIds = dtoItems
+      .map((it) => byId.get(it.productId))
+      .filter((p): p is NonNullable<typeof p> => !!p && p.category === 'bundle')
+      .map((p) => p.id);
+    const membersByBundle = new Map<string, BundleMemberLine[]>();
+    // Member products, keyed by id. Same row shape as `byId`, loaded separately
+    // because a member need not be in the cart itself.
+    const memberById = new Map<string, NonNullable<ReturnType<typeof byId.get>>>();
+    if (basketIds.length) {
+      const links = await tx
+        .select({
+          bundleId: productBundleItems.bundleId,
+          productId: productBundleItems.productId,
+          quantity: productBundleItems.quantity,
+        })
+        .from(productBundleItems)
+        .where(
+          and(
+            inArray(productBundleItems.bundleId, basketIds),
+            eq(productBundleItems.tenantId, tenantId),
+          ),
+        )
+        .orderBy(asc(productBundleItems.position), asc(productBundleItems.productId));
+      const memberIds = [...new Set(links.map((l) => l.productId))];
+      const memberRows = memberIds.length
+        ? await tx
+            .select()
+            .from(products)
+            .where(
+              and(
+                inArray(products.id, memberIds),
+                eq(products.tenantId, tenantId),
+                eq(products.isActive, true),
+                isNull(products.deletedAt),
+              ),
+            )
+        : [];
+      for (const p of memberRows) memberById.set(p.id, p);
+      for (const l of links) {
+        // A member that went inactive or was deleted makes the whole basket
+        // unsellable — we must never promise a box we can't fill.
+        if (!memberById.has(l.productId)) continue;
+        const list = membersByBundle.get(l.bundleId) ?? [];
+        list.push({ productId: l.productId, quantity: l.quantity });
+        membersByBundle.set(l.bundleId, list);
+      }
+      for (const id of basketIds) {
+        const linkCount = links.filter((l) => l.bundleId === id).length;
+        const live = membersByBundle.get(id) ?? [];
+        if (!live.length || live.length !== linkCount) {
+          const name = byId.get(id)?.name ?? 'Кошницата';
+          throw new ConflictException(`„${name}" вече не е налична — липсва продукт от съдържанието ѝ.`);
+        }
+      }
+    }
+    const stockLines = expandStockLines(
+      dtoItems.map((it) => ({ productId: it.productId, quantity: it.quantity })),
+      membersByBundle,
+    );
+
     // Pickup-only backstop: products flagged `courierDisabled` can't go on a
     // waybill. The storefront already hides courier when such a product is in the
-    // cart; re-check server-side so a crafted request can't ship one anyway.
+    // cart; re-check server-side so a crafted request can't ship one anyway. Runs
+    // over `stockLines` (post-basket-expansion) so a pickup-only MEMBER blocks
+    // courier delivery even when the basket itself carries no such flag.
     if (carrierDelivery) {
-      const blocked = dtoItems
-        .map((it) => byId.get(it.productId))
+      const blocked = stockLines
+        .map((l) => byId.get(l.productId) ?? memberById.get(l.productId))
         .filter((p): p is NonNullable<typeof p> => !!p && p.courierDisabled);
       if (blocked.length) {
         const names = [...new Set(blocked.map((p) => p.name))].join(', ');
@@ -2409,7 +2501,7 @@ export class OrdersService {
     // Per-item availability-window enforcement (lock all active windows in one
     // ordered statement — deadlock-free). Products with no active window unaffected.
     const today = bgToday();
-    const orderedProductIds = dtoItems.map((it) => it.productId);
+    const orderedProductIds = stockLines.map((l) => l.productId);
     const activeWindows = orderedProductIds.length
       ? await tx
           .select()
@@ -2439,11 +2531,11 @@ export class OrdersService {
       list.push(w);
       winsByProduct.set(w.productId, list);
     }
-    for (const it of dtoItems) {
-      const wins = winsByProduct.get(it.productId) ?? [];
-      const decision = decideDecrementPooled(wins, it.quantity);
+    for (const l of stockLines) {
+      const wins = winsByProduct.get(l.productId) ?? [];
+      const decision = decideDecrementPooled(wins, l.quantity);
       if (!decision.ok) {
-        const p = byId.get(it.productId);
+        const p = byId.get(l.productId) ?? memberById.get(l.productId);
         throw new ConflictException(`Няма достатъчна наличност: ${p?.name ?? 'продукт'}`);
       }
       if (decision.newRemaining) {
@@ -2489,11 +2581,17 @@ export class OrdersService {
 
     // Promo expiry is coarse (date-level), so a plain wall-clock Date is correct.
     const now = new Date();
-    const items: PreparedItem[] = dtoItems.map((it) => {
+    const items: PreparedItem[] = [];
+    dtoItems.forEach((it, idx) => {
       const p = byId.get(it.productId)!;
       const variant = it.variantId ? variantById.get(it.variantId)! : null;
       const line = resolveLineUnit(p, variant, now);
-      return {
+      const members = membersByBundle.get(it.productId);
+      // A per-order unique key so children can find their parent row after insert
+      // (the parent has no id until then). Index-based: the same basket can legitimately
+      // appear on two cart lines.
+      const bundleKey = members ? `b${idx}` : null;
+      items.push({
         productId: p.id,
         productName: line.label,
         quantity: it.quantity,
@@ -2501,7 +2599,27 @@ export class OrdersService {
         variantId: line.variantId,
         variantLabel: line.variantLabel,
         farmerId: p.farmerId ?? null,
-      };
+        bundleKey,
+        bundleParentKey: null,
+      });
+      if (!members) return;
+      // Children are priced 0 — the money lives on the parent, so the order total
+      // is exactly the basket price. They exist so prep, stock restore and
+      // per-product stats see the real products.
+      for (const m of members) {
+        const mp = memberById.get(m.productId)!;
+        items.push({
+          productId: mp.id,
+          productName: mp.name,
+          quantity: m.quantity * it.quantity,
+          priceStotinki: 0,
+          variantId: null,
+          variantLabel: null,
+          farmerId: mp.farmerId ?? null,
+          bundleKey: null,
+          bundleParentKey: bundleKey,
+        });
+      }
     });
 
     return { items, slotFrom, slotTo, slotDate, variantStockTouched: dtoItems.some((it) => !!it.variantId) };
@@ -2658,8 +2776,6 @@ export class OrdersService {
       // Bound the aggregate before it hits the int4 total_stotinki column — the
       // per-line @Max(10_000) qty guard does not stop the sum overflowing int4.
       assertOrderTotalWithinBounds(total);
-      // order_items has no farmer_id column — strip it before insert.
-      const items = prepared.map(({ farmerId: _f, ...line }) => line);
 
       // Next per-tenant order number (#1, #2, …). The advisory lock serializes
       // concurrent intakes for this tenant so two orders can't claim the same
@@ -2702,10 +2818,34 @@ export class OrdersService {
         })
         .returning();
 
-      const inserted = await tx
+      // Two passes: children need their parent's row id, which only exists after
+      // the parent is inserted. Ordinary lines ride along in the first pass.
+      const parentLines = prepared.filter((i) => !i.bundleParentKey);
+      const childLines = prepared.filter((i) => !!i.bundleParentKey);
+      // order_items has no farmer_id column, and bundleKey/bundleParentKey are
+      // in-memory linking keys only — strip all three before insert.
+      const strip = ({ farmerId: _f, bundleKey: _k, bundleParentKey: _p, ...line }: PreparedItem) => line;
+      const insertedParents = await tx
         .insert(orderItems)
-        .values(items.map((i) => ({ ...i, orderId: order.id })))
+        .values(parentLines.map((l) => ({ ...strip(l), orderId: order.id })))
         .returning();
+      const idByKey = new Map<string, string>();
+      parentLines.forEach((l, i) => {
+        if (l.bundleKey) idByKey.set(l.bundleKey, insertedParents[i].id);
+      });
+      const insertedChildren = childLines.length
+        ? await tx
+            .insert(orderItems)
+            .values(
+              childLines.map((l) => ({
+                ...strip(l),
+                orderId: order.id,
+                bundleParentId: idByKey.get(l.bundleParentKey!)!,
+              })),
+            )
+            .returning()
+        : [];
+      const inserted = [...insertedParents, ...insertedChildren];
 
       return { ...order, slotFrom, slotTo, slotDate, items: inserted };
     });
@@ -2779,7 +2919,15 @@ export class OrdersService {
       );
       variantStockTouched = touched;
 
-      // Every courier line must resolve to a farmer (the split key).
+      // A basket spans farms and carries no farmerId, so the per-farmer split has
+      // nothing to key on — and one parcel can't leave three yards. Say so plainly
+      // instead of failing with the generic "needs a farmer" message.
+      if (prepared.some((i) => i.bundleKey)) {
+        throw new BadRequestException(
+          'Кошниците се получават на място или с доставка от фермата, не с куриер.',
+        );
+      }
+      // Every remaining courier line must resolve to a farmer (the split key).
       if (prepared.some((i) => i.farmerId == null)) {
         throw new BadRequestException('Куриерска доставка изисква продукти с фермер.');
       }
