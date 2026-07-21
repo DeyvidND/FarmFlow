@@ -9,7 +9,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { PaymentBadge } from './payment-badge';
 import { moneyFromStotinki, hhmm, timeFromIso, relDayLabel, statusMeta, type OrderStatus } from '@/lib/utils';
 import { ApiError, requestDeliveryHandoff, setCodOutcome, updateOrder } from '@/lib/api-client';
-import type { Order, UpdateOrderInput } from '@/lib/types';
+import type { Order, OrderItem, UpdateOrderInput } from '@/lib/types';
 import { OrderEditForm } from './order-edit-fields';
 import { ProtocolDialog } from '@/components/handover/protocol-dialog';
 
@@ -229,8 +229,24 @@ export function OrderDetailBody({
 
   // Money model (integer stotinki, no separate delivery column): subtotal is the
   // goods total from line items; delivery fee is whatever's left over the order total.
+  // Basket children are priced 0 (their parent carries the basket's fixed price), so
+  // this sum is already correct without treating baskets specially.
   const subtotal = order.items.reduce((s, it) => s + it.priceStotinki * it.quantity, 0);
   const deliveryFee = Math.max(0, order.totalStotinki - subtotal);
+
+  // Basket („кошница") lines: the parent carries the price, its children are the
+  // products inside it. Keep each basket's children directly under their parent,
+  // in order, so the list reads as one basket line + its contents rather than a
+  // flat run of items (some of which would otherwise look like free products).
+  const parentItems = order.items.filter((it) => !it.bundleParentId);
+  const childrenByParent = new Map<string, OrderItem[]>();
+  for (const it of order.items) {
+    if (!it.bundleParentId) continue;
+    const list = childrenByParent.get(it.bundleParentId) ?? [];
+    list.push(it);
+    childrenByParent.set(it.bundleParentId, list);
+  }
+  const orderedItems = parentItems.flatMap((p) => [p, ...(childrenByParent.get(p.id) ?? [])]);
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -270,27 +286,38 @@ export function OrderDetailBody({
 
       <div className="mb-2.5 text-[13px] font-bold text-ff-muted">ПРОДУКТИ</div>
       <div className="mb-4 overflow-hidden rounded-xl border border-ff-border-2">
-        {order.items.map((it, i) => (
-          <div
-            key={it.id}
-            className={`flex items-center justify-between px-3.5 py-3 ${i < order.items.length - 1 ? 'border-b border-ff-border-2' : ''}`}
-          >
-            <div className="min-w-0 pr-3">
-              <div className="truncate text-sm font-semibold">
-                {it.productName}
-                {it.variantLabel && (
-                  <span className="ml-1.5 font-normal text-ff-muted">· {it.variantLabel}</span>
-                )}
+        {orderedItems.map((it, i) => {
+          // A basket child carries no price of its own (the parent basket line
+          // above it already carries the full price) — show it as "included",
+          // never as a 0.00 line that would read as a free product.
+          const isBundleChild = Boolean(it.bundleParentId);
+          return (
+            <div
+              key={it.id}
+              className={`flex items-center justify-between px-3.5 py-3 ${isBundleChild ? 'pl-7' : ''} ${i < orderedItems.length - 1 ? 'border-b border-ff-border-2' : ''}`}
+            >
+              <div className="min-w-0 pr-3">
+                <div className={`truncate text-sm font-semibold ${isBundleChild ? 'text-ff-muted' : ''}`}>
+                  {it.productName}
+                  {it.variantLabel && (
+                    <span className="ml-1.5 font-normal text-ff-muted">· {it.variantLabel}</span>
+                  )}
+                </div>
+                <div className="mt-px text-xs text-ff-muted">
+                  × {it.quantity}
+                  {!isBundleChild && <> · {moneyFromStotinki(it.priceStotinki)}</>}
+                </div>
               </div>
-              <div className="mt-px text-xs text-ff-muted">
-                × {it.quantity} · {moneyFromStotinki(it.priceStotinki)}
-              </div>
+              {isBundleChild ? (
+                <span className="shrink-0 text-[12px] font-semibold text-ff-muted">в кошницата</span>
+              ) : (
+                <span className="ff-fig shrink-0 text-[13.5px] font-bold">
+                  {moneyFromStotinki(it.priceStotinki * it.quantity)}
+                </span>
+              )}
             </div>
-            <span className="ff-fig shrink-0 text-[13.5px] font-bold">
-              {moneyFromStotinki(it.priceStotinki * it.quantity)}
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="flex flex-col gap-1.5 px-1">
         <div className="flex items-center justify-between">

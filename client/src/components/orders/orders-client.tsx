@@ -182,7 +182,13 @@ export function OrdersClient({
     }
   }
 
-  const itemsSummary = (o: Order) => o.items.map((i) => `${i.productName} × ${i.quantity}`).join(', ');
+  // Basket children carry no price/identity of their own here — a basket must read
+  // as the one line the customer bought, not as itself plus every product inside it.
+  const itemsSummary = (o: Order) =>
+    o.items
+      .filter((i) => !i.bundleParentId)
+      .map((i) => `${i.productName} × ${i.quantity}`)
+      .join(', ');
   const deliveryCell = (o: Order) => {
     if (o.deliveryType === 'econt' || o.deliveryType === 'econt_address') {
       return (
