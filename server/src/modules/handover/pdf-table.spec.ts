@@ -244,6 +244,95 @@ describe('drawTable — what it actually draws', () => {
     }
   });
 
+  it('never draws below MARGIN when the cursor starts just past the header-only threshold and there is one row (d.y = 75)', async () => {
+    // headerHeight = (9+3) + 2*4 = 20. The OLD guard was `ensureSpace(d, headerHeight)`,
+    // i.e. `ensureSpace(d, 20)`: it breaks only when `d.y - 20 < MARGIN(55)`, i.e. when
+    // d.y < 75. At d.y = 75 the old guard sees 75 - 20 = 55 >= 55 and does NOT break,
+    // so the header draws fine but the first row is then admitted by `paginateRows`
+    // unconditionally and drawn off the page.
+    //
+    // Hand-traced against the OLD (unfixed) guard:
+    //   drawHeader: header text at 75 - 12 + 3 = 66 (>= MARGIN, fine)
+    //               d.y -= 20 -> 55; header rule at y = 55 (== MARGIN, fine)
+    //   row (1 line): text at 55 - 4 - 1*12 + 3 = 42 (< MARGIN = 55  -- FAILS)
+    //                 d.y -= 20 -> 35; row rule at y = 35 (< MARGIN  -- FAILS)
+    //
+    // The fix reserves headerHeight + the first row's real height (20 + 20 = 40).
+    // 75 - 40 = 35 < 55, so the fixed guard DOES break to a fresh page here, and
+    // every coordinate above lands well clear of MARGIN instead.
+    const d = await createDoc(A4_LANDSCAPE);
+    d.y = 75;
+
+    drawTable(d, COLS, [['1', 'X', 'Y']]);
+
+    for (const [, opts] of drawTextSpy.mock.calls) {
+      expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    for (const [opts] of drawLineSpy.mock.calls) {
+      expect(opts.start.y).toBeGreaterThanOrEqual(MARGIN);
+      expect(opts.end.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    expect(d.y).toBeGreaterThanOrEqual(MARGIN);
+  });
+
+  it('never draws below MARGIN one point further into the band (d.y = 76)', async () => {
+    // Same band as d.y = 75 above; one point higher to cover the rest of the
+    // gap the previous fix left open. Hand-traced against the OLD guard:
+    //   old guard: 76 - 20 = 56 >= 55 -> no break.
+    //   drawHeader: header text at 76 - 12 + 3 = 67 (fine); d.y -= 20 -> 56;
+    //               header rule at y = 56 (fine).
+    //   row (1 line): text at 56 - 4 - 12 + 3 = 43 (< MARGIN -- FAILS)
+    //                 d.y -= 20 -> 36; row rule at y = 36 (< MARGIN -- FAILS)
+    // Fixed guard: needed = 20 + 20 = 40; 76 - 40 = 36 < 55 -> breaks to a new
+    // page, so nothing draws below MARGIN.
+    const d = await createDoc(A4_LANDSCAPE);
+    d.y = 76;
+
+    drawTable(d, COLS, [['1', 'X', 'Y']]);
+
+    for (const [, opts] of drawTextSpy.mock.calls) {
+      expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    for (const [opts] of drawLineSpy.mock.calls) {
+      expect(opts.start.y).toBeGreaterThanOrEqual(MARGIN);
+      expect(opts.end.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    expect(d.y).toBeGreaterThanOrEqual(MARGIN);
+  });
+
+  it('still forces a break at a cursor a short first row would find safe, when the first row is tall — proves the guard reserves the row\'s real height, not a fixed amount', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const headerHeight = 9 + 3 + 2 * 4; // 20, same derivation drawTable uses internally
+    // Same long producer name the very first `layoutTable` test in this file
+    // uses to prove wrapping at column width 160 — already established there
+    // (`row.cells[1].length).toBeGreaterThan(1)`) to wrap to more than one
+    // line, so its height is strictly greater than `headerHeight` (a 1-line row).
+    const tallRow = ['1', 'Земеделска кооперация Слънчоглед и партньори ООД', 'Домати'];
+    const [laidTall] = layoutTable(COLS, [tallRow], d.font, 9, 4);
+    expect(laidTall.height).toBeGreaterThan(headerHeight);
+
+    // MARGIN + 2*headerHeight = 55 + 40 = 95. If a first row's height equals
+    // headerHeight (20, the "short row" case already covered above), this is
+    // exactly the cursor where the fix's guard stops breaking: needed = 20 + 20
+    // = 40, and 95 - 40 = 55 >= MARGIN. A guard that reserved a fixed
+    // `2 * headerHeight` regardless of the row's real height would treat this
+    // starting point as "safe" for ANY first row — including this taller one.
+    // The correct guard reserves headerHeight + the row's *actual* height, so
+    // for this taller row it must still break here.
+    d.y = MARGIN + 2 * headerHeight; // 95
+
+    drawTable(d, COLS, [tallRow]);
+
+    for (const [, opts] of drawTextSpy.mock.calls) {
+      expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    for (const [opts] of drawLineSpy.mock.calls) {
+      expect(opts.start.y).toBeGreaterThanOrEqual(MARGIN);
+      expect(opts.end.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    expect(d.y).toBeGreaterThanOrEqual(MARGIN);
+  });
+
   it("positions each cell's text at MARGIN plus the preceding column widths plus padding", async () => {
     const d = await createDoc(A4_LANDSCAPE);
     // A single, deliberately short row — already established elsewhere in

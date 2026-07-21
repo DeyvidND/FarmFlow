@@ -93,15 +93,22 @@ export function drawTable(
   const lineHeight = size + 3;
   const headerHeight = lineHeight + 2 * padding;
 
-  // Guarantee room for at least the column-header row before the first page's
-  // budget is derived from `d.y`. Without this, a caller invoking `drawTable`
-  // with little headroom left on the current page gets the header rule (and,
-  // for a page with rows, the first row too) drawn below MARGIN — off the
-  // usable page — because `paginateRows` always admits a page's first row
-  // unconditionally and `drawHeader()` runs unconditionally every page.
-  ensureSpace(d, headerHeight);
-
+  // Lay the rows out first so the real height of row zero is known before we
+  // decide whether to break — see the `ensureSpace` call below.
   const laid = layoutTable(columns, rows, d.font, size, padding);
+
+  // Guarantee room for the column-header row, and — when the table has rows —
+  // for the first content row too, before the first page's budget is derived
+  // from `d.y`. `paginateRows` always admits a page's first row unconditionally,
+  // however little budget remains, so reserving only `headerHeight` let a
+  // starting cursor with "just enough" room for the header alone draw that
+  // first row (and its rule) below MARGIN — off the usable page. Using the
+  // first row's actual laid-out height (rather than assuming it matches
+  // `headerHeight`) keeps this correct for rows that wrap to several lines.
+  // With zero rows there is nothing to reserve beyond the header itself.
+  const firstRowHeight = laid.length ? laid[0].height : 0;
+  ensureSpace(d, headerHeight + firstRowHeight);
+
   const pages = paginateRows(laid, d.y - MARGIN, d.size.h - 2 * MARGIN, headerHeight);
 
   const xOf = (i: number) => MARGIN + columns.slice(0, i).reduce((sum, c) => sum + c.width, 0);
