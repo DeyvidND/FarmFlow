@@ -8,8 +8,10 @@ import {
   drawDocumentFooter,
   drawDocumentHeader,
   ensureSpace,
+  INK,
   MARGIN,
   newPage,
+  stampPageNumbers,
   wrap,
 } from './pdf-kit';
 
@@ -256,6 +258,59 @@ describe('shared brand block — what it actually draws', () => {
     expect(calls[0][1].x).toBeCloseTo(expectedX, 5);
     expect(calls[0][1].y).toBeLessThan(MARGIN);
     expect(calls[0][1].y).not.toBe(400);
+  });
+
+  describe('per-page furniture', () => {
+    it('runs onNewPage for each page newPage creates, with a 1-based-after-first index', async () => {
+      const d = await createDoc(A4_PORTRAIT);
+      const seen: number[] = [];
+      d.onNewPage = (_d, i) => { seen.push(i); };
+      newPage(d);
+      newPage(d);
+      expect(seen).toEqual([1, 2]);
+    });
+
+    it('lets the hook draw, and leaves the cursor where the hook left it', async () => {
+      const d = await createDoc(A4_PORTRAIT);
+      d.onNewPage = (doc) => { doc.page.drawText('продължение', { x: MARGIN, y: doc.y, size: 9, font: doc.font, color: INK }); doc.y -= 20; };
+      newPage(d);
+      expect(d.y).toBe(A4_PORTRAIT.h - MARGIN - 20);
+      expect(drawTextSpy.mock.calls.some(([t]) => t === 'продължение')).toBe(true);
+    });
+
+    it('does not invoke the hook for the first page created by createDoc', async () => {
+      let calls = 0;
+      const d = await createDoc(A4_PORTRAIT);
+      d.onNewPage = () => { calls += 1; };
+      expect(calls).toBe(0);
+    });
+
+    it('stampPageNumbers writes one label on every page, with the true total', async () => {
+      const d = await createDoc(A4_PORTRAIT);
+      newPage(d);
+      newPage(d);
+      stampPageNumbers(d);
+      const labels = drawTextSpy.mock.calls.map(([t]) => t).filter((t) => typeof t === 'string' && t.startsWith('стр.'));
+      expect(labels).toEqual(['стр. 1 от 3', 'стр. 2 от 3', 'стр. 3 от 3']);
+    });
+
+    it('stampPageNumbers draws on distinct page instances, not three times on the last one', async () => {
+      const d = await createDoc(A4_PORTRAIT);
+      newPage(d);
+      stampPageNumbers(d);
+      const stampCalls = drawTextSpy.mock.calls
+        .map((c, i) => ({ text: c[0], inst: drawTextSpy.mock.instances[i] }))
+        .filter((c) => typeof c.text === 'string' && c.text.startsWith('стр.'));
+      expect(new Set(stampCalls.map((c) => c.inst)).size).toBe(2);
+    });
+
+    it('stampPageNumbers accepts a custom label and leaves the cursor untouched', async () => {
+      const d = await createDoc(A4_PORTRAIT);
+      d.y = 400;
+      stampPageNumbers(d, (p, t) => `${p}/${t}`);
+      expect(drawTextSpy.mock.calls.some(([t]) => t === '1/1')).toBe(true);
+      expect(d.y).toBe(400);
+    });
   });
 });
 

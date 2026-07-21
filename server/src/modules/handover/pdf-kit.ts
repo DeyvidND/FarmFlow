@@ -22,6 +22,23 @@ export interface Doc {
   size: { w: number; h: number };
   page: PDFPage;
   y: number;
+  /**
+   * Called after every page `newPage` creates — NOT for the first page, which
+   * `createDoc` makes before any caller can install a hook. `pageIndex` is
+   * 0-based over the document, so the first hook call receives 1.
+   *
+   * Exists because `drawTable` calls `newPage` internally: without this a
+   * caller has no way to put a continuation header on the pages its own table
+   * generated.
+   */
+  onNewPage?: (d: Doc, pageIndex: number) => void;
+  /**
+   * What `onNewPage` consumes from the top of a fresh page. `drawTable`
+   * paginates up front, so it must know this to keep later pages' budgets
+   * honest — otherwise rows sized for a full page get drawn onto a page whose
+   * top is already occupied, and they cross the bottom margin.
+   */
+  reservedTopOnNewPage: number;
 }
 
 export async function createDoc(size: { w: number; h: number }): Promise<Doc> {
@@ -29,7 +46,7 @@ export async function createDoc(size: { w: number; h: number }): Promise<Doc> {
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(FONT_REGULAR);
   const page = doc.addPage([size.w, size.h]);
-  return { doc, font, size, page, y: size.h - MARGIN };
+  return { doc, font, size, page, y: size.h - MARGIN, reservedTopOnNewPage: 0 };
 }
 
 export function contentW(d: Doc): number {
@@ -39,6 +56,7 @@ export function contentW(d: Doc): number {
 export function newPage(d: Doc): void {
   d.page = d.doc.addPage([d.size.w, d.size.h]);
   d.y = d.size.h - MARGIN;
+  d.onNewPage?.(d, d.doc.getPageCount() - 1);
 }
 
 /**
@@ -195,4 +213,21 @@ export function drawDocumentFooter(d: Doc, text: string): void {
   const size = 8;
   const x = MARGIN + (w - d.font.widthOfTextAtSize(text, size)) / 2;
   d.page.drawText(text, { x, y: MARGIN - 18, size, font: d.font, color: INK });
+}
+
+/**
+ * Draws „стр. X от Y" at the foot of every page. A post-pass by necessity: the
+ * total is not knowable while the pages are being laid out.
+ *
+ * Does not move the cursor — callers may keep drawing after calling it, though
+ * in practice this is the last thing a renderer does.
+ */
+export function stampPageNumbers(d: Doc, label: (page: number, total: number) => string = (p, t) => `стр. ${p} от ${t}`): void {
+  const pages = d.doc.getPages();
+  const total = pages.length;
+  pages.forEach((page, i) => {
+    const text = label(i + 1, total);
+    const w = d.font.widthOfTextAtSize(text, 8);
+    page.drawText(text, { x: d.size.w - MARGIN - w, y: MARGIN - 18, size: 8, font: d.font, color: INK });
+  });
 }

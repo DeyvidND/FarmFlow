@@ -354,4 +354,18 @@ describe('drawTable — what it actually draws', () => {
       expect(calls[0][1].x).toBe(x);
     }
   });
+
+  it('keeps later-page rows above MARGIN when an onNewPage hook eats the top of the page', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    d.reservedTopOnNewPage = 80;
+    d.onNewPage = (doc) => { doc.y -= 80; };
+    const many = Array.from({ length: 60 }, (_, i) => [String(i + 1), `Фермер ${i + 1}`, 'Домати 5 кг']);
+    drawTable(d, COLS, many);
+    expect(d.doc.getPageCount()).toBeGreaterThan(1);
+    const ys = [
+      ...drawTextSpy.mock.calls.map((c) => c[1].y),
+      ...drawLineSpy.mock.calls.flatMap((c) => [c[0].start.y, c[0].end.y]),
+    ];
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(MARGIN);
+  });
 });

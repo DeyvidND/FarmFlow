@@ -109,7 +109,12 @@ export function drawTable(
   const firstRowHeight = laid.length ? laid[0].height : 0;
   ensureSpace(d, headerHeight + firstRowHeight);
 
-  const pages = paginateRows(laid, d.y - MARGIN, d.size.h - 2 * MARGIN, headerHeight);
+  const pages = paginateRows(
+    laid,
+    d.y - MARGIN,
+    d.size.h - 2 * MARGIN - d.reservedTopOnNewPage,
+    headerHeight,
+  );
 
   const xOf = (i: number) => MARGIN + columns.slice(0, i).reduce((sum, c) => sum + c.width, 0);
   const totalW = columns.reduce((sum, c) => sum + c.width, 0);
