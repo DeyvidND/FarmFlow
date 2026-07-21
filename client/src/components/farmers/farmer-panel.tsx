@@ -10,6 +10,7 @@ import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
 import { ProductAssignPicker } from '@/components/products/product-assign-picker';
 import { SignaturePadField } from '@/components/handover/signature-pad-field';
+import { AddressAutocomplete, type PickedAddress } from '@/components/route/address-autocomplete';
 import {
   ApiError,
   assignProducts,
@@ -27,6 +28,7 @@ import type { Farmer, ProductOption, CoverCrop, FarmerAccess } from '@/lib/types
 const field =
   'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[16px] sm:text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
+const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
 export function FarmerPanel({
   farmer,
@@ -93,6 +95,10 @@ export function FarmerPanel({
   const [eik, setEik] = useState(farmer.legal?.eik ?? '');
   const [vatNumber, setVatNumber] = useState(farmer.legal?.vatNumber ?? '');
   const [legalAddress, setLegalAddress] = useState(farmer.legal?.address ?? '');
+  // Precise coords from an Autocomplete pick this session, or null when the address
+  // was typed by hand (or left untouched) — null means "let the server geocode the
+  // text", matching AddressAutocomplete's contract elsewhere in the app.
+  const [pickedLatLng, setPickedLatLng] = useState<PickedAddress | null>(null);
   const [regNo, setRegNo] = useState(farmer.legal?.regNo ?? '');
   // Tier-2 „Бранд идентичност" — operator-controlled paid branding. `brandingEnabled`
   // is the gate; when on, the marketplace renders the branded subpage and the panel
@@ -203,6 +209,8 @@ export function FarmerPanel({
         email: email.trim() || null,
         since: since.trim(),
         city: city.trim() || null,
+        lat: pickedLatLng?.lat ?? null,
+        lng: pickedLatLng?.lng ?? null,
         coverCrop,
         legal: hasLegal ? { ...legalParts, confirmedAt: new Date().toISOString() } : null,
         commissionRateBps: commissionPct.trim() === '' ? null : Math.round(parseFloat(commissionPct) * 100),
@@ -387,15 +395,14 @@ export function FarmerPanel({
             <div className="mb-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
               Локация на картата
             </div>
-            <label className={labelCls}>
-              Адрес
-              <input
-                value={legalAddress}
-                onChange={(e) => setLegalAddress(e.target.value)}
-                placeholder="напр. гр. Варна, ул. Приморска 12"
-                className={field}
-              />
-            </label>
+            <AddressAutocomplete
+              label="Адрес"
+              placeholder="напр. гр. Варна, ул. Приморска 12"
+              value={legalAddress}
+              onChange={setLegalAddress}
+              onPick={setPickedLatLng}
+              apiKey={MAPS_KEY}
+            />
             <p className="mt-1.5 text-[12px] font-semibold text-ff-ink-2">
               {farmer.lat != null ? 'Точка на картата: намерена' : 'Точка на картата: няма намерена — провери адреса'}
             </p>
