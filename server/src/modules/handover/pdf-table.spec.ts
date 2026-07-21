@@ -1,5 +1,5 @@
-import { A4_LANDSCAPE, createDoc } from './pdf-kit';
-import { Column, layoutTable, paginateRows } from './pdf-table';
+import { A4_LANDSCAPE, createDoc, MARGIN } from './pdf-kit';
+import { Column, drawTable, layoutTable, paginateRows } from './pdf-table';
 
 const COLS: Column[] = [
   { header: '№', width: 30 },
@@ -101,5 +101,30 @@ describe('paginateRows', () => {
     expect(pages).toHaveLength(2);
     expect(pages[0]).toHaveLength(4);
     expect(pages[1]).toHaveLength(6);
+  });
+});
+
+describe('drawTable', () => {
+  it('advances the cursor down the page', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const before = d.y;
+    drawTable(d, COLS, [['1', 'ЕТ Петров', 'Домати']]);
+    expect(d.y).toBeLessThan(before);
+  });
+
+  it('adds pages when the rows overflow and never leaves the cursor below the margin', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const many = Array.from({ length: 60 }, (_, i) => [String(i + 1), `Фермер ${i + 1}`, 'Домати 5 кг']);
+    drawTable(d, COLS, many);
+    expect(d.doc.getPageCount()).toBeGreaterThan(1);
+    expect(d.y).toBeGreaterThanOrEqual(MARGIN);
+  });
+
+  it('produces an openable PDF with Cyrillic content', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    drawTable(d, COLS, [['1', 'ЕТ Димка Четова', 'Домати 5 кг, Краставици 3 кг']]);
+    const buf = Buffer.from(await d.doc.save());
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(buf.length).toBeGreaterThan(1000);
   });
 });

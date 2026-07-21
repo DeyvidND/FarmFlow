@@ -1,5 +1,5 @@
 import { PDFFont } from 'pdf-lib';
-import { wrap } from './pdf-kit';
+import { Doc, drawBoldText, INK, MARGIN, newPage, wrap } from './pdf-kit';
 
 export interface Column {
   header: string;
@@ -76,4 +76,64 @@ export function paginateRows(
   }
   pages.push(current);
   return pages;
+}
+
+/**
+ * Draw a table, breaking pages as needed and repeating the column-header row on
+ * every page. Advances `d.y` past the table; `d.page` is left on the last page.
+ */
+export function drawTable(
+  d: Doc,
+  columns: Column[],
+  rows: string[][],
+  opts: { size?: number; padding?: number } = {},
+): void {
+  const size = opts.size ?? 9;
+  const padding = opts.padding ?? 4;
+  const lineHeight = size + 3;
+  const headerHeight = lineHeight + 2 * padding;
+
+  const laid = layoutTable(columns, rows, d.font, size, padding);
+  const pages = paginateRows(laid, d.y - MARGIN, d.size.h - 2 * MARGIN, headerHeight);
+
+  const xOf = (i: number) => MARGIN + columns.slice(0, i).reduce((sum, c) => sum + c.width, 0);
+  const totalW = columns.reduce((sum, c) => sum + c.width, 0);
+
+  const drawHeader = () => {
+    columns.forEach((col, i) => {
+      drawBoldText(d, col.header, xOf(i) + padding, d.y - lineHeight + 3, size);
+    });
+    d.y -= headerHeight;
+    d.page.drawLine({
+      start: { x: MARGIN, y: d.y },
+      end: { x: MARGIN + totalW, y: d.y },
+      thickness: 0.8,
+      color: INK,
+    });
+  };
+
+  pages.forEach((pageRows, pageIndex) => {
+    if (pageIndex > 0) newPage(d);
+    drawHeader();
+    for (const row of pageRows) {
+      row.cells.forEach((lines, i) => {
+        lines.forEach((line, lineIndex) => {
+          d.page.drawText(line, {
+            x: xOf(i) + padding,
+            y: d.y - padding - (lineIndex + 1) * lineHeight + 3,
+            size,
+            font: d.font,
+            color: INK,
+          });
+        });
+      });
+      d.y -= row.height;
+      d.page.drawLine({
+        start: { x: MARGIN, y: d.y },
+        end: { x: MARGIN + totalW, y: d.y },
+        thickness: 0.3,
+        color: INK,
+      });
+    }
+  });
 }
