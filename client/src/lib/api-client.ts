@@ -13,6 +13,7 @@ import type {
   EcontOfficeLive,
   Farmer,
   FarmerAccess,
+  FarmerLegal,
   LegalIdentity,
   MediaItem,
   Order,
@@ -238,6 +239,35 @@ export const getFarmerSignature = (id: string) =>
 export const updateFarmerSignature = (id: string, signaturePng: string | null) =>
   apiFetch<{ signaturePng: string | null }>(
     `farmers/${id}/signature`,
+    { method: 'PUT', ...json({ signaturePng }) },
+    'Подписът не беше записан',
+  );
+
+// ---- Farmer self-service ("Моят профил" in the producer's own Настройки) ----
+// A producer sub-account maintains its OWN протокол identity (legal data + contact
+// line) and reusable signature through this narrow surface — mirrors the admin-only
+// farmers/:id helpers above, but always targets the caller's own row (no id).
+// The row comes back with `signaturePng` stripped (it has its own endpoint), and
+// `legal.confirmedAt` is stamped server-side — sending one is rejected with a 400,
+// so the write type excludes it rather than letting a caller discover that at runtime.
+type MyFarmerRow = Omit<Farmer, 'signaturePng'>;
+type MyFarmerLegal = Omit<FarmerLegal, 'confirmedAt'>;
+
+export const getMyFarmerProfile = () => apiFetch<MyFarmerRow>('farmers/me');
+
+export const updateMyFarmerProfile = (dto: {
+  phone?: string;
+  email?: string;
+  legal?: MyFarmerLegal;
+}) =>
+  apiFetch<MyFarmerRow>('farmers/me', { method: 'PATCH', ...json(dto) }, 'Профилът не беше записан');
+
+export const getMyFarmerSignature = () =>
+  apiFetch<{ signaturePng: string | null }>('farmers/me/signature');
+
+export const updateMyFarmerSignature = (signaturePng: string | null) =>
+  apiFetch<{ signaturePng: string | null }>(
+    'farmers/me/signature',
     { method: 'PUT', ...json({ signaturePng }) },
     'Подписът не беше записан',
   );

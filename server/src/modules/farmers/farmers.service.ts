@@ -15,6 +15,8 @@ import { encodeImageJob } from '../../common/queue/image-job';
 import { positionCase } from '../../common/db/reorder.util';
 import { CreateFarmerDto } from './dto/create-farmer.dto';
 import { UpdateFarmerDto } from './dto/update-farmer.dto';
+import { UpdateMyFarmerDto } from './dto/update-my-farmer.dto';
+import { normalizeLegal } from '../tenants/legal';
 import { StorageService } from '../storage/storage.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
@@ -225,6 +227,41 @@ export class FarmersService {
       if (!updated) throw new NotFoundException('Фермерът не е намерен');
       return updated;
     });
+    await this.cache.invalidate(tenantId);
+    await this.publicCache.del(publicCacheKeys.farmers(tenantId));
+    return this.stripSignature(row);
+  }
+
+  /**
+   * A producer editing its OWN row (`PATCH /farmers/me`). `id` is always the token's
+   * farmerId — never a client-supplied param — and the WHERE is doubly scoped
+   * (id + tenantId), so this can't reach another producer or another tenant.
+   *
+   * Unlike `update()` this does NOT spread the DTO: each allowed column is copied
+   * across explicitly, so adding a field to `UpdateMyFarmerDto` later can never
+   * silently widen what a farmer may write. No tier logic either — `tier` is derived
+   * from branding, which is not self-editable.
+   */
+  async updateMe(id: string, tenantId: string, dto: UpdateMyFarmerDto): Promise<FarmerRow> {
+    const patch: Partial<Pick<Farmer, 'phone' | 'email' | 'legal'>> = {};
+    if (dto.phone !== undefined) patch.phone = dto.phone;
+    if (dto.email !== undefined) patch.email = dto.email;
+    // `normalizeLegal` trims and stamps `confirmedAt` server-side — the farmer signs
+    // off on their own identity here, and can never forge the confirmation date.
+    if (dto.legal !== undefined) patch.legal = normalizeLegal(dto.legal);
+
+    // Drizzle throws on `.set({})`; an empty PATCH is a no-op read instead.
+    if (Object.keys(patch).length === 0) return this.findOne(id, tenantId);
+
+    const [row] = await this.db
+      .update(farmers)
+      .set(patch)
+      .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
+      .returning();
+    if (!row) throw new NotFoundException('Фермерът не е намерен');
+
+    // `legal` rides the public farmer projection (required seller disclosure), so the
+    // same caches `update()` busts must be busted here too or the storefront goes stale.
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
     return this.stripSignature(row);

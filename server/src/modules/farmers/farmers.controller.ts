@@ -1,7 +1,7 @@
 import {
   Controller, Get, Post, Patch, Put, Delete,
   Param, Body, UseGuards, UploadedFile, UseInterceptors,
-  ParseFilePipe, FileTypeValidator, MaxFileSizeValidator,
+  ParseFilePipe, FileTypeValidator, MaxFileSizeValidator, ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -9,6 +9,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { FarmersService } from './farmers.service';
 import { CreateFarmerDto } from './dto/create-farmer.dto';
 import { UpdateFarmerDto } from './dto/update-farmer.dto';
+import { UpdateMyFarmerDto } from './dto/update-my-farmer.dto';
 import { GrantAccessDto } from './dto/grant-access.dto';
 import { SignatureDto } from './dto/signature.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -58,6 +59,58 @@ export class FarmersController {
   @Get('access')
   listAccess(@CurrentTenant() tenantId: string) {
     return this.farmersService.listAccess(tenantId);
+  }
+
+  // ---- Producer self-service ("Моят профил" in the farmer's Настройки) ----
+  //
+  // A producer sub-account maintains its own протокол identity: legal data, contact
+  // line, and signature. Every route here resolves the target from the TOKEN via
+  // `effectiveFarmerId` (which 403s a farmer token with no farmerId) — there is no
+  // id param to tamper with, so one farmer can never read or write another's row.
+  //
+  // These MUST stay above the `:id` routes below: `me/signature` would otherwise be
+  // captured by `:id/signature` with id="me". Same ordering rule as `access`/`reorder`.
+
+  /** The caller's own farmer row (signature stripped — it has its own endpoint). */
+  @Get('me')
+  @Roles('farmer')
+  findMe(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
+    return this.farmersService.findOne(this.selfId(user), tenantId);
+  }
+
+  @Patch('me')
+  @Roles('farmer')
+  updateMe(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Body() dto: UpdateMyFarmerDto,
+  ) {
+    return this.farmersService.updateMe(this.selfId(user), tenantId, dto);
+  }
+
+  @Get('me/signature')
+  @Roles('farmer')
+  getMySignature(@CurrentTenant() tenantId: string, @CurrentUser() user: TenantRequestUser) {
+    return this.farmersService.getSignature(this.selfId(user), tenantId);
+  }
+
+  @Put('me/signature')
+  @Roles('farmer')
+  setMySignature(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: TenantRequestUser,
+    @Body() dto: SignatureDto,
+  ) {
+    return this.farmersService.setSignature(this.selfId(user), tenantId, dto.signaturePng ?? null);
+  }
+
+  /** The producer behind the token. `@Roles('farmer')` already gates these routes, so
+   *  `effectiveFarmerId` returns a string or throws 403 — the null branch is for the
+   *  type checker, not a reachable state. */
+  private selfId(user: TenantRequestUser): string {
+    const id = effectiveFarmerId(user.role, user.farmerId, undefined);
+    if (!id) throw new ForbiddenException('Невалиден достъп');
+    return id;
   }
 
   @Get(':id')

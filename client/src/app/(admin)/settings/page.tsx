@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { useRole } from '@/components/layout/role-context';
 import { ConfigurationsCard, type ConfigKey } from '@/components/settings/configurations-card';
 import { PasswordCard } from '@/components/settings/password-card';
+import { MyFarmerProfileCard } from '@/components/settings/my-farmer-profile-card';
 import { NavVisibilityCard } from '@/components/settings/nav-visibility-card';
 import { LandingCard } from '@/components/settings/landing-card';
 import { MerchandisingCard } from '@/components/settings/merchandising-card';
@@ -101,7 +102,11 @@ export default function SettingsPage() {
     return (
       <div>
         <h1 className="mb-1 text-[22px] font-extrabold tracking-[-0.01em]">Настройки</h1>
-        <p className="mb-6 text-[13.5px] text-ff-muted">Смени паролата за достъп до панела.</p>
+        <p className="mb-6 text-[13.5px] text-ff-muted">
+          Поддържай данните и подписа си за протоколите, и смени паролата за достъп до
+          панела.
+        </p>
+        <MyFarmerProfileCard />
         <PasswordCard />
       </div>
     );
