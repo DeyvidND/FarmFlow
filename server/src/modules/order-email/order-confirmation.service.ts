@@ -20,6 +20,12 @@ interface EmailItem {
   priceStotinki: number;
   imageUrl: string | null;
   tint: string | null;
+  /** Points at the parent basket line's order_items id for a basket child —
+   *  null for every ordinary line (including a basket's own parent line). A
+   *  child is stored priced at 0 (the parent already carries the full
+   *  price) — rendered lines must treat it as "included", never as a free
+   *  0,00 € product (see order-panel.tsx's client-side equivalent). */
+  bundleParentId: string | null;
 }
 
 /** Bulgarian labels for the order's delivery method. */
@@ -231,6 +237,7 @@ export class OrderConfirmationService {
           name: orderItems.productName,
           quantity: orderItems.quantity,
           priceStotinki: orderItems.priceStotinki,
+          bundleParentId: orderItems.bundleParentId,
         })
         .from(orderItems)
         .where(eq(orderItems.orderId, orderId));
@@ -267,6 +274,7 @@ export class OrderConfirmationService {
       name: string | null;
       quantity: number;
       priceStotinki: number;
+      bundleParentId: string | null;
     }[],
   ): Promise<EmailItem[]> {
     const ids = rows.map((r) => r.productId).filter((x): x is string => !!x);
@@ -297,6 +305,7 @@ export class OrderConfirmationService {
       priceStotinki: r.priceStotinki,
       imageUrl: r.productId ? img.get(r.productId) ?? null : null,
       tint: r.productId ? tint.get(r.productId) ?? null : null,
+      bundleParentId: r.bundleParentId,
     }));
   }
 
@@ -441,6 +450,11 @@ export class OrderConfirmationService {
 
     const itemRows = items
       .map((it) => {
+        // A basket child is stored priced at 0 — the parent line right above
+        // it already carries the basket's full price. Rendering "× N · 0,00 €"
+        // reads as a free product; match the panel's treatment instead
+        // (order-panel.tsx) and label it "в кошницата" with no price at all.
+        const isBundleChild = Boolean(it.bundleParentId);
         const lineTotal = it.priceStotinki * it.quantity;
         const thumb = it.imageUrl
           ? `<img src="${esc(it.imageUrl)}" width="56" height="56" alt="" style="display:block;width:56px;height:56px;border-radius:10px;object-fit:cover;border:1px solid #e7e3d6">`
@@ -450,9 +464,9 @@ export class OrderConfirmationService {
           <td style="padding:10px 0;width:56px;vertical-align:top">${thumb}</td>
           <td style="padding:10px 12px;font-size:14px;color:#23210f;vertical-align:top">
             <div style="font-weight:bold">${esc(it.name)}</div>
-            <div style="color:#8a8770;font-size:13px;margin-top:2px">${it.quantity} × ${money(it.priceStotinki)}</div>
+            <div style="color:#8a8770;font-size:13px;margin-top:2px">${it.quantity}${isBundleChild ? '' : ` × ${money(it.priceStotinki)}`}</div>
           </td>
-          <td style="padding:10px 0;text-align:right;font-size:14px;font-weight:bold;color:#23210f;white-space:nowrap;vertical-align:top">${money(lineTotal)}</td>
+          <td style="padding:10px 0;text-align:right;font-size:${isBundleChild ? '12px' : '14px'};font-weight:bold;color:${isBundleChild ? '#8a8770' : '#23210f'};white-space:nowrap;vertical-align:top">${isBundleChild ? 'в кошницата' : money(lineTotal)}</td>
         </tr>`;
       })
       .join('');
@@ -510,8 +524,13 @@ export class OrderConfirmationService {
     const subtotal = items.reduce((s, it) => s + it.priceStotinki * it.quantity, 0);
     const total = order.totalStotinki ?? subtotal;
     const shipping = Math.max(0, total - subtotal);
-    const lines = items.map(
-      (it) => `- ${it.name} × ${it.quantity} = ${money(it.priceStotinki * it.quantity)}`,
+    // Same "в кошницата" treatment as renderHtml — a basket child is stored
+    // priced at 0 (the parent line already carries the basket's full price),
+    // so it must never print as "× N = 0,00 €".
+    const lines = items.map((it) =>
+      it.bundleParentId
+        ? `- ${it.name} × ${it.quantity} (в кошницата)`
+        : `- ${it.name} × ${it.quantity} = ${money(it.priceStotinki * it.quantity)}`,
     );
     return [
       phase === 'received'

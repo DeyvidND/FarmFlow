@@ -95,6 +95,50 @@ describe('OrderConfirmationService.sendForOrder', () => {
     expect(email.sendMail.mock.calls[0][0].html).toContain('cdn.example.com/cover.jpg');
   });
 
+  // Finding #4: a basket child order_items row is stored priced at 0 (the
+  // parent line right above it already carries the basket's full price).
+  // Before this fix the item rows were rendered with no basket awareness at
+  // all — a child printed as "Домати × 3 · 0,00 €" / "0,00 €", reading as a
+  // free product. Match the panel's "в кошницата" treatment
+  // (order-panel.tsx) instead — no price at all on a child's line, in both
+  // the HTML and the plain-text body.
+  it('renders a basket child as "в кошницата", never as a 0,00 € line', async () => {
+    const email = makeEmail();
+    const svc = build(
+      [
+        [{ ...ORDER, totalStotinki: 3990 }], // order — the basket's own fixed price
+        [{ name: 'Ферма Петрови' }], // tenant
+        [
+          { productId: 'basket-1', name: 'Кошница', quantity: 1, priceStotinki: 3990, bundleParentId: null },
+          { productId: 'tomato-1', name: 'Домати', quantity: 2, priceStotinki: 0, bundleParentId: 'item-basket-1' },
+          { productId: 'cheese-1', name: 'Сирене', quantity: 1, priceStotinki: 0, bundleParentId: 'item-basket-1' },
+        ], // items
+        [
+          { id: 'basket-1', imageUrl: null, tint: '#2d6a4f' },
+          { id: 'tomato-1', imageUrl: null, tint: '#B33' },
+          { id: 'cheese-1', imageUrl: null, tint: '#EEA' },
+        ], // products
+        [], // product media
+      ],
+      email,
+    );
+
+    await svc.sendForOrder('order-uuid-1');
+
+    const { html, text } = email.sendMail.mock.calls[0][0];
+    expect(html).toContain('Домати');
+    expect(html).toContain('Сирене');
+    expect(html).toContain('в кошницата');
+    // A child's line must never render its (zero) price as a real money amount.
+    expect(html).not.toMatch(/Домати[\s\S]{0,80}0,00\s*€/);
+    expect(html).not.toMatch(/Сирене[\s\S]{0,80}0,00\s*€/);
+    expect(text).toContain('Домати × 2 (в кошницата)');
+    expect(text).toContain('Сирене × 1 (в кошницата)');
+    expect(text).not.toContain('Домати × 2 = 0,00 €');
+    // The basket's own (parent) line keeps its real price, untouched.
+    expect(html).toContain('39,90 €');
+  });
+
   it('no-ops (no send) when the order has no customer email', async () => {
     const email = makeEmail();
     const svc = build([[{ ...ORDER, customerEmail: null }]], email);
