@@ -39,7 +39,14 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/bff/') || url.pathname.startsWith('/api/')) return;
 
   // Immutable hashed build assets → cache-first.
-  if (url.pathname.startsWith('/_next/static/')) {
+  //
+  // Only true for a production build. `next dev` reuses the SAME chunk URL across
+  // recompiles, so cache-first there pins the first version of a chunk forever and
+  // your edits silently stop appearing — the page renders, no error, just stale
+  // code. Cost real debugging time once already; skip the whole branch on
+  // localhost so dev always hits the network.
+  const isDevHost = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
+  if (!isDevHost && url.pathname.startsWith('/_next/static/')) {
     event.respondWith(
       caches.match(req).then(
         (hit) =>
