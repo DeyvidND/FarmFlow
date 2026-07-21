@@ -16,8 +16,16 @@ export function moneyFromStotinki(cents: number): string {
   return money(cents, { fromStotinki: true });
 }
 
-export type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'out_for_delivery' | 'delivered' | 'cancelled';
+export type OrderStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'preparing'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'cancelled';
 
+// Keys are in pipeline order — Object.keys drives the „Промени статус" override
+// dropdown in order-panel, so keep them ordered pending → … → delivered/cancelled.
 export const statusMeta: Record<OrderStatus, { label: string; cls: OrderStatus }> = {
   pending: { label: 'Очаква потвърждение', cls: 'pending' },
   confirmed: { label: 'Потвърдена', cls: 'confirmed' },

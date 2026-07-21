@@ -490,6 +490,31 @@ describe('RoutingService.getRoute — assignment board overrides leg count', () 
     expect(leg2.stops.some((s) => s.id === 'A')).toBe(true);
   });
 
+  // Regression for the reported mobile bug: a day split 3+2 across board legs 0
+  // and 1, then the operator sets courier 2 to „не участва днес" — the board now
+  // has a single leg (0). The whole day must collapse onto that survivor,
+  // INCLUDING the stops still pinned to the removed leg 1 (a pin to a
+  // now-unassigned leg is out of range → treated as free → re-split). Before
+  // this was locked, the map kept the old leg-0 stops ("3 instead of 5, no
+  // refresh"). Proves the SERVER merges; any remaining symptom is a client
+  // refresh/gating issue, not the split.
+  it('(g) dropping the board from 2 legs to 1 collapses every stop (incl. pins to the removed leg) onto the survivor', async () => {
+    const pinnedStops = stops().map((s, i) => (i >= 4 ? { ...s, courierIndex: 1 } : s)); // E, F pinned to the now-removed leg 1
+    const db = makeDb([[tenant()], pinnedStops, []]);
+    const assignments = {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([{ accountId: 'driver-1', legIndex: 0 }]),
+    } as any;
+    const svc = new RoutingService(db, makeMaps(), {} as any, {} as any, assignments);
+
+    const result = await svc.getRoute('t1', '2026-07-15');
+
+    expect(result.couriers).toBe(1);
+    expect(result.routes).toHaveLength(1);
+    expect(result.routes[0].courierIndex).toBe(0);
+    // All 6 stops land on the single surviving leg — none stranded on the removed one.
+    expect(result.routes[0].stops).toHaveLength(6);
+  });
+
   // Audit follow-up Task 1: pin-aware balancing. Before the fix, getRoute fed
   // sweepSplit ONLY the free stops and dumped pins on afterward with zero
   // visibility into how loaded a pinned courier already was — the exact

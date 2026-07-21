@@ -497,14 +497,26 @@ export class MapsService {
    */
   async routeFixed(
     points: LatLng[],
-  ): Promise<{ distanceM: number; durationS: number; polyline: string | null } | null> {
+  ): Promise<{
+    distanceM: number;
+    durationS: number;
+    polyline: string | null;
+    /** Per-leg distance/duration, one entry per consecutive point pair (origin→p1,
+     *  p1→p2, …). Used to time delivery windows from real stop-to-stop travel. */
+    legs: { distanceM: number; durationS: number }[];
+  } | null> {
     if (!this.enabled || points.length < 2) return null;
 
-    // `routefixed2`: v2 key namespace. v1 entries cached only distance/duration
-    // (no polyline), so a fresh prefix forces a single recompute that also stores
-    // the road geometry instead of serving a week of geometry-less hits.
-    const key = this.routeKey('routefixed2', points);
-    const cached = await this.cachedGet<{ distanceM: number; durationS: number; polyline: string | null }>(key);
+    // `routefixed3`: v3 key namespace. v1 cached distance/duration only, v2 added
+    // the polyline; v3 also stores per-leg distance/duration, so a fresh prefix
+    // forces one recompute that captures the legs instead of serving leg-less hits.
+    const key = this.routeKey('routefixed3', points);
+    const cached = await this.cachedGet<{
+      distanceM: number;
+      durationS: number;
+      polyline: string | null;
+      legs: { distanceM: number; durationS: number }[];
+    }>(key);
     if (cached) return cached;
 
     const wp = (p: LatLng) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
@@ -521,7 +533,7 @@ export class MapsService {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': this.apiKey,
           'X-Goog-FieldMask':
-            'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
+            'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration',
         },
         body: JSON.stringify(body),
       });
@@ -533,7 +545,15 @@ export class MapsService {
       // decodes it so the drawn line follows streets instead of cutting straight
       // between pins.
       const polyline = typeof r.polyline?.encodedPolyline === 'string' ? r.polyline.encodedPolyline : null;
-      const out = { distanceM, durationS, polyline };
+      // Per-leg breakdown (one Google leg per consecutive pair). Absent/short in
+      // rare responses → fall back to an empty list; callers degrade gracefully.
+      const legs: { distanceM: number; durationS: number }[] = Array.isArray(r.legs)
+        ? r.legs.map((leg: { distanceMeters?: number; duration?: string }) => ({
+            distanceM: typeof leg.distanceMeters === 'number' ? leg.distanceMeters : 0,
+            durationS: parseInt(String(leg.duration ?? '0'), 10) || 0,
+          }))
+        : [];
+      const out = { distanceM, durationS, polyline, legs };
       await this.cachedSet(key, out);
       return out;
     } catch (err) {

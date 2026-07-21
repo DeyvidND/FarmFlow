@@ -42,7 +42,7 @@ function make(db: ReturnType<typeof dbMock>) {
   return {
     cache,
     publicCache,
-    svc: new FarmersService(db as any, {} as any, cache as any, publicCache as any, {} as any, {} as any),
+    svc: new FarmersService(db as any, {} as any, cache as any, publicCache as any, {} as any, {} as any, { enabled: false } as any),
   };
 }
 

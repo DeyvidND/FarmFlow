@@ -46,7 +46,7 @@ describe('FarmersService public payload', () => {
       set: jest.fn().mockResolvedValue(undefined),
     };
 
-    const svc = new FarmersService(db as any, {} as any, {} as any, publicCache as any, {} as any, {} as any);
+    const svc = new FarmersService(db as any, {} as any, {} as any, publicCache as any, {} as any, {} as any, {} as any);
 
     const out = await svc.findPublicBySlug('chaika');
 
@@ -85,7 +85,7 @@ describe('FarmersService public payload', () => {
       get: jest.fn(),
       set: jest.fn(),
     };
-    const svc = new FarmersService(db as any, {} as any, {} as any, publicCache as any, {} as any, {} as any);
+    const svc = new FarmersService(db as any, {} as any, {} as any, publicCache as any, {} as any, {} as any, {} as any);
 
     const out = await svc.findPublicBySlug('chaika');
 
@@ -103,7 +103,7 @@ describe('FarmersService public payload', () => {
       get: jest.fn().mockResolvedValue(cachedPayload),
       set: jest.fn(),
     };
-    const svc = new FarmersService(db as any, {} as any, {} as any, publicCache as any, {} as any, {} as any);
+    const svc = new FarmersService(db as any, {} as any, {} as any, publicCache as any, {} as any, {} as any, {} as any);
 
     const out = await svc.findPublicBySlug('chaika');
 
@@ -119,7 +119,7 @@ describe('FarmersService public payload', () => {
     };
     db.queue([row]);
 
-    const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
 
     const out = await svc.findAll(TENANT);
 

@@ -51,5 +51,11 @@ pnpm db:seed       # seed dev data
 ## Notes
 
 - `help-content` has specs (`content.spec.ts`, `search.spec.ts`) — run its `test`.
-- Cross-app types belong in `@fermeribg/types`, not copied into each app.
+- Cross-app types belong in `@fermeribg/types` — the canonical home (the server and
+  admin consume it directly). **Exception:** the `client` app (`@fermeribg/web`)
+  deliberately does **not** depend on this package and keeps a hand-synced local
+  **mirror** in `client/src/lib/types.ts` (and inline in `api-client.ts`), to avoid
+  pulling `@fermeribg/db` + drizzle into the browser build. When you change a shared
+  type that the client also uses (e.g. the `LegIndex`/`LegPos` route-leg brands),
+  update both copies. Search for "mirror" to find them.
 - Schema/data flow context → [`../ARCHITECTURE.md`](../ARCHITECTURE.md).

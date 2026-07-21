@@ -11,6 +11,8 @@ import type {
   DeliveryWindowProposal,
   EcontCity,
   EcontOfficeLive,
+  ExpenseCategory,
+  ExpenseRow,
   Farmer,
   FarmerAccess,
   FarmerLegal,
@@ -20,6 +22,7 @@ import type {
   Paged,
   Paginated,
   PaymentStatus,
+  PnlSummary,
   Product,
   ProductOption,
   ProductVariant,
@@ -846,6 +849,9 @@ export const generateDeliveryWindows = (body: {
   ends?: string;
   /** When the round starts (Europe/Sofia hour 0–23); overrides the saved default. */
   startHour?: number;
+  /** Courier's current position — first stop's distance/time is measured from here. */
+  startLat?: number;
+  startLng?: number;
 }) =>
   apiFetch<DeliveryWindowProposal>(
     'orders/route/windows/generate',
@@ -856,6 +862,14 @@ export const updateDeliveryWindow = (orderId: string, start: string, end: string
   apiFetch<{ id: string; windowStart: string; windowEnd: string; status: string }>(
     `orders/route/window/${orderId}`,
     { method: 'PATCH', ...json({ start, end }) },
+    'Неуспешна промяна на часа',
+  );
+/** Cascade shift: nudge one stop's window by ±minutes and slide every later stop
+ *  on the same courier leg by the same amount (WP9 — inline stop time edit). */
+export const shiftDeliveryWindow = (date: string, fromStopId: string, deltaMin: number) =>
+  apiFetch<{ shifted: number }>(
+    'orders/route/windows/shift',
+    { method: 'POST', ...json({ date, fromStopId, deltaMin }) },
     'Неуспешна промяна на часа',
   );
 export const approveDeliveryWindows = (date?: string) =>
@@ -907,6 +921,44 @@ export const getTurnover = (
   const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
   return apiFetch<TurnoverBreakdown>(`stats/turnover?${base}${basis}${inc}${fid}`);
 };
+
+// ---- Приходи / разходи / печалба ----
+
+export const getPnl = (opts: { range: StatsRange } | { from: string; to: string }) => {
+  const base =
+    'from' in opts
+      ? `from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`
+      : `range=${opts.range}`;
+  return apiFetch<PnlSummary>(`stats/pnl?${base}`);
+};
+
+export const listExpenses = (from: string, to: string) =>
+  apiFetch<ExpenseRow[]>(`stats/expenses?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+
+export const createExpense = (data: {
+  date: string;
+  amountStotinki: number;
+  category: ExpenseCategory;
+  courierAccountId?: string;
+  note?: string;
+}) => apiFetch<{ id: string }>('stats/expenses', { method: 'POST', ...json(data) });
+
+export const updateExpense = (
+  id: string,
+  data: {
+    date?: string;
+    amountStotinki?: number;
+    category?: ExpenseCategory;
+    courierAccountId?: string | null;
+    note?: string | null;
+  },
+) => apiFetch<{ id: string }>(`stats/expenses/${id}`, { method: 'PATCH', ...json(data) });
+
+export const deleteExpense = (id: string) =>
+  apiFetch<{ ok: true }>(`stats/expenses/${id}`, { method: 'DELETE' });
+
+export const setCommissionBps = (bps: number) =>
+  apiFetch<{ bps: number }>('stats/commission', { method: 'PATCH', ...json({ bps }) });
 
 // ---- Site analytics ----
 export const getAnalytics = (opts: { range: StatsRange } | { from: string; to: string }) => {

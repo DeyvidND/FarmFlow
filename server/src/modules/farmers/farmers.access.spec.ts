@@ -34,7 +34,7 @@ describe('FarmersService access', () => {
     db = makeDb();
     auth = { sendFarmerInvite: jest.fn().mockResolvedValue(undefined) };
     // Storage/cache deps are unused by the access methods → pass minimal stubs.
-    svc = new FarmersService(db as any, {} as any, {} as any, {} as any, auth as any, {} as any);
+    svc = new FarmersService(db as any, {} as any, {} as any, {} as any, auth as any, {} as any, {} as any);
     jest.clearAllMocks();
   });
 
@@ -124,8 +124,8 @@ describe('FarmersService.remove (frees the login email)', () => {
     db = makeDb();
     cache = { invalidate: jest.fn().mockResolvedValue(undefined) };
     publicCache = { del: jest.fn().mockResolvedValue(undefined) };
-    // storage(2)=cache(3)=publicCache(4); auth(5)/queue(6) unused by remove().
-    svc = new FarmersService(db as any, {} as any, cache as any, publicCache as any, {} as any, {} as any);
+    // storage(2)=cache(3)=publicCache(4); auth(5)/queue(6)/maps(7) unused by remove().
+    svc = new FarmersService(db as any, {} as any, cache as any, publicCache as any, {} as any, {} as any, {} as any);
     jest.clearAllMocks();
   });
 

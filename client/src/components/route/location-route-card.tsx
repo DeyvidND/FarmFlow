@@ -74,7 +74,7 @@ export function LocationRouteCard({
       onClick={forced ? undefined : onClose}
     >
       <div
-        className="animate-ff-pop w-[460px] max-w-full rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg"
+        className="animate-ff-pop max-h-[90vh] w-full max-w-[460px] overflow-y-auto overscroll-contain rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Адрес на базата"

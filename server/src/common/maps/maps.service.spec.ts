@@ -317,12 +317,32 @@ describe('MapsService.routeFixed', () => {
     const calls = mockFetch({ routes: [{ distanceMeters: 5000, duration: '900s' }] });
     const pts = [origin, ...stops, { lat: 42.3, lng: 23.3 }];
     const out = await make('k').routeFixed(pts);
-    expect(out).toEqual({ distanceM: 5000, durationS: 900, polyline: null });
+    expect(out).toEqual({ distanceM: 5000, durationS: 900, polyline: null, legs: [] });
     const body = calls[0].body;
     expect(body.origin.location.latLng).toEqual({ latitude: 42.0, longitude: 23.0 });
     expect(body.destination.location.latLng).toEqual({ latitude: 42.3, longitude: 23.3 });
     expect(body.intermediates).toHaveLength(2);
     expect(body.optimizeWaypointOrder).toBeUndefined();
+  });
+
+  it('parses per-leg distance/duration when Google returns legs', async () => {
+    mockFetch({
+      routes: [
+        {
+          distanceMeters: 5000,
+          duration: '900s',
+          legs: [
+            { distanceMeters: 2000, duration: '300s' },
+            { distanceMeters: 3000, duration: '600s' },
+          ],
+        },
+      ],
+    });
+    const out = await make('k').routeFixed([origin, ...stops]);
+    expect(out?.legs).toEqual([
+      { distanceM: 2000, durationS: 300 },
+      { distanceM: 3000, durationS: 600 },
+    ]);
   });
 });
 

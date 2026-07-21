@@ -5,7 +5,7 @@ import { X, Clock, Mail, MailX, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
-import { cn } from '@/lib/utils';
+import { cn, moneyFromStotinki } from '@/lib/utils';
 import {
   getTenant,
   updateTenant,
@@ -23,6 +23,22 @@ const WEEKDAYS = ['Неделя', 'Понеделник', 'Вторник', 'С�
 /** HH:MM strict check — good enough to gate the PATCH call. */
 const isValidTime = (v: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 
+/** Distance + rough drive time from the previous stop, for a proposal row. */
+const fmtGap = (m: number, s: number): string => {
+  const dist = m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} км` : `${Math.round(m)} м`;
+  const min = Math.round(s / 60);
+  return min > 0 ? `${dist} · ~${min} мин` : dist;
+};
+
+/** Whole-route distance (km) for the per-courier summary line. */
+const fmtKmTotal = (m: number): string => `${(m / 1000).toFixed(1).replace('.', ',')} км`;
+
+/** Whole-route drive time (hours/minutes) for the summary line. */
+const fmtDurTotal = (s: number): string => {
+  const m = Math.round(s / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}ч ${m % 60}м` : `${m}м`;
+};
+
 /**
  * Generates per-order delivery time windows from the optimized route, lets
  * the operator lightly edit them, approve, then email customers (task #13).
@@ -32,12 +48,16 @@ export function DeliveryWindowsModal({
   date,
   couriers,
   ends,
+  start,
   onClose,
   onChanged,
 }: {
   date: string;
   couriers: number;
   ends: string;
+  /** Courier's current position (route screen's live GPS / last delivered stop);
+   *  when present, the first stop's distance/time is measured from here. */
+  start?: { lat: number | null; lng: number | null } | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -97,10 +117,29 @@ export function DeliveryWindowsModal({
     [proposal],
   );
 
+  // Per-farmer order counts across the whole day (a multi-farmer order counts for
+  // each of its producers) — drives the „Фермери днес" summary chips. Sorted by
+  // count, descending.
+  const farmerSummary = useMemo<[string, number][]>(() => {
+    if (!proposal) return [];
+    const counts = new Map<string, number>();
+    for (const c of proposal.couriers)
+      for (const s of c.stops) for (const f of s.farmers ?? []) counts.set(f, (counts.get(f) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [proposal]);
+
   async function generate() {
     setGenerating(true);
     try {
-      const res = await generateDeliveryWindows({ date, couriers, ends, startHour });
+      const res = await generateDeliveryWindows({
+        date,
+        couriers,
+        ends,
+        startHour,
+        ...(start && start.lat != null && start.lng != null
+          ? { startLat: start.lat, startLng: start.lng }
+          : {}),
+      });
       // Remember the chosen start hour as the default for next time (fire-and-
       // forget — the windows are already generated; a failed persist just means
       // the picker re-seeds from the old value next open).
@@ -373,55 +412,101 @@ export function DeliveryWindowsModal({
             </div>
           )}
 
+          {proposal && farmerSummary.length > 1 && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-ff-border bg-ff-surface-2 px-3.5 py-2.5">
+              <span className="text-[12px] font-bold text-ff-ink-2">Фермери днес:</span>
+              {farmerSummary.map(([name, count]) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 rounded-md bg-ff-green-100 px-1.5 py-0.5 text-[11.5px] font-bold text-ff-green-800"
+                >
+                  {name} · {count}
+                </span>
+              ))}
+            </div>
+          )}
+
           {proposal && (
             <div className="mt-4 flex flex-col gap-5">
-              {proposal.couriers.map((c) => (
+              {proposal.couriers.map((c) => {
+                const routeValue = c.stops.reduce((n, s) => n + (s.valueStotinki ?? 0), 0);
+                const last = c.stops[c.stops.length - 1];
+                const lastEnd = last ? (edited[last.id]?.end ?? last.windowEnd) : null;
+                return (
                 <div key={c.courierIndex}>
-                  <h3 className="mb-2 text-[13px] font-extrabold text-ff-ink">
-                    Маршрут {c.courierIndex + 1}
-                    {c.name ? ` · ${c.name}` : ''}
+                  <h3 className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13px] font-extrabold text-ff-ink">
+                    <span>
+                      Маршрут {c.courierIndex + 1}
+                      {c.name ? ` · ${c.name}` : ''}
+                    </span>
+                    <span className="text-[11.5px] font-bold text-ff-muted">
+                      {c.stops.length} {c.stops.length === 1 ? 'спирка' : 'спирки'}
+                      {c.distanceM != null ? ` · ${fmtKmTotal(c.distanceM)}` : ''}
+                      {c.durationS != null ? ` · ~${fmtDurTotal(c.durationS)}` : ''}
+                      {lastEnd ? ` · до ${lastEnd}` : ''}
+                      {` · ${moneyFromStotinki(routeValue)}`}
+                    </span>
                   </h3>
                   <div className="flex flex-col gap-2">
-                    {c.stops.map((s) => {
+                    {c.stops.map((s, i) => {
                       const cur = edited[s.id] ?? { start: s.windowStart, end: s.windowEnd };
                       return (
                         <div
                           key={s.id}
-                          className="flex flex-wrap items-center gap-2.5 rounded-xl border border-ff-border-2 px-3 py-2"
+                          className="flex flex-wrap items-center gap-x-2.5 gap-y-2 rounded-xl border border-ff-border-2 px-3 py-2"
                         >
-                          <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-ff-ink">
-                            {s.customer ?? 'Клиент'}
-                          </span>
-                          {s.hasEmail ? (
-                            <Mail size={13} className="shrink-0 text-ff-green-700" />
-                          ) : (
-                            <span className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-ff-muted">
-                              <MailX size={13} /> без имейл
+                          <span className="flex min-w-0 flex-1 basis-[58%] flex-col">
+                            <span className="truncate text-[13px] font-bold text-ff-ink">
+                              {s.customer ?? 'Клиент'}
                             </span>
-                          )}
-                          <input
-                            type="time"
-                            value={cur.start}
-                            onChange={(e) => setField(s.id, 'start', e.target.value)}
-                            onBlur={() => void commit(s.id, s)}
-                            aria-label={`Начало за ${s.customer ?? 'клиента'}`}
-                            className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
-                          />
-                          <span className="text-ff-muted">–</span>
-                          <input
-                            type="time"
-                            value={cur.end}
-                            onChange={(e) => setField(s.id, 'end', e.target.value)}
-                            onBlur={() => void commit(s.id, s)}
-                            aria-label={`Край за ${s.customer ?? 'клиента'}`}
-                            className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
-                          />
+                            {s.address && (
+                              <span className="truncate text-[11px] text-ff-muted">{s.address}</span>
+                            )}
+                            <span className="text-[11px] text-ff-muted">
+                              {fmtGap(s.distanceFromPrevM, s.durationFromPrevS)}{' '}
+                              {i === 0 ? 'от старта' : 'от предната'} · {moneyFromStotinki(s.valueStotinki)}
+                            </span>
+                            {s.farmers && s.farmers.length > 0 && (
+                              <span className="truncate text-[11px] font-bold text-ff-green-800">
+                                {s.farmers.join(', ')}
+                                {s.farmers.length > 1 ? ' · споделена' : ''}
+                              </span>
+                            )}
+                            {!s.hasEmail && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-ff-muted">
+                                <MailX size={12} className="shrink-0" /> без имейл
+                              </span>
+                            )}
+                          </span>
+                          <div className="ml-auto flex shrink-0 items-center gap-2">
+                            {s.hasEmail && (
+                              <Mail size={13} className="shrink-0 text-ff-green-700" />
+                            )}
+                            <input
+                              type="time"
+                              value={cur.start}
+                              onChange={(e) => setField(s.id, 'start', e.target.value)}
+                              onBlur={() => void commit(s.id, s)}
+                              aria-label={`Начало за ${s.customer ?? 'клиента'}`}
+                              className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
+                            />
+                            <span className="text-ff-muted">–</span>
+                            <input
+                              type="time"
+                              value={cur.end}
+                              onChange={(e) => setField(s.id, 'end', e.target.value)}
+                              onBlur={() => void commit(s.id, s)}
+                              aria-label={`Край за ${s.customer ?? 'клиента'}`}
+                              className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
+                            />
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {totalStops === 0 && (
                 <p className="text-[13px] text-ff-muted">Няма спирки за този ден.</p>
               )}

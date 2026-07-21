@@ -382,6 +382,29 @@ export function FarmerPanel({
               <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="напр. Варна" className={field} />
             </label>
           </div>
+
+          <div className="rounded-xl border border-ff-border-2 bg-ff-surface-2 p-3.5">
+            <div className="mb-1.5 text-xs font-extrabold uppercase tracking-wide text-ff-muted">
+              Локация на картата
+            </div>
+            <label className={labelCls}>
+              Адрес
+              <input
+                value={legalAddress}
+                onChange={(e) => setLegalAddress(e.target.value)}
+                placeholder="напр. гр. Варна, ул. Приморска 12"
+                className={field}
+              />
+            </label>
+            <p className="mt-1.5 text-[12px] font-semibold text-ff-ink-2">
+              {farmer.lat != null ? 'Точка на картата: намерена' : 'Точка на картата: няма намерена — провери адреса'}
+            </p>
+            <span className="mt-1 block text-[11px] font-semibold text-ff-muted">
+              Точката на картата се определя автоматично от този адрес. Показва се и на публичната
+              страница на фермера.
+            </span>
+          </div>
+
           <label className={labelCls}>
             Кратко описание
             <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} placeholder="Какво произвежда този фермер…" className={`${field} resize-y leading-relaxed`} />
@@ -465,15 +488,9 @@ export function FarmerPanel({
                     />
                   </label>
                 </div>
-                <label className={labelCls}>
-                  Адрес на управление / кореспонденция
-                  <input
-                    value={legalAddress}
-                    onChange={(e) => setLegalAddress(e.target.value)}
-                    placeholder="напр. гр. Варна, ул. Приморска 12"
-                    className={field}
-                  />
-                </label>
+                <p className="text-[11px] font-semibold text-ff-muted">
+                  Адресът за управление/кореспонденция е полето „Адрес&quot; в „Локация на картата&quot; по-горе.
+                </p>
                 {farmer.legal?.confirmedAt && (
                   <p className="text-[11px] font-semibold text-ff-muted">
                     Последно потвърдено: {new Date(farmer.legal.confirmedAt).toLocaleDateString('bg-BG')}

@@ -32,6 +32,7 @@ import {
   rebalanceRoute,
   setOrderCourier,
   setOrderSequence,
+  shiftDeliveryWindow,
   updateOrderStatus,
   updateTenant,
 } from '@/lib/api-client';
@@ -83,6 +84,86 @@ const WAYPOINTS_PER_LEG_MOBILE = 3;
 const isMobileBrowser = () =>
   typeof navigator !== 'undefined' &&
   /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i.test(navigator.userAgent);
+
+/** On phones a new browser tab is disruptive and clutters the tab strip — navigate the
+ *  current tab so the OS deep-links the Google Maps / Waze app instead. Desktop keeps a
+ *  new tab so the panel stays put. Not used for multi-leg opens (those need the panel to
+ *  survive so the remaining-leg buttons stay tappable). */
+const navTarget = () => (isMobileBrowser() ? '_self' : '_blank');
+
+const isIOSBrowser = () =>
+  typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+/** Google Maps APP deep link for a single destination ("lat,lng" or address text).
+ *  iOS → the comgooglemaps scheme; Android → an intent:// that carries a web fallback,
+ *  so a phone without the app lands on Maps web instead of an ERR_UNKNOWN_URL_SCHEME
+ *  page. Returns null when there is no usable destination. */
+function mapsAppUrl(dest: string, webUrl: string): string | null {
+  if (!dest) return null;
+  const d = encodeURIComponent(dest);
+  if (isIOSBrowser()) return `comgooglemaps://?daddr=${d}&directionsmode=driving`;
+  return (
+    `intent://maps.google.com/maps?daddr=${d}&directionsmode=driving` +
+    `#Intent;scheme=https;package=com.google.android.apps.maps;` +
+    `S.browser_fallback_url=${encodeURIComponent(webUrl)};end`
+  );
+}
+
+/** Waze APP deep link for a single destination (same fallback strategy as maps). */
+function wazeAppUrl(
+  t: { lat: number | null; lng: number | null; address: string | null },
+  webUrl: string,
+): string | null {
+  const q =
+    t.lat != null && t.lng != null
+      ? `ll=${encodeURIComponent(`${t.lat},${t.lng}`)}`
+      : t.address?.trim()
+        ? `q=${encodeURIComponent(t.address.trim())}`
+        : '';
+  if (!q) return null;
+  if (isIOSBrowser()) return `waze://?${q}&navigate=yes`;
+  return (
+    `intent://waze.com/ul?${q}&navigate=yes` +
+    `#Intent;scheme=https;package=com.waze;` +
+    `S.browser_fallback_url=${encodeURIComponent(webUrl)};end`
+  );
+}
+
+/** Open an external navigation target so the FarmFlow tab SURVIVES — like a `tel:`
+ *  link. Desktop opens a new tab. On mobile the maps/Waze app is launched in place and
+ *  the panel stays loaded underneath, so coming back to the browser shows the route,
+ *  not a blank new tab (and not the panel navigated away to Maps web). On iOS the app
+ *  scheme silently no-ops when the app is missing, so a short timer falls back to the
+ *  web URL; Android's intent:// carries its own fallback, so no timer is needed. */
+function openExternalNav(webUrl: string, appUrl: string | null) {
+  if (!isMobileBrowser()) {
+    window.open(webUrl, '_blank', 'noopener');
+    return;
+  }
+  if (!appUrl) {
+    window.location.href = webUrl; // same tab — no new-tab clutter
+    return;
+  }
+  if (isIOSBrowser()) {
+    let handled = false;
+    const cleanup = () => document.removeEventListener('visibilitychange', onHide);
+    const onHide = () => {
+      if (document.hidden) {
+        handled = true;
+        window.clearTimeout(timer);
+        cleanup();
+      }
+    };
+    const timer = window.setTimeout(() => {
+      if (!handled) {
+        cleanup();
+        window.location.href = webUrl;
+      }
+    }, 1500);
+    document.addEventListener('visibilitychange', onHide);
+  }
+  window.location.href = appUrl;
+}
 
 /** Nodes per Google Maps directions leg = origin + N waypoints + destination. */
 const nodesPerLeg = () =>
@@ -673,8 +754,10 @@ export function RouteClient({
       return;
     }
     // Open the first leg now (this click is the user gesture); queue the rest as
-    // buttons so the browser doesn't block a burst of pop-ups.
-    window.open(urls[0], '_blank', 'noopener');
+    // buttons so the browser doesn't block a burst of pop-ups. A single-leg route on
+    // mobile deep-links the Maps app in-place (navTarget); a multi-leg route must keep
+    // the panel alive for the remaining-leg buttons, so it always opens a new tab.
+    window.open(urls[0], urls.length > 1 ? '_blank' : navTarget(), 'noopener');
     if (urls.length > 1) {
       setExtraLegs(urls.slice(1));
       toast.info(`Дълъг маршрут — ${urls.length} отсечки. Отвори всяка с бутоните долу.`);
@@ -686,12 +769,13 @@ export function RouteClient({
 
   // Open Waze for a single target and auto-advance the default to the next one.
   const wazeNavigate = (i: number) => {
-    const url = wazeUrl(wazeTargets[i]);
+    const t = wazeTargets[i];
+    const url = wazeUrl(t);
     if (!url) {
       toast.error('Тази спирка не е на картата — провери адреса');
       return;
     }
-    window.open(url, '_blank', 'noopener');
+    openExternalNav(url, wazeAppUrl(t, url));
     setWazeIdx(Math.min(i + 1, wazeTargets.length));
   };
   const wazePrev = () => setWazeIdx((v) => Math.max(0, v - 1));
@@ -849,7 +933,8 @@ export function RouteClient({
   };
 
   const onOpenMaps = (s: RouteStop) => {
-    window.open(stopUrl(origin, s), '_blank', 'noopener');
+    const web = stopUrl(origin, s);
+    openExternalNav(web, mapsAppUrl(pt(s), web));
   };
   const onCall = (s: RouteStop) => {
     if (!s.phone) {
@@ -861,6 +946,20 @@ export function RouteClient({
   };
   const onEmail = (s: RouteStop) => {
     if (s.email) window.open(`mailto:${s.email}`, '_self');
+  };
+  // Inline stop time edit (WP9): the operator changed a stop's start; the backend
+  // shifts that stop + every later stop on its leg by the same delta. Refresh so
+  // the whole leg's badges reflect the new times.
+  const shiftWindow = async (stopId: string, deltaMin: number) => {
+    try {
+      const { shifted } = await shiftDeliveryWindow(route.date, stopId, deltaMin);
+      router.refresh();
+      toast.success(
+        shifted > 1 ? `Часът е обновен — и следващите ${shifted - 1} спирки` : 'Часът е обновен',
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Неуспешна промяна на часа');
+    }
   };
 
   // Stops whose address couldn't be geocoded — no map pin. They're still in the
@@ -1340,6 +1439,7 @@ export function RouteClient({
             courierCount={route.couriers}
             courierLegs={routes.map((r) => r.courierIndex)}
             onMoveCourier={(id, idx) => void moveCourier(id, idx)}
+            onShiftWindow={isDriver ? undefined : (id, delta) => void shiftWindow(id, delta)}
           />
         </div>
 
@@ -1479,6 +1579,7 @@ export function RouteClient({
           date={route.date}
           couriers={route.couriers}
           ends={routes.map((r) => r.endMode).join(',')}
+          start={mapStart}
           onClose={() => setShowWindows(false)}
           onChanged={() => router.refresh()}
         />

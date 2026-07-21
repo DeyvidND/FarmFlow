@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsInt, IsUrl, IsEmail, Min, Max, MaxLength, ValidateNested,
+  IsString, IsOptional, IsInt, IsNumber, IsUrl, IsEmail, Min, Max, MaxLength, ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
@@ -54,6 +54,22 @@ export class CreateFarmerDto {
   @IsString()
   @MaxLength(120)
   city?: string;
+
+  /** Manual map-pin override (Bulgaria bounding box). Leave both unset to let the
+   *  service auto-geocode from city/legal.address instead. */
+  @ApiPropertyOptional({ nullable: true, description: 'Ръчна корекция на ширина (lat), България.' })
+  @IsOptional()
+  @IsNumber()
+  @Min(41)
+  @Max(44.5)
+  lat?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Ръчна корекция на дължина (lng), България.' })
+  @IsOptional()
+  @IsNumber()
+  @Min(22)
+  @Max(29)
+  lng?: number | null;
 
   @ApiPropertyOptional({ example: '#2C5530' })
   @IsOptional()

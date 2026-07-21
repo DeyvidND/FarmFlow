@@ -1,3 +1,4 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { RoutingService } from './routing.service';
@@ -22,6 +23,7 @@ function makeDb(selectResults: any[][]) {
       const chain: any = {
         from: () => chain,
         leftJoin: () => chain,
+        innerJoin: () => chain,
         where: () => chain,
         orderBy: () => Promise.resolve(result),
         limit: () => Promise.resolve(result),
@@ -147,40 +149,59 @@ describe('RoutingService.getRoute — route_seq honoured over re-optimization', 
 
 // ─── (b) regenerate must not clobber an already-SENT, unchanged window ──────
 describe('RoutingService.generateDeliveryWindows — sent windows are not clobbered', () => {
-  it('leaves a sent+unchanged window alone but resets a sent+changed one to draft', async () => {
-    // No farm origin → the fallback per-leg timing branch applies, which is
-    // deterministic regardless of stop order (both stops land in the same
-    // 09:00–10:00 slot with the default day-start/slot-size settings), so this
-    // test isn't sensitive to which stop the greedy fallback visits first.
-    const TENANT = {
-      farmAddress: null,
-      farmLat: null,
-      farmLng: null,
-      settings: { routing: {} },
-    };
-    const rowUnchanged = geoOrder('X', 43.0, 23.0, {
+  // A deterministic single-stop leg: the real per-leg mock gives a 10-min drive to
+  // the stop → window 09:00–09:35 (09:00 + 10 min floored to the 15-min grid, plus
+  // the 35-min smart width). Regenerating recomputes the SAME window.
+  const sentTenant = {
+    farmAddress: 'Ферма',
+    farmLat: '43.0',
+    farmLng: '23.0',
+    settings: { routing: { dayStartHour: 9, serviceMin: 0 } },
+  };
+  const tenMinLegsMaps = () =>
+    ({
+      route: jest.fn().mockResolvedValue({ order: [0], distanceM: 5000, durationS: 600, polyline: 'g' }),
+      // legs length always matches the point sequence (works whether or not the leg
+      // has a return leg); each leg is a flat 10 minutes.
+      routeFixed: jest.fn((pts: any[]) =>
+        Promise.resolve({
+          distanceM: 5000 * (pts.length - 1),
+          durationS: 600 * (pts.length - 1),
+          polyline: 'g',
+          legs: pts.slice(1).map(() => ({ distanceM: 5000, durationS: 600 })),
+        }),
+      ),
+      geocode: jest.fn(),
+    }) as any;
+
+  it('leaves a sent window alone when it recomputes to the SAME time (no clobber)', async () => {
+    const row = geoOrder('X', 43.01, 23.0, {
       windowStatus: 'sent',
       windowStart: '09:00',
-      windowEnd: '10:00',
+      windowEnd: '09:35',
     });
-    const rowChanged = geoOrder('Y', 43.01, 23.01, {
+    const db = makeDb([[sentTenant], [row], [], [sentTenant]]);
+    const svc = new RoutingService(db, tenMinLegsMaps(), {} as any, {} as any, noAssignments());
+
+    const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07');
+
+    expect(proposal.couriers[0].stops[0].windowStart).toBe('09:00');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('09:35');
+    expect(db.__updateCount).toBe(0); // sent + unchanged → not rewritten
+  });
+
+  it('rewrites a sent window whose recomputed time changed (back to draft)', async () => {
+    const row = geoOrder('Y', 43.01, 23.0, {
       windowStatus: 'sent',
       windowStart: '08:00',
       windowEnd: '09:00',
     });
-    const db = makeDb([[TENANT], [rowUnchanged, rowChanged], [], [TENANT]]);
-    const maps = { route: jest.fn(), routeFixed: jest.fn(), geocode: jest.fn() } as any;
-    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
+    const db = makeDb([[sentTenant], [row], [], [sentTenant]]);
+    const svc = new RoutingService(db, tenMinLegsMaps(), {} as any, {} as any, noAssignments());
 
     const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07');
 
-    // Both stops compute to the same 09:00–10:00 window (see comment above).
-    for (const stop of proposal.couriers[0].stops) {
-      expect(stop.windowStart).toBe('09:00');
-      expect(stop.windowEnd).toBe('10:00');
-    }
-    // Only Y (whose existing sent window differs from the recomputed one) is
-    // written — X (sent, unchanged) is left alone, not reset to 'draft'.
+    expect(proposal.couriers[0].stops[0].windowStart).toBe('09:00'); // recomputed, differs from 08:00
     expect(db.__updateCount).toBe(1);
   });
 });
@@ -206,10 +227,20 @@ describe('RoutingService.generateDeliveryWindows — set-based persist', () => {
     const startCase = dialect.sqlToQuery(db.__lastSet.deliveryWindowStart as SQL);
     const endCase = dialect.sqlToQuery(db.__lastSet.deliveryWindowEnd as SQL);
     const where = dialect.sqlToQuery(db.__lastWhere as SQL);
-    // Both stops land in the deterministic 09:00–10:00 fallback slot.
     expect(startCase.sql.toLowerCase()).toContain('case');
+    // The THEN values MUST be cast to ::time — a bare text bind param makes the CASE
+    // resolve to text and Postgres rejects the assignment to the `time` column (the
+    // prod 500 on POST /orders/route/windows/generate). Lock the cast in.
+    expect(startCase.sql.toLowerCase()).toContain('::time');
+    expect(endCase.sql.toLowerCase()).toContain('::time');
+    // This test is about the set-based binding — every changed id paired with its own
+    // HH:MM value in one statement. The exact times are the timing specs' business
+    // (windows are smart-width now, not a fixed 09:00–10:00 slot), so assert shape.
+    const hhmm = (p: unknown) => typeof p === 'string' && /^\d{2}:\d{2}$/.test(p);
     expect(startCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b', '09:00']));
-    expect(endCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b', '10:00']));
+    expect(endCase.params).toEqual(expect.arrayContaining(['order-a', 'order-b']));
+    expect(startCase.params.filter(hhmm)).toHaveLength(2);
+    expect(endCase.params.filter(hhmm)).toHaveLength(2);
     // WHERE id IN (both) AND tenant-scoped.
     expect(where.params).toEqual(expect.arrayContaining(['order-a', 'order-b', 't1']));
   });
@@ -244,9 +275,10 @@ describe('RoutingService.generateDeliveryWindows — return-leg timing fix', () 
     // 50/50: 10 minutes to reach the only stop, not the full 20 the pre-fix
     // ratio (cumDist/onewayDist = 1.0) would have given it. 9:00 + 10min,
     // floored to the 15-min grid, is still the 09:00–09:15 slot; the bugged
-    // (inflated, +20min) version would land one slot later (09:15–09:30).
+    // (inflated, +20min) version would land a 15-min grid slot later (09:15 start).
+    // The END is the smart width (30 min + delay-risk growth), not the old fixed slot.
     expect(proposal.couriers[0].stops[0].windowStart).toBe('09:00');
-    expect(proposal.couriers[0].stops[0].windowEnd).toBe('09:15');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('09:35');
   });
 });
 
@@ -275,7 +307,7 @@ describe('RoutingService.generateDeliveryWindows — start hour override', () =>
     const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07', undefined, undefined, 14);
 
     expect(proposal.couriers[0].stops[0].windowStart).toBe('14:00');
-    expect(proposal.couriers[0].stops[0].windowEnd).toBe('14:15');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('14:35');
   });
 
   it('startHour 0 (midnight) is honoured, not mistaken for "unset"', async () => {
@@ -286,7 +318,7 @@ describe('RoutingService.generateDeliveryWindows — start hour override', () =>
     const proposal = await svc.generateDeliveryWindows('t1', '2026-07-07', undefined, undefined, 0);
 
     expect(proposal.couriers[0].stops[0].windowStart).toBe('00:00');
-    expect(proposal.couriers[0].stops[0].windowEnd).toBe('00:15');
+    expect(proposal.couriers[0].stops[0].windowEnd).toBe('00:35');
   });
 
   it('omitting startHour falls back to the saved dayStartHour', async () => {
@@ -426,5 +458,266 @@ describe('RoutingService.approveDeliveryWindows — joins delivery_slots', () =>
     expect(result).toEqual({ approved: 2, date: '2026-07-07' });
     // The eligibility subselect MUST join delivery_slots per scheduledForDay's contract.
     expect(leftJoinCalled).toBe(true);
+  });
+});
+
+// ─── cascade shift: nudge one stop, slide the rest of its leg (task #13, WP9) ──
+describe('RoutingService.shiftDeliveryWindows — cascade', () => {
+  // A db whose transaction runs the callback with a tx that RECORDS every UPDATE
+  // .set() payload, so a test can assert exactly which stops were shifted and to
+  // what — the shift is a per-stop UPDATE loop over one leg's tail.
+  function makeShiftDb() {
+    const sets: any[] = [];
+    const tx = {
+      update: () => ({
+        set: (v: any) => {
+          sets.push(v);
+          return { where: () => Promise.resolve(undefined) };
+        },
+      }),
+    };
+    const db = { transaction: async (cb: any) => cb(tx) } as any;
+    return { db, sets };
+  }
+
+  const svcWithRoute = (db: any, route: any) => {
+    const svc = new RoutingService(db, {} as any, {} as any, {} as any, noAssignments());
+    jest.spyOn(svc, 'getRoute').mockResolvedValue(route as any);
+    return svc;
+  };
+
+  const win = (
+    id: string,
+    start: string | null,
+    end: string | null,
+    status: string | null = 'draft',
+  ) => ({ id, deliveryWindowStart: start, deliveryWindowEnd: end, deliveryWindowStatus: status });
+
+  const twoLegRoute = () => ({
+    date: '2026-07-20',
+    routes: [
+      {
+        courierIndex: 0,
+        stops: [win('A', '10:00', '10:30'), win('B', '10:30', '11:00'), win('C', '11:00', '11:30')],
+      },
+      { courierIndex: 1, stops: [win('D', '09:00', '09:30'), win('E', '09:30', '10:00')] },
+    ],
+  });
+
+  it('shifts the nudged stop + every later stop on its leg by the delta; earlier stops and other legs untouched', async () => {
+    const { db, sets } = makeShiftDb();
+    const svc = svcWithRoute(db, twoLegRoute());
+
+    const res = await svc.shiftDeliveryWindows('t1', '2026-07-20', 'B', 5); // +5 from B
+
+    expect(res).toEqual({ shifted: 2 }); // B and C only (A is earlier; D/E are another leg)
+    expect(sets).toEqual([
+      { deliveryWindowStart: '10:35', deliveryWindowEnd: '11:05', deliveryWindowStatus: 'draft' },
+      { deliveryWindowStart: '11:05', deliveryWindowEnd: '11:35', deliveryWindowStatus: 'draft' },
+    ]);
+  });
+
+  it('applies a negative delta too (pull the day earlier)', async () => {
+    const { db, sets } = makeShiftDb();
+    const svc = svcWithRoute(db, twoLegRoute());
+
+    await svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', -10); // whole leg 0 −10
+
+    expect(sets.map((s) => s.deliveryWindowStart)).toEqual(['09:50', '10:20', '10:50']);
+  });
+
+  it('re-arms an approved/sent window to approved so a corrected time can be re-notified', async () => {
+    const { db, sets } = makeShiftDb();
+    const route = {
+      date: '2026-07-20',
+      routes: [
+        { courierIndex: 0, stops: [win('A', '10:00', '10:30', 'sent'), win('B', '10:30', '11:00', 'approved')] },
+      ],
+    };
+    const svc = svcWithRoute(db, route);
+
+    await svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', 10);
+
+    expect(sets.map((s) => s.deliveryWindowStatus)).toEqual(['approved', 'approved']);
+    expect(sets[0].deliveryWindowStart).toBe('10:10');
+  });
+
+  it('skips later stops that have no window yet', async () => {
+    const { db, sets } = makeShiftDb();
+    const route = {
+      date: '2026-07-20',
+      routes: [
+        { courierIndex: 0, stops: [win('A', '10:00', '10:30'), win('B', null, null), win('C', '11:00', '11:30')] },
+      ],
+    };
+    const svc = svcWithRoute(db, route);
+
+    const res = await svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', 5);
+
+    expect(res.shifted).toBe(2); // A and C; B has no window to move
+    expect(sets).toHaveLength(2);
+  });
+
+  it('rejects a zero or non-integer delta (before touching the route)', async () => {
+    const { db } = makeShiftDb();
+    const svc = svcWithRoute(db, twoLegRoute());
+
+    await expect(svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', 0)).rejects.toThrow(
+      BadRequestException,
+    );
+    await expect(svc.shiftDeliveryWindows('t1', '2026-07-20', 'A', 1.5)).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('404s when the stop is not on the route', async () => {
+    const { db } = makeShiftDb();
+    const svc = svcWithRoute(db, twoLegRoute());
+
+    await expect(svc.shiftDeliveryWindows('t1', '2026-07-20', 'ZZZ', 5)).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+});
+
+// ─── distance-from-previous + current-position seeding (task #13, WP5) ─────────
+describe('RoutingService.generateDeliveryWindows — distance-from-previous', () => {
+  const stop = (id: string, lat: number, lng: number) => ({
+    id,
+    customer: id,
+    email: 'c@test.bg',
+    lat,
+    lng,
+    deliveryWindowStart: null,
+    deliveryWindowEnd: null,
+    deliveryWindowStatus: null,
+  });
+
+  const routeFromFarm = () => ({
+    date: '2026-07-20',
+    origin: { lat: 43.17, lng: 27.84, address: 'Ферма' },
+    routes: [
+      {
+        courierIndex: 0,
+        name: null,
+        endMode: 'last',
+        endLat: null,
+        endLng: null,
+        totalDurationS: 1800,
+        totalDistanceM: 20000,
+        stops: [stop('A', 43.2, 27.9), stop('B', 43.1, 27.95)],
+      },
+    ],
+  });
+
+  // Empty-select db (farmersByOrder finds no producers) with a no-op update.
+  const windowsDb = () =>
+    ({
+      update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }),
+      select: () => {
+        const chain: any = {
+          from: () => chain,
+          innerJoin: () => chain,
+          leftJoin: () => chain,
+          where: () => Promise.resolve([]),
+        };
+        return chain;
+      },
+    }) as any;
+
+  function mkSvc() {
+    const db = windowsDb();
+    const svc = new RoutingService(db, {} as any, {} as any, {} as any, noAssignments());
+    jest.spyOn(svc, 'getRoute').mockResolvedValue(routeFromFarm() as any);
+    jest
+      .spyOn(svc as any, 'routingSettings')
+      .mockResolvedValue({ dayStartHour: 9, slotSizeMin: 60, serviceMin: 10 });
+    return svc;
+  }
+
+  it('populates a positive distanceFromPrevM and durationFromPrevS on every stop', async () => {
+    const p = await mkSvc().generateDeliveryWindows('t1', '2026-07-20');
+    const stops = p.couriers[0].stops;
+    expect(stops).toHaveLength(2);
+    for (const s of stops) {
+      expect(typeof s.distanceFromPrevM).toBe('number');
+      expect(s.distanceFromPrevM).toBeGreaterThan(0);
+      expect(typeof s.durationFromPrevS).toBe('number');
+      expect(s.durationFromPrevS).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('measures the first stop from the courier CURRENT position when supplied, not the farm', async () => {
+    const fromFarm = await mkSvc().generateDeliveryWindows('t1', '2026-07-20');
+    // A current position essentially on top of stop A (43.20, 27.90).
+    const fromHere = await mkSvc().generateDeliveryWindows('t1', '2026-07-20', undefined, undefined, 9, {
+      lat: 43.199,
+      lng: 27.899,
+    });
+    expect(fromHere.couriers[0].stops[0].distanceFromPrevM).toBeLessThan(
+      fromFarm.couriers[0].stops[0].distanceFromPrevM,
+    );
+  });
+
+  it('uses REAL per-leg road distance/time when Maps returns legs (not straight-line)', async () => {
+    // endMode 'last' → seq = [farm, A, B]; legs = [farm→A, A→B]. The adaptive mock
+    // returns leg k with (k+1)·1000 m and (k+1)·300 s.
+    const maps = {
+      routeFixed: jest.fn((pts: any[]) =>
+        Promise.resolve({
+          distanceM: 3000,
+          durationS: 900,
+          polyline: null,
+          legs: pts.slice(1).map((_: unknown, k: number) => ({ distanceM: (k + 1) * 1000, durationS: (k + 1) * 300 })),
+        }),
+      ),
+    } as any;
+    const db = windowsDb();
+    const svc = new RoutingService(db, maps, {} as any, {} as any, noAssignments());
+    jest.spyOn(svc, 'getRoute').mockResolvedValue(routeFromFarm() as any);
+    jest
+      .spyOn(svc as any, 'routingSettings')
+      .mockResolvedValue({ dayStartHour: 9, slotSizeMin: 60, serviceMin: 10 });
+
+    const p = await svc.generateDeliveryWindows('t1', '2026-07-20');
+    const stops = p.couriers[0].stops;
+
+    expect(stops[0].distanceFromPrevM).toBe(1000);
+    expect(stops[0].durationFromPrevS).toBe(300);
+    expect(stops[1].distanceFromPrevM).toBe(2000);
+    expect(stops[1].durationFromPrevS).toBe(600);
+    expect(p.couriers[0].distanceM).toBe(3000); // real whole-leg total
+  });
+
+  it('tags each stop with its producer(s) — a multi-farmer order lists all', async () => {
+    // farmersByOrder rows: A → Иван; B → Иван + Мария (a shared, cross-farmer order).
+    const farmerRows = [
+      { orderId: 'A', name: 'Иван' },
+      { orderId: 'B', name: 'Иван' },
+      { orderId: 'B', name: 'Мария' },
+    ];
+    const db = {
+      update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }),
+      select: () => {
+        const chain: any = {
+          from: () => chain,
+          innerJoin: () => chain,
+          leftJoin: () => chain,
+          where: () => Promise.resolve(farmerRows),
+        };
+        return chain;
+      },
+    } as any;
+    const svc = new RoutingService(db, {} as any, {} as any, {} as any, noAssignments());
+    jest.spyOn(svc, 'getRoute').mockResolvedValue(routeFromFarm() as any);
+    jest
+      .spyOn(svc as any, 'routingSettings')
+      .mockResolvedValue({ dayStartHour: 9, slotSizeMin: 60, serviceMin: 10 });
+
+    const p = await svc.generateDeliveryWindows('t1', '2026-07-20');
+    const [a, b] = p.couriers[0].stops;
+
+    expect(a.farmers).toEqual(['Иван']);
+    expect(b.farmers).toEqual(['Иван', 'Мария']); // multi-farmer order lists both
   });
 });

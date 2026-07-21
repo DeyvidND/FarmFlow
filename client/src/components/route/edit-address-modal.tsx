@@ -110,7 +110,7 @@ export function EditAddressModal({
       onClick={onClose}
     >
       <div
-        className="animate-ff-pop w-[460px] max-w-full rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg"
+        className="animate-ff-pop max-h-[90vh] w-full max-w-[460px] overflow-y-auto overscroll-contain rounded-2xl border border-ff-border bg-ff-surface p-6 shadow-ff-lg"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Смени адрес"
@@ -153,7 +153,7 @@ export function EditAddressModal({
           />
 
           {key ? (
-            <div className="h-[300px] overflow-hidden rounded-xl border border-ff-border">
+            <div className="h-[300px] max-[680px]:h-[200px] overflow-hidden rounded-xl border border-ff-border">
               <APIProvider apiKey={key} language="bg" region="BG">
                 <Map
                   mapId={MAP_ID}

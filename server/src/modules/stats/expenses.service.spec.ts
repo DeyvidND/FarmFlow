@@ -1,0 +1,205 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { SQL, Param } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import { ExpensesService } from './expenses.service';
+import { UpdateExpenseDto } from './dto/expense.dto';
+
+const DRIVER_ID = '11111111-1111-4111-8111-111111111111';
+
+/** Изважда всяка вградена Param стойност от drizzle SQL дърво — така тестът
+ *  вижда дали WHERE наистина е стеснил по tenant, вместо да вярва на мока. */
+function paramValues(node: unknown, out: unknown[] = []): unknown[] {
+  if (node instanceof Param) out.push(node.value);
+  else if (node instanceof SQL)
+    for (const c of (node as unknown as { queryChunks: unknown[] }).queryChunks) paramValues(c, out);
+  else if (Array.isArray(node)) for (const c of node) paramValues(c, out);
+  return out;
+}
+
+function makeDb(returning: unknown[] = [{ id: 'exp-1' }]) {
+  const captured: { where?: unknown; values?: unknown; set?: unknown } = {};
+  const chain: any = {};
+  for (const m of ['from', 'orderBy', 'limit']) chain[m] = jest.fn(() => chain);
+  chain.where = jest.fn((w: unknown) => {
+    captured.where = w;
+    return chain;
+  });
+  chain.returning = jest.fn(async () => returning);
+  chain.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
+    Promise.resolve(returning).then(res, rej);
+
+  const db = {
+    select: jest.fn(() => chain),
+    insert: jest.fn(() => ({
+      values: jest.fn((v: unknown) => {
+        captured.values = v;
+        return chain;
+      }),
+    })),
+    update: jest.fn(() => ({
+      set: jest.fn((s: unknown) => {
+        captured.set = s;
+        return chain;
+      }),
+    })),
+    delete: jest.fn(() => chain),
+  };
+  return { db, captured, chain };
+}
+
+describe('ExpensesService', () => {
+  it('create записва tenantId и автора', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    await svc.create('tenant-1', 'user-9', {
+      date: '2026-07-20',
+      amountStotinki: 5000,
+      category: 'fuel',
+    });
+    expect(captured.values).toMatchObject({
+      tenantId: 'tenant-1',
+      createdById: 'user-9',
+      amountStotinki: 5000,
+      category: 'fuel',
+      courierAccountId: null,
+    });
+  });
+
+  it('create с courierAccountId на съшия наемател с role driver/admin успява', async () => {
+    // Единствената канна редица служи двойно тук: и за select-а, който проверява
+    // акаунта, и за insert().returning() след него — makeDb няма отделни мокове.
+    const { db, captured } = makeDb([{ id: DRIVER_ID }]);
+    const svc = new ExpensesService(db as any);
+    await svc.create('tenant-1', 'user-9', {
+      date: '2026-07-20',
+      amountStotinki: 5000,
+      category: 'fuel',
+      courierAccountId: DRIVER_ID,
+    });
+    expect(captured.values).toMatchObject({ courierAccountId: DRIVER_ID });
+  });
+
+  it('create с courierAccountId, който не се разрешава (чужд/несъществуващ), хвърля BadRequestException', async () => {
+    const { db } = makeDb([]);
+    const svc = new ExpensesService(db as any);
+    await expect(
+      svc.create('tenant-1', 'user-9', {
+        date: '2026-07-20',
+        amountStotinki: 5000,
+        category: 'fuel',
+        courierAccountId: DRIVER_ID,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('update стеснява по tenant И по id — не само по id', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    await svc.update('tenant-1', 'exp-1', { amountStotinki: 700 });
+    const params = paramValues(captured.where);
+    expect(params).toContain('tenant-1');
+    expect(params).toContain('exp-1');
+  });
+
+  it('update през реален DTO (plainToInstance) НЕ пипа courierAccountId, ако клиентът не го е пратил', async () => {
+    // Зелен тест с plain object literal не хваща `useDefineForClassFields` (ES2022):
+    // TS emit-ва own-property за ВСЕКИ field на инстанцията, дори неподаден в тялото —
+    // само `plainToInstance` (както в реалния ValidationPipe) възпроизвежда бъга.
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { amountStotinki: 700 });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).not.toHaveProperty('courierAccountId');
+  });
+
+  it('update през реален DTO с изричен courierAccountId: null отвързва куриера', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { courierAccountId: null });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).toMatchObject({ courierAccountId: null });
+  });
+
+  it('update, задаващ courierAccountId на валидна стойност, минава проверката и успява', async () => {
+    const { db, captured } = makeDb([{ id: DRIVER_ID }]);
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { courierAccountId: DRIVER_ID });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).toMatchObject({ courierAccountId: DRIVER_ID });
+  });
+
+  it('update, изчистващ courierAccountId на null, изобщо НЕ пуска проверката (select)', async () => {
+    const { db } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { courierAccountId: null });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect((db.select as jest.Mock).mock.calls.length).toBe(0);
+  });
+
+  it('update, който изобщо не пипа courierAccountId, НЕ пуска проверката (select)', async () => {
+    const { db } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { amountStotinki: 700 });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect((db.select as jest.Mock).mock.calls.length).toBe(0);
+  });
+
+  it('update през реален DTO с изричен note: null изчиства бележката', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { note: null });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).toMatchObject({ note: null });
+  });
+
+  it('update през реален DTO (plainToInstance) НЕ пипа note, ако клиентът не го е пратил', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { amountStotinki: 700 });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).not.toHaveProperty('note');
+  });
+
+  it('update на чужд разход дава 404, не мълчалив успех', async () => {
+    const { db } = makeDb([]);
+    const svc = new ExpensesService(db as any);
+    await expect(svc.update('tenant-1', 'exp-foreign', { amountStotinki: 700 })).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('remove стеснява по tenant И по id', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    await svc.remove('tenant-1', 'exp-1');
+    const params = paramValues(captured.where);
+    expect(params).toContain('tenant-1');
+    expect(params).toContain('exp-1');
+  });
+
+  it('remove на несъществуващ разход дава 404', async () => {
+    const { db } = makeDb([]);
+    const svc = new ExpensesService(db as any);
+    await expect(svc.remove('tenant-1', 'exp-x')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('list стеснява по tenant и по двата края на периода', async () => {
+    const { db, captured } = makeDb([]);
+    const svc = new ExpensesService(db as any);
+    await svc.list('tenant-1', '2026-07-01', '2026-07-31');
+    const params = paramValues(captured.where);
+    expect(params).toContain('tenant-1');
+    expect(params).toContain('2026-07-01');
+    expect(params).toContain('2026-07-31');
+  });
+
+  it('setCommissionBps пише през jsonbDeepMerge (запазва другите настройки)', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    await svc.setCommissionBps('tenant-1', 1500);
+    const { params } = new PgDialect().sqlToQuery((captured.set as { settings: unknown }).settings as any);
+    // Пътят е вграден като параметри от jsonbDeepMerge: 'stats' → 'infoCommissionBps'.
+    expect(params).toEqual(expect.arrayContaining(['stats', 'infoCommissionBps', '1500']));
+  });
+});

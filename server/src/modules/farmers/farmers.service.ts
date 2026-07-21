@@ -29,6 +29,7 @@ import { tenantSlug } from '../../common/tenant-slug.util';
 import { encryptSignature, decryptSignature, SignatureKeyMissingError } from '../../common/crypto/signature-crypto';
 import { farmerCourierReady, farmerDeliveryNamespace } from '../orders/courier-eligibility';
 import { effectiveTier } from './tier-autolink';
+import { MapsService } from '../../common/maps/maps.service';
 
 @Injectable()
 export class FarmersService {
@@ -41,7 +42,23 @@ export class FarmersService {
     private readonly publicCache: PublicCacheService,
     private readonly auth: AuthService,
     @InjectQueue(IMAGE_QUEUE) private readonly imageQueue: Queue,
+    // @Global MapsService — geocodes a farmer's map pin from address/city on change
+    // (mirrors platform.service.ts's producersMap geocode-on-read pattern).
+    private readonly maps: MapsService,
   ) {}
+
+  /** Location string to geocode a farmer from: prefer the legal seat address (finer),
+   *  else the free-text city. Null when neither is set. Mirrors
+   *  platform.service.ts's private `producerLocationString` (same logic/name, kept
+   *  local — that one isn't exported for cross-module reuse). */
+  private producerLocationString(
+    legal: { address?: string } | null | undefined,
+    city: string | null | undefined,
+  ): string | null {
+    const addr = legal?.address?.trim();
+    const c = city?.trim();
+    return addr || c || null;
+  }
 
   /** Farmers for the tenant, ordered by display position then age. `scope` (a
    *  producer's own id) narrows the list to that single farmer; null = all. */
@@ -193,16 +210,81 @@ export class FarmersService {
   }
 
   async create(tenantId: string, dto: CreateFarmerDto): Promise<FarmerRow> {
-    const [row] = await this.db.insert(farmers).values({ ...dto, tenantId }).returning();
+    // lat/lng arrive as numbers on the DTO (manual override); the column is a Drizzle
+    // numeric (string). Pull them out of the spread so they're never inserted raw.
+    const { lat: latOverride, lng: lngOverride, ...fields } = dto;
+
+    let coordFields: { lat: string; lng: string; geocodedAt: Date } | Record<string, never> = {};
+    if (latOverride != null && lngOverride != null) {
+      coordFields = { lat: String(latOverride), lng: String(lngOverride), geocodedAt: new Date() };
+    } else if (this.maps.enabled) {
+      // Best-effort geocode from whatever address/city came in at creation. geocodeApprox
+      // never throws (graceful-degradation contract) — a maps outage must not fail signup.
+      const loc = this.producerLocationString(fields.legal, fields.city);
+      if (loc) {
+        const ll = await this.maps.geocodeApprox(loc);
+        if (ll) coordFields = { lat: String(ll.lat), lng: String(ll.lng), geocodedAt: new Date() };
+      }
+    }
+
+    const [row] = await this.db
+      .insert(farmers)
+      .values({ ...fields, tenantId, ...coordFields })
+      .returning();
     await this.cache.invalidate(tenantId);
     await this.publicCache.del(publicCacheKeys.farmers(tenantId));
     return this.stripSignature(row);
   }
 
   async update(id: string, tenantId: string, dto: UpdateFarmerDto): Promise<FarmerRow> {
+    // lat/lng are a manual map-pin override, handled separately below — never spread
+    // straight into the update set (wrong type: DTO carries them as numbers, the
+    // column is a Drizzle numeric/string).
+    const { lat: latOverride, lng: lngOverride, ...fields } = dto;
+
+    // Lightweight pre-read for the geocode-on-change decision ONLY (city/legal).
+    // Deliberately does NOT include tier/branding — those are re-read fresh inside the
+    // write transaction below (same as the original code), so two concurrent PATCHes
+    // still can't clobber each other's tier decision (TOCTOU). This read runs outside
+    // any transaction because geocodeApprox below is a network call, and a DB
+    // transaction must never be held open across one (see ARCHITECTURE.md).
+    const [existingLoc] = await this.db
+      .select({ city: farmers.city, legal: farmers.legal })
+      .from(farmers)
+      .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
+      .limit(1);
+    if (!existingLoc) throw new NotFoundException('Фермерът не е намерен');
+
+    // Resolve the new map pin before opening the write transaction.
+    let coordFields: { lat: string; lng: string; geocodedAt: Date } | Record<string, never> = {};
+    if (latOverride != null && lngOverride != null) {
+      // Manual override always wins — skip geocoding entirely, regardless of maps.enabled.
+      coordFields = { lat: String(latOverride), lng: String(lngOverride), geocodedAt: new Date() };
+    } else if (this.maps.enabled) {
+      const cityChanged = fields.city !== undefined && fields.city !== existingLoc.city;
+      const addressChanged =
+        fields.legal !== undefined && fields.legal?.address !== existingLoc.legal?.address;
+      // Only spend a geocode call when the location-relevant fields actually changed —
+      // an unrelated edit (bio, tint, products…) must not touch the pin.
+      if (cityChanged || addressChanged) {
+        const loc = this.producerLocationString(
+          fields.legal !== undefined ? fields.legal : existingLoc.legal,
+          fields.city !== undefined ? fields.city : existingLoc.city,
+        );
+        if (loc) {
+          const ll = await this.maps.geocodeApprox(loc);
+          // A miss/outage leaves the existing lat/lng/geocodedAt untouched — a transient
+          // failure must never null out an already-good pin.
+          if (ll) coordFields = { lat: String(ll.lat), lng: String(ll.lng), geocodedAt: new Date() };
+        }
+      }
+    }
+
     // Read (current tier + branding) and write are wrapped in one transaction so two
     // concurrent PATCHes for the same farmer can't both read the same stale state and
-    // have the second write silently clobber the first's tier decision (TOCTOU).
+    // have the second write silently clobber the first's tier decision (TOCTOU) —
+    // identical safety to the pre-geocoding version. The geocode network call above has
+    // already completed, so this transaction only ever wraps DB work.
     const row = await this.db.transaction(async (tx) => {
       const [existing] = await tx
         .select({ tier: farmers.tier, branding: farmers.branding })
@@ -221,7 +303,7 @@ export class FarmersService {
 
       const [updated] = await tx
         .update(farmers)
-        .set({ ...dto, tier })
+        .set({ ...fields, tier, ...coordFields })
         .where(and(eq(farmers.id, id), eq(farmers.tenantId, tenantId)))
         .returning();
       if (!updated) throw new NotFoundException('Фермерът не е намерен');
@@ -603,6 +685,10 @@ export class FarmersService {
         tier: farmers.tier,
         position: farmers.position,
         createdAt: farmers.createdAt,
+        // Approximate map pin for the storefront farmer map — geocodedAt stays internal
+        // (selected nowhere here), only the resolved coords are public.
+        lat: farmers.lat,
+        lng: farmers.lng,
       })
       .from(farmers)
       .where(eq(farmers.tenantId, tenant.id))
@@ -637,7 +723,11 @@ export class FarmersService {
       const urls = mediaByFarmer.get(rest.id) ?? [];
       const images = urls.length ? urls : rest.imageUrl ? [rest.imageUrl] : [];
       const courierReady = farmerCourierReady(farmerDeliveryNamespace(settings, rest.id));
-      return { ...rest, images, courierReady };
+      // Drizzle numeric columns come back as strings — the public projection converts
+      // to number for the storefront map (PublicFarmer.lat/lng are `number | null`).
+      const lat = rest.lat != null ? Number(rest.lat) : null;
+      const lng = rest.lng != null ? Number(rest.lng) : null;
+      return { ...rest, images, courierReady, lat, lng };
     });
     await this.publicCache.set(key, result);
     return result;

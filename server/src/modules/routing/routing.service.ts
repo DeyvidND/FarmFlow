@@ -8,12 +8,14 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
-import { type Database, orders, orderItems, deliverySlots, tenants } from '@fermeribg/db';
+import { type Database, orders, orderItems, deliverySlots, tenants, products, farmers } from '@fermeribg/db';
+import { type LegIndex, type LegPos, asLegIndex, asLegPos } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { bgToday } from '../../common/time/bg-time';
 import { scheduledForDay } from '../orders/order-scheduling';
 import { sweepSplit, haversineKm, estimateWorkloadS, type Pt } from './route-split';
+import { serviceMinFor, windowWidthMin, floorToMin, WINDOW_START_GRAN_MIN } from './route-windows';
 import { humanizeStopOrder } from './route-humanize';
 import { OrdersService } from '../orders/orders.service';
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
@@ -55,9 +57,10 @@ export interface RouteStop {
   itemsSubtotalStotinki: number;
   deliveryFeeStotinki: number;
   totalStotinki: number;
-  /** Operator's manual courier pin (task #6): 0-based courier index, or null for
-   *  auto (geographic sweep-split). */
-  courierIndex: number | null;
+  /** Operator's manual courier pin (task #6): the 0-based REAL leg number
+   *  ({@link LegIndex}, matches `orders.courierIndex`), or null for auto
+   *  (geographic sweep-split). Never a dense `routes[]` position. */
+  courierIndex: LegIndex | null;
   /** Delivery time window (task #13): 'HH:MM' wall-clock (Europe/Sofia) and its
    *  review status (draft → approved → sent). Null until a window is generated. */
   deliveryWindowStart: string | null;
@@ -103,8 +106,11 @@ export interface CourierRoute {
   startAddress: string | null;
   startLat: number | null;
   startLng: number | null;
-  /** 0-based index of this courier (== position in `routes`). */
-  courierIndex: number;
+  /** The REAL 0-based leg number of this courier ({@link LegIndex}) — the value a
+   *  driver's resolveMyLeg and an order pin match against. On a non-contiguous
+   *  board day (legs [0, 2]) this is NOT this leg's position in the dense
+   *  `routes` array; see the posToLeg/legToPos mapping in getRoute. */
+  courierIndex: LegIndex;
   /** Operator-set courier name (settings.routing.couriers[i].name), else null. */
   name: string | null;
   /** This courier's day money (task #6), summed from its stops, in stotinki:
@@ -203,9 +209,22 @@ export interface DeliveryWindowStop {
   id: string;
   customer: string | null;
   email: string | null;
+  /** Delivery address — shown in the review modal so the operator knows where. */
+  address: string | null;
   windowStart: string;
   windowEnd: string;
   hasEmail: boolean;
+  /** Road distance (metres) from the previous stop — for the FIRST stop, from the
+   *  courier's current position when supplied, else the farm. Real per-leg travel
+   *  when Maps is available, straight-line fallback otherwise. */
+  distanceFromPrevM: number;
+  /** Drive seconds from the previous stop (real per-leg when available). */
+  durationFromPrevS: number;
+  /** Order grand total incl. delivery (stotinki) — the value to hand over / collect. */
+  valueStotinki: number;
+  /** Producer(s) whose products this order contains — a delivery order can span
+   *  farmers. Empty when none are linked. Tags the row on a multi-farmer day. */
+  farmers: string[];
 }
 export interface DeliveryWindowProposal {
   date: string;
@@ -214,6 +233,10 @@ export interface DeliveryWindowProposal {
     courierIndex: number;
     name: string | null;
     stops: DeliveryWindowStop[];
+    /** Whole-leg road totals (real when Maps available, else the getRoute estimate)
+     *  — for the per-courier summary line in the modal. */
+    distanceM: number | null;
+    durationS: number | null;
   }[];
   /** Orders that got a window but have no customer email (can't be notified). */
   withoutEmail: number;
@@ -488,7 +511,8 @@ export class RoutingService {
         // row with a rounding quirk never shows a negative fee).
         deliveryFeeStotinki: Math.max(0, total - subtotal),
         totalStotinki: total,
-        courierIndex: r.courierIndex ?? null,
+        // orders.courierIndex stores the REAL leg number — brand it as such.
+        courierIndex: r.courierIndex != null ? asLegIndex(r.courierIndex) : null,
         deliveryWindowStart: hhmm(r.windowStart),
         deliveryWindowEnd: hhmm(r.windowEnd),
         deliveryWindowStatus: r.windowStatus ?? null,
@@ -540,7 +564,9 @@ export class RoutingService {
     // unassigned today — the board lets each roster row pick any leg
     // independently, so non-contiguous sets are a normal, expected shape,
     // not an edge case.
-    const assignedLegs = [...new Set(assignments.map((a) => a.legIndex))].sort((a, b) => a - b);
+    const assignedLegs: LegIndex[] = [...new Set(assignments.map((a) => asLegIndex(a.legIndex)))].sort(
+      (a, b) => a - b,
+    );
     const assignedLegCount = assignedLegs.length;
 
     // Effective courier count: the route-page „Куриери" dropdown (?couriers=) wins
@@ -561,15 +587,16 @@ export class RoutingService {
     // this mapping was a real bug: a driver assigned a non-contiguous leg
     // (e.g. leg 2 when only legs [0, 2] are assigned) would never match any
     // route's array-position-derived courierIndex and see zero stops.
-    const posToLeg = assignedLegCount > 0 ? assignedLegs : Array.from({ length: n }, (_, i) => i);
-    const legToPos = new Map(posToLeg.map((leg, pos) => [leg, pos]));
+    const posToLeg: LegIndex[] =
+      assignedLegCount > 0 ? assignedLegs : Array.from({ length: n }, (_, i) => asLegIndex(i));
+    const legToPos = new Map<LegIndex, LegPos>(posToLeg.map((leg, pos) => [leg, asLegPos(pos)]));
 
     // Operator-pinned stops (task #6): an order the operator manually moved onto a
     // specific courier keeps that courier regardless of geography. Pins that don't
     // resolve to a currently-active leg (courier count later lowered, or the
     // board no longer assigns that leg) are treated as auto. The rest are split
     // geographically as before, then the pins are dropped into their courier.
-    const inRange = (ci: number | null): ci is number => ci != null && legToPos.has(ci);
+    const inRange = (ci: LegIndex | null): ci is LegIndex => ci != null && legToPos.has(ci);
     const pinned = located.filter((s) => inRange(s.courierIndex));
     const free = located.filter((s) => !inRange(s.courierIndex));
 
@@ -591,7 +618,8 @@ export class RoutingService {
       // posToLeg/legToPos already are, so it lines up with pinned's placement
       // below.
       const baseWorkloads = posToLeg.map((_, pos) => {
-        const pinnedHere = pinned.filter((s) => legToPos.get(s.courierIndex as number) === pos);
+        const here = asLegPos(pos);
+        const pinnedHere = pinned.filter((s) => legToPos.get(s.courierIndex!) === here);
         if (!pinnedHere.length) return 0;
         const pts = pinnedHere.map((s) => ptOf(s) as Pt);
         return estimateWorkloadS(originPt, pts, splitEnd);
@@ -609,7 +637,7 @@ export class RoutingService {
     // stick across reloads and lets an explicitly-chosen 2-courier day show both.
     if (pinned.length) {
       while (groups.length < n) groups.push([]);
-      for (const s of pinned) groups[legToPos.get(s.courierIndex as number)!].push(s);
+      for (const s of pinned) groups[legToPos.get(s.courierIndex!)!].push(s);
     }
     if (!groups.length) groups = [[]];
 
@@ -850,7 +878,9 @@ export class RoutingService {
     group: RouteStop[],
     mode: RouteEndMode,
     end: RouteEnd,
-    courierIndex = 0,
+    // The REAL leg number, not the dense array position — callers pass
+    // posToLeg[i], never the loop index i (which the brand makes a type error).
+    courierIndex: LegIndex = asLegIndex(0),
     name: string | null = null,
     preserveOrder = false,
   ): Promise<CourierRoute> {
@@ -1052,6 +1082,62 @@ export class RoutingService {
       i += seg.length - 1;
     }
     return { distanceM, durationS, polylines };
+  }
+
+  /**
+   * Real per-leg road distance/duration along a FIXED point sequence — one entry
+   * per consecutive pair (origin→p1, p1→p2, …), chunked over the ≤25-stop Routes
+   * limit and concatenated (the chunk seam is a shared node, not double-counted).
+   * Used to time delivery windows from actual stop-to-stop travel. Returns null if
+   * maps are disabled, any chunk fails, or a chunk's legs don't line up with its
+   * pairs — so the caller can fall back to the straight-line estimate rather than
+   * mis-time the day.
+   */
+  private async measureLegs(
+    pts: Pt[],
+  ): Promise<{ legs: { distanceM: number; durationS: number }[]; distanceM: number; durationS: number } | null> {
+    if (pts.length < 2 || typeof this.maps?.routeFixed !== 'function') return null;
+    const nodesPerLeg = MAX_OPTIMIZE_STOPS + 2;
+    const legs: { distanceM: number; durationS: number }[] = [];
+    let distanceM = 0;
+    let durationS = 0;
+    let i = 0;
+    while (i < pts.length - 1) {
+      const seg = pts.slice(i, i + nodesPerLeg);
+      const plan = await this.maps.routeFixed(seg);
+      if (!plan || !Array.isArray(plan.legs) || plan.legs.length !== seg.length - 1) return null;
+      legs.push(...plan.legs);
+      distanceM += plan.distanceM;
+      durationS += plan.durationS;
+      i += seg.length - 1;
+    }
+    return { legs, distanceM, durationS };
+  }
+
+  /**
+   * Distinct farmer (producer) display names per order, for the given order ids.
+   * A delivery (`address`) order can span several farmers — `orders.farmerId` is
+   * null for them, so the link is order_items → products.farmerId → farmers.name
+   * (the same path prep/digest use). One batched query, grouped in JS; used to tag
+   * each delivery-window row with its producer(s) on a multi-farmer day. Orders
+   * whose products have no linked farmer simply get an empty list.
+   */
+  private async farmersByOrder(tenantId: string, orderIds: string[]): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    if (orderIds.length === 0) return out;
+    const rows = await this.db
+      .select({ orderId: orders.id, name: farmers.name })
+      .from(orderItems)
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .innerJoin(products, eq(orderItems.productId, products.id))
+      .innerJoin(farmers, eq(products.farmerId, farmers.id))
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)));
+    for (const r of rows) {
+      const list = out.get(r.orderId) ?? [];
+      if (r.name && !list.includes(r.name)) list.push(r.name);
+      out.set(r.orderId, list);
+    }
+    return out;
   }
 
   /**
@@ -1308,6 +1394,7 @@ export class RoutingService {
     couriers?: number,
     endModes?: (RouteEndMode | undefined)[],
     startHour?: number,
+    start?: { lat: number; lng: number } | null,
   ): Promise<DeliveryWindowProposal> {
     const route = await this.getRoute(tenantId, date, undefined, couriers, endModes);
     const cfg = await this.routingSettings(tenantId);
@@ -1331,66 +1418,98 @@ export class RoutingService {
         ? Number(cfg.serviceMin)
         : DEFAULT_SERVICE_MIN;
 
+    // Seed the first leg from the courier's CURRENT position when the modal
+    // supplies it (they're already out delivering), else the farm — so the first
+    // stop's distance/time reflects where the van actually is, not the depot.
     const originPt: Pt | null =
-      route.origin.lat != null && route.origin.lng != null
-        ? { lat: route.origin.lat, lng: route.origin.lng }
-        : null;
+      start && Number.isFinite(start.lat) && Number.isFinite(start.lng)
+        ? { lat: start.lat, lng: start.lng }
+        : route.origin.lat != null && route.origin.lng != null
+          ? { lat: route.origin.lat, lng: route.origin.lng }
+          : null;
 
     const proposalCouriers: DeliveryWindowProposal['couriers'] = [];
     const updates: { id: string; start: string; end: string }[] = [];
     let withoutEmail = 0;
 
-    for (const r of route.routes) {
-      // Cumulative crow-flies distance origin→…→stop_i, a cheap proxy that splits
-      // the leg's measured drive time across its stops (no extra Maps calls).
-      const cumDist: number[] = [];
-      let prev = originPt;
-      let cum = 0;
-      let lastLocated: Pt | null = null;
-      for (const s of r.stops) {
-        if (prev && s.lat != null && s.lng != null) {
-          cum += haversineKm(prev, { lat: s.lat, lng: s.lng });
-        }
-        cumDist.push(cum);
-        if (s.lat != null && s.lng != null) {
-          prev = { lat: s.lat, lng: s.lng };
-          lastLocated = prev;
-        }
-      }
-      // `driveMin` below (measured total duration) includes the return-to-
-      // depot/home leg whenever this courier's route has one (endMode !==
-      // 'last'). `cum` above only covers origin→…→last-stop, so a route WITH
-      // a return leg needs it added to the denominator too — otherwise every
-      // stop's time-share ratio is computed against a too-small total, and
-      // later stops (whose numerator already reflects the full, longer trip)
-      // get an inflated share, pushing their windows systematically late.
-      let totalDist = cum;
-      if (r.endMode !== 'last' && lastLocated && r.endLat != null && r.endLng != null) {
-        totalDist += haversineKm(lastLocated, { lat: r.endLat, lng: r.endLng });
-      }
-      const driveMin = r.totalDurationS != null ? r.totalDurationS / 60 : null;
+    // Farmer tags per order (a delivery order can span producers) — one batched
+    // lookup for the whole day, attached to each row below.
+    const farmersMap = await this.farmersByOrder(
+      tenantId,
+      route.routes.flatMap((r) => r.stops.map((s) => s.id)),
+    );
 
-      const stops: DeliveryWindowStop[] = r.stops.map((s, i) => {
-        const driveToStop =
-          driveMin != null && totalDist > 0
-            ? (cumDist[i] / totalDist) * driveMin
-            : (i + 1) * FALLBACK_LEG_MIN;
-        const arrival = dayStartMin + driveToStop + i * serviceMin;
-        let startMin = Math.floor(arrival / slotMin) * slotMin;
-        let endMin = startMin + slotMin;
+    for (const r of route.routes) {
+      // Where THIS leg begins: its per-courier base override, else the courier's
+      // current position (when supplied) or the farm — see originPt above.
+      const legStart: Pt | null =
+        r.startLat != null && r.startLng != null ? { lat: r.startLat, lng: r.startLng } : originPt;
+
+      const located = r.stops.filter(
+        (s): s is RouteStop & { lat: number; lng: number } => s.lat != null && s.lng != null,
+      );
+      const endPt: Pt | null =
+        r.endMode !== 'last' && r.endLat != null && r.endLng != null
+          ? { lat: r.endLat, lng: r.endLng }
+          : null;
+
+      // Prefer REAL per-leg road travel (one Routes call, chunked) from the leg
+      // start through the located stops (+ the ignored return leg); fall back to
+      // the crow-flies apportionment of the leg's measured total duration.
+      const seq: Pt[] = legStart
+        ? [legStart, ...located.map((s) => ({ lat: s.lat, lng: s.lng })), ...(endPt ? [endPt] : [])]
+        : [];
+      const real = seq.length >= 2 ? await this.measureLegs(seq) : null;
+
+      // Drive {km, min} INTO each located stop from the previous point.
+      const legInto = new Map<string, { km: number; min: number }>();
+      if (real) {
+        located.forEach((s, k) => {
+          const leg = real.legs[k];
+          legInto.set(s.id, { km: leg.distanceM / 1000, min: leg.durationS / 60 });
+        });
+      } else {
+        let prev = legStart;
+        let cum = 0;
+        const hKm: number[] = [];
+        for (const s of located) {
+          const km = prev ? haversineKm(prev, { lat: s.lat, lng: s.lng }) : 0;
+          hKm.push(km);
+          cum += km;
+          prev = { lat: s.lat, lng: s.lng };
+        }
+        let totalKm = cum;
+        if (endPt && prev) totalKm += haversineKm(prev, endPt);
+        const driveMin = r.totalDurationS != null ? r.totalDurationS / 60 : null;
+        located.forEach((s, k) => {
+          const min = driveMin != null && totalKm > 0 ? (hKm[k] / totalKm) * driveMin : FALLBACK_LEG_MIN;
+          legInto.set(s.id, { km: hKm[k], min });
+        });
+      }
+
+      // Walk the leg in visit order, accumulating real drive + per-stop service
+      // time; each window widens with the delay risk built up before it.
+      let cumDriveMin = 0;
+      let cumServiceMin = 0;
+      const stops: DeliveryWindowStop[] = r.stops.map((s) => {
+        const into = legInto.get(s.id) ?? { km: 0, min: located.length ? 0 : FALLBACK_LEG_MIN };
+        cumDriveMin += into.min;
+        const arrival = dayStartMin + cumDriveMin + cumServiceMin;
+        cumServiceMin += serviceMinFor(s.totalStotinki, serviceMin); // delays LATER stops
+        const width = windowWidthMin(cumDriveMin);
+        let startMin = floorToMin(arrival, WINDOW_START_GRAN_MIN);
+        let endMin = startMin + width;
         if (endMin > MAX_WINDOW_END_MIN) {
           endMin = MAX_WINDOW_END_MIN;
-          startMin = Math.max(0, endMin - slotMin);
+          startMin = Math.max(0, endMin - width);
         }
         const windowStart = minToHHMM(startMin);
         const windowEnd = minToHHMM(endMin);
         const hasEmail = !!s.email?.trim();
         if (!hasEmail) withoutEmail += 1;
         // Don't clobber an already-SENT window when the recomputed time is
-        // identical — regenerating (e.g. after a late add/cancel elsewhere in
-        // the day) must not reset a customer-notified stop back to 'draft'
-        // (risking a duplicate notification on the next approve+notify pass)
-        // unless the time actually changed.
+        // identical — regenerating (e.g. after a late add/cancel) must not reset a
+        // customer-notified stop to 'draft' and risk a duplicate notification.
         const unchangedSent =
           s.deliveryWindowStatus === 'sent' &&
           s.deliveryWindowStart === windowStart &&
@@ -1398,10 +1517,28 @@ export class RoutingService {
         if (!unchangedSent) {
           updates.push({ id: s.id, start: windowStart, end: windowEnd });
         }
-        return { id: s.id, customer: s.customer, email: s.email, windowStart, windowEnd, hasEmail };
+        return {
+          id: s.id,
+          customer: s.customer,
+          email: s.email,
+          address: s.address,
+          windowStart,
+          windowEnd,
+          hasEmail,
+          distanceFromPrevM: Math.round(into.km * 1000),
+          durationFromPrevS: Math.round(into.min * 60),
+          valueStotinki: s.totalStotinki,
+          farmers: farmersMap.get(s.id) ?? [],
+        };
       });
 
-      proposalCouriers.push({ courierIndex: r.courierIndex, name: r.name, stops });
+      proposalCouriers.push({
+        courierIndex: r.courierIndex,
+        name: r.name,
+        stops,
+        distanceM: real ? real.distanceM : r.totalDistanceM,
+        durationS: real ? real.durationS : r.totalDurationS,
+      });
     }
 
     // Persist as drafts (tenant-scoped) in ONE set-based UPDATE — a CASE per column
@@ -1410,12 +1547,17 @@ export class RoutingService {
     // no matched row falls through to a NULL window.
     if (updates.length > 0) {
       const ids = updates.map((u) => u.id);
+      // Each THEN value is a bind param, which Postgres types as `text`; without a
+      // cast the whole CASE resolves to text and `SET delivery_window_start (time) =
+      // <text>` throws "column is of type time ... but expression is of type text"
+      // (a single-column `.set({ deliveryWindowStart })` coerces fine, a CASE does
+      // not). Cast each arm to ::time so the CASE result type matches the column.
       const startCase = sql.join(
-        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.start}`),
+        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.start}::time`),
         sql` `,
       );
       const endCase = sql.join(
-        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.end}`),
+        updates.map((u) => sql`when ${orders.id} = ${u.id}::uuid then ${u.end}::time`),
         sql` `,
       );
       await this.db
@@ -1463,6 +1605,64 @@ export class RoutingService {
       .set({ deliveryWindowStart: start, deliveryWindowEnd: end, deliveryWindowStatus: status })
       .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)));
     return { id: orderId, windowStart: start, windowEnd: end, status };
+  }
+
+  /**
+   * Task #13 — cascade shift. The operator nudged one stop's time by `deltaMin`
+   * minutes (e.g. +5); apply the SAME delta to that stop AND every LATER stop in
+   * its courier leg (visit order), so the rest of the day slides along with it and
+   * the gaps between stops are preserved. Windows are clamped to the valid day; an
+   * already approved/sent window re-arms to 'approved' so a corrected time can be
+   * re-notified. Stops without a window yet are skipped. Tenant-scoped; a foreign
+   * or off-route stop is a 404.
+   */
+  async shiftDeliveryWindows(
+    tenantId: string,
+    date: string,
+    fromStopId: string,
+    deltaMin: number,
+  ): Promise<{ shifted: number }> {
+    if (!Number.isInteger(deltaMin) || deltaMin === 0) {
+      throw new BadRequestException('Отместването трябва да е цяло число минути, различно от 0');
+    }
+    // getRoute hands back each leg's stops already in visit order (manual routeSeq
+    // or the optimizer) — the only reliable source of "which stops come after this
+    // one on the same courier", including on an auto-split day where the orders
+    // carry no persisted courierIndex.
+    const route = await this.getRoute(tenantId, date);
+    const leg = route.routes.find((r) => r.stops.some((s) => s.id === fromStopId));
+    if (!leg) throw new NotFoundException('Поръчката не е намерена в маршрута');
+    const fromIdx = leg.stops.findIndex((s) => s.id === fromStopId);
+    // The nudged stop + everything after it on the same leg that actually has a
+    // window to move. A bounded, operator-initiated set (one leg's tail), so a
+    // small per-stop UPDATE loop is fine here — not a request-scaled fan-out.
+    const affected = leg.stops
+      .slice(fromIdx)
+      .filter((s) => s.deliveryWindowStart != null && s.deliveryWindowEnd != null);
+    if (affected.length === 0) return { shifted: 0 };
+
+    const toMin = (hhmm: string): number => {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    await this.db.transaction(async (tx) => {
+      for (const s of affected) {
+        const status =
+          s.deliveryWindowStatus === 'approved' || s.deliveryWindowStatus === 'sent'
+            ? 'approved'
+            : 'draft';
+        await tx
+          .update(orders)
+          .set({
+            deliveryWindowStart: minToHHMM(toMin(s.deliveryWindowStart!) + deltaMin),
+            deliveryWindowEnd: minToHHMM(toMin(s.deliveryWindowEnd!) + deltaMin),
+            deliveryWindowStatus: status,
+          })
+          .where(and(eq(orders.id, s.id), eq(orders.tenantId, tenantId)));
+      }
+    });
+    return { shifted: affected.length };
   }
 
   /**

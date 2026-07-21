@@ -182,6 +182,14 @@ export interface Farmer {
   internalNotes?: string | null;
   /** Operator-only payout account for marketplace settlement — never public. */
   payout?: { iban?: string; holder?: string; bic?: string } | null;
+  /** Approximate map pin — geocoded from address/city, or manually overridden.
+   *  NULL = no location known yet ("без локация"). Public (feeds the storefront
+   *  farmer map). */
+  lat?: number | null;
+  lng?: number | null;
+  /** When the pin was last (re)geocoded — operator-only, used only to decide the
+   *  "Автоматично от адреса" status line; never sent to the storefront. */
+  geocodedAt?: string | null;
 }
 
 export interface FarmerAccess {
@@ -849,15 +857,32 @@ export interface DeliveryWindowStop {
   id: string;
   customer: string | null;
   email: string | null;
+  /** Delivery address — shown in the review modal. */
+  address: string | null;
   windowStart: string; // 'HH:MM'
   windowEnd: string;    // 'HH:MM'
   hasEmail: boolean;
+  /** Road metres from the previous stop (real per-leg when available, else straight-line). */
+  distanceFromPrevM: number;
+  /** Drive seconds from the previous stop. */
+  durationFromPrevS: number;
+  /** Order grand total incl. delivery (stotinki). */
+  valueStotinki: number;
+  /** Producer(s) whose products this order contains (a delivery order can span farmers). */
+  farmers: string[];
 }
 /** POST /orders/route/windows/generate response — proposed windows per courier. */
 export interface DeliveryWindowProposal {
   date: string;
   slotMin: number;
-  couriers: { courierIndex: number; name: string | null; stops: DeliveryWindowStop[] }[];
+  couriers: {
+    courierIndex: number;
+    name: string | null;
+    stops: DeliveryWindowStop[];
+    /** Whole-leg road totals for the per-courier summary line. */
+    distanceM: number | null;
+    durationS: number | null;
+  }[];
   /** Orders that got a window but have no email (can't be notified). */
   withoutEmail: number;
 }
@@ -1087,4 +1112,43 @@ export interface DayProtocolRow {
   createdAt: string | null;
   fromSnapshot: LegalIdentity;
   toSnapshot: LegalIdentity;
+}
+
+// ---- Приходи / разходи / печалба (Статистика, само собственик) ----
+
+export type ExpenseCategory = 'fuel' | 'packaging' | 'salary' | 'fees' | 'other';
+
+export interface ExpenseRow {
+  id: string;
+  date: string;
+  amountStotinki: number;
+  category: ExpenseCategory;
+  courierAccountId: string | null;
+  note: string | null;
+}
+
+export interface PnlCourier {
+  accountId: string;
+  name: string;
+  deliveryStotinki: number;
+  commissionStotinki: number;
+  revenueStotinki: number;
+  expenseStotinki: number;
+  profitStotinki: number;
+}
+
+export interface PnlSummary {
+  from: string;
+  to: string;
+  range: StatsRange | 'custom';
+  /** Информационната комисионна в базисни точки (1000 = 10%). */
+  commissionBps: number;
+  /** Оборот на стоката — контекст, НЕ наш приход. */
+  goodsTurnoverStotinki: number;
+  revenue: { deliveryStotinki: number; commissionStotinki: number; totalStotinki: number };
+  expenses: { totalStotinki: number; byCategory: { category: ExpenseCategory; amountStotinki: number }[] };
+  profitStotinki: number;
+  couriers: PnlCourier[];
+  unassigned: { deliveryStotinki: number; commissionStotinki: number; revenueStotinki: number };
+  generalExpensesStotinki: number;
 }

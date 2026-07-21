@@ -95,7 +95,12 @@ export function RouteMap({
       : null;
 
   if (!canRenderReal) {
-    return <DemoMap stops={active?.stops ?? []} activeId={activeId} onPick={onPick} />;
+    // Show the WHOLE day (every courier's stops), not just the active leg —
+    // otherwise a 3+2 split reads as "only 3 points" and a courier-count change
+    // that merges legs never visibly updates the placeholder map.
+    return (
+      <DemoMap stops={routes.flatMap((r) => r.stops)} activeId={activeId} onPick={onPick} />
+    );
   }
 
   const allLocated = routes.flatMap((r) => r.stops.filter(isLocated));

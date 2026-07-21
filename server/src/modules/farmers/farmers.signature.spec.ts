@@ -52,7 +52,7 @@ describe('FarmersService signature', () => {
   // storage/cache/publicCache/auth/imageQueue are unused by getSignature/setSignature
   // — stub them like the sibling farmers.access.spec.ts does.
   function make(db: ReturnType<typeof dbMock>) {
-    return new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    return new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any, { enabled: false } as any);
   }
 
   it('stores encrypted and reads back decrypted', async () => {
@@ -140,7 +140,7 @@ describe('FarmersService general CRUD path never leaks the signature blob', () =
   it('findOne strips signaturePng even though the stored row carries ciphertext', async () => {
     const db = makeDb();
     db.queue([ROW]);
-    const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any, { enabled: false } as any);
 
     const out = await svc.findOne(FARMER, TENANT);
 
@@ -151,7 +151,7 @@ describe('FarmersService general CRUD path never leaks the signature blob', () =
   it('findAll strips signaturePng from every row in the list', async () => {
     const db = makeDb();
     db.queue([ROW, { ...ROW, id: 'farmer-2', signaturePng: 'other-ciphertext' }]);
-    const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any, { enabled: false } as any);
 
     const out = await svc.findAll(TENANT);
 
