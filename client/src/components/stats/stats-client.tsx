@@ -22,6 +22,7 @@ import { HelpModal } from '@/components/delivery/ui';
 import { STATS_HELP } from '@/lib/help-content';
 import { TrendChart } from './trend-chart';
 import { TurnoverSection } from './turnover-section';
+import { PnlSection } from './pnl-section';
 import { getStats } from '@/lib/api-client';
 import type { StatsSummary, StatsRange } from '@/lib/types';
 import { RANGES, errMsg, pctDelta, StatTile, ShareBar, Seg } from '@/lib/stat-ui';
@@ -465,6 +466,8 @@ export function StatsClient({
             mode={mode}
             farmerId={farmerId || undefined}
           />
+
+          {role === 'admin' && <PnlSection range={range} mode={mode} applied={applied} />}
         </div>
       )}
 
