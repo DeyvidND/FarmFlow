@@ -1,5 +1,5 @@
 import { PDFFont } from 'pdf-lib';
-import { Doc, drawBoldText, INK, MARGIN, newPage, wrap } from './pdf-kit';
+import { Doc, drawBoldText, ensureSpace, INK, MARGIN, newPage, wrap } from './pdf-kit';
 
 export interface Column {
   header: string;
@@ -92,6 +92,14 @@ export function drawTable(
   const padding = opts.padding ?? 4;
   const lineHeight = size + 3;
   const headerHeight = lineHeight + 2 * padding;
+
+  // Guarantee room for at least the column-header row before the first page's
+  // budget is derived from `d.y`. Without this, a caller invoking `drawTable`
+  // with little headroom left on the current page gets the header rule (and,
+  // for a page with rows, the first row too) drawn below MARGIN — off the
+  // usable page — because `paginateRows` always admits a page's first row
+  // unconditionally and `drawHeader()` runs unconditionally every page.
+  ensureSpace(d, headerHeight);
 
   const laid = layoutTable(columns, rows, d.font, size, padding);
   const pages = paginateRows(laid, d.y - MARGIN, d.size.h - 2 * MARGIN, headerHeight);

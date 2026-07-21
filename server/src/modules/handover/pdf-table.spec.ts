@@ -1,3 +1,4 @@
+import { PDFPage } from 'pdf-lib';
 import { A4_LANDSCAPE, createDoc, MARGIN } from './pdf-kit';
 import { Column, drawTable, layoutTable, paginateRows } from './pdf-table';
 
@@ -126,5 +127,142 @@ describe('drawTable', () => {
     const buf = Buffer.from(await d.doc.save());
     expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
     expect(buf.length).toBeGreaterThan(1000);
+  });
+});
+
+describe('drawTable — what it actually draws', () => {
+  // `d.page` is reassigned to a brand-new `PDFPage` instance every time the
+  // table breaks to a page (see `newPage` in pdf-kit.ts), so spying on one
+  // `d.page` object would go blind after the first break. `drawText` and
+  // `drawLine` are ordinary methods on `PDFPage.prototype` (real class-method
+  // syntax in pdf-lib's source, not per-instance functions assigned in the
+  // constructor), so spying on the prototype once, here, reliably captures
+  // every draw call on every page regardless of how many times `d.page` is
+  // swapped out. `jest.spyOn` calls through to the real implementation by
+  // default, so the PDF bytes produced are unaffected — these are the same
+  // PDFs the tests above already validate as openable.
+  let drawTextSpy: jest.SpyInstance;
+  let drawLineSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    drawTextSpy = jest.spyOn(PDFPage.prototype, 'drawText');
+    drawLineSpy = jest.spyOn(PDFPage.prototype, 'drawLine');
+  });
+
+  afterEach(() => {
+    drawTextSpy.mockRestore();
+    drawLineSpy.mockRestore();
+  });
+
+  it('never draws below MARGIN when the cursor starts with less than a header row of headroom and there are no rows', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    // headerHeight with the defaults (size 9, padding 4) is (9 + 3) + 2*4 = 20;
+    // 70 - MARGIN(55) = 15 < 20. Hand-traced against the unfixed code: it drew
+    // the header rule at y = 70 - 20 = 50, five points below MARGIN, and left
+    // d.y at 50.
+    d.y = 70;
+
+    drawTable(d, COLS, []);
+
+    for (const [, opts] of drawTextSpy.mock.calls) {
+      expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    for (const [opts] of drawLineSpy.mock.calls) {
+      expect(opts.start.y).toBeGreaterThanOrEqual(MARGIN);
+      expect(opts.end.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    expect(d.y).toBeGreaterThanOrEqual(MARGIN);
+  });
+
+  it('never draws below MARGIN when the cursor starts with less than a header row of headroom and there are a few rows', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    d.y = 70;
+
+    drawTable(d, COLS, [
+      ['1', 'ЕТ Петров', 'Домати'],
+      ['2', 'ЕТ Иванов', 'Краставици'],
+      ['3', 'ЕТ Георгиев', 'Чушки'],
+    ]);
+
+    for (const [, opts] of drawTextSpy.mock.calls) {
+      expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    for (const [opts] of drawLineSpy.mock.calls) {
+      expect(opts.start.y).toBeGreaterThanOrEqual(MARGIN);
+      expect(opts.end.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    expect(d.y).toBeGreaterThanOrEqual(MARGIN);
+  });
+
+  it('repeats the column header on every page, not just the first', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const many = Array.from({ length: 60 }, (_, i) => [String(i + 1), `Фермер ${i + 1}`, 'Домати 5 кг']);
+
+    // Ground truth for how many pages this table needs comes from the same
+    // pure functions `drawTable` calls internally (already unit-tested above)
+    // rather than a hand-guessed row count — real word-wrapping depends on
+    // font metrics this test should not assume. `ensureSpace` is a no-op here
+    // (a freshly created doc starts with a full page of headroom), so `d.y`
+    // going into `paginateRows` is the same value `drawTable` will use.
+    const headerHeight = 9 + 3 + 2 * 4;
+    const laid = layoutTable(COLS, many, d.font, 9, 4);
+    const expectedPages = paginateRows(laid, d.y - MARGIN, d.size.h - 2 * MARGIN, headerHeight);
+
+    drawTable(d, COLS, many);
+
+    // Every fresh page starts at the same fixed `d.y` (`size.h - MARGIN`), so
+    // the header is drawn at the *same coordinates* on every page — distinct
+    // y-coordinates cannot tell pages apart here. `mock.instances` gives the
+    // actual `this` (the `PDFPage` the call landed on), which is a distinct
+    // object per page regardless of coordinate coincidence, so grouping by
+    // instance identity is the reliable way to count "how many pages got a
+    // header".
+    for (const col of COLS) {
+      const pagesDrawnOn = new Set(
+        drawTextSpy.mock.calls
+          .map((call, i) => ({ text: call[0], page: drawTextSpy.mock.instances[i] }))
+          .filter((c) => c.text === col.header)
+          .map((c) => c.page),
+      );
+      expect(pagesDrawnOn.size).toBe(expectedPages.length);
+    }
+  });
+
+  it('never draws below MARGIN across a multi-page table', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const many = Array.from({ length: 60 }, (_, i) => [String(i + 1), `Фермер ${i + 1}`, 'Домати 5 кг']);
+
+    drawTable(d, COLS, many);
+
+    expect(drawTextSpy.mock.calls.length).toBeGreaterThan(0);
+    for (const [, opts] of drawTextSpy.mock.calls) {
+      expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    for (const [opts] of drawLineSpy.mock.calls) {
+      expect(opts.start.y).toBeGreaterThanOrEqual(MARGIN);
+      expect(opts.end.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+  });
+
+  it("positions each cell's text at MARGIN plus the preceding column widths plus padding", async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    // A single, deliberately short row — already established elsewhere in
+    // this file (the "sizes the row by its tallest cell" test) to lay out at
+    // exactly one line per cell, so each cell's text is drawn exactly once.
+    drawTable(d, COLS, [['1', 'ЕТ Петров', 'Домати']]);
+
+    // xOf(i) = MARGIN + sum of the preceding columns' widths; cell text is
+    // drawn at xOf(i) + padding(4). Column widths are 30, 160, 300.
+    const expected: [string, number][] = [
+      ['1', MARGIN + 4], // column 0, no preceding columns: 55 + 4 = 59
+      ['ЕТ Петров', MARGIN + 30 + 4], // column 1, preceded by width 30: 55 + 30 + 4 = 89
+      ['Домати', MARGIN + 30 + 160 + 4], // column 2, preceded by 30 + 160: 55 + 190 + 4 = 249
+    ];
+
+    for (const [text, x] of expected) {
+      const calls = drawTextSpy.mock.calls.filter(([t]) => t === text);
+      expect(calls).toHaveLength(1);
+      expect(calls[0][1].x).toBe(x);
+    }
   });
 });
