@@ -140,12 +140,15 @@ export function drawDocumentHeader(d: Doc, h: DocHeader): void {
     d.y -= 13;
   }
 
-  // Gated on `h.number`, not on `number || date`: an unsaved preview has no
-  // number yet, and printing a bare date without one would make a draft look
-  // like an official, numbered document. So the whole row — date included —
-  // disappears until there is a number to put on it.
-  if (h.number) {
-    d.page.drawText(`№ ${h.number}`, { x: MARGIN, y: d.y, size: 10, font: d.font, color: INK });
+  // Number and date are independent: the row draws when EITHER is present.
+  // An unsaved preview has no number yet, but it still has a date — the day
+  // goods changed hands is real information on a приемо-предавателен протокол
+  // even before it is numbered, so a bare date is drawn rather than
+  // suppressed along with the (still-missing) number.
+  if (h.number || h.date) {
+    if (h.number) {
+      d.page.drawText(`№ ${h.number}`, { x: MARGIN, y: d.y, size: 10, font: d.font, color: INK });
+    }
     if (h.date) {
       const right = dateBg(h.date);
       const rw = d.font.widthOfTextAtSize(right, 10);

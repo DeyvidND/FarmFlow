@@ -96,13 +96,13 @@ describe('shared brand block', () => {
     expect(usedP).toBe(usedL);
   });
 
-  it('omits the number line entirely when there is no number (unsaved preview)', async () => {
-    const withNo = await createDoc(A4_PORTRAIT);
-    const withYes = await createDoc(A4_PORTRAIT);
-    const base = { brand: 'ФермериБГ', title: 'ПРОТОКОЛ', date: new Date('2026-07-21T06:00:00Z') };
-    drawDocumentHeader(withNo, { ...base, number: null });
-    drawDocumentHeader(withYes, { ...base, number: '7' });
-    expect(withNo.y).toBeGreaterThan(withYes.y); // no number → less space used
+  it('consumes strictly less vertical space when neither number nor date is present, than when both are (the row is genuinely omitted)', async () => {
+    const withNeither = await createDoc(A4_PORTRAIT);
+    const withBoth = await createDoc(A4_PORTRAIT);
+    const base = { brand: 'ФермериБГ', title: 'ПРОТОКОЛ' };
+    drawDocumentHeader(withNeither, { ...base, number: null, date: null });
+    drawDocumentHeader(withBoth, { ...base, number: '7', date: new Date('2026-07-21T06:00:00Z') });
+    expect(withNeither.y).toBeGreaterThan(withBoth.y); // row omitted → less space used
   });
 
   it('footer sits at the foot, not at the cursor', async () => {
@@ -202,14 +202,31 @@ describe('shared brand block — what it actually draws', () => {
     expect(numberCalls[0][1].y).toBe(dateCalls[0][1].y);
   });
 
-  it('omits the number/date row draw calls entirely when there is no number, even though a date is supplied', async () => {
+  it('still draws the date, right-aligned, when there is no number (unsaved preview) — the day goods changed hands is real even before a number exists', async () => {
     const d = await createDoc(A4_PORTRAIT);
     const date = new Date('2026-07-21T06:00:00Z');
     drawDocumentHeader(d, { brand: 'ФермериБГ', title: 'ПРОТОКОЛ', number: null, date });
 
     const dateText = dateBg(date);
-    expect(drawTextSpy.mock.calls.some(([text]) => text === dateText)).toBe(false);
+    const dateCalls = drawTextSpy.mock.calls.filter(([text]) => text === dateText);
+    expect(dateCalls).toHaveLength(1);
+    const rw = d.font.widthOfTextAtSize(dateText, 10);
+    expect(dateCalls[0][1].x).toBe(MARGIN + contentW(d) - rw);
+
     expect(drawTextSpy.mock.calls.some(([text]) => typeof text === 'string' && text.startsWith('№'))).toBe(false);
+  });
+
+  it('still draws the number, at the left margin, when there is no date', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    drawDocumentHeader(d, { brand: 'ФермериБГ', title: 'ПРОТОКОЛ', number: '7', date: null });
+
+    const numberCalls = drawTextSpy.mock.calls.filter(([text]) => text === '№ 7');
+    expect(numberCalls).toHaveLength(1);
+    expect(numberCalls[0][1].x).toBe(MARGIN);
+
+    // Nothing else drew on that row — the date side stayed blank.
+    const rowCalls = drawTextSpy.mock.calls.filter(([, opts]) => opts.y === numberCalls[0][1].y);
+    expect(rowCalls).toHaveLength(1);
   });
 
   it('draws the subtitle, when present, centred between the title and the number row', async () => {
