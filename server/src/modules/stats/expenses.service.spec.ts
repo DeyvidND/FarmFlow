@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { SQL, Param } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { ExpensesService } from './expenses.service';
 
 /** Изважда всяка вградена Param стойност от drizzle SQL дърво — така тестът
@@ -107,10 +108,8 @@ describe('ExpensesService', () => {
     const { db, captured } = makeDb();
     const svc = new ExpensesService(db as any);
     await svc.setCommissionBps('tenant-1', 1500);
-    const rendered = JSON.stringify(paramValues((captured.set as { settings: unknown }).settings));
+    const { params } = new PgDialect().sqlToQuery((captured.set as { settings: unknown }).settings as any);
     // Пътят е вграден като параметри от jsonbDeepMerge: 'stats' → 'infoCommissionBps'.
-    expect(rendered).toContain('stats');
-    expect(rendered).toContain('infoCommissionBps');
-    expect(rendered).toContain('1500');
+    expect(params).toEqual(expect.arrayContaining(['stats', 'infoCommissionBps', '1500']));
   });
 });
