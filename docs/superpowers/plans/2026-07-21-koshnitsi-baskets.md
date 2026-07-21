@@ -12,8 +12,8 @@
 
 - Spec: `docs/superpowers/specs/2026-07-21-koshnitsi-baskets-design.md`. Read it before Task 1.
 - Branch: `koshnitsi-baskets`, already created off `origin/main` @ `d65c9c4b`.
-- **Migrations are hand-written.** Next file is `0111`, journal `idx: 109` — the filename/idx offset of 2 is pre-existing and must be continued. A gap silently breaks the migrator.
-- **Re-fetch `origin/main` immediately before pushing**, not just before merging. Another session may have taken migration index 109; if so renumber in the filename, the header comment and the journal, inside the merge commit.
+- **Migrations are hand-written.** Landed as `0112_order_item_bundle_parent`, journal `idx: 110` (Task 1 re-derived these: a concurrent branch had already taken 0111/idx109 by the time it ran). Always read the journal tail before writing a migration. A gap silently breaks the migrator.
+- **Re-fetch `origin/main` immediately before pushing**, not just before merging. Another session may have taken the migration index this branch used (110); if so renumber in the filename, the header comment and the journal, inside the merge commit.
 - Every server query is tenant-scoped. Never read or write across tenants.
 - No `ANY()` in Drizzle — use `inArray`. `CASE…THEN` arms need explicit `::int` / `::uuid` casts.
 - Baskets are **pickup / local delivery only** in v1.
@@ -142,7 +142,7 @@ Expected: applies `0111_order_item_bundle_parent`, exits 0.
 
 Verify the column landed:
 
-Run: `docker compose exec -T postgres psql -U postgres -d farmflow -c "\d order_items"`
+Run: `docker compose exec -T postgres psql -U farmflow -d farmflow -c "\d order_items"`
 Expected: a `bundle_parent_id | uuid` row in the output.
 
 - [ ] **Step 7: Commit**
@@ -1435,7 +1435,7 @@ git fetch origin
 git log --oneline origin/main -1
 ```
 
-If `origin/main` moved, check whether another session took journal `idx: 109`. If it did, renumber this branch's migration in all three places — the filename, the header comment, and the journal entry — inside the merge commit. Leaving a gap silently breaks the migrator.
+If `origin/main` moved, check whether another session took journal `idx: 110`. If it did, renumber this branch's migration in all three places — the filename, the header comment, and the journal entry — inside the merge commit. Leaving a gap silently breaks the migrator.
 
 - [ ] **Step 4: Merge and push**
 
@@ -1463,7 +1463,7 @@ Confirm the API is serving the new shape, then deploy chaika separately (Cloudfl
 | Owner/admin only | 6 (`!isFarmer`) |
 | Pickup / local delivery only | 4 (steps 6 and 9) |
 | Varianted members rejected | 3 |
-| Migration `0111`, journal `idx 109` | 1 |
+| Migration `0112`, journal `idx 110` | 1 |
 | Deploy backend first | 10 |
 
 **Known gap carried forward:** basket revenue sits on the basket product (`farmerId = null`), so per-farmer attribution does not split it. Vendor finance is dormant (rate 0), so nothing is misreported today. Recorded in the spec's *Known limitation* section; no task.
