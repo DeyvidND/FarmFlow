@@ -2399,6 +2399,12 @@ export class OrdersService {
                 inArray(products.id, memberIds),
                 eq(products.tenantId, tenantId),
                 eq(products.isActive, true),
+                // Same liveness test the public catalog and the storefront's basket
+                // availability use (products.service.ts's bundleProducts build and
+                // availability.service.ts's liveMembers). If checkout were laxer, a
+                // member awaiting review would be hidden from the basket's tiles and
+                // counted as sold out, yet still sellable here.
+                eq(products.needsReview, false),
                 isNull(products.deletedAt),
               ),
             )
