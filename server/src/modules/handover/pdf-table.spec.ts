@@ -1,5 +1,5 @@
 import { A4_LANDSCAPE, createDoc } from './pdf-kit';
-import { Column, layoutTable } from './pdf-table';
+import { Column, layoutTable, paginateRows } from './pdf-table';
 
 const COLS: Column[] = [
   { header: '№', width: 30 },
@@ -47,5 +47,34 @@ describe('layoutTable', () => {
     const [row] = layoutTable(COLS, [['1']], d.font, 9, 4);
     expect(row.cells).toHaveLength(3);
     expect(row.cells[2]).toEqual(['']);
+  });
+});
+
+const rowsOf = (heights: number[]) => heights.map((h) => ({ cells: [['x']], height: h }));
+
+describe('paginateRows', () => {
+  it('keeps everything on one page when it fits', () => {
+    const pages = paginateRows(rowsOf([20, 20, 20]), 500, 700, 20);
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toHaveLength(3);
+  });
+
+  it('breaks to a second page and accounts for the repeated header there', () => {
+    // first page: 100 space - 20 header = 80 usable → 4 rows of 20
+    const pages = paginateRows(rowsOf(Array(6).fill(20)), 100, 100, 20);
+    expect(pages).toHaveLength(2);
+    expect(pages[0]).toHaveLength(4);
+    expect(pages[1]).toHaveLength(2);
+  });
+
+  it('never emits an empty page when a single row is taller than a whole page', () => {
+    const pages = paginateRows(rowsOf([500, 20]), 100, 100, 20);
+    expect(pages).toHaveLength(2);
+    expect(pages[0]).toHaveLength(1); // the oversized row goes alone, not to a blank page
+    expect(pages[1]).toHaveLength(1);
+  });
+
+  it('returns a single empty page for no rows, so the header still prints', () => {
+    expect(paginateRows([], 500, 700, 20)).toEqual([[]]);
   });
 });

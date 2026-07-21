@@ -39,3 +39,38 @@ export function layoutTable(
     return { cells, height: tallest * lineHeight + 2 * padding };
   });
 }
+
+/**
+ * Split laid-out rows into pages. `firstPageSpace` is usually smaller than
+ * `laterPageSpace` because a document header sits above the table on page one;
+ * both lose `headerHeight` to the repeated column-header row.
+ *
+ * A row taller than a whole page is emitted alone rather than pushed to a fresh
+ * page forever — that would loop, or leave a blank page before it.
+ */
+export function paginateRows(
+  rows: LaidOutRow[],
+  firstPageSpace: number,
+  laterPageSpace: number,
+  headerHeight: number,
+): LaidOutRow[][] {
+  if (!rows.length) return [[]];
+
+  const pages: LaidOutRow[][] = [];
+  let current: LaidOutRow[] = [];
+  let used = 0;
+  let budget = firstPageSpace - headerHeight;
+
+  for (const row of rows) {
+    if (current.length && used + row.height > budget) {
+      pages.push(current);
+      current = [];
+      used = 0;
+      budget = laterPageSpace - headerHeight;
+    }
+    current.push(row);
+    used += row.height;
+  }
+  pages.push(current);
+  return pages;
+}
