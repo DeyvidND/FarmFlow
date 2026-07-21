@@ -258,3 +258,154 @@ describe('shared brand block — what it actually draws', () => {
     expect(calls[0][1].y).not.toBe(400);
   });
 });
+
+describe('shared brand block — shrinking a title/subtitle that would otherwise bleed off the page', () => {
+  // Same spy harness as the section above: assert on the coordinates and
+  // sizes actually handed to pdf-lib, not on `d.y` (which cannot distinguish
+  // "drawn smaller" from "drawn at the same size, still overset").
+  let drawTextSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    drawTextSpy = jest.spyOn(PDFPage.prototype, 'drawText');
+  });
+
+  afterEach(() => {
+    drawTextSpy.mockRestore();
+  });
+
+  // Hand-traced against DejaVuSans via `font.widthOfTextAtSize`: at the
+  // nominal size, these are wider than A4-portrait content width (485pt),
+  // so both must shrink; the two "normal" strings are comfortably under it,
+  // so neither should move at all.
+  const longTitle = 'ОБОБЩЕН ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ ЗА МНОЖЕСТВО ПРОИЗВОДИТЕЛИ';
+  const normalTitle = 'ПРОТОКОЛ';
+  const longSubtitle =
+    'за приемане на стоки от множество производители единствено за транспорт до множество клиенти и техните представители';
+  const normalSubtitle = 'копие за куриера';
+  const baseHeader = { brand: 'ФермериБГ', number: '7', date: new Date('2026-07-21T06:00:00Z') };
+
+  it('shrinks an over-long title to fit: smaller than nominal size, x back at (not left of) MARGIN', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const w = contentW(d);
+    const widthAtNominal = d.font.widthOfTextAtSize(longTitle, 14);
+    // Confirm the premise: at 14pt this title is wider than the page's
+    // content box, so today's fixed-size centring would place it left of
+    // MARGIN and run it off both edges.
+    expect(widthAtNominal).toBeGreaterThan(w);
+
+    drawDocumentHeader(d, { ...baseHeader, title: longTitle });
+
+    const calls = drawTextSpy.mock.calls.filter(([text]) => text === longTitle);
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+
+    // Glyph widths scale linearly with size, so the exact fitting size is
+    // solvable directly: shrink by the same ratio the text overshoots by.
+    const expectedSize = 14 * (w / widthAtNominal);
+    expect(expectedSize).toBeLessThan(14);
+    expect(expectedSize).toBeGreaterThan(14 * 0.6); // doesn't hit the floor for this string
+
+    for (const [, opts] of calls) {
+      expect(opts.size).toBeCloseTo(expectedSize, 5);
+      expect(opts.x).toBeGreaterThanOrEqual(MARGIN);
+    }
+    // At the exact fitting size the text exactly fills the content box, so
+    // centring collapses to x === MARGIN (the dx=0 overdraw pass).
+    const xs = calls.map(([, opts]) => opts.x).sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(MARGIN, 5);
+  });
+
+  it('stops shrinking at the 60% floor and still draws a title too long to ever fit, rather than clipping or erroring', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const w = contentW(d);
+    // Hand-traced: this title needs a scale of ~0.424 to fit at 14pt — past
+    // the 60% floor — so the fitted size must clamp at exactly 14 * 0.6.
+    const extremeTitle =
+      'ОБОБЩЕН ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ ЗА МНОЖЕСТВО ПРОИЗВОДИТЕЛИ И МНОЖЕСТВО КЛИЕНТИ И ТЕХНИТЕ УПЪЛНОМОЩЕНИ ПРЕДСТАВИТЕЛИ';
+    const widthAtNominal = d.font.widthOfTextAtSize(extremeTitle, 14);
+    const neededScale = w / widthAtNominal;
+    expect(neededScale).toBeLessThan(0.6); // confirms this string exercises the floor, not the plain shrink path
+
+    drawDocumentHeader(d, { ...baseHeader, title: extremeTitle });
+
+    const calls = drawTextSpy.mock.calls.filter(([text]) => text === extremeTitle);
+    expect(calls.length).toBeGreaterThanOrEqual(1); // still drawn — not clipped, not skipped
+    for (const [, opts] of calls) {
+      expect(opts.size).toBeCloseTo(14 * 0.6, 5);
+    }
+  });
+
+  it('draws a normal-length title at exactly the nominal size, at the same x as before the fix', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const w = contentW(d);
+    drawDocumentHeader(d, { ...baseHeader, title: normalTitle });
+
+    const calls = drawTextSpy.mock.calls.filter(([text]) => text === normalTitle);
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    for (const [, opts] of calls) {
+      expect(opts.size).toBe(14);
+    }
+    const expectedX = MARGIN + (w - d.font.widthOfTextAtSize(normalTitle, 14)) / 2;
+    const xs = calls.map(([, opts]) => opts.x).sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(expectedX, 5);
+  });
+
+  it('advances the cursor by the same amount whether the title is normal-length or over-long', async () => {
+    const normalDoc = await createDoc(A4_PORTRAIT);
+    const startNormal = normalDoc.y;
+    drawDocumentHeader(normalDoc, { ...baseHeader, title: normalTitle });
+    const usedNormal = startNormal - normalDoc.y;
+
+    const longDoc = await createDoc(A4_PORTRAIT);
+    const startLong = longDoc.y;
+    drawDocumentHeader(longDoc, { ...baseHeader, title: longTitle });
+    const usedLong = startLong - longDoc.y;
+
+    expect(usedLong).toBe(usedNormal);
+  });
+
+  it('shrinks an over-long subtitle to fit: smaller than nominal size, x back at (not left of) MARGIN', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const w = contentW(d);
+    const widthAtNominal = d.font.widthOfTextAtSize(longSubtitle, 9);
+    expect(widthAtNominal).toBeGreaterThan(w);
+
+    drawDocumentHeader(d, { ...baseHeader, title: normalTitle, subtitle: longSubtitle });
+
+    const calls = drawTextSpy.mock.calls.filter(([text]) => text === longSubtitle);
+    expect(calls).toHaveLength(1); // subtitle isn't bold — no overdraw passes
+
+    const expectedSize = 9 * (w / widthAtNominal);
+    expect(expectedSize).toBeLessThan(9);
+    expect(expectedSize).toBeGreaterThan(9 * 0.6);
+
+    expect(calls[0][1].size).toBeCloseTo(expectedSize, 5);
+    expect(calls[0][1].x).toBeGreaterThanOrEqual(MARGIN);
+    expect(calls[0][1].x).toBeCloseTo(MARGIN, 5);
+  });
+
+  it('draws a normal-length subtitle at exactly the nominal size, at the same x as before the fix', async () => {
+    const d = await createDoc(A4_PORTRAIT);
+    const w = contentW(d);
+    drawDocumentHeader(d, { ...baseHeader, title: normalTitle, subtitle: normalSubtitle });
+
+    const calls = drawTextSpy.mock.calls.filter(([text]) => text === normalSubtitle);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1].size).toBe(9);
+    const expectedX = MARGIN + (w - d.font.widthOfTextAtSize(normalSubtitle, 9)) / 2;
+    expect(calls[0][1].x).toBeCloseTo(expectedX, 5);
+  });
+
+  it('advances the cursor by the same amount whether the subtitle is normal-length or over-long', async () => {
+    const normalDoc = await createDoc(A4_PORTRAIT);
+    const startNormal = normalDoc.y;
+    drawDocumentHeader(normalDoc, { ...baseHeader, title: normalTitle, subtitle: normalSubtitle });
+    const usedNormal = startNormal - normalDoc.y;
+
+    const longDoc = await createDoc(A4_PORTRAIT);
+    const startLong = longDoc.y;
+    drawDocumentHeader(longDoc, { ...baseHeader, title: normalTitle, subtitle: longSubtitle });
+    const usedLong = startLong - longDoc.y;
+
+    expect(usedLong).toBe(usedNormal);
+  });
+});

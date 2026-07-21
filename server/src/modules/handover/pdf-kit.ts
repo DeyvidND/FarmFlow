@@ -106,16 +106,44 @@ export interface DocHeader {
 }
 
 /**
+ * Largest size at or below `nominalSize` — down to a floor of 60% of it —
+ * at which `text` fits inside `maxWidth`. pdf-lib glyph widths scale exactly
+ * linearly with size, so one measurement at the nominal size gives the exact
+ * scale factor needed; no search loop required. Returns `nominalSize`
+ * unchanged when the text already fits.
+ *
+ * This is shrink-to-fit, not wrap: a long title or subtitle that ran wider
+ * than the content box used to be measured for centring at a fixed size and
+ * then drawn at an x that landed left of MARGIN, bleeding off both edges of
+ * the page. Wrapping would fix that too, but the header's height is a
+ * deliberate, tested invariant (identical on A4 portrait and landscape) —
+ * wrapping would make the height depend on how many lines the title needs,
+ * which depends on page width, which breaks that invariant. Shrinking the
+ * font keeps the block exactly one line, so the vertical advance below never
+ * changes. Below the floor we stop shrinking and draw it oversized anyway —
+ * a slightly overset title beats clipping or erroring on a document header.
+ */
+function fitTextSize(font: PDFFont, text: string, nominalSize: number, maxWidth: number): number {
+  const width = font.widthOfTextAtSize(text, nominalSize);
+  if (width <= maxWidth) return nominalSize;
+  const floor = nominalSize * 0.6;
+  return Math.max(nominalSize * (maxWidth / width), floor);
+}
+
+/**
  * The one block that makes every document of ours look like ours: brand line,
  * rule, centred title, optional subtitle, then № and date on one row.
  *
  * Deliberately size-independent — it consumes the same vertical space on A4
  * portrait and landscape, so the bilateral protocol and the consolidated one
- * line up despite different page shapes.
+ * line up despite different page shapes. Title and subtitle shrink to fit
+ * (see `fitTextSize`) rather than wrap, so that invariant holds even when a
+ * document carries a long title or subtitle.
  */
 export function drawDocumentHeader(d: Doc, h: DocHeader): void {
   const w = contentW(d);
-  const centre = (text: string, size: number, bold: boolean) => {
+  const centre = (text: string, nominalSize: number, bold: boolean) => {
+    const size = fitTextSize(d.font, text, nominalSize, w);
     const x = MARGIN + (w - d.font.widthOfTextAtSize(text, size)) / 2;
     if (bold) drawBoldText(d, text, x, d.y, size);
     else d.page.drawText(text, { x, y: d.y, size, font: d.font, color: INK });
