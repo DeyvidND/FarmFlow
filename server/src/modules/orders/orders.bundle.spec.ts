@@ -150,7 +150,11 @@ function makeTxInsert(capture: { orders: any[]; itemCalls: any[][] }) {
         return Promise.resolve([{ id: 'order-1', tenantId: TENANT_ID, orderNumber: 1, totalStotinki: 0 }]);
       }
       const rows = capture.itemCalls[capture.itemCalls.length - 1] as any[];
-      return Promise.resolve(rows.map((row, i) => ({ bundleParentId: null, ...row, id: `item-${idx}-${i}` })));
+      // `...row` comes LAST so an explicitly supplied id wins — the service now
+      // generates parent-row ids itself rather than reading them back, and
+      // RETURNING echoes the row that was actually inserted. Synthesizing an id
+      // here would overwrite the real one and hide a mislinked child.
+      return Promise.resolve(rows.map((row, i) => ({ bundleParentId: null, id: `item-${idx}-${i}`, ...row })));
     });
     return c;
   });

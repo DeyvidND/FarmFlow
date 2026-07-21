@@ -7,6 +7,7 @@ import {
   ForbiddenException,
   Optional,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   type Database,
@@ -2825,14 +2826,18 @@ export class OrdersService {
       // order_items has no farmer_id column, and bundleKey/bundleParentKey are
       // in-memory linking keys only — strip all three before insert.
       const strip = ({ farmerId: _f, bundleKey: _k, bundleParentKey: _p, ...line }: PreparedItem) => line;
-      const insertedParents = await tx
-        .insert(orderItems)
-        .values(parentLines.map((l) => ({ ...strip(l), orderId: order.id })))
-        .returning();
+      // Parent row ids are generated HERE rather than read back from .returning():
+      // correlating a child to its parent by the position of the returned row would
+      // silently mislink them if RETURNING ever stopped mirroring VALUES order (a
+      // trigger or partitioned table is enough). Postgres does not promise that
+      // order, so we never depend on it.
       const idByKey = new Map<string, string>();
-      parentLines.forEach((l, i) => {
-        if (l.bundleKey) idByKey.set(l.bundleKey, insertedParents[i].id);
+      const parentValues = parentLines.map((l) => {
+        const id = randomUUID();
+        if (l.bundleKey) idByKey.set(l.bundleKey, id);
+        return { ...strip(l), id, orderId: order.id };
       });
+      const insertedParents = await tx.insert(orderItems).values(parentValues).returning();
       const insertedChildren = childLines.length
         ? await tx
             .insert(orderItems)
