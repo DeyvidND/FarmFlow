@@ -557,13 +557,19 @@ export function ProductDialog({
                   )}
                 </div>
               ))}
-              <button
-                type="button"
-                onClick={() => setVariants((p) => [...p, { label: '', price: '', stock: '', salePrice: '' }])}
-                className="inline-flex items-center gap-1.5 self-start text-[12.5px] font-semibold text-ff-green-700 hover:underline"
-              >
-                <Plus size={14} /> Добави вид / грамаж
-              </button>
+              {/* A basket has one price for the whole box. Giving it variants would
+                  make checkout demand a variant choice for the basket itself, which
+                  nothing can answer — and the server already refuses varianted
+                  products as basket members for the same reason. */}
+              {!isBundle && (
+                <button
+                  type="button"
+                  onClick={() => setVariants((p) => [...p, { label: '', price: '', stock: '', salePrice: '' }])}
+                  className="inline-flex items-center gap-1.5 self-start text-[12.5px] font-semibold text-ff-green-700 hover:underline"
+                >
+                  <Plus size={14} /> Добави вид / грамаж
+                </button>
+              )}
             </div>
           </Collapsible>
 
