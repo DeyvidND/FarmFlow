@@ -255,3 +255,64 @@ describe('renderProtocolPdf — draw-position regression (task 6)', () => {
     }
   });
 });
+
+describe('renderProtocolPdf — signature foot anchor (regression)', () => {
+  // The retrofit onto pdf-kit replaced the old `Math.min(y - 40, 150)` foot
+  // clamp with a bare `d.y - 20`, so every normal (short) protocol printed
+  // with the signature blocks glued directly under the content and the
+  // entire lower page left blank instead of looking like a real paper form.
+  // The fix restores the ceiling as `Math.min(d.y - 20, SIG_FOOT_Y)`, kept
+  // together with the `ensureSpace(d, 90)` the retrofit added for page-break
+  // safety. These values are hand-traced against the real DejaVuSans metrics
+  // via a throwaway probe script (not guessed): with the exact `ROW`/`bigRow`
+  // fixtures below, sigY is 150 for 1..16 items (anchor wins, one page), 133
+  // for 18 items (content pushes past the anchor, still one page, no break),
+  // and 150 again for 80 items (a page break resets the cursor near the top,
+  // so the anchor wins again on the fresh page).
+  const SIG_FOOT_Y = 150;
+
+  const bigRow = (n: number) => ({
+    ...ROW,
+    items: Array.from({ length: n }, (_, i) => ({
+      productName: `Продукт с доста дълго име номер ${i + 1}`,
+      quantity: i + 1,
+      unit: 'кг',
+    })),
+  });
+
+  let drawTextSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    drawTextSpy = jest.spyOn(PDFPage.prototype, 'drawText');
+  });
+
+  afterEach(() => {
+    drawTextSpy.mockRestore();
+  });
+
+  const sigY = (): number => {
+    const call = drawTextSpy.mock.calls.find(([text]) => (text as string).startsWith('ПРЕДАЛ: '));
+    return (call?.[1] as { y: number }).y;
+  };
+
+  it('anchors the signature blocks near the foot of the page for a short protocol, instead of floating directly under the content', async () => {
+    await renderProtocolPdf(ROW as any); // ROW: one item — a realistic short protocol.
+    expect(sigY()).toBe(SIG_FOOT_Y);
+  });
+
+  it('keeps the same foot anchor on the fresh page after a page break, rather than floating near the top of it', async () => {
+    const buf = await renderProtocolPdf(bigRow(80) as any);
+    const doc = await PDFDocument.load(buf);
+    expect(doc.getPageCount()).toBeGreaterThan(1); // confirm this run actually exercises a break
+    expect(sigY()).toBe(SIG_FOOT_Y);
+  });
+
+  it('tracks below the content instead of the anchor once a single-page item list runs long enough to reach it, while staying above the margin', async () => {
+    const buf = await renderProtocolPdf(bigRow(18) as any);
+    const doc = await PDFDocument.load(buf);
+    expect(doc.getPageCount()).toBe(1); // tight single-page fit, not a break — the anchor-vs-content boundary
+    expect(sigY()).toBeLessThan(SIG_FOOT_Y);
+    expect(sigY()).toBeGreaterThanOrEqual(MARGIN);
+    expect(sigY()).toBe(133);
+  });
+});

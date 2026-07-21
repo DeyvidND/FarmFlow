@@ -180,10 +180,18 @@ export async function renderProtocolPdf(row: any): Promise<Buffer> {
 
   drawLeft(t.footer, MARGIN, 10, 15);
 
-  // Signature blocks need ~90pt; break rather than overlap the item list — the
-  // old code clamped them to y=150 and let long lists run straight through them.
+  // Signature blocks need ~90pt; ensureSpace breaks the page rather than let a
+  // long item list run straight through them (the bug the old code had, since
+  // it only ever clamped to a fixed y and never checked remaining room). The
+  // Math.min then restores what that old clamp got right: for the common
+  // short protocol, anchor the blocks near the foot of the page — like a real
+  // paper form — instead of floating them immediately under a couple of lines
+  // of content. SIG_FOOT_Y leaves ~95pt above MARGIN, enough for the label,
+  // the party name below it, and a signature image drawn up to 36pt above the
+  // label, with room to spare before the footer.
   ensureSpace(d, 90);
-  const sigY = d.y - 20;
+  const SIG_FOOT_Y = 150;
+  const sigY = Math.min(d.y - 20, SIG_FOOT_Y);
   await sigBlock(d, MARGIN, sigY, 'ПРЕДАЛ', t.fromName, row.fromSignaturePng);
   await sigBlock(d, PAGE_W / 2 + 10, sigY, 'ПРИЕЛ', t.toName, row.toSignaturePng);
   d.y = sigY - 40;
