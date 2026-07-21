@@ -26,7 +26,12 @@ const DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
   });
 
   afterAll(async () => {
+    // users.tenant_id has no ON DELETE CASCADE, so a tenant delete alone would
+    // violate that FK — clean up child rows first (manualExpenses.tenant_id
+    // cascades off tenant deletes, but the seeded users don't).
+    await db.delete(users).where(eq(users.tenantId, tenantId));
     await db.delete(tenants).where(eq(tenants.id, tenantId));
+    await (db as unknown as { $client: { end(): Promise<void> } }).$client.end();
   });
 
   it('приема разход с куриер и без куриер', async () => {
