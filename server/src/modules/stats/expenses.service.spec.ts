@@ -1,7 +1,9 @@
 import { NotFoundException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
 import { SQL, Param } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { ExpensesService } from './expenses.service';
+import { UpdateExpenseDto } from './dto/expense.dto';
 
 /** Изважда всяка вградена Param стойност от drizzle SQL дърво — така тестът
  *  вижда дали WHERE наистина е стеснил по tenant, вместо да вярва на мока. */
@@ -69,6 +71,25 @@ describe('ExpensesService', () => {
     const params = paramValues(captured.where);
     expect(params).toContain('tenant-1');
     expect(params).toContain('exp-1');
+  });
+
+  it('update през реален DTO (plainToInstance) НЕ пипа courierAccountId, ако клиентът не го е пратил', async () => {
+    // Зелен тест с plain object literal не хваща `useDefineForClassFields` (ES2022):
+    // TS emit-ва own-property за ВСЕКИ field на инстанцията, дори неподаден в тялото —
+    // само `plainToInstance` (както в реалния ValidationPipe) възпроизвежда бъга.
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { amountStotinki: 700 });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).not.toHaveProperty('courierAccountId');
+  });
+
+  it('update през реален DTO с изричен courierAccountId: null отвързва куриера', async () => {
+    const { db, captured } = makeDb();
+    const svc = new ExpensesService(db as any);
+    const dto = plainToInstance(UpdateExpenseDto, { courierAccountId: null });
+    await svc.update('tenant-1', 'exp-1', dto);
+    expect(captured.set).toMatchObject({ courierAccountId: null });
   });
 
   it('update на чужд разход дава 404, не мълчалив успех', async () => {

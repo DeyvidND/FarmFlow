@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { MAX_COMMISSION_BPS } from '../stats.settings';
 
 /** Категориите живеят тук, а не в pg enum — нова категория не бива да иска миграция. */
 export const EXPENSE_CATEGORIES = ['fuel', 'packaging', 'salary', 'fees', 'other'] as const;
@@ -53,11 +54,14 @@ export class UpdateExpenseDto {
   @IsIn(EXPENSE_CATEGORIES as unknown as string[])
   category?: ExpenseCategory;
 
-  /** `null` изрично отвързва разхода от куриер (прави го общ). */
+  /** `null` изрично отвързва разхода от куриер (прави го общ). `declare`, за да не
+   *  emit-ва TS field initializer (ES2022 `useDefineForClassFields`) — иначе
+   *  `plainToInstance` слага own-property на ВСЯКА инстанция, дори когато клиентът
+   *  изобщо не е пратил ключа, и `'courierAccountId' in dto` в сървиса винаги е true. */
   @IsOptional()
   @emptyToUndefined
   @IsUUID()
-  courierAccountId?: string | null;
+  declare courierAccountId?: string | null;
 
   @IsOptional()
   @emptyToUndefined
@@ -79,6 +83,6 @@ export class ExpenseQueryDto {
 export class SetCommissionDto {
   @IsInt()
   @Min(0)
-  @Max(5000)
+  @Max(MAX_COMMISSION_BPS)
   bps!: number;
 }
