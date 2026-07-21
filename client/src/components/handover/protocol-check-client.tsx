@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, TriangleAlert, WifiOff } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, ChevronLeft, ChevronRight, TriangleAlert, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRole } from '@/components/layout/role-context';
 import { todayIso } from '@/lib/utils';
@@ -13,6 +13,16 @@ const idLine = (p: CheckProtocol['fromSnapshot']) =>
 
 const timeLabel = (ms: number) =>
   new Date(ms).toLocaleTimeString('bg-BG', { hour: '2-digit', minute: '2-digit' });
+
+/** „21.07.2026 г." — the date band's label. Built from the plain YYYY-MM-DD the
+ *  screen already holds, so it renders identically offline. */
+const dayLabel = (iso: string) => {
+  const [y, m, d] = iso.split('-');
+  return `${d}.${m}.${y} г.`;
+};
+
+const signedTime = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleTimeString('bg-BG', { hour: '2-digit', minute: '2-digit' }) : null;
 
 /**
  * Fullscreen „Проверка" — the day's SIGNED handover protocols shown large for a
@@ -57,6 +67,30 @@ export function ProtocolCheckClient() {
   // classic roadside condition. „Провери връзката" is the wrong advice for it.
   const [timedOut, setTimedOut] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Which protocol is on screen. Driven BY the scroll position (so a swipe and a
+  // button press stay in agreement) rather than driving it.
+  const scroller = useRef<HTMLDivElement>(null);
+  const [idx, setIdx] = useState(0);
+  const onScroll = () => {
+    const el = scroller.current;
+    if (!el || !el.clientWidth) return;
+    const next = Math.round(el.scrollLeft / el.clientWidth);
+    setIdx((prev) => (prev === next ? prev : next));
+  };
+  /** Move to a protocol. Sets `idx` itself rather than waiting for `onScroll` to
+   *  report back: a programmatic scroll does not reliably emit a scroll event, so
+   *  a button that only scrolled left the counter and the prev/next disabled
+   *  states stuck on the previous card. `onScroll` still handles real swipes. */
+  const go = (to: number) => {
+    const el = scroller.current;
+    const clamped = Math.max(0, Math.min(to, rows.length - 1));
+    setIdx(clamped);
+    // Instant, not smooth: a smooth scroll was silently a no-op in testing, which
+    // left the counter on the new card while the screen still showed the old one.
+    // Paging a document under time pressure wants to be immediate anyway.
+    if (el) el.scrollTo({ left: clamped * el.clientWidth, behavior: 'auto' });
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,8 +151,8 @@ export function ProtocolCheckClient() {
   }, [load]);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-ff-surface">
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-ff-border bg-ff-surface/95 px-4 py-3 backdrop-blur">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-ff-surface">
+      <div className="flex shrink-0 items-center justify-between border-b border-ff-border bg-ff-surface px-4 py-2.5">
         {/* A courier came from /route and cannot open the /protocols list at all
             (it's an operator screen; GET /handover is admin-only), so sending
             them there would dead-end on a 403. */}
@@ -128,10 +162,27 @@ export function ProtocolCheckClient() {
         >
           <ArrowLeft size={18} /> Назад
         </a>
-        <span className="text-[15px] font-extrabold">
-          Проверка{rows.length > 0 ? ` · ${rows.length}` : ''}
-        </span>
+        {rows.length > 1 && (
+          <span className="ff-fig text-[14px] font-bold text-ff-muted">
+            {idx + 1} / {rows.length}
+          </span>
+        )}
         <span className="w-16" />
+      </div>
+
+      {/* DATE BAND — the first thing on screen, in EVERY state. The phone gets
+          handed to an officer, and a приемо-предавателен протокол without a
+          visible date is a list, not a document. Rendered from the plain
+          YYYY-MM-DD the screen already holds, so it survives offline. */}
+      <div className="shrink-0 border-b border-ff-border bg-ff-surface-2 px-4 py-3">
+        <div className="text-[19px] font-extrabold leading-tight text-ff-ink">
+          Протоколи за {dayLabel(date)}
+        </div>
+        <div className="mt-0.5 text-[13px] text-ff-muted">
+          {rows.length > 0
+            ? `${rows.length} ${rows.length === 1 ? 'подписан протокол' : 'подписани протокола'}`
+            : 'Приемо-предавателни протоколи'}
+        </div>
       </div>
 
       {offline && (
@@ -177,63 +228,112 @@ export function ProtocolCheckClient() {
         <p className="px-5 py-16 text-center text-sm text-ff-muted">Няма подписани протоколи за днес.</p>
       )}
 
-      <div className="mx-auto flex max-w-2xl flex-col gap-4 p-4">
+      {/* ONE protocol per screen, swiped horizontally. CSS scroll-snap rather than
+          a JS gesture handler: it keeps native momentum and works with a thumb on
+          a cold morning. The card is sized to the reader — the officer holding the
+          phone — not to the courier scanning a list, so body type starts at 16px
+          and the legal id carries the same weight as the party name. */}
+      <div
+        ref={scroller}
+        onScroll={onScroll}
+        className="flex flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-auto"
+      >
         {rows.map((r) => (
-          <article key={r.id} className="overflow-hidden rounded-2xl border border-ff-border bg-white shadow-ff-sm">
-            <div className="flex items-center justify-between gap-2 border-b border-ff-border-2 bg-ff-surface-2 px-4 py-3">
-              <span className="text-[15px] font-extrabold">
-                {r.kind === 'operator_to_customer' ? 'Разписка' : 'Протокол'} № {r.protocolNumber ?? '—'}
-              </span>
-              <span className="shrink-0 rounded-full bg-ff-green-50 px-2.5 py-0.5 text-[12px] font-bold text-ff-green-700">
-                Подписан ✓
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 px-4 py-3">
-              {[r.fromSnapshot, r.toSnapshot].map((p, i) => (
-                <div key={i} className="min-w-0">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-ff-muted">
-                    {i === 0 ? 'Предава' : 'Приема'}
-                  </div>
-                  <div className="break-words text-[14px] font-bold text-ff-ink">{p?.name ?? '—'}</div>
-                  {idLine(p) && <div className="break-words text-[12px] text-ff-muted">{idLine(p)}</div>}
-                  {p?.address && <div className="break-words text-[12px] text-ff-muted">{p.address}</div>}
+          <article key={r.id} className="w-full shrink-0 snap-center snap-always px-4 py-4">
+            <div className="mx-auto max-w-2xl overflow-hidden rounded-2xl border border-ff-border bg-white shadow-ff-sm">
+              <div className="flex items-center justify-between gap-2 border-b border-ff-border-2 bg-ff-surface-2 px-4 py-3">
+                <span className="text-[18px] font-extrabold">
+                  {r.kind === 'operator_to_customer' ? 'Разписка' : 'Протокол'} № {r.protocolNumber ?? '—'}
+                </span>
+                <span className="shrink-0 rounded-full bg-ff-green-50 px-2.5 py-1 text-[13px] font-bold text-ff-green-700">
+                  Подписан ✓
+                </span>
+              </div>
+              {signedTime(r.signedAt) && (
+                <div className="border-b border-ff-border-2 px-4 py-1.5 text-[13px] text-ff-muted">
+                  Подписан в {signedTime(r.signedAt)} ч. на {dayLabel(date)}
                 </div>
-              ))}
-            </div>
-            <ul className="border-t border-ff-border-2 px-4 py-3 text-[13.5px]">
-              {r.items.map((it, i) => (
-                <li key={i} className="flex items-start justify-between gap-3 py-0.5">
-                  <span className="min-w-0 break-words font-semibold">
-                    {it.productName}
-                    {it.variantLabel ? ` · ${it.variantLabel}` : ''}
-                  </span>
-                  <span className="ff-fig shrink-0 whitespace-nowrap font-bold">
-                    {it.quantity}
-                    {it.unit ? ` ${it.unit}` : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {(r.fromSignaturePng || r.toSignaturePng) && (
-              <div className="grid grid-cols-2 gap-3 border-t border-ff-border-2 px-4 py-3">
-                {[r.fromSignaturePng, r.toSignaturePng].map((s, i) => (
-                  <div key={i} className="text-center">
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-ff-muted">
-                      {i === 0 ? 'Предал' : 'Приел'}
+              )}
+              {/* Stacked, not two columns: at 375px a two-column split squeezed
+                  names to „Кра…" and pushed the legal id to the smallest type on
+                  a screen whose whole job is proving legal identity. */}
+              <div className="flex flex-col gap-3 px-4 py-3">
+                {[r.fromSnapshot, r.toSnapshot].map((p, i) => (
+                  <div key={i} className="min-w-0">
+                    <div className="text-[12px] font-bold uppercase tracking-wide text-ff-muted">
+                      {i === 0 ? 'Предава' : 'Приема'}
                     </div>
-                    {s ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={s} alt="" className="mx-auto h-14 w-auto max-w-full object-contain" />
-                    ) : (
-                      <div className="h-14" />
+                    <div className="break-words text-[17px] font-bold leading-tight text-ff-ink">
+                      {p?.name ?? '—'}
+                    </div>
+                    {idLine(p) && (
+                      <div className="break-words text-[16px] font-bold text-ff-ink-2">{idLine(p)}</div>
                     )}
+                    {p?.address && <div className="break-words text-[14px] text-ff-muted">{p.address}</div>}
                   </div>
                 ))}
               </div>
-            )}
+              <ul className="border-t border-ff-border-2 px-4 py-3 text-[15px]">
+                {r.items.map((it, i) => (
+                  <li key={i} className="flex items-start justify-between gap-3 py-1">
+                    <span className="min-w-0 break-words font-semibold">
+                      {it.productName}
+                      {it.variantLabel ? ` · ${it.variantLabel}` : ''}
+                    </span>
+                    <span className="ff-fig shrink-0 whitespace-nowrap font-bold">
+                      {it.quantity}
+                      {it.unit ? ` ${it.unit}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {(r.fromSignaturePng || r.toSignaturePng) && (
+                <div className="grid grid-cols-2 gap-3 border-t border-ff-border-2 px-4 py-3">
+                  {[r.fromSignaturePng, r.toSignaturePng].map((s, i) => (
+                    <div key={i} className="text-center">
+                      <div className="text-[12px] font-bold uppercase tracking-wide text-ff-muted">
+                        {i === 0 ? 'Предал' : 'Приел'}
+                      </div>
+                      {s ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={s} alt="" className="mx-auto h-16 w-auto max-w-full object-contain" />
+                      ) : (
+                        <div className="h-16" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </article>
         ))}
       </div>
+
+      {/* Explicit prev/next as well as the swipe: a gesture is invisible, and
+          this screen must not depend on the courier discovering one under stress. */}
+      {rows.length > 1 && (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-ff-border bg-ff-surface px-4 py-2.5">
+          <button
+            type="button"
+            onClick={() => go(idx - 1)}
+            disabled={idx === 0}
+            className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-ff-border px-4 text-[14px] font-bold text-ff-ink-2 disabled:opacity-40"
+          >
+            <ChevronLeft size={18} /> Предишен
+          </button>
+          <span className="ff-fig text-[14px] font-bold text-ff-muted">
+            {idx + 1} / {rows.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => go(idx + 1)}
+            disabled={idx >= rows.length - 1}
+            className="inline-flex min-h-[44px] items-center gap-1 rounded-lg border border-ff-border px-4 text-[14px] font-bold text-ff-ink-2 disabled:opacity-40"
+          >
+            Следващ <ChevronRight size={18} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
