@@ -142,6 +142,21 @@ export const PAYMENT_COUNTED_STATUSES = [
  *  not busted here) self-heals within this window. */
 const PAYMENTS_CACHE_TTL = 60;
 
+/**
+ * Excludes a basket's own PARENT `order_items` row from a
+ * `orderItems ⋈ products` query. A parent is identifiable as the row whose
+ * product is the basket itself (`products.category = 'bundle'`) AND which is
+ * not itself a child (`order_items.bundle_parent_id is null` — a basket's
+ * member children always carry a real, non-bundle product, so this can never
+ * misfire on an ordinary line). Its `farmerId` is always null (the basket
+ * product has no farmer of its own), which otherwise makes a "does every line
+ * belong to farmer X" / "does this order also have another farmer's line"
+ * check see the basket order as foreign/shared no matter who its members
+ * belong to. Written with `is not distinct from` (NULL-safe) so a product
+ * with a null `category` (never 'bundle') is never accidentally excluded.
+ */
+const NOT_BASKET_PARENT = sql`not (${products.category} is not distinct from 'bundle' and ${orderItems.bundleParentId} is null)`;
+
 /** How the customer chose to pay — наложен платеж (cash on delivery) vs card. */
 export type PaymentChannel = 'cod' | 'online';
 
@@ -934,10 +949,18 @@ export class OrdersService {
     }
 
     // True when the order also has a line item belonging to a DIFFERENT farmer.
+    // A basket's own PARENT row always has farmer_id null (the basket product
+    // has no farmer) — `is distinct from` would flag EVERY basket order as
+    // shared no matter who its members belong to, hiding the mark-delivered/
+    // cod-outcome buttons (my-orders-client.tsx) for a basket whose members are
+    // all this farmer's own. Exclude it the same way NOT_BASKET_PARENT does:
+    // the row whose product is the basket itself and is not itself a child.
     const shared = sql<boolean>`exists (
       select 1 from ${orderItems} oi2
       inner join ${products} p2 on p2.id = oi2.product_id
-      where oi2.order_id = ${orders.id} and p2.farmer_id is distinct from ${farmerId}
+      where oi2.order_id = ${orders.id}
+        and p2.farmer_id is distinct from ${farmerId}
+        and not (p2.category is not distinct from 'bundle' and oi2.bundle_parent_id is null)
     )`;
 
     const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
@@ -1915,6 +1938,13 @@ export class OrdersService {
    *     so on a shared multi-producer order one producer must not be able to mark
    *     a co-producer's portion as collected — that stays owner-only. A producer
    *     may only close out an order that is entirely their own.
+   *
+   *     A basket's PARENT line always carries farmerId=null (the basket product
+   *     itself has no farmer) — naively checking EVERY line item would flag any
+   *     basket order as belonging to "another producer" (null !== farmerId) and
+   *     403 a producer who legitimately owns every MEMBER of that basket. The
+   *     parent row is excluded from this ownership check (see NOT_BASKET_PARENT);
+   *     only its children (each carrying its member's real farmerId) are judged.
    * Once both pass it delegates to the shared {@link updateStatus} (cache bust,
    * stock restore on cancel — moot here — and the same NotFound handling).
    */
@@ -1932,7 +1962,7 @@ export class OrdersService {
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .innerJoin(products, eq(products.id, orderItems.productId))
-      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId), NOT_BASKET_PARENT));
     // No line items resolved → order isn't in this tenant / not theirs at all.
     if (lineItems.length === 0) throw new ForbiddenException('Нямате достъп до тази поръчка.');
     // Any item belonging to another producer → this is a shared order; only the
@@ -2089,7 +2119,8 @@ export class OrdersService {
   }
 
   /** Producer-scoped variant: a sub-account may set the outcome only on an order
-   *  that is entirely their own (same IDOR gate as updateStatusForFarmer). */
+   *  that is entirely their own (same IDOR gate as updateStatusForFarmer — see
+   *  NOT_BASKET_PARENT there for why a basket's own parent line is excluded). */
   async setCodOutcomeForFarmer(
     id: string,
     tenantId: string,
@@ -2101,7 +2132,7 @@ export class OrdersService {
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .innerJoin(products, eq(products.id, orderItems.productId))
-      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId), NOT_BASKET_PARENT));
     if (lineItems.length === 0) throw new ForbiddenException('Нямате достъп до тази поръчка.');
     if (lineItems.some((li) => li.farmerId !== farmerId)) {
       throw new ForbiddenException('Споделена поръчка — само собственикът може да отбележи плащането.');
