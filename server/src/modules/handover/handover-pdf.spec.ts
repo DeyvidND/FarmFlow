@@ -257,18 +257,28 @@ describe('renderProtocolPdf — draw-position regression (task 6)', () => {
 });
 
 describe('renderProtocolPdf — signature foot anchor (regression)', () => {
-  // The retrofit onto pdf-kit replaced the old `Math.min(y - 40, 150)` foot
-  // clamp with a bare `d.y - 20`, so every normal (short) protocol printed
-  // with the signature blocks glued directly under the content and the
-  // entire lower page left blank instead of looking like a real paper form.
-  // The fix restores the ceiling as `Math.min(d.y - 20, SIG_FOOT_Y)`, kept
+  // Before the pdf-kit retrofit, this line was `Math.min(y - 40, 150)`. The
+  // `-40` was load-bearing: `sigBlock` draws the signature PNG at `y + 4`
+  // with `height: 36`, so the top edge of the image sits at `sigY + 40`, not
+  // just at the label line. The retrofit dropped that to a bare `d.y - 20` —
+  // enough clearance for the "ПРЕДАЛ:"/"ПРИЕЛ:" label, but not for the
+  // signature image drawn above it. Every short protocol still looked fine
+  // (SIG_FOOT_Y anchors those), so the regression only surfaced once the item
+  // list pushed content past the anchor (17-18 items on this fixture) — there,
+  // the smaller offset let a real signature image land on top of the closing
+  // sentence. This block only pins the `sigY` geometry, for which ROW's
+  // fixture never draws an image at all (`fromSignaturePng: null`), so it
+  // could not have caught that on its own — see the „signature image clears
+  // the closing sentence" describe block below, which renders with a real
+  // signature PNG and asserts the image never overlaps the text directly.
+  // The fix restores the ceiling as `Math.min(d.y - 40, SIG_FOOT_Y)`, kept
   // together with the `ensureSpace(d, 90)` the retrofit added for page-break
   // safety. These values are hand-traced against the real DejaVuSans metrics
   // via a throwaway probe script (not guessed): with the exact `ROW`/`bigRow`
-  // fixtures below, sigY is 150 for 1..16 items (anchor wins, one page), 133
-  // for 18 items (content pushes past the anchor, still one page, no break),
-  // and 150 again for 80 items (a page break resets the cursor near the top,
-  // so the anchor wins again on the fresh page).
+  // fixtures below, sigY is 150 for a short (1-item) protocol (anchor wins,
+  // one page), 113 for 18 items (content pushes past the anchor, still one
+  // page, no break), and 150 again for 80 items (a page break resets the
+  // cursor near the top, so the anchor wins again on the fresh page).
   const SIG_FOOT_Y = 150;
 
   const bigRow = (n: number) => ({
@@ -313,6 +323,83 @@ describe('renderProtocolPdf — signature foot anchor (regression)', () => {
     expect(doc.getPageCount()).toBe(1); // tight single-page fit, not a break — the anchor-vs-content boundary
     expect(sigY()).toBeLessThan(SIG_FOOT_Y);
     expect(sigY()).toBeGreaterThanOrEqual(MARGIN);
-    expect(sigY()).toBe(133);
+    expect(sigY()).toBe(113);
+  });
+});
+
+describe('renderProtocolPdf — signature image clears the closing sentence (regression)', () => {
+  // The `sigY` pin above is blind to the actual bug: ROW carries
+  // `fromSignaturePng: null`, so `sigBlock` never calls `d.page.drawImage` and
+  // a test that only inspects `sigY`/text draws can't see an image collide
+  // with anything. This fixture supplies a real (tiny, 1x1) signature PNG so
+  // `drawImage` actually fires, and asserts the geometric invariant that
+  // actually matters on a legal document: the signature image must never be
+  // drawn on top of the closing „…се състави в два еднообразни екземпляра…"
+  // sentence above it.
+  //
+  // Verified against the buggy `d.y - 20` this replaces (PDF y grows upward,
+  // so a larger image-top value means the image reaches further up the
+  // page): at 17 items the image top landed at 189 against a closing-sentence
+  // baseline of 184 — 189 > 184, so the image's top edge sat above the
+  // sentence's baseline, inside the text's glyph band; at 18 items, 173 vs a
+  // baseline of 168 — same overlap. Both are exactly the 17/18-item cases
+  // called out in the bug report. With the `-40` fix, the same two cases land
+  // at 169-vs-184 and 153-vs-168 — the image top stays at or below the
+  // baseline both times, clear of the text.
+  const TINY_PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+  const bigRowWithSignature = (n: number) => ({
+    ...ROW,
+    fromSignaturePng: TINY_PNG,
+    items: Array.from({ length: n }, (_, i) => ({
+      productName: `Продукт с доста дълго име номер ${i + 1}`,
+      quantity: i + 1,
+      unit: 'кг',
+    })),
+  });
+
+  let drawTextSpy: jest.SpyInstance;
+  let drawImageSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    drawTextSpy = jest.spyOn(PDFPage.prototype, 'drawText');
+    drawImageSpy = jest.spyOn(PDFPage.prototype, 'drawImage');
+  });
+
+  afterEach(() => {
+    drawTextSpy.mockRestore();
+    drawImageSpy.mockRestore();
+  });
+
+  /**
+   * The closing sentence (`t.footer`, drawn line-by-line by `drawLeft`) is the
+   * last thing drawn before `sigBlock` — whose very first action is the
+   * "ПРЕДАЛ: ______" label text. So on a single-page render (asserted by the
+   * caller), the drawText call immediately before that label is unambiguously
+   * the last wrapped line of the closing sentence.
+   */
+  const lastClosingSentenceY = (): number => {
+    const sigIdx = drawTextSpy.mock.calls.findIndex(([text]) => (text as string).startsWith('ПРЕДАЛ: '));
+    expect(sigIdx).toBeGreaterThan(0);
+    return (drawTextSpy.mock.calls[sigIdx - 1][1] as { y: number }).y;
+  };
+
+  it('keeps the signature image at or below the closing sentence at 17 items — the anchor-vs-content boundary', async () => {
+    const doc = await PDFDocument.load(await renderProtocolPdf(bigRowWithSignature(17) as any));
+    expect(doc.getPageCount()).toBe(1); // single page — footer and signature share it, so the comparison is meaningful
+
+    expect(drawImageSpy).toHaveBeenCalledTimes(1);
+    const { y: imgY, height: imgH } = drawImageSpy.mock.calls[0][1] as { y: number; height: number };
+    expect(imgY + imgH).toBeLessThanOrEqual(lastClosingSentenceY());
+  });
+
+  it('keeps the signature image at or below the closing sentence at 18 items — content has pushed past the SIG_FOOT_Y anchor', async () => {
+    const doc = await PDFDocument.load(await renderProtocolPdf(bigRowWithSignature(18) as any));
+    expect(doc.getPageCount()).toBe(1);
+
+    expect(drawImageSpy).toHaveBeenCalledTimes(1);
+    const { y: imgY, height: imgH } = drawImageSpy.mock.calls[0][1] as { y: number; height: number };
+    expect(imgY + imgH).toBeLessThanOrEqual(lastClosingSentenceY());
   });
 });

@@ -189,9 +189,17 @@ export async function renderProtocolPdf(row: any): Promise<Buffer> {
   // of content. SIG_FOOT_Y leaves ~95pt above MARGIN, enough for the label,
   // the party name below it, and a signature image drawn up to 36pt above the
   // label, with room to spare before the footer.
+  //
+  // The `- 40` here (not `- 20`) is load-bearing: sigBlock draws the signature
+  // PNG at `y + 4` with `height: 36`, so the top edge of the image sits at
+  // `sigY + 40`, not `sigY + 20`. A content-relative clamp of only `d.y - 20`
+  // leaves just enough clearance for the "ПРЕДАЛ:"/"ПРИЕЛ:" label line, not
+  // for the image drawn above it — on a content-heavy protocol (content pushed
+  // past the SIG_FOOT_Y anchor) that image top lands above the closing
+  // sentence's baseline and draws directly over that legal text.
   ensureSpace(d, 90);
   const SIG_FOOT_Y = 150;
-  const sigY = Math.min(d.y - 20, SIG_FOOT_Y);
+  const sigY = Math.min(d.y - 40, SIG_FOOT_Y);
   await sigBlock(d, MARGIN, sigY, 'ПРЕДАЛ', t.fromName, row.fromSignaturePng);
   await sigBlock(d, PAGE_W / 2 + 10, sigY, 'ПРИЕЛ', t.toName, row.toSignaturePng);
   d.y = sigY - 40;
