@@ -233,7 +233,7 @@ export function SignaturePadField({
       </div>
       {/* Only true in 'explicit' mode — in 'live' the parent already has it. */}
       {!draft && commitMode === 'explicit' && (
-        <p className="text-[12px] text-ff-muted">Подписът се запазва чак когато натиснеш „Готово".</p>
+        <p className="text-[12px] text-ff-muted">Подписът се запазва чак когато натиснеш „Готово&quot;.</p>
       )}
     </div>
   );
