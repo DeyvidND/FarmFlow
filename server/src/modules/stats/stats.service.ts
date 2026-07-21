@@ -5,6 +5,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
 import { BG_TZ, bgToday, bgAddDays, bgDayBounds, bgDate, bgDateTz } from '../../common/time/bg-time';
 import { readVendorFinance } from '../vendor-finance/vendor-finance.settings';
+import { loadBasketRevenueOverrides, basketAwareLineRevenueSql } from '../orders/basket-revenue-overrides';
 
 // ── Farmer-facing sales statistics. Everything here is derived from orders we
 //    already store (no tracking infra). Companion to the operational dashboard:
@@ -559,7 +560,16 @@ export class StatsService {
     const prevSince = new Date(since.getTime() - spanMs);
 
     const live = sql`${orders.status} is distinct from 'cancelled'`;
-    const lineRev = sql`${orderItems.quantity} * ${orderItems.priceStotinki}`;
+    // A basket child line is stored priced at 0 (see basket-revenue-overrides.ts).
+    // Every query below is farmer-scoped (`mine` always filters
+    // products.farmer_id = farmerId), which excludes a basket's PARENT row (its
+    // farmerId is null) — so naively summing priceStotinki×quantity here would
+    // count this producer's own basket children at 0, undercounting their real
+    // turnover. `overrides` carries each child's true proportional share of its
+    // parent's price; basketAwareLineRevenueSql folds it in (a plain
+    // quantity×price product when this tenant has no basket orders at all).
+    const basketOverrides = await loadBasketRevenueOverrides(this.db, tenantId);
+    const lineRev = basketAwareLineRevenueSql(basketOverrides);
     const keyExpr = sql<string>`coalesce(nullif(${orders.customerPhone}, ''), nullif(${orders.customerEmail}, ''), ${orders.customerId}::text)`;
     // Reusable base: this producer's line items, in/around the window.
     const mine = and(eq(orders.tenantId, tenantId), eq(products.farmerId, farmerId));
@@ -769,7 +779,17 @@ export class StatsService {
     // the chosen basis — even reporting turnover on the 'placed' basis, we still
     // need to know which of those placed orders have or haven't been delivered yet.
     const notDelivered = sql`${orders.status} is distinct from 'delivered'`;
-    const lineRev = sql`${orderItems.quantity} * ${orderItems.priceStotinki}`;
+    // Basket-aware ONLY when farmer-scoped (see below, right after `farmerScope`
+    // is known) — a basket child's stored price is 0 by design. When
+    // farmer-scoped, `products.farmer_id = opts.farmerId` already EXCLUDES the
+    // basket's parent row (its farmerId is null), so correcting each child to
+    // its true proportional share is exactly right and doesn't double-count.
+    // But the WHOLE-TENANT view (no farmerId) sums every row including the
+    // parent — there, priceStotinki×quantity ALREADY totals correctly (parent
+    // carries the real price, children are 0), so applying the same correction
+    // would double-count every basket (parent price + its children's shares).
+    // Only farmer-scoped queries may use the override; see reassignment below.
+    let lineRev: SQL = sql`(${orderItems.quantity} * ${orderItems.priceStotinki})`;
 
     // Basis-day: the calendar day this order counts on. A 'delivered'-basis row
     // with no delivered_at yet (not delivered) produces SQL NULL here, so it
@@ -783,6 +803,10 @@ export class StatsService {
           : bgDateTz(orders.deliveredAt);
 
     const farmerScope = opts.farmerId ? eq(products.farmerId, opts.farmerId) : undefined;
+    if (opts.farmerId) {
+      const basketOverrides = await loadBasketRevenueOverrides(this.db, tenantId);
+      lineRev = basketAwareLineRevenueSql(basketOverrides);
+    }
 
     const windowRange = and(sql`${basisDay} >= ${from}::date`, sql`${basisDay} <= ${to}::date`)!;
     const toDateRange = sql`${basisDay} <= ${to}::date`;

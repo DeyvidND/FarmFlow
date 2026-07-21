@@ -11,6 +11,7 @@ import {
 } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { readVendorFinance } from './vendor-finance.settings';
+import { allocateOrderRevenue } from '../orders/basket-revenue.util';
 
 /** One farmer's line in the commission summary. */
 export interface CommissionFarmerSummary {
@@ -66,26 +67,46 @@ export class CommissionService {
       // Defense in depth: never accrue on a dead order even if a seam misfires.
       if (!order || order.status === 'cancelled' || order.codOutcome === 'refused') return;
 
-      const items: { farmerId: string | null; quantity: number; priceStotinki: number }[] =
-        await this.db
-          .select({
-            farmerId: products.farmerId,
-            quantity: orderItems.quantity,
-            priceStotinki: orderItems.priceStotinki,
-          })
-          .from(orderItems)
-          .innerJoin(products, eq(products.id, orderItems.productId))
-          .where(eq(orderItems.orderId, orderId));
+      const items: {
+        id: string;
+        farmerId: string | null;
+        quantity: number;
+        priceStotinki: number;
+        memberPriceStotinki: number;
+        bundleParentId: string | null;
+      }[] = await this.db
+        .select({
+          id: orderItems.id,
+          farmerId: products.farmerId,
+          quantity: orderItems.quantity,
+          priceStotinki: orderItems.priceStotinki,
+          // The member product's OWN list price — used only to weight a basket
+          // child's share (see below). For an ordinary (non-basket) line this
+          // equals priceStotinki and goes unused.
+          memberPriceStotinki: products.priceStotinki,
+          bundleParentId: orderItems.bundleParentId,
+        })
+        .from(orderItems)
+        .innerJoin(products, eq(products.id, orderItems.productId))
+        .where(eq(orderItems.orderId, orderId));
+
+      // A basket explodes into one parent row (the basket's own price, farmerId
+      // null) plus one zero-priced child row per member (farmerId = that
+      // member's farmer). Naively summing priceStotinki×quantity would count the
+      // parent as nobody's (farmerId null → skipped) and every child as 0 —
+      // basket revenue would vanish from the ledger entirely. Instead,
+      // {@link allocateOrderRevenue} allocates each parent's line total across
+      // its children proportional to member price × quantity, so each child's
+      // farmer is credited with ITS share, not its (zero) stored price.
+      const allocatedByItemId = allocateOrderRevenue(items);
 
       // Item-only gross per farmer (delivery fee excluded — same rule as turnover).
       // Items on products without a farmer are the tenant's own — no commission.
       const grossByFarmer = new Map<string, number>();
       for (const it of items) {
         if (!it.farmerId) continue;
-        grossByFarmer.set(
-          it.farmerId,
-          (grossByFarmer.get(it.farmerId) ?? 0) + it.priceStotinki * it.quantity,
-        );
+        const revenue = allocatedByItemId.get(it.id) ?? it.priceStotinki * it.quantity;
+        grossByFarmer.set(it.farmerId, (grossByFarmer.get(it.farmerId) ?? 0) + revenue);
       }
       if (grossByFarmer.size === 0) return;
 

@@ -52,6 +52,7 @@ import {
 } from './order-total.util';
 import { intCaseById } from './order-stock.util';
 import { expandStockLines, type BundleMemberLine } from './order-bundle.util';
+import { loadBasketRevenueOverrides, basketAwareLineRevenueSql } from './basket-revenue-overrides';
 import { decideDecrement, decideDecrementPooled, restoreRemaining } from '../availability/availability.util';
 import { slotIsFull, slotUnavailableReason, migrateRule, ruleProducesDate } from '../slots/slot-rule';
 
@@ -772,8 +773,16 @@ export class OrdersService {
     const lim = clampLimit(opts.limit);
     const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
 
+    // A basket child line is stored priced at 0 (see basket-revenue-overrides.ts) —
+    // valuing it at 0 here would silently zero out this producer's payout for
+    // every basket sale. `overrides` carries this producer's TRUE proportional
+    // share of any basket in scope; basketAwareLineRevenueSql folds it into the
+    // per-item value that gets summed below (a plain quantity×price product when
+    // this tenant has no basket orders at all — no extra cost on the common path).
+    const overrides = await loadBasketRevenueOverrides(this.db, tenantId);
+    const itemRev = basketAwareLineRevenueSql(overrides);
     // This producer's line revenue on each order (minor units, EUR cents).
-    const lineRev = sql<number>`sum(${orderItems.quantity} * ${orderItems.priceStotinki})::int`;
+    const lineRev = sql<number>`sum(${itemRev})::int`;
 
     const conds = [
       eq(orders.tenantId, tenantId),
@@ -863,15 +872,18 @@ export class OrdersService {
     // not keep inflating this producer's due/collected total.
     // (Same test-DB-harness caveat as paymentTotalsCached above: this FILTER's
     // DB-level behaviour is not exercised by a spec here.)
+    // Basket-aware (same `itemRev` as the per-order rows above) — a basket sale
+    // must count in this producer's due/collected totals at its true
+    // proportional share, not at its stored (zero) child price.
     const aggRows = cur
       ? []
       : await this.db
           .select({
             paymentMethod: orders.paymentMethod,
             count: sql<number>`count(distinct ${orders.id})::int`,
-            totalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.codOutcome} is distinct from 'refused'), 0)::int`,
+            totalStotinki: sql<number>`coalesce(sum(${itemRev}) filter (where ${orders.codOutcome} is distinct from 'refused'), 0)::int`,
             paidCount: sql<number>`count(distinct ${orders.id}) filter (where ${orders.paidAt} is not null)::int`,
-            paidTotalStotinki: sql<number>`coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}) filter (where ${orders.paidAt} is not null), 0)::int`,
+            paidTotalStotinki: sql<number>`coalesce(sum(${itemRev}) filter (where ${orders.paidAt} is not null), 0)::int`,
           })
           .from(orderItems)
           .innerJoin(orders, eq(orders.id, orderItems.orderId))

@@ -51,10 +51,10 @@ describe('CommissionService.accrueForOrder', () => {
     const db = makeDb();
     db.queue([{ id: ORDER, status: 'confirmed', codOutcome: 'received' }]); // order
     db.queue([
-      { farmerId: 'f1', quantity: 2, priceStotinki: 305 }, // f1 gross 610
-      { farmerId: 'f1', quantity: 1, priceStotinki: 100 }, // f1 gross 710
-      { farmerId: 'f2', quantity: 3, priceStotinki: 333 }, // f2 gross 999
-      { farmerId: null, quantity: 5, priceStotinki: 100 }, // tenant's own → skipped
+      { id: 'i1', farmerId: 'f1', quantity: 2, priceStotinki: 305, bundleParentId: null }, // f1 gross 610
+      { id: 'i2', farmerId: 'f1', quantity: 1, priceStotinki: 100, bundleParentId: null }, // f1 gross 710
+      { id: 'i3', farmerId: 'f2', quantity: 3, priceStotinki: 333, bundleParentId: null }, // f2 gross 999
+      { id: 'i4', farmerId: null, quantity: 5, priceStotinki: 100, bundleParentId: null }, // tenant's own → skipped
     ]); // items
     db.queue([{ settings: { vendorFinance: { commissionEnabled: true, defaultCommissionRateBps: 500 } } }]); // tenant
     db.queue([{ id: 'f1', commissionRateBps: 1000 }, { id: 'f2', commissionRateBps: null }]); // overrides
@@ -81,7 +81,7 @@ describe('CommissionService.accrueForOrder', () => {
   it('records rate 0 while commission is disabled (dormant)', async () => {
     const db = makeDb();
     db.queue([{ id: ORDER, status: 'confirmed', codOutcome: null }]);
-    db.queue([{ farmerId: 'f1', quantity: 1, priceStotinki: 1000 }]);
+    db.queue([{ id: 'i1', farmerId: 'f1', quantity: 1, priceStotinki: 1000, bundleParentId: null }]);
     db.queue([{ settings: {} }]); // no vendorFinance at all
     db.queue([{ id: 'f1', commissionRateBps: 700 }]); // override present but feature OFF
     db.queue([{ status: 'confirmed', codOutcome: null }]); // re-read under the lock: still collectible
@@ -108,7 +108,7 @@ describe('CommissionService.accrueForOrder', () => {
   it('does nothing when the order has no vendor items', async () => {
     const db = makeDb();
     db.queue([{ id: ORDER, status: 'confirmed', codOutcome: null }]);
-    db.queue([{ farmerId: null, quantity: 1, priceStotinki: 500 }]);
+    db.queue([{ id: 'i1', farmerId: null, quantity: 1, priceStotinki: 500, bundleParentId: null }]);
     await (await build(db)).accrueForOrder(ORDER, TENANT);
     expect(db.calls.values).toHaveLength(0);
   });
@@ -119,6 +119,71 @@ describe('CommissionService.accrueForOrder', () => {
     await expect((await build(db)).accrueForOrder(ORDER, TENANT)).resolves.toBeUndefined();
   });
 
+  // A basket („кошница") order explodes into one parent row (the basket's own
+  // price, farmerId null) plus zero-priced child rows per member (farmerId =
+  // that member's farmer). Before this fix, `if (!it.farmerId) continue`
+  // skipped the parent and every child contributed `0 × qty` — a basket-only
+  // order produced grossByFarmer.size === 0 and accrueForOrder returned with
+  // NO ledger entry at all (silently, permanently — entries are
+  // onConflictDoNothing). This proves the ledger now allocates the parent's
+  // price across its children proportional to member price × quantity.
+  it('accrues a basket order by allocating the parent price across its children', async () => {
+    const db = makeDb();
+    db.queue([{ id: ORDER, status: 'confirmed', codOutcome: 'received' }]); // order
+    db.queue([
+      // Parent: the basket's own line (farmerId null, priced 3990 for 1 unit).
+      { id: 'item-parent', farmerId: null, quantity: 1, priceStotinki: 3990, memberPriceStotinki: 3990, bundleParentId: null },
+      // Children: tomatoes (weight 2*200=400) belong to f1, cheese (weight 1*600=600) to f2.
+      // Total weight 1000 → f1 gets 3990*400/1000=1596, f2 gets the remainder 2394.
+      { id: 'item-tomato', farmerId: 'f1', quantity: 2, priceStotinki: 0, memberPriceStotinki: 200, bundleParentId: 'item-parent' },
+      { id: 'item-cheese', farmerId: 'f2', quantity: 1, priceStotinki: 0, memberPriceStotinki: 600, bundleParentId: 'item-parent' },
+    ]); // items
+    db.queue([{ settings: { vendorFinance: { commissionEnabled: true, defaultCommissionRateBps: 500 } } }]); // tenant
+    db.queue([{ id: 'f1', commissionRateBps: null }, { id: 'f2', commissionRateBps: null }]); // overrides
+    db.queue([{ status: 'confirmed', codOutcome: 'received' }]); // re-read under the lock
+    db.queue(undefined); // insert
+    db.queue(undefined); // revive update
+
+    await (await build(db)).accrueForOrder(ORDER, TENANT);
+
+    expect(db.calls.values).toHaveLength(1);
+    const rows = db.calls.values[0] as any[];
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ farmerId: 'f1', grossStotinki: 1596 }),
+        expect.objectContaining({ farmerId: 'f2', grossStotinki: 2394 }),
+      ]),
+    );
+    expect(rows).toHaveLength(2);
+    // The two farmers' allocated shares sum to exactly the parent's line total —
+    // no money created or destroyed by the split.
+    const total = rows.reduce((s, r) => s + r.grossStotinki, 0);
+    expect(total).toBe(3990);
+  });
+
+  // Same shape, but every child belongs to ONE farmer — the common case (a
+  // single-producer basket). Confirms the allocation doesn't accidentally
+  // require multiple farmers to "work".
+  it('accrues a single-farmer basket order for its full price', async () => {
+    const db = makeDb();
+    db.queue([{ id: ORDER, status: 'confirmed', codOutcome: 'received' }]);
+    db.queue([
+      { id: 'item-parent', farmerId: null, quantity: 1, priceStotinki: 1500, memberPriceStotinki: 1500, bundleParentId: null },
+      { id: 'item-cheese', farmerId: 'f1', quantity: 1, priceStotinki: 0, memberPriceStotinki: 1500, bundleParentId: 'item-parent' },
+    ]);
+    db.queue([{ settings: { vendorFinance: { commissionEnabled: false } } }]);
+    db.queue([{ id: 'f1', commissionRateBps: null }]);
+    db.queue([{ status: 'confirmed', codOutcome: 'received' }]);
+    db.queue(undefined);
+    db.queue(undefined);
+
+    await (await build(db)).accrueForOrder(ORDER, TENANT);
+
+    expect(db.calls.values[0]).toEqual([
+      expect.objectContaining({ farmerId: 'f1', grossStotinki: 1500 }),
+    ]);
+  });
+
   // The initial guard passes (codOutcome null when the gross is computed), but a
   // concurrent COD-refusal commits before the ledger write; the authoritative re-read
   // UNDER the advisory lock sees 'refused' and skips insert+revive, so no commission
@@ -126,7 +191,7 @@ describe('CommissionService.accrueForOrder', () => {
   it('skips accrual when the order is refused between the gross computation and the lock', async () => {
     const db = makeDb();
     db.queue([{ id: ORDER, status: 'confirmed', codOutcome: null }]); // initial guard: passes
-    db.queue([{ farmerId: 'f1', quantity: 1, priceStotinki: 1000 }]); // items
+    db.queue([{ id: 'i1', farmerId: 'f1', quantity: 1, priceStotinki: 1000, bundleParentId: null }]); // items
     db.queue([{ settings: { vendorFinance: { commissionEnabled: true, defaultCommissionRateBps: 500 } } }]); // tenant
     db.queue([{ id: 'f1', commissionRateBps: null }]); // overrides
     db.queue([{ status: 'confirmed', codOutcome: 'refused' }]); // RE-READ under the lock: concurrently refused
