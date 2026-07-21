@@ -50,6 +50,8 @@ Two rules that already work in our favour and need **no change**:
 | Where the 2×2 grid appears | Catalog card **and** product detail page. |
 | Component sold out | Basket becomes sold out. Availability = `min` over members. |
 | Category | Reuse `category = 'bundle'`; relabel the storefront to „Кошници". No new value, no migration, existing packages carry over. |
+| Courier shipping | Baskets are **pickup / local delivery only**. `createCourierOrders` splits a cart into one order per farmer and rejects any line without a `farmerId`; a basket is `farmerId = null` and its members span farms, so one parcel cannot originate from three yards. Today this already fails, with a confusing message — we make it explicit. |
+| Members with variants | Rejected at `setBundleItems`. A member line carries no `variantId`, so a varianted member would hit `requiresVariantSelection` at checkout with no way to answer it. |
 | Who sees „Създай кошница" | Account owner/admin only. Producer sub-accounts (`role === 'farmer'`) do not. |
 
 ## Non-goals
