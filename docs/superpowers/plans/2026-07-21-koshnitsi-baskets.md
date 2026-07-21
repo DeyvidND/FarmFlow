@@ -707,6 +707,44 @@ In `createCourierOrders`, replace the check at lines 2783-2785:
       }
 ```
 
+- [ ] **Step 9b: Refuse to edit an order that contains a basket**
+
+The order-edit path at `orders.service.ts:1547-1579` deletes every `order_items` row and
+re-inserts the kept ones verbatim, dropping only `id` and `orderId`. A child line's
+`bundleParentId` would survive that round trip pointing at a row that no longer exists —
+a hard foreign-key violation, not a silent dangle. The edit path also has no notion of
+re-linking a basket's children, and `dto.items` (what the operator edits) never contains
+them.
+
+Editing a basket order is out of scope for v1. Guard it instead, immediately before the
+`await tx.delete(orderItems)` at line 1578:
+
+```ts
+        // A basket („кошница") order line owns child rows that this path cannot rebuild:
+        // it deletes every row and re-inserts the kept ones verbatim, so a child's
+        // bundleParentId would point at a deleted parent. Refuse the edit rather than
+        // corrupt the order.
+        if (oldItems.some((o) => o.bundleParentId)) {
+          throw new BadRequestException(
+            'Поръчка с кошница не може да се редактира. Откажете я и направете нова.',
+          );
+        }
+```
+
+Add the covering test to `orders.bundle.spec.ts`:
+
+```ts
+  it('refuses to edit an order containing a basket', async () => {
+    const order = await service.create(slug, { items: [{ productId: basketId, quantity: 1 }], ...base });
+    await expect(
+      service.update(order.id, tenantId, { items: [{ productId: tomatoId, quantity: 1 }] }),
+    ).rejects.toThrow('Поръчка с кошница не може да се редактира');
+  });
+```
+
+Match `service.update`'s real signature — read it before writing the test rather than
+copying this call shape blindly.
+
 - [ ] **Step 10: Run the new tests**
 
 Run: `pnpm --filter @fermeribg/api test -- orders.bundle`
