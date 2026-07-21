@@ -11,6 +11,8 @@ import type {
   DeliveryWindowProposal,
   EcontCity,
   EcontOfficeLive,
+  ExpenseCategory,
+  ExpenseRow,
   Farmer,
   FarmerAccess,
   LegalIdentity,
@@ -19,6 +21,7 @@ import type {
   Paged,
   Paginated,
   PaymentStatus,
+  PnlSummary,
   Product,
   ProductOption,
   ProductVariant,
@@ -862,6 +865,44 @@ export const getTurnover = (
   const fid = opts.farmerId ? `&farmerId=${encodeURIComponent(opts.farmerId)}` : '';
   return apiFetch<TurnoverBreakdown>(`stats/turnover?${base}${basis}${inc}${fid}`);
 };
+
+// ---- Приходи / разходи / печалба ----
+
+export const getPnl = (opts: { range: StatsRange } | { from: string; to: string }) => {
+  const base =
+    'from' in opts
+      ? `from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`
+      : `range=${opts.range}`;
+  return apiFetch<PnlSummary>(`stats/pnl?${base}`);
+};
+
+export const listExpenses = (from: string, to: string) =>
+  apiFetch<ExpenseRow[]>(`stats/expenses?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+
+export const createExpense = (data: {
+  date: string;
+  amountStotinki: number;
+  category: ExpenseCategory;
+  courierAccountId?: string;
+  note?: string;
+}) => apiFetch<{ id: string }>('stats/expenses', { method: 'POST', ...json(data) });
+
+export const updateExpense = (
+  id: string,
+  data: {
+    date?: string;
+    amountStotinki?: number;
+    category?: ExpenseCategory;
+    courierAccountId?: string | null;
+    note?: string;
+  },
+) => apiFetch<{ id: string }>(`stats/expenses/${id}`, { method: 'PATCH', ...json(data) });
+
+export const deleteExpense = (id: string) =>
+  apiFetch<{ ok: true }>(`stats/expenses/${id}`, { method: 'DELETE' });
+
+export const setCommissionBps = (bps: number) =>
+  apiFetch<{ bps: number }>('stats/commission', { method: 'PATCH', ...json({ bps }) });
 
 // ---- Site analytics ----
 export const getAnalytics = (opts: { range: StatsRange } | { from: string; to: string }) => {

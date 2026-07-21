@@ -1113,3 +1113,42 @@ export interface DayProtocolRow {
   fromSnapshot: LegalIdentity;
   toSnapshot: LegalIdentity;
 }
+
+// ---- Приходи / разходи / печалба (Статистика, само собственик) ----
+
+export type ExpenseCategory = 'fuel' | 'packaging' | 'salary' | 'fees' | 'other';
+
+export interface ExpenseRow {
+  id: string;
+  date: string;
+  amountStotinki: number;
+  category: ExpenseCategory;
+  courierAccountId: string | null;
+  note: string | null;
+}
+
+export interface PnlCourier {
+  accountId: string;
+  name: string;
+  deliveryStotinki: number;
+  commissionStotinki: number;
+  revenueStotinki: number;
+  expenseStotinki: number;
+  profitStotinki: number;
+}
+
+export interface PnlSummary {
+  from: string;
+  to: string;
+  range: StatsRange | 'custom';
+  /** Информационната комисионна в базисни точки (1000 = 10%). */
+  commissionBps: number;
+  /** Оборот на стоката — контекст, НЕ наш приход. */
+  goodsTurnoverStotinki: number;
+  revenue: { deliveryStotinki: number; commissionStotinki: number; totalStotinki: number };
+  expenses: { totalStotinki: number; byCategory: { category: ExpenseCategory; amountStotinki: number }[] };
+  profitStotinki: number;
+  couriers: PnlCourier[];
+  unassigned: { deliveryStotinki: number; commissionStotinki: number; revenueStotinki: number };
+  generalExpensesStotinki: number;
+}
