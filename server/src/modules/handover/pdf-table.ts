@@ -11,8 +11,20 @@ export interface Column {
  * Split `total` into per-column widths in proportion to `weights`. The last
  * column absorbs the rounding remainder so the widths sum to `total` exactly —
  * a one-point gap is invisible on screen and a visible seam in print.
+ *
+ * Every weight must be a positive, finite number: an empty `weights` array has
+ * no proportions to split by (and would corrupt the array via
+ * `out[out.length - 1]` on a `-1` index), and a zero-or-negative sum divides by
+ * a non-positive number, producing `NaN`/`Infinity` widths that would only
+ * surface much later as a broken layout. No caller passes either today, but
+ * this is exported for config-driven column sets to build on next.
  */
 export function columnWidths(total: number, weights: number[]): number[] {
+  if (weights.length === 0 || !weights.every((w) => Number.isFinite(w) && w > 0)) {
+    throw new Error(
+      `columnWidths: weights must be a non-empty array of positive numbers, got ${JSON.stringify(weights)}`,
+    );
+  }
   const sum = weights.reduce((a, b) => a + b, 0);
   const out = weights.map((w) => Math.floor((total * w) / sum));
   out[out.length - 1] += total - out.reduce((a, b) => a + b, 0);

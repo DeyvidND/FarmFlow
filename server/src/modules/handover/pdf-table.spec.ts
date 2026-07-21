@@ -139,6 +139,21 @@ describe('columnWidths', () => {
     const w = columnWidths(100, [1, 1, 1]);
     expect(w.reduce((a, b) => a + b, 0)).toBe(100);
   });
+
+  it('throws instead of returning NaN widths when weights is empty', () => {
+    // An empty `weights` also has no last element for the old code's
+    // `out[out.length - 1] += ...` to land on — it silently wrote a stray
+    // `"-1"` property onto the array rather than throwing.
+    expect(() => columnWidths(600, [])).toThrow(/weights/i);
+  });
+
+  it('throws instead of returning NaN widths when the weights are all zero', () => {
+    expect(() => columnWidths(600, [0, 0])).toThrow(/weights/i);
+  });
+
+  it('leaves a normal, positive-weight call unaffected', () => {
+    expect(() => columnWidths(600, [1, 2, 3])).not.toThrow();
+  });
 });
 
 describe('drawTable — what it actually draws', () => {
@@ -511,6 +526,36 @@ describe('drawTable — what it actually draws', () => {
       drawTable(d, COLS, [['1', 'ЕТ Петров', 'Домати']]);
       const call = drawTextSpy.mock.calls.find(([t]) => t === 'ЕТ Петров')!;
       expect(call[1].x).toBe(MARGIN + COLS[0].width + 4);
+    });
+
+    it('centers a body cell at the column midpoint', async () => {
+      // Hand-derived from `textX` in pdf-table.ts: for `align: 'center'` it
+      // returns `(left + right) / 2` where `left = xOf(colIndex) + padding`
+      // and `right = xOf(colIndex) + col.width - padding - textWidth`. That
+      // average is `xOf(colIndex) + (col.width - textWidth) / 2` — the
+      // padding terms cancel, so centering (unlike left/right) does not
+      // depend on `padding` at all. `xOf(1) = MARGIN + COLS[0].width` here.
+      const d = await createDoc(A4_LANDSCAPE);
+      const cols: Column[] = [{ header: 'A', width: 100 }, { header: 'ЦЕНТЪР', width: 100, align: 'center' }];
+      drawTable(d, cols, [['x', '123,45']]);
+      const call = drawTextSpy.mock.calls.find(([t]) => t === '123,45')!;
+      const textW = d.font.widthOfTextAtSize('123,45', 9);
+      const columnLeft = MARGIN + 100; // xOf(1): MARGIN + preceding column's width
+      expect(call[1].x).toBeCloseTo(columnLeft + (100 - textW) / 2, 5);
+    });
+
+    it('centers the header of a center-aligned column too', async () => {
+      // `drawBoldText` draws the same string three times at x, x+0.25, x+0.5
+      // to fake bold weight (see pdf-kit.ts); `.find` walks the calls in the
+      // order they were made and returns the first match, which is the
+      // undisplaced dx=0 draw — the one whose x is the real centered position.
+      const d = await createDoc(A4_LANDSCAPE);
+      const cols: Column[] = [{ header: 'A', width: 100 }, { header: 'ЦЕНТЪР', width: 100, align: 'center' }];
+      drawTable(d, cols, [['x', '1']]);
+      const call = drawTextSpy.mock.calls.find(([t]) => t === 'ЦЕНТЪР')!;
+      const textW = d.font.widthOfTextAtSize('ЦЕНТЪР', 9);
+      const columnLeft = MARGIN + 100; // xOf(1)
+      expect(call[1].x).toBeCloseTo(columnLeft + (100 - textW) / 2, 5);
     });
 
     it('throws when the columns are wider than the page, instead of drawing off the edge', async () => {
