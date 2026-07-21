@@ -1,6 +1,6 @@
 import { PDFPage } from 'pdf-lib';
-import { A4_LANDSCAPE, createDoc, MARGIN } from './pdf-kit';
-import { Column, drawTable, layoutTable, paginateRows } from './pdf-table';
+import { A4_LANDSCAPE, A4_PORTRAIT, contentW, createDoc, MARGIN } from './pdf-kit';
+import { Column, columnWidths, drawTable, layoutTable, paginateRows } from './pdf-table';
 
 const COLS: Column[] = [
   { header: '№', width: 30 },
@@ -127,6 +127,17 @@ describe('drawTable', () => {
     const buf = Buffer.from(await d.doc.save());
     expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
     expect(buf.length).toBeGreaterThan(1000);
+  });
+});
+
+describe('columnWidths', () => {
+  it('splits the total in proportion to the weights', () => {
+    expect(columnWidths(600, [1, 2, 3])).toEqual([100, 200, 300]);
+  });
+
+  it('gives the rounding remainder to the last column so the sum is exact', () => {
+    const w = columnWidths(100, [1, 1, 1]);
+    expect(w.reduce((a, b) => a + b, 0)).toBe(100);
   });
 });
 
@@ -474,5 +485,44 @@ describe('drawTable — what it actually draws', () => {
     const placed = drawTable(d, COLS, [['1', 'ЕТ Петров', 'Домати']]);
     expect(placed).toHaveLength(1);
     expect(drawImageSpy).not.toHaveBeenCalled();
+  });
+
+  describe('column alignment and fit', () => {
+    it('right-aligns a cell against its column edge', async () => {
+      const d = await createDoc(A4_LANDSCAPE);
+      const cols: Column[] = [{ header: 'A', width: 100 }, { header: 'СТОЙНОСТ', width: 100, align: 'right' }];
+      drawTable(d, cols, [['x', '123,45']]);
+      const call = drawTextSpy.mock.calls.find(([t]) => t === '123,45')!;
+      const textW = d.font.widthOfTextAtSize('123,45', 9);
+      expect(call[1].x).toBeCloseTo(MARGIN + 100 + 100 - 4 - textW, 5);
+    });
+
+    it('right-aligns the header of a right-aligned column too', async () => {
+      const d = await createDoc(A4_LANDSCAPE);
+      const cols: Column[] = [{ header: 'A', width: 100 }, { header: 'СТОЙНОСТ', width: 100, align: 'right' }];
+      drawTable(d, cols, [['x', '1']]);
+      const call = drawTextSpy.mock.calls.find(([t]) => t === 'СТОЙНОСТ')!;
+      const textW = d.font.widthOfTextAtSize('СТОЙНОСТ', 9);
+      expect(call[1].x).toBeCloseTo(MARGIN + 100 + 100 - 4 - textW, 5);
+    });
+
+    it('leaves a left-aligned column exactly where it was', async () => {
+      const d = await createDoc(A4_LANDSCAPE);
+      drawTable(d, COLS, [['1', 'ЕТ Петров', 'Домати']]);
+      const call = drawTextSpy.mock.calls.find(([t]) => t === 'ЕТ Петров')!;
+      expect(call[1].x).toBe(MARGIN + COLS[0].width + 4);
+    });
+
+    it('throws when the columns are wider than the page, instead of drawing off the edge', async () => {
+      const d = await createDoc(A4_PORTRAIT); // contentW = 485
+      const tooWide: Column[] = [{ header: 'A', width: 300 }, { header: 'B', width: 300 }];
+      expect(() => drawTable(d, tooWide, [['x', 'y']])).toThrow(/600.*485/);
+    });
+
+    it('does not throw when the columns fit exactly', async () => {
+      const d = await createDoc(A4_PORTRAIT);
+      const exact: Column[] = columnWidths(contentW(d), [1, 1]).map((w, i) => ({ header: `C${i}`, width: w }));
+      expect(() => drawTable(d, exact, [['x', 'y']])).not.toThrow();
+    });
   });
 });

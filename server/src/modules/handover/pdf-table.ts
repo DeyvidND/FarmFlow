@@ -1,10 +1,22 @@
 import { PDFFont, PDFImage } from 'pdf-lib';
-import { Doc, drawBoldText, ensureSpace, INK, MARGIN, newPage, wrap } from './pdf-kit';
+import { contentW, Doc, drawBoldText, ensureSpace, INK, MARGIN, newPage, wrap } from './pdf-kit';
 
 export interface Column {
   header: string;
   width: number;
-  align?: 'left' | 'right';
+  align?: 'left' | 'right' | 'center';
+}
+
+/**
+ * Split `total` into per-column widths in proportion to `weights`. The last
+ * column absorbs the rounding remainder so the widths sum to `total` exactly —
+ * a one-point gap is invisible on screen and a visible seam in print.
+ */
+export function columnWidths(total: number, weights: number[]): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  const out = weights.map((w) => Math.floor((total * w) / sum));
+  out[out.length - 1] += total - out.reduce((a, b) => a + b, 0);
+  return out;
 }
 
 /** A pre-embedded image drawn at a fixed box — the caller owns its size. */
@@ -143,6 +155,15 @@ export function drawTable(
   const lineHeight = size + 3;
   const headerHeight = lineHeight + 2 * padding;
 
+  // A table wider than the page prints a legal document with a column sliced
+  // off the edge, unnoticed until someone is holding it — a composition-time
+  // programming error, not a runtime condition to clamp and recover from.
+  const totalW = columns.reduce((sum, c) => sum + c.width, 0);
+  const available = contentW(d);
+  if (totalW > available) {
+    throw new Error(`drawTable: columns total ${totalW}pt but only ${available}pt of content width is available`);
+  }
+
   // Lay the rows out first so the real height of row zero is known before we
   // decide whether to break — see the `ensureSpace` call below.
   const laid = layoutTable(columns, rows, d.font, size, padding);
@@ -167,11 +188,22 @@ export function drawTable(
   );
 
   const xOf = (i: number) => MARGIN + columns.slice(0, i).reduce((sum, c) => sum + c.width, 0);
-  const totalW = columns.reduce((sum, c) => sum + c.width, 0);
+
+  // Alignment-aware x for a piece of text in column `colIndex`, shared by the
+  // header row and body cells so a right-aligned money column's header lines
+  // up with its own values rather than sitting flush left above them.
+  const textX = (colIndex: number, text: string, textSize: number) => {
+    const col = columns[colIndex];
+    const left = xOf(colIndex) + padding;
+    if (!col.align || col.align === 'left') return left;
+    const tw = d.font.widthOfTextAtSize(text, textSize);
+    const right = xOf(colIndex) + col.width - padding - tw;
+    return col.align === 'right' ? right : (left + right) / 2;
+  };
 
   const drawHeader = () => {
     columns.forEach((col, i) => {
-      drawBoldText(d, col.header, xOf(i) + padding, d.y - lineHeight + 3, size);
+      drawBoldText(d, col.header, textX(i, col.header, size), d.y - lineHeight + 3, size);
     });
     d.y -= headerHeight;
     d.page.drawLine({
@@ -200,7 +232,7 @@ export function drawTable(
         }
         cell.forEach((line, lineIndex) => {
           d.page.drawText(line, {
-            x: xOf(i) + padding,
+            x: textX(i, line, size),
             y: d.y - padding - (lineIndex + 1) * lineHeight + 3,
             size,
             font: d.font,
