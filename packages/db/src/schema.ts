@@ -614,6 +614,36 @@ export const routeCourierAssignments = pgTable(
   }),
 );
 
+// Ръчно въведени разходи на фермата (гориво, амбалаж, заплати…). Няма автоматичен
+// източник — собственикът ги пише сам, за да има смислена печалба в Статистика.
+// `courierAccountId` NULL = общ разход, който НЕ се разпределя по куриери.
+export const manualExpenses = pgTable(
+  'manual_expenses',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    // БГ календарен ден на разхода (YYYY-MM-DD), същата конвенция като deliverySlots.date.
+    date: date('date').notNull(),
+    amountStotinki: integer('amount_stotinki').notNull(),
+    // 'fuel' | 'packaging' | 'salary' | 'fees' | 'other' — валидира се в DTO-то, не в enum,
+    // за да не иска миграция всяка нова категория.
+    category: text('category').notNull(),
+    // Изтрит куриерски акаунт превръща разхода в общ, вместо да го изгуби.
+    courierAccountId: uuid('courier_account_id').references(() => users.id, { onDelete: 'set null' }),
+    note: text('note'),
+    createdAt: timestamp('created_at').defaultNow(),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (t) => ({
+    // Периодните заявки на /stats/pnl: WHERE tenant_id = ? AND date BETWEEN ? AND ?
+    tenantDateIdx: index('manual_expenses_tenant_date_idx').on(t.tenantId, t.date),
+    // Разбивката по куриер.
+    tenantCourierIdx: index('manual_expenses_tenant_courier_idx').on(t.tenantId, t.courierAccountId),
+  }),
+);
+
 export const siteEvents = pgTable(
   'site_events',
   {
