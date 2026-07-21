@@ -557,7 +557,9 @@ export const orderItems = pgTable(
     // Farmer stats / payments / recommendations: GROUP BY / JOIN on product_id.
     // Composite (productId, orderId) also serves distinct-order counts per product.
     productIdx: index('order_items_product_idx').on(t.productId, t.orderId),
-    bundleParentIdx: index('order_items_bundle_parent_idx').on(t.bundleParentId),
+    bundleParentIdx: index('order_items_bundle_parent_idx')
+      .on(t.bundleParentId)
+      .where(sql`${t.bundleParentId} is not null`),
   }),
 );
 

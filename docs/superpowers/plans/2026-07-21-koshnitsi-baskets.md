@@ -74,11 +74,13 @@ Create `packages/db/drizzle/0111_order_item_bundle_parent.sql`:
 -- product. Children point at the parent so prep, stock restore and the order view
 -- can group them. CASCADE: dropping the basket line drops its children with it.
 ALTER TABLE order_items
-  ADD COLUMN bundle_parent_id uuid REFERENCES order_items(id) ON DELETE CASCADE;
+  ADD COLUMN IF NOT EXISTS bundle_parent_id uuid REFERENCES order_items(id) ON DELETE CASCADE;
 
-CREATE INDEX order_items_bundle_parent_idx ON order_items (bundle_parent_id)
+CREATE INDEX IF NOT EXISTS order_items_bundle_parent_idx ON order_items (bundle_parent_id)
   WHERE bundle_parent_id IS NOT NULL;
 ```
+
+`IF NOT EXISTS` on both statements, matching every recent sibling migration (`0110_manual_expenses.sql`, `0111_handover_signatures.sql`, `0082_audit_perf_indexes.sql`): a re-run or partially-applied environment must be safe.
 
 - [ ] **Step 3: Add the journal entry**
 
@@ -113,10 +115,12 @@ The self-reference needs `AnyPgColumn`. Confirm it is imported at the top of the
 Run: `rg -n "AnyPgColumn" packages/db/src/schema.ts | head -3`
 If there is no hit, add `AnyPgColumn` to the existing `drizzle-orm/pg-core` import.
 
-Then add the index inside the same table's index callback, beside `productIdx`:
+Then add the index inside the same table's index callback, beside `productIdx`. It must carry a `.where(...)` so the Drizzle definition matches the raw SQL's partial index — follow `stripePaymentIntentIdx` (`schema.ts:517-519`) and `tenantDeliveredIdx` (`schema.ts:526-528`):
 
 ```ts
-    bundleParentIdx: index('order_items_bundle_parent_idx').on(t.bundleParentId),
+    bundleParentIdx: index('order_items_bundle_parent_idx')
+      .on(t.bundleParentId)
+      .where(sql`${t.bundleParentId} is not null`),
 ```
 
 - [ ] **Step 5: Add the shared type field**

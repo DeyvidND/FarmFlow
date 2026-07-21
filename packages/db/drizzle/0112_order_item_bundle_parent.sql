@@ -4,7 +4,7 @@
 -- product. Children point at the parent so prep, stock restore and the order view
 -- can group them. CASCADE: dropping the basket line drops its children with it.
 ALTER TABLE order_items
-  ADD COLUMN bundle_parent_id uuid REFERENCES order_items(id) ON DELETE CASCADE;
+  ADD COLUMN IF NOT EXISTS bundle_parent_id uuid REFERENCES order_items(id) ON DELETE CASCADE;
 
-CREATE INDEX order_items_bundle_parent_idx ON order_items (bundle_parent_id)
+CREATE INDEX IF NOT EXISTS order_items_bundle_parent_idx ON order_items (bundle_parent_id)
   WHERE bundle_parent_id IS NOT NULL;
