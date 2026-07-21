@@ -1,8 +1,9 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { CONTENT_W, composeProtocol, renderProtocolPdf, wrap } from './handover-pdf';
+import { MARGIN } from './pdf-kit';
 
 /** Row shape for the render smoke tests (no phone/email — legacy-shaped row). */
 const ROW = {
@@ -151,5 +152,106 @@ describe('renderProtocolPdf', () => {
   it('renders a realistic ~12-item protocol without the signature blocks colliding with the list', async () => {
     const items = Array.from({ length: 12 }, (_, i) => ({ productName: `Продукт ${i + 1}`, quantity: i + 1, unit: 'кг' }));
     expect(isPdf(await renderProtocolPdf({ ...ROW, items }))).toBe(true);
+  });
+});
+
+describe('renderProtocolPdf — overflow (regression)', () => {
+  const bigRow = (n: number) => ({
+    ...ROW,
+    items: Array.from({ length: n }, (_, i) => ({
+      productName: `Продукт с доста дълго име номер ${i + 1}`,
+      quantity: i + 1,
+      unit: 'кг',
+    })),
+  });
+
+  it('adds pages instead of dropping items off the bottom', async () => {
+    const buf = await renderProtocolPdf(bigRow(80) as any);
+    expect(isPdf(buf)).toBe(true);
+    const doc = await PDFDocument.load(buf);
+    expect(doc.getPageCount()).toBeGreaterThan(1);
+  });
+
+  it('still fits a small protocol on a single page', async () => {
+    const doc = await PDFDocument.load(await renderProtocolPdf(bigRow(3) as any));
+    expect(doc.getPageCount()).toBe(1);
+  });
+});
+
+describe('renderProtocolPdf — draw-position regression (task 6)', () => {
+  // `d.page` is reassigned to a brand-new `PDFPage` instance on every break
+  // (see `newPage` in pdf-kit.ts), so spying on the prototype — not one page
+  // instance — is the only way to see every draw call across all pages. Same
+  // harness as pdf-table.spec.ts / pdf-kit.spec.ts. Page-count assertions
+  // (above) prove pagination happened at all; they say nothing about *where*
+  // things landed — a renderer could add pages and still draw everything at
+  // the same fixed, wrong y. These assert on the actual coordinates pdf-lib
+  // received.
+  const bigRow = (n: number) => ({
+    ...ROW,
+    items: Array.from({ length: n }, (_, i) => ({
+      productName: `Продукт с доста дълго име номер ${i + 1}`,
+      quantity: i + 1,
+      unit: 'кг',
+    })),
+  });
+
+  // ROW.kind is 'farmer_to_operator', so the operator (and hence the brand
+  // used for both the header and the footer) is `toSnapshot`.
+  const brand = String(ROW.toSnapshot.name);
+  const footerText = `Документът е издаден електронно от ${brand}.`;
+
+  let drawTextSpy: jest.SpyInstance;
+  let drawLineSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    drawTextSpy = jest.spyOn(PDFPage.prototype, 'drawText');
+    drawLineSpy = jest.spyOn(PDFPage.prototype, 'drawLine');
+  });
+
+  afterEach(() => {
+    drawTextSpy.mockRestore();
+    drawLineSpy.mockRestore();
+  });
+
+  it('never draws body content below MARGIN across a long multi-page protocol — only the pinned footer legitimately sits below it', async () => {
+    await renderProtocolPdf(bigRow(80) as any);
+
+    expect(drawTextSpy.mock.calls.length).toBeGreaterThan(0);
+    for (const [text, opts] of drawTextSpy.mock.calls) {
+      // drawDocumentFooter deliberately pins its text at MARGIN - 18 (see
+      // pdf-kit.ts) and does not move the cursor — that is its one legitimate
+      // exception to the invariant, so it is the one text excluded here.
+      if (text === footerText) continue;
+      expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+    for (const [opts] of drawLineSpy.mock.calls) {
+      expect(opts.start.y).toBeGreaterThanOrEqual(MARGIN);
+      expect(opts.end.y).toBeGreaterThanOrEqual(MARGIN);
+    }
+  });
+
+  it('keeps every item line strictly above the signature blocks on whichever page they share — the old code clamped signatures to y=150 and let a long list run straight through them', async () => {
+    await renderProtocolPdf(bigRow(80) as any);
+
+    const calls = drawTextSpy.mock.calls.map((call, i) => ({
+      text: call[0] as string,
+      opts: call[1] as { x: number; y: number },
+      page: drawTextSpy.mock.instances[i],
+    }));
+
+    const sigCalls = calls.filter((c) => c.text.startsWith('ПРЕДАЛ: '));
+    expect(sigCalls).toHaveLength(1); // sigBlock draws this label exactly once
+    const sigPage = sigCalls[0].page;
+    const sigY = sigCalls[0].opts.y;
+
+    // Every numbered item line ("N. Продукт …") drawn on the SAME page as the
+    // signature block must sit above it — never sharing or dipping into the
+    // vertical band the signature block occupies.
+    const itemLinesOnSigPage = calls.filter((c) => c.page === sigPage && /^\d+\.\s/.test(c.text));
+    expect(itemLinesOnSigPage.length).toBeGreaterThan(0); // confirm the assertion below isn't vacuous
+    for (const c of itemLinesOnSigPage) {
+      expect(c.opts.y).toBeGreaterThan(sigY);
+    }
   });
 });

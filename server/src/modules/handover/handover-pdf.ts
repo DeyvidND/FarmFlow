@@ -1,51 +1,27 @@
-import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
-import fontkit from '@pdf-lib/fontkit';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { bgDateOf } from '../../common/time/bg-time';
 import { cityFromAddress } from './handover-city';
+import {
+  A4_PORTRAIT,
+  Doc,
+  MARGIN,
+  INK,
+  contentW,
+  createDoc,
+  dateBg,
+  drawBoldText,
+  drawDocumentFooter,
+  drawDocumentHeader,
+  ensureSpace,
+  wrap,
+} from './pdf-kit';
 
-const FONT = readFileSync(join(__dirname, '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf'));
-
-export const PAGE_W = 595; // A4
-export const PAGE_H = 842;
-export const MARGIN = 55;
+// Geometry now lives in pdf-kit; these stay for this file's own layout maths.
+const PAGE_W = A4_PORTRAIT.w;
+// CONTENT_W and wrap ARE imported elsewhere (handover-pdf.spec.ts) — keep them exported.
 export const CONTENT_W = PAGE_W - 2 * MARGIN;
-const INK = rgb(0.11, 0.1, 0.09);
+export { wrap };
+
 const BODY_SIZE = 11;
 const BODY_LH = BODY_SIZE + 5;
-
-/**
- * Bulgarian short date in Europe/Sofia, e.g. "16.07.2026 г."
- *
- * Goes through bgDateOf rather than Date's local getters: no TZ is set in the
- * Dockerfile or compose, so prod runs UTC while every dev machine here runs
- * Europe/Sofia. `d.getDate()` was therefore right locally and wrong in prod —
- * a протокол signed at 01:30 Sofia (22:30Z the day before) printed yesterday's
- * date on a legal document.
- */
-function dateBg(d: Date): string {
-  const [year, month, day] = bgDateOf(d).split('-');
-  return `${day}.${month}.${year} г.`;
-}
-
-/** Greedy word-wrap: split `text` into lines no wider than `maxWidth` at `size`. */
-export function wrap(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let line = '';
-  for (const w of words) {
-    const next = line ? `${line} ${w}` : w;
-    if (font.widthOfTextAtSize(next, size) <= maxWidth || !line) {
-      line = next;
-    } else {
-      lines.push(line);
-      line = w;
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
-}
 
 export interface PartyText {
   role: string; // 'ПРЕДАВА:' | 'ПРИЕМА:'
@@ -152,126 +128,112 @@ export function composeProtocol(row: any): ProtocolText {
 }
 
 export async function renderProtocolPdf(row: any): Promise<Buffer> {
-  const doc = await PDFDocument.create();
-  doc.registerFontkit(fontkit);
-  const font = await doc.embedFont(FONT);
-  const page = doc.addPage([PAGE_W, PAGE_H]);
+  const d = await createDoc(A4_PORTRAIT);
   const t = composeProtocol(row);
+  const operatorSnap = row.kind === 'operator_to_customer' ? row.fromSnapshot : row.toSnapshot;
+  const brand = String(operatorSnap?.name ?? 'ФермериБГ');
 
-  let y = PAGE_H - 70;
+  drawDocumentHeader(d, {
+    brand,
+    title: t.title,
+    number: row.protocolNumber != null ? String(row.protocolNumber) : null,
+    date: new Date(row.signedAt ?? row.createdAt ?? Date.now()),
+  });
+
   const drawLeft = (text: string, x: number, size = BODY_SIZE, lh = BODY_LH) => {
-    for (const l of wrap(text, font, size, CONTENT_W - (x - MARGIN))) {
-      page.drawText(l, { x, y, size, font, color: INK });
-      y -= lh;
+    for (const l of wrap(text, d.font, size, contentW(d) - (x - MARGIN))) {
+      ensureSpace(d, lh);
+      d.page.drawText(l, { x, y: d.y, size, font: d.font, color: INK });
+      d.y -= lh;
     }
   };
-  /** Draws `text` centered on the page at the current `size` and current `y`; returns its box. */
-  const drawCentered = (text: string, size: number) => {
-    const w = font.widthOfTextAtSize(text, size);
-    const x = (PAGE_W - w) / 2;
-    page.drawText(text, { x, y, size, font, color: INK });
-    return { x, w };
-  };
 
-  // ── Title (centered, faux-bold, underlined) ──────────────────────────────
-  const titleSize = 16;
-  const { x: titleX, w: titleW } = drawCentered(t.title, titleSize);
-  page.drawText(t.title, { x: titleX + 0.4, y, size: titleSize, font, color: INK }); // faux-bold overlay
-  page.drawLine({ start: { x: titleX, y: y - 4 }, end: { x: titleX + titleW, y: y - 4 }, thickness: 1, color: INK });
-  y -= titleSize + 8;
-
-  if (t.number) {
-    drawCentered(t.number, 11);
-    y -= 11 + 6;
-  }
-  y -= 10;
-
-  // ── Opening line ("Днес, <дата>[, в гр. X], между:") ──────────────────────
   drawLeft(t.opening, MARGIN);
-  y -= 10;
+  d.y -= 10;
 
-  // ── ПРЕДАВА party, centered „и", ПРИЕМА party ─────────────────────────────
-  y = drawParty(page, font, MARGIN, y, t.from);
-  y -= 6;
-  drawCentered('и', 12);
-  y -= 12 + 6;
-  y = drawParty(page, font, MARGIN, y, t.to);
-  y -= 4;
+  drawParty(d, MARGIN, t.from);
+  d.y -= 6;
+  ensureSpace(d, 18);
+  const iW = d.font.widthOfTextAtSize('и', 12);
+  d.page.drawText('и', { x: MARGIN + (contentW(d) - iW) / 2, y: d.y, size: 12, font: d.font, color: INK });
+  d.y -= 18;
+  drawParty(d, MARGIN, t.to);
+  d.y -= 4;
 
-  // ── Intro line ─────────────────────────────────────────────────────────
   drawLeft(t.intro, MARGIN);
-  y -= 10;
+  d.y -= 10;
 
-  // ── Numbered inventory + 2 dotted continuation lines ─────────────────────
   const itemX = MARGIN + 6;
   for (const line of t.itemLines) drawLeft(line, itemX);
-  const dot = font.widthOfTextAtSize('.', BODY_SIZE);
+
+  const dot = d.font.widthOfTextAtSize('.', BODY_SIZE);
   for (let k = 0; k < 2; k++) {
     const prefix = `${t.itemLines.length + 1 + k}. `;
-    const room = CONTENT_W - 6 - font.widthOfTextAtSize(prefix, BODY_SIZE);
-    page.drawText(prefix + '.'.repeat(Math.max(0, Math.floor(room / dot))), { x: itemX, y, size: BODY_SIZE, font, color: INK });
-    y -= BODY_LH;
+    const room = contentW(d) - 6 - d.font.widthOfTextAtSize(prefix, BODY_SIZE);
+    ensureSpace(d, BODY_LH);
+    d.page.drawText(prefix + '.'.repeat(Math.max(0, Math.floor(room / dot))), {
+      x: itemX, y: d.y, size: BODY_SIZE, font: d.font, color: INK,
+    });
+    d.y -= BODY_LH;
   }
-  y -= 12;
+  d.y -= 12;
 
-  // ── Two-copies footer ────────────────────────────────────────────────────
   drawLeft(t.footer, MARGIN, 10, 15);
 
-  // ── Signature blocks (fixed near the foot) ───────────────────────────────
-  const sigY = Math.min(y - 40, 150);
-  await sigBlock(doc, page, font, MARGIN, sigY, 'ПРЕДАЛ', t.fromName, row.fromSignaturePng);
-  await sigBlock(doc, page, font, PAGE_W / 2 + 10, sigY, 'ПРИЕЛ', t.toName, row.toSignaturePng);
+  // Signature blocks need ~90pt; break rather than overlap the item list — the
+  // old code clamped them to y=150 and let long lists run straight through them.
+  ensureSpace(d, 90);
+  const sigY = d.y - 20;
+  await sigBlock(d, MARGIN, sigY, 'ПРЕДАЛ', t.fromName, row.fromSignaturePng);
+  await sigBlock(d, PAGE_W / 2 + 10, sigY, 'ПРИЕЛ', t.toName, row.toSignaturePng);
+  d.y = sigY - 40;
 
-  return Buffer.from(await doc.save());
+  // Same brand source as the header — a tenant whose operator isn't ФермериБГ
+  // should not see two different issuers named on the same document.
+  drawDocumentFooter(d, `Документът е издаден електронно от ${brand}.`);
+
+  return Buffer.from(await d.doc.save());
 }
 
 /**
  * Draws one ПРЕДАВА/ПРИЕМА party block (role, name in faux-bold, then whichever
  * of idLine/address/contact the party actually has — a field with no value is
- * simply never drawn, never printed as an empty labelled line). Returns the
- * cursor `y` after the block so the caller can keep laying out below it.
+ * simply never drawn, never printed as an empty labelled line). Breaks pages
+ * as needed via `ensureSpace`, same as every other block in this renderer.
  */
-function drawParty(page: PDFPage, font: PDFFont, x: number, startY: number, p: PartyText): number {
-  let y = startY;
+function drawParty(d: Doc, x: number, p: PartyText): void {
   const line = (text: string, size = BODY_SIZE, bold = false) => {
-    page.drawText(text, { x, y, size, font, color: INK });
-    if (bold) page.drawText(text, { x: x + 0.4, y, size, font, color: INK });
-    y -= BODY_LH;
+    ensureSpace(d, BODY_LH);
+    if (bold) drawBoldText(d, text, x, d.y, size);
+    else d.page.drawText(text, { x, y: d.y, size, font: d.font, color: INK });
+    d.y -= BODY_LH;
   };
   line(p.role, BODY_SIZE, true);
   line(p.name, BODY_SIZE, true);
   if (p.idLine) line(p.idLine);
-  if (p.address) {
-    for (const l of wrap(`адрес: ${p.address}`, font, BODY_SIZE, CONTENT_W)) {
-      page.drawText(l, { x, y, size: BODY_SIZE, font, color: INK });
-      y -= BODY_LH;
-    }
-  }
+  if (p.address) for (const l of wrap(`адрес: ${p.address}`, d.font, BODY_SIZE, contentW(d))) line(l);
   const contact = [p.phone && `тел.: ${p.phone}`, p.email && `e-mail: ${p.email}`].filter(Boolean).join('   ');
   if (contact) line(contact);
-  return y;
 }
 
 async function sigBlock(
-  doc: PDFDocument,
-  page: PDFPage,
-  font: PDFFont,
+  d: Doc,
   x: number,
   y: number,
   label: string,
   name: string | null | undefined,
   png: string | null,
 ) {
-  const nameX = x + font.widthOfTextAtSize(`${label}: `, 10);
-  page.drawText(`${label}: ______________________`, { x, y, size: 10, font, color: INK });
+  const nameX = x + d.font.widthOfTextAtSize(`${label}: `, 10);
+  d.page.drawText(`${label}: ______________________`, { x, y, size: 10, font: d.font, color: INK });
   if (name) {
-    page.drawText(`/${String(name)}/`, { x: nameX, y: y - 13, size: 9, font, color: INK });
+    d.page.drawText(`/${String(name)}/`, { x: nameX, y: y - 13, size: 9, font: d.font, color: INK });
   }
   if (png) {
     try {
       const bytes = Buffer.from(png.split(',').pop()!, 'base64');
-      const img = await doc.embedPng(bytes);
-      page.drawImage(img, { x: nameX, y: y + 4, width: 110, height: 36 });
+      const img = await d.doc.embedPng(bytes);
+      d.page.drawImage(img, { x: nameX, y: y + 4, width: 110, height: 36 });
     } catch {
       // Malformed/corrupt signature data — fall back to the blank line drawn above.
     }
