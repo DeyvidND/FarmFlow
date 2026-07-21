@@ -1381,8 +1381,15 @@ export const signProtocolPaper = (target: {
 
 /** Fullscreen «Проверка» (Task 12) — the day's SIGNED protocols, signatures
  *  already decrypted as PNG data-URLs, prices/order numbers stripped server-side. */
-export const getCheckProtocols = (date: string) =>
-  apiFetch<CheckProtocol[]>(`handover/check?date=${encodeURIComponent(date)}`);
+/** The roadside check screen's fetch. Takes a timeout because the failure mode
+ *  there is a STALLED connection, not a clean offline one — a bare fetch hangs
+ *  until the browser gives up, stranding a courier on „Зареждане…" with an
+ *  officer waiting and a usable cache one layer away. Aborting fast lets the
+ *  caller fall back to IndexedDB. */
+export const getCheckProtocols = (date: string, timeoutMs = 6000) =>
+  apiFetch<CheckProtocol[]>(`handover/check?date=${encodeURIComponent(date)}`, {
+    signal: AbortSignal.timeout(timeoutMs),
+  });
 
 export const protocolPdfHref = (id: string) => `/bff/handover/${id}/pdf`;
 

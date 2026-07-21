@@ -19,6 +19,7 @@ import {
   updateMyFarmerProfile,
   updateMyFarmerSignature,
 } from '@/lib/api-client';
+import { buildLegalPayload, type LegalKind } from '@/lib/legal-identity';
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
 
@@ -26,7 +27,7 @@ const field =
   'w-full rounded-sm border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[16px] sm:text-[14.5px] font-semibold text-ff-ink outline-none placeholder:text-ff-muted-2 focus:border-ff-green-500';
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
-type Kind = '' | 'individual' | 'sole_trader' | 'company';
+type Kind = LegalKind;
 
 export function MyFarmerProfileCard() {
   const [loading, setLoading] = React.useState(true);
@@ -102,14 +103,9 @@ export function MyFarmerProfileCard() {
   async function save() {
     setSaving(true);
     try {
-      const legal = {
-        kind: kind || undefined,
-        name: legalName.trim() || undefined,
-        eik: eik.trim() || undefined,
-        vatNumber: vatNumber.trim() || undefined,
-        address: address.trim() || undefined,
-        regNo: regNo.trim() || undefined,
-      };
+      // Sends ONLY the identifier that applies to the chosen kind — see
+      // buildLegalPayload for why that filtering is load-bearing.
+      const legal = buildLegalPayload({ kind, name: legalName, eik, vatNumber, address, regNo });
       await updateMyFarmerProfile({
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
@@ -155,7 +151,22 @@ export function MyFarmerProfileCard() {
           )}
           <label className={labelCls}>
             Вид производител
-            <select value={kind} onChange={(e) => setKind(e.target.value as Kind)} className={field}>
+            <select
+              value={kind}
+              onChange={(e) => {
+                const next = e.target.value as Kind;
+                setKind(next);
+                // Drop the identifier that no longer applies, so the value the
+                // farmer can no longer SEE can't survive in state and be saved.
+                if (next === 'individual') {
+                  setEik('');
+                  setVatNumber('');
+                } else {
+                  setRegNo('');
+                }
+              }}
+              className={field}
+            >
               <option value="">— избери —</option>
               <option value="individual">Физическо лице</option>
               <option value="sole_trader">ЕТ (едноличен търговец)</option>

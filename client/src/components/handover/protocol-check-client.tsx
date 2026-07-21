@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, TriangleAlert, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { todayIso } from '@/lib/utils';
-import { getCheckProtocols } from '@/lib/api-client';
+import { ApiError, getCheckProtocols } from '@/lib/api-client';
 import { readCheckCache, saveCheckCache, type CheckProtocol } from '@/lib/protocol-cache';
 
 const idLine = (p: CheckProtocol['fromSnapshot']) =>
@@ -15,18 +15,28 @@ const timeLabel = (ms: number) =>
 
 /**
  * Fullscreen „Проверка" — the day's SIGNED handover protocols shown large for a
- * roadside police check. Loads from the network, caches to IndexedDB (Task 11's
- * `saveCheckCache`), and falls back to the cache when offline so it still renders
- * with no signal.
+ * roadside police check.
+ *
+ * CACHE-FIRST, then refresh. The roadside failure mode is a stalled connection,
+ * not a clean offline one, so painting the IndexedDB copy immediately (and
+ * letting a timeboxed refresh replace it) is what keeps a courier from staring
+ * at a spinner while an officer waits.
  *
  * States, all reachable from `load()`:
- *   - loading            first paint, before the initial fetch settles.
- *   - loaded-with-data   network ok, rows.length > 0.
- *   - loaded-empty       network ok, rows.length === 0 — legitimately no signed
+ *   - loading            first paint, no cache yet, before the fetch settles.
+ *   - loaded-with-data   refresh ok, rows.length > 0.
+ *   - loaded-empty       refresh ok, rows.length === 0 — legitimately no signed
  *                        protocols today. NOT an error; no offline banner.
- *   - offline-from-cache network failed, a same-day cache existed — amber banner
+ *   - cached-then-fresh  a same-day cache painted first, refresh then replaced it.
+ *                        No banner — the data is current. (`offline` is asserted
+ *                        only after a refresh FAILS, or the banner would flash on
+ *                        every online load.)
+ *   - offline-from-cache refresh failed, a same-day cache existed — amber banner
  *                        naming when it was cached, rows come from the cache.
- *   - failed             network failed AND no cache for today — an honest error
+ *   - denied             refresh returned 401/403. Distinct copy: this account
+ *                        isn't allowed to read protocols, which is NOT a signal
+ *                        problem and must not be reported as one.
+ *   - failed             refresh failed AND no cache for today — an honest error
  *                        state (never silently rendered as "no protocols", which
  *                        would tell a courier they have nothing to show when they
  *                        actually do).
@@ -38,23 +48,56 @@ export function ProtocolCheckClient() {
   const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [offline, setOffline] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Distinguishes "the server refused this account" from "no network", so the
+  // error copy can stop blaming the signal for a permissions problem.
+  const [denied, setDenied] = useState(false);
+  // The timeout firing means the connection exists but is too slow to use — the
+  // classic roadside condition. „Провери връзката" is the wrong advice for it.
+  const [timedOut, setTimedOut] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
+    // CACHE FIRST, then refresh. The roadside failure mode is a STALLED network,
+    // not a clean offline one — network-first left the courier watching a spinner
+    // for the browser's full timeout while the protocols he needed sat in
+    // IndexedDB. Paint whatever we already have immediately; the refresh below
+    // either replaces it or leaves the offline banner standing.
+    const cached = await readCheckCache(date);
+    if (cached) {
+      setRows(cached.rows);
+      setCachedAt(cached.cachedAt);
+      setFailed(false);
+      setLoading(false);
+      // Deliberately NOT setOffline(true) here: that would flash the amber
+      // „Офлайн" banner on every load of a perfectly online session, in the
+      // window before the refresh lands. Offline is asserted only once the
+      // refresh has actually failed.
+    }
+
     try {
       const fresh = await getCheckProtocols(date);
       setRows(fresh);
       setOffline(false);
       setFailed(false);
       setCachedAt(null);
+      setDenied(false);
+      setTimedOut(false);
       await saveCheckCache(date, fresh, Date.now());
-    } catch {
-      const cached = await readCheckCache(date);
+    } catch (e) {
+      // 401/403 is NOT "no signal" — it's this account not being allowed to read
+      // protocols (today: any non-admin role, since GET /handover/check is
+      // admin-only). Telling a courier standing next to an officer that his phone
+      // has no connection, while it shows four bars, destroys trust in the screen.
+      const permission = e instanceof ApiError && (e.status === 401 || e.status === 403);
+      // AbortSignal.timeout rejects with a DOMException named 'TimeoutError'.
+      const slow = e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError');
+      setDenied(permission);
+      setTimedOut(slow);
       if (cached) {
-        setRows(cached.rows);
-        setCachedAt(cached.cachedAt);
-        setOffline(true);
+        // Keep the cached protocols on screen — they are what the officer needs —
+        // and only NOW admit the data is stale.
+        setOffline(!permission);
         setFailed(false);
       } else {
         setRows([]);
@@ -100,13 +143,25 @@ export function ProtocolCheckClient() {
       {!loading && failed && (
         <div className="flex flex-col items-center gap-3 px-5 py-16 text-center">
           <TriangleAlert size={28} className="text-ff-red" />
-          <p className="text-[14px] font-bold text-ff-ink">Неуспешно зареждане на протоколите</p>
-          <p className="max-w-xs text-[13px] text-ff-muted">
-            Няма връзка и няма запазено копие за днес. Провери връзката и опитай пак.
+          <p className="text-[14px] font-bold text-ff-ink">
+            {denied
+              ? 'Този профил няма достъп до протоколите'
+              : timedOut
+                ? 'Бавна връзка'
+                : 'Неуспешно зареждане на протоколите'}
           </p>
-          <Button size="sm" onClick={() => void load()}>
-            Опитай пак
-          </Button>
+          <p className="max-w-xs text-[13px] text-ff-muted">
+            {denied
+              ? 'Влез с профила на стопанството или поискай достъп от оператора. Връзката е наред — проблемът не е в сигнала.'
+              : timedOut
+                ? 'Връзката не отговори навреме и няма запазено копие за днес. Опитай пак — обикновено минава от втория път.'
+                : 'Няма връзка и няма запазено копие за днес. Провери връзката и опитай пак.'}
+          </p>
+          {!denied && (
+            <Button size="sm" onClick={() => void load()}>
+              Опитай пак
+            </Button>
+          )}
         </div>
       )}
 

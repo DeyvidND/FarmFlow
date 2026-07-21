@@ -170,9 +170,12 @@ export default function TodayClient({
 
       {/* Roadside quick action — a courier pulled over mid-delivery must reach
           the day's signed protocols in one tap from the landing screen, not
-          three taps deep via the Протоколи tile → Проверка button. Only shown
-          when there's anything to show for today. */}
-      {summary.protocols.total > 0 && (
+          three taps deep via the Протоколи tile → Проверка button.
+
+          Gated on `signed`, NOT `total`: the check screen lists SIGNED protocols
+          only, so gating on total advertised „0 подписани за днес" and led to an
+          empty screen whenever the day's protocols existed but weren't signed. */}
+      {summary.protocols.signed > 0 && (
         <Link
           href="/protocols/check"
           className="mb-4 flex w-full items-center gap-[13px] rounded-[13px] border border-ff-border bg-ff-surface-2 p-[13px] text-left shadow-ff-sm transition hover:brightness-95"
