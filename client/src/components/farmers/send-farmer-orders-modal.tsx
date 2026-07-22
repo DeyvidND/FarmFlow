@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Send, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ApiError, previewFarmerOrders, sendFarmerOrders } from '@/lib/api-client';
+import { ApiError, farmerOrderDays, previewFarmerOrders, sendFarmerOrders } from '@/lib/api-client';
 import type { Farmer } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
@@ -13,8 +13,12 @@ const tomorrowStr = () => {
   d.setDate(d.getDate() + 1);
   return d.toLocaleDateString('en-CA');
 };
+// "22 юли" — short label for an order-days chip.
+const shortBgDate = (day: string) =>
+  new Date(`${day}T00:00:00`).toLocaleDateString('bg-BG', { day: 'numeric', month: 'short' });
 
 type PreviewResult = { recipients: { id: string; name: string; email: string; orderCount: number }[]; skipped: number };
+type OrderDay = { day: string; count: number };
 
 const STATUS_OPTIONS: { key: string; label: string }[] = [
   { key: 'pending', label: 'Чакащи' },
@@ -38,10 +42,35 @@ export function SendFarmerOrdersModal({
   const [busy, setBusy] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
+  const [orderDays, setOrderDays] = useState<OrderDay[] | null>(null);
 
   const selectedFarmers = withEmail.filter((f) => farmerIds[f.id]).map((f) => f.id);
   const selectedStatuses = STATUS_OPTIONS.filter((s) => statuses[s.key]).map((s) => s.key);
   const canSend = selectedFarmers.length > 0 && selectedStatuses.length > 0 && !busy;
+
+  // Which days (near the current pick) actually have matching orders — an
+  // indicator so the organizer doesn't have to remember/guess a date.
+  // Re-centers around the currently picked day, not on every keystroke of it.
+  const farmerKey = selectedFarmers.join(',');
+  const statusKey = selectedStatuses.join(',');
+  useEffect(() => {
+    if (!farmerKey || !statusKey) {
+      setOrderDays([]);
+      return;
+    }
+    let cancelled = false;
+    farmerOrderDays({ farmerIds: farmerKey.split(','), statuses: statusKey.split(','), anchor: day })
+      .then((res) => {
+        if (!cancelled) setOrderDays(res);
+      })
+      .catch(() => {
+        if (!cancelled) setOrderDays([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [farmerKey, statusKey]);
 
   // Any change to the selection makes a shown preview stale — hide it rather
   // than let the organizer trust a recipient list for a different query.
@@ -109,6 +138,30 @@ export function SendFarmerOrdersModal({
               }}
               className="h-11 w-full rounded-xl border border-ff-border bg-ff-surface px-3 text-[14.5px] outline-none focus:border-ff-green-500"
             />
+            {orderDays && orderDays.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {orderDays.map((d) => (
+                  <button
+                    key={d.day}
+                    type="button"
+                    onClick={() => {
+                      setDay(d.day);
+                      clearPreview();
+                    }}
+                    className={`rounded-lg border px-2.5 py-1 text-[12.5px] font-semibold transition-colors ${
+                      d.day === day
+                        ? 'border-ff-green-600 bg-ff-green-100 text-ff-green-800'
+                        : 'border-ff-border-2 text-ff-ink-2 hover:border-ff-green-500'
+                    }`}
+                  >
+                    {shortBgDate(d.day)} · {d.count}
+                  </button>
+                ))}
+              </div>
+            )}
+            {orderDays && orderDays.length === 0 && (
+              <p className="mt-1.5 text-[12.5px] text-ff-muted">Няма поръчки в близките седмици за тези фермери/статуси.</p>
+            )}
           </div>
 
           <div className="mb-4">

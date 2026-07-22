@@ -319,6 +319,15 @@ export const previewFarmerOrders = (body: {
     'Неуспешен преглед',
   );
 
+/** Days (around an optional anchor) that have orders for the selected farmers/statuses —
+ *  feeds the day-picker indicator on {@link SendFarmerOrdersModal}. */
+export const farmerOrderDays = (body: { farmerIds: string[]; statuses: string[]; anchor?: string }) =>
+  apiFetch<{ day: string; count: number }[]>(
+    'digest/farmers/order-days',
+    { method: 'POST', ...json(body) },
+    'Неуспешно зареждане на дните',
+  );
+
 // ---- Subcategories ----
 export const listSubcategories = () => apiFetch<Subcategory[]>('subcategories');
 

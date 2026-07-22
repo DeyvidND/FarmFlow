@@ -1,9 +1,9 @@
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
-import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { type Database, orders, orderItems, products, deliverySlots, tenants, farmers } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { EmailService } from '../../common/email/email.service';
-import { bgToday, bgAddDays } from '../../common/time/bg-time';
+import { bgToday, bgAddDays, bgDate } from '../../common/time/bg-time';
 import { scheduledForDay, scheduledForRange } from '../orders/order-scheduling';
 import { harvestSummary } from '../orders/harvest-summary';
 
@@ -11,6 +11,8 @@ import { harvestSummary } from '../orders/harvest-summary';
 const ALLOWED_STATUSES = ['pending', 'confirmed', 'delivered'] as const;
 /** Widest [from,to] span accepted by {@link DigestService.sendFarmerOrderEmails}. */
 const MAX_RANGE_DAYS = 31;
+/** ± window (days) the order-days indicator scans around its anchor. */
+const ORDER_DAYS_SPAN = 21;
 
 interface DigestOrder {
   id: string;
@@ -983,6 +985,56 @@ export class DigestService {
       recipients.push({ id: f.id, name: f.name, email: f.email!, orderCount: email.summary.totalOrders });
     }
     return { recipients, skipped };
+  }
+
+  /**
+   * Which BG days (within ±{@link ORDER_DAYS_SPAN} of `anchor`) have orders for
+   * the selected farmers/statuses — feeds the day-picker indicator so the
+   * organizer can see where the orders actually are instead of guessing a date.
+   * Mirrors {@link resolveFarmerOrderBatch}'s farmer-scoping but counts DISTINCT
+   * orders per day rather than assembling email content (a day can hold orders
+   * from farmers not in the selection too — that's filtered out here, not shown).
+   */
+  async orderDaysWithOrders(
+    tenantId: string,
+    opts: { farmerIds: string[]; statuses: string[]; anchor?: string },
+  ): Promise<{ day: string; count: number }[]> {
+    const statuses = opts.statuses.filter((s): s is (typeof ALLOWED_STATUSES)[number] =>
+      (ALLOWED_STATUSES as readonly string[]).includes(s),
+    );
+    if (statuses.length === 0 || opts.farmerIds.length === 0) return [];
+
+    const anchor = opts.anchor ?? bgAddDays(bgToday(), 1);
+    const from = bgAddDays(anchor, -ORDER_DAYS_SPAN);
+    const to = bgAddDays(anchor, ORDER_DAYS_SPAN);
+
+    const rows = await this.db
+      .select({
+        day: sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`,
+        orderId: orders.id,
+      })
+      .from(orders)
+      .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
+      .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          inArray(orders.status, statuses),
+          scheduledForRange(from, to),
+          inArray(products.farmerId, opts.farmerIds),
+        )!,
+      );
+
+    const byDay = new Map<string, Set<string>>();
+    for (const r of rows) {
+      const set = byDay.get(r.day) ?? new Set<string>();
+      set.add(r.orderId);
+      byDay.set(r.day, set);
+    }
+    return [...byDay.entries()]
+      .map(([day, ids]) => ({ day, count: ids.size }))
+      .sort((a, b) => a.day.localeCompare(b.day));
   }
 }
 

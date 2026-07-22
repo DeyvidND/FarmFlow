@@ -4,6 +4,7 @@ import { DigestService } from './digest.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { SendFarmerOrdersDto } from './dto/send-farmer-orders.dto';
+import { FarmerOrderDaysDto } from './dto/farmer-order-days.dto';
 
 @ApiTags('digest')
 @ApiBearerAuth()
@@ -44,5 +45,15 @@ export class DigestController {
     @Body() dto: SendFarmerOrdersDto,
   ): Promise<{ recipients: { id: string; name: string; email: string; orderCount: number }[]; skipped: number }> {
     return this.digestService.previewFarmerOrderEmails(tenantId, dto);
+  }
+
+  /** Days (around an anchor) that have orders for the selected farmers/statuses —
+   *  feeds the day-picker indicator on the send modal. */
+  @Post('farmers/order-days')
+  farmerOrderDays(
+    @CurrentTenant() tenantId: string,
+    @Body() dto: FarmerOrderDaysDto,
+  ): Promise<{ day: string; count: number }[]> {
+    return this.digestService.orderDaysWithOrders(tenantId, dto);
   }
 }
