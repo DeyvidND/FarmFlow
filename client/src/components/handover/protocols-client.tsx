@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Printer, FileDown, Check, CheckCheck, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -235,18 +236,18 @@ export function ProtocolsClient() {
           <DateNavBar date={date} dateLabel={relDayLabel(date)} onSelect={setDate} />
         </div>
         <div className="flex flex-wrap gap-2 max-[680px]:w-full">
-          <a
+          <Link
             href="/protocols/check"
             className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-ff-ink px-3.5 py-2 text-[13.5px] font-bold text-white max-[680px]:w-full"
           >
             <ShieldCheck size={16} /> Проверка
-          </a>
-          <a
+          </Link>
+          <Link
             href="/protocols/consolidated"
             className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-ff-border px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 max-[680px]:w-full"
           >
             Обобщен протокол
-          </a>
+          </Link>
           <Button
             variant="outline"
             onClick={() => void printKind('farmer_to_operator')}
