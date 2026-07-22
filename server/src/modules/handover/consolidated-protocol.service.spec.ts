@@ -9,11 +9,12 @@ const CHAIN_METHODS = [
 
 function makeDb() {
   const queue: unknown[] = [];
-  const calls: { values: unknown[]; where: unknown[] } = { values: [], where: [] };
+  const calls: { values: unknown[]; where: unknown[]; set: unknown[] } = { values: [], where: [], set: [] };
   const step: any = {};
   for (const m of CHAIN_METHODS) step[m] = jest.fn(() => step);
   step.values = jest.fn((v: unknown) => { calls.values.push(v); return step; });
   step.where = jest.fn((c: unknown) => { calls.where.push(c); return step; });
+  step.set = jest.fn((v: unknown) => { calls.set.push(v); return step; });
   step.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
     const v = queue.shift();
     if (v instanceof Error) reject(v); else resolve(v);
@@ -326,5 +327,83 @@ describe('ConsolidatedProtocolService — overrides layer', () => {
     const view = await svc.getView('t1', 'cp1');
     expect(view.rows).toEqual(frozen);
     expect(db.select).toHaveBeenCalledTimes(1); // only the row itself — no live recompute
+  });
+});
+
+describe('ConsolidatedProtocolService.updateDraft', () => {
+  it('merges meta and overrides onto the existing jsonb, not replacing them wholesale', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'cp1', status: 'draft', meta: { vehicle: 'Форд' }, overrides: { excludedOrderIds: ['o1'] } }]);
+    const svc = makeSvc(db);
+    await svc.updateDraft('t1', 'cp1', { meta: { plate: 'В1234АВ' } });
+    expect(db.calls.set[0]).toEqual({
+      meta: { vehicle: 'Форд', plate: 'В1234АВ' },
+      overrides: { excludedOrderIds: ['o1'] },
+      updatedAt: expect.any(Date),
+    });
+  });
+
+  it('rejects editing a SIGNED protocol', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'cp1', status: 'signed', meta: {}, overrides: {} }]);
+    const svc = makeSvc(db);
+    await expect(svc.updateDraft('t1', 'cp1', { meta: { vehicle: 'Форд' } })).rejects.toThrow(/подписан/);
+  });
+});
+
+describe('ConsolidatedProtocolService.sign', () => {
+  const OLD_KEY = process.env.ENCRYPTION_KEY;
+  beforeEach(() => { process.env.ENCRYPTION_KEY = 'test-key'; });
+  afterAll(() => {
+    if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY; else process.env.ENCRYPTION_KEY = OLD_KEY;
+  });
+
+  it('freezes the current live rows into frozen_rows and flips status to signed', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, status: 'draft', overrides: {} }]); // row lookup
+    db.queue([]); // resolveScopeOrderIds: no slots → empty live rows
+    const svc = makeSvc(db);
+    await svc.sign('t1', 'cp1', 'data:image/png;base64,SIGNED', 'driver');
+    const updated = db.calls.set[0] as any;
+    expect(updated.status).toBe('signed');
+    expect(updated.frozenRows).toEqual({ farmers: [], orders: [] });
+    expect(updated.signedAt).toBeInstanceOf(Date);
+  });
+
+  it('rejects signing an already-signed protocol', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, status: 'signed', overrides: {} }]);
+    const svc = makeSvc(db);
+    await expect(svc.sign('t1', 'cp1', null, 'admin')).rejects.toThrow(/вече/);
+  });
+
+  it("auto-fills the operator's saved signature for an admin signer who supplies none", async () => {
+    const { encryptSignature, looksEncrypted, decryptSignature } = require('../../common/crypto/signature-crypto');
+    const db = makeDb();
+    db.queue([{ id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, status: 'draft', overrides: {} }]);
+    db.queue([]); // live rows: no slots
+    db.queue([{ operatorSignaturePng: encryptSignature('data:image/png;base64,OP', 'test-key') }]); // tenants row
+    const svc = makeSvc(db);
+    await svc.sign('t1', 'cp1', undefined, 'admin');
+    const updated = db.calls.set[0] as any;
+    expect(looksEncrypted(updated.receiverSignaturePng)).toBe(true);
+    expect(decryptSignature(updated.receiverSignaturePng, 'test-key')).toBe('data:image/png;base64,OP');
+  });
+
+  it('does NOT auto-fill for a driver signer — a courier never has a saved signature to fall back to', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'cp1', tenantId: 't1', scope: 'leg', date: '2026-07-22', legIndex: 0, status: 'draft', overrides: {} }]);
+    const svc = makeSvc(db, { getRoute: jest.fn().mockResolvedValue({ routes: [] }) });
+    // Spy proves the tenants table is never consulted for a driver signer — not just
+    // that receiverSignaturePng happens to come out null (which a differently-broken
+    // implementation could also produce by accident).
+    const dbSelectCallsBefore = db.select.mock.calls.length;
+    await svc.sign('t1', 'cp1', undefined, 'driver');
+    const updated = db.calls.set[0] as any;
+    expect(updated.receiverSignaturePng).toBeNull();
+    // row lookup (1) + resolveScopeOrderIds via getRoute for leg scope (0 extra db.select
+    // calls — leg scope uses routing.getRoute, not db) — so exactly 1 db.select total,
+    // never a 2nd for tenants.operatorSignaturePng.
+    expect(db.select.mock.calls.length - dbSelectCallsBefore).toBe(1);
   });
 });

@@ -1,11 +1,13 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException,
+} from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
-  type Database, consolidatedProtocols, deliverySlots, farmers, orderItems, orders, products,
+  type Database, consolidatedProtocols, deliverySlots, farmers, orderItems, orders, products, tenants,
 } from '@fermeribg/db';
 import type { ConsolidatedProtocolMeta, ConsolidatedProtocolOverrides, LegalIdentity } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
-import { decryptSignature } from '../../common/crypto/signature-crypto';
+import { decryptSignature, encryptSignature, SignatureKeyMissingError } from '../../common/crypto/signature-crypto';
 import { cityFromAddress } from './handover-city';
 import type { ProtocolItemDto } from './dto/create-protocol.dto';
 import { RoutingService } from '../routing/routing.service';
@@ -397,5 +399,85 @@ export class ConsolidatedProtocolService {
       receiverSignaturePng: decryptSignature(row.receiverSignaturePng),
       signedAt: row.signedAt,
     };
+  }
+
+  /** Merges (never replaces wholesale) meta/overrides onto a DRAFT row.
+   *  Rejects once the protocol is signed — an edit-after-freeze is explicitly
+   *  out of scope (spec's "извън обхвата: редакция на подписан документ"). */
+  async updateDraft(
+    tenantId: string,
+    id: string,
+    patch: { meta?: Partial<ConsolidatedProtocolMeta>; overrides?: Partial<ConsolidatedProtocolOverrides> },
+  ): Promise<void> {
+    const [row] = await this.db
+      .select({
+        id: consolidatedProtocols.id,
+        status: consolidatedProtocols.status,
+        meta: consolidatedProtocols.meta,
+        overrides: consolidatedProtocols.overrides,
+      })
+      .from(consolidatedProtocols)
+      .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Протоколът не е намерен.');
+    if (row.status !== 'draft') throw new ConflictException('Протоколът вече е подписан — не може да се редактира.');
+
+    const nextMeta = { ...((row.meta as object) ?? {}), ...(patch.meta ?? {}) };
+    const nextOverrides = { ...((row.overrides as object) ?? {}), ...(patch.overrides ?? {}) };
+    await this.db
+      .update(consolidatedProtocols)
+      .set({ meta: nextMeta, overrides: nextOverrides, updatedAt: new Date() })
+      .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)));
+  }
+
+  /** Freezes a DRAFT protocol: computes the CURRENT live rows one last time
+   *  and persists them into frozen_rows, captures the transport-acceptance
+   *  signature (§1.7 — a courier never has a saved one; an owner-admin who
+   *  supplies none gets tenants.operatorSignaturePng auto-filled, mirroring
+   *  HandoverService.createSigned's own auto-fill), flips status='signed'.
+   *  Rejects a protocol that's already signed. */
+  async sign(
+    tenantId: string,
+    id: string,
+    receiverSignaturePng: string | null | undefined,
+    signerRole: 'admin' | 'driver',
+  ): Promise<void> {
+    const [row] = await this.db
+      .select()
+      .from(consolidatedProtocols)
+      .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Протоколът не е намерен.');
+    if (row.status === 'signed') throw new ConflictException('Протоколът вече е подписан.');
+
+    const overrides = (row.overrides as ConsolidatedProtocolOverrides) ?? {};
+    const rows = await this.getLiveRows(tenantId, row.date, row.scope as ConsolidatedScope, row.legIndex, overrides);
+
+    let sigToStore = receiverSignaturePng;
+    if (sigToStore === undefined && signerRole === 'admin') {
+      const [tenantRow] = await this.db
+        .select({ operatorSignaturePng: tenants.operatorSignaturePng })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+      sigToStore = decryptSignature(tenantRow?.operatorSignaturePng ?? null);
+    }
+
+    let encrypted: string | null = null;
+    if (sigToStore) {
+      try {
+        encrypted = encryptSignature(sigToStore);
+      } catch (e) {
+        if (e instanceof SignatureKeyMissingError) {
+          throw new ServiceUnavailableException('Протоколът не може да бъде подписан — липсва ключ за криптиране на сървъра.');
+        }
+        throw e;
+      }
+    }
+
+    await this.db
+      .update(consolidatedProtocols)
+      .set({ status: 'signed', frozenRows: rows, receiverSignaturePng: encrypted, signedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)));
   }
 }
