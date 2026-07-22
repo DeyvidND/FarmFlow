@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  ServiceUnavailableException,
   Optional,
 } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm';
@@ -40,6 +41,7 @@ import { CarrierFulfillmentService } from './carrier-fulfillment.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { CommissionService } from '../vendor-finance/commission.service';
+import { OrderProtocolEmailService } from '../order-protocol-email/order-protocol-email.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay, scheduledForRange, pickNearestDay } from './order-scheduling';
@@ -535,6 +537,12 @@ export class OrdersService {
     // DORMANT commission ledger. @Optional() keeps the existing OrdersService
     // test harnesses valid; in the app the module is always wired.
     @Optional() private readonly commission?: CommissionService,
+    // Phase 2 (2026-07-22): gates the confirm transition on the bilateral
+    // protocol email actually sending (updateStatus), and backs the "прати
+    // пак" resend action + confirmPending's queued path. @Optional() keeps
+    // the existing OrdersService test harnesses valid (same rationale as
+    // `commission` above); in the app the module always wires it.
+    @Optional() private readonly protocolEmail?: OrderProtocolEmailService,
   ) {}
 
   /**
@@ -1773,6 +1781,22 @@ export class OrdersService {
       .from(orders)
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .limit(1);
+    // Phase 2 (2026-07-22), §4.3 human/single confirm path: render + send the
+    // bilateral protocol email BEFORE the status write, and only proceed to
+    // flip on a genuine success (or a safe skip — no email on file / already
+    // sent). A send failure throws loudly here — the row is never touched, so
+    // the order stays `pending` and re-clicking confirm is the retry. This is
+    // the ONE path allowed to pay this latency (§4.3/§9.2); confirmPending and
+    // the Stripe webhook flip first and queue the email instead (never gate).
+    const enteringConfirmed = dto.status === 'confirmed' && prev?.status !== 'confirmed';
+    if (enteringConfirmed && this.protocolEmail) {
+      const result = await this.protocolEmail.sendProtocolEmail(tenantId, id);
+      if (!result.ok) {
+        throw new ServiceUnavailableException(
+          `Протоколът не можа да се изпрати: ${result.error}. Поръчката остава непотвърдена.`,
+        );
+      }
+    }
     // Task #9/#10: delivered_at tracks the day the order was ACTUALLY delivered,
     // kept in lockstep with `status`. Set once on the first transition into
     // 'delivered' (idempotent — re-marking an already-delivered order must not
