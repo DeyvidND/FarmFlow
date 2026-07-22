@@ -22,6 +22,7 @@ import {
   listProducts,
   pendingReviewCount,
   reorderProducts,
+  setBundleItems,
   updateProduct,
   updateTenant,
   type ProductWrite,
@@ -256,11 +257,30 @@ export function ProductsClient({
     }
   }
 
-  async function onCreate(data: ProductWrite, files?: File[]) {
+  async function onCreate(
+    data: ProductWrite,
+    files?: File[],
+    members?: { productId: string; quantity: number }[],
+  ) {
     const created = await createProduct(data);
     setProducts((prev) => [created, ...prev]);
     patchAvail(created.id, data.stock);
     setCreateOpen(false);
+    setBasketOpen(false);
+    // Members picked before the basket had an id (product-dialog's basket-mode
+    // create flow) — attach them now that it does. The basket product itself
+    // already exists at this point; if this call fails (network hiccup, a stale
+    // picked option the server still rejects), reopen it in edit so the operator
+    // can retry adding contents instead of losing track of the empty basket.
+    if (members && members.length) {
+      try {
+        await setBundleItems(created.id, members);
+      } catch (e) {
+        toast.error(`Кошницата е създадена, но съдържанието не се записа: ${errMsg(e)}`);
+        setFullEdit(created);
+        return;
+      }
+    }
     if (files && files.length) {
       // Photos were picked in the create dialog — upload them now that we have an
       // id. The server keeps imageUrl synced to photo 0, so the first one is cover.

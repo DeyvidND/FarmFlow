@@ -60,7 +60,10 @@ export function ProductDialog({
   /** Lets the farmer jump straight to the bulk "Куриер" editor instead of toggling one product at a time. */
   onOpenCourierSettings?: () => void;
   onClose: () => void;
-  onSubmit: (data: ProductWrite, files?: File[]) => Promise<void>;
+  /** `members` is only ever passed for a NEW basket (`basketMode`, no `product`
+   *  yet): the products picked before the basket had an id, to be attached via
+   *  `setBundleItems` right after creation. */
+  onSubmit: (data: ProductWrite, files?: File[], members?: { productId: string; quantity: number }[]) => Promise<void>;
   /** Edit mode only: fired when the gallery cover (photo 0) changes. */
   onCoverChange?: (url: string | null) => void;
 }) {
@@ -95,6 +98,14 @@ export function ProductDialog({
   const [bundleErr, setBundleErr] = useState('');
   const [pickProductId, setPickProductId] = useState('');
   const [pickQty, setPickQty] = useState('1');
+  // Members picked before the basket itself has an id yet (creating, not editing).
+  // Buffered locally; attached via setBundleItems right after the product is
+  // created (see submit()). Carries enough of the picked product's own fields
+  // (name/price/image) to render the same list + auto-cover preview a saved
+  // basket gets from `bundleItems`, without waiting on a round trip.
+  const [pendingMembers, setPendingMembers] = useState<
+    { productId: string; quantity: number; name: string; priceStotinki: number; image: string | null }[]
+  >([]);
   // `ProductOption` has no farmer name, only `farmerId` — resolve it from the
   // `farmers` prop already passed in, so the member picker can show the owner
   // without any backend change (only worth showing in a multi-farmer tenant).
@@ -164,27 +175,56 @@ export function ProductDialog({
     };
   }, [isEdit, product]);
 
-  // Bundle members + candidate picker options — only fetched for an already-saved
-  // bundle product.
+  // Candidate picker options — needed from the FIRST render of basket mode, not
+  // just after the basket is saved, so products can be picked while creating.
+  useEffect(() => {
+    if (!isBundle) return;
+    let alive = true;
+    listProductOptions()
+      .catch(() => [])
+      .then((options) => {
+        if (alive) setBundleOptions(options);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isBundle]);
+
+  // Bundle members — only for an already-saved bundle product (a new one has no
+  // id to fetch members for yet; it uses `pendingMembers` instead).
   useEffect(() => {
     if (!isBundle || !product) return;
     let alive = true;
     setBundleLoading(true);
-    (async () => {
-      const [items, options] = await Promise.all([
-        getBundleItems(product.id).catch(() => []),
-        listProductOptions().catch(() => []),
-      ]);
-      if (!alive) return;
-      setBundleItemsState(items);
-      setBundleOptions(options);
-    })().finally(() => {
-      if (alive) setBundleLoading(false);
-    });
+    getBundleItems(product.id)
+      .catch(() => [])
+      .then((items) => {
+        if (alive) setBundleItemsState(items);
+      })
+      .finally(() => {
+        if (alive) setBundleLoading(false);
+      });
     return () => {
       alive = false;
     };
   }, [isBundle, product]);
+
+  // A product that would fail `setBundleItems` anyway (another basket, or a
+  // varianted product — a member line carries no variantId) is filtered out of
+  // the picker before the operator can choose it, in both create and edit mode.
+  const pickableOptions = useMemo(
+    () => bundleOptions.filter((o) => o.category !== 'bundle' && !o.hasVariants),
+    [bundleOptions],
+  );
+
+  // What chaika would draw as the basket's auto cover: the first four members
+  // that have a photo. Only relevant while there's no manual cover of the
+  // basket's own — an uploaded photo always wins, in the dialog preview too.
+  const autoCoverTiles = useMemo(() => {
+    if (!isBundle || imageUrl || pending.length) return [];
+    const source = product ? bundleItems.map((b) => b.image) : pendingMembers.map((m) => m.image);
+    return source.filter((src): src is string => !!src).slice(0, 4);
+  }, [isBundle, imageUrl, pending.length, product, bundleItems, pendingMembers]);
 
   if (!open) return null;
 
@@ -220,6 +260,19 @@ export function ProductDialog({
   function addBundleMember() {
     if (!pickProductId) return;
     const qty = Math.max(1, parseInt(pickQty, 10) || 1);
+    if (!product) {
+      // Creating: no id to persist against yet — buffer locally. Full replace
+      // isn't meaningful here (nothing saved yet), so just append.
+      const opt = bundleOptions.find((o) => o.id === pickProductId);
+      if (!opt) return;
+      setPendingMembers((prev) => [
+        ...prev,
+        { productId: opt.id, quantity: qty, name: opt.name, priceStotinki: opt.priceStotinki, image: opt.imageUrl },
+      ]);
+      setPickProductId('');
+      setPickQty('1');
+      return;
+    }
     const next = [
       ...bundleItems.map((b) => ({ productId: b.productId, quantity: b.quantity })),
       { productId: pickProductId, quantity: qty },
@@ -230,6 +283,10 @@ export function ProductDialog({
   }
 
   function removeBundleMember(productId: string) {
+    if (!product) {
+      setPendingMembers((prev) => prev.filter((m) => m.productId !== productId));
+      return;
+    }
     const next = bundleItems
       .filter((b) => b.productId !== productId)
       .map((b) => ({ productId: b.productId, quantity: b.quantity }));
@@ -346,6 +403,9 @@ export function ProductDialog({
           ...(isBundle ? { category: 'bundle', farmerId: null, stock: null, courierDisabled: true } : {}),
         },
         isEdit ? undefined : pending.map((p) => p.file),
+        isBundle && !isEdit && pendingMembers.length
+          ? pendingMembers.map((m) => ({ productId: m.productId, quantity: m.quantity }))
+          : undefined,
       );
       onClose();
     } catch (e2) {
@@ -367,7 +427,9 @@ export function ProductDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[18px] font-extrabold">{isEdit ? 'Редакция на продукт' : 'Нов продукт'}</h2>
+          <h2 className="text-[18px] font-extrabold">
+            {isBundle ? (isEdit ? 'Редакция на кошница' : 'Нова кошница') : isEdit ? 'Редакция на продукт' : 'Нов продукт'}
+          </h2>
           <button onClick={onClose} aria-label="Затвори" className="grid h-8 w-8 place-items-center rounded-lg text-ff-muted hover:bg-ff-surface-2">
             <X size={18} />
           </button>
@@ -455,16 +517,35 @@ export function ProductDialog({
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ягоди" className={field} autoFocus={!isEdit} />
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className={labelCls}>
-              Тегло
-              <input value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="500 г" className={field} />
-            </label>
-            <label className={labelCls}>
-              Единица
-              <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="бр" className={field} />
-            </label>
-          </div>
+          {/* A basket has no weight/unit of its own — it's a collection of other
+              products, each already carrying its own. */}
+          {!isBundle && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className={labelCls}>
+                Тегло
+                <input value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="500 г" className={field} />
+              </label>
+              <label className={labelCls}>
+                Единица
+                <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="бр" className={field} />
+              </label>
+            </div>
+          )}
+
+          {isBundle && autoCoverTiles.length >= 2 && (
+            <div className="flex items-center gap-3 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5">
+              <div className="grid h-16 w-16 shrink-0 grid-cols-2 grid-rows-2 gap-[2px] overflow-hidden rounded-lg border border-ff-border-2">
+                {autoCoverTiles.map((src, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={i} src={src} alt="" className="h-full w-full object-cover" />
+                ))}
+              </div>
+              <p className="text-[12px] leading-snug text-ff-muted">
+                <b className="text-ff-ink-2">Автоматична обложка</b> — без своя снимка клиентът
+                вижда тази мрежа от продуктите в кошницата. Качи снимка по-долу, за да я смениш.
+              </p>
+            </div>
+          )}
 
           {multiFarmer && !isBundle && farmers.length > 0 && (
             <label className={labelCls}>
@@ -493,6 +574,33 @@ export function ProductDialog({
             </label>
           )}
 
+          {/* A basket sells at ONE fixed price for the whole box — no вид/грамаж,
+              no per-row stock (availability comes from the members, Task 5). The
+              full variant editor below is for a plain product only. */}
+          {isBundle ? (
+            <label className={labelCls}>
+              Цена на кошницата
+              <input
+                value={variants[0]?.price ?? ''}
+                onChange={(e) => setVariants((p) => [{ ...p[0], price: e.target.value }])}
+                inputMode="decimal"
+                placeholder="39,90 €"
+                className={field}
+              />
+              {effectivePromoMode === 'fixed' && (
+                <span className="mt-1 flex items-center gap-2 text-[12px] text-ff-muted">
+                  Промо цена
+                  <input
+                    value={variants[0]?.salePrice ?? ''}
+                    onChange={(e) => setVariants((p) => [{ ...p[0], salePrice: e.target.value }])}
+                    inputMode="decimal"
+                    placeholder="напр. 34,90 € (празно = без промо)"
+                    className={`${field} min-w-0 flex-1`}
+                  />
+                </span>
+              )}
+            </label>
+          ) : (
           <Collapsible
             title="Цена и наличност"
             hint="Един ред = един продукт с една цена. Добави още редове за разфасовки или видове (вид/грамаж) — всеки със своя цена и наличност. Наличност празна = неограничено."
@@ -521,18 +629,16 @@ export function ProductDialog({
                       />
                       <span className="text-[11px] text-ff-muted">Цена</span>
                     </div>
-                    {!isBundle && (
-                      <div className="flex w-20 flex-col gap-1">
-                        <input
-                          value={v.stock}
-                          onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, stock: e.target.value.replace(/[^0-9]/g, '') } : r)))}
-                          inputMode="numeric"
-                          placeholder="бр"
-                          className={field}
-                        />
-                        <span className="text-[11px] text-ff-muted">празно = ∞</span>
-                      </div>
-                    )}
+                    <div className="flex w-20 flex-col gap-1">
+                      <input
+                        value={v.stock}
+                        onChange={(e) => setVariants((p) => p.map((r, j) => (j === i ? { ...r, stock: e.target.value.replace(/[^0-9]/g, '') } : r)))}
+                        inputMode="numeric"
+                        placeholder="бр"
+                        className={field}
+                      />
+                      <span className="text-[11px] text-ff-muted">празно = ∞</span>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setVariants((p) => p.filter((_, j) => j !== i))}
@@ -557,24 +663,20 @@ export function ProductDialog({
                   )}
                 </div>
               ))}
-              {/* A basket has one price for the whole box. Giving it variants would
-                  make checkout demand a variant choice for the basket itself, which
-                  nothing can answer — and the server already refuses varianted
-                  products as basket members for the same reason. */}
-              {!isBundle && (
-                <button
-                  type="button"
-                  onClick={() => setVariants((p) => [...p, { label: '', price: '', stock: '', salePrice: '' }])}
-                  className="inline-flex items-center gap-1.5 self-start text-[12.5px] font-semibold text-ff-green-700 hover:underline"
-                >
-                  <Plus size={14} /> Добави вид / грамаж
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setVariants((p) => [...p, { label: '', price: '', stock: '', salePrice: '' }])}
+                className="inline-flex items-center gap-1.5 self-start text-[12.5px] font-semibold text-ff-green-700 hover:underline"
+              >
+                <Plus size={14} /> Добави вид / грамаж
+              </button>
             </div>
           </Collapsible>
+          )}
 
-          {isBundle && bundleItems.length > 0 && (() => {
-            const sum = bundleItems.reduce((s, b) => s + b.priceStotinki * b.quantity, 0);
+          {isBundle && (bundleItems.length > 0 || pendingMembers.length > 0) && (() => {
+            const members = product ? bundleItems : pendingMembers;
+            const sum = members.reduce((s, b) => s + b.priceStotinki * b.quantity, 0);
             const own = euroInputToStotinki(variants[0]?.price ?? '') ?? 0;
             const diff = sum - own;
             return (
@@ -764,26 +866,31 @@ export function ProductDialog({
             </label>
           )}
 
-          {/* Bundle contents (task #1) — only for an already-saved bundle product. */}
-          {isBundle && (
-            <Collapsible
-              title="Съдържание на пакета"
-              hint="Продуктите, които клиентът получава в този пакет."
-              defaultOpen
-            >
-              {!product ? (
-                <p className="text-[12.5px] text-ff-muted">
-                  Запишете кошницата с име и цена, после добавете продуктите в нея.
-                </p>
-              ) : (
+          {/* Bundle contents (task #1) — live from the FIRST render of basket mode,
+              not just after the basket is saved. Creating: members are buffered in
+              `pendingMembers` and attached via setBundleItems right after the
+              product is created (see submit()). Editing: unchanged — each add/
+              remove persists immediately against the saved product. */}
+          {isBundle && (() => {
+            const activeMembers: { productId: string; name: string; quantity: number; priceStotinki: number }[] =
+              product ? bundleItems : pendingMembers;
+            const pickerOptions = pickableOptions.filter(
+              (o) => o.id !== product?.id && !activeMembers.some((m) => m.productId === o.id),
+            );
+            return (
+              <Collapsible
+                title="Съдържание на кошницата"
+                hint="Продуктите, които клиентът получава в тази кошница."
+                defaultOpen
+              >
                 <div className="flex flex-col gap-3">
                   {bundleLoading ? (
                     <p className="text-[12.5px] text-ff-muted">Зареждане…</p>
-                  ) : bundleItems.length === 0 ? (
-                    <p className="text-[12.5px] text-ff-muted">Пакетът все още няма продукти.</p>
+                  ) : activeMembers.length === 0 ? (
+                    <p className="text-[12.5px] text-ff-muted">Кошницата все още няма продукти.</p>
                   ) : (
                     <ul className="flex flex-col gap-1.5">
-                      {bundleItems.map((b) => (
+                      {activeMembers.map((b) => (
                         <li
                           key={b.productId}
                           className="flex items-center justify-between gap-2 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2"
@@ -797,7 +904,7 @@ export function ProductDialog({
                               type="button"
                               onClick={() => removeBundleMember(b.productId)}
                               disabled={bundleBusy}
-                              aria-label="Премахни от пакета"
+                              aria-label="Премахни от кошницата"
                               className="grid h-7 w-7 place-items-center rounded text-ff-red hover:bg-ff-surface disabled:opacity-50"
                             >
                               <X size={14} />
@@ -817,17 +924,15 @@ export function ProductDialog({
                         className={`${field} cursor-pointer appearance-none`}
                       >
                         <option value="">Избери…</option>
-                        {bundleOptions
-                          .filter((o) => o.id !== product.id && !bundleItems.some((b) => b.productId === o.id))
-                          .map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.name}
-                              {o.weight ? ` (${o.weight})` : ''}
-                              {multiFarmer && o.farmerId && farmerNameById.get(o.farmerId)
-                                ? ` — ${farmerNameById.get(o.farmerId)}`
-                                : ''}
-                            </option>
-                          ))}
+                        {pickerOptions.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.name}
+                            {o.weight ? ` (${o.weight})` : ''}
+                            {multiFarmer && o.farmerId && farmerNameById.get(o.farmerId)
+                              ? ` — ${farmerNameById.get(o.farmerId)}`
+                              : ''}
+                          </option>
+                        ))}
                       </select>
                     </label>
                     <label className="flex w-16 flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
@@ -850,13 +955,10 @@ export function ProductDialog({
                     </Button>
                   </div>
                   {bundleErr && <p className="text-[12.5px] font-semibold text-ff-red">{bundleErr}</p>}
-                  <p className="text-[11px] text-ff-muted">
-                    Забележка: продукт, който сам е пакет, не може да бъде добавен в друг пакет — сървърът ще откаже с ясно съобщение.
-                  </p>
                 </div>
-              )}
-            </Collapsible>
-          )}
+              </Collapsible>
+            );
+          })()}
 
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}
 
