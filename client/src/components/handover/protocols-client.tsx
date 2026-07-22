@@ -23,6 +23,7 @@ import {
 } from '@/lib/api-client';
 import type { DayProtocolRow } from '@/lib/types';
 import { ProtocolDialog } from './protocol-dialog';
+import { FarmerReadinessBoard } from './farmer-readiness-board';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -261,6 +262,9 @@ export function ProtocolsClient() {
           </Button>
         </div>
       </div>
+
+      {/* farmer protocol readiness — advisory only, spec §5.2/§5.3 */}
+      <FarmerReadinessBoard />
 
       {/* farmer pickups */}
       <div className="mb-5 overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
