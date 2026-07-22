@@ -324,7 +324,10 @@ export class ConsolidatedProtocolService {
         name: meta?.name ?? '—',
         legal: (meta?.legal as LegalIdentity | null) ?? null,
         items: [...(farmerAgg.get(id)?.values() ?? [])],
-        signaturePng: decryptSignature(meta?.signaturePng ?? null),
+        // Kept ENCRYPTED here — decrypted only at the PDF render boundary
+        // (renderPdf), so a signed protocol never stores farmer signatures
+        // plaintext in frozen_rows, nor returns them plaintext in the view JSON.
+        signaturePng: meta?.signaturePng ?? null,
       };
     });
 
@@ -356,8 +359,19 @@ export class ConsolidatedProtocolService {
     overrides: ConsolidatedProtocolOverrides,
   ): ConsolidatedProtocolRows {
     const fieldOverrides = overrides.fieldOverrides ?? {};
-    const farmerRows = rows.farmers.map((f) => ({ ...f, ...fieldOverrides[`f:${f.farmerId}`] }));
-    const orderRows = rows.orders.map((o) => ({ ...o, ...fieldOverrides[`o:${o.orderId}`] }));
+    // Whitelist the three editable cells. Spreading the raw override object would
+    // let an admin PATCH inject e.g. { name, legal, signaturePng } on a farmer or
+    // { totalStotinki, customerCode } on an order and silently rewrite the
+    // authoritative identity/value baked into the signed PDF.
+    const pick = (o?: { batch?: string; eDoc?: string; note?: string }): { batch?: string; eDoc?: string; note?: string } => {
+      const out: { batch?: string; eDoc?: string; note?: string } = {};
+      if (o?.batch !== undefined) out.batch = o.batch;
+      if (o?.eDoc !== undefined) out.eDoc = o.eDoc;
+      if (o?.note !== undefined) out.note = o.note;
+      return out;
+    };
+    const farmerRows = rows.farmers.map((f) => ({ ...f, ...pick(fieldOverrides[`f:${f.farmerId}`]) }));
+    const orderRows = rows.orders.map((o) => ({ ...o, ...pick(fieldOverrides[`o:${o.orderId}`]) }));
     const extra = overrides.extraRows ?? [];
     const extraFarmers: ConsolidatedFarmerRow[] = extra
       .filter((r) => r.section === 'A')
@@ -455,7 +469,11 @@ export class ConsolidatedProtocolService {
     const rows = await this.getLiveRows(tenantId, row.date, row.scope as ConsolidatedScope, row.legIndex, overrides);
 
     let sigToStore = receiverSignaturePng;
-    if (sigToStore === undefined && signerRole === 'admin') {
+    // `== null` on purpose: the real client sends `null` (JSON.stringify keeps
+    // it), never `undefined`. An owner-admin who draws nothing must still get
+    // their saved tenants.operatorSignaturePng auto-filled, or the frozen legal
+    // document carries an empty "Приел за транспорт" slot.
+    if (sigToStore == null && signerRole === 'admin') {
       const [tenantRow] = await this.db
         .select({ operatorSignaturePng: tenants.operatorSignaturePng })
         .from(tenants)
@@ -487,6 +505,16 @@ export class ConsolidatedProtocolService {
    *  same shop the operator sees everywhere else. */
   async renderPdf(tenantId: string, view: ConsolidatedProtocolView): Promise<Buffer> {
     const [tenantRow] = await this.db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-    return renderConsolidatedProtocolPdf(view, tenantRow?.name ?? 'ФермериБГ');
+    // Farmer signatures travel encrypted through the view and frozen_rows;
+    // decrypt them ONLY here, at the render boundary, so plaintext biometric
+    // signatures never rest in the DB nor leave in an API response.
+    const renderView: ConsolidatedProtocolView = {
+      ...view,
+      rows: {
+        ...view.rows,
+        farmers: view.rows.farmers.map((f) => ({ ...f, signaturePng: decryptSignature(f.signaturePng) })),
+      },
+    };
+    return renderConsolidatedProtocolPdf(renderView, tenantRow?.name ?? 'ФермериБГ');
   }
 }

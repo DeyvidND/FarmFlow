@@ -227,16 +227,22 @@ describe('ConsolidatedProtocolService — buildLiveRows', () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it("decrypts each farmer's saved signature", async () => {
-    const { encryptSignature } = require('../../common/crypto/signature-crypto');
+  it("keeps each farmer's saved signature ENCRYPTED — plaintext is produced only at render, never in the view or frozen_rows", async () => {
+    const { encryptSignature, looksEncrypted } = require('../../common/crypto/signature-crypto');
     process.env.ENCRYPTION_KEY = 'test-key';
+    const cipher = encryptSignature('data:image/png;base64,AAA', 'test-key');
     const db = makeDb();
     db.queue([{ id: 'o1', orderNumber: 1, deliveryAddress: null, deliveryCity: null, totalStotinki: 100 }]);
     db.queue([{ orderId: 'o1', farmerId: 'f1', productName: 'Домати', variantLabel: null, quantity: 1, unit: 'кг', priceStotinki: 100 }]);
-    db.queue([{ id: 'f1', name: 'Васил', legal: null, signaturePng: encryptSignature('data:image/png;base64,AAA', 'test-key') }]);
+    db.queue([{ id: 'f1', name: 'Васил', legal: null, signaturePng: cipher }]);
     const svc = makeSvc(db);
     const rows = await (svc as any).buildLiveRows('t1', ['o1']);
-    expect(rows.farmers[0].signaturePng).toBe('data:image/png;base64,AAA');
+    // Ciphertext passthrough — this exact value is what sign() freezes into
+    // frozen_rows and what getView returns in JSON, so it must be encrypted,
+    // NOT the decrypted data-URL. (Decryption happens only in renderPdf.)
+    expect(rows.farmers[0].signaturePng).toBe(cipher);
+    expect(rows.farmers[0].signaturePng).not.toBe('data:image/png;base64,AAA');
+    expect(looksEncrypted(rows.farmers[0].signaturePng)).toBe(true);
   });
 });
 
@@ -298,6 +304,34 @@ describe('ConsolidatedProtocolService — overrides layer', () => {
     const view = await svc.getView('t1', 'cp1');
     expect(view.rows.farmers[0].batch).toBe('Партида 12');
     expect(view.rows.orders[0].note).toBe('Внимание — чупливо');
+  });
+
+  it('IGNORES any fieldOverride key that is not batch/eDoc/note — no injecting legal/name/value into the signed PDF', async () => {
+    const db = makeDb();
+    db.queue([{ // an admin PATCH tries to smuggle name/legal/signature onto f1 and totalStotinki/customerCode onto o1
+      id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, docNumber: 1, status: 'draft',
+      meta: {}, overrides: { fieldOverrides: {
+        'f:f1': { batch: 'OK', name: 'ХАКНАТО ИМЕ', legal: { name: 'фалшив ЕИК' }, signaturePng: 'data:evil' } as any,
+        'o:o1': { note: 'OK', totalStotinki: 999999, customerCode: 'HACK' } as any,
+      } },
+      frozenRows: null, receiverSignaturePng: null, signedAt: null,
+    }]);
+    db.queue([{ id: 's1' }]);
+    db.queue([{ id: 'o1' }]);
+    db.queue([{ id: 'o1', orderNumber: 5, deliveryAddress: null, deliveryCity: null, totalStotinki: 300 }]);
+    db.queue([{ orderId: 'o1', farmerId: 'f1', productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 }]);
+    db.queue([{ id: 'f1', name: 'Васил', legal: { name: 'ЕТ Васил' }, signaturePng: null }]);
+    const svc = makeSvc(db);
+    const view = await svc.getView('t1', 'cp1');
+    const f1 = view.rows.farmers[0] as any;
+    expect(f1.batch).toBe('OK'); // whitelisted field DOES apply
+    expect(f1.name).toBe('Васил'); // injected name IGNORED — authoritative identity stands
+    expect(f1.legal).toEqual({ name: 'ЕТ Васил' }); // injected legal IGNORED
+    expect(f1.signaturePng).toBeNull(); // injected signature IGNORED
+    const o1 = view.rows.orders[0] as any;
+    expect(o1.note).toBe('OK');
+    expect(o1.totalStotinki).toBe(300); // injected value IGNORED — authoritative order total stands
+    expect(o1.customerCode).not.toBe('HACK');
   });
 
   it('a late order (added to the day AFTER the protocol was created) shows up automatically — the view recomputes live, it does not read a stored snapshot', async () => {
@@ -384,10 +418,29 @@ describe('ConsolidatedProtocolService.sign', () => {
     db.queue([]); // live rows: no slots
     db.queue([{ operatorSignaturePng: encryptSignature('data:image/png;base64,OP', 'test-key') }]); // tenants row
     const svc = makeSvc(db);
-    await svc.sign('t1', 'cp1', undefined, 'admin');
+    await svc.sign('t1', 'cp1', null, 'admin'); // the REAL client sends null (JSON.stringify keeps it), never undefined
     const updated = db.calls.set[0] as any;
     expect(looksEncrypted(updated.receiverSignaturePng)).toBe(true);
     expect(decryptSignature(updated.receiverSignaturePng, 'test-key')).toBe('data:image/png;base64,OP');
+  });
+
+  it('freezes farmer signatures ENCRYPTED into frozen_rows — a signed protocol never stores plaintext biometrics', async () => {
+    const { encryptSignature, looksEncrypted } = require('../../common/crypto/signature-crypto');
+    const cipher = encryptSignature('data:image/png;base64,FARMER', 'test-key');
+    const db = makeDb();
+    db.queue([{ id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, status: 'draft', overrides: {} }]); // row lookup
+    db.queue([{ id: 's1' }]); // resolveScopeOrderIds: one slot
+    db.queue([{ id: 'o1' }]); // one order in scope
+    db.queue([{ id: 'o1', orderNumber: 1, deliveryAddress: null, deliveryCity: null, totalStotinki: 100 }]); // order detail
+    db.queue([{ orderId: 'o1', farmerId: 'f1', productName: 'Домати', variantLabel: null, quantity: 1, unit: 'кг', priceStotinki: 100 }]); // items
+    db.queue([{ id: 'f1', name: 'Васил', legal: null, signaturePng: cipher }]); // farmer with a saved (encrypted) signature
+    const svc = makeSvc(db);
+    await svc.sign('t1', 'cp1', 'data:image/png;base64,SIGNED', 'driver');
+    const updated = db.calls.set[0] as any;
+    // The farmer's signature is frozen as CIPHERTEXT — never the plaintext PNG.
+    expect(updated.frozenRows.farmers[0].signaturePng).toBe(cipher);
+    expect(looksEncrypted(updated.frozenRows.farmers[0].signaturePng)).toBe(true);
+    expect(updated.frozenRows.farmers[0].signaturePng).not.toBe('data:image/png;base64,FARMER');
   });
 
   it('does NOT auto-fill for a driver signer — a courier never has a saved signature to fall back to', async () => {
@@ -398,7 +451,7 @@ describe('ConsolidatedProtocolService.sign', () => {
     // that receiverSignaturePng happens to come out null (which a differently-broken
     // implementation could also produce by accident).
     const dbSelectCallsBefore = db.select.mock.calls.length;
-    await svc.sign('t1', 'cp1', undefined, 'driver');
+    await svc.sign('t1', 'cp1', null, 'driver'); // client sends null; a driver still gets no auto-fill
     const updated = db.calls.set[0] as any;
     expect(updated.receiverSignaturePng).toBeNull();
     // row lookup (1) + resolveScopeOrderIds via getRoute for leg scope (0 extra db.select
