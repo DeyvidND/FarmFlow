@@ -1,7 +1,13 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
-import { type Database, consolidatedProtocols } from '@fermeribg/db';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  type Database, consolidatedProtocols, deliverySlots, farmers, orderItems, orders, products,
+} from '@fermeribg/db';
+import type { LegalIdentity } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
+import { decryptSignature } from '../../common/crypto/signature-crypto';
+import { cityFromAddress } from './handover-city';
+import type { ProtocolItemDto } from './dto/create-protocol.dto';
 import { RoutingService } from '../routing/routing.service';
 import { CourierAssignmentService } from '../routing/courier-assignment.service';
 
@@ -14,6 +20,40 @@ export interface ConsolidatedProtocolSummary {
   date: string;
   docNumber: number | null;
   status: 'draft' | 'signed' | null;
+}
+
+/** Same handover-ready statuses as HandoverService.HANDOVER_STATUSES — kept as
+ *  its own local constant (not imported) so this file has no coupling to the
+ *  bilateral service's internals; both must be kept in sync by hand if the
+ *  prep/handover window statuses ever change. */
+const HANDOVER_STATUSES = ['confirmed', 'preparing'] as const;
+
+export interface ConsolidatedFarmerRow {
+  farmerId: string;
+  name: string;
+  legal: LegalIdentity | null;
+  items: ProtocolItemDto[];
+  signaturePng: string | null;
+  batch?: string;
+  eDoc?: string;
+  note?: string;
+}
+
+export interface ConsolidatedOrderRow {
+  orderId: string;
+  orderNumber: number | null;
+  customerCode: string;
+  cityOrZone: string | null;
+  items: ProtocolItemDto[];
+  totalStotinki: number;
+  batch?: string;
+  eDoc?: string;
+  note?: string;
+}
+
+export interface ConsolidatedProtocolRows {
+  farmers: ConsolidatedFarmerRow[];
+  orders: ConsolidatedOrderRow[];
 }
 
 function targetMatch(tenantId: string, date: string, scope: ConsolidatedScope, legIndex?: number | null) {
@@ -140,5 +180,137 @@ export class ConsolidatedProtocolService {
       );
     }
     return out;
+  }
+
+  /** The order ids in scope for a target: EVERY handover-ready order in the
+   *  date's slots for scope='day' (mirrors HandoverService.resolveSlotIds +
+   *  its status filter); ONLY the orders on that courier's own route leg for
+   *  scope='leg' — the exact mechanism GET /handover/check already uses
+   *  (getRoute(..., 'all') + filter by courierIndex), so a leg's cargo can
+   *  never include another courier's stops. */
+  private async resolveScopeOrderIds(
+    tenantId: string,
+    date: string,
+    scope: ConsolidatedScope,
+    legIndex?: number | null,
+  ): Promise<string[]> {
+    if (scope === 'leg') {
+      const route = await this.routing.getRoute(tenantId, date, undefined, undefined, undefined, 'all');
+      return [
+        ...new Set(
+          route.routes
+            .filter((r: { courierIndex: number }) => r.courierIndex === legIndex)
+            .flatMap((r: { stops: { id: string }[] }) => r.stops.map((s) => s.id)),
+        ),
+      ];
+    }
+    const slotRows = await this.db
+      .select({ id: deliverySlots.id })
+      .from(deliverySlots)
+      .where(and(eq(deliverySlots.tenantId, tenantId), eq(deliverySlots.date, date)));
+    if (slotRows.length === 0) return [];
+    const slotIds = slotRows.map((r) => r.id);
+    const orderRows = await this.db
+      .select({ id: orders.id })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.tenantId, tenantId),
+          inArray(orders.slotId, slotIds),
+          inArray(orders.status, [...HANDOVER_STATUSES]),
+        ),
+      );
+    return orderRows.map((r) => r.id);
+  }
+
+  /** Pure aggregation given a settled list of order ids: section Б is one row
+   *  per order with its own items; section А sums cargo per farmer ACROSS
+   *  every order in the list (a farmer's produce is not tied to one order in
+   *  the multi-farmer marketplace model). Takes a plain order-id array (not a
+   *  scope) so overrides.excludedOrderIds can be subtracted BEFORE this runs
+   *  — see getLiveRows (Task 4) — keeping farmer cargo and section Б
+   *  automatically consistent with each other. */
+  private async buildLiveRows(tenantId: string, orderIds: string[]): Promise<ConsolidatedProtocolRows> {
+    if (orderIds.length === 0) return { farmers: [], orders: [] };
+
+    const orderRows = await this.db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        deliveryAddress: orders.deliveryAddress,
+        deliveryCity: orders.deliveryCity,
+        totalStotinki: orders.totalStotinki,
+      })
+      .from(orders)
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)));
+
+    const itemRows = await this.db
+      .select({
+        orderId: orderItems.orderId,
+        farmerId: products.farmerId,
+        productName: orderItems.productName,
+        variantLabel: orderItems.variantLabel,
+        quantity: orderItems.quantity,
+        unit: products.unit,
+        priceStotinki: orderItems.priceStotinki,
+      })
+      .from(orderItems)
+      .leftJoin(products, eq(orderItems.productId, products.id))
+      .where(inArray(orderItems.orderId, orderIds));
+
+    const itemsByOrder = new Map<string, ProtocolItemDto[]>();
+    const farmerAgg = new Map<string, Map<string, ProtocolItemDto>>();
+    for (const r of itemRows) {
+      if (!r.orderId) continue;
+      const item: ProtocolItemDto = {
+        productName: r.productName ?? '',
+        variantLabel: r.variantLabel ?? undefined,
+        quantity: r.quantity,
+        unit: r.unit ?? undefined,
+        priceStotinki: r.priceStotinki,
+      } as ProtocolItemDto;
+      const list = itemsByOrder.get(r.orderId) ?? [];
+      list.push(item);
+      itemsByOrder.set(r.orderId, list);
+
+      if (!r.farmerId) continue;
+      const perFarmer = farmerAgg.get(r.farmerId) ?? new Map<string, ProtocolItemDto>();
+      const key = `${item.productName}␟${item.variantLabel ?? ''}`;
+      const existing = perFarmer.get(key);
+      if (existing) existing.quantity += item.quantity;
+      else perFarmer.set(key, { ...item });
+      farmerAgg.set(r.farmerId, perFarmer);
+    }
+
+    const orderSection: ConsolidatedOrderRow[] = orderRows.map((o) => ({
+      orderId: o.id,
+      orderNumber: o.orderNumber,
+      customerCode: o.id.slice(0, 8).toUpperCase(),
+      cityOrZone: cityFromAddress(o.deliveryAddress)?.name ?? o.deliveryCity ?? null,
+      items: itemsByOrder.get(o.id) ?? [],
+      totalStotinki: o.totalStotinki,
+    }));
+
+    const farmerIds = [...farmerAgg.keys()];
+    const farmerMetaRows = farmerIds.length
+      ? await this.db
+          .select({ id: farmers.id, name: farmers.name, legal: farmers.legal, signaturePng: farmers.signaturePng })
+          .from(farmers)
+          .where(and(eq(farmers.tenantId, tenantId), inArray(farmers.id, farmerIds)))
+      : [];
+    const farmerMetaById = new Map(farmerMetaRows.map((f) => [f.id, f]));
+
+    const farmerSection: ConsolidatedFarmerRow[] = farmerIds.map((id) => {
+      const meta = farmerMetaById.get(id);
+      return {
+        farmerId: id,
+        name: meta?.name ?? '—',
+        legal: (meta?.legal as LegalIdentity | null) ?? null,
+        items: [...(farmerAgg.get(id)?.values() ?? [])],
+        signaturePng: decryptSignature(meta?.signaturePng ?? null),
+      };
+    });
+
+    return { farmers: farmerSection, orders: orderSection };
   }
 }

@@ -141,3 +141,100 @@ describe('ConsolidatedProtocolService.listForDay', () => {
     expect(out).toEqual([{ id: null, scope: 'day', legIndex: null, date: '2026-07-22', docNumber: null, status: null }]);
   });
 });
+
+describe('ConsolidatedProtocolService — scope resolution', () => {
+  it("day scope resolves to every handover-ready order in the date's slots, regardless of delivery type", async () => {
+    const db = makeDb();
+    db.queue([{ id: 's1' }, { id: 's2' }]); // deliverySlots for the date
+    db.queue([{ id: 'o1' }, { id: 'o2' }]); // orders in those slots
+    const svc = makeSvc(db);
+    const ids = await (svc as any).resolveScopeOrderIds('t1', '2026-07-22', 'day');
+    expect(ids).toEqual(['o1', 'o2']);
+  });
+
+  it('day scope with no slots that day resolves to nothing, without querying orders', async () => {
+    const db = makeDb();
+    db.queue([]); // no slots
+    const svc = makeSvc(db);
+    const ids = await (svc as any).resolveScopeOrderIds('t1', '2026-07-22', 'day');
+    expect(ids).toEqual([]);
+    expect(db.select).toHaveBeenCalledTimes(1); // only the slot query ran
+  });
+
+  it("leg scope resolves to ONLY that courier's own stops, via getRoute", async () => {
+    const routing = {
+      getRoute: jest.fn().mockResolvedValue({
+        routes: [
+          { courierIndex: 0, stops: [{ id: 'order-A' }, { id: 'order-B' }] },
+          { courierIndex: 1, stops: [{ id: 'order-C' }] },
+        ],
+      }),
+    };
+    const svc = makeSvc(makeDb(), routing);
+    const ids = await (svc as any).resolveScopeOrderIds('t1', '2026-07-22', 'leg', 1);
+    expect(ids).toEqual(['order-C']);
+    expect(routing.getRoute).toHaveBeenCalledWith('t1', '2026-07-22', undefined, undefined, undefined, 'all');
+  });
+
+  it('leg scope with no stops for that leg resolves to nothing', async () => {
+    const routing = { getRoute: jest.fn().mockResolvedValue({ routes: [{ courierIndex: 0, stops: [] }] }) };
+    const svc = makeSvc(makeDb(), routing);
+    const ids = await (svc as any).resolveScopeOrderIds('t1', '2026-07-22', 'leg', 0);
+    expect(ids).toEqual([]);
+  });
+});
+
+describe('ConsolidatedProtocolService — buildLiveRows', () => {
+  it('aggregates cargo per farmer ACROSS multiple orders, and lists orders separately with their own items', async () => {
+    const db = makeDb();
+    db.queue([ // orders
+      { id: 'o1', orderNumber: 5, deliveryAddress: 'гр. Варна, бул. Осми Приморски полк 1', deliveryCity: null, totalStotinki: 1000 },
+      { id: 'o2', orderNumber: 6, deliveryAddress: null, deliveryCity: 'Русе', totalStotinki: 500 },
+    ]);
+    db.queue([ // order_items ⋈ products
+      { orderId: 'o1', farmerId: 'f1', productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 },
+      { orderId: 'o2', farmerId: 'f1', productName: 'Домати', variantLabel: null, quantity: 3, unit: 'кг', priceStotinki: 300 },
+      { orderId: 'o2', farmerId: 'f2', productName: 'Мед', variantLabel: null, quantity: 1, unit: 'бр', priceStotinki: 1200 },
+    ]);
+    db.queue([ // farmers
+      { id: 'f1', name: 'Васил', legal: { name: 'ЕТ Васил' }, signaturePng: null },
+      { id: 'f2', name: 'Мария', legal: null, signaturePng: null },
+    ]);
+    const svc = makeSvc(db);
+    const rows = await (svc as any).buildLiveRows('t1', ['o1', 'o2']);
+
+    expect(rows.orders).toEqual([
+      { orderId: 'o1', orderNumber: 5, customerCode: 'o1'.slice(0, 8).toUpperCase(), cityOrZone: 'Варна', items: [{ productName: 'Домати', variantLabel: undefined, quantity: 2, unit: 'кг', priceStotinki: 300 }], totalStotinki: 1000 },
+      { orderId: 'o2', orderNumber: 6, customerCode: 'o2'.slice(0, 8).toUpperCase(), cityOrZone: 'Русе', items: [
+        { productName: 'Домати', variantLabel: undefined, quantity: 3, unit: 'кг', priceStotinki: 300 },
+        { productName: 'Мед', variantLabel: undefined, quantity: 1, unit: 'бр', priceStotinki: 1200 },
+      ], totalStotinki: 500 },
+    ]);
+    // Farmer f1's cargo is the SUM across o1 (2кг) and o2 (3кг) — one row, not two.
+    const f1 = rows.farmers.find((f: any) => f.farmerId === 'f1');
+    expect(f1.items).toEqual([{ productName: 'Домати', variantLabel: undefined, quantity: 5, unit: 'кг', priceStotinki: 300 }]);
+    expect(f1.legal).toEqual({ name: 'ЕТ Васил' });
+    const f2 = rows.farmers.find((f: any) => f.farmerId === 'f2');
+    expect(f2.name).toBe('Мария'); // falls back to plain name when legal is unset
+  });
+
+  it('returns empty sections for an empty order-id list, without querying the DB', async () => {
+    const db = makeDb();
+    const svc = makeSvc(db);
+    const rows = await (svc as any).buildLiveRows('t1', []);
+    expect(rows).toEqual({ farmers: [], orders: [] });
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it("decrypts each farmer's saved signature", async () => {
+    const { encryptSignature } = require('../../common/crypto/signature-crypto');
+    process.env.ENCRYPTION_KEY = 'test-key';
+    const db = makeDb();
+    db.queue([{ id: 'o1', orderNumber: 1, deliveryAddress: null, deliveryCity: null, totalStotinki: 100 }]);
+    db.queue([{ orderId: 'o1', farmerId: 'f1', productName: 'Домати', variantLabel: null, quantity: 1, unit: 'кг', priceStotinki: 100 }]);
+    db.queue([{ id: 'f1', name: 'Васил', legal: null, signaturePng: encryptSignature('data:image/png;base64,AAA', 'test-key') }]);
+    const svc = makeSvc(db);
+    const rows = await (svc as any).buildLiveRows('t1', ['o1']);
+    expect(rows.farmers[0].signaturePng).toBe('data:image/png;base64,AAA');
+  });
+});
