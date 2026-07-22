@@ -869,6 +869,38 @@ describe('HandoverService.renderPdf', () => {
   });
 });
 
+describe('HandoverService.renderPdfForEmail', () => {
+  it('renders the persisted protocol (via getById) with the unsigned/preliminary notice, producing a real PDF', async () => {
+    const db = makeDb();
+    db.queue([PDF_ROW]); // getById
+    const svc = await build(db);
+
+    const [plainBuf, emailBuf] = await Promise.all([
+      svc.renderPdf('t1', 'p1'),
+      (async () => {
+        const db2 = makeDb();
+        db2.queue([PDF_ROW]);
+        const svc2 = await build(db2);
+        return svc2.renderPdfForEmail('t1', 'p1');
+      })(),
+    ]);
+
+    expect(Buffer.isBuffer(emailBuf)).toBe(true);
+    expect(emailBuf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    // The email render must actually stamp the preliminary notice — proxied,
+    // same as handover-pdf.spec.ts, via a strictly larger byte length than the
+    // same row rendered WITHOUT the notice (renderPdf).
+    expect(emailBuf.length).toBeGreaterThan(plainBuf.length);
+  });
+
+  it('404s when the row is missing', async () => {
+    const db = makeDb();
+    db.queue([]); // getById: not found
+    const svc = await build(db);
+    await expect(svc.renderPdfForEmail('t1', 'missing')).rejects.toThrow(/намерен/);
+  });
+});
+
 describe('HandoverService.listForCheck', () => {
   const OLD_KEY = process.env.ENCRYPTION_KEY;
   beforeEach(() => {

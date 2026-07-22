@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  ServiceUnavailableException,
   Optional,
 } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm';
@@ -40,6 +41,7 @@ import { CarrierFulfillmentService } from './carrier-fulfillment.service';
 import { CodRiskService } from '../cod-risk/cod-risk.service';
 import { CatalogCacheService } from '../catalog-cache/catalog-cache.service';
 import { CommissionService } from '../vendor-finance/commission.service';
+import { OrderProtocolEmailService } from '../order-protocol-email/order-protocol-email.service';
 import { buildPublicMethods, carrierPolicy, codEnabled, courierDoorEnabled, econtMode, speedyEnabled, type DeliveryConfig } from './delivery-pricing';
 import { farmerCourierReady, farmerDeliveryNamespace } from './courier-eligibility';
 import { scheduledForDay, scheduledForRange, pickNearestDay } from './order-scheduling';
@@ -535,6 +537,12 @@ export class OrdersService {
     // DORMANT commission ledger. @Optional() keeps the existing OrdersService
     // test harnesses valid; in the app the module is always wired.
     @Optional() private readonly commission?: CommissionService,
+    // Phase 2 (2026-07-22): gates the confirm transition on the bilateral
+    // protocol email actually sending (updateStatus), and backs the "прати
+    // пак" resend action + confirmPending's queued path. @Optional() keeps
+    // the existing OrdersService test harnesses valid (same rationale as
+    // `commission` above); in the app the module always wires it.
+    @Optional() private readonly protocolEmail?: OrderProtocolEmailService,
   ) {}
 
   /**
@@ -1391,6 +1399,27 @@ export class OrdersService {
   }
 
   /**
+   * "Прати пак" (§4.3) — re-enqueues the bilateral protocol email for an order
+   * that may already be `confirmed`. Exists because Tasks 7/8 (bulk + Stripe)
+   * flip `orders.status` to `confirmed` BEFORE the email outcome is known —
+   * unlike the human path (Task 6), re-running the confirm action on those
+   * orders is a no-op (the pending→confirmed transition already happened), so
+   * it can no longer serve as the retry trigger. Idempotent: `sendProtocolEmail`
+   * (run by the queue's processor) no-ops when protocol_email_status is
+   * already 'sent'.
+   */
+  async resendProtocolEmail(id: string, tenantId: string): Promise<void> {
+    const [order] = await this.db
+      .select({ id: orders.id })
+      .from(orders)
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+      .limit(1);
+    if (!order) throw new NotFoundException('Поръчката не е намерена');
+    if (!this.protocolEmail) return; // module not wired (e.g. a bare unit-test harness) — no-op
+    await this.protocolEmail.enqueueProtocolEmail(tenantId, id);
+  }
+
+  /**
    * Does this order contain at least one of `farmerId`'s products? The
    * membership test that gates a producer sub-account's access to the full
    * order (GET /orders/:id) — the same „is this producer a party to the order"
@@ -1773,6 +1802,22 @@ export class OrdersService {
       .from(orders)
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .limit(1);
+    // Phase 2 (2026-07-22), §4.3 human/single confirm path: render + send the
+    // bilateral protocol email BEFORE the status write, and only proceed to
+    // flip on a genuine success (or a safe skip — no email on file / already
+    // sent). A send failure throws loudly here — the row is never touched, so
+    // the order stays `pending` and re-clicking confirm is the retry. This is
+    // the ONE path allowed to pay this latency (§4.3/§9.2); confirmPending and
+    // the Stripe webhook flip first and queue the email instead (never gate).
+    const enteringConfirmed = dto.status === 'confirmed' && prev?.status !== 'confirmed';
+    if (enteringConfirmed && this.protocolEmail) {
+      const result = await this.protocolEmail.sendProtocolEmail(tenantId, id);
+      if (!result.ok) {
+        throw new ServiceUnavailableException(
+          `Протоколът не можа да се изпрати: ${result.error}. Поръчката остава непотвърдена.`,
+        );
+      }
+    }
     // Task #9/#10: delivered_at tracks the day the order was ACTUALLY delivered,
     // kept in lockstep with `status`. Set once on the first transition into
     // 'delivered' (idempotent — re-marking an already-delivered order must not
@@ -2076,7 +2121,21 @@ export class OrdersService {
    * leftJoin(deliverySlots) directly (landmine — see server/CLAUDE.md), so the
    * day scoping goes through `id IN (subselect that joins)`.
    */
-  async confirmPending(tenantId: string, date?: string): Promise<{ confirmed: number }> {
+  /**
+   * Bulk confirm all pending orders (optionally scoped to a single DELIVERY
+   * day). The bulk-UPDATE shape below is UNCHANGED from before Phase 2: one
+   * set-based UPDATE flips every eligible row in a single statement
+   * (day-scoping via `id IN (subselect that joins deliverySlots)` — an UPDATE
+   * can't leftJoin directly, see server/CLAUDE.md). Per §4.3 this path does
+   * NOT gate the flip on the protocol email — only the human path
+   * (OrdersService.updateStatus) does that. Instead, each freshly-confirmed
+   * order gets a protocol-email job ENQUEUED (never awaited) right after the
+   * flip; `failed` counts orders whose job could not even be enqueued (e.g.
+   * Redis unreachable) — NOT SMTP failures, which land asynchronously in
+   * protocol_email_status and are surfaced via "прати пак" (Task 9), not
+   * this response.
+   */
+  async confirmPending(tenantId: string, date?: string): Promise<{ confirmed: number; failed: number }> {
     const baseConds = [eq(orders.tenantId, tenantId), eq(orders.status, 'pending')];
     let whereClause: SQL | undefined;
     if (date) {
@@ -2094,14 +2153,31 @@ export class OrdersService {
       .set({ status: 'confirmed' })
       .where(whereClause)
       .returning({ id: orders.id });
+
+    // Fire the protocol-email job per confirmed order — enqueue only, never
+    // awaited SMTP (§9.2/§4.3). A rejection here means the JOB never made it
+    // onto the queue (infra failure); counted in `failed`, NOT a delivery
+    // outcome, and does not touch the row's already-committed 'confirmed'
+    // status.
+    let failed = 0;
+    await Promise.all(
+      rows.map(async (r) => {
+        try {
+          await this.protocolEmail?.enqueueProtocolEmail(tenantId, r.id);
+        } catch {
+          failed++;
+        }
+      }),
+    );
+
     // Each row was pending → confirmed (one-time): notify each buyer + (for Econt
     // orders on an auto-create farm) generate the waybill. Drained with a small
     // concurrency cap (detached) so a large bulk confirm doesn't open N SMTP/Econt
-    // connections at once.
+    // connections at once. Unrelated to the protocol email above (unchanged).
     void this.drainConfirmEffects(rows.map((r) => r.id));
     // Newly-confirmed orders enter the counted set — refresh the Плащания cache.
     if (rows.length) await this.bustPayments(tenantId);
-    return { confirmed: rows.length };
+    return { confirmed: rows.length, failed };
   }
 
   /** Run per-order post-confirm side effects with bounded concurrency. Detached

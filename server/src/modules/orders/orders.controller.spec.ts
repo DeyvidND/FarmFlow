@@ -509,3 +509,19 @@ describe('OrdersController setFulfillment routing', () => {
     expect(svc.setFulfillment).not.toHaveBeenCalled();
   });
 });
+
+// "Прати пак" (§4.3, Task 9) — a thin delegation to OrdersService.resendProtocolEmail,
+// scoped to the caller's own tenant (never a client-supplied tenant id).
+describe('OrdersController resendProtocolEmail routing', () => {
+  const svc = { resendProtocolEmail: jest.fn().mockResolvedValue(undefined) };
+  const ctrl = new OrdersController(svc as any, {} as any, {} as any);
+  const tenant = (over: Record<string, unknown>) =>
+    ({ type: 'tenant', userId: 'u', tenantId: 't', ...over }) as any;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('re-enqueues the protocol email for the given order, scoped to the caller tenant', async () => {
+    await ctrl.resendProtocolEmail('o1', tenant({ role: 'admin' }));
+    expect(svc.resendProtocolEmail).toHaveBeenCalledWith('o1', 't');
+  });
+});

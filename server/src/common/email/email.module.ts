@@ -6,6 +6,7 @@ import { EmailWebhookController } from './email-webhook.controller';
 import { EmailProcessor } from './email.processor';
 import { EMAIL_QUEUE } from '../queue/queue.constants';
 import { RUN_WORKERS } from '../../config/app-role';
+import { OrderProtocolEmailModule } from '../../modules/order-protocol-email/order-protocol-email.module';
 
 @Global()
 @Module({
@@ -19,6 +20,9 @@ import { RUN_WORKERS } from '../../config/app-role';
         removeOnFail: 5000,
       },
     }),
+    // Makes PROTOCOL_ATTACHMENT_RESOLVER visible to EmailService's @Optional()
+    // injection (Phase 2, 2026-07-22) — see order-protocol-email.module.ts.
+    OrderProtocolEmailModule,
   ],
   controllers: [EmailWebhookController],
   providers: [EmailService, SuppressionService, ...(RUN_WORKERS ? [EmailProcessor] : [])],

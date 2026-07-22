@@ -22,6 +22,7 @@ import { CarrierFulfillmentService } from '../orders/carrier-fulfillment.service
 import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { CommissionService } from '../vendor-finance/commission.service';
+import { OrderProtocolEmailService } from '../order-protocol-email/order-protocol-email.service';
 
 // stripe@22 ships `export = StripeConstructor`, so the rich `Stripe.*` type
 // namespace isn't reachable through the default import under `moduleResolution:
@@ -111,6 +112,11 @@ export class StripeService {
     private readonly carrierFulfillment: CarrierFulfillmentService,
     private readonly analytics: AnalyticsService,
     @Optional() private readonly commission?: CommissionService,
+    // Phase 2 (2026-07-22), §4.3: enqueues (never awaits) the bilateral
+    // protocol email after a card payment confirms the order. @Optional()
+    // keeps the existing StripeService test harnesses valid; in the app the
+    // module always wires it.
+    @Optional() private readonly protocolEmail?: OrderProtocolEmailService,
   ) {
     const key = config.get<string>('STRIPE_SECRET_KEY')?.trim();
     this.webhookSecret = config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim() ?? '';
@@ -753,6 +759,21 @@ export class StripeService {
     // Neither must block or fail the webhook (both swallow their own errors).
     void this.carrierFulfillment.autoCreateForOrder(orderId);
     void this.orderEmail.sendForOrder(orderId);
+    // Phase 2 (2026-07-22): enqueue (never await) the bilateral protocol
+    // email — per §4.3 "опашка — Stripe чака бърз 200", this webhook must NOT
+    // pay real SMTP latency. `enqueueProtocolEmail` is a fast queue.add; unlike
+    // the two fire-and-forget calls above (whose own implementations swallow
+    // their errors internally), `enqueueProtocolEmail` does NOT catch its own
+    // rejection (e.g. Redis down) — so this call site catches explicitly,
+    // otherwise a queue hiccup would surface as an unhandled rejection and
+    // could crash the process instead of just failing to enqueue. A lost
+    // enqueue leaves the order confirmed with protocol_email_status staying
+    // null, recoverable via "прати пак" (Task 9) once an operator notices.
+    this.protocolEmail?.enqueueProtocolEmail(tenantId, orderId).catch((err) => {
+      this.logger.warn(
+        `[protocol-email] enqueue failed for order ${orderId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
     // Server-side confirmed sale — this is the ONLY place the online (Stripe)
     // path emits 'purchase' (checkout.service.ts skips it for that branch).
     // Falls back to a synthetic per-order hash for pre-existing orders placed

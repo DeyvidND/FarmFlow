@@ -12,6 +12,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { CodRiskModule } from '../cod-risk/cod-risk.module';
 import { CatalogCacheModule } from '../catalog-cache/catalog-cache.module';
 import { VendorFinanceModule } from '../vendor-finance/vendor-finance.module';
+import { OrderProtocolEmailModule } from '../order-protocol-email/order-protocol-email.module';
 import { RoutingModule } from '../routing/routing.module';
 
 @Module({
@@ -25,6 +26,7 @@ import { RoutingModule } from '../routing/routing.module';
     CodRiskModule,
     CatalogCacheModule,
     VendorFinanceModule,
+    OrderProtocolEmailModule,
     // forwardRef: RoutingModule imports this module back (RoutingService needs
     // OrdersService.reschedulable); OrdersController needs RoutingService AND
     // CourierAssignmentService (both exported by RoutingModule) for the driver

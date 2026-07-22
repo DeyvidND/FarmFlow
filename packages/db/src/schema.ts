@@ -465,6 +465,14 @@ export const orders = pgTable(
     codOutcomeAt: timestamp('cod_outcome_at', { withTimezone: true }),
     codOutcomeReason: text('cod_outcome_reason'),
     codOutcomeSource: text('cod_outcome_source'),
+    // Phase 2 (2026-07-22): tracks the bilateral protocol PDF emailed to the
+    // customer at confirm time. null = never attempted (no email on file, or
+    // this order predates the feature). 'sent' = accepted by the mail server
+    // (NOT "delivered" — see order-protocol-email.service.ts). 'bounced' is
+    // written by the existing Resend webhook (SuppressionService's consumer).
+    protocolEmailStatus: text('protocol_email_status'),
+    protocolEmailAt: timestamp('protocol_email_at', { withTimezone: true }),
+    protocolEmailError: text('protocol_email_error'),
     // Day the order was ACTUALLY delivered — distinct from created_at (order-placed
     // day) and the delivery_slots.date it was scheduled for. NULL until the first
     // transition into status='delivered'; cleared back to NULL if that transition is

@@ -155,6 +155,24 @@ describe('renderProtocolPdf', () => {
   });
 });
 
+describe('renderProtocolPdf preliminary notice (Phase 2)', () => {
+  it('adds no visible marker by default (existing callers unaffected)', async () => {
+    const buf = await renderProtocolPdf(ROW as any);
+    expect(isPdf(buf)).toBe(true);
+  });
+
+  it('opts.preliminaryNotice draws something extra — proxied via a larger byte length', async () => {
+    // renderProtocolPdf itself is opaque (PDF bytes); the CONTRACT under test is
+    // that passing the option does not throw and produces a larger byte length
+    // (an extra drawn line) — proxying "something extra rendered".
+    const [plain, marked] = await Promise.all([
+      renderProtocolPdf(ROW as any),
+      renderProtocolPdf(ROW as any, { preliminaryNotice: true }),
+    ]);
+    expect(marked.length).toBeGreaterThan(plain.length);
+  });
+});
+
 describe('renderProtocolPdf — overflow (regression)', () => {
   const bigRow = (n: number) => ({
     ...ROW,
