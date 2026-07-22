@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,11 +12,10 @@ import {
 } from '@/lib/api-client';
 import type { ConsolidatedProtocolView } from '@/lib/types';
 import { buildOverridesToggleExclude } from './consolidated-protocol-overrides';
+import { META_FIELDS, META_LABELS, isMetaDirty, seedMetaForm, type MetaFormState } from './consolidated-protocol-meta';
 import { SignaturePadField } from './signature-pad-field';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
-
-const META_FIELDS = ['vehicle', 'plate', 'driverName', 'startPlace', 'startTime', 'plannedEnd'] as const;
 
 /**
  * Consolidated (day/leg) protocol editor — section Б order list with an
@@ -24,15 +23,37 @@ const META_FIELDS = ['vehicle', 'plate', 'driverName', 'startPlace', 'startTime'
  * section В transport-meta form (vehicle/plate/driver/timing). Both are
  * disabled once the protocol is `status='signed'` (server also rejects a
  * PATCH at that point with a 409 — this is a courtesy, not the real gate).
+ *
+ * The В form is CONTROLLED and saves the WHOLE form in one PATCH. The old
+ * per-field blur-save disabled every input while a save was in flight, which
+ * kicked the focus out of the field being typed in and fired a cascade of
+ * premature blurs — the resulting concurrent single-field PATCHes raced each
+ * other and an operator's filled form survived as just its last field (prod
+ * audit_logs showed PATCH pairs 4ms apart). A full-form PATCH also self-heals
+ * any previously lost field, and sign() flushes the form first so
+ * „попълни → Подпиши" without a final blur can never freeze the PDF without
+ * the data.
  */
 export function ConsolidatedProtocolEdit({ id }: { id: string }) {
   const [view, setView] = useState<ConsolidatedProtocolView | null>(null);
   const [saving, setSaving] = useState(false);
   const [receiverSig, setReceiverSig] = useState<string | null>(null);
+  const [metaForm, setMetaForm] = useState<MetaFormState | null>(null);
+  // What the server last acked — flushMeta() is a no-op while the form matches it.
+  const lastSavedMeta = useRef<MetaFormState | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setView(await getConsolidatedProtocol(id));
+      const v = await getConsolidatedProtocol(id);
+      setView(v);
+      // Seed the form from the FIRST load only — a reload after a save must
+      // never clobber what the operator is still typing.
+      setMetaForm((current) => {
+        if (current !== null) return current;
+        const seeded = seedMetaForm(v.meta);
+        lastSavedMeta.current = seeded;
+        return seeded;
+      });
     } catch (e) {
       toast.error(errMsg(e));
     }
@@ -56,21 +77,27 @@ export function ConsolidatedProtocolEdit({ id }: { id: string }) {
     }
   }
 
-  async function saveMeta(patch: Partial<ConsolidatedProtocolView['meta']>) {
-    setSaving(true);
+  /** Sends the WHOLE form in one PATCH when it differs from the last ack.
+   *  Throws on failure so sign() can abort instead of freezing without data. */
+  async function flushMeta(form: MetaFormState): Promise<void> {
+    if (!isMetaDirty(form, lastSavedMeta.current)) return;
+    await updateConsolidatedProtocol(id, { meta: form });
+    lastSavedMeta.current = form;
+  }
+
+  async function saveMetaOnBlur() {
+    if (!metaForm || view?.status !== 'draft') return;
     try {
-      await updateConsolidatedProtocol(id, { meta: patch });
-      await load();
+      await flushMeta(metaForm);
     } catch (e) {
       toast.error(errMsg(e));
-    } finally {
-      setSaving(false);
     }
   }
 
   async function sign() {
     setSaving(true);
     try {
+      if (metaForm && view?.status === 'draft') await flushMeta(metaForm);
       await signConsolidatedProtocol(id, receiverSig);
       toast.success('Протоколът е подписан');
       await load();
@@ -81,7 +108,7 @@ export function ConsolidatedProtocolEdit({ id }: { id: string }) {
     }
   }
 
-  if (!view) return <p className="py-8 text-center text-sm text-ff-muted">Зареждане…</p>;
+  if (!view || !metaForm) return <p className="py-8 text-center text-sm text-ff-muted">Зареждане…</p>;
 
   const isDraft = view.status === 'draft';
   const excluded = new Set(view.overrides.excludedOrderIds ?? []);
@@ -142,12 +169,16 @@ export function ConsolidatedProtocolEdit({ id }: { id: string }) {
         <div className="grid grid-cols-2 gap-3 p-5">
           {META_FIELDS.map((field) => (
             <label key={field} className="text-[12.5px] font-semibold text-ff-muted">
-              {field}
+              {META_LABELS[field]}
               <input
                 className="mt-1 block w-full rounded-lg border border-ff-border px-2.5 py-1.5 text-[13.5px]"
-                defaultValue={view.meta[field] ?? ''}
-                disabled={!isDraft || saving}
-                onBlur={(e) => void saveMeta({ [field]: e.target.value })}
+                value={metaForm[field]}
+                // NB: deliberately NOT disabled while a save is in flight —
+                // disabling a focused input kicks the focus out and fires the
+                // premature-blur cascade this rework exists to kill.
+                disabled={!isDraft}
+                onChange={(e) => setMetaForm({ ...metaForm, [field]: e.target.value })}
+                onBlur={() => void saveMetaOnBlur()}
               />
             </label>
           ))}

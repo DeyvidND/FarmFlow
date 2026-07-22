@@ -219,7 +219,7 @@ export class ProblemsService {
         tenantId: null,
         tenantName: null,
         title: 'Неуредени наложени платежи',
-        detail: `${(ops.cod.outstandingStotinki / 100).toFixed(2)} лв. събрани от куриер, но неуредени с фермите`,
+        detail: `${(ops.cod.outstandingStotinki / 100).toFixed(2).replace('.', ',')} € събрани от куриер, но неуредени с фермите`,
         count: ops.cod.outstandingStotinki,
       });
     }

@@ -1,4 +1,5 @@
 import { and, eq, isNull } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { consolidatedProtocols } from '@fermeribg/db';
 import { ConsolidatedProtocolService } from './consolidated-protocol.service';
 
@@ -365,16 +366,52 @@ describe('ConsolidatedProtocolService — overrides layer', () => {
 });
 
 describe('ConsolidatedProtocolService.updateDraft', () => {
-  it('merges meta and overrides onto the existing jsonb, not replacing them wholesale', async () => {
+  // The merge MUST happen inside the database (`coalesce(col,'{}') || $patch`),
+  // never as read-in-JS-then-write-whole-column: the edit screen blur-saves one
+  // field per PATCH and prod audit_logs showed pairs landing 4ms apart — with a
+  // read-modify-write both read the same stale blob and the loser's field
+  // vanished (Vasil's transport form survived as just its last field).
+  const dialect = new PgDialect();
+
+  it('merges the meta patch INTO the column atomically in SQL — coalesce(meta) || $patch', async () => {
     const db = makeDb();
-    db.queue([{ id: 'cp1', status: 'draft', meta: { vehicle: 'Форд' }, overrides: { excludedOrderIds: ['o1'] } }]);
+    db.queue([{ id: 'cp1', status: 'draft' }]);
     const svc = makeSvc(db);
     await svc.updateDraft('t1', 'cp1', { meta: { plate: 'В1234АВ' } });
-    expect(db.calls.set[0]).toEqual({
-      meta: { vehicle: 'Форд', plate: 'В1234АВ' },
-      overrides: { excludedOrderIds: ['o1'] },
-      updatedAt: expect.any(Date),
-    });
+    const set = db.calls.set[0] as any;
+    const q = dialect.sqlToQuery(set.meta);
+    expect(q.sql).toContain('||');
+    expect(q.sql.toLowerCase()).toContain('coalesce');
+    expect(q.sql).toContain('"meta"'); // merges into the row's CURRENT value, not a stale JS snapshot
+    expect(q.params).toContain(JSON.stringify({ plate: 'В1234АВ' }));
+    expect(set.updatedAt).toEqual(expect.any(Date));
+  });
+
+  it('a meta-only patch does NOT rewrite the overrides column (and vice versa)', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'cp1', status: 'draft' }]);
+    const svc = makeSvc(db);
+    await svc.updateDraft('t1', 'cp1', { meta: { vehicle: 'Форд' } });
+    expect((db.calls.set[0] as any).overrides).toBeUndefined();
+
+    db.queue([{ id: 'cp1', status: 'draft' }]);
+    await svc.updateDraft('t1', 'cp1', { overrides: { excludedOrderIds: ['o1'] } });
+    const set = db.calls.set[1] as any;
+    expect(set.meta).toBeUndefined();
+    const q = dialect.sqlToQuery(set.overrides);
+    expect(q.sql).toContain('"overrides"');
+    expect(q.params).toContain(JSON.stringify({ excludedOrderIds: ['o1'] }));
+  });
+
+  it('the UPDATE re-checks status=draft in its WHERE — a sign() landing mid-flight makes it a no-op', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'cp1', status: 'draft' }]);
+    const svc = makeSvc(db);
+    await svc.updateDraft('t1', 'cp1', { meta: { plate: 'В1234АВ' } });
+    // calls.where: [0] = the status pre-check SELECT, [1] = the UPDATE's row filter.
+    const q = dialect.sqlToQuery(db.calls.where[1] as any);
+    expect(q.sql).toContain('"status"');
+    expect(q.params).toContain('draft');
   });
 
   it('rejects editing a SIGNED protocol', async () => {

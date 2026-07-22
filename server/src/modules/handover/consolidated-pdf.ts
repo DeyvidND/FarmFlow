@@ -117,8 +117,10 @@ export const ORDER_COLUMNS: Column[] = (() => {
   ];
 })();
 
+/** Amounts are EUR since the 2026 euro adoption — same "12,34 €" shape the whole
+ *  panel uses (client/src/lib/utils.ts formatMoney); „лв." here was a leftover. */
 function moneyStr(stotinki: number): string {
-  return `${(stotinki / 100).toFixed(2)} лв.`;
+  return `${(stotinki / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 /** Pure: order rows → drawTable cells. Deliberately carries NO customer name,
@@ -191,16 +193,20 @@ export async function renderConsolidatedProtocolPdf(view: ConsolidatedProtocolVi
   drawSectionTitle(d, 'В. Приемане от транспортния оператор');
   ensureSpace(d, 90);
   const m = view.meta;
+  // '' must render as the same „—" as an absent key: the edit form blur-saves
+  // per field, so an untouched-but-blurred input can legitimately persist ''.
+  const show = (v: string | undefined | null) => (v && v.trim() ? v : '—');
   const line = (text: string) => {
     ensureSpace(d, 16);
     d.page.drawText(text, { x: MARGIN, y: d.y, size: 10, font: d.font, color: INK });
     d.y -= 16;
   };
-  line(`Возило: ${m.vehicle ?? '—'}    Рег. №: ${m.plate ?? '—'}`);
-  line(`Тръгва от: ${m.startPlace ?? '—'} в ${m.startTime ?? '—'} ч.    Очаквано приключване: ${m.plannedEnd ?? '—'}`);
+  line(`Возило: ${show(m.vehicle)}    Рег. №: ${show(m.plate)}`);
+  line(`Тръгва от: ${show(m.startPlace)} в ${show(m.startTime)} ч.    Очаквано приключване: ${show(m.plannedEnd)}`);
   d.y -= 10;
   ensureSpace(d, 44);
-  d.page.drawText(`Приел за транспорт: ${m.driverName ?? '______________________'}`, { x: MARGIN, y: d.y, size: 10, font: d.font, color: INK });
+  const driver = m.driverName && m.driverName.trim() ? m.driverName : '______________________';
+  d.page.drawText(`Приел за транспорт: ${driver}`, { x: MARGIN, y: d.y, size: 10, font: d.font, color: INK });
   if (view.receiverSignaturePng) {
     try {
       const bytes = Buffer.from(view.receiverSignaturePng.split(',').pop()!, 'base64');

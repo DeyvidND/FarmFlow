@@ -1,7 +1,7 @@
 import {
   BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException,
 } from '@nestjs/common';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQLWrapper } from 'drizzle-orm';
 import {
   type Database, consolidatedProtocols, deliverySlots, farmers, orderItems, orders, products, tenants, users,
 } from '@fermeribg/db';
@@ -458,31 +458,47 @@ export class ConsolidatedProtocolService {
 
   /** Merges (never replaces wholesale) meta/overrides onto a DRAFT row.
    *  Rejects once the protocol is signed — an edit-after-freeze is explicitly
-   *  out of scope (spec's "извън обхвата: редакция на подписан документ"). */
+   *  out of scope (spec's "извън обхвата: редакция на подписан документ").
+   *
+   *  The merge happens IN the database (`coalesce(col,'{}') || $patch`), never
+   *  as read-in-JS-then-write-whole-column: the edit screen blur-saves one
+   *  field per PATCH, and two blurs land milliseconds apart (prod audit_logs
+   *  showed pairs 4ms apart). With the old read-modify-write both read the
+   *  same stale blob and the loser's field vanished — a whole transport form
+   *  ended up as just its last field. Same idiom as common/db/jsonb.ts. */
   async updateDraft(
     tenantId: string,
     id: string,
     patch: { meta?: Partial<ConsolidatedProtocolMeta>; overrides?: Partial<ConsolidatedProtocolOverrides> },
   ): Promise<void> {
     const [row] = await this.db
-      .select({
-        id: consolidatedProtocols.id,
-        status: consolidatedProtocols.status,
-        meta: consolidatedProtocols.meta,
-        overrides: consolidatedProtocols.overrides,
-      })
+      .select({ id: consolidatedProtocols.id, status: consolidatedProtocols.status })
       .from(consolidatedProtocols)
       .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)))
       .limit(1);
     if (!row) throw new NotFoundException('Протоколът не е намерен.');
     if (row.status !== 'draft') throw new ConflictException('Протоколът вече е подписан — не може да се редактира.');
 
-    const nextMeta = { ...((row.meta as object) ?? {}), ...(patch.meta ?? {}) };
-    const nextOverrides = { ...((row.overrides as object) ?? {}), ...(patch.overrides ?? {}) };
+    const atomicMerge = (column: SQLWrapper, value: object) =>
+      sql`coalesce(${column}, '{}'::jsonb) || ${JSON.stringify(value)}::jsonb`;
     await this.db
       .update(consolidatedProtocols)
-      .set({ meta: nextMeta, overrides: nextOverrides, updatedAt: new Date() })
-      .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)));
+      .set({
+        // Only the patched column is touched — a meta PATCH must not rewrite
+        // overrides (and vice versa) from any snapshot, stale or fresh.
+        ...(patch.meta ? { meta: atomicMerge(consolidatedProtocols.meta, patch.meta) } : {}),
+        ...(patch.overrides ? { overrides: atomicMerge(consolidatedProtocols.overrides, patch.overrides) } : {}),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(consolidatedProtocols.tenantId, tenantId),
+          eq(consolidatedProtocols.id, id),
+          // Belt for the status TOCTOU: a sign() landing between the check
+          // above and this UPDATE makes it a no-op instead of an edit-after-freeze.
+          eq(consolidatedProtocols.status, 'draft'),
+        ),
+      );
   }
 
   /** Freezes a DRAFT protocol: computes the CURRENT live rows one last time

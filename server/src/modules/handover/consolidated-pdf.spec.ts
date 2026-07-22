@@ -121,6 +121,14 @@ describe('buildOrderTableRows (pure)', () => {
     const rows = buildOrderTableRows([order({ cityOrZone: null })]);
     expect(rows[0]).toContain('—');
   });
+
+  // Bulgaria has been on the euro since 2026 — a „лв." here was the bug Vasil
+  // photographed. Same "12,34 €" shape as the panel's formatMoney.
+  it('formats the Стойност cell as EUR („6,00 €"), never лв.', () => {
+    const rows = buildOrderTableRows([order({ totalStotinki: 600 })]);
+    expect(rows[0][4]).toBe('6,00 €');
+    expect(rows[0].join(' ')).not.toContain('лв');
+  });
 });
 
 describe('ORDER_COLUMNS width sums to landscape content width', () => {
@@ -186,6 +194,32 @@ describe('renderConsolidatedProtocolPdf', () => {
     expect(flat).toContain('Форд Транзит');
     expect(flat).toContain('В1234АВ');
     expect(flat).toContain('Георги');
+    spy.mockRestore();
+  });
+
+  // The edit form blur-saves per field, so a blurred-but-untouched input can
+  // persist '' — that must print the same „—" as an absent key, not vanish.
+  it('renders an empty-string meta value as „—", exactly like an absent key', async () => {
+    const spy = jest.spyOn(PDFPage.prototype, 'drawText');
+    await renderConsolidatedProtocolPdf(view({ meta: { vehicle: '', plate: '  ', driverName: '' } }), 'ФермериБГ');
+    const flat = spy.mock.calls.map(([t]) => t).join(' ');
+    expect(flat).toContain('Возило: —');
+    expect(flat).toContain('Рег. №: —');
+    expect(flat).toContain('Приел за транспорт: ______________________');
+    spy.mockRestore();
+  });
+
+  // Draws a real order row end-to-end so the euro sign passes through the
+  // embedded DejaVuSans font (encode + width measurement) — a font without the
+  // € glyph would throw here, not just render wrong.
+  it('draws an order row\'s EUR total through the real embedded font', async () => {
+    const spy = jest.spyOn(PDFPage.prototype, 'drawText');
+    const rows = {
+      farmers: [],
+      orders: [{ orderId: 'o1', orderNumber: 5, customerCode: 'ABCD1234', cityOrZone: 'Варна', items: [], totalStotinki: 1234 }],
+    };
+    await renderConsolidatedProtocolPdf(view({ rows }), 'ФермериБГ');
+    expect(spy.mock.calls.some(([t]) => t === '12,34 €')).toBe(true);
     spy.mockRestore();
   });
 
