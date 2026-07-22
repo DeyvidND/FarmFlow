@@ -81,7 +81,11 @@ describe('OrdersService.confirmPending', () => {
 
     const out = await svc.confirmPending('tenant-1');
 
-    expect(out).toEqual({ confirmed: 1 });
+    // `failed` (Phase 2, Task 7) counts protocol-email ENQUEUE failures, not
+    // SQL/delivery outcomes — 0 here because these tests wire no protocolEmail
+    // dependency at all (this.protocolEmail is undefined, so the enqueue step
+    // no-ops via optional chaining and never increments the counter).
+    expect(out).toEqual({ confirmed: 1, failed: 0 });
     expect(db.select).not.toHaveBeenCalled();
     const { updateWhere } = captured();
     const rendered = dialect.sqlToQuery(updateWhere as any);
@@ -95,7 +99,7 @@ describe('OrdersService.confirmPending', () => {
 
     const out = await svc.confirmPending('tenant-1', '2026-07-20');
 
-    expect(out).toEqual({ confirmed: 2 });
+    expect(out).toEqual({ confirmed: 2, failed: 0 });
 
     // The subselect was issued, selecting only ids.
     expect(db.select).toHaveBeenCalledWith({ id: orders.id });
@@ -139,5 +143,59 @@ describe('OrdersService.confirmPending', () => {
     const svcSome = new OrdersService(some.db as any, {} as any, {} as any, {} as any, someCache as any, {} as any, {} as any, {} as any);
     await svcSome.confirmPending('tenant-1');
     expect(someCache.del).toHaveBeenCalled();
+  });
+});
+
+function serviceWithProtocolEmail(db: unknown, protocolEmail: any): OrdersService {
+  const cache: any = { del: jest.fn().mockResolvedValue(undefined) };
+  return new OrdersService(
+    db as any, {} as any, {} as any, {} as any, cache, {} as any, {} as any, {} as any,
+    undefined, protocolEmail,
+  );
+}
+
+describe('OrdersService.confirmPending — enqueues (never awaits) a protocol email per confirmed order', () => {
+  it('enqueues one job per confirmed order and reports 0 failed on success', async () => {
+    const { db } = buildDb([{ id: 'o1' }, { id: 'o2' }]);
+    const protocolEmail = { enqueueProtocolEmail: jest.fn().mockResolvedValue(undefined) };
+    const svc = serviceWithProtocolEmail(db, protocolEmail);
+
+    const out = await svc.confirmPending('tenant-1');
+
+    expect(out).toEqual({ confirmed: 2, failed: 0 });
+    expect(protocolEmail.enqueueProtocolEmail).toHaveBeenCalledTimes(2);
+    expect(protocolEmail.enqueueProtocolEmail).toHaveBeenCalledWith('tenant-1', 'o1');
+    expect(protocolEmail.enqueueProtocolEmail).toHaveBeenCalledWith('tenant-1', 'o2');
+  });
+
+  it('a single enqueue failure is counted in `failed`, but BOTH orders stay confirmed', async () => {
+    const { db } = buildDb([{ id: 'o1' }, { id: 'o2' }]);
+    const protocolEmail = {
+      enqueueProtocolEmail: jest.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('Redis unreachable')),
+    };
+    const svc = serviceWithProtocolEmail(db, protocolEmail);
+
+    const out = await svc.confirmPending('tenant-1');
+
+    // The enqueue failure is NOT a reason to un-confirm an order — the bulk
+    // UPDATE already committed both rows to 'confirmed' before any enqueue was
+    // attempted. `failed` here means "email didn't even get queued", not
+    // "order didn't confirm".
+    expect(out).toEqual({ confirmed: 2, failed: 1 });
+  });
+
+  it('never calls sendProtocolEmail (the blocking helper) — only enqueueProtocolEmail', async () => {
+    const { db } = buildDb([{ id: 'o1' }]);
+    const protocolEmail = {
+      enqueueProtocolEmail: jest.fn().mockResolvedValue(undefined),
+      sendProtocolEmail: jest.fn(),
+    };
+    const svc = serviceWithProtocolEmail(db, protocolEmail);
+
+    await svc.confirmPending('tenant-1');
+
+    expect(protocolEmail.sendProtocolEmail).not.toHaveBeenCalled();
   });
 });

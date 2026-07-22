@@ -2100,7 +2100,21 @@ export class OrdersService {
    * leftJoin(deliverySlots) directly (landmine — see server/CLAUDE.md), so the
    * day scoping goes through `id IN (subselect that joins)`.
    */
-  async confirmPending(tenantId: string, date?: string): Promise<{ confirmed: number }> {
+  /**
+   * Bulk confirm all pending orders (optionally scoped to a single DELIVERY
+   * day). The bulk-UPDATE shape below is UNCHANGED from before Phase 2: one
+   * set-based UPDATE flips every eligible row in a single statement
+   * (day-scoping via `id IN (subselect that joins deliverySlots)` — an UPDATE
+   * can't leftJoin directly, see server/CLAUDE.md). Per §4.3 this path does
+   * NOT gate the flip on the protocol email — only the human path
+   * (OrdersService.updateStatus) does that. Instead, each freshly-confirmed
+   * order gets a protocol-email job ENQUEUED (never awaited) right after the
+   * flip; `failed` counts orders whose job could not even be enqueued (e.g.
+   * Redis unreachable) — NOT SMTP failures, which land asynchronously in
+   * protocol_email_status and are surfaced via "прати пак" (Task 9), not
+   * this response.
+   */
+  async confirmPending(tenantId: string, date?: string): Promise<{ confirmed: number; failed: number }> {
     const baseConds = [eq(orders.tenantId, tenantId), eq(orders.status, 'pending')];
     let whereClause: SQL | undefined;
     if (date) {
@@ -2118,14 +2132,31 @@ export class OrdersService {
       .set({ status: 'confirmed' })
       .where(whereClause)
       .returning({ id: orders.id });
+
+    // Fire the protocol-email job per confirmed order — enqueue only, never
+    // awaited SMTP (§9.2/§4.3). A rejection here means the JOB never made it
+    // onto the queue (infra failure); counted in `failed`, NOT a delivery
+    // outcome, and does not touch the row's already-committed 'confirmed'
+    // status.
+    let failed = 0;
+    await Promise.all(
+      rows.map(async (r) => {
+        try {
+          await this.protocolEmail?.enqueueProtocolEmail(tenantId, r.id);
+        } catch {
+          failed++;
+        }
+      }),
+    );
+
     // Each row was pending → confirmed (one-time): notify each buyer + (for Econt
     // orders on an auto-create farm) generate the waybill. Drained with a small
     // concurrency cap (detached) so a large bulk confirm doesn't open N SMTP/Econt
-    // connections at once.
+    // connections at once. Unrelated to the protocol email above (unchanged).
     void this.drainConfirmEffects(rows.map((r) => r.id));
     // Newly-confirmed orders enter the counted set — refresh the Плащания cache.
     if (rows.length) await this.bustPayments(tenantId);
-    return { confirmed: rows.length };
+    return { confirmed: rows.length, failed };
   }
 
   /** Run per-order post-confirm side effects with bounded concurrency. Detached
