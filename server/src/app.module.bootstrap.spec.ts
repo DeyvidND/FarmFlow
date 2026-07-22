@@ -13,9 +13,7 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-// eslint-disable-next-line import/first
 import { Test } from '@nestjs/testing';
-// eslint-disable-next-line import/first
 import { AppModule } from './app.module';
 
 /**

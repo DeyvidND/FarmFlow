@@ -12,6 +12,7 @@ module.exports = {
   rules: {
     'no-unused-vars': 'off', // handled by tsc (noUnusedLocals) — avoids type false-positives
     'no-undef': 'off', // TypeScript resolves globals/types
+    'no-redeclare': 'off', // false-positives on TS function overloads; tsc catches real redeclares
     'no-empty': ['error', { allowEmptyCatch: true }],
     'no-constant-condition': ['error', { checkLoops: false }],
   },
