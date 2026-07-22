@@ -10,7 +10,7 @@ import { EMAIL_QUEUE } from '../queue/queue.constants';
 import {
   PROTOCOL_ATTACHMENT_RESOLVER,
   type ProtocolAttachmentResolver,
-  type HandoverProtocolAttachmentDescriptor,
+  type ProtocolAttachmentDescriptor,
 } from './protocol-attachment.types';
 
 /** Which reputation lane the mail rides. Transactional (resets, digests) is kept
@@ -66,7 +66,7 @@ export interface SendMailOptions {
   /** Lazily-materialized attachments — described, not carried, so a BullMQ job
    *  payload stays small and a retry re-renders fresh bytes instead of resending
    *  stale ones. Resolved to real bytes inside `deliver()`, right before send. */
-  attachments?: HandoverProtocolAttachmentDescriptor[];
+  attachments?: ProtocolAttachmentDescriptor[];
 }
 
 @Injectable()
@@ -208,7 +208,7 @@ export class EmailService implements OnModuleInit {
    *  requested but nothing implements the resolver — a wiring bug, not a
    *  runtime edge case to swallow. */
   private async resolveAttachments(
-    descriptors: HandoverProtocolAttachmentDescriptor[] | undefined,
+    descriptors: ProtocolAttachmentDescriptor[] | undefined,
   ): Promise<{ filename: string; content: Buffer }[]> {
     if (!descriptors?.length) return [];
     if (!this.attachmentResolver) {

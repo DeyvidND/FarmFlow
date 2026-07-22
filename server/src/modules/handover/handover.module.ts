@@ -18,10 +18,13 @@ import { RoutingModule } from '../routing/routing.module';
 // HandoverService is exported (Phase 2, 2026-07-22): OrderProtocolEmailModule
 // needs it (via its HandoverProtocolAttachmentResolver) to render the
 // customer's bilateral protocol for email — see order-protocol-email.module.ts.
+// ConsolidatedProtocolService is exported too (§4.4, 2026-07-22): the SAME
+// resolver also renders a courier's own leg of the обобщен protocol for the
+// "Прати на куриерите" send.
 @Module({
   imports: [RoutingModule],
   controllers: [HandoverController, ConsolidatedProtocolController],
   providers: [HandoverService, ConsolidatedProtocolService],
-  exports: [HandoverService],
+  exports: [HandoverService, ConsolidatedProtocolService],
 })
 export class HandoverModule {}
