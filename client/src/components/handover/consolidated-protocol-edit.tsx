@@ -3,9 +3,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ApiError, getConsolidatedProtocol, updateConsolidatedProtocol, consolidatedProtocolPdfHref } from '@/lib/api-client';
+import {
+  ApiError,
+  getConsolidatedProtocol,
+  updateConsolidatedProtocol,
+  consolidatedProtocolPdfHref,
+  signConsolidatedProtocol,
+} from '@/lib/api-client';
 import type { ConsolidatedProtocolView } from '@/lib/types';
 import { buildOverridesToggleExclude } from './consolidated-protocol-overrides';
+import { SignaturePadField } from './signature-pad-field';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -21,6 +28,7 @@ const META_FIELDS = ['vehicle', 'plate', 'driverName', 'startPlace', 'startTime'
 export function ConsolidatedProtocolEdit({ id }: { id: string }) {
   const [view, setView] = useState<ConsolidatedProtocolView | null>(null);
   const [saving, setSaving] = useState(false);
+  const [receiverSig, setReceiverSig] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -52,6 +60,19 @@ export function ConsolidatedProtocolEdit({ id }: { id: string }) {
     setSaving(true);
     try {
       await updateConsolidatedProtocol(id, { meta: patch });
+      await load();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function sign() {
+    setSaving(true);
+    try {
+      await signConsolidatedProtocol(id, receiverSig);
+      toast.success('Протоколът е подписан');
       await load();
     } catch (e) {
       toast.error(errMsg(e));
@@ -131,6 +152,15 @@ export function ConsolidatedProtocolEdit({ id }: { id: string }) {
             </label>
           ))}
         </div>
+
+        {isDraft && (
+          <div className="border-t border-ff-border-2 px-5 py-4">
+            <SignaturePadField value={receiverSig} onChange={setReceiverSig} label="Приел за транспорт" commit="live" />
+            <Button variant="primary" className="mt-3 w-full" disabled={saving} onClick={() => void sign()}>
+              {saving ? 'Подписване…' : 'Подпиши и замрази'}
+            </Button>
+          </div>
+        )}
       </section>
     </div>
   );
