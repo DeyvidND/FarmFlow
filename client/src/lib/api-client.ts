@@ -741,6 +741,14 @@ export const listOrders = (opts?: { page?: number; limit?: number; q?: string; s
 export const updateOrderStatus = (id: string, status: string) =>
   apiFetch<Order>(`orders/${id}/status`, { method: 'PATCH', ...json({ status }) }, 'Неуспешна промяна на статуса');
 
+/** Bulk-confirm a set of pending orders in one request (Плащания COD-review drawer). */
+export const confirmOrdersBatch = (ids: string[]) =>
+  apiFetch<{ confirmed: number; failed: number; ids: string[] }>(
+    'orders/confirm-batch',
+    { method: 'PATCH', ...json({ ids }) },
+    'Неуспешно потвърждаване на поръчките',
+  );
+
 export const updateOrder = (id: string, body: UpdateOrderInput) =>
   apiFetch<Order>(`orders/${id}`, { method: 'PATCH', ...json(body) }, 'Неуспешно записване на поръчката');
 

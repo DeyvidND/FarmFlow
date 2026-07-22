@@ -1194,3 +1194,44 @@ describe('EcontService.refreshActiveShipments', () => {
     expect(out.refreshed).toBe(1);
   });
 });
+
+describe('EcontService.disconnect / saveCredentials — estimate cache bust', () => {
+  function makeSvc(): EcontService {
+    const config = { get: (k: string, d: unknown) => (k === 'ENCRYPTION_KEY' ? 'test-enc-key' : d) } as any;
+    return new EcontService({} as never, config, {} as never, {} as never, {} as never);
+  }
+
+  it('disconnect busts the tenant-scoped estimate prefix', async () => {
+    const svc = makeSvc();
+    (svc as any).loadStored = jest.fn().mockResolvedValue({
+      tenant: { slug: 'ferma-x' },
+      econt: { username: 'u', passwordEnc: 'enc', configured: true },
+    });
+    const updWhere = jest.fn().mockResolvedValue(undefined);
+    (svc as any).db = { update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: updWhere }) }) };
+    const del = jest.fn();
+    const delByPrefix = jest.fn();
+    (svc as any).cache = { del, delByPrefix };
+
+    await svc.disconnect('tenant-1');
+
+    expect(delByPrefix).toHaveBeenCalledWith('econt:estimate:tenant-1:');
+  });
+
+  it('saveCredentials busts the tenant-scoped estimate prefix on a successful reconnect', async () => {
+    const svc = makeSvc();
+    (svc as any).loadStored = jest.fn().mockResolvedValue({
+      tenant: { slug: 'ferma-x', isDemo: false, name: 'Ferma', settings: {} },
+      econt: {},
+    });
+    (svc as any).call = jest.fn().mockResolvedValue({});
+    (svc as any).db = { update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }) };
+    const del = jest.fn();
+    const delByPrefix = jest.fn();
+    (svc as any).cache = { del, delByPrefix };
+
+    await svc.saveCredentials('tenant-1', { username: 'u', password: 'p' });
+
+    expect(delByPrefix).toHaveBeenCalledWith('econt:estimate:tenant-1:');
+  });
+});

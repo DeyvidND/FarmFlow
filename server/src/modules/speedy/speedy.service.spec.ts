@@ -632,3 +632,55 @@ describe('SpeedyService.buildSenderBlob (unit)', () => {
     expect(out.sender).toEqual({ contactName: 'Y', mode: 'office', officeId: 2 });
   });
 });
+
+describe('SpeedyService.disconnect / saveCredentials — estimate cache bust', () => {
+  it('disconnect busts the tenant-scoped estimate prefix', async () => {
+    const svc = makeService();
+    (svc as any).loadStored = jest.fn().mockResolvedValue({
+      tenant: { slug: 'ferma-x' },
+      speedy: { userName: 'u', passwordEnc: 'enc', configured: true },
+    });
+    (svc as any).db = { update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }) };
+    const del = jest.fn();
+    const delByPrefix = jest.fn();
+    (svc as any).cache = { del, delByPrefix };
+
+    await svc.disconnect('tenant-1');
+
+    expect(delByPrefix).toHaveBeenCalledWith('speedy:estimate:tenant-1:');
+  });
+
+  it('saveCredentials busts the tenant-scoped estimate prefix on a successful reconnect', async () => {
+    const svc = makeService();
+    (svc as any).encKey = 'test-enc-key'; // makeService()'s config stub ignores the key name
+    (svc as any).client = { call: jest.fn().mockResolvedValue({}) };
+    (svc as any).loadStored = jest.fn().mockResolvedValue({
+      tenant: { slug: 'ferma-x', isDemo: false, name: 'Ferma', settings: {} },
+      speedy: {},
+    });
+    (svc as any).db = { update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }) };
+    const del = jest.fn();
+    const delByPrefix = jest.fn();
+    (svc as any).cache = { del, delByPrefix };
+
+    await svc.saveCredentials('tenant-1', { userName: 'u', password: 'p' });
+
+    expect(delByPrefix).toHaveBeenCalledWith('speedy:estimate:tenant-1:');
+  });
+
+  it('saveProfile busts the tenant-scoped estimate prefix (no origin fingerprint in the key)', async () => {
+    const svc = makeService();
+    (svc as any).loadStored = jest.fn().mockResolvedValue({
+      tenant: { slug: 'ferma-x' },
+      speedy: { userName: 'u', passwordEnc: 'enc', configured: true },
+    });
+    (svc as any).db = { update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }) };
+    const del = jest.fn();
+    const delByPrefix = jest.fn();
+    (svc as any).cache = { del, delByPrefix };
+
+    await svc.saveProfile('tenant-1', { defaultPackage: { weightKg: 3 } });
+
+    expect(delByPrefix).toHaveBeenCalledWith('speedy:estimate:tenant-1:');
+  });
+});

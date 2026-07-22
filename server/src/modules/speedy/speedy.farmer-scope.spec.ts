@@ -43,7 +43,7 @@ describe('SpeedyService.saveCredentials farmer scope', () => {
       }),
       update: () => updateChain,
     };
-    const cache = { del: async () => undefined, set: async () => undefined, get: async () => null };
+    const cache = { del: async () => undefined, delByPrefix: async () => undefined, set: async () => undefined, get: async () => null };
     // Stub the live Speedy validation + contract-client lookup so the test is offline.
     const client = { call: jest.fn().mockResolvedValue({}) };
     const svc = new SpeedyService(

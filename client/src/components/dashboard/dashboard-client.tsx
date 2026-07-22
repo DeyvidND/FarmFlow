@@ -14,7 +14,7 @@ import { StoreReadinessCard, type StoreReadiness } from './store-readiness-card'
 import { OrdersFeed } from './orders-feed';
 import { OrderPanel } from '@/components/orders/order-panel';
 import { CodReviewDrawer } from '@/components/orders/cod-review-drawer';
-import { ApiError, getDashboard, pendingReviewCount, updateOrderStatus } from '@/lib/api-client';
+import { ApiError, confirmOrdersBatch, getDashboard, pendingReviewCount, updateOrderStatus } from '@/lib/api-client';
 import type { DashboardSummary, Order } from '@/lib/types';
 
 const WEEKDAYS = ['неделя', 'понеделник', 'вторник', 'сряда', 'четвъртък', 'петък', 'събота'];
@@ -144,8 +144,17 @@ export function DashboardClient({
     setOrders((p) => p.map((x) => (list.some((o) => o.id === x.id) ? { ...x, status: 'confirmed' } : x)));
     setBusy(true);
     try {
-      await Promise.all(list.map((o) => updateOrderStatus(o.id, 'confirmed')));
-      toast.success(`${list.length} поръчки потвърдени`);
+      const res = await confirmOrdersBatch(list.map((o) => o.id));
+      if (res.confirmed < list.length) {
+        const ok = new Set(res.ids);
+        setOrders((p) =>
+          p.map((x) => {
+            const prev = prevStatuses.find((s) => s.id === x.id);
+            return prev && !ok.has(x.id) ? { ...x, status: prev.status } : x;
+          }),
+        );
+      }
+      toast.success(`${res.confirmed} поръчки потвърдени`);
       void refreshSummary();
       setCodReviewOpen(false);
     } catch (e) {

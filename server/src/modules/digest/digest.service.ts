@@ -13,6 +13,10 @@ const ALLOWED_STATUSES = ['pending', 'confirmed', 'delivered'] as const;
 const MAX_RANGE_DAYS = 31;
 /** ± window (days) the order-days indicator scans around its anchor. */
 const ORDER_DAYS_SPAN = 21;
+/** Bounded worker-pool width for the two serial farmer-email send loops
+ *  ({@link DigestService.sendFarmerDigests}, {@link DigestService.sendFarmerOrderEmails}) —
+ *  mirrors cod-risk.service.ts's checkBulk CONCURRENCY idiom. */
+const SEND_CONCURRENCY = 4;
 
 interface DigestOrder {
   id: string;
@@ -669,25 +673,36 @@ export class DigestService {
     }
 
     let sent = 0;
-    for (const f of farmerRows) {
-      if (!f.email) continue;
-      try {
-        const digest = this.assembleFarmerDigest(date, f.name, byFarmer.get(f.id) ?? []);
-        if (!digest) continue;
-        await this.email.sendMail({
-          to: f.email,
-          subject: subjectOverride ?? `Твоите доставки за днес — ФермериБГ${testMode ? ' (тест)' : ''}`,
-          html: digest.html,
-          text: digest.text,
-        });
-        sent++;
-        this.logger.log(`[digest] Farmer sent tenant=${tenantId} farmer=${f.id}`);
-      } catch (err) {
-        this.logger.error(
-          `[digest] Farmer failed tenant=${tenantId} farmer=${f.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+    let idx = 0;
+    // Bounded-concurrency worker pool (mirrors cod-risk.service.ts checkBulk):
+    // each worker pulls the next farmer atomically off the shared `idx` —
+    // single-threaded JS means no race on idx/sent — instead of sending every
+    // farmer's email strictly one after another.
+    const worker = async (): Promise<void> => {
+      while (idx < farmerRows.length) {
+        const f = farmerRows[idx++];
+        if (!f.email) continue;
+        try {
+          const digest = this.assembleFarmerDigest(date, f.name, byFarmer.get(f.id) ?? []);
+          if (!digest) continue;
+          await this.email.sendMail({
+            to: f.email,
+            subject: subjectOverride ?? `Твоите доставки за днес — ФермериБГ${testMode ? ' (тест)' : ''}`,
+            html: digest.html,
+            text: digest.text,
+          });
+          sent++;
+          this.logger.log(`[digest] Farmer sent tenant=${tenantId} farmer=${f.id}`);
+        } catch (err) {
+          this.logger.error(
+            `[digest] Farmer failed tenant=${tenantId} farmer=${f.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(SEND_CONCURRENCY, farmerRows.length) }, () => worker()),
+    );
     return sent;
   }
 
@@ -933,29 +948,41 @@ export class DigestService {
 
     let sent = 0;
     let skipped = 0;
-    for (const f of farmerRows) {
-      const byDay = byFarmer.get(f.id);
-      const email = assembleFarmerRangeEmail(from, to, f.name, byDay ?? new Map());
-      if (!email) {
-        skipped++;
-        continue;
+    let idx = 0;
+    // Bounded-concurrency worker pool (mirrors cod-risk.service.ts checkBulk /
+    // sendFarmerDigests above): each worker pulls the next farmer atomically
+    // off the shared `idx` — single-threaded JS means no race on
+    // idx/sent/skipped — instead of sending every farmer's email strictly one
+    // after another.
+    const worker = async (): Promise<void> => {
+      while (idx < farmerRows.length) {
+        const f = farmerRows[idx++];
+        const byDay = byFarmer.get(f.id);
+        const email = assembleFarmerRangeEmail(from, to, f.name, byDay ?? new Map());
+        if (!email) {
+          skipped++;
+          continue;
+        }
+        try {
+          await this.email.sendMail({
+            to: f.email!,
+            subject: `Твоите поръчки за ${periodLabel(from, to)} — ФермериБГ`,
+            html: email.html,
+            text: email.text,
+          });
+          sent++;
+          this.logger.log(`[digest] farmer-orders sent tenant=${tenantId} farmer=${f.id}`);
+        } catch (err) {
+          skipped++;
+          this.logger.error(
+            `[digest] farmer-orders failed tenant=${tenantId} farmer=${f.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
-      try {
-        await this.email.sendMail({
-          to: f.email!,
-          subject: `Твоите поръчки за ${periodLabel(from, to)} — ФермериБГ`,
-          html: email.html,
-          text: email.text,
-        });
-        sent++;
-        this.logger.log(`[digest] farmer-orders sent tenant=${tenantId} farmer=${f.id}`);
-      } catch (err) {
-        skipped++;
-        this.logger.error(
-          `[digest] farmer-orders failed tenant=${tenantId} farmer=${f.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(SEND_CONCURRENCY, farmerRows.length) }, () => worker()),
+    );
     return { sent, skipped };
   }
 
@@ -1011,7 +1038,7 @@ export class DigestService {
     const rows = await this.db
       .select({
         day: sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`,
-        orderId: orders.id,
+        count: sql<number>`count(distinct ${orders.id})::int`,
       })
       .from(orders)
       .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
@@ -1024,17 +1051,13 @@ export class DigestService {
           scheduledForRange(from, to),
           inArray(products.farmerId, opts.farmerIds),
         )!,
-      );
+      )
+      // Group by the coalesce expression via its select-list ordinal (repo
+      // idiom for grouping by an expr with bind params — do NOT repeat the
+      // coalesce(...) sql template here, see cod-risk/analytics precedent).
+      .groupBy(sql`1`);
 
-    const byDay = new Map<string, Set<string>>();
-    for (const r of rows) {
-      const set = byDay.get(r.day) ?? new Set<string>();
-      set.add(r.orderId);
-      byDay.set(r.day, set);
-    }
-    return [...byDay.entries()]
-      .map(([day, ids]) => ({ day, count: ids.size }))
-      .sort((a, b) => a.day.localeCompare(b.day));
+    return rows.sort((a, b) => a.day.localeCompare(b.day));
   }
 }
 

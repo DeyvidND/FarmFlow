@@ -209,6 +209,17 @@ export class PublicCacheService {
     if (keys.length) await this.redis.del(...keys);
   }
 
+  /** Delete every key under `prefix` via non-blocking SCAN. Cold-path only
+   *  (carrier connect/disconnect) — never call on a request-hot path. */
+  async delByPrefix(prefix: string): Promise<void> {
+    let cursor = '0';
+    do {
+      const [next, keys] = await this.redis.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 200);
+      cursor = next;
+      if (keys.length) await this.redis.del(...keys);
+    } while (cursor !== '0');
+  }
+
   /**
    * Resolve a storefront slug to its tenant identity + toggles, Redis-cached
    * under `tenant:{slug}`. Shared by every public read so the slug→tenant lookup

@@ -454,8 +454,19 @@ export class FarmersService {
       .select({ url: farmerMedia.url })
       .from(farmerMedia)
       .where(eq(farmerMedia.farmerId, id));
-    await Promise.all(media.map((m) => this.deleteObject(m.url, tenantId)));
-    if (farmer.imageUrl) await this.deleteObject(farmer.imageUrl, tenantId);
+    // Resolve the tenant slug once (instead of once per deleted object) — only when
+    // there's actually something to purge, so a farmer with no cover/gallery never
+    // pays for the extra SELECT.
+    let slug: string | undefined;
+    if (media.length || farmer.imageUrl) {
+      try {
+        slug = await tenantSlug(this.db, tenantId);
+      } catch {
+        // best-effort: R2 purge skipped, DB delete proceeds
+      }
+    }
+    await Promise.all(media.map((m) => this.deleteObject(m.url, tenantId, slug)));
+    if (farmer.imageUrl) await this.deleteObject(farmer.imageUrl, tenantId, slug);
     await this.db.transaction(async (tx) => {
       // The farmer's login (users.farmer_id = id) is ON DELETE cascade, but the cascade
       // can't drop a login still referenced by orders.customer_id / audit_logs.user_id
@@ -508,7 +519,7 @@ export class FarmersService {
     const slug = await tenantSlug(this.db, tenantId);
     const key = `tenants/${slug}/farmers/${id}/${randomUUID()}.${img.ext}`;
     const { url } = await this.storage.upload(img.buffer, key, img.contentType);
-    if (farmer.imageUrl) await this.deleteObject(farmer.imageUrl, tenantId);
+    if (farmer.imageUrl) await this.deleteObject(farmer.imageUrl, tenantId, slug);
     await this.db
       .update(farmers)
       .set({ imageUrl: url, coverCrop: await smartFocal(img.buffer) })
@@ -794,12 +805,12 @@ export class FarmersService {
    *  delete objects under this tenant's own `tenants/<slug>/` key prefix — never
    *  trust the raw key. Every uploaded object for this entity lives under that
    *  prefix, so legitimate cleanups are unaffected. */
-  private async deleteObject(url: string, tenantId: string): Promise<void> {
+  private async deleteObject(url: string, tenantId: string, slug?: string): Promise<void> {
     try {
       const key = new URL(url).pathname.replace(/^\/+/, '');
       if (!key) return;
-      const slug = await tenantSlug(this.db, tenantId);
-      if (!key.startsWith(`tenants/${slug}/`)) return;
+      const s = slug ?? await tenantSlug(this.db, tenantId);
+      if (!key.startsWith(`tenants/${s}/`)) return;
       await this.storage.delete(key);
     } catch {
       // a storage hiccup (or a missing/foreign tenant) must not block the DB write

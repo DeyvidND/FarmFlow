@@ -44,7 +44,7 @@ describe('EcontService.saveCredentials farmer scope', () => {
       }),
       update: () => updateChain,
     };
-    const cache = { del: async () => undefined, set: async () => undefined, get: async () => null };
+    const cache = { del: async () => undefined, delByPrefix: async () => undefined, set: async () => undefined, get: async () => null };
     const svc = new EcontService(
       db as never,
       { get: () => 'a'.repeat(32) } as never, // ENCRYPTION_KEY present

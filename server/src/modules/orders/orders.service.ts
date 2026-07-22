@@ -2319,6 +2319,39 @@ export class OrdersService {
     return { confirmed: rows.length, failed };
   }
 
+  /**
+   * Bulk-confirm an explicit id set (the Плащания COD-review drawer's
+   * "потвърди останалите" action) — id-set-based, unlike confirmPending's
+   * date scope, so no deliverySlots join is needed. Mirrors confirmPending
+   * exactly otherwise: same 'pending'-only status guard, same
+   * enqueue-protocol-email-per-row (never awaited SMTP) + drainConfirmEffects
+   * + bustPayments-only-if-any-confirmed shape. `ids` not present in `rows`
+   * (foreign-tenant / already non-pending) are simply not returned — the
+   * caller reconciles by diffing `ids` against the response's `ids`.
+   */
+  async confirmBatch(tenantId: string, ids: string[]): Promise<{ confirmed: number; failed: number; ids: string[] }> {
+    const rows = await this.db
+      .update(orders)
+      .set({ status: 'confirmed' })
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.status, 'pending'), inArray(orders.id, ids)))
+      .returning({ id: orders.id });
+
+    let failed = 0;
+    await Promise.all(
+      rows.map(async (r) => {
+        try {
+          await this.protocolEmail?.enqueueProtocolEmail(tenantId, r.id);
+        } catch {
+          failed++;
+        }
+      }),
+    );
+
+    void this.drainConfirmEffects(rows.map((r) => r.id));
+    if (rows.length) await this.bustPayments(tenantId);
+    return { confirmed: rows.length, failed, ids: rows.map((r) => r.id) };
+  }
+
   /** Run per-order post-confirm side effects with bounded concurrency. Detached
    *  and best-effort: a single failure must not abort the rest. */
   private async drainConfirmEffects(ids: string[]): Promise<void> {

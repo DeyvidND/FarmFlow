@@ -162,7 +162,13 @@ describe('CheckoutService.shippingStotinki (Speedy door path)', () => {
     };
     const { svc } = build(makeOrder(), { speedy: speedyStub });
     const fee = await (svc as any).shippingStotinki(speedyOrder(), 3000, speedyCfg);
-    expect(speedyStub.estimateShipping).toHaveBeenCalledWith('t1', { siteId: 100, weightGrams: undefined, codAmountStotinki: 5000 });
+    // 3rd arg is the per-call memo Map quoteSpeedyDoor threads through (see B1) —
+    // shared with searchSites, not asserted structurally, just that one was passed.
+    expect(speedyStub.estimateShipping).toHaveBeenCalledWith(
+      't1',
+      { siteId: 100, weightGrams: undefined, codAmountStotinki: 5000 },
+      expect.any(Map),
+    );
     expect(fee).toBe(420);
   });
 

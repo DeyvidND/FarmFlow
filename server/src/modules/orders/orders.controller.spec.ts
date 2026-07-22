@@ -509,6 +509,23 @@ describe('OrdersController setFulfillment routing', () => {
   });
 });
 
+// PATCH /orders/confirm-batch — a thin delegation to OrdersService.confirmBatch,
+// scoped to the caller's own tenant (@CurrentTenant() — the raw tenantId string,
+// unlike @CurrentUser()'s whole-user object used elsewhere in this file).
+describe('OrdersController confirmBatch routing', () => {
+  const svc = { confirmBatch: jest.fn().mockResolvedValue({ confirmed: 2, failed: 0, ids: ['o1', 'o2'] }) };
+  const ctrl = new OrdersController(svc as any, {} as any, {} as any);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('calls the service with the caller tenant + the dto\'s ids', async () => {
+    const dto = { ids: ['o1', 'o2'] } as any;
+    const result = await ctrl.confirmBatch('t', dto);
+    expect(svc.confirmBatch).toHaveBeenCalledWith('t', ['o1', 'o2']);
+    expect(result).toEqual({ confirmed: 2, failed: 0, ids: ['o1', 'o2'] });
+  });
+});
+
 // "Прати пак" (§4.3, Task 9) — a thin delegation to OrdersService.resendProtocolEmail,
 // scoped to the caller's own tenant (never a client-supplied tenant id).
 describe('OrdersController resendProtocolEmail routing', () => {

@@ -1,5 +1,5 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
-import { and, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, sql, type SQL } from 'drizzle-orm';
 import { type Database, orders, orderItems, products, deliverySlots, farmers, tenants } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PublicCacheService } from '../../common/cache/public-cache.service';
@@ -382,7 +382,11 @@ export class StatsService {
       .orderBy(sql`3 desc`)
       .limit(5);
 
-    // ── Loyalty: distinct customer keys in the window vs before it. ──
+    // ── Loyalty: distinct customer keys in the window vs before it. Prior keys
+    //    are bounded to the window's own key set (a semijoin, chunked to keep
+    //    IN-lists sane) — a prior key that isn't among winKeys can never affect
+    //    computeReturning's intersection, so scanning ALL of history for it is
+    //    dead weight on stores with a long order history. ──
     const winKeysP = this.db
       .selectDistinct({ k: keyExpr })
       .from(orders)
@@ -395,12 +399,20 @@ export class StatsService {
           sql`${keyExpr} is not null`,
         ),
       );
-    const priorKeysP = this.db
-      .selectDistinct({ k: keyExpr })
-      .from(orders)
-      .where(
-        and(eq(orders.tenantId, tenantId), lt(orders.createdAt, since), live, sql`${keyExpr} is not null`),
-      );
+    const loyaltyP = (async () => {
+      const winKeys = (await winKeysP).map((r) => r.k);
+      if (winKeys.length === 0) return { winKeys, priorKeys: [] as string[] };
+      const prior = new Set<string>();
+      for (let i = 0; i < winKeys.length; i += 1000) {
+        const chunk = winKeys.slice(i, i + 1000);
+        const rows = await this.db
+          .selectDistinct({ k: keyExpr })
+          .from(orders)
+          .where(and(eq(orders.tenantId, tenantId), lt(orders.createdAt, since), live, inArray(keyExpr, chunk)));
+        for (const r of rows) prior.add(r.k);
+      }
+      return { winKeys, priorKeys: [...prior] };
+    })();
 
     // ── Trend: orders + revenue per bucket, in Europe/Sofia local time so the
     //    buckets line up with the wall clock. Gaps filled in JS for a continuous
@@ -462,24 +474,20 @@ export class StatsService {
       .groupBy(sql`1`)
       .orderBy(sql`1`);
 
-    const [[agg], [items], paymentRows, topProducts, winKeys, priorKeys, seriesRows, activeProducts, sold, weekdayRows] =
+    const [[agg], [items], paymentRows, topProducts, loyalty, seriesRows, activeProducts, sold, weekdayRows] =
       await Promise.all([
         aggP,
         itemsAggP,
         paymentP,
         topP,
-        winKeysP,
-        priorKeysP,
+        loyaltyP,
         seriesP,
         activeProductsP,
         soldP,
         weekdayP,
       ]);
 
-    const ret = computeReturning(
-      winKeys.map((r) => r.k),
-      priorKeys.map((r) => r.k),
-    );
+    const ret = computeReturning(loyalty.winKeys, loyalty.priorKeys);
     const cod = paymentRows.find((r) => r.method === 'cod');
     const online = paymentRows.find((r) => r.method === 'online');
 
@@ -621,19 +629,31 @@ export class StatsService {
       .orderBy(sql`3 desc`)
       .limit(5);
 
-    // ── Loyalty: distinct customers among this producer's orders, window vs before. ──
+    // ── Loyalty: distinct customers among this producer's orders, window vs
+    //    before. Prior keys are bounded to the window's own key set (a semijoin,
+    //    chunked) — see stats() for why that's safe. ──
     const winKeysP = this.db
       .selectDistinct({ k: keyExpr })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .innerJoin(products, eq(products.id, orderItems.productId))
       .where(and(mine, gte(orders.createdAt, since), lt(orders.createdAt, toExcl), live, sql`${keyExpr} is not null`));
-    const priorKeysP = this.db
-      .selectDistinct({ k: keyExpr })
-      .from(orderItems)
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .innerJoin(products, eq(products.id, orderItems.productId))
-      .where(and(mine, lt(orders.createdAt, since), live, sql`${keyExpr} is not null`));
+    const loyaltyP = (async () => {
+      const winKeys = (await winKeysP).map((r) => r.k);
+      if (winKeys.length === 0) return { winKeys, priorKeys: [] as string[] };
+      const prior = new Set<string>();
+      for (let i = 0; i < winKeys.length; i += 1000) {
+        const chunk = winKeys.slice(i, i + 1000);
+        const rows = await this.db
+          .selectDistinct({ k: keyExpr })
+          .from(orderItems)
+          .innerJoin(orders, eq(orders.id, orderItems.orderId))
+          .innerJoin(products, eq(products.id, orderItems.productId))
+          .where(and(mine, lt(orders.createdAt, since), live, inArray(keyExpr, chunk)));
+        for (const r of rows) prior.add(r.k);
+      }
+      return { winKeys, priorKeys: [...prior] };
+    })();
 
     // ── Trend: line-item money + distinct orders per Sofia-local bucket. ──
     const localTs = sql`(${orders.createdAt} at time zone 'UTC' at time zone ${BG_TZ})`;
@@ -683,10 +703,10 @@ export class StatsService {
       .groupBy(sql`1`)
       .orderBy(sql`1`);
 
-    const [[agg], paymentRows, topProducts, winKeys, priorKeys, seriesRows, activeProducts, sold, weekdayRows] =
-      await Promise.all([aggP, paymentP, topP, winKeysP, priorKeysP, seriesP, activeProductsP, soldP, weekdayP]);
+    const [[agg], paymentRows, topProducts, loyalty, seriesRows, activeProducts, sold, weekdayRows] =
+      await Promise.all([aggP, paymentP, topP, loyaltyP, seriesP, activeProductsP, soldP, weekdayP]);
 
-    const ret = computeReturning(winKeys.map((r) => r.k), priorKeys.map((r) => r.k));
+    const ret = computeReturning(loyalty.winKeys, loyalty.priorKeys);
     const cod = paymentRows.find((r) => r.method === 'cod');
     const online = paymentRows.find((r) => r.method === 'online');
 

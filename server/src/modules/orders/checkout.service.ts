@@ -363,6 +363,12 @@ export class CheckoutService {
     order: Parameters<CheckoutService['shippingStotinki']>[0],
     cod: number,
   ): Promise<{ carrier: 'econt' | 'speedy'; fee: number } | null> {
+    // One memo shared by BOTH carrier calls: each service's loadStored sub-memoizes
+    // the raw tenants row under the same `tenants-row:{tenantId}` key, so pricing on
+    // both carriers for the same checkout collapses 2 tenants SELECTs into 1 instead
+    // of one per carrier. The per-carrier `econt:{tid}:{fid}` / `speedy:{tid}:{fid}`
+    // memo keys don't collide, so this is safe to share.
+    const carrierCache = new Map<string, unknown>();
     const [econtFee, speedyFee] = await Promise.all([
       this.econt
         .estimateShipping(
@@ -371,9 +377,10 @@ export class CheckoutService {
           order.items.map((i) => ({ name: i.productName, qty: i.quantity })),
           undefined,
           cod,
+          carrierCache,
         )
         .catch(() => null),
-      this.quoteSpeedyDoor(order.tenantId!, order.deliveryCity!, cod),
+      this.quoteSpeedyDoor(order.tenantId!, order.deliveryCity!, cod, carrierCache),
     ]);
     if (econtFee == null && speedyFee == null) return null;
     if (speedyFee != null && (econtFee == null || speedyFee < econtFee)) {
@@ -390,16 +397,22 @@ export class CheckoutService {
     tenantId: string,
     deliveryCity: string,
     codAmountStotinki: number,
+    cache?: Map<string, unknown>,
   ): Promise<number | null> {
     try {
-      const sites = await this.speedy.searchSites(tenantId, deliveryCity);
+      const c = cache ?? new Map<string, unknown>();
+      const sites = await this.speedy.searchSites(tenantId, deliveryCity, c);
       const siteId = sites[0]?.id;
       if (!siteId) return null;
-      return await this.speedy.estimateShipping(tenantId, {
-        siteId,
-        weightGrams: undefined,
-        codAmountStotinki,
-      });
+      return await this.speedy.estimateShipping(
+        tenantId,
+        {
+          siteId,
+          weightGrams: undefined,
+          codAmountStotinki,
+        },
+        c,
+      );
     } catch (err) {
       this.logger.warn(
         `[speedy] checkout quote failed for ${tenantId}/${deliveryCity}, using fallback: ${err instanceof Error ? err.message : err}`,

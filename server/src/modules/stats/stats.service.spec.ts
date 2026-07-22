@@ -10,6 +10,7 @@ import {
   pickSlowProducts,
   SPARSE_MIN,
   MAX_RANGE_DAYS,
+  StatsService,
 } from './stats.service';
 
 describe('resolveWindow (presets)', () => {
@@ -237,5 +238,69 @@ describe('SPARSE_MIN', () => {
   it('is a small positive threshold', () => {
     expect(SPARSE_MIN).toBeGreaterThan(0);
     expect(SPARSE_MIN).toBeLessThan(30);
+  });
+});
+
+/**
+ * StatsService.stats — loyalty semijoin (prior keys bounded to the window's
+ * own key set). No test-DB harness exists in this repo (see
+ * stats.service.turnover.spec.ts's header) — this is a hand-rolled
+ * chainable `db` mock, discriminator-keyed off each projection's column
+ * names (mirrors stats.service.turnover.spec.ts / .farmer-basket.spec.ts).
+ * `selectDistinct` is call-order-keyed instead: the loyalty IIFE always
+ * awaits the window-keys query before firing any prior-keys chunk query, so
+ * "1st call" / "2nd call" is a reliable discriminator here (unlike the other
+ * concurrent queries, which race and need projection-keyed dispatch).
+ */
+describe('StatsService.stats — loyalty semijoin', () => {
+  function makeDb(winKeys: string[], priorKeysForChunk: string[]) {
+    let distinctCalls = 0;
+    const chain = (rows: unknown[]) => {
+      const b: any = {};
+      for (const m of ['from', 'innerJoin', 'leftJoin', 'groupBy', 'orderBy', 'limit', 'where']) {
+        b[m] = jest.fn(() => b);
+      }
+      b.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
+        Promise.resolve(rows).then(res, rej);
+      return b;
+    };
+    const select = jest.fn((proj: Record<string, unknown>) => {
+      const keys = Object.keys(proj ?? {});
+      if (keys.includes('total')) return chain([{ orderCount: 0, total: 0, prevOrderCount: 0 }]);
+      if (keys.includes('revenue') && keys.includes('prevRevenue')) return chain([{ revenue: 0, prevRevenue: 0 }]);
+      return chain([]); // paymentP / topP / seriesP / activeProductsP / soldP / weekdayP
+    });
+    const selectDistinct = jest.fn(() => {
+      distinctCalls += 1;
+      return distinctCalls === 1 ? chain(winKeys.map((k) => ({ k }))) : chain(priorKeysForChunk.map((k) => ({ k })));
+    });
+    return { select, selectDistinct, distinctCallCount: () => distinctCalls };
+  }
+
+  function makeCache() {
+    return { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue(undefined) };
+  }
+
+  it('empty window → the prior-keys query never fires', async () => {
+    const db = makeDb([], []);
+    const svc = new StatsService(db as never, makeCache() as never);
+
+    const result = await svc.stats('tenant-1', {});
+
+    expect(db.selectDistinct).toHaveBeenCalledTimes(1);
+    expect(result.customerCount).toBe(0);
+    expect(result.returningCustomers).toBe(0);
+  });
+
+  it('non-empty window → the prior-keys query fires once (bounded by the window keys)', async () => {
+    const db = makeDb(['a', 'b'], ['a']);
+    const svc = new StatsService(db as never, makeCache() as never);
+
+    const result = await svc.stats('tenant-1', {});
+
+    expect(db.selectDistinct).toHaveBeenCalledTimes(2);
+    expect(result.customerCount).toBe(2);
+    expect(result.returningCustomers).toBe(1);
+    expect(result.newCustomers).toBe(1);
   });
 });

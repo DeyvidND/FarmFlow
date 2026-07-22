@@ -226,12 +226,26 @@ export class EcontService implements CarrierAdapter {
     if (cache?.has(ck)) {
       return cache.get(ck) as { tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; econt: EcontStored };
     }
-    const [row] = await this.db
-      .select({ id: tenants.id, slug: tenants.slug, name: tenants.name, settings: tenants.settings, isDemo: tenants.isDemo })
-      .from(tenants)
-      .where(eq(tenants.id, tenantId))
-      .limit(1);
-    if (!row) throw new NotFoundException('Фермата не е намерена');
+    // Row-level sub-memo, keyed by tenantId ALONE (no farmerId): the raw tenants row
+    // is IDENTICAL regardless of which farmer's sub-namespace this call is about to
+    // read from it. Keyed identically in SpeedyService.loadStored (`tenants-row:{id}`)
+    // so a single Map shared across both carriers (see CheckoutService's cross-carrier
+    // quote) collapses their two SELECTs into one.
+    // ⚠️ Both SELECTs MUST stay column-identical (id/slug/name/settings/isDemo) — if
+    // either service's projection ever diverges, split this back into per-service keys.
+    const rowKey = `tenants-row:${tenantId}`;
+    let row = cache?.get(rowKey) as
+      | { id: string; slug: string; name: string; settings: unknown; isDemo: boolean }
+      | undefined;
+    if (!row) {
+      [row] = await this.db
+        .select({ id: tenants.id, slug: tenants.slug, name: tenants.name, settings: tenants.settings, isDemo: tenants.isDemo })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+      if (!row) throw new NotFoundException('Фермата не е намерена');
+      cache?.set(rowKey, row);
+    }
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
     // Tenant-level when no farmerId; a per-farmer sub-namespace otherwise. The row
     // is the SAME marketplace tenant row either way (selector unchanged).
@@ -302,6 +316,9 @@ export class EcontService implements CarrierAdapter {
       `econt:offices:${tenant.slug}`,
       `econt:cities:${tenant.slug}`,
     );
+    // Switching demo↔prod (or the account itself) changes the live price too — a
+    // still-warm 8h estimate cache would keep quoting the OLD account's price.
+    await this.cache.delByPrefix(`econt:estimate:${tenantId}:`);
     return { configured: true, env };
   }
 
@@ -645,6 +662,10 @@ export class EcontService implements CarrierAdapter {
       `econt:offices:${tenant.slug}`,
       `econt:cities:${tenant.slug}`,
     );
+    // Disconnecting can only make prices WRONG going forward (no creds → no live
+    // quote), but a still-warm 8h estimate cache would keep serving the old live
+    // price until it naturally expires — bust it so the next quote falls back cleanly.
+    await this.cache.delByPrefix(`econt:estimate:${tenantId}:`);
     return { configured: false };
   }
 
@@ -714,11 +735,14 @@ export class EcontService implements CarrierAdapter {
     items: { name: string | null; qty: number }[],
     weightKgOverride?: number,
     codAmountStotinki?: number,            // NEW: when > 0, price WITH cash-on-delivery
+    cache?: Map<string, unknown>,          // NEW: caller-supplied memo (cross-carrier quote shares one with Speedy)
   ): Promise<number | null> {
     try {
       // Share one tenant-settings read between loadStored here and the resolveCreds
       // inside callTenant below (was two identical SELECTs per estimate on cache miss).
-      const store = new Map<string, unknown>();
+      // A caller (e.g. the cross-carrier checkout quote) may pass its own Map so the
+      // tenants-row read is ALSO shared with Speedy's estimate in the same request.
+      const store = cache ?? new Map<string, unknown>();
       const { econt } = await this.loadStored(tenantId, store);
       if (!econt.configured) return null;
 

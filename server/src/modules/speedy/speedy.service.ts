@@ -106,12 +106,26 @@ export class SpeedyService implements CarrierAdapter {
     if (cache?.has(ck)) {
       return cache.get(ck) as { tenant: { id: string; slug: string; name: string; settings: Record<string, unknown>; isDemo: boolean }; speedy: SpeedyStored };
     }
-    const [row] = await this.db
-      .select({ id: tenants.id, slug: tenants.slug, name: tenants.name, settings: tenants.settings, isDemo: tenants.isDemo })
-      .from(tenants)
-      .where(eq(tenants.id, tenantId))
-      .limit(1);
-    if (!row) throw new NotFoundException('Фермата не е намерена');
+    // Row-level sub-memo, keyed by tenantId ALONE (no farmerId): the raw tenants row
+    // is IDENTICAL regardless of which farmer's sub-namespace this call is about to
+    // read from it. Keyed identically in EcontService.loadStored (`tenants-row:{id}`)
+    // so a single Map shared across both carriers (see CheckoutService's cross-carrier
+    // quote) collapses their two SELECTs into one.
+    // ⚠️ Both SELECTs MUST stay column-identical (id/slug/name/settings/isDemo) — if
+    // either service's projection ever diverges, split this back into per-service keys.
+    const rowKey = `tenants-row:${tenantId}`;
+    let row = cache?.get(rowKey) as
+      | { id: string; slug: string; name: string; settings: unknown; isDemo: boolean }
+      | undefined;
+    if (!row) {
+      [row] = await this.db
+        .select({ id: tenants.id, slug: tenants.slug, name: tenants.name, settings: tenants.settings, isDemo: tenants.isDemo })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+      if (!row) throw new NotFoundException('Фермата не е намерена');
+      cache?.set(rowKey, row);
+    }
     const settings = (row.settings as Record<string, unknown> | null) ?? {};
     // Tenant-level when no farmerId; a per-farmer sub-namespace otherwise. The row
     // is the SAME marketplace tenant row either way (selector unchanged).
@@ -121,9 +135,9 @@ export class SpeedyService implements CarrierAdapter {
     return result;
   }
 
-  private async resolveCreds(tenantId: string, farmerId?: string): Promise<SpeedyCreds> {
+  private async resolveCreds(tenantId: string, farmerId?: string, cache?: Map<string, unknown>): Promise<SpeedyCreds> {
     if (!this.encKey) throw new BadRequestException('ENCRYPTION_KEY не е конфигуриран');
-    const { speedy } = await this.loadStored(tenantId, undefined, farmerId);
+    const { speedy } = await this.loadStored(tenantId, cache, farmerId);
     if (!speedy.configured || !speedy.userName || !speedy.passwordEnc) {
       throw new BadRequestException('Speedy не е конфигуриран за тази ферма');
     }
@@ -165,6 +179,10 @@ export class SpeedyService implements CarrierAdapter {
       .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), nextSpeedy) })
       .where(eq(tenants.id, tenantId));
     await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`);
+    // Disconnecting can only make prices WRONG going forward (no creds → no live
+    // quote), but a still-warm 8h estimate cache would keep serving the old live
+    // price until it naturally expires — bust it so the next quote falls back cleanly.
+    await this.cache.delByPrefix(`speedy:estimate:${tenantId}:`);
     return { configured: false };
   }
 
@@ -215,6 +233,9 @@ export class SpeedyService implements CarrierAdapter {
     // (speedyConfigured / comparisonActive) — bust `tenant:` too, else the storefront
     // hides the Speedy option for up to PUBLIC_CACHE_TTL. Mirrors disconnect().
     await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`);
+    // Switching demo↔prod (or the account itself) changes the live price too — a
+    // still-warm 8h estimate cache would keep quoting the OLD account's price.
+    await this.cache.delByPrefix(`speedy:estimate:${tenantId}:`);
     return { configured: true };
   }
 
@@ -253,6 +274,10 @@ export class SpeedyService implements CarrierAdapter {
       .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), nextSpeedy) })
       .where(eq(tenants.id, tenantId));
     await this.cache.del(`tenant:${tenant.slug}`);
+    // Speedy's estimate key carries no origin/service fingerprint (unlike Econt's,
+    // which folds the sender into the key) — a sender/package/service-id change here
+    // can silently stale prices for up to the 8h estimate TTL unless busted explicitly.
+    await this.cache.delByPrefix(`speedy:estimate:${tenantId}:`);
     return { ok: true };
   }
 
@@ -1101,9 +1126,10 @@ export class SpeedyService implements CarrierAdapter {
   async estimateShipping(
     tenantId: string,
     input: { siteId: number; weightGrams?: number; codAmountStotinki?: number },
+    cache?: Map<string, unknown>,          // NEW: caller-supplied memo (cross-carrier quote shares one with Econt)
   ): Promise<number | null> {
     try {
-      const { speedy } = await this.loadStored(tenantId);
+      const { speedy } = await this.loadStored(tenantId, cache);
       if (!speedy.configured || !input.siteId) return null;
 
       const weightKg = input.weightGrams ? input.weightGrams / 1000 : (speedy.defaultPackage?.weightKg ?? 1);
@@ -1116,7 +1142,7 @@ export class SpeedyService implements CarrierAdapter {
       const cached = await this.cache.get<number>(key);
       if (cached !== null) return cached;
 
-      const creds = await this.resolveCreds(tenantId);
+      const creds = await this.resolveCreds(tenantId, undefined, cache);
       const serviceId = speedy.defaultServiceId ?? SPEEDY_DEFAULT_SERVICE_ID;
       // /calculate has its OWN body shape (serviceIds[] + recipient.addressLocation) —
       // it is NOT the /shipment body. Pass COD so the returned price already includes

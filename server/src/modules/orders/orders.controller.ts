@@ -20,6 +20,7 @@ import { PaymentsQueryDto } from './dto/payments-query.dto';
 import { OrdersQueryDto } from './dto/orders-query.dto';
 import { MyOrdersQueryDto } from './dto/my-orders-query.dto';
 import { RescheduleOrdersDto } from './dto/reschedule-orders.dto';
+import { ConfirmOrdersBatchDto } from './dto/confirm-orders-batch.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -96,6 +97,12 @@ export class OrdersController {
   @ApiQuery({ name: 'date', required: false })
   confirmPending(@CurrentTenant() tenantId: string, @Query('date') date?: string) {
     return this.ordersService.confirmPending(tenantId, date);
+  }
+
+  // Declared before `:id` routes so the literal segment wins.
+  @Patch('confirm-batch')
+  confirmBatch(@CurrentTenant() tenantId: string, @Body() dto: ConfirmOrdersBatchDto) {
+    return this.ordersService.confirmBatch(tenantId, dto.ids);
   }
 
   // Literal route — declared before `:id` so it isn't captured as an order id.

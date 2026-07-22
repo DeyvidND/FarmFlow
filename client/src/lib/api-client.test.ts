@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  confirmPending, getTenantLegal, getTodaySummary,
+  confirmPending, confirmOrdersBatch, getTenantLegal, getTodaySummary,
   ensureConsolidatedProtocol, getConsolidatedProtocol, listConsolidatedProtocols,
   signConsolidatedProtocol, updateConsolidatedProtocol, consolidatedProtocolPdfHref,
   getConsolidatedCourierRecipients, sendConsolidatedToCouriers,
@@ -39,6 +39,19 @@ describe('confirmPending', () => {
     expect(url).toBe('/bff/orders/confirm-pending?date=2026-07-20');
     expect(init).toMatchObject({ method: 'PATCH' });
     expect(out).toEqual({ confirmed: 3 });
+  });
+});
+
+describe('confirmOrdersBatch', () => {
+  it('PATCHes /orders/confirm-batch with the ids', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ confirmed: 2, failed: 0, ids: ['o1', 'o2'] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await confirmOrdersBatch(['o1', 'o2']);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/bff/orders/confirm-batch');
+    expect(init).toMatchObject({ method: 'PATCH' });
+    expect(JSON.parse(init.body)).toEqual({ ids: ['o1', 'o2'] });
+    expect(out).toEqual({ confirmed: 2, failed: 0, ids: ['o1', 'o2'] });
   });
 });
 

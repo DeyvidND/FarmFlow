@@ -81,6 +81,56 @@ describe('PublicCacheService.resolveTenant — negative sentinel caching', () =>
   });
 });
 
+describe('PublicCacheService.delByPrefix', () => {
+  it('deletes all matching keys across a single SCAN page', async () => {
+    const redis = {
+      get: jest.fn(),
+      set: jest.fn(),
+      del: jest.fn().mockResolvedValue(2),
+      scan: jest.fn().mockResolvedValue(['0', ['econt:estimate:t1:a', 'econt:estimate:t1:b']]),
+    };
+    const svc = new PublicCacheService(redis as never);
+    await svc.delByPrefix('econt:estimate:t1:');
+    expect(redis.scan).toHaveBeenCalledTimes(1);
+    expect(redis.scan).toHaveBeenCalledWith('0', 'MATCH', 'econt:estimate:t1:*', 'COUNT', 200);
+    expect(redis.del).toHaveBeenCalledTimes(1);
+    expect(redis.del).toHaveBeenCalledWith('econt:estimate:t1:a', 'econt:estimate:t1:b');
+  });
+
+  it('follows a non-zero cursor across multiple SCAN pages and deletes each page', async () => {
+    const redis = {
+      get: jest.fn(),
+      set: jest.fn(),
+      del: jest.fn().mockResolvedValue(1),
+      scan: jest
+        .fn()
+        .mockResolvedValueOnce(['17', ['speedy:estimate:t1:a']])
+        .mockResolvedValueOnce(['0', ['speedy:estimate:t1:b']]),
+    };
+    const svc = new PublicCacheService(redis as never);
+    await svc.delByPrefix('speedy:estimate:t1:');
+    expect(redis.scan).toHaveBeenCalledTimes(2);
+    expect(redis.scan).toHaveBeenNthCalledWith(1, '0', 'MATCH', 'speedy:estimate:t1:*', 'COUNT', 200);
+    expect(redis.scan).toHaveBeenNthCalledWith(2, '17', 'MATCH', 'speedy:estimate:t1:*', 'COUNT', 200);
+    expect(redis.del).toHaveBeenCalledTimes(2);
+    expect(redis.del).toHaveBeenNthCalledWith(1, 'speedy:estimate:t1:a');
+    expect(redis.del).toHaveBeenNthCalledWith(2, 'speedy:estimate:t1:b');
+  });
+
+  it('terminates on cursor "0" and skips del when a page has no keys', async () => {
+    const redis = {
+      get: jest.fn(),
+      set: jest.fn(),
+      del: jest.fn(),
+      scan: jest.fn().mockResolvedValue(['0', []]),
+    };
+    const svc = new PublicCacheService(redis as never);
+    await svc.delByPrefix('econt:estimate:empty:');
+    expect(redis.scan).toHaveBeenCalledTimes(1);
+    expect(redis.del).not.toHaveBeenCalled();
+  });
+});
+
 describe('PublicCacheService.resolveTenant — copy/faq projection', () => {
   it('derives cleaned copy + faq from settings', async () => {
     const row = {

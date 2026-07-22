@@ -1054,32 +1054,49 @@ export class RoutingService {
   }
 
   /**
+   * Split a FIXED point sequence into ≤MAX_OPTIMIZE_STOPS-intermediate chunks
+   * for the Routes API's per-call stop cap. Each chunk's last node is the next
+   * chunk's origin (the "seam") — shared by pathTotal and measureLegs so both
+   * chunk identically and their per-chunk routeFixed calls can run in parallel.
+   */
+  private chunkFixedPath(pts: Pt[]): Pt[][] {
+    const nodesPerLeg = MAX_OPTIMIZE_STOPS + 2; // origin + ≤25 intermediates + dest
+    const segs: Pt[][] = [];
+    let i = 0;
+    while (i < pts.length - 1) {
+      const seg = pts.slice(i, i + nodesPerLeg);
+      segs.push(seg);
+      i += seg.length - 1; // seam: last node of chunk N is origin of chunk N+1
+    }
+    return segs;
+  }
+
+  /**
    * Total road distance/duration along a FIXED point sequence, split into
    * ≤MAX_OPTIMIZE_STOPS-intermediate legs and summed. A short route (≤ the cap)
    * is a single Routes call — identical to the old behaviour; longer routes are
    * measured end-to-end instead of being truncated. Each leg's last node is the
-   * next leg's origin. Returns null if any leg can't be computed (maps disabled
-   * or an API error), so the UI shows "no estimate" rather than a partial total.
+   * next leg's origin. Chunks are measured concurrently (order preserved by
+   * chunk index, not arrival). Returns null if any leg can't be computed (maps
+   * disabled or an API error), so the UI shows "no estimate" rather than a
+   * partial total.
    */
   private async pathTotal(
     pts: Pt[],
   ): Promise<{ distanceM: number; durationS: number; polylines: string[] } | null> {
     if (pts.length < 2) return null;
-    const nodesPerLeg = MAX_OPTIMIZE_STOPS + 2; // origin + ≤25 intermediates + dest
+    const segs = this.chunkFixedPath(pts);
+    const plans = await Promise.all(segs.map((s) => this.maps.routeFixed(s)));
+    if (plans.some((p) => !p)) return null;
     let distanceM = 0;
     let durationS = 0;
     const polylines: string[] = [];
-    let i = 0;
-    while (i < pts.length - 1) {
-      const seg = pts.slice(i, i + nodesPerLeg);
-      const plan = await this.maps.routeFixed(seg);
-      if (!plan) return null;
-      distanceM += plan.distanceM;
-      durationS += plan.durationS;
+    for (const plan of plans) {
+      distanceM += plan!.distanceM;
+      durationS += plan!.durationS;
       // Road geometry for this leg; concatenated client-side to draw the full
       // street-following line. Consecutive legs share a node (seam) — harmless.
-      if (plan.polyline) polylines.push(plan.polyline);
-      i += seg.length - 1;
+      if (plan!.polyline) polylines.push(plan!.polyline);
     }
     return { distanceM, durationS, polylines };
   }
@@ -1088,6 +1105,8 @@ export class RoutingService {
    * Real per-leg road distance/duration along a FIXED point sequence — one entry
    * per consecutive pair (origin→p1, p1→p2, …), chunked over the ≤25-stop Routes
    * limit and concatenated (the chunk seam is a shared node, not double-counted).
+   * Chunks are measured concurrently; legs are re-assembled in chunk order so the
+   * concat order matches the original point sequence regardless of arrival order.
    * Used to time delivery windows from actual stop-to-stop travel. Returns null if
    * maps are disabled, any chunk fails, or a chunk's legs don't line up with its
    * pairs — so the caller can fall back to the straight-line estimate rather than
@@ -1097,19 +1116,17 @@ export class RoutingService {
     pts: Pt[],
   ): Promise<{ legs: { distanceM: number; durationS: number }[]; distanceM: number; durationS: number } | null> {
     if (pts.length < 2 || typeof this.maps?.routeFixed !== 'function') return null;
-    const nodesPerLeg = MAX_OPTIMIZE_STOPS + 2;
+    const segs = this.chunkFixedPath(pts);
+    const plans = await Promise.all(segs.map((s) => this.maps.routeFixed(s)));
     const legs: { distanceM: number; durationS: number }[] = [];
     let distanceM = 0;
     let durationS = 0;
-    let i = 0;
-    while (i < pts.length - 1) {
-      const seg = pts.slice(i, i + nodesPerLeg);
-      const plan = await this.maps.routeFixed(seg);
-      if (!plan || !Array.isArray(plan.legs) || plan.legs.length !== seg.length - 1) return null;
+    for (let idx = 0; idx < plans.length; idx++) {
+      const plan = plans[idx];
+      if (!plan || !Array.isArray(plan.legs) || plan.legs.length !== segs[idx].length - 1) return null;
       legs.push(...plan.legs);
       distanceM += plan.distanceM;
       durationS += plan.durationS;
-      i += seg.length - 1;
     }
     return { legs, distanceM, durationS };
   }
