@@ -159,6 +159,20 @@ describe('HandoverService.buildDraft farmer_to_operator', () => {
       else process.env.ENCRYPTION_KEY = OLD_KEY;
     }
   });
+
+  it('collects the distinct order ids behind a multi-order farmer pickup (feeds order_ids persistence)', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);
+    db.queue([
+      { productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300, orderNumber: 5, orderId: 'order-A' },
+      { productName: 'Домати', variantLabel: null, quantity: 3, unit: 'кг', priceStotinki: 300, orderNumber: 7, orderId: 'order-B' },
+      { productName: 'Краставици', variantLabel: null, quantity: 1, unit: 'бр', priceStotinki: 120, orderNumber: 5, orderId: 'order-A' },
+    ]);
+    const svc = await build(db);
+    const draft = await svc.buildDraft('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' });
+    expect([...draft.orderIds].sort()).toEqual(['order-A', 'order-B']); // distinct, not one per item row
+  });
 });
 
 describe('HandoverService.buildDraft operator_to_customer', () => {
@@ -211,6 +225,16 @@ describe('HandoverService.buildDraft operator_to_customer', () => {
       if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY;
       else process.env.ENCRYPTION_KEY = OLD_KEY;
     }
+  });
+
+  it('returns the single order id for a customer-leg draft', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
+    db.queue([{ id: 'o9', customerName: 'Иван Петров', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720, orderNumber: 9 }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' }]);
+    const svc = await build(db);
+    const draft = await svc.buildDraft('t1', { kind: 'operator_to_customer', orderId: 'o9' });
+    expect(draft.orderIds).toEqual(['o9']);
   });
 });
 
@@ -347,6 +371,28 @@ describe('HandoverService.createSigned', () => {
     } as any)).rejects.toThrow(/вече/);
   });
 
+  it('persists the distinct order ids for a multi-order farmer pickup (was always null — spec §1.8)', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);
+    db.queue([
+      { productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300, orderNumber: 5, orderId: 'order-A' },
+      { productName: 'Краставици', variantLabel: null, quantity: 1, unit: 'бр', priceStotinki: 120, orderNumber: 7, orderId: 'order-B' },
+    ]);
+    db.queue([]); // outer dup-check (fast-path): none found
+    db.queue([]); // in-tx dup re-check under the lock: none found
+    db.queue([{ max: 40 }]);
+    db.queue([{ id: 'p1', protocolNumber: 41 }]);
+    const svc = await build(db);
+    await svc.createSigned('t1', {
+      kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1',
+      items: [{ productName: 'Домати', quantity: 2, priceStotinki: 300 }],
+      fromSignaturePng: 'data:image/png;base64,AAA', toSignaturePng: 'data:image/png;base64,BBB',
+    } as any);
+    const inserted = db.calls.values[0] as any;
+    expect([...(inserted.orderIds ?? [])].sort()).toEqual(['order-A', 'order-B']); // OLD: always null
+  });
+
   // Race guard: a duplicate that lands AFTER the pre-lock fast-path check but before
   // this call's insert must be caught by the IN-TX re-check under the advisory lock —
   // otherwise two signed protocols for one target are created with distinct numbers.
@@ -423,6 +469,26 @@ describe('HandoverService.createBatch', () => {
     ]);
   });
 
+  it('persists order ids on a batch-created farmer protocol (not null — spec §1.8)', async () => {
+    const db = makeDb();
+    db.queue([{ farmerId: 'f1', slotId: 's1' }]);          // distinct farmer pickups for the slot
+    db.queue([]);                                          // no customer orders
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);         // prefetch: tenant legal
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' }, name: 'Васил' }]); // prefetch: farmers by id
+    db.queue([
+      { farmerId: 'f1', slotId: 's1', productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300, orderNumber: null, orderId: 'order-A' },
+    ]); // prefetch: farmer items
+    db.queue([]);            // loop: farmer target existing? none
+    db.queue([]);            // in-tx dup re-check under the lock: none
+    db.queue([{ max: 5 }]);
+    db.queue([{ id: 'p-new' }]);
+
+    const svc = await build(db);
+    await svc.createBatch('t1', { slotId: 's1' } as any);
+    const inserted = db.calls.values[0] as any;
+    expect(inserted.orderIds).toEqual(['order-A']);
+  });
+
   it('is idempotent — a second run with all targets already covered creates zero rows', async () => {
     const db = makeDb();
     db.queue([{ farmerId: 'f1', slotId: 's1' }]);
@@ -479,6 +545,43 @@ describe('HandoverService.listForDay', () => {
     expect(customer.id).toBe('p1');
     expect(customer.status).toBe('signed');
     expect(customer.protocolNumber).toBe(5);
+    expect(customer.orderCount).toBe(1); // a customer-leg target is always exactly one order
+  });
+
+  it('computes orderCount for a virtual (not-yet-persisted) farmer pickup spanning multiple orders', async () => {
+    const db = makeDb();
+    db.queue([
+      { farmerId: 'f1', slotId: 's1', orderId: 'order-A' },
+      { farmerId: 'f1', slotId: 's1', orderId: 'order-B' },
+    ]); // farmer pickups for the slot (now carrying orderId)
+    db.queue([]);                          // no customer orders
+    db.queue([]);                          // persisted rows: none
+    db.queue([{ legal: null, name: 'Оп' }]);
+    db.queue([{ id: 'f1', legal: null, name: 'Васил' }]);
+
+    const svc = await build(db);
+    const rows = await svc.listForDay('t1', { slotId: 's1' });
+    const farmer = rows.find((r) => r.farmerId === 'f1')!;
+    expect(farmer.orderCount).toBe(2);
+  });
+
+  it('reads orderCount from the persisted orderIds column for an already-signed farmer protocol', async () => {
+    const db = makeDb();
+    db.queue([{ farmerId: 'f1', slotId: 's1', orderId: 'order-A' }]);
+    db.queue([]);
+    db.queue([{
+      id: 'p1', kind: 'farmer_to_operator', farmerId: 'f1', orderId: null, slotId: 's1',
+      status: 'signed', protocolNumber: 9, orderIds: ['order-A', 'order-B'],
+      fromSnapshot: { name: 'Васил' }, toSnapshot: { name: 'Оп' },
+    }]); // persisted rows
+    db.queue([{ legal: null, name: 'Оп' }]);
+    db.queue([{ id: 'f1', legal: null, name: 'Васил' }]);
+
+    const svc = await build(db);
+    const rows = await svc.listForDay('t1', { slotId: 's1' });
+    const farmer = rows.find((r) => r.farmerId === 'f1')!;
+    expect(farmer.id).toBe('p1');
+    expect(farmer.orderCount).toBe(2);
   });
 });
 
@@ -574,6 +677,21 @@ describe('HandoverService.ensureDraftTarget', () => {
     expect(res.id).toBe('p9');
     expect(db.calls.values).toEqual([]);
   });
+
+  it('persists order ids for a farmer target materialized on open (spec §1.8)', async () => {
+    const db = makeDb();
+    db.queue([]);                                  // existing? none
+    db.queue([{ legal: null, name: 'Оп' }]);
+    db.queue([{ id: 'f1', legal: null, name: 'Васил' }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300, orderId: 'order-A' }]);
+    db.queue([]);                                   // in-tx dup re-check under the lock: none
+    db.queue([{ max: 3 }]);
+    db.queue([{ id: 'p1' }]);
+    const svc = await build(db);
+    await svc.ensureDraftTarget('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' });
+    const inserted = db.calls.values[0] as any;
+    expect(inserted.orderIds).toEqual(['order-A']);
+  });
 });
 
 describe('HandoverService.signPaperTarget', () => {
@@ -641,6 +759,21 @@ describe('HandoverService.signPaperTarget', () => {
     db.queue([{ id: 'p1', status: 'signed' }]);
     const svc = await build(db);
     await expect(svc.signPaperTarget('t1', { kind: 'operator_to_customer', orderId: 'o1' })).rejects.toThrow(/подписан/);
+  });
+
+  it('persists order ids for a paper-signed farmer target (spec §1.8)', async () => {
+    const db = makeDb();
+    db.queue([]);                                  // existing? none
+    db.queue([{ legal: null, name: 'Оп' }]);
+    db.queue([{ id: 'f1', legal: null, name: 'Васил' }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300, orderId: 'order-A' }]);
+    db.queue([]);                                   // in-tx dup re-check under the lock: none
+    db.queue([{ max: 7 }]);
+    db.queue([{ id: 'p-new' }]);
+    const svc = await build(db);
+    await svc.signPaperTarget('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' });
+    const inserted = db.calls.values[0] as any;
+    expect(inserted.orderIds).toEqual(['order-A']);
   });
 });
 

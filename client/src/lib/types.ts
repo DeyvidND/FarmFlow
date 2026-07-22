@@ -198,6 +198,18 @@ export interface FarmerAccess {
   invitePending: boolean;
 }
 
+export type FarmerReadinessMissing = 'kind' | 'name' | 'identifier' | 'address' | 'signature';
+
+/** A row in the "Готовност на фермерите" board (GET /farmers/readiness). Read-only
+ *  / advisory — never blocks a handover (spec §5.3). */
+export interface FarmerReadiness {
+  farmerId: string;
+  name: string;
+  email: string | null;
+  ready: boolean;
+  missing: FarmerReadinessMissing[];
+}
+
 /** One entry in the read-only tenant courier roster (`GET
  *  orders/route/couriers`) — drivers with an account plus the caller's own
  *  account, flagged via `isSelf`. Account creation itself happens in the
@@ -1106,6 +1118,7 @@ export interface DayProtocolRow {
   orderId: string | null;
   slotId: string | null;
   protocolNumber: number | null;
+  orderCount: number;
   status: string;
   signMode: string;
   totalStotinki: number;
