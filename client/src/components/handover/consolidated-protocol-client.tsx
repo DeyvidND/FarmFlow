@@ -16,7 +16,13 @@ import {
   sendConsolidatedToCouriers,
 } from '@/lib/api-client';
 import type { ConsolidatedCourierRecipient, ConsolidatedProtocolSummary } from '@/lib/types';
-import { courierRecipientLine, sendableCourierCount, sendResultSummary } from './consolidated-protocol-couriers';
+import {
+  courierRecipientLine,
+  courierStatusLabel,
+  sendableCourierCount,
+  sendResultSummary,
+  unsentCourierCount,
+} from './consolidated-protocol-couriers';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -89,12 +95,15 @@ export function ConsolidatedProtocolClient() {
     }
   }
 
-  async function confirmSend() {
+  async function confirmSend(onlyFailed: boolean) {
     setSending(true);
     try {
-      const report = await sendConsolidatedToCouriers(date);
+      const report = await sendConsolidatedToCouriers(date, { onlyFailed });
       toast.success(sendResultSummary(report));
-      setRecipients(null);
+      // Keep the dialog open, refreshed: the operator sees who now has their
+      // protocol and can resend ONLY the failed/непратени without re-emailing a
+      // courier who already got it.
+      setRecipients(await getConsolidatedCourierRecipients(date));
       void load(date); // ensureDraft may have just materialized fresh rows
     } catch (e) {
       toast.error(errMsg(e));
@@ -147,33 +156,61 @@ export function ConsolidatedProtocolClient() {
         )}
       </div>
 
-      {recipients && (
-        <ConfirmDialog
-          title="Прати обобщения протокол на куриерите"
-          confirmLabel={sending ? 'Изпращане…' : `Прати (${sendableCourierCount(recipients)})`}
-          busy={sending}
-          onConfirm={() => void confirmSend()}
-          onCancel={() => setRecipients(null)}
-          message={
-            recipients.length === 0 ? (
-              <p>Няма зачислени куриери за тази дата.</p>
-            ) : (
-              <>
-                <p className="mb-2">
-                  Всеки куриер получава ПО ИМЕЙЛ само своя собствен курс — никога целия ден или чужд курс.
-                </p>
-                <ul className="flex flex-col gap-1">
-                  {recipients.map((r) => (
-                    <li key={r.legIndex} className={r.email ? undefined : 'text-ff-red'}>
-                      {courierRecipientLine(r)}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )
-          }
-        />
-      )}
+      {recipients && (() => {
+        const anySent = recipients.some((r) => r.emailStatus === 'sent');
+        const unsent = unsentCourierCount(recipients);
+        const sendable = sendableCourierCount(recipients);
+        // One confirm button, context-aware: first send goes to everyone; once
+        // some are delivered it resends ONLY the непратени; when all are in, it
+        // just closes. Never re-emails a courier who already has their protocol.
+        const action =
+          !anySent
+            ? { label: sending ? 'Изпращане…' : `Прати (${sendable})`, run: () => void confirmSend(false) }
+            : unsent > 0
+              ? { label: sending ? 'Изпращане…' : `Прати на непратените (${unsent})`, run: () => void confirmSend(true) }
+              : { label: 'Готово', run: () => setRecipients(null) };
+        const badgeClass = (r: (typeof recipients)[number]) =>
+          r.emailStatus === 'sent'
+            ? 'text-ff-green-700'
+            : r.emailStatus === 'failed'
+              ? 'text-ff-red'
+              : 'text-ff-muted';
+        return (
+          <ConfirmDialog
+            title="Прати обобщения протокол на куриерите"
+            confirmLabel={action.label}
+            busy={sending}
+            onConfirm={action.run}
+            onCancel={() => setRecipients(null)}
+            message={
+              recipients.length === 0 ? (
+                <p>Няма зачислени куриери за тази дата.</p>
+              ) : (
+                <>
+                  <p className="mb-2">
+                    Всеки куриер получава ПО ИМЕЙЛ само своя собствен курс — никога целия ден или чужд курс.
+                  </p>
+                  <ul className="flex flex-col gap-1">
+                    {recipients.map((r) => (
+                      <li
+                        key={r.legIndex}
+                        className={`flex items-center justify-between gap-3 ${r.email ? '' : 'text-ff-red'}`}
+                      >
+                        <span>{courierRecipientLine(r)}</span>
+                        {courierStatusLabel(r) && (
+                          <span className={`shrink-0 text-[12px] font-semibold ${badgeClass(r)}`}>
+                            {courierStatusLabel(r)}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )
+            }
+          />
+        );
+      })()}
     </div>
   );
 }

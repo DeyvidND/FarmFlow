@@ -82,6 +82,11 @@ export interface CourierProtocolRecipient {
   legIndex: number;
   name: string;
   email: string | null;
+  // Per-leg courier-email delivery state (migr 0116): 'sent' | 'failed' |
+  // null(never emailed). Lets the UI show which couriers got their protocol and
+  // drives „Прати на непратените" (resend only the not-yet-'sent').
+  emailStatus: 'sent' | 'failed' | null;
+  emailAt: Date | null;
 }
 
 /** Outcome of one courier's send attempt. Only couriers WITH an email get one
@@ -617,12 +622,37 @@ export class ConsolidatedProtocolService {
       .where(inArray(users.id, accountIds));
     const emailById = new Map(userRows.map((u) => [u.id, u.email]));
 
+    // Per-leg courier-email delivery state for this date (migr 0116). Only the
+    // scope='leg' rows carry it; keyed by legIndex to line up with the board.
+    const legRows = await this.db
+      .select({
+        legIndex: consolidatedProtocols.legIndex,
+        status: consolidatedProtocols.courierEmailStatus,
+        at: consolidatedProtocols.courierEmailAt,
+      })
+      .from(consolidatedProtocols)
+      .where(
+        and(
+          eq(consolidatedProtocols.tenantId, tenantId),
+          eq(consolidatedProtocols.date, date),
+          eq(consolidatedProtocols.scope, 'leg'),
+        ),
+      );
+    const stateByLeg = new Map<number, { status: 'sent' | 'failed' | null; at: Date | null }>();
+    for (const r of legRows) {
+      if (r.legIndex != null) {
+        stateByLeg.set(r.legIndex, { status: (r.status as 'sent' | 'failed' | null) ?? null, at: r.at ?? null });
+      }
+    }
+
     return [...board]
       .sort((a, b) => a.legIndex - b.legIndex)
       .map((a) => ({
         legIndex: a.legIndex,
         name: `Лег ${a.legIndex + 1}`,
         email: emailById.get(a.accountId) ?? null,
+        emailStatus: stateByLeg.get(a.legIndex)?.status ?? null,
+        emailAt: stateByLeg.get(a.legIndex)?.at ?? null,
       }));
   }
 
@@ -636,16 +666,28 @@ export class ConsolidatedProtocolService {
    *  A courier with no email is skipped outright (present in `recipients`,
    *  absent from `sent`/`failed`); one courier's mailer failure is collected in
    *  `failed` and does not stop the others from sending. */
-  async sendLegProtocolsToCouriers(tenantId: string, date: string): Promise<CourierProtocolSendReport> {
+  async sendLegProtocolsToCouriers(
+    tenantId: string,
+    date: string,
+    opts?: { onlyFailed?: boolean },
+  ): Promise<CourierProtocolSendReport> {
+    const onlyFailed = opts?.onlyFailed ?? false;
     const recipients = await this.getCourierRecipients(tenantId, date);
     const sent: CourierProtocolSendResult[] = [];
     const failed: CourierProtocolSendResult[] = [];
 
     for (const r of recipients) {
       if (!r.email) continue; // no email on file — skipped, not sent, not failed
+      // Resend mode: never re-email a courier who already got their protocol
+      // ('sent'); target only the failed / never-sent legs.
+      if (onlyFailed && r.emailStatus === 'sent') continue;
       const email = r.email;
+      // Resolve the leg's own protocol id up front so a mailer failure can still
+      // record 'failed' on THAT leg's row (legId stays null only if ensureDraft
+      // itself throws — then there's no row to mark, and we just report failed).
+      let legId: string | null = null;
       try {
-        const { id } = await this.ensureDraft(tenantId, date, 'leg', r.legIndex);
+        legId = (await this.ensureDraft(tenantId, date, 'leg', r.legIndex)).id;
         await this.email.sendMailNow({
           to: email,
           subject: `Обобщен протокол за ${date} — ${r.name}`,
@@ -653,16 +695,33 @@ export class ConsolidatedProtocolService {
 <p>Здравей!</p>
 <p>Прилагаме обобщения приемо-предавателен протокол за твоя курс (${r.name}) на ${date}.</p>
 </body></html>`,
-          attachments: [{ kind: 'consolidated-protocol', consolidatedProtocolId: id, tenantId }],
+          attachments: [{ kind: 'consolidated-protocol', consolidatedProtocolId: legId, tenantId }],
           stream: 'transactional',
         });
+        await this.markCourierEmail(tenantId, legId, 'sent', null);
         sent.push({ legIndex: r.legIndex, email, ok: true });
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
+        if (legId) await this.markCourierEmail(tenantId, legId, 'failed', message).catch(() => undefined);
         failed.push({ legIndex: r.legIndex, email, ok: false, error: message });
       }
     }
 
     return { recipients, sent, failed };
+  }
+
+  /** Records the outcome of a courier-leg send on that leg's own row (migr
+   *  0116), so getCourierRecipients can surface it and an onlyFailed resend can
+   *  skip an already-delivered leg. */
+  private async markCourierEmail(
+    tenantId: string,
+    id: string,
+    status: 'sent' | 'failed',
+    error: string | null,
+  ): Promise<void> {
+    await this.db
+      .update(consolidatedProtocols)
+      .set({ courierEmailStatus: status, courierEmailAt: new Date(), courierEmailError: error, updatedAt: new Date() })
+      .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)));
   }
 }

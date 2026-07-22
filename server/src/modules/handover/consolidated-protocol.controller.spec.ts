@@ -86,14 +86,25 @@ describe('ConsolidatedProtocolController — §4.4 "Прати на куриер
     expect(out).toEqual([{ legIndex: 0, name: 'Лег 1', email: 'a@x.bg' }]);
   });
 
-  it('sendToCouriers delegates to the service with the tenant + date and returns its report', async () => {
+  it('sendToCouriers delegates with the tenant + date, defaulting onlyFailed=false when the param is absent', async () => {
     const { ctrl, svc } = make();
     const report = { recipients: [], sent: [{ legIndex: 0, email: 'a@x.bg', ok: true }], failed: [] };
     svc.sendLegProtocolsToCouriers.mockResolvedValue(report);
 
     const out = await ctrl.sendToCouriers(TENANT, { date: '2026-07-22' } as any);
 
-    expect(svc.sendLegProtocolsToCouriers).toHaveBeenCalledWith(TENANT, '2026-07-22');
+    expect(svc.sendLegProtocolsToCouriers).toHaveBeenCalledWith(TENANT, '2026-07-22', { onlyFailed: false });
     expect(out).toEqual(report);
+  });
+
+  it('sendToCouriers passes onlyFailed=true through only for the literal string "true"', async () => {
+    const { ctrl, svc } = make();
+    svc.sendLegProtocolsToCouriers.mockResolvedValue({ recipients: [], sent: [], failed: [] });
+
+    await ctrl.sendToCouriers(TENANT, { date: '2026-07-22' } as any, 'true');
+    expect(svc.sendLegProtocolsToCouriers).toHaveBeenLastCalledWith(TENANT, '2026-07-22', { onlyFailed: true });
+
+    await ctrl.sendToCouriers(TENANT, { date: '2026-07-22' } as any, 'yes');
+    expect(svc.sendLegProtocolsToCouriers).toHaveBeenLastCalledWith(TENANT, '2026-07-22', { onlyFailed: false });
   });
 });

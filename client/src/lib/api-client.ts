@@ -1529,10 +1529,13 @@ export const getConsolidatedCourierRecipients = (date: string) =>
 
 /** §4.4 "Прати на куриерите" — the actual send, fired only after the operator
  *  confirms the recipient list. Button-triggered only — never called
- *  automatically. */
-export const sendConsolidatedToCouriers = (date: string) =>
+ *  automatically. `onlyFailed` → resend ONLY to the not-yet-delivered legs
+ *  („Прати на непратените"), so couriers who already got it aren't re-emailed. */
+export const sendConsolidatedToCouriers = (date: string, opts?: { onlyFailed?: boolean }) =>
   apiFetch<ConsolidatedCourierSendReport>(
-    `consolidated-protocols/send-to-couriers?date=${encodeURIComponent(date)}`,
+    `consolidated-protocols/send-to-couriers?date=${encodeURIComponent(date)}${
+      opts?.onlyFailed ? '&onlyFailed=true' : ''
+    }`,
     { method: 'POST' },
     'Неуспешно изпращане към куриерите',
   );

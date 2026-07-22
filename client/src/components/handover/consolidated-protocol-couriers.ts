@@ -9,14 +9,35 @@ import type { ConsolidatedCourierRecipient } from '@/lib/types';
 
 /** One line in the confirm dialog: "Лег N — email", or an explicit
  *  "няма имейл" flag for a courier the send will skip. */
-export function courierRecipientLine(r: ConsolidatedCourierRecipient): string {
+export function courierRecipientLine(r: Pick<ConsolidatedCourierRecipient, 'name' | 'email'>): string {
   return r.email ? `${r.name} — ${r.email}` : `${r.name} — няма имейл (ще бъде пропуснат)`;
 }
 
 /** How many of the day's active couriers can actually receive a send —
  *  drives the confirm button's label/disabled state. */
-export function sendableCourierCount(recipients: ConsolidatedCourierRecipient[]): number {
+export function sendableCourierCount(recipients: Pick<ConsolidatedCourierRecipient, 'email'>[]): number {
   return recipients.filter((r) => r.email).length;
+}
+
+/** Per-leg delivery badge for the dialog. Empty for a no-email courier (the
+ *  line already flags "няма имейл"); otherwise the send state so the operator
+ *  sees who already has their protocol before deciding to resend. */
+export function courierStatusLabel(
+  r: Pick<ConsolidatedCourierRecipient, 'email' | 'emailStatus'>,
+): string {
+  if (!r.email) return '';
+  if (r.emailStatus === 'sent') return 'Изпратено';
+  if (r.emailStatus === 'failed') return 'Неуспешно';
+  return 'Непратено';
+}
+
+/** How many emailable couriers have NOT yet received their protocol (failed or
+ *  never sent). Drives the „Прати на непратените" resend action's visibility and
+ *  count — 0 means every courier with an email already has it. */
+export function unsentCourierCount(
+  recipients: Pick<ConsolidatedCourierRecipient, 'email' | 'emailStatus'>[],
+): number {
+  return recipients.filter((r) => r.email && r.emailStatus !== 'sent').length;
 }
 
 /** Post-send toast summary from the server's {sent, failed} report. */

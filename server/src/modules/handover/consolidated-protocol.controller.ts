@@ -137,7 +137,14 @@ export class ConsolidatedProtocolController {
    *  their own leg's protocol. `POST` has no `:id`-shaped sibling route, so no
    *  ordering hazard here (unlike the GET preview above). */
   @Post('send-to-couriers')
-  sendToCouriers(@CurrentTenant() tenantId: string, @Query() q: ConsolidatedQueryDto) {
-    return this.protocols.sendLegProtocolsToCouriers(tenantId, q.date);
+  sendToCouriers(
+    @CurrentTenant() tenantId: string,
+    @Query() q: ConsolidatedQueryDto,
+    @Query('onlyFailed') onlyFailed?: string,
+  ) {
+    // ?onlyFailed=true → resend ONLY to legs not already marked 'sent' (the
+    // „Прати на непратените" action), so couriers who already have it aren't
+    // re-emailed. Absent/anything-else → send to all (the initial button).
+    return this.protocols.sendLegProtocolsToCouriers(tenantId, q.date, { onlyFailed: onlyFailed === 'true' });
   }
 }

@@ -1232,6 +1232,11 @@ export interface ConsolidatedCourierRecipient {
   legIndex: number;
   name: string;
   email: string | null;
+  /** Per-leg courier-email delivery state (migr 0116): 'sent' | 'failed' |
+   *  null(never emailed). Drives the status badge + „Прати на непратените". */
+  emailStatus: 'sent' | 'failed' | null;
+  /** ISO timestamp of the last send attempt, or null. */
+  emailAt: string | null;
 }
 
 export interface ConsolidatedCourierSendResult {

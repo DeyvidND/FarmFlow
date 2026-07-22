@@ -553,6 +553,7 @@ describe('ConsolidatedProtocolService.getCourierRecipients', () => {
       { id: 'u-leg1', email: 'leg1@x.bg' },
       { id: 'u-leg0', email: 'leg0@x.bg' },
     ]); // users select — order deliberately NOT leg-sorted, to prove the service does the sorting
+    db.queue([]); // leg rows: no courier-email status yet
     const courierAssignment = {
       getAssignmentsForDay: jest.fn().mockResolvedValue([
         { accountId: 'u-leg1', legIndex: 1 },
@@ -564,14 +565,15 @@ describe('ConsolidatedProtocolService.getCourierRecipients', () => {
     const out = await svc.getCourierRecipients('t1', '2026-07-22');
 
     expect(out).toEqual([
-      { legIndex: 0, name: 'Лег 1', email: 'leg0@x.bg' },
-      { legIndex: 1, name: 'Лег 2', email: 'leg1@x.bg' },
+      { legIndex: 0, name: 'Лег 1', email: 'leg0@x.bg', emailStatus: null, emailAt: null },
+      { legIndex: 1, name: 'Лег 2', email: 'leg1@x.bg', emailStatus: null, emailAt: null },
     ]);
   });
 
   it('includes a courier with NO email on file as email: null — never omitted from the list', async () => {
     const db = makeDb();
     db.queue([{ id: 'u-has-email', email: 'has@x.bg' }]); // u-no-email has no row back from users
+    db.queue([]); // leg rows: no courier-email status yet
     const courierAssignment = {
       getAssignmentsForDay: jest.fn().mockResolvedValue([
         { accountId: 'u-has-email', legIndex: 0 },
@@ -583,8 +585,33 @@ describe('ConsolidatedProtocolService.getCourierRecipients', () => {
     const out = await svc.getCourierRecipients('t1', '2026-07-22');
 
     expect(out).toEqual([
-      { legIndex: 0, name: 'Лег 1', email: 'has@x.bg' },
-      { legIndex: 1, name: 'Лег 2', email: null },
+      { legIndex: 0, name: 'Лег 1', email: 'has@x.bg', emailStatus: null, emailAt: null },
+      { legIndex: 1, name: 'Лег 2', email: null, emailStatus: null, emailAt: null },
+    ]);
+  });
+
+  it("surfaces each leg's courier-email status (sent/failed) from the leg protocol rows", async () => {
+    const db = makeDb();
+    db.queue([{ id: 'u0', email: 'a@x.bg' }, { id: 'u1', email: 'b@x.bg' }]); // users
+    const at0 = new Date('2026-07-22T08:00:00Z');
+    const at1 = new Date('2026-07-22T08:05:00Z');
+    db.queue([
+      { legIndex: 0, status: 'sent', at: at0 },
+      { legIndex: 1, status: 'failed', at: at1 },
+    ]); // leg rows carry the per-leg courier-email state
+    const courierAssignment = {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([
+        { accountId: 'u0', legIndex: 0 },
+        { accountId: 'u1', legIndex: 1 },
+      ]),
+    };
+    const svc = makeSvc(db, {}, courierAssignment);
+
+    const out = await svc.getCourierRecipients('t1', '2026-07-22');
+
+    expect(out).toEqual([
+      { legIndex: 0, name: 'Лег 1', email: 'a@x.bg', emailStatus: 'sent', emailAt: at0 },
+      { legIndex: 1, name: 'Лег 2', email: 'b@x.bg', emailStatus: 'failed', emailAt: at1 },
     ]);
   });
 
@@ -606,9 +633,14 @@ describe('ConsolidatedProtocolService.sendLegProtocolsToCouriers', () => {
   // stub it out (spyOn) so they exercise ONLY the new per-courier orchestration
   // (recipient resolution -> ensureDraft(leg) -> email.sendMailNow), not
   // ensureDraft's internals a second time.
-  function setup(board: { accountId: string; legIndex: number }[], usersRows: { id: string; email: string }[]) {
+  function setup(
+    board: { accountId: string; legIndex: number }[],
+    usersRows: { id: string; email: string }[],
+    legRows: { legIndex: number; status: 'sent' | 'failed' | null; at: Date | null }[] = [],
+  ) {
     const db = makeDb();
-    db.queue(usersRows);
+    db.queue(usersRows); // getCourierRecipients: users select
+    db.queue(legRows); //   getCourierRecipients: per-leg courier-email state select
     const courierAssignment = { getAssignmentsForDay: jest.fn().mockResolvedValue(board) };
     const email = { sendMailNow: jest.fn().mockResolvedValue(undefined) };
     const svc = makeSvc(db, {}, courierAssignment, email);
@@ -670,7 +702,7 @@ describe('ConsolidatedProtocolService.sendLegProtocolsToCouriers', () => {
     expect(report.sent).toEqual([{ legIndex: 0, email: 'courierA@x.bg', ok: true }]);
     expect(report.failed).toEqual([]);
     // The no-email courier still shows up in the recipient preview...
-    expect(report.recipients).toContainEqual({ legIndex: 1, name: 'Лег 2', email: null });
+    expect(report.recipients).toContainEqual({ legIndex: 1, name: 'Лег 2', email: null, emailStatus: null, emailAt: null });
     // ...but never in sent or failed.
     expect(report.sent.some((r: { legIndex: number }) => r.legIndex === 1)).toBe(false);
     expect(report.failed.some((r: { legIndex: number }) => r.legIndex === 1)).toBe(false);
@@ -704,5 +736,50 @@ describe('ConsolidatedProtocolService.sendLegProtocolsToCouriers', () => {
 
     expect(report).toEqual({ recipients: [], sent: [], failed: [] });
     expect(email.sendMailNow).not.toHaveBeenCalled();
+  });
+
+  it('persists courier_email_status=sent (with a timestamp, no error) on each successful leg', async () => {
+    const { db, svc } = setup([{ accountId: 'u-a', legIndex: 0 }], [{ id: 'u-a', email: 'a@x.bg' }]);
+
+    await svc.sendLegProtocolsToCouriers('t1', '2026-07-22');
+
+    const sentSet = db.calls.set.find((s: any) => s.courierEmailStatus === 'sent') as any;
+    expect(sentSet).toBeTruthy();
+    expect(sentSet.courierEmailError).toBeNull();
+    expect(sentSet.courierEmailAt).toBeInstanceOf(Date);
+  });
+
+  it('persists courier_email_status=failed WITH the error message when a leg mailer fails', async () => {
+    const { db, email, svc } = setup([{ accountId: 'u-a', legIndex: 0 }], [{ id: 'u-a', email: 'a@x.bg' }]);
+    email.sendMailNow.mockRejectedValue(new Error('SMTP boom'));
+
+    await svc.sendLegProtocolsToCouriers('t1', '2026-07-22');
+
+    const failedSet = db.calls.set.find((s: any) => s.courierEmailStatus === 'failed') as any;
+    expect(failedSet).toBeTruthy();
+    expect(failedSet.courierEmailError).toBe('SMTP boom');
+  });
+
+  it('onlyFailed=true skips a leg already marked sent — the delivered courier is NOT re-emailed', async () => {
+    const { email, svc } = setup(
+      [
+        { accountId: 'u-a', legIndex: 0 },
+        { accountId: 'u-b', legIndex: 1 },
+      ],
+      [
+        { id: 'u-a', email: 'a@x.bg' },
+        { id: 'u-b', email: 'b@x.bg' },
+      ],
+      [{ legIndex: 0, status: 'sent', at: new Date('2026-07-22T08:00:00Z') }], // leg 0 already delivered; leg 1 never sent
+    );
+
+    const report = await svc.sendLegProtocolsToCouriers('t1', '2026-07-22', { onlyFailed: true });
+
+    // Capturing-mock proof: the ALREADY-sent courier (leg 0, a@x.bg) is never emailed again;
+    // only the not-yet-delivered leg 1 goes out.
+    expect(email.sendMailNow).toHaveBeenCalledTimes(1);
+    expect(email.sendMailNow).toHaveBeenCalledWith(expect.objectContaining({ to: 'b@x.bg' }));
+    expect(email.sendMailNow).not.toHaveBeenCalledWith(expect.objectContaining({ to: 'a@x.bg' }));
+    expect(report.sent).toEqual([{ legIndex: 1, email: 'b@x.bg', ok: true }]);
   });
 });

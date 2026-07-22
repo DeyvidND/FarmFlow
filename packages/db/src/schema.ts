@@ -652,6 +652,13 @@ export const consolidatedProtocols = pgTable(
     // Private: streamed only via the authed GET :id/pdf, never a public URL. NULL
     // while draft / for legacy signed rows → those fall back to a live render.
     pdfArchive: text('pdf_archive'),
+    // Per-leg courier-email delivery state (§4.4 „Прати на куриерите", migr 0116).
+    // 'sent' | 'failed' | null(never emailed). Set on the scope='leg' row so a
+    // resend can target ONLY the not-yet-delivered legs (onlyFailed). A day row
+    // never carries these.
+    courierEmailStatus: text('courier_email_status'),
+    courierEmailAt: timestamp('courier_email_at', { withTimezone: true }),
+    courierEmailError: text('courier_email_error'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },

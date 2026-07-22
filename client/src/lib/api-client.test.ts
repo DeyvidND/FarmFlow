@@ -148,4 +148,18 @@ describe('§4.4 "Прати на куриерите" API client', () => {
     expect(init).toMatchObject({ method: 'POST' });
     expect(out).toEqual(report);
   });
+
+  it('sendConsolidatedToCouriers appends &onlyFailed=true only when asked (resend the not-yet-delivered)', async () => {
+    // Fresh Response per call — a body can only be read once.
+    const fetchMock = vi.fn().mockImplementation(() => jsonResponse({ recipients: [], sent: [], failed: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await sendConsolidatedToCouriers('2026-07-22', { onlyFailed: true });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      '/bff/consolidated-protocols/send-to-couriers?date=2026-07-22&onlyFailed=true',
+    );
+
+    await sendConsolidatedToCouriers('2026-07-22', { onlyFailed: false });
+    expect(fetchMock.mock.calls[1][0]).toBe('/bff/consolidated-protocols/send-to-couriers?date=2026-07-22');
+  });
 });
