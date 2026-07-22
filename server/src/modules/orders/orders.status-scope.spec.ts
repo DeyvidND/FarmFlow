@@ -1,6 +1,20 @@
 import { ForbiddenException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 
+/** Flattens a drizzle `SQL` object's (possibly nested) queryChunks into the
+ *  literal SQL text it was built from — enough to assert a WHERE clause
+ *  contains a given fragment without a live DB (mirrors
+ *  basket-revenue-overrides.spec.ts's helper of the same name). */
+function literalText(node: unknown): string {
+  const n = node as { queryChunks?: unknown[]; value?: unknown } | null;
+  if (!n || typeof n !== 'object') return '';
+  if (Array.isArray(n.value) && n.value.every((v) => typeof v === 'string')) {
+    return (n.value as string[]).join('');
+  }
+  if (Array.isArray(n.queryChunks)) return n.queryChunks.map(literalText).join('');
+  return '';
+}
+
 // A producer sub-account may mark its OWN COD order as «delivered» (= cash
 // received) from the Плащания screen, but nothing else — confirming/cancelling
 // stays owner-only. The transition guard runs before any DB access, so we can
@@ -68,6 +82,41 @@ describe('OrdersService.updateStatusForFarmer ownership (multi-producer) guard',
       .mockResolvedValue({ id: 'o' } as never);
     await svc.updateStatusForFarmer('o', 't', 'farmer-1', { status: 'delivered' } as never);
     expect(spy).toHaveBeenCalledWith('o', 't', { status: 'delivered' });
+  });
+
+  // Finding #2: a basket's own PARENT row always carries farmerId=null (the
+  // basket product has no farmer). Without excluding it, its `lineItems` query
+  // would resolve `{farmerId: null}` for the parent alongside the producer's
+  // OWN farmerId for every child — `.some(li => li.farmerId !== farmerId)`
+  // would see the null and reject a single-farmer basket as "shared with
+  // another producer", 403-ing a producer who owns every member. The WHERE
+  // clause itself must exclude that row (NOT_BASKET_PARENT in orders.service.ts)
+  // — captured here rather than trusted, since a passthrough mock (as used by
+  // every other test in this file) cannot see whether the real query filters
+  // it out.
+  it('excludes a basket\'s own parent row from the ownership WHERE clause', async () => {
+    const wheres: unknown[] = [];
+    const chain: any = {};
+    chain.select = jest.fn(() => chain);
+    chain.from = jest.fn(() => chain);
+    chain.innerJoin = jest.fn(() => chain);
+    chain.where = jest.fn((w: unknown) => {
+      wheres.push(w);
+      return Promise.resolve([{ farmerId: 'farmer-1' }]);
+    });
+    const svc = new OrdersService(
+      chain as never, {} as never, {} as never, {} as never,
+      {} as never, {} as never, {} as never, {} as never,
+    );
+    jest.spyOn(svc as never as { updateStatus: (...a: unknown[]) => unknown }, 'updateStatus')
+      .mockResolvedValue({ id: 'o' } as never);
+
+    await svc.updateStatusForFarmer('o', 't', 'farmer-1', { status: 'delivered' } as never);
+
+    const rendered = literalText(wheres[0]);
+    expect(rendered).toMatch(/bundle/i);
+    expect(rendered).toMatch(/is null/i);
+    expect(rendered).toMatch(/not\s*\(/i);
   });
 });
 

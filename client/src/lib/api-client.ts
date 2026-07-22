@@ -1223,6 +1223,27 @@ export const openBillingPortal = () =>
   );
 
 // ---- Vendor finance (дремещ модул: комисиона + месечни такси на производители) ----
+
+/** The tenant-wide switches behind the per-producer „Комисиона %" override. Until
+ *  `commissionEnabled` is true every rate — default or per-producer — is read as 0,
+ *  which is why Статистики shows „Комисионата е изключена". */
+export interface VendorFinanceSettings {
+  commissionEnabled: boolean;
+  defaultCommissionRateBps: number;
+  subscriptionEnabled: boolean;
+  defaultSubscriptionFeeStotinki: number;
+}
+
+export const getVendorFinanceSettings = () =>
+  apiFetch<VendorFinanceSettings>('vendor-finance/settings');
+
+export const updateVendorFinanceSettings = (dto: Partial<VendorFinanceSettings>) =>
+  apiFetch<VendorFinanceSettings>(
+    'vendor-finance/settings',
+    { method: 'PATCH', ...json(dto) },
+    'Настройките не бяха записани',
+  );
+
 export interface CommissionFarmerSummary {
   farmerId: string;
   farmerName: string | null;

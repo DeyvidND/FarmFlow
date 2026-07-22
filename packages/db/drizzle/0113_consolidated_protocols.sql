@@ -1,4 +1,4 @@
--- 0112_consolidated_protocols.sql
+-- 0113_consolidated_protocols.sql
 -- Обобщен приемо-предавателен протокол за целия курс (scope='day') или един
 -- куриерски лег (scope='leg'). Own numbering series (doc_number, printed
 -- "ОБ-<n>"), separate from handover_protocols.protocol_number. Content is

@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Package, PackageCheck, PackageX, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/delivery/ui';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
+import { BasketMemberSearch } from './basket-member-search';
 import {
   ApiError,
   getBundleItems,
@@ -42,6 +43,7 @@ export function ProductDialog({
   subcats,
   multiFarmer,
   multiSubcat,
+  basketMode,
   onOpenCourierSettings,
   onClose,
   onSubmit,
@@ -53,10 +55,16 @@ export function ProductDialog({
   subcats: Subcategory[];
   multiFarmer: boolean;
   multiSubcat: boolean;
+  /** Create a „кошница" instead of a plain product: forces category='bundle', no
+   *  farmer link, no own stock, and the contents editor is live from the start. */
+  basketMode?: boolean;
   /** Lets the farmer jump straight to the bulk "Куриер" editor instead of toggling one product at a time. */
   onOpenCourierSettings?: () => void;
   onClose: () => void;
-  onSubmit: (data: ProductWrite, files?: File[]) => Promise<void>;
+  /** `members` is only ever passed for a NEW basket (`basketMode`, no `product`
+   *  yet): the products picked before the basket had an id, to be attached via
+   *  `setBundleItems` right after creation. */
+  onSubmit: (data: ProductWrite, files?: File[], members?: { productId: string; quantity: number }[]) => Promise<void>;
   /** Edit mode only: fired when the gallery cover (photo 0) changes. */
   onCoverChange?: (url: string | null) => void;
 }) {
@@ -83,7 +91,7 @@ export function ProductDialog({
   // Bundle contents („Съдържание на пакета", task #1) — only for an already-saved
   // product with category==='bundle'. Persisted immediately per add/remove (full
   // replace), independent of the main product save.
-  const isBundle = isEdit && product?.category === 'bundle';
+  const isBundle = basketMode || product?.category === 'bundle';
   const [bundleItems, setBundleItemsState] = useState<BundleMember[]>([]);
   const [bundleOptions, setBundleOptions] = useState<ProductOption[]>([]);
   const [bundleLoading, setBundleLoading] = useState(false);
@@ -91,6 +99,18 @@ export function ProductDialog({
   const [bundleErr, setBundleErr] = useState('');
   const [pickProductId, setPickProductId] = useState('');
   const [pickQty, setPickQty] = useState('1');
+  // Members picked before the basket itself has an id yet (creating, not editing).
+  // Buffered locally; attached via setBundleItems right after the product is
+  // created (see submit()). Carries enough of the picked product's own fields
+  // (name/price/image) to render the same list + auto-cover preview a saved
+  // basket gets from `bundleItems`, without waiting on a round trip.
+  const [pendingMembers, setPendingMembers] = useState<
+    { productId: string; quantity: number; name: string; priceStotinki: number; image: string | null }[]
+  >([]);
+  // `ProductOption` has no farmer name, only `farmerId` — resolve it from the
+  // `farmers` prop already passed in, so the member picker can show the owner
+  // without any backend change (only worth showing in a multi-farmer tenant).
+  const farmerNameById = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
   // Price + stock live in rows: one product is a list of ≥1 priced row. ONE row =
   // a plain product (its price = the product price, its stock = the availability
   // window — same number „Задай наличност" edits, never desync; label optional).
@@ -156,27 +176,56 @@ export function ProductDialog({
     };
   }, [isEdit, product]);
 
-  // Bundle members + candidate picker options — only fetched for an already-saved
-  // bundle product.
+  // Candidate picker options — needed from the FIRST render of basket mode, not
+  // just after the basket is saved, so products can be picked while creating.
+  useEffect(() => {
+    if (!isBundle) return;
+    let alive = true;
+    listProductOptions()
+      .catch(() => [])
+      .then((options) => {
+        if (alive) setBundleOptions(options);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isBundle]);
+
+  // Bundle members — only for an already-saved bundle product (a new one has no
+  // id to fetch members for yet; it uses `pendingMembers` instead).
   useEffect(() => {
     if (!isBundle || !product) return;
     let alive = true;
     setBundleLoading(true);
-    (async () => {
-      const [items, options] = await Promise.all([
-        getBundleItems(product.id).catch(() => []),
-        listProductOptions().catch(() => []),
-      ]);
-      if (!alive) return;
-      setBundleItemsState(items);
-      setBundleOptions(options);
-    })().finally(() => {
-      if (alive) setBundleLoading(false);
-    });
+    getBundleItems(product.id)
+      .catch(() => [])
+      .then((items) => {
+        if (alive) setBundleItemsState(items);
+      })
+      .finally(() => {
+        if (alive) setBundleLoading(false);
+      });
     return () => {
       alive = false;
     };
   }, [isBundle, product]);
+
+  // A product that would fail `setBundleItems` anyway (another basket, or a
+  // varianted product — a member line carries no variantId) is filtered out of
+  // the picker before the operator can choose it, in both create and edit mode.
+  const pickableOptions = useMemo(
+    () => bundleOptions.filter((o) => o.category !== 'bundle' && !o.hasVariants),
+    [bundleOptions],
+  );
+
+  // What chaika would draw as the basket's auto cover: the first four members
+  // that have a photo. Only relevant while there's no manual cover of the
+  // basket's own — an uploaded photo always wins, in the dialog preview too.
+  const autoCoverTiles = useMemo(() => {
+    if (!isBundle || imageUrl || pending.length) return [];
+    const source = product ? bundleItems.map((b) => b.image) : pendingMembers.map((m) => m.image);
+    return source.filter((src): src is string => !!src).slice(0, 4);
+  }, [isBundle, imageUrl, pending.length, product, bundleItems, pendingMembers]);
 
   if (!open) return null;
 
@@ -212,6 +261,19 @@ export function ProductDialog({
   function addBundleMember() {
     if (!pickProductId) return;
     const qty = Math.max(1, parseInt(pickQty, 10) || 1);
+    if (!product) {
+      // Creating: no id to persist against yet — buffer locally. Full replace
+      // isn't meaningful here (nothing saved yet), so just append.
+      const opt = bundleOptions.find((o) => o.id === pickProductId);
+      if (!opt) return;
+      setPendingMembers((prev) => [
+        ...prev,
+        { productId: opt.id, quantity: qty, name: opt.name, priceStotinki: opt.priceStotinki, image: opt.imageUrl },
+      ]);
+      setPickProductId('');
+      setPickQty('1');
+      return;
+    }
     const next = [
       ...bundleItems.map((b) => ({ productId: b.productId, quantity: b.quantity })),
       { productId: pickProductId, quantity: qty },
@@ -222,6 +284,10 @@ export function ProductDialog({
   }
 
   function removeBundleMember(productId: string) {
+    if (!product) {
+      setPendingMembers((prev) => prev.filter((m) => m.productId !== productId));
+      return;
+    }
     const next = bundleItems
       .filter((b) => b.productId !== productId)
       .map((b) => ({ productId: b.productId, quantity: b.quantity }));
@@ -324,8 +390,23 @@ export function ProductDialog({
           ...(isEdit ? { coverCrop } : { isActive: true }),
           ...(multiFarmer ? { farmerId: farmerId || null } : {}),
           ...(multiSubcat ? { subcategoryId: subcatId || null } : {}),
+          // A basket (new or already-saved: `isBundle`, not just `basketMode`) is a
+          // product with category='bundle' and no farmer of its own — `setBundleItems`
+          // only allows cross-farmer members when farmerId is null. Re-asserted on
+          // every save (not just creation), otherwise saving an already-created
+          // basket's name/price re-defaults `farmerId` to `farmers[0]?.id` (the
+          // farmer-select's fallback for a null farmerId) and silently locks the
+          // basket to one farmer, breaking the next cross-farmer member add.
+          // Placed LAST — it must win over the `multiFarmer` spread above, which
+          // would otherwise put the dialog's selected/defaulted farmerId back on it.
+          // Availability and shippability are derived from the members (Task 5),
+          // never the basket's own stock/courier fields.
+          ...(isBundle ? { category: 'bundle', farmerId: null, stock: null, courierDisabled: true } : {}),
         },
         isEdit ? undefined : pending.map((p) => p.file),
+        isBundle && !isEdit && pendingMembers.length
+          ? pendingMembers.map((m) => ({ productId: m.productId, quantity: m.quantity }))
+          : undefined,
       );
       onClose();
     } catch (e2) {
@@ -347,11 +428,23 @@ export function ProductDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[18px] font-extrabold">{isEdit ? 'Редакция на продукт' : 'Нов продукт'}</h2>
+          <h2 className="text-[18px] font-extrabold">
+            {isBundle ? (isEdit ? 'Редакция на кошница' : 'Нова кошница') : isEdit ? 'Редакция на продукт' : 'Нов продукт'}
+          </h2>
           <button onClick={onClose} aria-label="Затвори" className="grid h-8 w-8 place-items-center rounded-lg text-ff-muted hover:bg-ff-surface-2">
             <X size={18} />
           </button>
         </div>
+
+        {isBundle && (
+          <div className="mb-4 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5 text-[12.5px] leading-relaxed text-ff-ink-2">
+            <b className="text-ff-ink">Кошница</b> — няколко продукта от различни фермери,
+            продавани заедно на една цена. Клиентът вижда една снимка от четири парчета и плаща
+            общата цена. Ти получаваш поръчка с разписаните продукти вътре, готова за подготовка.
+            <br />
+            Кошницата се получава на място или с доставка от фермата — не се изпраща с куриер.
+          </div>
+        )}
 
         <form onSubmit={submit} className="flex flex-col gap-3">
           {isEdit && product && (
@@ -425,18 +518,37 @@ export function ProductDialog({
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ягоди" className={field} autoFocus={!isEdit} />
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className={labelCls}>
-              Тегло
-              <input value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="500 г" className={field} />
-            </label>
-            <label className={labelCls}>
-              Единица
-              <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="бр" className={field} />
-            </label>
-          </div>
+          {/* A basket has no weight/unit of its own — it's a collection of other
+              products, each already carrying its own. */}
+          {!isBundle && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className={labelCls}>
+                Тегло
+                <input value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="500 г" className={field} />
+              </label>
+              <label className={labelCls}>
+                Единица
+                <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="бр" className={field} />
+              </label>
+            </div>
+          )}
 
-          {multiFarmer && farmers.length > 0 && (
+          {isBundle && autoCoverTiles.length >= 2 && (
+            <div className="flex items-center gap-3 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2.5">
+              <div className="grid h-16 w-16 shrink-0 grid-cols-2 grid-rows-2 gap-[2px] overflow-hidden rounded-lg border border-ff-border-2">
+                {autoCoverTiles.map((src, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={i} src={src} alt="" className="h-full w-full object-cover" />
+                ))}
+              </div>
+              <p className="text-[12px] leading-snug text-ff-muted">
+                <b className="text-ff-ink-2">Автоматична обложка</b> — без своя снимка клиентът
+                вижда тази мрежа от продуктите в кошницата. Качи снимка по-долу, за да я смениш.
+              </p>
+            </div>
+          )}
+
+          {multiFarmer && !isBundle && farmers.length > 0 && (
             <label className={labelCls}>
               Фермер
               <select value={farmerId} onChange={(e) => setFarmerId(e.target.value)} className={`${field} cursor-pointer appearance-none`}>
@@ -463,6 +575,33 @@ export function ProductDialog({
             </label>
           )}
 
+          {/* A basket sells at ONE fixed price for the whole box — no вид/грамаж,
+              no per-row stock (availability comes from the members, Task 5). The
+              full variant editor below is for a plain product only. */}
+          {isBundle ? (
+            <label className={labelCls}>
+              Цена на кошницата
+              <input
+                value={variants[0]?.price ?? ''}
+                onChange={(e) => setVariants((p) => [{ ...p[0], price: e.target.value }])}
+                inputMode="decimal"
+                placeholder="39,90 €"
+                className={field}
+              />
+              {effectivePromoMode === 'fixed' && (
+                <span className="mt-1 flex items-center gap-2 text-[12px] text-ff-muted">
+                  Промо цена
+                  <input
+                    value={variants[0]?.salePrice ?? ''}
+                    onChange={(e) => setVariants((p) => [{ ...p[0], salePrice: e.target.value }])}
+                    inputMode="decimal"
+                    placeholder="напр. 34,90 € (празно = без промо)"
+                    className={`${field} min-w-0 flex-1`}
+                  />
+                </span>
+              )}
+            </label>
+          ) : (
           <Collapsible
             title="Цена и наличност"
             hint="Един ред = един продукт с една цена. Добави още редове за разфасовки или видове (вид/грамаж) — всеки със своя цена и наличност. Наличност празна = неограничено."
@@ -534,6 +673,21 @@ export function ProductDialog({
               </button>
             </div>
           </Collapsible>
+          )}
+
+          {isBundle && (bundleItems.length > 0 || pendingMembers.length > 0) && (() => {
+            const members = product ? bundleItems : pendingMembers;
+            const sum = members.reduce((s, b) => s + b.priceStotinki * b.quantity, 0);
+            const own = euroInputToStotinki(variants[0]?.price ?? '') ?? 0;
+            const diff = sum - own;
+            return (
+              <p className={`text-[12.5px] ${diff < 0 ? 'text-ff-red' : 'text-ff-muted'}`}>
+                Стойност поотделно {moneyFromStotinki(sum)}
+                {own > 0 && diff > 0 && ` · спестявате ${moneyFromStotinki(diff)} (${Math.round((diff / sum) * 100)}%)`}
+                {own > 0 && diff < 0 && ' · кошницата излиза по-скъпо от продуктите поотделно'}
+              </p>
+            );
+          })()}
 
           <Collapsible
             key={`promo-${effectivePromoMode}-${product?.salePercent ? 'p' : ''}`}
@@ -593,65 +747,72 @@ export function ProductDialog({
             )}
           </Collapsible>
 
-          {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only. */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={courierEnabled}
-            onClick={() => setCourierEnabled((v) => !v)}
-            className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
-              courierEnabled
-                ? 'border-green-200 bg-green-50'
-                : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
-            }`}
-          >
-            <span
-              className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition ${
-                courierEnabled ? 'bg-green-100 text-green-700' : 'bg-ff-surface text-ff-muted'
-              }`}
-            >
-              {courierEnabled ? <PackageCheck size={18} /> : <PackageX size={18} />}
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-[13.5px] font-bold text-ff-ink">
-                {courierEnabled ? 'С куриер' : 'Без куриер'}
-              </span>
-              <span className="text-[12px] leading-snug text-ff-muted">
-                {courierEnabled
-                  ? 'Продуктът може да се изпраща с Еконт или Спиди.'
-                  : 'Без куриер — лична доставка, вземане от място или местна доставка до адрес.'}
-              </span>
-            </span>
-            <span
-              className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition ${
-                courierEnabled ? 'bg-green-500' : 'bg-ff-border-2'
-              }`}
-            >
-              <span
-                className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
-                  courierEnabled ? 'left-[19px]' : 'left-[3px]'
+          {/* A basket's shippability is fixed (never by courier, Task 5) — the
+              toggle, the explicit line and the bulk-courier shortcut would all
+              lie about a product that has no courier setting of its own. */}
+          {!isBundle && (
+            <>
+              {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only. */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={courierEnabled}
+                onClick={() => setCourierEnabled((v) => !v)}
+                className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
+                  courierEnabled
+                    ? 'border-green-200 bg-green-50'
+                    : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
                 }`}
-              />
-            </span>
-          </button>
+              >
+                <span
+                  className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition ${
+                    courierEnabled ? 'bg-green-100 text-green-700' : 'bg-ff-surface text-ff-muted'
+                  }`}
+                >
+                  {courierEnabled ? <PackageCheck size={18} /> : <PackageX size={18} />}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-[13.5px] font-bold text-ff-ink">
+                    {courierEnabled ? 'С куриер' : 'Без куриер'}
+                  </span>
+                  <span className="text-[12px] leading-snug text-ff-muted">
+                    {courierEnabled
+                      ? 'Продуктът може да се изпраща с Еконт или Спиди.'
+                      : 'Без куриер — лична доставка, вземане от място или местна доставка до адрес.'}
+                  </span>
+                </span>
+                <span
+                  className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition ${
+                    courierEnabled ? 'bg-green-500' : 'bg-ff-border-2'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
+                      courierEnabled ? 'left-[19px]' : 'left-[3px]'
+                    }`}
+                  />
+                </span>
+              </button>
 
-          {/* Explicit shippability line (task #11) — same signal as the toggle above,
-              spelled out unambiguously for the farmer. */}
-          <p className="-mt-1 pl-1 text-[12px] font-semibold text-ff-ink-2">
-            {courierEnabled ? '📦 Може по Еконт/куриер' : '🚫 Само вземане/местна доставка (не се праща по куриер)'}
-          </p>
+              {/* Explicit shippability line (task #11) — same signal as the toggle above,
+                  spelled out unambiguously for the farmer. */}
+              <p className="-mt-1 pl-1 text-[12px] font-semibold text-ff-ink-2">
+                {courierEnabled ? '📦 Може по Еконт/куриер' : '🚫 Само вземане/местна доставка (не се праща по куриер)'}
+              </p>
 
-          {onOpenCourierSettings && (
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onOpenCourierSettings();
-              }}
-              className="pl-1 text-left text-[11.5px] font-semibold text-ff-ink-2 underline underline-offset-2 hover:text-ff-ink"
-            >
-              Управлявай куриера за всички продукти наведнъж →
-            </button>
+              {onOpenCourierSettings && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenCourierSettings();
+                  }}
+                  className="pl-1 text-left text-[11.5px] font-semibold text-ff-ink-2 underline underline-offset-2 hover:text-ff-ink"
+                >
+                  Управлявай куриера за всички продукти наведнъж →
+                </button>
+              )}
+            </>
           )}
 
           {/* Companion rule toggle — ON = the OTHER products in the cart must total
@@ -706,24 +867,31 @@ export function ProductDialog({
             </label>
           )}
 
-          {/* Bundle contents (task #1) — only for an already-saved bundle product. */}
-          {isBundle && (
-            <Collapsible
-              title="Съдържание на пакета"
-              hint="Продуктите, които клиентът получава в този пакет."
-              defaultOpen
-            >
-              {!product ? (
-                <p className="text-[12.5px] text-ff-muted">Запазете пакета, за да добавите продукти.</p>
-              ) : (
+          {/* Bundle contents (task #1) — live from the FIRST render of basket mode,
+              not just after the basket is saved. Creating: members are buffered in
+              `pendingMembers` and attached via setBundleItems right after the
+              product is created (see submit()). Editing: unchanged — each add/
+              remove persists immediately against the saved product. */}
+          {isBundle && (() => {
+            const activeMembers: { productId: string; name: string; quantity: number; priceStotinki: number }[] =
+              product ? bundleItems : pendingMembers;
+            const pickerOptions = pickableOptions.filter(
+              (o) => o.id !== product?.id && !activeMembers.some((m) => m.productId === o.id),
+            );
+            return (
+              <Collapsible
+                title="Съдържание на кошницата"
+                hint="Продуктите, които клиентът получава в тази кошница."
+                defaultOpen
+              >
                 <div className="flex flex-col gap-3">
                   {bundleLoading ? (
                     <p className="text-[12.5px] text-ff-muted">Зареждане…</p>
-                  ) : bundleItems.length === 0 ? (
-                    <p className="text-[12.5px] text-ff-muted">Пакетът все още няма продукти.</p>
+                  ) : activeMembers.length === 0 ? (
+                    <p className="text-[12.5px] text-ff-muted">Кошницата все още няма продукти.</p>
                   ) : (
                     <ul className="flex flex-col gap-1.5">
-                      {bundleItems.map((b) => (
+                      {activeMembers.map((b) => (
                         <li
                           key={b.productId}
                           className="flex items-center justify-between gap-2 rounded-lg border border-ff-border bg-ff-surface-2 px-3 py-2"
@@ -737,7 +905,7 @@ export function ProductDialog({
                               type="button"
                               onClick={() => removeBundleMember(b.productId)}
                               disabled={bundleBusy}
-                              aria-label="Премахни от пакета"
+                              aria-label="Премахни от кошницата"
                               className="grid h-7 w-7 place-items-center rounded text-ff-red hover:bg-ff-surface disabled:opacity-50"
                             >
                               <X size={14} />
@@ -751,21 +919,12 @@ export function ProductDialog({
                   <div className="flex items-end gap-2">
                     <label className={`${labelCls} min-w-0 flex-1`}>
                       Добави продукт
-                      <select
+                      <BasketMemberSearch
+                        options={pickerOptions}
                         value={pickProductId}
-                        onChange={(e) => setPickProductId(e.target.value)}
-                        className={`${field} cursor-pointer appearance-none`}
-                      >
-                        <option value="">Избери…</option>
-                        {bundleOptions
-                          .filter((o) => o.id !== product.id && !bundleItems.some((b) => b.productId === o.id))
-                          .map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.name}
-                              {o.weight ? ` (${o.weight})` : ''}
-                            </option>
-                          ))}
-                      </select>
+                        onChange={setPickProductId}
+                        farmerNameById={multiFarmer ? farmerNameById : undefined}
+                      />
                     </label>
                     <label className="flex w-16 flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
                       Бр.
@@ -787,13 +946,10 @@ export function ProductDialog({
                     </Button>
                   </div>
                   {bundleErr && <p className="text-[12.5px] font-semibold text-ff-red">{bundleErr}</p>}
-                  <p className="text-[11px] text-ff-muted">
-                    Забележка: продукт, който сам е пакет, не може да бъде добавен в друг пакет — сървърът ще откаже с ясно съобщение.
-                  </p>
                 </div>
-              )}
-            </Collapsible>
-          )}
+              </Collapsible>
+            );
+          })()}
 
           {err && <p className="text-[13px] font-semibold text-ff-red">{err}</p>}
 

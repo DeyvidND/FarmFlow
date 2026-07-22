@@ -236,6 +236,35 @@ describe('OrdersService.prepForCourierLeg', () => {
     expect(result.orders.map((o) => o.id)).toEqual(['o1', 'o2']);
     expect(result.confirmedOrders).toBe(2);
   });
+
+  // Finding #7: a basket's own parent row has no products join / no basket
+  // filter before this fix — the query returned BOTH the parent AND its
+  // exploded children, which inflates aggregate.ts's totalQty (double-counts
+  // the basket's contents) and offers the basket ITSELF as a pickable line —
+  // a picker can't pick a basket, only its contents. Captured rather than
+  // trusted, since the passthrough mock above returns whatever rows it's
+  // told regardless of the real query's filtering.
+  it('excludes a basket\'s own parent row from the packing-list WHERE clause', async () => {
+    const { svc, chain } = makeSvc([]);
+    await svc.prepForCourierLeg('t', ['o1'], '2026-07-16');
+
+    function literalText(node: unknown): string {
+      const n = node as { queryChunks?: unknown[]; value?: unknown } | null;
+      if (!n || typeof n !== 'object') return '';
+      if (Array.isArray(n.value) && n.value.every((v) => typeof v === 'string')) {
+        return (n.value as string[]).join('');
+      }
+      if (Array.isArray(n.queryChunks)) return n.queryChunks.map(literalText).join('');
+      return '';
+    }
+    const whereArg = (chain.where as jest.Mock).mock.calls[0][0];
+    const rendered = literalText(whereArg);
+    expect(rendered).toMatch(/bundle/i);
+    expect(rendered).toMatch(/is null/i);
+    // The exclusion needs products joined (category lives there) — the mock
+    // chain must actually have been asked for one.
+    expect((chain.innerJoin as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe('applyRouteOrder', () => {

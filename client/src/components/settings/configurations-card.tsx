@@ -3,7 +3,7 @@
 import * as React from 'react';
 import {
   SlidersHorizontal, Truck, CalendarDays, ToggleRight, Megaphone, ChevronRight,
-  TrendingUp, Home, Lock, FileText,
+  TrendingUp, Home, Lock, FileText, Percent,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -18,7 +18,8 @@ export type ConfigKey =
   | 'merchandising'
   | 'landing'
   | 'marketing'
-  | 'legal';
+  | 'legal'
+  | 'commission';
 
 interface ConfigItem {
   key: ConfigKey;
@@ -27,6 +28,10 @@ interface ConfigItem {
   desc: string;
   /** Only usable when the farm does personal delivery — shown locked otherwise. */
   requiresDelivery?: boolean;
+  /** Meaningless for a single-producer farm (there is nobody to take a cut from),
+   *  so it is HIDDEN rather than locked — matching the farmer panel, which only
+   *  renders the „Комисиона %" input for a marketplace tenant. */
+  requiresMultiFarmer?: boolean;
 }
 
 // All set-up-once configuration lives here so it stays out of the everyday
@@ -63,6 +68,7 @@ const GROUPS: { title: string; desc: string; items: ConfigItem[] }[] = [
     desc: 'Данни за платформата като юридическо лице.',
     items: [
       { key: 'legal', label: 'Легални данни', Icon: FileText, desc: 'Данни на оператора за приемо-предавателни протоколи и разписки за доставка.' },
+      { key: 'commission', label: 'Комисиона и такси', Icon: Percent, desc: 'Включи комисионата и задай процент по подразбиране. Без това процентите на производителите не се прилагат никъде.', requiresMultiFarmer: true },
     ],
   },
 ];
@@ -73,10 +79,18 @@ export function ConfigurationsCard({ onOpen }: { onOpen: (key: ConfigKey) => voi
   // sees it exists and the screen explains how to switch delivery on.
   // Default true so the tile isn't flashed locked before the tenant loads.
   const [deliveryEnabled, setDeliveryEnabled] = React.useState(true);
+  // Marketplace flag — gates the «Комисиона и такси» tile. Default FALSE (unlike
+  // deliveryEnabled above): hiding a tile that then appears is a smaller glitch
+  // than flashing one that then vanishes.
+  const [multiFarmer, setMultiFarmer] = React.useState(false);
   React.useEffect(() => {
     let on = true;
     getTenant()
-      .then((t) => on && setDeliveryEnabled(!!t.deliveryEnabled))
+      .then((t) => {
+        if (!on) return;
+        setDeliveryEnabled(!!t.deliveryEnabled);
+        setMultiFarmer(!!t.multiFarmer);
+      })
       .catch(() => {});
     return () => {
       on = false;
@@ -94,7 +108,9 @@ export function ConfigurationsCard({ onOpen }: { onOpen: (key: ConfigKey) => voi
           <h2 className="text-[15px] font-extrabold text-ff-ink">{g.title}</h2>
           <p className="mb-3 mt-0.5 text-[13px] text-ff-muted">{g.desc}</p>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            {g.items.map((it) => {
+            {g.items
+              .filter((it) => !it.requiresMultiFarmer || multiFarmer)
+              .map((it) => {
               const locked = !!it.requiresDelivery && !deliveryEnabled;
               return (
                 <button

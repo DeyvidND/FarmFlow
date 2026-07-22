@@ -87,7 +87,7 @@ export interface TenantSettings {
  * own hand-filled boxes (vehicle, plate, driver, timing). Never derived from
  * orders; `driverName` is SUGGESTED from `route_courier_assignments` when empty
  * but stays independently editable (the car/driver can change the morning of).
- * Stored at `consolidated_protocols.meta` (migration 0112).
+ * Stored at `consolidated_protocols.meta` (migration 0113).
  */
 export interface ConsolidatedProtocolMeta {
   vehicle?: string;

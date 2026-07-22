@@ -55,7 +55,12 @@ export function OrdersFeed({ orders, onOpen, onSeeAll, onDeliver, busy = false }
                 <div className="min-w-0">
                   <div className="text-[14.5px] font-bold text-ff-ink">{o.customerName}</div>
                   <div className="truncate text-[12.5px] text-ff-muted">
-                    {o.items.map((it) => `${it.productName} ×${it.quantity}`).join(', ')}
+                    {/* Basket children carry no identity of their own here — a
+                        basket must read as one line, not itself plus its members. */}
+                    {o.items
+                      .filter((it) => !it.bundleParentId)
+                      .map((it) => `${it.productName} ×${it.quantity}`)
+                      .join(', ')}
                   </div>
                 </div>
                 <StatusBadge status={o.status} size="sm" />

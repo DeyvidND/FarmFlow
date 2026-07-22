@@ -551,6 +551,13 @@ export const orderItems = pgTable(
     // variant rename/removal. priceStotinki already stores the unit price paid.
     variantId: uuid('variant_id').references(() => productVariants.id),
     variantLabel: text('variant_label'),
+    // Basket („кошница") child line: points at the parent basket line in the same
+    // order. NULL for every ordinary line. The parent carries the basket's fixed
+    // price; children are priced 0 so the order total is unchanged, and exist so
+    // prep lists, stock restore and per-product stats see the real products.
+    bundleParentId: uuid('bundle_parent_id').references((): AnyPgColumn => orderItems.id, {
+      onDelete: 'cascade',
+    }),
   },
   // Production prep-list join + per-order item batch load.
   (t) => ({
@@ -558,6 +565,9 @@ export const orderItems = pgTable(
     // Farmer stats / payments / recommendations: GROUP BY / JOIN on product_id.
     // Composite (productId, orderId) also serves distinct-order counts per product.
     productIdx: index('order_items_product_idx').on(t.productId, t.orderId),
+    bundleParentIdx: index('order_items_bundle_parent_idx')
+      .on(t.bundleParentId)
+      .where(sql`${t.bundleParentId} is not null`),
   }),
 );
 

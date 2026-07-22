@@ -8,6 +8,10 @@
  * Money units follow the rest of the app: rate in basis points (500 = 5%), fees
  * in the same minor unit as order totals (`*_stotinki` columns).
  */
+/** The key inside `tenants.settings` this config lives under. Shared by the reader
+ *  below and the writer service, so the two can never drift apart. */
+export const VENDOR_FINANCE_KEY = 'vendorFinance';
+
 export interface VendorFinanceSettings {
   commissionEnabled: boolean;
   /** Tenant-wide default; `farmers.commission_rate_bps` overrides per farmer. */

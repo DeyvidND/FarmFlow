@@ -1,6 +1,19 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 
+/** Same literal-text extraction as orders.status-scope.spec.ts's helper of the
+ *  same name — enough to assert a WHERE clause contains a given fragment
+ *  without a live DB. */
+function literalText(node: unknown): string {
+  const n = node as { queryChunks?: unknown[]; value?: unknown } | null;
+  if (!n || typeof n !== 'object') return '';
+  if (Array.isArray(n.value) && n.value.every((v) => typeof v === 'string')) {
+    return (n.value as string[]).join('');
+  }
+  if (Array.isArray(n.queryChunks)) return n.queryChunks.map(literalText).join('');
+  return '';
+}
+
 /**
  * OrdersService.setCodOutcome — the manual наложен-платеж outcome endpoint.
  * Mirrors the mocking style of orders.status-scope.spec.ts: a minimal chainable
@@ -166,5 +179,34 @@ describe('OrdersService.setCodOutcomeForFarmer ownership (multi-producer) guard'
       .mockResolvedValue({ id: 'o' } as never);
     await svc.setCodOutcomeForFarmer('o', 't', 'farmer-1', { outcome: 'received' } as never);
     expect(spy).toHaveBeenCalledWith('o', 't', { outcome: 'received' });
+  });
+
+  // Finding #2: same NOT_BASKET_PARENT gap as updateStatusForFarmer — a
+  // basket's own parent row (farmerId null) must be excluded from the
+  // ownership WHERE clause, or a single-farmer basket order 403s the very
+  // producer who owns every member. Captured rather than trusted, since the
+  // passthrough mock above cannot see whether the real query filters it out.
+  it('excludes a basket\'s own parent row from the ownership WHERE clause', async () => {
+    const wheres: unknown[] = [];
+    const chain: any = {};
+    chain.select = jest.fn(() => chain);
+    chain.from = jest.fn(() => chain);
+    chain.innerJoin = jest.fn(() => chain);
+    chain.where = jest.fn((w: unknown) => {
+      wheres.push(w);
+      return Promise.resolve([{ farmerId: 'farmer-1' }]);
+    });
+    const svc = new OrdersService(
+      chain as never, {} as never, {} as never, {} as never,
+      {} as never, {} as never, {} as never, {} as never,
+    );
+    jest.spyOn(svc as never as { setCodOutcome: (...a: unknown[]) => unknown }, 'setCodOutcome')
+      .mockResolvedValue({ id: 'o' } as never);
+
+    await svc.setCodOutcomeForFarmer('o', 't', 'farmer-1', { outcome: 'received' } as never);
+
+    const rendered = literalText(wheres[0]);
+    expect(rendered).toMatch(/bundle/i);
+    expect(rendered).toMatch(/is null/i);
   });
 });

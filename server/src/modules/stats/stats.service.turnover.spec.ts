@@ -46,7 +46,16 @@ function makeCapturingDb() {
       Promise.resolve(canned(tag(proj))).then(res, rej);
     return b;
   };
-  return { db: { select: jest.fn((proj: Record<string, unknown>) => chain(proj)) }, wheres };
+  return {
+    db: {
+      select: jest.fn((proj: Record<string, unknown>) => chain(proj)),
+      // loadBasketRevenueOverrides' first query (finding a basket to correct) —
+      // no basket rows in this test's world, so it short-circuits to an empty
+      // map and never issues its follow-up query.
+      selectDistinct: jest.fn(() => chain({})),
+    },
+    wheres,
+  };
 }
 
 /**
@@ -104,7 +113,13 @@ function makeDb(r: {
     return b;
   };
 
-  return { select: jest.fn((proj: Record<string, unknown>) => chain(proj)) };
+  return {
+    select: jest.fn((proj: Record<string, unknown>) => chain(proj)),
+    // loadBasketRevenueOverrides' first query (finding a basket to correct) —
+    // none of these tests seed a basket order, so it short-circuits to an
+    // empty map and never issues its follow-up query.
+    selectDistinct: jest.fn(() => chain({})),
+  };
 }
 
 function makeSvc(r: Parameters<typeof makeDb>[0]) {

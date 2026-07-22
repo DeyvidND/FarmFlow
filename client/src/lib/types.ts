@@ -46,6 +46,13 @@ export interface ProductOption {
   farmerId: string | null;
   subcategoryId: string | null;
   courierDisabled: boolean;
+  imageUrl: string | null;
+  category: string | null;
+  priceStotinki: number;
+  /** True if the product has any live (non-deleted) variant rows — such a
+   *  product can't be a basket member (`setBundleItems` rejects it: a member
+   *  line carries no variantId). */
+  hasVariants: boolean;
 }
 
 /** Product as returned by the API (GET /products). */
@@ -648,6 +655,8 @@ export interface OrderItem {
   variantLabel: string | null;
   quantity: number;
   priceStotinki: number;
+  /** Set on a basket child line — the id of the parent basket line. */
+  bundleParentId?: string | null;
 }
 
 /** A slot with its live booked count, as returned in the dashboard summary.

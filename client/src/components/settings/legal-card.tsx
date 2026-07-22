@@ -19,7 +19,7 @@ import {
   updateTenantLegal,
 } from '@/lib/api-client';
 import type { LegalIdentity } from '@/lib/types';
-import { buildLegalPayload, type LegalKind } from '@/lib/legal-identity';
+import { buildLegalPayload, isLegalDirty, type LegalFormFields, type LegalKind } from '@/lib/legal-identity';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -28,8 +28,6 @@ const field =
 const labelCls = 'flex flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2';
 
 type Kind = LegalKind;
-
-const same = (a: LegalIdentity, b: LegalIdentity) => JSON.stringify(a) === JSON.stringify(b);
 
 export function LegalCard() {
   const [loading, setLoading] = React.useState(true);
@@ -92,20 +90,15 @@ export function LegalCard() {
   // Sends ONLY the identifier matching the chosen kind. One input backs two
   // states here too, so without the filter a физическо лице could ship a value
   // in both `eik` and `regNo` and the protocol would print the wrong one —
-  // see buildLegalPayload. Also feeds the dirty check, so the comparison is
-  // against what would actually be saved.
-  const current: LegalIdentity = buildLegalPayload({ kind, name, eik, vatNumber, address, regNo });
-  const savedForCompare: LegalIdentity = saved
-    ? {
-        kind: saved.kind,
-        name: saved.name,
-        eik: saved.eik,
-        vatNumber: saved.vatNumber,
-        address: saved.address,
-        regNo: saved.regNo,
-      }
-    : ({} as LegalIdentity);
-  const dirty = !!saved && !same(current, savedForCompare);
+  // see buildLegalPayload.
+  const fields: LegalFormFields = { kind, name, eik, vatNumber, address, regNo };
+  const current: LegalIdentity = buildLegalPayload(fields);
+  // `isLegalDirty` normalises BOTH sides through buildLegalPayload and compares
+  // field by field. The previous inline check stringified two literals whose key
+  // orders disagreed, so an untouched identity with an address AND an ЕИК always
+  // read as dirty — and since the SaveBar renders only while dirty, it never went
+  // away after a save. See the regression tests in lib/legal-identity.test.ts.
+  const dirty = isLegalDirty(fields, saved);
 
   const save = async () => {
     setSaving(true);

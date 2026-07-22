@@ -280,4 +280,49 @@ describe('OrdersService.ordersForFarmer', () => {
     );
     expect(page.orders[0].subtotalStotinki).toBe(3 * 250 + 2 * 150);
   });
+
+  // Finding #2: a basket's own PARENT row always carries farmerId=null (the
+  // basket product has no farmer). The `shared` sub-select flags an order as
+  // having "another farmer's line" via `farmer_id is distinct from :farmerId`
+  // — without excluding the parent row, EVERY basket order would flag as
+  // shared no matter who its members belong to, hiding the mark-delivered/
+  // cod-outcome buttons for a single-farmer basket (my-orders-client.tsx).
+  // Captured directly (the projection's `shared` SQL fragment), since none of
+  // the tests above can see it — they only feed canned `shared: true/false`
+  // rows in from the mock, never exercising the real expression.
+  it("excludes a basket's own parent row from the `shared` sub-select", async () => {
+    let sharedExpr: unknown;
+    const chain: any = {};
+    chain.select = jest.fn((proj: Record<string, unknown>) => {
+      if ('shared' in proj) sharedExpr = proj.shared;
+      return chain;
+    });
+    chain.from = jest.fn(() => chain);
+    chain.innerJoin = jest.fn(() => chain);
+    chain.leftJoin = jest.fn(() => chain);
+    chain.where = jest.fn(() => chain);
+    chain.groupBy = jest.fn(() => chain);
+    chain.orderBy = jest.fn(() => chain);
+    chain.limit = jest.fn(() => Promise.resolve([]));
+    chain.then = (resolve: (v: unknown) => void) => resolve([]);
+    const svc = new OrdersService(
+      chain as never, {} as never, {} as never, {} as never,
+      {} as never, {} as never, {} as never, {} as never,
+    );
+
+    await svc.ordersForFarmer('t', 'farmer-1', {});
+
+    function literalText(node: unknown): string {
+      const n = node as { queryChunks?: unknown[]; value?: unknown } | null;
+      if (!n || typeof n !== 'object') return '';
+      if (Array.isArray(n.value) && n.value.every((v) => typeof v === 'string')) {
+        return (n.value as string[]).join('');
+      }
+      if (Array.isArray(n.queryChunks)) return n.queryChunks.map(literalText).join('');
+      return '';
+    }
+    const rendered = literalText(sharedExpr);
+    expect(rendered).toMatch(/bundle/i);
+    expect(rendered).toMatch(/is null/i);
+  });
 });

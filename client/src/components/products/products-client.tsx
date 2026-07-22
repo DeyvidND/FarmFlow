@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Info, ArrowUpDown, Check, Truck, Camera, ClipboardCheck } from 'lucide-react';
+import { Plus, Info, ArrowUpDown, Check, Truck, Camera, ClipboardCheck, ShoppingBasket } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -22,6 +22,7 @@ import {
   listProducts,
   pendingReviewCount,
   reorderProducts,
+  setBundleItems,
   updateProduct,
   updateTenant,
   type ProductWrite,
@@ -71,6 +72,7 @@ export function ProductsClient({
   );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [basketOpen, setBasketOpen] = useState(false);
   const [aiImportOpen, setAiImportOpen] = useState(false);
   const [fullEdit, setFullEdit] = useState<Product | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
@@ -255,11 +257,30 @@ export function ProductsClient({
     }
   }
 
-  async function onCreate(data: ProductWrite, files?: File[]) {
+  async function onCreate(
+    data: ProductWrite,
+    files?: File[],
+    members?: { productId: string; quantity: number }[],
+  ) {
     const created = await createProduct(data);
     setProducts((prev) => [created, ...prev]);
     patchAvail(created.id, data.stock);
     setCreateOpen(false);
+    setBasketOpen(false);
+    // Members picked before the basket had an id (product-dialog's basket-mode
+    // create flow) — attach them now that it does. The basket product itself
+    // already exists at this point; if this call fails (network hiccup, a stale
+    // picked option the server still rejects), reopen it in edit so the operator
+    // can retry adding contents instead of losing track of the empty basket.
+    if (members && members.length) {
+      try {
+        await setBundleItems(created.id, members);
+      } catch (e) {
+        toast.error(`Кошницата е създадена, но съдържанието не се записа: ${errMsg(e)}`);
+        setFullEdit(created);
+        return;
+      }
+    }
     if (files && files.length) {
       // Photos were picked in the create dialog — upload them now that we have an
       // id. The server keeps imageUrl synced to photo 0, so the first one is cover.
@@ -367,6 +388,11 @@ export function ProductsClient({
           {!reorderMode && (
             <Button variant="outline" onClick={() => setAiImportOpen(true)} className="rounded-sm">
               <Camera size={18} /> Добави от снимка
+            </Button>
+          )}
+          {!reorderMode && !isFarmer && (
+            <Button variant="outline" onClick={() => setBasketOpen(true)} className="rounded-sm">
+              <ShoppingBasket size={18} /> Създай кошница
             </Button>
           )}
           {!reorderMode && (
@@ -514,6 +540,19 @@ export function ProductsClient({
           multiSubcat={multiSubcat}
           onOpenCourierSettings={() => setCourierOpen(true)}
           onClose={() => setCreateOpen(false)}
+          onSubmit={onCreate}
+        />
+      )}
+
+      {basketOpen && (
+        <ProductDialog
+          open
+          basketMode
+          farmers={farmers}
+          subcats={subcats}
+          multiFarmer={multiFarmer}
+          multiSubcat={multiSubcat}
+          onClose={() => setBasketOpen(false)}
           onSubmit={onCreate}
         />
       )}

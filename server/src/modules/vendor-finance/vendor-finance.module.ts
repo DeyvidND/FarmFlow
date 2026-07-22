@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CommissionService } from './commission.service';
 import { VendorSubscriptionService } from './vendor-subscription.service';
 import { VendorFinanceController } from './vendor-finance.controller';
+import { VendorFinanceSettingsService } from './vendor-finance-settings.service';
 
 /**
  * DORMANT vendor-finance ledgers (commission + vendor monthly subscriptions).
@@ -11,7 +12,7 @@ import { VendorFinanceController } from './vendor-finance.controller';
  */
 @Module({
   controllers: [VendorFinanceController],
-  providers: [CommissionService, VendorSubscriptionService],
+  providers: [CommissionService, VendorSubscriptionService, VendorFinanceSettingsService],
   // Both services are reused by the super-admin marketplace-finance controller
   // (platform-scoped oversight over the same dormant ledgers).
   exports: [CommissionService, VendorSubscriptionService],

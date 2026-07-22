@@ -22,6 +22,7 @@ function makeDb(results: unknown[][]) {
 
   const qb: any = {};
   qb.select = jest.fn(() => qb);
+  qb.selectDistinct = jest.fn(() => qb);
   qb.from = jest.fn(() => qb);
   qb.where = jest.fn(() => qb);
   qb.orderBy = jest.fn(() => qb);
@@ -90,12 +91,40 @@ describe('ProductsService.findAll', () => {
 });
 
 describe('ProductsService.listOptions', () => {
-  it('returns the lean rows the query yields', async () => {
+  it('marks hasVariants false for every row when no product has a live variant', async () => {
     const opts = [{ id: 'a', name: 'Мед', farmerId: 'f1' }];
-    const { db } = makeDb([opts]);
+    // Second queued result set answers the `productVariants` existence query —
+    // empty here, so no id should come back flagged.
+    const { db } = makeDb([opts, []]);
     const svc = svcWith(db, catalogCache());
 
-    await expect(svc.listOptions('t1')).resolves.toEqual(opts);
+    await expect(svc.listOptions('t1')).resolves.toEqual([{ ...opts[0], hasVariants: false }]);
+  });
+
+  it('flags only the product that actually has a live variant row', async () => {
+    // Two products come back from the main query; the variant-existence query
+    // answers with ONLY 'b' — proving the flag tracks that second query's
+    // result rather than being hardcoded, a product with no matching row must
+    // resolve to hasVariants:false even though it shares the same call.
+    const opts = [
+      { id: 'a', name: 'Мед', farmerId: 'f1' },
+      { id: 'b', name: 'Кошница', farmerId: null },
+    ];
+    const { db } = makeDb([opts, [{ productId: 'b' }]]);
+    const svc = svcWith(db, catalogCache());
+
+    const result = await svc.listOptions('t1');
+    expect(result.find((r) => r.id === 'a')?.hasVariants).toBe(false);
+    expect(result.find((r) => r.id === 'b')?.hasVariants).toBe(true);
+  });
+
+  it('skips the variant-existence query entirely when there are no rows', async () => {
+    const { db } = makeDb([[]]);
+    const svc = svcWith(db, catalogCache());
+
+    await expect(svc.listOptions('t1')).resolves.toEqual([]);
+    // Only the main select ran — no second query queued/consumed.
+    expect(db.select).toHaveBeenCalledTimes(1);
   });
 });
 
