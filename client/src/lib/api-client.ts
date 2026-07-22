@@ -16,6 +16,7 @@ import type {
   Farmer,
   FarmerAccess,
   FarmerLegal,
+  FarmerReadiness,
   LegalIdentity,
   MediaItem,
   Order,
@@ -223,6 +224,8 @@ export const reorderSubcategories = (items: ReorderItem[]) =>
 
 // ---- Farmers ----
 export const listFarmers = () => apiFetch<Farmer[]>('farmers');
+
+export const getFarmerReadiness = () => apiFetch<FarmerReadiness[]>('farmers/readiness');
 
 export const createFarmer = (data: Partial<Farmer>) =>
   apiFetch<Farmer>('farmers', { method: 'POST', ...json(data) }, 'Неуспешно създаване');
