@@ -1399,6 +1399,27 @@ export class OrdersService {
   }
 
   /**
+   * "Прати пак" (§4.3) — re-enqueues the bilateral protocol email for an order
+   * that may already be `confirmed`. Exists because Tasks 7/8 (bulk + Stripe)
+   * flip `orders.status` to `confirmed` BEFORE the email outcome is known —
+   * unlike the human path (Task 6), re-running the confirm action on those
+   * orders is a no-op (the pending→confirmed transition already happened), so
+   * it can no longer serve as the retry trigger. Idempotent: `sendProtocolEmail`
+   * (run by the queue's processor) no-ops when protocol_email_status is
+   * already 'sent'.
+   */
+  async resendProtocolEmail(id: string, tenantId: string): Promise<void> {
+    const [order] = await this.db
+      .select({ id: orders.id })
+      .from(orders)
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
+      .limit(1);
+    if (!order) throw new NotFoundException('Поръчката не е намерена');
+    if (!this.protocolEmail) return; // module not wired (e.g. a bare unit-test harness) — no-op
+    await this.protocolEmail.enqueueProtocolEmail(tenantId, id);
+  }
+
+  /**
    * Does this order contain at least one of `farmerId`'s products? The
    * membership test that gates a producer sub-account's access to the full
    * order (GET /orders/:id) — the same „is this producer a party to the order"

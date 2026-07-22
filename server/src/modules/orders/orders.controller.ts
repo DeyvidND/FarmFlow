@@ -340,6 +340,15 @@ export class OrdersController {
     return this.ordersService.setFulfillment(id, user.tenantId, scope, dto.state);
   }
 
+  // "Прати пак" (§4.3) — re-send the bilateral protocol email. Idempotent: a
+  // no-op if it already sent. Same role scope as the sibling :id/cod-outcome
+  // and :id/fulfillment action routes. See OrdersService.resendProtocolEmail.
+  @Post(':id/resend-protocol-email')
+  @Roles('admin', 'farmer')
+  resendProtocolEmail(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: TenantRequestUser) {
+    return this.ordersService.resendProtocolEmail(id, user.tenantId);
+  }
+
   // Owner-only full order edit (contact / delivery values / slot / notes / items).
   // Unlike /status and /cod-outcome this is NOT opened to producer sub-accounts.
   @Patch(':id')
