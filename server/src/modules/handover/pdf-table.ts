@@ -154,10 +154,16 @@ export function paginateRows(
 }
 
 /**
- * Cut a text row at a line boundary so its head fits `availableHeight`.
- * Returns `null` when the row already fits, or when any cell is an image —
- * an image has no line boundary to cut at, and silently scaling a signature
- * to fit is worse than one oversized row.
+ * Cut a row at a line boundary so its head fits `availableHeight`. An image
+ * cell rides on the head unchanged — a farmer's signature belongs beside the
+ * first fragment of their row, and the image is small — while the text
+ * columns are cut at a line boundary around it; the tail's image column
+ * becomes an empty cell so no second copy of the signature is drawn.
+ *
+ * Returns `null` when the row already fits, or when an image cell alone is
+ * taller than `availableHeight` — there is no line boundary to cut an image
+ * at, so it cannot ride on a fragment shorter than itself; that case is left
+ * to `fitImageCells` to scale down instead.
  *
  * Always leaves at least one line in the head: a zero-line head would make the
  * caller loop forever on the same row.
@@ -169,15 +175,23 @@ export function splitRow(
   padding: number,
 ): [LaidOutRow, LaidOutRow] | null {
   if (row.height <= availableHeight) return null;
-  if (row.cells.some(isImage)) return null;
+
+  const imageHeight = Math.max(0, ...row.cells.filter(isImage).map((c) => c.height));
+  // An image taller than the fragment cannot ride on the head — there is no
+  // line boundary to cut it at. Leave it to `fitImageCells` to scale down.
+  if (imageHeight + 2 * padding > availableHeight) return null;
 
   const fit = Math.max(1, Math.floor((availableHeight - 2 * padding) / lineHeight));
-  const cells = row.cells as string[][];
-  if (cells.every((c) => c.length <= fit)) return null;
+  const textLen = (c: LaidOutCell) => (isImage(c) ? 0 : c.length);
+  if (row.cells.every((c) => textLen(c) <= fit)) return null;
 
-  const head = cells.map((c) => c.slice(0, fit));
-  const tail = cells.map((c) => c.slice(fit));
-  const heightOf = (cs: string[][]) => Math.max(...cs.map((c) => c.length)) * lineHeight + 2 * padding;
+  // Head keeps the image (a signature belongs beside the first fragment of
+  // the farmer's row) and the first `fit` text lines; the tail is pure text,
+  // its image column emptied so no second copy is drawn.
+  const head: LaidOutCell[] = row.cells.map((c) => (isImage(c) ? c : c.slice(0, fit)));
+  const tail: LaidOutCell[] = row.cells.map((c) => (isImage(c) ? [''] : c.slice(fit)));
+  const heightOf = (cs: LaidOutCell[]) =>
+    Math.max(0, ...cs.map((c) => (isImage(c) ? c.height : c.length * lineHeight))) + 2 * padding;
   return [
     { cells: head, height: heightOf(head) },
     { cells: tail, height: heightOf(tail) },

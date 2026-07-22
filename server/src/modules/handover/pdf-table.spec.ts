@@ -465,6 +465,57 @@ describe('drawTable — what it actually draws', () => {
       const row: LaidOutRow = { cells: [{ image: img, width: 80, height: 700 }], height: 708 };
       expect(splitRow(row, 100, 12, 4)).toBeNull();
     });
+
+    it('splits an image row by its text, keeping the image on the head', async () => {
+      const d = await createDoc(A4_LANDSCAPE);
+      const img = await tinyPng(d);
+      // 50 text lines (600pt) + a small 40pt image; availableHeight 200 forces a split.
+      const row: LaidOutRow = {
+        cells: [Array.from({ length: 50 }, (_, i) => `ред ${i + 1}`), { image: img, width: 80, height: 40 }],
+        height: 50 * 12 + 8,
+      };
+      const [head, tail] = splitRow(row, 200, 12, 4)!;
+      // Image rides on the head, gone from the tail.
+      expect(head.cells.some((c) => !Array.isArray(c))).toBe(true);
+      expect(tail.cells.some((c) => !Array.isArray(c))).toBe(false);
+      // Every text line is conserved, in order, across the two fragments.
+      const headLines = head.cells[0] as string[];
+      const tailLines = tail.cells[0] as string[];
+      expect(headLines.length + tailLines.length).toBe(50);
+      expect(headLines.concat(tailLines)).toEqual(row.cells[0]);
+      // The head fits the page fragment it was cut for.
+      expect(head.height).toBeLessThanOrEqual(200);
+    });
+
+    it('still refuses to split when the image alone is taller than the fragment', async () => {
+      const d = await createDoc(A4_LANDSCAPE);
+      const img = await tinyPng(d);
+      // A 300pt image cannot ride on a 100pt fragment — leave it to fitImageCells.
+      const row: LaidOutRow = {
+        cells: [Array.from({ length: 50 }, (_, i) => `ред ${i + 1}`), { image: img, width: 80, height: 300 }],
+        height: 50 * 12 + 8,
+      };
+      expect(splitRow(row, 100, 12, 4)).toBeNull();
+    });
+  });
+
+  it('drawTable keeps a long text+image row on the page instead of off it', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    const img = await tinyPng(d);
+    // Hand-measured (see task-12-report.md): 80 elements of "позиция N" joined
+    // with spaces wrap, in COLS[0] (№, width 30 — available width 22pt after
+    // padding), to 160 lines / 1920pt — far past a landscape page's ~485pt
+    // usable height, so this genuinely overflows and needs no widening.
+    const huge = Array.from({ length: 80 }, (_, i) => `позиция ${i + 1}`).join(' ');
+    // A row whose text overflows a page, carrying a normal small signature.
+    drawTable(d, COLS, [[huge, 'ЕТ Петров', { image: img, width: 80, height: 36 }]]);
+    expect(d.doc.getPageCount()).toBeGreaterThan(1);
+    const ys = [
+      ...drawTextSpy.mock.calls.map((c) => c[1].y),
+      ...drawLineSpy.mock.calls.flatMap((c) => [c[0].start.y, c[0].end.y]),
+      ...drawImageSpy.mock.calls.map((c) => c[1].y),
+    ];
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(MARGIN);
   });
 
   it('scales an image taller than a whole usable page down to fit, instead of drawing it off the bottom', async () => {
