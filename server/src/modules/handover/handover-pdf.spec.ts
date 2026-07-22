@@ -221,8 +221,11 @@ describe('renderProtocolPdf — draw-position regression (task 6)', () => {
     for (const [text, opts] of drawTextSpy.mock.calls) {
       // drawDocumentFooter deliberately pins its text at MARGIN - 18 (see
       // pdf-kit.ts) and does not move the cursor — that is its one legitimate
-      // exception to the invariant, so it is the one text excluded here.
+      // exception to the invariant. Task 11 wires in stampPageNumbers, whose
+      // „стр. X от Y" label pdf-kit.ts pins to that exact same y — a second,
+      // equally deliberate exception — so both are excluded here.
       if (text === footerText) continue;
+      if (typeof text === 'string' && text.startsWith('стр.')) continue;
       expect(opts.y).toBeGreaterThanOrEqual(MARGIN);
     }
     for (const [opts] of drawLineSpy.mock.calls) {
@@ -253,6 +256,34 @@ describe('renderProtocolPdf — draw-position regression (task 6)', () => {
     for (const c of itemLinesOnSigPage) {
       expect(c.opts.y).toBeGreaterThan(sigY);
     }
+  });
+
+  const pageLabels = () =>
+    drawTextSpy.mock.calls
+      .map(([t]) => t)
+      .filter((t): t is string => typeof t === 'string' && t.startsWith('стр.'));
+
+  it('numbers every page of a multi-page protocol', async () => {
+    const buf = await renderProtocolPdf(bigRow(80) as any);
+    const pageCount = (await PDFDocument.load(buf)).getPageCount();
+    expect(pageCount).toBeGreaterThan(1);
+    expect(pageLabels()).toEqual(
+      Array.from({ length: pageCount }, (_, i) => `стр. ${i + 1} от ${pageCount}`),
+    );
+  });
+
+  it('stamps each label on its own page, not all of them on the last one', async () => {
+    await renderProtocolPdf(bigRow(80) as any);
+    const stamped = drawTextSpy.mock.calls
+      .map((c, i) => ({ text: c[0], inst: drawTextSpy.mock.instances[i] }))
+      .filter((c) => typeof c.text === 'string' && c.text.startsWith('стр.'));
+    expect(new Set(stamped.map((s) => s.inst)).size).toBe(stamped.length);
+  });
+
+  it('leaves a single-page protocol unnumbered — „стр. 1 от 1" is clutter on a form', async () => {
+    const buf = await renderProtocolPdf(bigRow(3) as any);
+    expect((await PDFDocument.load(buf)).getPageCount()).toBe(1);
+    expect(pageLabels()).toEqual([]);
   });
 });
 

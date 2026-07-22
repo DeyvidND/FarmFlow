@@ -11,6 +11,7 @@ import {
   drawDocumentFooter,
   drawDocumentHeader,
   ensureSpace,
+  stampPageNumbers,
   wrap,
 } from './pdf-kit';
 
@@ -207,6 +208,10 @@ export async function renderProtocolPdf(row: any): Promise<Buffer> {
   // Same brand source as the header — a tenant whose operator isn't ФермериБГ
   // should not see two different issuers named on the same document.
   drawDocumentFooter(d, `Документът е издаден електронно от ${brand}.`);
+
+  // Only when the protocol actually spans pages — a „стр. 1 от 1" on the
+  // common one-page form is clutter, not information.
+  if (d.doc.getPageCount() > 1) stampPageNumbers(d);
 
   return Buffer.from(await d.doc.save());
 }
