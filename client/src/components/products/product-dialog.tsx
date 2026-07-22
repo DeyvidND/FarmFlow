@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible } from '@/components/delivery/ui';
 import { MediaManager } from '@/components/media/media-manager';
 import { CoverCropEditor } from '@/components/media/cover-crop-editor';
+import { BasketMemberSearch } from './basket-member-search';
 import {
   ApiError,
   getBundleItems,
@@ -918,22 +919,12 @@ export function ProductDialog({
                   <div className="flex items-end gap-2">
                     <label className={`${labelCls} min-w-0 flex-1`}>
                       Добави продукт
-                      <select
+                      <BasketMemberSearch
+                        options={pickerOptions}
                         value={pickProductId}
-                        onChange={(e) => setPickProductId(e.target.value)}
-                        className={`${field} cursor-pointer appearance-none`}
-                      >
-                        <option value="">Избери…</option>
-                        {pickerOptions.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}
-                            {o.weight ? ` (${o.weight})` : ''}
-                            {multiFarmer && o.farmerId && farmerNameById.get(o.farmerId)
-                              ? ` — ${farmerNameById.get(o.farmerId)}`
-                              : ''}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={setPickProductId}
+                        farmerNameById={multiFarmer ? farmerNameById : undefined}
+                      />
                     </label>
                     <label className="flex w-16 flex-col gap-1.5 text-[12.5px] font-bold text-ff-ink-2">
                       Бр.
