@@ -69,6 +69,17 @@ export class ConsolidatedProtocolController {
     return this.protocols.ensureDraft(tenantId, dto.date, dto.scope, dto.legIndex);
   }
 
+  /** §4.4 "Прати на куриерите" — recipient PREVIEW, shown by the button before
+   *  anything sends. Admin-only by the global default-deny — NO `@Roles`; a
+   *  courier never gets to see the whole day's roster/emails. MUST stay
+   *  registered above `@Get(':id')` below — a literal `courier-recipients`
+   *  segment would otherwise be swallowed by `:id` (same gotcha as the
+   *  `/farmers/me` route needing to sit above `:id`). */
+  @Get('courier-recipients')
+  courierRecipients(@CurrentTenant() tenantId: string, @Query() q: ConsolidatedQueryDto) {
+    return this.protocols.getCourierRecipients(tenantId, q.date);
+  }
+
   @Get(':id')
   @Roles('admin', 'driver')
   async getOne(
@@ -117,5 +128,15 @@ export class ConsolidatedProtocolController {
     const view = await this.protocols.getView(tenantId, id);
     await this.assertCanView(tenantId, user, view);
     return this.protocols.sign(tenantId, id, dto.receiverSignaturePng, user.role as 'admin' | 'driver');
+  }
+
+  /** §4.4 "Прати на куриерите" — the actual send. Admin-only by the global
+   *  default-deny — NO `@Roles`. Button-triggered only (never automatic — the
+   *  route reorders until the last minute); each active courier gets ONLY
+   *  their own leg's protocol. `POST` has no `:id`-shaped sibling route, so no
+   *  ordering hazard here (unlike the GET preview above). */
+  @Post('send-to-couriers')
+  sendToCouriers(@CurrentTenant() tenantId: string, @Query() q: ConsolidatedQueryDto) {
+    return this.protocols.sendLegProtocolsToCouriers(tenantId, q.date);
   }
 }

@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
-  type Database, consolidatedProtocols, deliverySlots, farmers, orderItems, orders, products, tenants,
+  type Database, consolidatedProtocols, deliverySlots, farmers, orderItems, orders, products, tenants, users,
 } from '@fermeribg/db';
 import type { ConsolidatedProtocolMeta, ConsolidatedProtocolOverrides, LegalIdentity } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
@@ -13,6 +13,7 @@ import type { ProtocolItemDto } from './dto/create-protocol.dto';
 import { renderConsolidatedProtocolPdf } from './consolidated-pdf';
 import { RoutingService } from '../routing/routing.service';
 import { CourierAssignmentService } from '../routing/courier-assignment.service';
+import { EmailService } from '../../common/email/email.service';
 
 export type ConsolidatedScope = 'day' | 'leg';
 
@@ -73,6 +74,32 @@ export interface ConsolidatedProtocolView {
   signedAt: Date | null;
 }
 
+/** §4.4 "Прати на куриерите" — one row per active courier leg (never invented:
+ *  sourced from CourierAssignmentService.getAssignmentsForDay). `email: null`
+ *  means the courier account has no email on file — included, not omitted, so
+ *  the button's recipient-preview dialog can flag it BEFORE sending. */
+export interface CourierProtocolRecipient {
+  legIndex: number;
+  name: string;
+  email: string | null;
+}
+
+/** Outcome of one courier's send attempt. Only couriers WITH an email get one
+ *  of these (a no-email courier is skipped — present in `recipients`, absent
+ *  from both `sent` and `failed`). */
+export interface CourierProtocolSendResult {
+  legIndex: number;
+  email: string;
+  ok: boolean;
+  error?: string;
+}
+
+export interface CourierProtocolSendReport {
+  recipients: CourierProtocolRecipient[];
+  sent: CourierProtocolSendResult[];
+  failed: CourierProtocolSendResult[];
+}
+
 function targetMatch(tenantId: string, date: string, scope: ConsolidatedScope, legIndex?: number | null) {
   return and(
     eq(consolidatedProtocols.tenantId, tenantId),
@@ -98,6 +125,7 @@ export class ConsolidatedProtocolService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly routing: RoutingService,
     private readonly courierAssignment: CourierAssignmentService,
+    private readonly email: EmailService,
   ) {}
 
   /** Materializes a draft row (assigning its doc_number) if one doesn't exist yet
@@ -516,5 +544,69 @@ export class ConsolidatedProtocolService {
       },
     };
     return renderConsolidatedProtocolPdf(renderView, tenantRow?.name ?? 'ФермериБГ');
+  }
+
+  /** The day's active-courier roster with a resolvable email, for the button's
+   *  recipient PREVIEW (§4.4) — shown before anything sends. Sourced strictly
+   *  from `getAssignmentsForDay` (never invented); a courier with no `users`
+   *  row email comes back as `email: null`, not omitted. */
+  async getCourierRecipients(tenantId: string, date: string): Promise<CourierProtocolRecipient[]> {
+    const board = await this.courierAssignment.getAssignmentsForDay(tenantId, date);
+    if (board.length === 0) return [];
+
+    const accountIds = [...new Set(board.map((a) => a.accountId))];
+    const userRows = await this.db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(inArray(users.id, accountIds));
+    const emailById = new Map(userRows.map((u) => [u.id, u.email]));
+
+    return [...board]
+      .sort((a, b) => a.legIndex - b.legIndex)
+      .map((a) => ({
+        legIndex: a.legIndex,
+        name: `Лег ${a.legIndex + 1}`,
+        email: emailById.get(a.accountId) ?? null,
+      }));
+  }
+
+  /** Button-triggered send (§4.4) — NEVER automatic, the route reorders until
+   *  the last minute. For each active courier leg WITH an email: materializes
+   *  (or reuses) that leg's OWN consolidated-protocol draft via `ensureDraft`,
+   *  then hands a `{kind:'consolidated-protocol', consolidatedProtocolId, tenantId}`
+   *  descriptor — scoped to THAT leg's id, never another leg's or the day's —
+   *  to `EmailService.sendMailNow`. Direct awaited send (no queue): this is an
+   *  operator-initiated, small-fanout action, not the bulk customer-email path.
+   *  A courier with no email is skipped outright (present in `recipients`,
+   *  absent from `sent`/`failed`); one courier's mailer failure is collected in
+   *  `failed` and does not stop the others from sending. */
+  async sendLegProtocolsToCouriers(tenantId: string, date: string): Promise<CourierProtocolSendReport> {
+    const recipients = await this.getCourierRecipients(tenantId, date);
+    const sent: CourierProtocolSendResult[] = [];
+    const failed: CourierProtocolSendResult[] = [];
+
+    for (const r of recipients) {
+      if (!r.email) continue; // no email on file — skipped, not sent, not failed
+      const email = r.email;
+      try {
+        const { id } = await this.ensureDraft(tenantId, date, 'leg', r.legIndex);
+        await this.email.sendMailNow({
+          to: email,
+          subject: `Обобщен протокол за ${date} — ${r.name}`,
+          html: `<!doctype html><html lang="bg"><body style="font-family:Arial,Helvetica,sans-serif">
+<p>Здравей!</p>
+<p>Прилагаме обобщения приемо-предавателен протокол за твоя курс (${r.name}) на ${date}.</p>
+</body></html>`,
+          attachments: [{ kind: 'consolidated-protocol', consolidatedProtocolId: id, tenantId }],
+          stream: 'transactional',
+        });
+        sent.push({ legIndex: r.legIndex, email, ok: true });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        failed.push({ legIndex: r.legIndex, email, ok: false, error: message });
+      }
+    }
+
+    return { recipients, sent, failed };
   }
 }

@@ -26,8 +26,8 @@ function makeDb() {
   return db;
 }
 
-function makeSvc(db: any, routing: any = {}, courierAssignment: any = {}) {
-  return new ConsolidatedProtocolService(db, routing, courierAssignment);
+function makeSvc(db: any, routing: any = {}, courierAssignment: any = {}, email: any = {}) {
+  return new ConsolidatedProtocolService(db, routing, courierAssignment, email);
 }
 
 describe('ConsolidatedProtocolService.ensureDraft', () => {
@@ -483,5 +483,166 @@ describe('ConsolidatedProtocolService.renderPdf', () => {
     const svc = makeSvc(db);
     const buf = await svc.renderPdf('t1', PDF_VIEW as any);
     expect(buf.length).toBeGreaterThan(0);
+  });
+});
+
+describe('ConsolidatedProtocolService.getCourierRecipients', () => {
+  it('returns one recipient per active courier leg, sorted by legIndex, with the email joined from users', async () => {
+    const db = makeDb();
+    db.queue([
+      { id: 'u-leg1', email: 'leg1@x.bg' },
+      { id: 'u-leg0', email: 'leg0@x.bg' },
+    ]); // users select — order deliberately NOT leg-sorted, to prove the service does the sorting
+    const courierAssignment = {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([
+        { accountId: 'u-leg1', legIndex: 1 },
+        { accountId: 'u-leg0', legIndex: 0 },
+      ]),
+    };
+    const svc = makeSvc(db, {}, courierAssignment);
+
+    const out = await svc.getCourierRecipients('t1', '2026-07-22');
+
+    expect(out).toEqual([
+      { legIndex: 0, name: 'Лег 1', email: 'leg0@x.bg' },
+      { legIndex: 1, name: 'Лег 2', email: 'leg1@x.bg' },
+    ]);
+  });
+
+  it('includes a courier with NO email on file as email: null — never omitted from the list', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'u-has-email', email: 'has@x.bg' }]); // u-no-email has no row back from users
+    const courierAssignment = {
+      getAssignmentsForDay: jest.fn().mockResolvedValue([
+        { accountId: 'u-has-email', legIndex: 0 },
+        { accountId: 'u-no-email', legIndex: 1 },
+      ]),
+    };
+    const svc = makeSvc(db, {}, courierAssignment);
+
+    const out = await svc.getCourierRecipients('t1', '2026-07-22');
+
+    expect(out).toEqual([
+      { legIndex: 0, name: 'Лег 1', email: 'has@x.bg' },
+      { legIndex: 1, name: 'Лег 2', email: null },
+    ]);
+  });
+
+  it('returns an empty list — no users lookup at all — when nobody is assigned that day', async () => {
+    const db = makeDb();
+    const courierAssignment = { getAssignmentsForDay: jest.fn().mockResolvedValue([]) };
+    const svc = makeSvc(db, {}, courierAssignment);
+
+    const out = await svc.getCourierRecipients('t1', '2026-07-22');
+
+    expect(out).toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+});
+
+describe('ConsolidatedProtocolService.sendLegProtocolsToCouriers', () => {
+  // ensureDraft's own DB-chain plumbing (advisory lock, doc_number assignment)
+  // is already proven by the ensureDraft describe block above; these tests
+  // stub it out (spyOn) so they exercise ONLY the new per-courier orchestration
+  // (recipient resolution -> ensureDraft(leg) -> email.sendMailNow), not
+  // ensureDraft's internals a second time.
+  function setup(board: { accountId: string; legIndex: number }[], usersRows: { id: string; email: string }[]) {
+    const db = makeDb();
+    db.queue(usersRows);
+    const courierAssignment = { getAssignmentsForDay: jest.fn().mockResolvedValue(board) };
+    const email = { sendMailNow: jest.fn().mockResolvedValue(undefined) };
+    const svc = makeSvc(db, {}, courierAssignment, email);
+    jest.spyOn(svc, 'ensureDraft').mockImplementation(
+      async (_t: string, _d: string, _scope: string, legIndex?: number) => ({ id: `cp-leg-${legIndex}` }),
+    );
+    return { db, courierAssignment, email, svc };
+  }
+
+  it("sends EXACTLY one email per active courier, to THEIR OWN email, carrying THEIR OWN leg's protocol id — never another leg's", async () => {
+    const { email, svc } = setup(
+      [
+        { accountId: 'u-a', legIndex: 0 },
+        { accountId: 'u-b', legIndex: 1 },
+      ],
+      [
+        { id: 'u-a', email: 'courierA@x.bg' },
+        { id: 'u-b', email: 'courierB@x.bg' },
+      ],
+    );
+
+    const report = await svc.sendLegProtocolsToCouriers('t1', '2026-07-22');
+
+    expect(email.sendMailNow).toHaveBeenCalledTimes(2);
+    const callFor = (to: string) => email.sendMailNow.mock.calls.find((c: any[]) => c[0].to === to)![0];
+
+    const callA = callFor('courierA@x.bg');
+    expect(callA.attachments).toEqual([
+      { kind: 'consolidated-protocol', consolidatedProtocolId: 'cp-leg-0', tenantId: 't1' },
+    ]);
+
+    const callB = callFor('courierB@x.bg');
+    expect(callB.attachments).toEqual([
+      { kind: 'consolidated-protocol', consolidatedProtocolId: 'cp-leg-1', tenantId: 't1' },
+    ]);
+    // Leg isolation, made explicit: courier A's descriptor never carries B's id.
+    expect(callA.attachments[0].consolidatedProtocolId).not.toBe(callB.attachments[0].consolidatedProtocolId);
+
+    expect(report.sent).toEqual([
+      { legIndex: 0, email: 'courierA@x.bg', ok: true },
+      { legIndex: 1, email: 'courierB@x.bg', ok: true },
+    ]);
+    expect(report.failed).toEqual([]);
+  });
+
+  it('skips a courier with no email on file entirely — no send attempted, not reported as sent or failed', async () => {
+    const { email, svc } = setup(
+      [
+        { accountId: 'u-a', legIndex: 0 },
+        { accountId: 'u-no-email', legIndex: 1 },
+      ],
+      [{ id: 'u-a', email: 'courierA@x.bg' }],
+    );
+
+    const report = await svc.sendLegProtocolsToCouriers('t1', '2026-07-22');
+
+    expect(email.sendMailNow).toHaveBeenCalledTimes(1);
+    expect(email.sendMailNow).toHaveBeenCalledWith(expect.objectContaining({ to: 'courierA@x.bg' }));
+    expect(report.sent).toEqual([{ legIndex: 0, email: 'courierA@x.bg', ok: true }]);
+    expect(report.failed).toEqual([]);
+    // The no-email courier still shows up in the recipient preview...
+    expect(report.recipients).toContainEqual({ legIndex: 1, name: 'Лег 2', email: null });
+    // ...but never in sent or failed.
+    expect(report.sent.some((r: { legIndex: number }) => r.legIndex === 1)).toBe(false);
+    expect(report.failed.some((r: { legIndex: number }) => r.legIndex === 1)).toBe(false);
+  });
+
+  it('a mailer failure for ONE courier is reported in `failed` and does not stop the others from sending', async () => {
+    const { email, svc } = setup(
+      [
+        { accountId: 'u-a', legIndex: 0 },
+        { accountId: 'u-b', legIndex: 1 },
+      ],
+      [
+        { id: 'u-a', email: 'courierA@x.bg' },
+        { id: 'u-b', email: 'courierB@x.bg' },
+      ],
+    );
+    email.sendMailNow.mockImplementation(async (opts: any) => {
+      if (opts.to === 'courierA@x.bg') throw new Error('SMTP timeout');
+    });
+
+    const report = await svc.sendLegProtocolsToCouriers('t1', '2026-07-22');
+
+    expect(report.failed).toEqual([{ legIndex: 0, email: 'courierA@x.bg', ok: false, error: 'SMTP timeout' }]);
+    expect(report.sent).toEqual([{ legIndex: 1, email: 'courierB@x.bg', ok: true }]);
+  });
+
+  it('returns an empty report when nobody is assigned that day — no ensureDraft, no send', async () => {
+    const { email, svc } = setup([], []);
+
+    const report = await svc.sendLegProtocolsToCouriers('t1', '2026-07-22');
+
+    expect(report).toEqual({ recipients: [], sent: [], failed: [] });
+    expect(email.sendMailNow).not.toHaveBeenCalled();
   });
 });

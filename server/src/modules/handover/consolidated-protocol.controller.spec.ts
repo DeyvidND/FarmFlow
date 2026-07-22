@@ -12,6 +12,8 @@ function make() {
     ensureDraft: jest.fn(),
     updateDraft: jest.fn(),
     sign: jest.fn(),
+    getCourierRecipients: jest.fn(),
+    sendLegProtocolsToCouriers: jest.fn(),
   };
   const courierAssignment = { resolveMyLeg: jest.fn() };
   return { svc, courierAssignment, ctrl: new ConsolidatedProtocolController(svc as any, courierAssignment as any) };
@@ -60,5 +62,38 @@ describe('ConsolidatedProtocolController — overrides PATCH stays admin-only', 
   it('has no @Roles decorator opening it to driver — the global default-deny handles it', () => {
     const meta = Reflect.getMetadata('roles', ConsolidatedProtocolController.prototype.updateOverrides);
     expect(meta).toBeUndefined();
+  });
+});
+
+describe('ConsolidatedProtocolController — §4.4 "Прати на куриерите"', () => {
+  it('has no @Roles decorator on courier-recipients — admin-only via the global default-deny', () => {
+    const meta = Reflect.getMetadata('roles', ConsolidatedProtocolController.prototype.courierRecipients);
+    expect(meta).toBeUndefined();
+  });
+
+  it('has no @Roles decorator on send-to-couriers — admin-only via the global default-deny', () => {
+    const meta = Reflect.getMetadata('roles', ConsolidatedProtocolController.prototype.sendToCouriers);
+    expect(meta).toBeUndefined();
+  });
+
+  it('courierRecipients delegates to the service with the tenant + date, unchanged', async () => {
+    const { ctrl, svc } = make();
+    svc.getCourierRecipients.mockResolvedValue([{ legIndex: 0, name: 'Лег 1', email: 'a@x.bg' }]);
+
+    const out = await ctrl.courierRecipients(TENANT, { date: '2026-07-22' } as any);
+
+    expect(svc.getCourierRecipients).toHaveBeenCalledWith(TENANT, '2026-07-22');
+    expect(out).toEqual([{ legIndex: 0, name: 'Лег 1', email: 'a@x.bg' }]);
+  });
+
+  it('sendToCouriers delegates to the service with the tenant + date and returns its report', async () => {
+    const { ctrl, svc } = make();
+    const report = { recipients: [], sent: [{ legIndex: 0, email: 'a@x.bg', ok: true }], failed: [] };
+    svc.sendLegProtocolsToCouriers.mockResolvedValue(report);
+
+    const out = await ctrl.sendToCouriers(TENANT, { date: '2026-07-22' } as any);
+
+    expect(svc.sendLegProtocolsToCouriers).toHaveBeenCalledWith(TENANT, '2026-07-22');
+    expect(out).toEqual(report);
   });
 });
