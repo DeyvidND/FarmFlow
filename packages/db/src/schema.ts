@@ -587,6 +587,69 @@ export const handoverProtocols = pgTable(
   }),
 );
 
+// Обобщен приемо-предавателен протокол за целия курс (scope='day') или един
+// куриерски лег (scope='leg') — виж
+// docs/superpowers/specs/2026-07-21-consolidated-handover-protocol-design.md.
+// Own numbering series (doc_number, printed "ОБ-<n>") — deliberately separate
+// from handover_protocols.protocol_number; the two documents must never share a
+// visible number. Content (which farmers/orders) is NEVER stored while
+// status='draft' — only meta/overrides/status live here; the live view is
+// recomputed from orders/order_items/products/farmers on every read
+// (ConsolidatedProtocolService). frozen_rows is populated ONLY at sign time and
+// is the legal record from then on — the PDF renders from it, never from orders
+// again, once signed. meta/overrides/frozen_rows stay untyped jsonb here (repo
+// convention — cf. handoverProtocols.meta/items) and are cast to their
+// ConsolidatedProtocol* shapes at the service call site.
+export const consolidatedProtocols = pgTable(
+  'consolidated_protocols',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v4()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    // 'day' | 'leg'
+    scope: text('scope').notNull(),
+    // БГ ден на курса (YYYY-MM-DD), same convention as deliverySlots.date.
+    date: date('date').notNull(),
+    // 0-based leg, same indexing as route_courier_assignments.legIndex /
+    // orders.courierIndex. NULL when scope='day'.
+    legIndex: integer('leg_index'),
+    // Own series — printed "ОБ-<docNumber>". See handover_protocols.protocolNumber
+    // for the sibling bilateral series (deliberately NOT shared).
+    docNumber: integer('doc_number').notNull(),
+    // 'draft' | 'signed'
+    status: text('status').notNull().default('draft'),
+    meta: jsonb('meta'),
+    overrides: jsonb('overrides'),
+    // NULL while draft; populated ONCE at sign time and never recomputed after.
+    // Cast to ConsolidatedProtocolRows at the read site (service layer).
+    frozenRows: jsonb('frozen_rows'),
+    // Encrypted at rest — same AES-256-GCM secret.util as farmers.signaturePng /
+    // tenants.operatorSignaturePng. Captured live on the signing device (§1.7):
+    // no reusable courier signature is ever saved, unlike the farmer/operator ones.
+    receiverSignaturePng: text('receiver_signature_png'),
+    signedAt: timestamp('signed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    tenantDocNumberUniq: uniqueIndex('consolidated_protocols_tenant_doc_number_uniq').on(
+      t.tenantId,
+      t.docNumber,
+    ),
+    // COALESCE is load-bearing: Postgres treats every NULL as distinct in a
+    // unique index, so without it two scope='day' rows (both leg_index IS NULL)
+    // for the same tenant+date would NOT collide — exactly the bug the spec
+    // calls out. -1 is a safe sentinel: legIndex is always >= 0 when scope='leg'.
+    tenantDateScopeLegUniq: uniqueIndex('consolidated_protocols_tenant_date_scope_leg_uniq').on(
+      t.tenantId,
+      t.date,
+      t.scope,
+      sql`coalesce(${t.legIndex}, -1)`,
+    ),
+  }),
+);
+
 // Per-day courier leg board (migr 0109): "who runs which leg on date X" —
 // replaces the fixed users.courierIndex login↔leg binding with a per-day
 // assignment. Source of truth for `resolveMyLeg` (Task A2) and driver-facing

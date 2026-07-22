@@ -83,6 +83,54 @@ export interface TenantSettings {
 }
 
 /**
+ * Manual header fields on a consolidated (day/leg) protocol — the paper form's
+ * own hand-filled boxes (vehicle, plate, driver, timing). Never derived from
+ * orders; `driverName` is SUGGESTED from `route_courier_assignments` when empty
+ * but stays independently editable (the car/driver can change the morning of).
+ * Stored at `consolidated_protocols.meta` (migration 0112).
+ */
+export interface ConsolidatedProtocolMeta {
+  vehicle?: string;
+  plate?: string;
+  driverName?: string;
+  startPlace?: string;
+  startTime?: string;
+  plannedEnd?: string;
+}
+
+/**
+ * A manually-added row on a consolidated protocol — `overrides.extraRows`.
+ * `section` says which table it belongs on; the rest is free-form printable
+ * cell text (a paper-form escape hatch, not a typed line item).
+ */
+export interface ConsolidatedProtocolExtraRow {
+  section: 'A' | 'B';
+  label: string;
+  detail?: string;
+}
+
+/**
+ * Per-row manual correction, keyed by `f:<farmerId>` (section А) or
+ * `o:<orderId>` (section Б) in `overrides.fieldOverrides`.
+ */
+export interface ConsolidatedFieldOverride {
+  batch?: string;
+  eDoc?: string;
+  note?: string;
+}
+
+/**
+ * The `overrides` jsonb layer on `consolidated_protocols` (spec §1.4). Applied
+ * on top of the live-computed rows while `status='draft'`; folded into
+ * `frozen_rows` at sign time and never consulted again after that.
+ */
+export interface ConsolidatedProtocolOverrides {
+  excludedOrderIds?: string[];
+  extraRows?: ConsolidatedProtocolExtraRow[];
+  fieldOverrides?: Record<string, ConsolidatedFieldOverride>;
+}
+
+/**
  * How a catalog cover image is framed in the storefront. `x`/`y` are the focal
  * point as fractions (0..1) of the source image; `zoom` magnifies (1..3). Stored
  * on `farmers.coverCrop` / `subcategories.coverCrop` / `products.coverCrop`;
