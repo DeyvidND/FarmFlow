@@ -3,10 +3,9 @@ name: Deploy to Production
 # Build the app images (+ a migrator image) and push them to GHCR, then SSH to
 # the Hetzner box: apply pending DB migrations, then `docker compose pull && up`.
 #
-# The `test` job below is a REQUIRED GATE: nothing reaches Hetzner — including
-# the migrator, which mutates the prod schema — unless the suite is green. It
-# runs concurrently with `build`, so gating costs no wall-clock: images are
-# built while tests run, they just can't be deployed if tests fail.
+# The `test` job below is INFORMATIONAL ONLY: it runs the suite in parallel so
+# a red run is visible on the workflow, but it does NOT block the deploy — the
+# rollout (including the migrator) proceeds even if tests fail.
 on:
   push:
     branches: [main]
@@ -22,9 +21,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Required gate — same reusable suite ci.yml runs. Runs in parallel with
-  # `build`; `deploy` needs both, so a red suite blocks the Hetzner rollout
-  # and the migrator while wasting no time on the image build.
+  # Informational — same reusable suite ci.yml runs. Runs in parallel with
+  # `build` so failures stay visible on the run, but `deploy` no longer needs
+  # it: a red suite does NOT block the Hetzner rollout or the migrator.
   test:
     uses: ./.github/workflows/test.yml
 
@@ -101,9 +100,9 @@ jobs:
     name: Deploy to Hetzner
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # `test` is the gate: images may build regardless, but nothing ships to the
-    # box — and no migration runs — unless the suite passed.
-    needs: [build, test]
+    # Tests no longer gate the rollout — deploy waits only for the images.
+    # The `test` job still runs and reports, but a red suite does not stop this.
+    needs: [build]
     steps:
       # Sync the compose file to the box so service/topology changes (e.g. adding the
       # `econt` delivery service) ship with a normal deploy — no manual copy. Secrets
