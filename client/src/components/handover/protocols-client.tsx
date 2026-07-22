@@ -374,7 +374,7 @@ export function ProtocolsClient() {
         <table className="w-full border-collapse max-[680px]:hidden">
           <thead>
             <tr className="border-b border-ff-border bg-ff-surface-2 text-left">
-              {['Вид', 'Страна', 'Статус'].map((h) => (
+              {['№', 'Вид', 'Страна', 'Поръчки', 'Статус'].map((h) => (
                 <th key={h} className="px-5 py-3 text-xs font-bold uppercase tracking-[0.03em] text-ff-muted">
                   {h}
                 </th>
@@ -388,9 +388,13 @@ export function ProtocolsClient() {
             {rows.map((row) => (
               <tr key={rowKey(row)} className="border-b border-ff-border-2 last:border-0">
                 <td className="px-5 py-3.5 align-top text-[13.5px] font-semibold text-ff-ink-2">
+                  {row.protocolNumber ?? '—'}
+                </td>
+                <td className="px-5 py-3.5 align-top text-[13.5px] font-semibold text-ff-ink-2">
                   {KIND_LABEL[row.kind] ?? row.kind}
                 </td>
                 <td className="px-5 py-3.5 align-top text-[14px] font-bold">{partyName(row)}</td>
+                <td className="px-5 py-3.5 align-top text-[13.5px] text-ff-ink-2">{row.orderCount}</td>
                 <td className="px-5 py-3.5 align-top">
                   <StatusPill status={row.status} />
                 </td>
@@ -418,7 +422,9 @@ export function ProtocolsClient() {
               <div className="flex items-center justify-between gap-2.5">
                 <div>
                   <div className="text-[14.5px] font-extrabold">{partyName(row)}</div>
-                  <div className="text-[12px] text-ff-muted">{KIND_LABEL[row.kind] ?? row.kind}</div>
+                  <div className="text-[12px] text-ff-muted">
+                    {KIND_LABEL[row.kind] ?? row.kind} · № {row.protocolNumber ?? '—'} · {row.orderCount} поръчки
+                  </div>
                 </div>
                 <StatusPill status={row.status} />
               </div>
