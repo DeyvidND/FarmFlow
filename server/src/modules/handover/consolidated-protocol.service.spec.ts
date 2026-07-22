@@ -407,3 +407,28 @@ describe('ConsolidatedProtocolService.sign', () => {
     expect(db.select.mock.calls.length - dbSelectCallsBefore).toBe(1);
   });
 });
+
+/** A view shape complete enough for renderConsolidatedProtocolPdf (mirrors
+ *  consolidated-pdf.spec.ts's own `view()` fixture). */
+const PDF_VIEW = {
+  id: 'cp1', scope: 'day' as const, legIndex: null, date: '2026-07-22', docNumber: 9, status: 'draft' as const,
+  meta: {}, overrides: {}, rows: { farmers: [], orders: [] }, receiverSignaturePng: null, signedAt: null,
+};
+
+describe('ConsolidatedProtocolService.renderPdf', () => {
+  it("fetches the tenant's own display name and renders the view to a PDF buffer", async () => {
+    const db = makeDb();
+    db.queue([{ name: 'Ферма Стойчеви' }]); // tenants row
+    const svc = makeSvc(db);
+    const buf = await svc.renderPdf('t1', PDF_VIEW as any);
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('falls back to ФермериБГ when the tenant has no display name', async () => {
+    const db = makeDb();
+    db.queue([{ name: null }]);
+    const svc = makeSvc(db);
+    const buf = await svc.renderPdf('t1', PDF_VIEW as any);
+    expect(buf.length).toBeGreaterThan(0);
+  });
+});

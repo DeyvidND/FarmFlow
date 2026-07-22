@@ -10,6 +10,7 @@ import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { decryptSignature, encryptSignature, SignatureKeyMissingError } from '../../common/crypto/signature-crypto';
 import { cityFromAddress } from './handover-city';
 import type { ProtocolItemDto } from './dto/create-protocol.dto';
+import { renderConsolidatedProtocolPdf } from './consolidated-pdf';
 import { RoutingService } from '../routing/routing.service';
 import { CourierAssignmentService } from '../routing/courier-assignment.service';
 
@@ -481,11 +482,11 @@ export class ConsolidatedProtocolService {
       .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)));
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  /** Renders a protocol to PDF. `brand` mirrors HandoverService.renderPdf's own
+   *  choice — the tenant's display name, so a signed document's issuer is the
+   *  same shop the operator sees everywhere else. */
   async renderPdf(tenantId: string, view: ConsolidatedProtocolView): Promise<Buffer> {
-    // Placeholder scoped to Part B, Task 10 (PDF render) — no test in Tasks 2-6
-    // exercises this; the controller's GET /:id/pdf route wires it in now so the
-    // route shape exists, the render body lands in the very next follow-up task.
-    throw new Error('not implemented — Task 10');
+    const [tenantRow] = await this.db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    return renderConsolidatedProtocolPdf(view, tenantRow?.name ?? 'ФермериБГ');
   }
 }

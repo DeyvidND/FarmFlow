@@ -3,6 +3,7 @@ import { A4_LANDSCAPE, contentW, createDoc } from './pdf-kit';
 import { drawTable } from './pdf-table';
 import {
   buildFarmerTableRows, buildOrderTableRows, drawFarmerSignatureStrip, FARMER_COLUMNS, ORDER_COLUMNS, PRIVACY_NOTE,
+  renderConsolidatedProtocolPdf,
 } from './consolidated-pdf';
 import type { ConsolidatedFarmerRow, ConsolidatedOrderRow } from './consolidated-protocol.service';
 
@@ -132,5 +133,72 @@ describe('ORDER_COLUMNS width sums to landscape content width', () => {
 describe('PRIVACY_NOTE', () => {
   it('states the customer PII stays in the protected route list — the exact spec §3.7 disclosure', () => {
     expect(PRIVACY_NOTE).toMatch(/маршрутен списък/);
+  });
+});
+
+describe('renderConsolidatedProtocolPdf', () => {
+  // Loosely-typed fixture (cast at each call site) — mirrors the `as any` cast
+  // consolidated-protocol.service.spec.ts's own PDF_VIEW fixture uses; a real
+  // ConsolidatedProtocolView is fully specified elsewhere (getView's tests),
+  // this file only needs a shape rich enough for the renderer.
+  const view = (over: Partial<any> = {}): any => ({
+    id: 'cp1', scope: 'day', legIndex: null, date: '2026-07-22', docNumber: 7, status: 'draft',
+    meta: { vehicle: 'Форд Транзит', plate: 'В1234АВ', driverName: 'Георги', startPlace: 'Складова база', startTime: '06:00', plannedEnd: '11:00' },
+    overrides: {}, rows: { farmers: [], orders: [] }, receiverSignaturePng: null, signedAt: null,
+    ...over,
+  });
+
+  it('produces a non-empty PDF for a day-scope protocol with no rows', async () => {
+    const buf = await renderConsolidatedProtocolPdf(view(), 'ФермериБГ');
+    expect(buf.length).toBeGreaterThan(0);
+  });
+
+  it('titles a leg-scope protocol with its 1-based leg number', async () => {
+    const spy = jest.spyOn(PDFPage.prototype, 'drawText');
+    await renderConsolidatedProtocolPdf(view({ scope: 'leg', legIndex: 1 }), 'ФермериБГ');
+    expect(spy.mock.calls.some(([t]) => typeof t === 'string' && t.includes('ЛЕГ 2'))).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('prints the ОБ- prefixed doc number, not the bilateral series\' bare number', async () => {
+    const spy = jest.spyOn(PDFPage.prototype, 'drawText');
+    await renderConsolidatedProtocolPdf(view({ docNumber: 42 }), 'ФермериБГ');
+    expect(spy.mock.calls.some(([t]) => t === '№ ОБ-42')).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('marks a DRAFT protocol as a draft in the subtitle, and a SIGNED one carries none', async () => {
+    const draftSpy = jest.spyOn(PDFPage.prototype, 'drawText');
+    await renderConsolidatedProtocolPdf(view({ status: 'draft' }), 'ФермериБГ');
+    expect(draftSpy.mock.calls.some(([t]) => typeof t === 'string' && t.includes('чернова'))).toBe(true);
+    draftSpy.mockRestore();
+
+    const signedSpy = jest.spyOn(PDFPage.prototype, 'drawText');
+    await renderConsolidatedProtocolPdf(view({ status: 'signed' }), 'ФермериБГ');
+    expect(signedSpy.mock.calls.some(([t]) => typeof t === 'string' && t.includes('чернова'))).toBe(false);
+    signedSpy.mockRestore();
+  });
+
+  it('draws section В\'s manual meta fields (vehicle, plate, driver, timing)', async () => {
+    const spy = jest.spyOn(PDFPage.prototype, 'drawText');
+    await renderConsolidatedProtocolPdf(view(), 'ФермериБГ');
+    const flat = spy.mock.calls.map(([t]) => t).join(' ');
+    expect(flat).toContain('Форд Транзит');
+    expect(flat).toContain('В1234АВ');
+    expect(flat).toContain('Георги');
+    spy.mockRestore();
+  });
+
+  it('embeds the receiver signature image when present', async () => {
+    const imgSpy = jest.spyOn(PDFPage.prototype, 'drawImage');
+    // A genuinely malformed PNG (e.g. `Buffer.from('fake')`) throws inside
+    // embedPng and is silently swallowed by the try/catch — that would only
+    // exercise the fallback path, never proving the image actually draws. Use
+    // a real tiny base64 PNG fixture (same one pdf-table.spec.ts/Task 8 use)
+    // so embedPng genuinely succeeds and drawImage is genuinely called.
+    const b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    await renderConsolidatedProtocolPdf(view({ receiverSignaturePng: `data:image/png;base64,${b64}` }), 'ФермериБГ');
+    expect(imgSpy).toHaveBeenCalledTimes(1);
+    imgSpy.mockRestore();
   });
 });

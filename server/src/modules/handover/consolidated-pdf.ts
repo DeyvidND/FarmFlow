@@ -1,7 +1,10 @@
 import type { PDFImage } from 'pdf-lib';
-import { A4_LANDSCAPE, contentW, Doc, INK, MARGIN, newPage } from './pdf-kit';
-import { columnWidths, type Cell, type Column, type PlacedRow } from './pdf-table';
-import type { ConsolidatedFarmerRow, ConsolidatedOrderRow } from './consolidated-protocol.service';
+import {
+  A4_LANDSCAPE, contentW, Doc, INK, MARGIN, newPage,
+  createDoc, drawBoldText, drawDocumentFooter, drawDocumentHeader, ensureSpace, stampPageNumbers, wrap,
+} from './pdf-kit';
+import { drawTable, columnWidths, type Cell, type Column, type PlacedRow } from './pdf-table';
+import type { ConsolidatedFarmerRow, ConsolidatedOrderRow, ConsolidatedProtocolView } from './consolidated-protocol.service';
 import type { ProtocolItemDto } from './dto/create-protocol.dto';
 
 const itemsLine = (items: ProtocolItemDto[]): string =>
@@ -137,3 +140,80 @@ export function buildOrderTableRows(orders: ConsolidatedOrderRow[]): Cell[][] {
  *  live ONLY in the driver's protected route list, never on this document. */
 export const PRIVACY_NOTE =
   'Име, телефон и точен адрес на клиента се съхраняват само в защитения маршрутен списък на превозвача.';
+
+function drawSectionTitle(d: Doc, text: string): void {
+  ensureSpace(d, 26);
+  drawBoldText(d, text, MARGIN, d.y, 12);
+  d.y -= 20;
+}
+
+/**
+ * Full consolidated (day/leg) handover-protocol render: header (own ОБ-<n>
+ * series, chernova subtitle while draft) → section А (farmers + cargo, with
+ * the §3.6 signature-by-row strip) → section Б (orders, no PII, + the §3.7
+ * privacy note) → section В (transport-operator acceptance: manual meta
+ * fields + the receiver's signature) → footer/page numbers. Matches the
+ * bilateral renderer's (handover-pdf.ts) house style: same header/footer
+ * primitives, same faux-bold, same brand-from-tenant-name source.
+ */
+export async function renderConsolidatedProtocolPdf(view: ConsolidatedProtocolView, brand: string): Promise<Buffer> {
+  const d = await createDoc(A4_LANDSCAPE);
+  const title =
+    view.scope === 'day'
+      ? 'ОБОБЩЕН ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ'
+      : `ОБОБЩЕН ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ — ЛЕГ ${(view.legIndex ?? 0) + 1}`;
+
+  drawDocumentHeader(d, {
+    brand,
+    title,
+    subtitle: view.status === 'draft' ? 'чернова — подлежи на промяна' : null,
+    number: `ОБ-${view.docNumber}`,
+    date: new Date(view.date),
+  });
+
+  drawSectionTitle(d, 'А. Фермери и приет товар');
+  const farmerRows = buildFarmerTableRows(view.rows.farmers);
+  const sectionAImages = await embedFarmerSignatures(d, view.rows.farmers);
+  const placedA = drawTable(d, FARMER_COLUMNS, farmerRows);
+  drawFarmerSignatureStrip(d, placedA, view.rows.farmers, sectionAImages);
+  d.y -= 16;
+
+  drawSectionTitle(d, 'Б. Разпределение по поръчки');
+  drawTable(d, ORDER_COLUMNS, buildOrderTableRows(view.rows.orders));
+  d.y -= 8;
+  ensureSpace(d, 22);
+  for (const l of wrap(PRIVACY_NOTE, d.font, 8, contentW(d))) {
+    d.page.drawText(l, { x: MARGIN, y: d.y, size: 8, font: d.font, color: INK });
+    d.y -= 11;
+  }
+  d.y -= 12;
+
+  drawSectionTitle(d, 'В. Приемане от транспортния оператор');
+  ensureSpace(d, 90);
+  const m = view.meta;
+  const line = (text: string) => {
+    ensureSpace(d, 16);
+    d.page.drawText(text, { x: MARGIN, y: d.y, size: 10, font: d.font, color: INK });
+    d.y -= 16;
+  };
+  line(`Возило: ${m.vehicle ?? '—'}    Рег. №: ${m.plate ?? '—'}`);
+  line(`Тръгва от: ${m.startPlace ?? '—'} в ${m.startTime ?? '—'} ч.    Очаквано приключване: ${m.plannedEnd ?? '—'}`);
+  d.y -= 10;
+  ensureSpace(d, 44);
+  d.page.drawText(`Приел за транспорт: ${m.driverName ?? '______________________'}`, { x: MARGIN, y: d.y, size: 10, font: d.font, color: INK });
+  if (view.receiverSignaturePng) {
+    try {
+      const bytes = Buffer.from(view.receiverSignaturePng.split(',').pop()!, 'base64');
+      const img = await d.doc.embedPng(bytes);
+      d.page.drawImage(img, { x: MARGIN + 230, y: d.y - 4, width: 110, height: 36 });
+    } catch {
+      // malformed signature data — the blank label above stands alone
+    }
+  }
+  d.y -= 40;
+
+  drawDocumentFooter(d, `Документът е издаден електронно от ${brand}.`);
+  if (d.doc.getPageCount() > 1) stampPageNumbers(d);
+
+  return Buffer.from(await d.doc.save());
+}
