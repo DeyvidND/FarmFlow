@@ -480,4 +480,12 @@ export class ConsolidatedProtocolService {
       .set({ status: 'signed', frozenRows: rows, receiverSignaturePng: encrypted, signedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)));
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async renderPdf(tenantId: string, view: ConsolidatedProtocolView): Promise<Buffer> {
+    // Placeholder scoped to Part B, Task 10 (PDF render) — no test in Tasks 2-6
+    // exercises this; the controller's GET /:id/pdf route wires it in now so the
+    // route shape exists, the render body lands in the very next follow-up task.
+    throw new Error('not implemented — Task 10');
+  }
 }
