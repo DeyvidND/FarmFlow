@@ -4,6 +4,8 @@ import type {
   Article,
   AvailabilityWindow,
   BundleMember,
+  ConsolidatedCourierRecipient,
+  ConsolidatedCourierSendReport,
   ConsolidatedProtocolMeta,
   ConsolidatedProtocolOverrides,
   ConsolidatedProtocolSummary,
@@ -1517,6 +1519,23 @@ export const signConsolidatedProtocol = (id: string, receiverSignaturePng?: stri
   apiFetch<void>(`consolidated-protocols/${id}/sign`, { method: 'POST', ...json({ receiverSignaturePng }) }, 'Неуспешно подписване');
 
 export const consolidatedProtocolPdfHref = (id: string) => `/bff/consolidated-protocols/${id}/pdf`;
+
+/** §4.4 "Прати на куриерите" — recipient PREVIEW, fetched before the button
+ *  shows its confirm dialog. */
+export const getConsolidatedCourierRecipients = (date: string) =>
+  apiFetch<ConsolidatedCourierRecipient[]>(
+    `consolidated-protocols/courier-recipients?date=${encodeURIComponent(date)}`,
+  );
+
+/** §4.4 "Прати на куриерите" — the actual send, fired only after the operator
+ *  confirms the recipient list. Button-triggered only — never called
+ *  automatically. */
+export const sendConsolidatedToCouriers = (date: string) =>
+  apiFetch<ConsolidatedCourierSendReport>(
+    `consolidated-protocols/send-to-couriers?date=${encodeURIComponent(date)}`,
+    { method: 'POST' },
+    'Неуспешно изпращане към куриерите',
+  );
 
 export interface CodReconRow {
   orderId: string;

@@ -1222,6 +1222,33 @@ export interface ConsolidatedProtocolView {
   signedAt: string | null;
 }
 
+// ---- §4.4 "Прати на куриерите" ----
+
+/** GET /consolidated-protocols/courier-recipients?date=X — one row per active
+ *  courier leg for the day (never invented — sourced from the assignment
+ *  board). `email: null` means the account has no email on file; included,
+ *  not omitted, so the button's confirm dialog can flag it before sending. */
+export interface ConsolidatedCourierRecipient {
+  legIndex: number;
+  name: string;
+  email: string | null;
+}
+
+export interface ConsolidatedCourierSendResult {
+  legIndex: number;
+  email: string;
+  ok: boolean;
+  error?: string;
+}
+
+/** POST /consolidated-protocols/send-to-couriers?date=X response. A no-email
+ *  courier appears in `recipients` but never in `sent`/`failed`. */
+export interface ConsolidatedCourierSendReport {
+  recipients: ConsolidatedCourierRecipient[];
+  sent: ConsolidatedCourierSendResult[];
+  failed: ConsolidatedCourierSendResult[];
+}
+
 // ---- Приходи / разходи / печалба (Статистика, само собственик) ----
 
 export type ExpenseCategory = 'fuel' | 'packaging' | 'salary' | 'fees' | 'other';

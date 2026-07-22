@@ -3,11 +3,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DateNavBar } from '@/components/production/date-nav-bar';
 import { relDayLabel, todayIso } from '@/lib/utils';
-import { ApiError, ensureConsolidatedProtocol, listConsolidatedProtocols } from '@/lib/api-client';
-import type { ConsolidatedProtocolSummary } from '@/lib/types';
+import {
+  ApiError,
+  ensureConsolidatedProtocol,
+  getConsolidatedCourierRecipients,
+  listConsolidatedProtocols,
+  sendConsolidatedToCouriers,
+} from '@/lib/api-client';
+import type { ConsolidatedCourierRecipient, ConsolidatedProtocolSummary } from '@/lib/types';
+import { courierRecipientLine, sendableCourierCount, sendResultSummary } from './consolidated-protocol-couriers';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -32,6 +41,14 @@ export function ConsolidatedProtocolClient() {
   const [rows, setRows] = useState<ConsolidatedProtocolSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [openingKey, setOpeningKey] = useState<string | null>(null);
+
+  // §4.4 "Прати на куриерите" — button-triggered, NEVER automatic (the route
+  // reorders until the last minute). `recipients: null` = dialog closed;
+  // fetched fresh every time the button opens it so a same-page assignment
+  // change is reflected before anything sends.
+  const [recipients, setRecipients] = useState<ConsolidatedCourierRecipient[] | null>(null);
+  const [loadingRecipients, setLoadingRecipients] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const load = useCallback(async (d: string) => {
     setLoading(true);
@@ -61,10 +78,44 @@ export function ConsolidatedProtocolClient() {
     }
   }
 
+  async function openSendDialog() {
+    setLoadingRecipients(true);
+    try {
+      setRecipients(await getConsolidatedCourierRecipients(date));
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setLoadingRecipients(false);
+    }
+  }
+
+  async function confirmSend() {
+    setSending(true);
+    try {
+      const report = await sendConsolidatedToCouriers(date);
+      toast.success(sendResultSummary(report));
+      setRecipients(null);
+      void load(date); // ensureDraft may have just materialized fresh rows
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
     <div className="animate-ff-fade-up">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <DateNavBar date={date} dateLabel={relDayLabel(date)} onSelect={setDate} />
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={loadingRecipients}
+          onClick={() => void openSendDialog()}
+          className="gap-1.5"
+        >
+          <Send size={14} /> Прати на куриерите
+        </Button>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-ff-border bg-ff-surface shadow-ff-sm">
@@ -95,6 +146,34 @@ export function ConsolidatedProtocolClient() {
           <p className="px-5 py-10 text-center text-sm text-ff-muted">Няма курсове за тази дата.</p>
         )}
       </div>
+
+      {recipients && (
+        <ConfirmDialog
+          title="Прати обобщения протокол на куриерите"
+          confirmLabel={sending ? 'Изпращане…' : `Прати (${sendableCourierCount(recipients)})`}
+          busy={sending}
+          onConfirm={() => void confirmSend()}
+          onCancel={() => setRecipients(null)}
+          message={
+            recipients.length === 0 ? (
+              <p>Няма зачислени куриери за тази дата.</p>
+            ) : (
+              <>
+                <p className="mb-2">
+                  Всеки куриер получава ПО ИМЕЙЛ само своя собствен курс — никога целия ден или чужд курс.
+                </p>
+                <ul className="flex flex-col gap-1">
+                  {recipients.map((r) => (
+                    <li key={r.legIndex} className={r.email ? undefined : 'text-ff-red'}>
+                      {courierRecipientLine(r)}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )
+          }
+        />
+      )}
     </div>
   );
 }

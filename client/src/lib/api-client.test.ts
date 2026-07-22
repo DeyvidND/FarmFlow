@@ -3,6 +3,7 @@ import {
   confirmPending, getTenantLegal, getTodaySummary,
   ensureConsolidatedProtocol, getConsolidatedProtocol, listConsolidatedProtocols,
   signConsolidatedProtocol, updateConsolidatedProtocol, consolidatedProtocolPdfHref,
+  getConsolidatedCourierRecipients, sendConsolidatedToCouriers,
 } from './api-client';
 
 afterEach(() => {
@@ -120,5 +121,31 @@ describe('consolidated protocol API client', () => {
 
   it('consolidatedProtocolPdfHref points at the PDF endpoint', () => {
     expect(consolidatedProtocolPdfHref('cp1')).toBe('/bff/consolidated-protocols/cp1/pdf');
+  });
+});
+
+describe('§4.4 "Прати на куриерите" API client', () => {
+  it('getConsolidatedCourierRecipients hits GET .../courier-recipients with the date', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse([{ legIndex: 0, name: 'Лег 1', email: 'a@x.bg' }]),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await getConsolidatedCourierRecipients('2026-07-22');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/bff/consolidated-protocols/courier-recipients?date=2026-07-22',
+      undefined,
+    );
+    expect(out).toEqual([{ legIndex: 0, name: 'Лег 1', email: 'a@x.bg' }]);
+  });
+
+  it('sendConsolidatedToCouriers POSTs to .../send-to-couriers with the date and returns the report', async () => {
+    const report = { recipients: [], sent: [{ legIndex: 0, email: 'a@x.bg', ok: true }], failed: [] };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(report));
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await sendConsolidatedToCouriers('2026-07-22');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/bff/consolidated-protocols/send-to-couriers?date=2026-07-22');
+    expect(init).toMatchObject({ method: 'POST' });
+    expect(out).toEqual(report);
   });
 });
