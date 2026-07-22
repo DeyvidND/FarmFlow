@@ -240,6 +240,12 @@ export function ProtocolsClient() {
           >
             <ShieldCheck size={16} /> Проверка
           </a>
+          <a
+            href="/protocols/consolidated"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-ff-border px-3.5 py-2 text-[13.5px] font-bold text-ff-ink-2 max-[680px]:w-full"
+          >
+            Обобщен протокол
+          </a>
           <Button
             variant="outline"
             onClick={() => void printKind('farmer_to_operator')}
