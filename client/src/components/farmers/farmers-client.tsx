@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Plus, Pencil, Link2, Users, ArrowUpDown, Check, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,18 @@ export function FarmersClient({
     setInviteIntent(invite);
     setEdit(f);
   };
+  // Deep-link from elsewhere in the panel (e.g. the Protocols screen's readiness
+  // board's "Попълни вместо него") — opens that farmer's edit panel on load.
+  // Runs once the farmer list is available; a stale/unknown id is a no-op (the
+  // farmer may have been deleted since the link was generated).
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId) return;
+    const target = farmers.find((f) => f.id === editId);
+    if (target) openEdit(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   // Login state per farmer — lifted so an invite/revoke from the panel OR the card
   // updates the status badge in both places without a reload.
   const [access, setAccess] = useState<Record<string, FarmerAccess>>(initialAccess);
