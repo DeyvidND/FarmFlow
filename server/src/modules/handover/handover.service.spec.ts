@@ -545,6 +545,43 @@ describe('HandoverService.listForDay', () => {
     expect(customer.id).toBe('p1');
     expect(customer.status).toBe('signed');
     expect(customer.protocolNumber).toBe(5);
+    expect(customer.orderCount).toBe(1); // a customer-leg target is always exactly one order
+  });
+
+  it('computes orderCount for a virtual (not-yet-persisted) farmer pickup spanning multiple orders', async () => {
+    const db = makeDb();
+    db.queue([
+      { farmerId: 'f1', slotId: 's1', orderId: 'order-A' },
+      { farmerId: 'f1', slotId: 's1', orderId: 'order-B' },
+    ]); // farmer pickups for the slot (now carrying orderId)
+    db.queue([]);                          // no customer orders
+    db.queue([]);                          // persisted rows: none
+    db.queue([{ legal: null, name: 'Оп' }]);
+    db.queue([{ id: 'f1', legal: null, name: 'Васил' }]);
+
+    const svc = await build(db);
+    const rows = await svc.listForDay('t1', { slotId: 's1' });
+    const farmer = rows.find((r) => r.farmerId === 'f1')!;
+    expect(farmer.orderCount).toBe(2);
+  });
+
+  it('reads orderCount from the persisted orderIds column for an already-signed farmer protocol', async () => {
+    const db = makeDb();
+    db.queue([{ farmerId: 'f1', slotId: 's1', orderId: 'order-A' }]);
+    db.queue([]);
+    db.queue([{
+      id: 'p1', kind: 'farmer_to_operator', farmerId: 'f1', orderId: null, slotId: 's1',
+      status: 'signed', protocolNumber: 9, orderIds: ['order-A', 'order-B'],
+      fromSnapshot: { name: 'Васил' }, toSnapshot: { name: 'Оп' },
+    }]); // persisted rows
+    db.queue([{ legal: null, name: 'Оп' }]);
+    db.queue([{ id: 'f1', legal: null, name: 'Васил' }]);
+
+    const svc = await build(db);
+    const rows = await svc.listForDay('t1', { slotId: 's1' });
+    const farmer = rows.find((r) => r.farmerId === 'f1')!;
+    expect(farmer.id).toBe('p1');
+    expect(farmer.orderCount).toBe(2);
   });
 });
 

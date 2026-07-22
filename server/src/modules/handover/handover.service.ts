@@ -109,6 +109,10 @@ export interface DayProtocolRow {
   orderId: string | null;
   slotId: string | null;
   protocolNumber: number | null;
+  /** Distinct orders behind this row — a farmer pickup can span several orders
+   *  in the same slot; a customer-leg row is always exactly 1. Feeds the
+   *  "Поръчки" column on the day protocol list (spec §5.4). */
+  orderCount: number;
   status: string;
   signMode: string;
   totalStotinki: number;
@@ -150,6 +154,7 @@ function virtualRow(
     orderId?: string;
     from: LegalIdentity | CustomerParty;
     to: LegalIdentity | CustomerParty;
+    orderCount: number;
   },
 ): DayProtocolRow {
   return {
@@ -163,6 +168,7 @@ function virtualRow(
     signMode: 'pending',
     totalStotinki: 0,
     createdAt: null,
+    orderCount: opts.orderCount,
     fromSnapshot: opts.from,
     toSnapshot: opts.to,
   };
@@ -1202,8 +1208,8 @@ export class HandoverService {
       return [];
     }
 
-    const farmerRows: { farmerId: string | null; slotId: string | null }[] = await this.db
-      .select({ farmerId: products.farmerId, slotId: orders.slotId })
+    const farmerRows: { farmerId: string | null; slotId: string | null; orderId: string }[] = await this.db
+      .select({ farmerId: products.farmerId, slotId: orders.slotId, orderId: orders.id })
       .from(orderItems)
       .innerJoin(products, eq(products.id, orderItems.productId))
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
@@ -1230,7 +1236,7 @@ export class HandoverService {
     const farmerTargets = [
       ...new Map(
         farmerRows
-          .filter((r): r is { farmerId: string; slotId: string } => !!r.farmerId && !!r.slotId)
+          .filter((r): r is { farmerId: string; slotId: string; orderId: string } => !!r.farmerId && !!r.slotId)
           .map((r): [string, { farmerId: string; slotId: string }] => [
             `f:${r.farmerId}:${r.slotId}`,
             { farmerId: r.farmerId, slotId: r.slotId },
@@ -1238,12 +1244,37 @@ export class HandoverService {
       ).values(),
     ];
 
+    // Distinct orders behind each farmer+slot pickup, for the day-list order-count
+    // column (Task 9) — built from the same raw join, before the farmerTargets dedup.
+    const orderIdsByFarmerSlot = new Map<string, Set<string>>();
+    for (const r of farmerRows) {
+      if (!r.farmerId || !r.slotId || !r.orderId) continue;
+      const key = `f:${r.farmerId}:${r.slotId}`;
+      const set = orderIdsByFarmerSlot.get(key) ?? new Set<string>();
+      set.add(r.orderId);
+      orderIdsByFarmerSlot.set(key, set);
+    }
+
     // Already-persisted rows for this slot/day, keyed by the same target key.
-    const persisted = (await this.list(tenantId, { slotId: q.slotId, date: q.date })) as DayProtocolRow[];
-    const persistedByKey = new Map<string, DayProtocolRow>();
+    // `orderCount` is optional here — the raw DB row (unlike a fully-built
+    // DayProtocolRow) never carries it; `withOrderCount` below stamps it on.
+    type PersistedProtocolRow = Omit<DayProtocolRow, 'orderCount'> & {
+      orderCount?: number;
+      orderIds?: string[] | null;
+    };
+    const persisted = (await this.list(tenantId, { slotId: q.slotId, date: q.date })) as PersistedProtocolRow[];
+    const persistedByKey = new Map<string, PersistedProtocolRow>();
     for (const r of persisted) {
       persistedByKey.set(protocolKey(r), r);
     }
+    // Stamps `orderCount` onto a raw persisted row — the actual DB row DOES carry
+    // `orderIds` at runtime (`list()`'s bare `.select()`/`getTableColumns()` never
+    // drops columns), even though the plain `DayProtocolRow` interface doesn't
+    // declare it.
+    const withOrderCount = (r: PersistedProtocolRow): DayProtocolRow => ({
+      ...r,
+      orderCount: r.orderIds?.length ?? (r.kind === 'operator_to_customer' ? 1 : 0),
+    });
 
     // Party names — one query each, so building virtual rows costs no per-target
     // round-trips. The operator (tenant) and farmers always have a display name;
@@ -1272,7 +1303,7 @@ export class HandoverService {
       const key = `f:${t.farmerId}:${t.slotId}`;
       const hit = persistedByKey.get(key);
       if (hit) {
-        out.push(hit);
+        out.push(withOrderCount(hit));
         consumed.add(key);
         continue;
       }
@@ -1282,6 +1313,7 @@ export class HandoverService {
           farmerId: t.farmerId,
           from: resolveParty(f?.legal, f?.name, 'фермер'),
           to: operatorParty,
+          orderCount: orderIdsByFarmerSlot.get(key)?.size ?? 0,
         }),
       );
     }
@@ -1290,7 +1322,7 @@ export class HandoverService {
       const key = `o:${o.id}`;
       const hit = persistedByKey.get(key);
       if (hit) {
-        out.push(hit);
+        out.push(withOrderCount(hit));
         consumed.add(key);
         continue;
       }
@@ -1299,6 +1331,7 @@ export class HandoverService {
           orderId: o.id,
           from: operatorParty,
           to: { name: o.customerName ?? '—' },
+          orderCount: 1,
         }),
       );
     }
@@ -1306,7 +1339,7 @@ export class HandoverService {
     // Persisted rows whose target dropped out of the live set (e.g. a cancelled
     // order) — keep them so a signed protocol never disappears from the day.
     for (const [key, r] of persistedByKey) {
-      if (!consumed.has(key)) out.push(r);
+      if (!consumed.has(key)) out.push(withOrderCount(r));
     }
 
     return out;
