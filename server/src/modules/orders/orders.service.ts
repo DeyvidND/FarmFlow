@@ -2499,40 +2499,69 @@ export class OrdersService {
     // goods qualifies, not only a single expensive item. That is the point: cheap
     // „кайсии" pull traffic to the platform but can't leave on their own; the
     // shopper must build a real basket alongside them. When the threshold is unset
-    // (0), any one other distinct product suffices. Configurable per product/bundle,
+    // (0), any one other distinct product suffices. Configurable per product/BUNDLE
+    // MEMBER (see below — a flagged product hidden inside a basket is still caught),
     // enforced for EVERY delivery method (pickup/local/courier), independent of the
     // courier backstop above. byId already holds the full product rows +
     // variantById the chosen variants — no extra query.
-    const companionRequirers = dtoItems
+    const nowC = new Date();
+    const unitOf = (it: (typeof dtoItems)[number]): number => {
+      const prod = byId.get(it.productId)!;
+      const variant = it.variantId ? variantById.get(it.variantId) ?? null : null;
+      return resolveLineUnit(prod, variant, nowC).unitStotinki;
+    };
+    const assertCompanionSatisfied = (req: { id: string; name: string; companionMinPriceStotinki: number | null }, othersCount: number, othersTotal: number): void => {
+      const threshold = req.companionMinPriceStotinki ?? 0;
+      const satisfied = threshold > 0 ? othersTotal >= threshold : othersCount > 0;
+      if (satisfied) return;
+      if (threshold > 0) {
+        const eur = (threshold / 100).toFixed(2).replace('.', ',');
+        throw new BadRequestException(
+          `„${req.name}" не се доставя самостоятелно — добавете други продукти на обща стойност поне ${eur} €.`,
+        );
+      }
+      throw new BadRequestException(
+        `„${req.name}" не се доставя самостоятелно — добавете поне още един продукт по избор.`,
+      );
+    };
+
+    // Top-level requirers: a plain product OR a basket product itself flagged
+    // requiresCompanion — a literal line in dtoItems.
+    const topLevelRequirers = dtoItems
       .map((it) => byId.get(it.productId))
       .filter((p): p is NonNullable<typeof p> => !!p && p.requiresCompanion);
-    if (companionRequirers.length) {
-      const nowC = new Date();
-      const unitOf = (it: (typeof dtoItems)[number]): number => {
-        const prod = byId.get(it.productId)!;
-        const variant = it.variantId ? variantById.get(it.variantId) ?? null : null;
-        return resolveLineUnit(prod, variant, nowC).unitStotinki;
-      };
-      for (const req of companionRequirers) {
-        const threshold = req.companionMinPriceStotinki ?? 0;
-        // Every cart line for a DIFFERENT product counts toward the companion total.
-        const others = dtoItems.filter(
-          (it) => it.productId !== req.id && !!byId.get(it.productId),
-        );
-        const othersTotal = others.reduce((sum, it) => sum + unitOf(it) * it.quantity, 0);
-        const satisfied = threshold > 0 ? othersTotal >= threshold : others.length > 0;
-        if (!satisfied) {
-          if (threshold > 0) {
-            const eur = (threshold / 100).toFixed(2).replace('.', ',');
-            throw new BadRequestException(
-              `„${req.name}" не се доставя самостоятелно — добавете други продукти на обща стойност поне ${eur} €.`,
-            );
-          }
-          throw new BadRequestException(
-            `„${req.name}" не се доставя самостоятелно — добавете поне още един продукт по избор.`,
-          );
-        }
-      }
+    for (const req of topLevelRequirers) {
+      // Every cart line for a DIFFERENT product counts toward the companion total.
+      const others = dtoItems.filter((it) => it.productId !== req.id && !!byId.get(it.productId));
+      const othersTotal = others.reduce((sum, it) => sum + unitOf(it) * it.quantity, 0);
+      assertCompanionSatisfied(req, others.length, othersTotal);
+    }
+
+    // Member requirers: a companion-required product placed INSIDE a basket
+    // (never its own cart line, so the check above can't see it) — walk the
+    // basket-expanded `stockLines` the same way the courier pickup-only
+    // backstop above does, resolving each line via `byId ?? memberById`.
+    // Skips a product already covered as a top-level line above (an ordinary,
+    // non-basket product appears in both dtoItems and stockLines with the
+    // same id) so it's checked exactly once.
+    const memberRequirers = stockLines
+      .map((l) => memberById.get(l.productId))
+      .filter((p): p is NonNullable<typeof p> => !!p && p.requiresCompanion)
+      .filter((p) => !dtoItems.some((it) => it.productId === p.id));
+    for (const req of memberRequirers) {
+      // Every OTHER product actually being fulfilled counts — a sibling inside
+      // the SAME basket as `req` counts too: the shopper is buying it
+      // regardless of which container (loose or another basket) it arrived
+      // in, so a basket that pairs a loss-leader member with a real member
+      // satisfies the rule without needing anything extra in the cart.
+      const others = stockLines.filter((l) => l.productId !== req.id);
+      const othersTotal = others.reduce((sum, l) => {
+        const prod = byId.get(l.productId) ?? memberById.get(l.productId);
+        // Members never carry a variant selection of their own (a basket
+        // doesn't offer variant rows) — resolve at the product's base price.
+        return prod ? sum + resolveLineUnit(prod, null, nowC).unitStotinki * l.quantity : sum;
+      }, 0);
+      assertCompanionSatisfied(req, others.length, othersTotal);
     }
 
     // Slot (local delivery only): lock the row + enforce the slot's capacity. When
