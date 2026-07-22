@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -7,6 +7,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SuppressionService } from './suppression.service';
 import { EMAIL_QUEUE } from '../queue/queue.constants';
+import {
+  PROTOCOL_ATTACHMENT_RESOLVER,
+  type ProtocolAttachmentResolver,
+  type HandoverProtocolAttachmentDescriptor,
+} from './protocol-attachment.types';
 
 /** Which reputation lane the mail rides. Transactional (resets, digests) is kept
  *  separate from bulk (newsletters) so a marketing reputation hit never kills
@@ -58,6 +63,10 @@ export interface SendMailOptions {
    * Transactional callers must leave this false so a suppressed address is honored.
    */
   skipSuppressionCheck?: boolean;
+  /** Lazily-materialized attachments — described, not carried, so a BullMQ job
+   *  payload stays small and a retry re-renders fresh bytes instead of resending
+   *  stale ones. Resolved to real bytes inside `deliver()`, right before send. */
+  attachments?: HandoverProtocolAttachmentDescriptor[];
 }
 
 @Injectable()
@@ -75,6 +84,8 @@ export class EmailService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly suppression: SuppressionService,
     @InjectQueue(EMAIL_QUEUE) private readonly queue: Queue,
+    @Optional() @Inject(PROTOCOL_ATTACHMENT_RESOLVER)
+    private readonly attachmentResolver?: ProtocolAttachmentResolver,
   ) {
     // `||` (not `??`) so a present-but-empty env var falls back to the default.
     // An empty `EMAIL_TRANSACTIONAL_FROM` would otherwise yield an empty From
@@ -137,7 +148,27 @@ export class EmailService implements OnModuleInit {
     await this.queue.add('send', options);
   }
 
-  /** Actually send (called by EmailProcessor). Honors suppression at send time. */
+  /**
+   * Deliver exactly ONE attempt, synchronously, bypassing the BullMQ queue
+   * entirely — used by the order-confirm flow, which needs to OBSERVE
+   * pass/fail before deciding whether to flip the order to `confirmed` (a
+   * queued `sendMail()` only confirms the job was enqueued, not delivered).
+   * No automatic retry: a failure here is surfaced to the caller immediately,
+   * matching the ~1-3s latency the confirm flow is documented to accept —
+   * BullMQ's configured 5-attempt exponential backoff would instead take tens
+   * of seconds. Retries are user-driven (re-click confirm), not automatic.
+   *
+   * NOTE: this is also the method the NEW `PROTOCOL_EMAIL_QUEUE` processor
+   * calls (via `OrderProtocolEmailService.sendProtocolEmail`) for the bulk and
+   * Stripe paths — but from inside THAT queue's job, so BullMQ's retry lives
+   * one layer up, at the job level, not here. Called from two different
+   * queues (or no queue at all) but always exactly one attempt per call.
+   */
+  async sendMailNow(options: SendMailOptions): Promise<void> {
+    await this.deliver(options);
+  }
+
+  /** Actually send (called by EmailProcessor, or directly by sendMailNow). */
   async deliver(options: SendMailOptions): Promise<void> {
     const stream: EmailStream = options.stream ?? 'transactional';
 
@@ -146,11 +177,14 @@ export class EmailService implements OnModuleInit {
       return;
     }
 
+    const resolvedAttachments = await this.resolveAttachments(options.attachments);
+
     const from = this.streamFrom(stream);
     // Every message ships a text/plain alternative (auto-derived from the HTML when
     // a caller didn't supply one) — HTML-only mail scores worse with spam filters.
     const text = options.text ?? htmlToText(options.html);
     const replyTo = options.replyTo ?? this.defaultReplyTo;
+    const deliverOptions = { ...options, attachments: resolvedAttachments };
 
     if (!this.isDevMode && this.transporter) {
       await this.transporter.sendMail({
@@ -161,11 +195,28 @@ export class EmailService implements OnModuleInit {
         text,
         ...(replyTo ? { replyTo } : {}),
         ...(options.headers ? { headers: options.headers } : {}),
+        ...(resolvedAttachments.length ? { attachments: resolvedAttachments } : {}),
       });
       return;
     }
 
-    await this.writePreview(options, from, stream);
+    await this.writePreview(deliverOptions as any, from, stream);
+  }
+
+  /** Turn `{kind, protocolId, tenantId}` descriptors into real bytes right
+   *  before send. Throws (does not silently drop) if attachments were
+   *  requested but nothing implements the resolver — a wiring bug, not a
+   *  runtime edge case to swallow. */
+  private async resolveAttachments(
+    descriptors: HandoverProtocolAttachmentDescriptor[] | undefined,
+  ): Promise<{ filename: string; content: Buffer }[]> {
+    if (!descriptors?.length) return [];
+    if (!this.attachmentResolver) {
+      throw new Error(
+        'Email requested attachments but no attachment resolver is wired (PROTOCOL_ATTACHMENT_RESOLVER) — check EmailModule imports.',
+      );
+    }
+    return Promise.all(descriptors.map((d) => this.attachmentResolver!.resolve(d)));
   }
 
   private async writePreview(options: SendMailOptions, from: string, stream: EmailStream): Promise<void> {
@@ -175,7 +226,10 @@ export class EmailService implements OnModuleInit {
       const filename = `${Date.now()}-${sanitizedTo}.html`;
       const filePath = path.join(this.previewDir, filename);
       const now = new Date().toISOString();
-      const content = `<!-- to: ${options.to} | from: ${from} | stream: ${stream} | subject: ${options.subject} | date: ${now} -->\n${options.html}`;
+      const attachmentNote = (options as any).attachments?.length
+        ? `<!-- attachments: ${(options as any).attachments.map((a: any) => a.filename).join(', ')} -->\n`
+        : '';
+      const content = `<!-- to: ${options.to} | from: ${from} | stream: ${stream} | subject: ${options.subject} | date: ${now} -->\n${attachmentNote}${options.html}`;
       await fs.promises.writeFile(filePath, content, 'utf8');
       this.logger.log(
         `[email:preview] stream=${stream} to=${options.to} subject="${options.subject}" file=${filePath}`,

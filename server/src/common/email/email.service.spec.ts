@@ -5,6 +5,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { EmailService } from './email.service';
 import { SuppressionService } from './suppression.service';
 import { EMAIL_QUEUE } from '../queue/queue.constants';
+import { PROTOCOL_ATTACHMENT_RESOLVER } from './protocol-attachment.types';
 
 const cfg = (over: Record<string, any> = {}) => ({
   get: (k: string, d?: any) => (k in over ? over[k] : d),
@@ -66,5 +67,69 @@ describe('EmailService.deliver (worker send path)', () => {
     jest.spyOn(svc as any, 'writePreview').mockResolvedValue(undefined);
     await svc.deliver({ to: 'x@b.bg', subject: 'x', html: 'x', skipSuppressionCheck: true });
     expect(suppression.isSuppressed).not.toHaveBeenCalled();
+  });
+});
+
+describe('EmailService.sendMailNow (direct, no queue)', () => {
+  it('calls deliver() directly and never touches the queue', async () => {
+    const queue = makeQueue();
+    const svc = await build(queue, makeSuppression(false));
+    jest.spyOn(svc as any, 'writePreview').mockResolvedValue(undefined);
+
+    await svc.sendMailNow({ to: 'a@b.bg', subject: 'Hi', html: '<p>x</p>' });
+
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('propagates a delivery failure to the caller (no swallow, no retry)', async () => {
+    const svc = await build(makeQueue(), makeSuppression(false));
+    jest.spyOn(svc as any, 'writePreview').mockRejectedValue(new Error('disk full'));
+
+    await expect(
+      svc.sendMailNow({ to: 'a@b.bg', subject: 'Hi', html: '<p>x</p>' }),
+    ).rejects.toThrow('disk full');
+  });
+});
+
+describe('EmailService attachment materialization', () => {
+  it('resolves a handover-protocol attachment via the injected resolver before delivering', async () => {
+    const resolver = {
+      resolve: jest.fn().mockResolvedValue({ filename: 'protocol-7.pdf', content: Buffer.from('%PDF-1.4 fake') }),
+    };
+    const mod: TestingModule = await Test.createTestingModule({
+      providers: [
+        EmailService,
+        { provide: ConfigService, useValue: cfg() },
+        { provide: SuppressionService, useValue: makeSuppression(false) },
+        { provide: getQueueToken(EMAIL_QUEUE), useValue: makeQueue() },
+        { provide: PROTOCOL_ATTACHMENT_RESOLVER, useValue: resolver },
+      ],
+    }).compile();
+    const svc = mod.get(EmailService);
+    svc.onModuleInit();
+    const previewSpy = jest.spyOn(svc as any, 'writePreview').mockResolvedValue(undefined);
+
+    await svc.deliver({
+      to: 'a@b.bg',
+      subject: 'Протокол',
+      html: '<p>x</p>',
+      attachments: [{ kind: 'handover-protocol', protocolId: 'p1', tenantId: 't1' }],
+    });
+
+    expect(resolver.resolve).toHaveBeenCalledWith({ kind: 'handover-protocol', protocolId: 'p1', tenantId: 't1' });
+    // The ACTUAL bytes reached writePreview's options — not a boolean, the real content.
+    const opts = previewSpy.mock.calls[0][0] as any;
+    expect(opts.attachments[0].content).toEqual(Buffer.from('%PDF-1.4 fake'));
+    expect(opts.attachments[0].filename).toBe('protocol-7.pdf');
+  });
+
+  it('throws a clear error if attachments are requested but no resolver is wired', async () => {
+    const svc = await build(makeQueue(), makeSuppression(false)); // no resolver provided
+    await expect(
+      svc.deliver({
+        to: 'a@b.bg', subject: 'x', html: 'x',
+        attachments: [{ kind: 'handover-protocol', protocolId: 'p1', tenantId: 't1' }],
+      }),
+    ).rejects.toThrow(/attachment resolver/i);
   });
 });
