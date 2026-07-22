@@ -1,0 +1,12 @@
+-- 0115_consolidated_protocol_pdf.sql
+-- Archive the EXACT signed PDF bytes (base64) at sign time, so a signed обобщен
+-- приемо-предавателен протокол is served byte-for-byte forever — immune to any
+-- later font/layout/template change in the renderer. The legal DATA is already
+-- frozen in frozen_rows (migr 0113); this freezes the rendered PRESENTATION too.
+--
+-- PRIVATE by construction: the bytes live in-row and are streamed only through
+-- the authed, tenant-scoped GET /consolidated-protocols/:id/pdf — never via a
+-- public URL (unlike image R2, which is a public bucket with no PDF MIME).
+-- NULL for drafts and for any signed row predating this column; both fall back
+-- to a live render.
+ALTER TABLE "consolidated_protocols" ADD COLUMN IF NOT EXISTS "pdf_archive" text;

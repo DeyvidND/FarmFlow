@@ -647,6 +647,11 @@ export const consolidatedProtocols = pgTable(
     // no reusable courier signature is ever saved, unlike the farmer/operator ones.
     receiverSignaturePng: text('receiver_signature_png'),
     signedAt: timestamp('signed_at', { withTimezone: true }),
+    // The exact rendered PDF (base64), captured ONCE at sign time (migr 0115) so a
+    // signed protocol is served byte-for-byte, immune to later renderer drift.
+    // Private: streamed only via the authed GET :id/pdf, never a public URL. NULL
+    // while draft / for legacy signed rows → those fall back to a live render.
+    pdfArchive: text('pdf_archive'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },

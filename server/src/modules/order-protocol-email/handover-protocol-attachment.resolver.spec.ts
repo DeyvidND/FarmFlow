@@ -6,7 +6,7 @@ function buildDeps() {
   };
   const consolidated = {
     getView: jest.fn(),
-    renderPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4 consolidated bytes')),
+    getPdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4 consolidated bytes')),
   };
   return { handover, consolidated };
 }
@@ -33,10 +33,11 @@ describe('HandoverProtocolAttachmentResolver — dispatch by kind', () => {
 
     expect(consolidated.getView).toHaveBeenCalledWith('t1', 'cp1');
     // The rendered view is THE ONE getView actually returned — not a fresh
-    // fetch/refetch — proving the resolver renders what it loaded.
-    const renderedView = consolidated.renderPdf.mock.calls[0][1];
+    // fetch/refetch — proving the resolver serves what it loaded. getPdf (not
+    // renderPdf) so a signed leg emails its archived bytes, not a re-render.
+    const renderedView = consolidated.getPdf.mock.calls[0][1];
     expect(renderedView).toEqual({ id: 'cp1', docNumber: 42, scope: 'leg', legIndex: 1 });
-    expect(consolidated.renderPdf).toHaveBeenCalledWith('t1', expect.objectContaining({ id: 'cp1' }));
+    expect(consolidated.getPdf).toHaveBeenCalledWith('t1', expect.objectContaining({ id: 'cp1' }));
     expect(handover.renderPdfForEmail).not.toHaveBeenCalled();
     expect(out.content).toEqual(Buffer.from('%PDF-1.4 consolidated bytes'));
     expect(out.filename).toBe('obobshten-protokol-OB-42.pdf');

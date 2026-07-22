@@ -1,5 +1,5 @@
 import {
-  BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException,
+  BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException,
 } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
@@ -127,6 +127,8 @@ export class ConsolidatedProtocolService {
     private readonly courierAssignment: CourierAssignmentService,
     private readonly email: EmailService,
   ) {}
+
+  private readonly logger = new Logger(ConsolidatedProtocolService.name);
 
   /** Materializes a draft row (assigning its doc_number) if one doesn't exist yet
    *  for this (tenant, date, scope, legIndex) target; otherwise returns the
@@ -522,9 +524,44 @@ export class ConsolidatedProtocolService {
       }
     }
 
+    const signedAt = new Date();
+
+    // Archive the rendered PDF once, now, so this signed document is served
+    // byte-for-byte hereafter — immune to any later font/layout/renderer change.
+    // The view mirrors exactly what getView() returns for a freshly-signed row:
+    // the frozen rows (farmer signatures still ciphertext — renderPdf decrypts them
+    // only at the render boundary) plus the decrypted receiver signature (sigToStore).
+    // Best-effort by design: a render hiccup must never block a legal sign, so on
+    // failure we persist null and getPdf() falls back to a live render. The
+    // encryption key is present here (the encrypt above already succeeded).
+    let pdfArchive: string | null = null;
+    try {
+      const signedView: ConsolidatedProtocolView = {
+        id: row.id,
+        scope: row.scope as ConsolidatedScope,
+        legIndex: row.legIndex,
+        date: row.date,
+        docNumber: row.docNumber,
+        status: 'signed',
+        meta: (row.meta as ConsolidatedProtocolMeta) ?? {},
+        overrides,
+        rows,
+        receiverSignaturePng: sigToStore ?? null,
+        signedAt,
+      };
+      const buf = await this.renderPdf(tenantId, signedView);
+      pdfArchive = buf.toString('base64');
+    } catch (e) {
+      this.logger.warn(
+        `Failed to archive signed PDF for protocol ${id}; getPdf will fall back to live render. ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
+
     await this.db
       .update(consolidatedProtocols)
-      .set({ status: 'signed', frozenRows: rows, receiverSignaturePng: encrypted, signedAt: new Date(), updatedAt: new Date() })
+      .set({ status: 'signed', frozenRows: rows, receiverSignaturePng: encrypted, pdfArchive, signedAt, updatedAt: signedAt })
       .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)));
   }
 
@@ -544,6 +581,25 @@ export class ConsolidatedProtocolService {
       },
     };
     return renderConsolidatedProtocolPdf(renderView, tenantRow?.name ?? 'ФермериБГ');
+  }
+
+  /** The PDF the GET :id/pdf route serves. A SIGNED protocol returns the bytes
+   *  archived at sign time (`pdf_archive`) verbatim — the legal document exactly
+   *  as it was when signed, never re-rendered — so a later renderer change can't
+   *  alter an already-signed record. Drafts (and any legacy signed row whose
+   *  archive is null) fall through to a fresh live render. Access is enforced by
+   *  the caller against `view` BEFORE this runs; the archive column is never part
+   *  of a JSON view response. */
+  async getPdf(tenantId: string, view: ConsolidatedProtocolView): Promise<Buffer> {
+    if (view.status === 'signed') {
+      const [row] = await this.db
+        .select({ pdfArchive: consolidatedProtocols.pdfArchive })
+        .from(consolidatedProtocols)
+        .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, view.id)))
+        .limit(1);
+      if (row?.pdfArchive) return Buffer.from(row.pdfArchive, 'base64');
+    }
+    return this.renderPdf(tenantId, view);
   }
 
   /** The day's active-courier roster with a resolvable email, for the button's

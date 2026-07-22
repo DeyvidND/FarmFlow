@@ -16,7 +16,10 @@ export class HandoverProtocolAttachmentResolver implements ProtocolAttachmentRes
   async resolve(d: ProtocolAttachmentDescriptor): Promise<{ filename: string; content: Buffer }> {
     if (d.kind === 'consolidated-protocol') {
       const view = await this.consolidated.getView(d.tenantId, d.consolidatedProtocolId);
-      const content = await this.consolidated.renderPdf(d.tenantId, view);
+      // getPdf (not renderPdf): a SIGNED leg emailed to its courier must be the
+      // exact archived bytes — the same byte-for-byte legal record the download
+      // route serves — never a fresh re-render that could drift from it.
+      const content = await this.consolidated.getPdf(d.tenantId, view);
       return { filename: `obobshten-protokol-OB-${view.docNumber}.pdf`, content };
     }
     const content = await this.handover.renderPdfForEmail(d.tenantId, d.protocolId);

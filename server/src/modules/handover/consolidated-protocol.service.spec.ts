@@ -450,14 +450,43 @@ describe('ConsolidatedProtocolService.sign', () => {
     // Spy proves the tenants table is never consulted for a driver signer — not just
     // that receiverSignaturePng happens to come out null (which a differently-broken
     // implementation could also produce by accident).
-    const dbSelectCallsBefore = db.select.mock.calls.length;
     await svc.sign('t1', 'cp1', null, 'driver'); // client sends null; a driver still gets no auto-fill
     const updated = db.calls.set[0] as any;
     expect(updated.receiverSignaturePng).toBeNull();
-    // row lookup (1) + resolveScopeOrderIds via getRoute for leg scope (0 extra db.select
-    // calls — leg scope uses routing.getRoute, not db) — so exactly 1 db.select total,
-    // never a 2nd for tenants.operatorSignaturePng.
-    expect(db.select.mock.calls.length - dbSelectCallsBefore).toBe(1);
+    // Prove the tenants.operatorSignaturePng column is NEVER selected for a driver
+    // signer — a differently-broken impl could also leave receiverSignaturePng null
+    // by accident. (Asserting on the projection, not a raw select count, so the
+    // archive render's own tenants.name select doesn't make this brittle.)
+    const askedForOperatorSig = db.select.mock.calls.some(
+      (c: any[]) => c[0] != null && typeof c[0] === 'object' && 'operatorSignaturePng' in c[0],
+    );
+    expect(askedForOperatorSig).toBe(false);
+  });
+
+  it('archives the rendered PDF bytes (base64) into pdf_archive at sign time', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, status: 'draft', overrides: {} }]); // row lookup
+    db.queue([]); // live rows: no slots → empty
+    db.queue([{ name: 'Ферма Стойчеви' }]); // renderPdf's tenant-name select (real render runs)
+    const svc = makeSvc(db);
+    await svc.sign('t1', 'cp1', 'data:image/png;base64,SIGNED', 'driver');
+    const updated = db.calls.set[0] as any;
+    expect(updated.status).toBe('signed');
+    expect(typeof updated.pdfArchive).toBe('string');
+    // The stored string is the ACTUAL rendered document — decode it, check the PDF magic bytes.
+    expect(Buffer.from(updated.pdfArchive, 'base64').subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('leaves pdf_archive null but still flips status=signed when the render fails — a render hiccup never blocks a legal sign', async () => {
+    const db = makeDb();
+    db.queue([{ id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, status: 'draft', overrides: {} }]); // row lookup
+    db.queue([]); // live rows: no slots
+    const svc = makeSvc(db);
+    jest.spyOn(svc, 'renderPdf').mockRejectedValue(new Error('pdfkit boom'));
+    await svc.sign('t1', 'cp1', 'data:image/png;base64,SIGNED', 'driver');
+    const updated = db.calls.set[0] as any;
+    expect(updated.status).toBe('signed'); // the sign itself succeeds
+    expect(updated.pdfArchive).toBeNull(); // archive degrades to null → getPdf will live-render
   });
 });
 
@@ -483,6 +512,37 @@ describe('ConsolidatedProtocolService.renderPdf', () => {
     const svc = makeSvc(db);
     const buf = await svc.renderPdf('t1', PDF_VIEW as any);
     expect(buf.length).toBeGreaterThan(0);
+  });
+});
+
+describe('ConsolidatedProtocolService.getPdf', () => {
+  it('serves the ARCHIVED bytes for a signed protocol — byte-for-byte, never re-rendering', async () => {
+    const db = makeDb();
+    const archived = Buffer.from('%PDF-1.7 frozen-at-sign-bytes-âé');
+    db.queue([{ pdfArchive: archived.toString('base64') }]); // pdf_archive select
+    const svc = makeSvc(db);
+    const renderSpy = jest.spyOn(svc, 'renderPdf');
+    const buf = await svc.getPdf('t1', { ...PDF_VIEW, id: 'cp1', status: 'signed' } as any);
+    expect(buf.equals(archived)).toBe(true);
+    expect(renderSpy).not.toHaveBeenCalled(); // the whole point: a signed doc is served, not re-rendered
+  });
+
+  it('falls back to a live render for a signed protocol whose archive is null (legacy row)', async () => {
+    const db = makeDb();
+    db.queue([{ pdfArchive: null }]); // archive select — nothing stored
+    db.queue([{ name: 'Ферма Стойчеви' }]); // renderPdf tenant-name select
+    const svc = makeSvc(db);
+    const buf = await svc.getPdf('t1', { ...PDF_VIEW, id: 'cp1', status: 'signed' } as any);
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('renders live for a DRAFT and never reads the archive column', async () => {
+    const db = makeDb();
+    db.queue([{ name: 'Ферма Стойчеви' }]); // ONLY renderPdf's select — no archive lookup precedes it
+    const svc = makeSvc(db);
+    const buf = await svc.getPdf('t1', { ...PDF_VIEW, id: 'cp1', status: 'draft' } as any);
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(db.select).toHaveBeenCalledTimes(1); // proves no archive select ran before the render
   });
 });
 

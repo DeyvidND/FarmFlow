@@ -101,7 +101,8 @@ export class ConsolidatedProtocolController {
   ): Promise<StreamableFile> {
     const view = await this.protocols.getView(tenantId, id);
     await this.assertCanView(tenantId, user, view);
-    const buf = await this.protocols.renderPdf(tenantId, view);
+    // Signed → archived bytes verbatim; draft/legacy → live render (see getPdf).
+    const buf = await this.protocols.getPdf(tenantId, view);
     return new StreamableFile(buf, { type: 'application/pdf', disposition: 'inline; filename="consolidated-protocol.pdf"' });
   }
 
