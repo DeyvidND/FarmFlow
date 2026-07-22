@@ -34,6 +34,13 @@ export interface ProductOption {
   farmerId: string | null;
   subcategoryId: string | null;
   courierDisabled: boolean;
+  imageUrl: string | null;
+  category: string | null;
+  priceStotinki: number;
+  /** True if the product has any live (non-deleted) variant rows — such a
+   *  product can't be a basket member (`setBundleItems` rejects it: a member
+   *  line carries no variantId). */
+  hasVariants: boolean;
 }
 
 /** A bundle's member product as returned to the admin/farmer bundle editor (task #1).
@@ -134,11 +141,14 @@ export class ProductsService {
 
   /** Lean full list for cross-page consumers (no pagination — ids + a few fields).
    *  Soft-deleted products are excluded so they don't inflate farmer/section counts
-   *  or trip low-stock notifications. */
-  listOptions(tenantId: string, farmerScope: string | null = null): Promise<ProductOption[]> {
+   *  or trip low-stock notifications. `category` and `hasVariants` let a basket's
+   *  member picker filter out products that `setBundleItems` would reject anyway
+   *  (another bundle, a varianted product) BEFORE the operator picks one, instead
+   *  of surfacing the rejection only after a save. */
+  async listOptions(tenantId: string, farmerScope: string | null = null): Promise<ProductOption[]> {
     const conds = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
     if (farmerScope !== null) conds.push(eq(products.farmerId, farmerScope));
-    return this.db
+    const rows = await this.db
       .select({
         id: products.id,
         name: products.name,
@@ -149,10 +159,25 @@ export class ProductsService {
         farmerId: products.farmerId,
         subcategoryId: products.subcategoryId,
         courierDisabled: products.courierDisabled,
+        imageUrl: products.imageUrl,
+        category: products.category,
+        priceStotinki: products.priceStotinki,
       })
       .from(products)
       .where(and(...conds))
       .orderBy(asc(products.position), asc(products.createdAt));
+    if (rows.length === 0) return rows.map((r) => ({ ...r, hasVariants: false }));
+    const varianted = await this.db
+      .selectDistinct({ productId: productVariants.productId })
+      .from(productVariants)
+      .where(
+        and(
+          inArray(productVariants.productId, rows.map((r) => r.id)),
+          isNull(productVariants.deletedAt),
+        ),
+      );
+    const variantedIds = new Set(varianted.map((v) => v.productId));
+    return rows.map((r) => ({ ...r, hasVariants: variantedIds.has(r.id) }));
   }
 
   /** Persist a new catalog display order. Each item's `position` is set
