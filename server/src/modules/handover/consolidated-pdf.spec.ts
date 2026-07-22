@@ -1,8 +1,10 @@
 import { PDFPage } from 'pdf-lib';
 import { A4_LANDSCAPE, contentW, createDoc } from './pdf-kit';
 import { drawTable } from './pdf-table';
-import { buildFarmerTableRows, drawFarmerSignatureStrip, FARMER_COLUMNS } from './consolidated-pdf';
-import type { ConsolidatedFarmerRow } from './consolidated-protocol.service';
+import {
+  buildFarmerTableRows, buildOrderTableRows, drawFarmerSignatureStrip, FARMER_COLUMNS, ORDER_COLUMNS, PRIVACY_NOTE,
+} from './consolidated-pdf';
+import type { ConsolidatedFarmerRow, ConsolidatedOrderRow } from './consolidated-protocol.service';
 
 const farmer = (over: Partial<ConsolidatedFarmerRow> = {}): ConsolidatedFarmerRow => ({
   farmerId: 'f1', name: 'Васил', legal: null, signaturePng: null,
@@ -95,5 +97,40 @@ describe('drawFarmerSignatureStrip', () => {
     drawFarmerSignatureStrip(d, placed, farmers, [null, null]);
     expect(drawTextSpy.mock.calls.some(([t]) => typeof t === 'string' && t.startsWith('1. A'))).toBe(true);
     expect(drawTextSpy.mock.calls.some(([t]) => typeof t === 'string' && t.startsWith('2. B'))).toBe(true);
+  });
+});
+
+describe('buildOrderTableRows (pure)', () => {
+  const order = (over: Partial<ConsolidatedOrderRow> = {}): ConsolidatedOrderRow => ({
+    orderId: 'o1', orderNumber: 5, customerCode: 'ABCD1234', cityOrZone: 'Варна',
+    items: [{ productName: 'Домати', quantity: 2, unit: 'кг', priceStotinki: 300 } as any],
+    totalStotinki: 600, ...over,
+  });
+
+  it('never includes a customer name, phone, or exact address — only order №, code, and city/zone', () => {
+    const rows = buildOrderTableRows([order()]);
+    const flat = rows[0].join(' | ');
+    expect(flat).not.toMatch(/бул\.|ул\.|жк\./); // no street-level address fragments
+    expect(flat).toContain('5'); // order number
+    expect(flat).toContain('ABCD1234'); // customer code
+    expect(flat).toContain('Варна'); // city/zone only
+  });
+
+  it('shows an em-dash when cityOrZone is unknown, never a blank cell', () => {
+    const rows = buildOrderTableRows([order({ cityOrZone: null })]);
+    expect(rows[0]).toContain('—');
+  });
+});
+
+describe('ORDER_COLUMNS width sums to landscape content width', () => {
+  it('sums exactly', async () => {
+    const d = await createDoc(A4_LANDSCAPE);
+    expect(ORDER_COLUMNS.reduce((s, c) => s + c.width, 0)).toBe(contentW(d));
+  });
+});
+
+describe('PRIVACY_NOTE', () => {
+  it('states the customer PII stays in the protected route list — the exact spec §3.7 disclosure', () => {
+    expect(PRIVACY_NOTE).toMatch(/маршрутен списък/);
   });
 });

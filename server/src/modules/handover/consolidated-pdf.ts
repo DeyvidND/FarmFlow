@@ -1,7 +1,7 @@
 import type { PDFImage } from 'pdf-lib';
 import { A4_LANDSCAPE, contentW, Doc, INK, MARGIN, newPage } from './pdf-kit';
 import { columnWidths, type Cell, type Column, type PlacedRow } from './pdf-table';
-import type { ConsolidatedFarmerRow } from './consolidated-protocol.service';
+import type { ConsolidatedFarmerRow, ConsolidatedOrderRow } from './consolidated-protocol.service';
 import type { ProtocolItemDto } from './dto/create-protocol.dto';
 
 const itemsLine = (items: ProtocolItemDto[]): string =>
@@ -100,3 +100,40 @@ export function drawFarmerSignatureStrip(
     d.y -= rowsNeeded * (CHIP_H + 16) + 10;
   }
 }
+
+const ORDER_COL_WEIGHTS = [2, 3, 3, 10, 2];
+export const ORDER_COLUMNS: Column[] = (() => {
+  const total = A4_LANDSCAPE.w - 2 * MARGIN;
+  const [num, code, city, items, total_] = columnWidths(total, ORDER_COL_WEIGHTS);
+  return [
+    { header: '№ поръчка', width: num },
+    { header: 'Код клиент', width: code },
+    { header: 'Град/зона', width: city },
+    { header: 'Продукти и количества', width: items },
+    { header: 'Стойност', width: total_, align: 'right' },
+  ];
+})();
+
+function moneyStr(stotinki: number): string {
+  return `${(stotinki / 100).toFixed(2)} лв.`;
+}
+
+/** Pure: order rows → drawTable cells. Deliberately carries NO customer name,
+ *  phone, or exact address — spec §3.7 keeps that on the driver's protected
+ *  route list only; this document shows just order №, a zero-PII customer
+ *  code, and the city/zone. */
+export function buildOrderTableRows(orders: ConsolidatedOrderRow[]): Cell[][] {
+  return orders.map((o) => [
+    o.orderNumber != null ? `№ ${o.orderNumber}` : '—',
+    o.customerCode,
+    o.cityOrZone ?? '—',
+    itemsLine(o.items),
+    moneyStr(o.totalStotinki),
+  ]);
+}
+
+/** Verbatim per spec §3.7 — matches the wording already established for the
+ *  screen "Проверка"/bilateral-receipt precinct: full name/phone/address
+ *  live ONLY in the driver's protected route list, never on this document. */
+export const PRIVACY_NOTE =
+  'Име, телефон и точен адрес на клиента се съхраняват само в защитения маршрутен списък на превозвача.';
