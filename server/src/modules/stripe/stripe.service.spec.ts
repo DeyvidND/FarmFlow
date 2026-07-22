@@ -450,3 +450,119 @@ describe('StripeService webhook — releases the idempotency claim when a handle
     expect(calls.deleted).toBe(1);
   });
 });
+
+// Phase 2 (2026-07-22), §4.3 Stripe row: "опашка — Stripe чака бърз 200" — the
+// webhook must enqueue (never await) the bilateral protocol email alongside
+// its existing fire-and-forget side effects (carrier waybill, buyer email),
+// and must never call the blocking sendProtocolEmail helper.
+describe('StripeService.markOrderPaid — queues the protocol email, never blocks the webhook on it', () => {
+  const config = {
+    get: (key: string, def?: unknown) =>
+      key === 'STRIPE_WEBHOOK_SECRET' ? 'whsec_test' : key === 'STRIPE_SECRET_KEY' ? '' : def,
+  } as unknown as ConfigService;
+
+  /** Mirrors the cross-tenant-authorization describe block's db mock: tenant
+   *  lookup always resolves to tenant-A, order lookup returns `ordersResult`,
+   *  UPDATE returns `updateReturning` (empty ⇒ the idempotent "already
+   *  confirmed by the sibling event" branch, matching markOrderPaid's real
+   *  `ne(orders.status, 'confirmed')` guard). */
+  function makeDb(ordersResult: unknown[], updateReturning: unknown[]) {
+    const calls = { update: 0 };
+    const db = {
+      insert: () => ({
+        values: () => ({
+          onConflictDoNothing: () => ({ returning: () => Promise.resolve([{ id: 'evt_1' }]) }),
+        }),
+      }),
+      select: () => {
+        let table: unknown;
+        const c: Record<string, unknown> = {
+          from: (t: unknown) => {
+            table = t;
+            return c;
+          },
+          where: () => c,
+          limit: () => Promise.resolve(table === tenants ? [{ id: 'tenant-A' }] : ordersResult),
+        };
+        return c;
+      },
+      update: () => {
+        calls.update++;
+        return {
+          set: () => ({ where: () => ({ returning: () => Promise.resolve(updateReturning) }) }),
+        };
+      },
+    };
+    return { db, calls };
+  }
+
+  function build(protocolEmail: unknown, updateReturning: unknown[] = [{ id: 'victim-order' }]) {
+    const { db, calls } = makeDb([{ id: 'victim-order', total: 1000 }], updateReturning);
+    const billing = { handleBillingEvent: jest.fn() } as never;
+    const econt = { autoCreateForOrder: jest.fn() } as never;
+    const orderEmail = { sendForOrder: jest.fn() } as never;
+    const carrierFulfillment = { autoCreateForOrder: jest.fn() } as never;
+    const analytics = { recordPurchase: jest.fn() } as never;
+    const svc = new StripeService(
+      db as never,
+      config,
+      billing,
+      econt,
+      orderEmail,
+      { del: jest.fn() } as never,
+      carrierFulfillment,
+      analytics,
+      undefined,
+      protocolEmail as never,
+    );
+    const event = {
+      id: 'evt_1',
+      type: 'payment_intent.succeeded',
+      account: 'acct_farm',
+      data: { object: { id: 'pi_1', metadata: { orderId: 'victim-order' }, amount_received: 1000 } },
+    };
+    (svc as unknown as { client: unknown }).client = {
+      webhooks: { constructEvent: () => event },
+    };
+    return { svc, calls };
+  }
+
+  it('enqueues a protocol-email job for the newly-confirmed order (does not await/gate on it)', async () => {
+    const protocolEmail = { enqueueProtocolEmail: jest.fn().mockResolvedValue(undefined) };
+    const { svc } = build(protocolEmail);
+
+    await svc.handleWebhook(Buffer.from('{}'), 'sig');
+
+    expect(protocolEmail.enqueueProtocolEmail).toHaveBeenCalledWith('tenant-A', 'victim-order');
+  });
+
+  it('never calls sendProtocolEmail (the blocking helper) — enqueue only', async () => {
+    const protocolEmail = {
+      enqueueProtocolEmail: jest.fn().mockResolvedValue(undefined),
+      sendProtocolEmail: jest.fn(),
+    };
+    const { svc } = build(protocolEmail);
+
+    await svc.handleWebhook(Buffer.from('{}'), 'sig');
+
+    expect(protocolEmail.sendProtocolEmail).not.toHaveBeenCalled();
+  });
+
+  it('a rejected enqueue does not throw out of markOrderPaid (the webhook still 200s)', async () => {
+    const protocolEmail = { enqueueProtocolEmail: jest.fn().mockRejectedValue(new Error('Redis down')) };
+    const { svc } = build(protocolEmail);
+
+    await expect(svc.handleWebhook(Buffer.from('{}'), 'sig')).resolves.toEqual({ received: true });
+  });
+
+  it('the sibling idempotent webhook event (order already confirmed) never enqueues a second job', async () => {
+    // UPDATE's ne(status,'confirmed') guard matches zero rows — already
+    // confirmed by the first of Stripe's two events for this payment.
+    const protocolEmail = { enqueueProtocolEmail: jest.fn() };
+    const { svc } = build(protocolEmail, []);
+
+    await svc.handleWebhook(Buffer.from('{}'), 'sig');
+
+    expect(protocolEmail.enqueueProtocolEmail).not.toHaveBeenCalled();
+  });
+});

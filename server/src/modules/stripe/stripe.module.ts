@@ -7,6 +7,7 @@ import { OrderEmailModule } from '../order-email/order-email.module';
 import { CarrierFulfillmentModule } from '../orders/carrier-fulfillment.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { VendorFinanceModule } from '../vendor-finance/vendor-finance.module';
+import { OrderProtocolEmailModule } from '../order-protocol-email/order-protocol-email.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { VendorFinanceModule } from '../vendor-finance/vendor-finance.module';
     CarrierFulfillmentModule,
     AnalyticsModule,
     VendorFinanceModule,
+    OrderProtocolEmailModule,
   ],
   controllers: [StripeController, StripeConnectController],
   providers: [StripeService],
