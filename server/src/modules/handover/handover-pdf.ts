@@ -128,7 +128,10 @@ export function composeProtocol(row: any): ProtocolText {
   };
 }
 
-export async function renderProtocolPdf(row: any): Promise<Buffer> {
+export async function renderProtocolPdf(
+  row: any,
+  opts?: { preliminaryNotice?: boolean },
+): Promise<Buffer> {
   const d = await createDoc(A4_PORTRAIT);
   const t = composeProtocol(row);
   const operatorSnap = row.kind === 'operator_to_customer' ? row.fromSnapshot : row.toSnapshot;
@@ -140,6 +143,15 @@ export async function renderProtocolPdf(row: any): Promise<Buffer> {
     number: row.protocolNumber != null ? String(row.protocolNumber) : null,
     date: new Date(row.signedAt ?? row.createdAt ?? Date.now()),
   });
+
+  if (opts?.preliminaryNotice) {
+    ensureSpace(d, 16);
+    d.page.drawText(
+      'ПРЕДВАРИТЕЛЕН — подписва се при предаването на стоката',
+      { x: MARGIN, y: d.y, size: 9, font: d.font, color: INK },
+    );
+    d.y -= 16;
+  }
 
   const drawLeft = (text: string, x: number, size = BODY_SIZE, lh = BODY_LH) => {
     for (const l of wrap(text, d.font, size, contentW(d) - (x - MARGIN))) {
