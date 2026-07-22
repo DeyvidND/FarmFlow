@@ -159,6 +159,20 @@ describe('HandoverService.buildDraft farmer_to_operator', () => {
       else process.env.ENCRYPTION_KEY = OLD_KEY;
     }
   });
+
+  it('collects the distinct order ids behind a multi-order farmer pickup (feeds order_ids persistence)', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);
+    db.queue([
+      { productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300, orderNumber: 5, orderId: 'order-A' },
+      { productName: 'Домати', variantLabel: null, quantity: 3, unit: 'кг', priceStotinki: 300, orderNumber: 7, orderId: 'order-B' },
+      { productName: 'Краставици', variantLabel: null, quantity: 1, unit: 'бр', priceStotinki: 120, orderNumber: 5, orderId: 'order-A' },
+    ]);
+    const svc = await build(db);
+    const draft = await svc.buildDraft('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' });
+    expect([...draft.orderIds].sort()).toEqual(['order-A', 'order-B']); // distinct, not one per item row
+  });
 });
 
 describe('HandoverService.buildDraft operator_to_customer', () => {
@@ -211,6 +225,16 @@ describe('HandoverService.buildDraft operator_to_customer', () => {
       if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY;
       else process.env.ENCRYPTION_KEY = OLD_KEY;
     }
+  });
+
+  it('returns the single order id for a customer-leg draft', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
+    db.queue([{ id: 'o9', customerName: 'Иван Петров', customerPhone: '0888', deliveryAddress: 'ул. Роза 1', totalStotinki: 720, orderNumber: 9 }]);
+    db.queue([{ productName: 'Домати', variantLabel: null, quantity: 2, priceStotinki: 300, unit: 'кг', name: 'Домати' }]);
+    const svc = await build(db);
+    const draft = await svc.buildDraft('t1', { kind: 'operator_to_customer', orderId: 'o9' });
+    expect(draft.orderIds).toEqual(['o9']);
   });
 });
 

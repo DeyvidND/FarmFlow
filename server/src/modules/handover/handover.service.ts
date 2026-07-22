@@ -46,6 +46,7 @@ type FarmerLegItemRow = {
   unit: string | null;
   priceStotinki: number;
   orderNumber: number | null;
+  orderId: string | null;
 };
 /** Line-item row for the customer leg — shared by the per-target query and the bulk prefetch. */
 type CustomerLegItemRow = {
@@ -188,6 +189,11 @@ export class HandoverService {
     items: ProtocolItemDto[];
     total: number;
     orderNumbers: number[];
+    /** Distinct order ids behind this target — every order that contributed at
+     *  least one line item to a farmer pickup, or the single order for a
+     *  customer leg. Persisted onto `handover_protocols.order_ids` by every
+     *  write site. */
+    orderIds: string[];
     /** The farmer/operator's saved signature, decrypted — reused by createSigned
      *  to auto-fill when the sign request doesn't supply one, and by
      *  signPaperTarget/signAllForDay to decide digital vs paper. */
@@ -267,6 +273,7 @@ export class HandoverService {
           unit: products.unit,
           priceStotinki: orderItems.priceStotinki,
           orderNumber: orders.orderNumber,
+          orderId: orders.id,
         })
         .from(orderItems)
         .innerJoin(products, eq(products.id, orderItems.productId))
@@ -305,6 +312,11 @@ export class HandoverService {
     const orderNumbers = [...new Set(rows.map((r) => r.orderNumber).filter((n): n is number => n != null))].sort(
       (a, b) => a - b,
     );
+    // Distinct orders behind this farmer's pickup. Persisted onto
+    // handover_protocols.order_ids by every write site (Task 2) — today that
+    // column is hardcoded null for farmer legs, which leaves listForCheck's
+    // orderIds-array courier-scope filter dead for this kind (spec §1.8).
+    const orderIds = [...new Set(rows.map((r) => r.orderId).filter((id): id is string => !!id))];
 
     return {
       kind: q.kind,
@@ -313,6 +325,7 @@ export class HandoverService {
       items,
       total,
       orderNumbers,
+      orderIds,
       savedFromSignature,
       savedToSignature,
     };
@@ -329,6 +342,7 @@ export class HandoverService {
     items: ProtocolItemDto[];
     total: number;
     orderNumbers: number[];
+    orderIds: string[];
     savedFromSignature: string | null;
     savedToSignature: string | null;
   }> {
@@ -428,6 +442,7 @@ export class HandoverService {
       items,
       total: order.totalStotinki,
       orderNumbers,
+      orderIds: [q.orderId!],
       savedFromSignature,
       savedToSignature: null,
     };
@@ -507,6 +522,7 @@ export class HandoverService {
           unit: products.unit,
           priceStotinki: orderItems.priceStotinki,
           orderNumber: orders.orderNumber,
+          orderId: orders.id,
         })
         .from(orderItems)
         .innerJoin(products, eq(products.id, orderItems.productId))
@@ -529,6 +545,7 @@ export class HandoverService {
           unit: r.unit,
           priceStotinki: r.priceStotinki,
           orderNumber: r.orderNumber,
+          orderId: r.orderId,
         });
         farmerItemsByKey.set(key, list);
       }
