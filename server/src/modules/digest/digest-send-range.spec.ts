@@ -155,3 +155,44 @@ describe('DigestService.sendFarmerOrderEmails', () => {
     expect(res).toEqual({ sent: 1, skipped: 1 });
   });
 });
+
+describe('DigestService.previewFarmerOrderEmails', () => {
+  beforeEach(() => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+  });
+
+  it('reports recipients with orders and never calls sendMail', async () => {
+    const { service, email } = makeService({
+      tenant: { multiFarmer: true },
+      farmers: [
+        { id: 'f1', name: 'Иван', email: 'ivan@x.bg' },
+        { id: 'f2', name: 'Мария', email: 'maria@x.bg' },
+      ],
+      lineItems: [
+        {
+          farmerId: 'f1',
+          orderId: 'o1',
+          deliveryType: 'address',
+          customerName: 'Клиент',
+          deliveryAddress: 'ул. 1',
+          deliveryCity: 'София',
+          econtOffice: null,
+          slotFrom: '09:00:00',
+          slotTo: '12:00:00',
+          slotDate: '2026-07-10',
+          productName: 'Домати',
+          quantity: 2,
+        },
+      ],
+    });
+    const res = await service.previewFarmerOrderEmails('t', OPTS);
+    expect(res).toEqual({ recipients: [{ id: 'f1', name: 'Иван', email: 'ivan@x.bg', orderCount: 1 }], skipped: 1 });
+    expect(email.sendMail).not.toHaveBeenCalled();
+  });
+
+  it('applies the same validation as the send path', async () => {
+    const { service } = makeService({ tenant: { multiFarmer: false } });
+    await expect(service.previewFarmerOrderEmails('t', OPTS)).rejects.toBeInstanceOf(BadRequestException);
+  });
+});

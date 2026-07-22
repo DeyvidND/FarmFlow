@@ -806,16 +806,20 @@ export class DigestService {
   }
 
   /**
-   * Organizer-triggered: email each SELECTED farmer their own orders for the
-   * [from,to] BG-day range, limited to the chosen statuses. Reuses the range
-   * assembler. One batch line-item query (no N+1). Per-farmer try/catch so a
-   * single failed send doesn't abort the rest. Returns how many farmers were
-   * emailed vs skipped (selected, has email, but no orders / send failed).
+   * Shared validation + batch query for the organizer-triggered farmer-orders
+   * send/preview: resolves the selected farmers (tenant-scoped, email-having)
+   * and their line items across the [from,to] range, grouped by farmerId →
+   * day. Used by both {@link sendFarmerOrderEmails} and
+   * {@link previewFarmerOrderEmails} so the two stay in lockstep — a farmer
+   * the preview shows as "will receive" is exactly one the send will email.
    */
-  async sendFarmerOrderEmails(
+  private async resolveFarmerOrderBatch(
     tenantId: string,
     opts: { from: string; to: string; farmerIds: string[]; statuses: string[] },
-  ): Promise<{ sent: number; skipped: number }> {
+  ): Promise<{
+    farmerRows: { id: string; name: string; email: string | null }[];
+    byFarmer: Map<string, Map<string, FarmerDigestRow[]>>;
+  }> {
     const { from, to } = opts;
 
     const [tenant] = await this.db
@@ -896,7 +900,7 @@ export class DigestService {
     // them under `from` day when slotDate is null (they were selected by the
     // createdAt fallback in scheduledForRange, so their exact day isn't in the
     // slot column — group them under the range start so they still appear).
-    const byFarmer = new Map<string, Map<string, typeof rows>>();
+    const byFarmer = new Map<string, Map<string, FarmerDigestRow[]>>();
     for (const r of rows) {
       const fid = r.farmerId;
       if (!fid) continue;
@@ -907,6 +911,23 @@ export class DigestService {
       farmerMap.set(day, dayRows);
       byFarmer.set(fid, farmerMap);
     }
+
+    return { farmerRows, byFarmer };
+  }
+
+  /**
+   * Organizer-triggered: email each SELECTED farmer their own orders for the
+   * [from,to] BG-day range, limited to the chosen statuses. Reuses the range
+   * assembler. One batch line-item query (no N+1). Per-farmer try/catch so a
+   * single failed send doesn't abort the rest. Returns how many farmers were
+   * emailed vs skipped (selected, has email, but no orders / send failed).
+   */
+  async sendFarmerOrderEmails(
+    tenantId: string,
+    opts: { from: string; to: string; farmerIds: string[]; statuses: string[] },
+  ): Promise<{ sent: number; skipped: number }> {
+    const { from, to } = opts;
+    const { farmerRows, byFarmer } = await this.resolveFarmerOrderBatch(tenantId, opts);
 
     let sent = 0;
     let skipped = 0;
@@ -934,6 +955,34 @@ export class DigestService {
       }
     }
     return { sent, skipped };
+  }
+
+  /**
+   * Preview-only counterpart to {@link sendFarmerOrderEmails}: same selection
+   * and validation, but never calls the mailer. Returns exactly the farmers
+   * that would receive an email (name + email + how many of their orders are
+   * in the range) so the organizer can check the recipient list before
+   * committing to a send.
+   */
+  async previewFarmerOrderEmails(
+    tenantId: string,
+    opts: { from: string; to: string; farmerIds: string[]; statuses: string[] },
+  ): Promise<{ recipients: { id: string; name: string; email: string; orderCount: number }[]; skipped: number }> {
+    const { from, to } = opts;
+    const { farmerRows, byFarmer } = await this.resolveFarmerOrderBatch(tenantId, opts);
+
+    const recipients: { id: string; name: string; email: string; orderCount: number }[] = [];
+    let skipped = 0;
+    for (const f of farmerRows) {
+      const byDay = byFarmer.get(f.id);
+      const email = assembleFarmerRangeEmail(from, to, f.name, byDay ?? new Map());
+      if (!email) {
+        skipped++;
+        continue;
+      }
+      recipients.push({ id: f.id, name: f.name, email: f.email!, orderCount: email.summary.totalOrders });
+    }
+    return { recipients, skipped };
   }
 }
 

@@ -36,4 +36,13 @@ export class DigestController {
   ): Promise<{ sent: number; skipped: number }> {
     return this.digestService.sendFarmerOrderEmails(tenantId, dto);
   }
+
+  /** Same selection as `farmers/send`, but only reports who would get an email — no send. */
+  @Post('farmers/preview')
+  previewFarmerOrders(
+    @CurrentTenant() tenantId: string,
+    @Body() dto: SendFarmerOrdersDto,
+  ): Promise<{ recipients: { id: string; name: string; email: string; orderCount: number }[]; skipped: number }> {
+    return this.digestService.previewFarmerOrderEmails(tenantId, dto);
+  }
 }

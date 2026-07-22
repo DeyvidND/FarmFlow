@@ -306,6 +306,19 @@ export const sendFarmerOrders = (body: {
     'Неуспешно изпращане',
   );
 
+/** Same selection as {@link sendFarmerOrders}, but only reports who would get an email — no send. */
+export const previewFarmerOrders = (body: {
+  from: string;
+  to: string;
+  farmerIds: string[];
+  statuses: string[];
+}) =>
+  apiFetch<{ recipients: { id: string; name: string; email: string; orderCount: number }[]; skipped: number }>(
+    'digest/farmers/preview',
+    { method: 'POST', ...json(body) },
+    'Неуспешен преглед',
+  );
+
 // ---- Subcategories ----
 export const listSubcategories = () => apiFetch<Subcategory[]>('subcategories');
 
