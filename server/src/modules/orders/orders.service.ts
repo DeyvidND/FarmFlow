@@ -1234,8 +1234,15 @@ export class OrdersService {
       })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
       .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
-      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds)))
+      // A picker loads the van with real, physical products — never a basket's
+      // own line (its "product" is just a priced container; nothing to pick).
+      // Without this, the parent AND its exploded children both showed up,
+      // inflating totalQty (client/src/components/prep/aggregate.ts) and
+      // offering the basket itself as a pickable row. Same identity test as
+      // NOT_BASKET_PARENT above.
+      .where(and(eq(orders.tenantId, tenantId), inArray(orders.id, orderIds), NOT_BASKET_PARENT))
       .orderBy(orders.createdAt);
 
     const byOrder = new Map<string, TomorrowOrder>();
