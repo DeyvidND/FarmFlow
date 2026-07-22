@@ -12,8 +12,15 @@ describe('signature-crypto', () => {
   });
 
   it('REFUSES to encrypt without a key (never stores plaintext)', () => {
-    expect(() => encryptSignature(PNG, undefined)).toThrow(SignatureKeyMissingError);
-    expect(() => encryptSignature(PNG, '')).toThrow(SignatureKeyMissingError);
+    const OLD_KEY = process.env.ENCRYPTION_KEY;
+    delete process.env.ENCRYPTION_KEY;
+    try {
+      expect(() => encryptSignature(PNG, undefined)).toThrow(SignatureKeyMissingError);
+      expect(() => encryptSignature(PNG, '')).toThrow(SignatureKeyMissingError);
+    } finally {
+      if (OLD_KEY === undefined) delete process.env.ENCRYPTION_KEY;
+      else process.env.ENCRYPTION_KEY = OLD_KEY;
+    }
   });
 
   it('passes legacy plaintext data-URL through decrypt unchanged', () => {
