@@ -1321,6 +1321,21 @@ export class HandoverService {
     return renderProtocolPdf(row);
   }
 
+  /**
+   * Renders a persisted protocol for EMAIL delivery — always stamps the
+   * unsigned/preliminary notice, regardless of the row's actual status,
+   * because every call site of this method is the confirm-time flow, where
+   * the protocol is by construction not yet signed (signing only happens at
+   * physical handover, hours later). Unlike `renderPdf` (used for
+   * admin download/preview, which must NOT gain a new visual side effect for
+   * already-shipped callers), this is a new, narrowly-scoped method — safe to
+   * make the notice unconditional here.
+   */
+  async renderPdfForEmail(tenantId: string, id: string): Promise<Buffer> {
+    const row = await this.getById(tenantId, id);
+    return renderProtocolPdf(row, { preliminaryNotice: true });
+  }
+
   /** Renders a single target's protocol to PDF on the fly WITHOUT persisting it —
    *  used to print/preview a virtual (not-yet-created) row from the day view. No
    *  protocol number is assigned (it's not a saved document yet). */
