@@ -61,6 +61,12 @@ export class FarmersController {
     return this.farmersService.listAccess(tenantId);
   }
 
+  // Literal route — must precede `:id` so "readiness" isn't captured as a farmer id.
+  @Get('readiness')
+  listReadiness(@CurrentTenant() tenantId: string) {
+    return this.farmersService.listReadiness(tenantId);
+  }
+
   // ---- Producer self-service ("Моят профил" in the farmer's Настройки) ----
   //
   // A producer sub-account maintains its own протокол identity: legal data, contact

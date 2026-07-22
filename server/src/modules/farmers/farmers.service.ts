@@ -31,6 +31,19 @@ import { farmerCourierReady, farmerDeliveryNamespace } from '../orders/courier-e
 import { effectiveTier } from './tier-autolink';
 import { MapsService } from '../../common/maps/maps.service';
 
+/** Codes for what's missing from a farmer's protocol-readiness (§5.1 of the
+ *  consolidated-handover-protocol spec), in the same priority order surfaced to
+ *  the "Готовност на фермерите" board. */
+export type FarmerReadinessMissing = 'kind' | 'name' | 'identifier' | 'address' | 'signature';
+
+export interface FarmerReadinessRow {
+  farmerId: string;
+  name: string;
+  email: string | null;
+  ready: boolean;
+  missing: FarmerReadinessMissing[];
+}
+
 @Injectable()
 export class FarmersService {
   private readonly logger = new Logger(FarmersService.name);
@@ -120,6 +133,48 @@ export class FarmersService {
       if (r.farmerId) map[r.farmerId] = { hasLogin: true, loginEmail: r.email, invitePending: r.mustChange };
     }
     return map;
+  }
+
+  /**
+   * Per-farmer protocol-readiness for the "Готовност на фермерите" board (spec
+   * §5.1/§5.2) — legal identity complete for the CHOSEN kind, AND a signature on
+   * file. Read-only / advisory: nothing here blocks a handover (§5.3).
+   *
+   * The identifier check mirrors client/src/lib/legal-identity.ts's
+   * buildLegalPayload EXACTLY: individual → regNo, everyone else (incl. unset
+   * kind) → eik. Checking "either identifier" would let a wrongly-filled one
+   * pass — an individual who typed their ЕИК instead of Рег.№ is not ready,
+   * even though a field is technically filled in.
+   *
+   * Never decrypts the signature — only NOT NULL is checked, and the ciphertext
+   * is never included in the response (same posture as findAll/findOne's
+   * stripSignature, just via a narrower SELECT instead of an omit).
+   */
+  async listReadiness(tenantId: string): Promise<FarmerReadinessRow[]> {
+    const rows = await this.db
+      .select({
+        id: farmers.id,
+        name: farmers.name,
+        email: farmers.email,
+        legal: farmers.legal,
+        signaturePng: farmers.signaturePng,
+      })
+      .from(farmers)
+      .where(eq(farmers.tenantId, tenantId))
+      .orderBy(asc(farmers.position), asc(farmers.createdAt));
+
+    return rows.map((r) => {
+      const legal = r.legal;
+      const missing: FarmerReadinessMissing[] = [];
+      if (!legal?.kind) missing.push('kind');
+      if (!legal?.name?.trim()) missing.push('name');
+      const isIndividual = legal?.kind === 'individual';
+      const identifierOk = isIndividual ? !!legal?.regNo?.trim() : !!legal?.eik?.trim();
+      if (!identifierOk) missing.push('identifier');
+      if (!legal?.address?.trim()) missing.push('address');
+      if (!r.signaturePng) missing.push('signature');
+      return { farmerId: r.id, name: r.name, email: r.email, ready: missing.length === 0, missing };
+    });
   }
 
   /** Invite (or re-invite) a producer: create the scoped login if absent, then email
