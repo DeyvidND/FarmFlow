@@ -1,9 +1,9 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   type Database, consolidatedProtocols, deliverySlots, farmers, orderItems, orders, products,
 } from '@fermeribg/db';
-import type { LegalIdentity } from '@fermeribg/types';
+import type { ConsolidatedProtocolMeta, ConsolidatedProtocolOverrides, LegalIdentity } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { decryptSignature } from '../../common/crypto/signature-crypto';
 import { cityFromAddress } from './handover-city';
@@ -54,6 +54,20 @@ export interface ConsolidatedOrderRow {
 export interface ConsolidatedProtocolRows {
   farmers: ConsolidatedFarmerRow[];
   orders: ConsolidatedOrderRow[];
+}
+
+export interface ConsolidatedProtocolView {
+  id: string;
+  scope: ConsolidatedScope;
+  legIndex: number | null;
+  date: string;
+  docNumber: number;
+  status: 'draft' | 'signed';
+  meta: ConsolidatedProtocolMeta;
+  overrides: ConsolidatedProtocolOverrides;
+  rows: ConsolidatedProtocolRows;
+  receiverSignaturePng: string | null;
+  signedAt: Date | null;
 }
 
 function targetMatch(tenantId: string, date: string, scope: ConsolidatedScope, legIndex?: number | null) {
@@ -312,5 +326,76 @@ export class ConsolidatedProtocolService {
     });
 
     return { farmers: farmerSection, orders: orderSection };
+  }
+
+  /** Live rows for a target WITH overrides applied: excludedOrderIds is
+   *  subtracted from the scope's order-id set BEFORE aggregation (so farmer
+   *  cargo and section Б stay consistent with each other automatically —
+   *  see buildLiveRows' own doc comment), then extraRows/fieldOverrides
+   *  decorate the result. Called on every read of a DRAFT protocol — nothing
+   *  here is persisted until sign() freezes it (Task 5). */
+  private async getLiveRows(
+    tenantId: string,
+    date: string,
+    scope: ConsolidatedScope,
+    legIndex: number | null,
+    overrides: ConsolidatedProtocolOverrides,
+  ): Promise<ConsolidatedProtocolRows> {
+    const scopeOrderIds = await this.resolveScopeOrderIds(tenantId, date, scope, legIndex);
+    const excluded = new Set(overrides.excludedOrderIds ?? []);
+    const effectiveOrderIds = scopeOrderIds.filter((id) => !excluded.has(id));
+    const base = await this.buildLiveRows(tenantId, effectiveOrderIds);
+    return this.decorateWithOverrides(base, overrides);
+  }
+
+  private decorateWithOverrides(
+    rows: ConsolidatedProtocolRows,
+    overrides: ConsolidatedProtocolOverrides,
+  ): ConsolidatedProtocolRows {
+    const fieldOverrides = overrides.fieldOverrides ?? {};
+    const farmerRows = rows.farmers.map((f) => ({ ...f, ...fieldOverrides[`f:${f.farmerId}`] }));
+    const orderRows = rows.orders.map((o) => ({ ...o, ...fieldOverrides[`o:${o.orderId}`] }));
+    const extra = overrides.extraRows ?? [];
+    const extraFarmers: ConsolidatedFarmerRow[] = extra
+      .filter((r) => r.section === 'A')
+      .map((r) => ({ farmerId: `extra:${r.label}`, name: r.label, legal: null, items: [], signaturePng: null, note: r.detail }));
+    const extraOrders: ConsolidatedOrderRow[] = extra
+      .filter((r) => r.section === 'B')
+      .map((r) => ({ orderId: `extra:${r.label}`, orderNumber: null, customerCode: '—', cityOrZone: null, items: [], totalStotinki: 0, note: r.detail }));
+    return { farmers: [...farmerRows, ...extraFarmers], orders: [...orderRows, ...extraOrders] };
+  }
+
+  /** Assembles the full view for one target: DRAFT reads recompute live rows
+   *  (via getLiveRows) so a late order or a fresh override shows up
+   *  immediately; SIGNED reads return frozen_rows byte-for-byte — the legal
+   *  record from the moment of signing, untouched by anything that happens
+   *  to orders afterward (see Task 5's sign()). */
+  async getView(tenantId: string, id: string): Promise<ConsolidatedProtocolView> {
+    const [row] = await this.db
+      .select()
+      .from(consolidatedProtocols)
+      .where(and(eq(consolidatedProtocols.tenantId, tenantId), eq(consolidatedProtocols.id, id)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Протоколът не е намерен.');
+
+    const overrides = (row.overrides as ConsolidatedProtocolOverrides) ?? {};
+    const rows =
+      row.status === 'signed'
+        ? (row.frozenRows as ConsolidatedProtocolRows)
+        : await this.getLiveRows(tenantId, row.date, row.scope as ConsolidatedScope, row.legIndex, overrides);
+
+    return {
+      id: row.id,
+      scope: row.scope as ConsolidatedScope,
+      legIndex: row.legIndex,
+      date: row.date,
+      docNumber: row.docNumber,
+      status: row.status as 'draft' | 'signed',
+      meta: (row.meta as ConsolidatedProtocolMeta) ?? {},
+      overrides,
+      rows,
+      receiverSignaturePng: decryptSignature(row.receiverSignaturePng),
+      signedAt: row.signedAt,
+    };
   }
 }

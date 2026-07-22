@@ -238,3 +238,93 @@ describe('ConsolidatedProtocolService — buildLiveRows', () => {
     expect(rows.farmers[0].signaturePng).toBe('data:image/png;base64,AAA');
   });
 });
+
+describe('ConsolidatedProtocolService — overrides layer', () => {
+  it('excludedOrderIds removes the order from section Б AND subtracts its items from farmer cargo', async () => {
+    const db = makeDb();
+    db.queue([{ // the persisted row itself — getView selects this FIRST
+      id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, docNumber: 1, status: 'draft',
+      meta: {}, overrides: { excludedOrderIds: ['o2'] }, frozenRows: null, receiverSignaturePng: null, signedAt: null,
+    }]);
+    db.queue([{ id: 's1' }]); // slots for the date (getView → getLiveRows → resolveScopeOrderIds, day scope)
+    db.queue([{ id: 'o1' }, { id: 'o2' }]); // orders in scope
+    db.queue([ // orders detail — only o1 survives the exclusion filter
+      { id: 'o1', orderNumber: 5, deliveryAddress: null, deliveryCity: null, totalStotinki: 300 },
+    ]);
+    db.queue([ // items — only o1's
+      { orderId: 'o1', farmerId: 'f1', productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 },
+    ]);
+    db.queue([{ id: 'f1', name: 'Васил', legal: null, signaturePng: null }]);
+    const svc = makeSvc(db);
+    // The stubbed db returns canned rows regardless of the actual WHERE values it's
+    // called with (it doesn't parse SQL), so asserting only on view.rows would stay
+    // green even if the exclusion filter were deleted — spy on buildLiveRows itself
+    // to prove o2 was actually dropped from the id list BEFORE any query ran.
+    const buildLiveRowsSpy = jest.spyOn(svc as any, 'buildLiveRows');
+    const view = await svc.getView('t1', 'cp1');
+    expect(buildLiveRowsSpy).toHaveBeenCalledWith('t1', ['o1']);
+    expect(view.rows.orders.map((o) => o.orderId)).toEqual(['o1']);
+    expect(view.rows.farmers[0].items[0].quantity).toBe(2); // NOT inflated by an excluded order's items
+  });
+
+  it('extraRows are appended to their own section', async () => {
+    const db = makeDb();
+    db.queue([{ // persisted row — selected FIRST
+      id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, docNumber: 1, status: 'draft',
+      meta: {}, overrides: { extraRows: [{ section: 'A', label: 'Ръчно добавен фермер', detail: '10кг картофи' }] },
+      frozenRows: null, receiverSignaturePng: null, signedAt: null,
+    }]);
+    db.queue([]); // no slots → empty live rows, cheaply
+    const svc = makeSvc(db);
+    const view = await svc.getView('t1', 'cp1');
+    expect(view.rows.farmers).toHaveLength(1);
+    expect(view.rows.farmers[0]).toMatchObject({ name: 'Ръчно добавен фермер' });
+  });
+
+  it('fieldOverrides merges batch/eDoc/note onto the matching farmer/order row by key', async () => {
+    const db = makeDb();
+    db.queue([{ // persisted row — selected FIRST
+      id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, docNumber: 1, status: 'draft',
+      meta: {}, overrides: { fieldOverrides: { 'f:f1': { batch: 'Партида 12' }, 'o:o1': { note: 'Внимание — чупливо' } } },
+      frozenRows: null, receiverSignaturePng: null, signedAt: null,
+    }]);
+    db.queue([{ id: 's1' }]);
+    db.queue([{ id: 'o1' }]);
+    db.queue([{ id: 'o1', orderNumber: 5, deliveryAddress: null, deliveryCity: null, totalStotinki: 300 }]);
+    db.queue([{ orderId: 'o1', farmerId: 'f1', productName: 'Домати', variantLabel: null, quantity: 2, unit: 'кг', priceStotinki: 300 }]);
+    db.queue([{ id: 'f1', name: 'Васил', legal: null, signaturePng: null }]);
+    const svc = makeSvc(db);
+    const view = await svc.getView('t1', 'cp1');
+    expect(view.rows.farmers[0].batch).toBe('Партида 12');
+    expect(view.rows.orders[0].note).toBe('Внимание — чупливо');
+  });
+
+  it('a late order (added to the day AFTER the protocol was created) shows up automatically — the view recomputes live, it does not read a stored snapshot', async () => {
+    const db = makeDb();
+    db.queue([{ // persisted row — selected FIRST
+      id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, docNumber: 1, status: 'draft',
+      meta: {}, overrides: {}, frozenRows: null, receiverSignaturePng: null, signedAt: null,
+    }]);
+    db.queue([{ id: 's1' }]);
+    db.queue([{ id: 'o-late' }]); // an order that didn't exist when the protocol was drafted
+    db.queue([{ id: 'o-late', orderNumber: 9, deliveryAddress: null, deliveryCity: null, totalStotinki: 200 }]);
+    db.queue([{ orderId: 'o-late', farmerId: 'f1', productName: 'Ябълки', variantLabel: null, quantity: 1, unit: 'кг', priceStotinki: 200 }]);
+    db.queue([{ id: 'f1', name: 'Васил', legal: null, signaturePng: null }]);
+    const svc = makeSvc(db);
+    const view = await svc.getView('t1', 'cp1');
+    expect(view.rows.orders.map((o) => o.orderId)).toEqual(['o-late']);
+  });
+
+  it('a SIGNED protocol returns frozen_rows verbatim — it never touches orders/order_items again', async () => {
+    const db = makeDb();
+    const frozen = { farmers: [{ farmerId: 'f1', name: 'Васил', legal: null, items: [], signaturePng: null }], orders: [] };
+    db.queue([{
+      id: 'cp1', tenantId: 't1', scope: 'day', date: '2026-07-22', legIndex: null, docNumber: 1, status: 'signed',
+      meta: {}, overrides: {}, frozenRows: frozen, receiverSignaturePng: null, signedAt: new Date('2026-07-22T06:00:00Z'),
+    }]);
+    const svc = makeSvc(db);
+    const view = await svc.getView('t1', 'cp1');
+    expect(view.rows).toEqual(frozen);
+    expect(db.select).toHaveBeenCalledTimes(1); // only the row itself — no live recompute
+  });
+});
