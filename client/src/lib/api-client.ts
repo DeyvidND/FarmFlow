@@ -4,6 +4,10 @@ import type {
   Article,
   AvailabilityWindow,
   BundleMember,
+  ConsolidatedProtocolMeta,
+  ConsolidatedProtocolOverrides,
+  ConsolidatedProtocolSummary,
+  ConsolidatedProtocolView,
   DashboardSummary,
   DayProtocolRow,
   DaySuggestionResult,
@@ -1468,6 +1472,27 @@ export const protocolBatchPdfHref = (q?: { slotId?: string; date?: string; kind?
   const query = p.toString();
   return `/bff/handover/batch.pdf${query ? `?${query}` : ''}`;
 };
+
+// ---- Consolidated (day/leg) handover protocol ("Обобщен протокол") ----
+
+export const listConsolidatedProtocols = (date: string) =>
+  apiFetch<ConsolidatedProtocolSummary[]>(`consolidated-protocols?date=${encodeURIComponent(date)}`);
+
+export const ensureConsolidatedProtocol = (body: { date: string; scope: 'day' | 'leg'; legIndex?: number }) =>
+  apiFetch<{ id: string }>('consolidated-protocols/ensure', { method: 'POST', ...json(body) }, 'Протоколът не беше отворен');
+
+export const getConsolidatedProtocol = (id: string) =>
+  apiFetch<ConsolidatedProtocolView>(`consolidated-protocols/${id}`);
+
+export const updateConsolidatedProtocol = (
+  id: string,
+  patch: { meta?: Partial<ConsolidatedProtocolMeta>; overrides?: Partial<ConsolidatedProtocolOverrides> },
+) => apiFetch<void>(`consolidated-protocols/${id}`, { method: 'PATCH', ...json(patch) }, 'Промените не бяха запазени');
+
+export const signConsolidatedProtocol = (id: string, receiverSignaturePng?: string | null) =>
+  apiFetch<void>(`consolidated-protocols/${id}/sign`, { method: 'POST', ...json({ receiverSignaturePng }) }, 'Неуспешно подписване');
+
+export const consolidatedProtocolPdfHref = (id: string) => `/bff/consolidated-protocols/${id}/pdf`;
 
 export interface CodReconRow {
   orderId: string;

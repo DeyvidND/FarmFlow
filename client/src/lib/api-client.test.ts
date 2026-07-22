@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { confirmPending, getTenantLegal, getTodaySummary } from './api-client';
+import {
+  confirmPending, getTenantLegal, getTodaySummary,
+  ensureConsolidatedProtocol, getConsolidatedProtocol, listConsolidatedProtocols,
+  signConsolidatedProtocol, updateConsolidatedProtocol, consolidatedProtocolPdfHref,
+} from './api-client';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -66,5 +70,55 @@ describe('apiFetch empty-200 handling (getTenantLegal)', () => {
       ),
     );
     await expect(getTenantLegal()).resolves.toEqual({ name: 'ЕТ Тест' });
+  });
+});
+
+describe('consolidated protocol API client', () => {
+  it('listConsolidatedProtocols hits GET /consolidated-protocols with the date', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]));
+    vi.stubGlobal('fetch', fetchMock);
+    await listConsolidatedProtocols('2026-07-22');
+    expect(fetchMock).toHaveBeenCalledWith('/bff/consolidated-protocols?date=2026-07-22', undefined);
+  });
+
+  it('ensureConsolidatedProtocol POSTs the scope/date/legIndex', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 'cp1' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await ensureConsolidatedProtocol({ date: '2026-07-22', scope: 'leg', legIndex: 1 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/bff/consolidated-protocols/ensure');
+    expect(init).toMatchObject({ method: 'POST' });
+    expect(JSON.parse(init.body)).toEqual({ date: '2026-07-22', scope: 'leg', legIndex: 1 });
+    expect(out).toEqual({ id: 'cp1' });
+  });
+
+  it('getConsolidatedProtocol hits GET /consolidated-protocols/:id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 'cp1' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await getConsolidatedProtocol('cp1');
+    expect(fetchMock).toHaveBeenCalledWith('/bff/consolidated-protocols/cp1', undefined);
+  });
+
+  it('updateConsolidatedProtocol PATCHes the partial meta/overrides body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(undefined));
+    vi.stubGlobal('fetch', fetchMock);
+    await updateConsolidatedProtocol('cp1', { overrides: { excludedOrderIds: ['o1'] } });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/bff/consolidated-protocols/cp1');
+    expect(init).toMatchObject({ method: 'PATCH' });
+    expect(JSON.parse(init.body)).toEqual({ overrides: { excludedOrderIds: ['o1'] } });
+  });
+
+  it('signConsolidatedProtocol POSTs the receiver signature', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(undefined));
+    vi.stubGlobal('fetch', fetchMock);
+    await signConsolidatedProtocol('cp1', 'data:image/png;base64,AAA');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/bff/consolidated-protocols/cp1/sign');
+    expect(JSON.parse(init.body)).toEqual({ receiverSignaturePng: 'data:image/png;base64,AAA' });
+  });
+
+  it('consolidatedProtocolPdfHref points at the PDF endpoint', () => {
+    expect(consolidatedProtocolPdfHref('cp1')).toBe('/bff/consolidated-protocols/cp1/pdf');
   });
 });

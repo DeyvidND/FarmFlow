@@ -1114,6 +1114,92 @@ export interface DayProtocolRow {
   toSnapshot: LegalIdentity;
 }
 
+// ---- Consolidated (day/leg) handover protocol ("Обобщен протокол") ----
+
+/** Manual header fields on a consolidated protocol — the paper form's own
+ *  hand-filled boxes (vehicle, plate, driver, timing). Never derived from
+ *  orders. */
+export interface ConsolidatedProtocolMeta {
+  vehicle?: string;
+  plate?: string;
+  driverName?: string;
+  startPlace?: string;
+  startTime?: string;
+  plannedEnd?: string;
+}
+
+/** A manually-added row on a consolidated protocol — `overrides.extraRows`. */
+export interface ConsolidatedExtraRow {
+  section: 'A' | 'B';
+  label: string;
+  detail?: string;
+}
+
+/** Per-row manual correction, keyed by `f:<farmerId>` (section А) or
+ *  `o:<orderId>` (section Б) in `overrides.fieldOverrides`. */
+export interface ConsolidatedFieldOverride {
+  batch?: string;
+  eDoc?: string;
+  note?: string;
+}
+
+/** The `overrides` jsonb layer on a consolidated protocol — applied on top of
+ *  the live-computed rows while `status='draft'`. */
+export interface ConsolidatedProtocolOverrides {
+  excludedOrderIds?: string[];
+  extraRows?: ConsolidatedExtraRow[];
+  fieldOverrides?: Record<string, ConsolidatedFieldOverride>;
+}
+
+export interface ConsolidatedFarmerRow {
+  farmerId: string;
+  name: string;
+  legal: LegalIdentity | null;
+  items: ProtocolItem[];
+  signaturePng: string | null;
+  batch?: string;
+  eDoc?: string;
+  note?: string;
+}
+
+export interface ConsolidatedOrderRow {
+  orderId: string;
+  orderNumber: number | null;
+  customerCode: string;
+  cityOrZone: string | null;
+  items: ProtocolItem[];
+  totalStotinki: number;
+  batch?: string;
+  eDoc?: string;
+  note?: string;
+}
+
+/** One row in GET /consolidated-protocols?date=X — a virtual (id=null)
+ *  placeholder for a target that hasn't been opened yet, or a persisted row. */
+export interface ConsolidatedProtocolSummary {
+  id: string | null;
+  scope: 'day' | 'leg';
+  legIndex: number | null;
+  date: string;
+  docNumber: number | null;
+  status: 'draft' | 'signed' | null;
+}
+
+/** GET /consolidated-protocols/:id — the full editable/renderable view. */
+export interface ConsolidatedProtocolView {
+  id: string;
+  scope: 'day' | 'leg';
+  legIndex: number | null;
+  date: string;
+  docNumber: number;
+  status: 'draft' | 'signed';
+  meta: ConsolidatedProtocolMeta;
+  overrides: ConsolidatedProtocolOverrides;
+  rows: { farmers: ConsolidatedFarmerRow[]; orders: ConsolidatedOrderRow[] };
+  receiverSignaturePng: string | null;
+  signedAt: string | null;
+}
+
 // ---- Приходи / разходи / печалба (Статистика, само собственик) ----
 
 export type ExpenseCategory = 'fuel' | 'packaging' | 'salary' | 'fees' | 'other';
