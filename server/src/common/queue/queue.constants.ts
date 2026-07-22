@@ -12,3 +12,4 @@ export const CRITICAL_ALERT_QUEUE = 'critical-alert';
 export const NEWSLETTER_DRAFT_QUEUE = 'newsletter-draft';
 export const ANALYTICS_QUEUE = 'analytics';
 export const SMS_QUEUE = 'sms';
+export const PROTOCOL_EMAIL_QUEUE = 'protocol-email';
