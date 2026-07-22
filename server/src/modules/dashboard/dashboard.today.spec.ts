@@ -117,6 +117,33 @@ describe('DashboardService.todaySummary', () => {
     expect(rendered.toLowerCase()).toContain('is not null');
   });
 
+  // Finding #9: a basket's own PARENT order_items row has products.farmer_id
+  // NULL (the basket product has no farmer). Grouping farmerLegsP by
+  // (farmerId, slotId) without excluding it produces a phantom (NULL, slotId)
+  // "leg" that handover can never create a protocol for either — the
+  // protocol tile's percent-complete could never reach 100% on a day with a
+  // basket order. Captured the same way as the slotId guard above.
+  it('filters farmerLegsP to real farmers only (no phantom NULL-farmer leg from a basket parent line)', async () => {
+    const { PgDialect } = require('drizzle-orm/pg-core');
+    let captured: any;
+    const base = makeDb({});
+    const realSelect = base.select;
+    base.select = jest.fn((proj: any) => {
+      const chain = realSelect(proj);
+      if (Object.keys(proj).includes('farmerId')) {
+        const realWhere = chain.where;
+        chain.where = jest.fn((cond: any) => { captured = cond; return realWhere(cond); });
+      }
+      return chain;
+    });
+    await svc(base).todaySummary('t1', '2026-07-20');
+    const { sql: rendered } = new PgDialect().sqlToQuery(captured);
+    // Both slotId AND farmerId must be guarded — two "is not null" clauses,
+    // one of them naming the farmer_id column specifically.
+    expect((rendered.toLowerCase().match(/is not null/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(rendered.toLowerCase()).toContain('farmer_id');
+  });
+
   it('maps slots for the day', async () => {
     const db = makeDb({
       slots: [

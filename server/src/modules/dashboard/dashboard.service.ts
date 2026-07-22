@@ -235,13 +235,24 @@ export class DashboardService {
     // Slot-filtered: handover only ever creates farmer_to_operator protocols for
     // slotted legs (farmerId && slotId both set), so an unfiltered groupBy would
     // count a phantom (farmerId, NULL) leg for slotless orders that can never sign.
+    // Also farmerId-filtered: a basket's own parent line has products.farmerId
+    // NULL (the basket product has no farmer) — without this guard it groups
+    // into a phantom (NULL, slotId) "leg" that handover never creates a
+    // protocol for either, so the tile's percent-complete could never reach
+    // 100% on a day with a basket order.
     const farmerLegsP = this.db
       .select({ farmerId: products.farmerId, slotId: orders.slotId })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .innerJoin(products, eq(products.id, orderItems.productId))
       .leftJoin(deliverySlots, eq(deliverySlots.id, orders.slotId))
-      .where(and(eq(orders.tenantId, tenantId), inArray(orders.status, [...HANDOVER_READY]), isNotNull(orders.slotId), sched))
+      .where(and(
+        eq(orders.tenantId, tenantId),
+        inArray(orders.status, [...HANDOVER_READY]),
+        isNotNull(orders.slotId),
+        isNotNull(products.farmerId),
+        sched,
+      ))
       .groupBy(products.farmerId, orders.slotId);
 
     const customerLegsP = this.db
