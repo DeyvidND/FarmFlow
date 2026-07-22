@@ -727,6 +727,167 @@ stay unnumbered — „стр. 1 от 1" is clutter on a form."
 
 ---
 
+### Task 12: Split a row that is both over-tall text AND carries an image
+
+The final whole-branch review found the seventh defect of this branch's recurring class. `splitRow` bails on **any** image row (`row.cells.some(isImage) → null`), so a row whose *text* is taller than a page but which also carries a small signature image is never split — `drawTable` draws its text straight off the bottom. Reproduced: a long products column plus a 110×36 signature drew its text to **y = −268**, silently, exactly the original "content falls off the page" bug, for exactly the shape of the consolidated protocol's section А (a farmer's products column with an in-row signature).
+
+This closes the residual half of the ledger's "over-tall row" carry: pure-text and pure-image rows are already handled; this handles their composition.
+
+**The design decision** (there is genuine ambiguity here, so it is fixed explicitly): when an image row's text overflows, the **image stays on the head** — a farmer's signature belongs next to the first fragment of their row, and the image is small — while the text is cut at a line boundary. The tail is pure text; its image column becomes an empty cell. An image *taller than the page fragment itself* is still refused (returns `null`) and left to `fitImageCells` to scale, unchanged.
+
+**Files:**
+- Modify: `server/src/modules/handover/pdf-table.ts` (`splitRow` only)
+- Modify: `server/src/modules/handover/pdf-table.spec.ts`
+
+**Interfaces:** no signature change — `splitRow`'s existing signature and return type are unchanged; only its image-row behaviour changes.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append inside the existing spy `describe`:
+
+```ts
+it('splits an image row by its text, keeping the image on the head', async () => {
+  const d = await createDoc(A4_LANDSCAPE);
+  const img = await tinyPng(d);
+  // 50 text lines (600pt) + a small 40pt image; availableHeight 200 forces a split.
+  const row: LaidOutRow = {
+    cells: [Array.from({ length: 50 }, (_, i) => `ред ${i + 1}`), { image: img, width: 80, height: 40 }],
+    height: 50 * 12 + 8,
+  };
+  const [head, tail] = splitRow(row, 200, 12, 4)!;
+  // Image rides on the head, gone from the tail.
+  expect(head.cells.some((c) => !Array.isArray(c))).toBe(true);
+  expect(tail.cells.some((c) => !Array.isArray(c))).toBe(false);
+  // Every text line is conserved, in order, across the two fragments.
+  const headLines = head.cells[0] as string[];
+  const tailLines = tail.cells[0] as string[];
+  expect(headLines.length + tailLines.length).toBe(50);
+  expect(headLines.concat(tailLines)).toEqual(row.cells[0]);
+  // The head fits the page fragment it was cut for.
+  expect(head.height).toBeLessThanOrEqual(200);
+});
+
+it('still refuses to split when the image alone is taller than the fragment', async () => {
+  const d = await createDoc(A4_LANDSCAPE);
+  const img = await tinyPng(d);
+  // A 300pt image cannot ride on a 100pt fragment — leave it to fitImageCells.
+  const row: LaidOutRow = {
+    cells: [Array.from({ length: 50 }, (_, i) => `ред ${i + 1}`), { image: img, width: 80, height: 300 }],
+    height: 50 * 12 + 8,
+  };
+  expect(splitRow(row, 100, 12, 4)).toBeNull();
+});
+
+it('drawTable keeps a long text+image row on the page instead of off it', async () => {
+  const d = await createDoc(A4_LANDSCAPE);
+  const img = await tinyPng(d);
+  const huge = Array.from({ length: 80 }, (_, i) => `позиция ${i + 1}`).join(' ');
+  // A row whose text overflows a page, carrying a normal small signature.
+  drawTable(d, COLS, [[huge, 'ЕТ Петров', { image: img, width: 80, height: 36 }]]);
+  expect(d.doc.getPageCount()).toBeGreaterThan(1);
+  const ys = [
+    ...drawTextSpy.mock.calls.map((c) => c[1].y),
+    ...drawLineSpy.mock.calls.flatMap((c) => [c[0].start.y, c[0].end.y]),
+    ...drawImageSpy.mock.calls.map((c) => c[1].y),
+  ];
+  expect(Math.min(...ys)).toBeGreaterThanOrEqual(MARGIN);
+});
+```
+
+Note: `COLS`'s first column may be narrow; if the 80-word string does not overflow at `COLS[0].width`, widen the fixture's line count (as Task 10 did — 80 words wrapped to two tokens each is only ~200pt). Hand-measure and use a count that genuinely overflows a landscape page, and say which in your report.
+
+- [ ] **Step 2: Run, confirm they fail**
+
+Run: `pnpm --filter @fermeribg/api test -- pdf-table --maxWorkers=4`
+Expected: FAIL — `splitRow` returns `null` for the image row, so the destructuring in test 1 throws, and the drawTable test finds text below MARGIN.
+
+- [ ] **Step 3: Implement — replace `splitRow`'s image bail with a text-split-keeping-image branch**
+
+Replace this in `splitRow`:
+
+```ts
+  if (row.height <= availableHeight) return null;
+  if (row.cells.some(isImage)) return null;
+
+  const fit = Math.max(1, Math.floor((availableHeight - 2 * padding) / lineHeight));
+  const cells = row.cells as string[][];
+  if (cells.every((c) => c.length <= fit)) return null;
+
+  const head = cells.map((c) => c.slice(0, fit));
+  const tail = cells.map((c) => c.slice(fit));
+  const heightOf = (cs: string[][]) => Math.max(...cs.map((c) => c.length)) * lineHeight + 2 * padding;
+  return [
+    { cells: head, height: heightOf(head) },
+    { cells: tail, height: heightOf(tail) },
+  ];
+```
+
+with:
+
+```ts
+  if (row.height <= availableHeight) return null;
+
+  const imageHeight = Math.max(0, ...row.cells.filter(isImage).map((c) => c.height));
+  // An image taller than the fragment cannot ride on the head — there is no
+  // line boundary to cut it at. Leave it to `fitImageCells` to scale down.
+  if (imageHeight + 2 * padding > availableHeight) return null;
+
+  const fit = Math.max(1, Math.floor((availableHeight - 2 * padding) / lineHeight));
+  const textLen = (c: LaidOutCell) => (isImage(c) ? 0 : c.length);
+  if (row.cells.every((c) => textLen(c) <= fit)) return null;
+
+  // Head keeps the image (a signature belongs beside the first fragment of the
+  // farmer's row) and the first `fit` text lines; the tail is pure text, its
+  // image column emptied so no second copy is drawn.
+  const head: LaidOutCell[] = row.cells.map((c) => (isImage(c) ? c : c.slice(0, fit)));
+  const tail: LaidOutCell[] = row.cells.map((c) => (isImage(c) ? [''] : c.slice(fit)));
+  const heightOf = (cs: LaidOutCell[]) =>
+    Math.max(
+      0,
+      ...cs.map((c) => (isImage(c) ? c.height : c.length * lineHeight)),
+    ) + 2 * padding;
+  return [
+    { cells: head, height: heightOf(head) },
+    { cells: tail, height: heightOf(tail) },
+  ];
+```
+
+Update the doc comment above `splitRow` to say the image rides on the head and only an image taller than the fragment is refused.
+
+- [ ] **Step 4: Run, confirm green**
+
+Run: `pnpm --filter @fermeribg/api test -- pdf-table --maxWorkers=4`
+Then `npx tsc -p server/tsconfig.json --noEmit`.
+
+Every pre-existing test must stay green — in particular the two Task 10 tests (`returns null when the row already fits`, `refuses to split a row containing an image cell`). Note the second of those: it passed an image row and expected `null`. Check its fixture — if that image is small enough to now ride on the head with its text, the test's premise changed and it will fail. If so, that is a REAL conflict from this task; STOP and report it. Do not edit it silently. (Read it first: Task 10's `refuses to split a row containing an image cell` uses `height: 700` on a `100`-tall fragment — the image is taller than the fragment, so it still returns `null` under the new code and stays green. Confirm this before proceeding.)
+
+- [ ] **Step 5: Teeth-check**
+
+Break each, confirm the named test fails, restore, report observed values:
+- Put the image on the **tail** instead of the head (`isImage(c) ? [''] : ...` for head, `isImage(c) ? c : ...` for tail) → the "keeping the image on the head" test fails.
+- Drop the `imageHeight + 2*padding > availableHeight` guard → the "still refuses when the image alone is taller" test fails (it would try to split and return a head that cannot fit).
+- Revert the whole branch to the old `row.cells.some(isImage) → null` → the drawTable off-page test fails with a negative y (report the value).
+
+- [ ] **Step 6: Render and look**
+
+This is the shape phase 1's section А will use, so confirm it visually. Build a small standalone probe (write it OUTSIDE the repo, under the scratchpad dir) that renders a landscape table with one row carrying a long products column and a small signature image, tall enough to split across a page. READ the resulting PDF. Confirm: the signature sits on the first page beside the first part of the row, the remaining text continues on page 2, and nothing runs off the bottom. Report what you saw. Delete the probe before committing.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add server/src/modules/handover/pdf-table.ts server/src/modules/handover/pdf-table.spec.ts
+git commit -m "fix(pdf): split an over-tall row that also carries an image
+
+splitRow bailed on any image row, so a farmer's row with a long products
+column and an in-row signature drew its text off the bottom of the page —
+the branch's original bug, resurfacing for exactly the shape the consolidated
+protocol's section А will use. The image now rides on the head fragment and
+the text splits around it; only an image taller than the fragment itself is
+still refused and left to fitImageCells to scale."
+```
+
+---
+
 ## Self-review
 
 **Coverage of the final review's findings:** per-page furniture → Task 7 + Task 11. Image cells and row geometry → Task 8. `Column.align` dead → Task 9. Column-width guard → Task 9. Oversized row off-page → Task 10.
