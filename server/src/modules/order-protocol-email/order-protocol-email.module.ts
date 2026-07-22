@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { HandoverModule } from '../handover/handover.module';
 import { OrderProtocolEmailService } from './order-protocol-email.service';
@@ -18,9 +18,18 @@ import { RUN_WORKERS } from '../../config/app-role';
  * EmailModule's EMAIL_QUEUE registration exactly (same defaultJobOptions
  * shape) — see OrderProtocolEmailProcessor's rationale comment.
  */
+// @Global so OrdersModule and StripeModule can inject OrderProtocolEmailService
+// WITHOUT importing this module — importing it there closed a bootstrap cycle
+// (OPE → Handover → Routing → Orders → OPE) that hung NestFactory.create at DI
+// resolution. EmailModule still imports it (one-way, not a cycle) to instantiate
+// it. See the AppModule-bootstrap spec that guards this.
+@Global()
 @Module({
   imports: [
-    forwardRef(() => HandoverModule),
+    // Direct import (no forwardRef): with this module @Global, nothing in the
+    // Handover→Routing→Orders chain imports it back, so the cycle is gone and a
+    // deferred forwardRef here is both unnecessary and a DI-resolution hazard.
+    HandoverModule,
     BullModule.registerQueue({
       name: PROTOCOL_EMAIL_QUEUE,
       defaultJobOptions: {

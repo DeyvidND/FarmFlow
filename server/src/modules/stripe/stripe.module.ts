@@ -7,7 +7,6 @@ import { OrderEmailModule } from '../order-email/order-email.module';
 import { CarrierFulfillmentModule } from '../orders/carrier-fulfillment.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { VendorFinanceModule } from '../vendor-finance/vendor-finance.module';
-import { OrderProtocolEmailModule } from '../order-protocol-email/order-protocol-email.module';
 
 @Module({
   imports: [
@@ -17,7 +16,9 @@ import { OrderProtocolEmailModule } from '../order-protocol-email/order-protocol
     CarrierFulfillmentModule,
     AnalyticsModule,
     VendorFinanceModule,
-    OrderProtocolEmailModule,
+    // NB: OrderProtocolEmailModule is @Global — StripeService injects
+    // OrderProtocolEmailService without importing it here (importing it closed a
+    // bootstrap cycle Stripe → OPE → Handover → Routing → Orders → Stripe).
   ],
   controllers: [StripeController, StripeConnectController],
   providers: [StripeService],

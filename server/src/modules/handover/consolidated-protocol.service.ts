@@ -1,5 +1,5 @@
 import {
-  BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException,
+  BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException,
 } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
@@ -130,7 +130,12 @@ export class ConsolidatedProtocolService {
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly routing: RoutingService,
     private readonly courierAssignment: CourierAssignmentService,
-    private readonly email: EmailService,
+    // forwardRef breaks a provider cycle that hangs NestFactory.create at DI
+    // resolution: EmailService @Optional-injects PROTOCOL_ATTACHMENT_RESOLVER →
+    // HandoverProtocolAttachmentResolver → ConsolidatedProtocolService →
+    // EmailService. Deferring this one edge lets the graph resolve. Only used by
+    // sendLegProtocolsToCouriers, so lazy resolution is fine.
+    @Inject(forwardRef(() => EmailService)) private readonly email: EmailService,
   ) {}
 
   private readonly logger = new Logger(ConsolidatedProtocolService.name);

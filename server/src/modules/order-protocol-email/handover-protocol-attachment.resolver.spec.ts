@@ -11,10 +11,19 @@ function buildDeps() {
   return { handover, consolidated };
 }
 
+/** The resolver now pulls its services LAZILY via ModuleRef (breaks a provider
+ *  cycle). The mock returns the right stub per token name. */
+function makeResolver(handover: unknown, consolidated: unknown) {
+  const moduleRef = {
+    get: jest.fn((token: any) => (token?.name === 'ConsolidatedProtocolService' ? consolidated : handover)),
+  };
+  return new HandoverProtocolAttachmentResolver(moduleRef as any);
+}
+
 describe('HandoverProtocolAttachmentResolver — dispatch by kind', () => {
   it('still renders the bilateral handover PDF for kind=handover-protocol (unchanged behavior)', async () => {
     const { handover, consolidated } = buildDeps();
-    const resolver = new HandoverProtocolAttachmentResolver(handover as any, consolidated as any);
+    const resolver = makeResolver(handover, consolidated);
 
     const out = await resolver.resolve({ kind: 'handover-protocol', protocolId: 'p1', tenantId: 't1' });
 
@@ -27,7 +36,7 @@ describe('HandoverProtocolAttachmentResolver — dispatch by kind', () => {
   it('renders the CONSOLIDATED protocol PDF for kind=consolidated-protocol — loads the view then renders it', async () => {
     const { handover, consolidated } = buildDeps();
     consolidated.getView.mockResolvedValue({ id: 'cp1', docNumber: 42, scope: 'leg', legIndex: 1 });
-    const resolver = new HandoverProtocolAttachmentResolver(handover as any, consolidated as any);
+    const resolver = makeResolver(handover, consolidated);
 
     const out = await resolver.resolve({ kind: 'consolidated-protocol', consolidatedProtocolId: 'cp1', tenantId: 't1' });
 
