@@ -29,6 +29,26 @@ import { encryptSignature, decryptSignature, SignatureKeyMissingError } from '..
 /** Statuses whose items are handover-ready — matches the prep/delivery window. */
 const HANDOVER_STATUSES = ['confirmed', 'preparing'] as const;
 
+/**
+ * Deterministic row order for the two farmer-leg queries that feed the
+ * (productName, variantLabel) merge in the shared grouping loop below (see
+ * "Group by (productName, variantLabel)"). Without an explicit ORDER BY,
+ * Postgres may return these rows in a different order on every execution, so
+ * which row's price/unit the merge keeps (and hence what a farmer signs for)
+ * could silently flip between two renders of the SAME draft, or between the
+ * live per-target query and the bulk day-prefetch (different SQL, same
+ * data, no guaranteed agreement on order).
+ *
+ * The explicit merge rule: a real, loose-sold line (bundle_parent_id IS
+ * NULL — the customer's actually-paid price) wins over a basket child's
+ * synthesized product-price stand-in when a farmer sells the same product
+ * both ways in one slot — sorted first, so the grouping loop's "keep the
+ * first row seen" naturally prefers it. `order_items.id` is the final
+ * tiebreak, so two loose sales of the same product at DIFFERENT prices (a
+ * mid-slot price change) also resolve the same way every time.
+ */
+const FARMER_LEG_ROW_ORDER = [sql`${orderItems.bundleParentId} is not null`, orderItems.id];
+
 /** Customer identity snapshotted on an order — no legal-entity data required. */
 export type CustomerParty = { name?: string; phone?: string; address?: string };
 
@@ -285,10 +305,14 @@ export class HandoverService {
             eq(orders.slotId, q.slotId),
             inArray(orders.status, [...HANDOVER_STATUSES]),
           ),
-        );
+        )
+        .orderBy(...FARMER_LEG_ROW_ORDER);
     }
 
-    // Group by (productName, variantLabel): sum quantity, keep the first unit/price.
+    // Group by (productName, variantLabel): sum quantity, keep the first
+    // unit/price seen — deterministic because both source queries sort by
+    // FARMER_LEG_ROW_ORDER (loose lines before basket-child lines, tie-broken
+    // by order_items.id).
     const byKey = new Map<string, ProtocolItemDto>();
     for (const r of rows) {
       const key = `${r.productName ?? ''}␟${r.variantLabel ?? ''}`;
@@ -531,7 +555,12 @@ export class HandoverService {
             inArray(orders.slotId, slotIds),
             inArray(orders.status, [...HANDOVER_STATUSES]),
           ),
-        );
+        )
+        // Same deterministic order as the per-target query above (see
+        // FARMER_LEG_ROW_ORDER) — this bulk query feeds the SAME
+        // (productName, variantLabel) merge via farmerItemsByKey, and must
+        // agree with the per-target path on which row wins for identical data.
+        .orderBy(...FARMER_LEG_ROW_ORDER);
       for (const r of rows) {
         if (!r.farmerId || !r.slotId) continue;
         const key = farmerLegKey(r.farmerId, r.slotId);

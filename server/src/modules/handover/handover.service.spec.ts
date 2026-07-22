@@ -108,6 +108,70 @@ describe('HandoverService.buildDraft farmer_to_operator', () => {
     expect(draft.orderNumbers).toEqual([5, 7]); // distinct, sorted, across the farmer's orders in the slot
   });
 
+  // Finding #5: a farmer can sell the same product both loose (real paid
+  // price on a plain order_items row) AND inside a basket (synthesized at
+  // the product's own price, per the CASE arm above) within one slot. The
+  // (productName, variantLabel) merge below keeps the FIRST row's price —
+  // without a deterministic ORDER BY, Postgres is free to return either row
+  // first, so identical data could sign for a DIFFERENT price on two
+  // renders of the same draft. FARMER_LEG_ROW_ORDER makes the rule explicit:
+  // loose lines sort before basket-child lines, so the merge always keeps
+  // the real paid price.
+  it('sorts loose lines before basket-child lines so the merge is deterministic', async () => {
+    const db = makeDb();
+    db.queue([{ legal: { name: 'ЕТ Оператор' } }]);
+    db.queue([{ id: 'f1', legal: { name: 'ЕТ Васил' } }]);
+    // Fed in the order a correctly-sorted query would produce: the loose
+    // sale (bundleParentId null → priced at what was actually paid) first,
+    // the basket child (synthesized product price) second.
+    db.queue([
+      { productName: 'Сирене', variantLabel: null, quantity: 1, unit: 'бр', priceStotinki: 450, orderNumber: 10 },
+      { productName: 'Сирене', variantLabel: null, quantity: 2, unit: 'бр', priceStotinki: 500, orderNumber: 11 },
+    ]);
+    const svc = await build(db);
+
+    const draft = await svc.buildDraft('t1', { kind: 'farmer_to_operator', farmerId: 'f1', slotId: 's1' });
+
+    // The merge kept the FIRST (loose, actually-paid) price, summing both
+    // quantities under it — never the basket-synthesized 500.
+    expect(draft.items).toEqual([
+      { productName: 'Сирене', variantLabel: undefined, quantity: 3, unit: 'бр', priceStotinki: 450, orderNumber: undefined },
+    ]);
+
+    // The query that produced these rows must actually REQUEST this order —
+    // a passthrough mock can't prove Postgres will return rows this way on
+    // its own; the ORDER BY clause is what makes that guarantee. Every
+    // `.select()` call in this mock returns the SAME shared chain object
+    // (`step`), so its `.orderBy` mock accumulates every ORDER BY across the
+    // whole test — only the items query below calls it.
+    const step = (db.select as jest.Mock).mock.results[0]?.value;
+    const orderByCalls = (step.orderBy as jest.Mock).mock.calls;
+    expect(orderByCalls.length).toBeGreaterThanOrEqual(1);
+    const [firstArg, secondArg] = orderByCalls[0];
+    function literalText(node: unknown): string {
+      const n = node as { queryChunks?: unknown[]; value?: unknown } | null;
+      if (!n || typeof n !== 'object') return '';
+      if (Array.isArray(n.value) && n.value.every((v) => typeof v === 'string')) {
+        return (n.value as string[]).join('');
+      }
+      if (Array.isArray(n.queryChunks)) return n.queryChunks.map(literalText).join('');
+      return '';
+    }
+    /** Column refs render as PgColumn objects, not literal text — walk the
+     *  tree collecting any embedded column `.name`. */
+    function columnNames(node: unknown, out: string[] = []): string[] {
+      const n = node as { queryChunks?: unknown[]; name?: unknown; table?: unknown } | null;
+      if (!n || typeof n !== 'object') return out;
+      if (typeof n.name === 'string' && n.table !== undefined) out.push(n.name);
+      if (Array.isArray(n.queryChunks)) for (const c of n.queryChunks) columnNames(c, out);
+      return out;
+    }
+    expect(literalText(firstArg)).toMatch(/is not null/i);
+    expect(columnNames(firstArg)).toContain('bundle_parent_id');
+    expect(secondArg).toBeDefined();
+    expect(columnNames(secondArg)).toContain('id');
+  });
+
   it('falls back to the plain farmer/operator name when legal identity is unset', async () => {
     const db = makeDb();
     db.queue([{ legal: null, name: 'Фермерски пазари' }]);        // tenant: no legal, has display name
