@@ -1917,8 +1917,21 @@ export class OrdersService {
           .select()
           .from(orderItems)
           .where(eq(orderItems.orderId, id));
-        await this.restoreAvailabilityWindows(tx, tenantId, items);
-        variantStockTouched = await this.restoreVariantStock(tx, items);
+        // A basket's own PARENT line was never actually decremented at
+        // checkout (reserveCartItems' stock enforcement runs over stockLines,
+        // which replaces a basket with its members — see order-bundle.util.ts).
+        // Restoring it here anyway would gift phantom stock on every cancel to
+        // any legacy category='bundle' product that still carries a real
+        // availability window. Identify the parent the same way
+        // NOT_BASKET_PARENT does — the row a sibling's bundleParentId points
+        // at — without needing a products join (every sibling is already
+        // loaded above).
+        const basketParentIds = new Set(
+          items.map((it) => it.bundleParentId).filter((pid): pid is string => !!pid),
+        );
+        const restorableItems = items.filter((it) => !basketParentIds.has(it.id));
+        await this.restoreAvailabilityWindows(tx, tenantId, restorableItems);
+        variantStockTouched = await this.restoreVariantStock(tx, restorableItems);
       });
       // Cancelled order collects no money — void its (dormant) commission entries.
       // Fire-and-forget: the ledger must never block or fail an order write.

@@ -136,6 +136,26 @@ describe('OrdersService.updateStatus cancel branch — stock restore parity', ()
     expect(restoreVariantSpy).not.toHaveBeenCalled();
     expect(catalogInvalidate).not.toHaveBeenCalled();
   });
+
+  // Finding #8: checkout never decrements a basket's OWN stock (reserveCartItems
+  // enforces only the expanded MEMBER lines — see order-bundle.util.ts), so
+  // restoring stock for the parent row on cancel would gift phantom stock to
+  // any legacy category='bundle' product that still carries a real
+  // availability window. The parent must be excluded from what gets restored.
+  it('excludes a basket\'s own parent row from the restored items — only its children get stock back', async () => {
+    const parent = { id: 'item-parent', bundleParentId: null, variantId: null, quantity: 1 };
+    const child = { id: 'item-child', bundleParentId: 'item-parent', variantId: null, quantity: 2 };
+    const { svc, restoreWindowsSpy, restoreVariantSpy } = makeSvc({
+      prevStatus: 'confirmed',
+      claimedRows: [{ id: 'order-1' }],
+      items: [parent, child],
+    });
+
+    await svc.updateStatus('order-1', 'tenant-1', { status: 'cancelled' } as any);
+
+    expect(restoreWindowsSpy).toHaveBeenCalledWith(expect.anything(), 'tenant-1', [child]);
+    expect(restoreVariantSpy).toHaveBeenCalledWith(expect.anything(), [child]);
+  });
 });
 
 describe('restoreVariantStock — real implementation restores an actual DB row', () => {
