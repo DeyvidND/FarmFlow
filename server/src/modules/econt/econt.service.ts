@@ -1411,7 +1411,10 @@ export class EcontService implements CarrierAdapter {
    * persistence logic with the response entry Econt correlates back to it.
    */
   private async applyShipmentStatus(
-    row: typeof shipments.$inferSelect,
+    row: Pick<
+      typeof shipments.$inferSelect,
+      'id' | 'tenantId' | 'orderId' | 'econtShipmentNumber' | 'status' | 'customerNotifiedAt' | 'codCollectedAt' | 'codSettledAt'
+    >,
     st: any,
   ): Promise<typeof shipments.$inferSelect> {
     const tenantId = row.tenantId!;
@@ -1420,7 +1423,11 @@ export class EcontService implements CarrierAdapter {
       .update(shipments)
       .set({
         status: st?.shortDeliveryStatus ?? st?.deliveryStatus ?? row.status,
-        trackingJson: st ?? row.trackingJson,
+        // Only overwrite trackingJson when Econt actually returned a status payload —
+        // `st` is null on a failed/empty lookup, and this row no longer carries the old
+        // trackingJson value (dropped from the refreshActiveShipments projection), so
+        // falling back to it would wipe the column instead of leaving it untouched.
+        ...(st ? { trackingJson: st } : {}),
         codCollectedAt: cod.collectedAt ?? row.codCollectedAt,
         codSettledAt: cod.settledAt ?? row.codSettledAt,
         updatedAt: new Date(),
@@ -1493,9 +1500,21 @@ export class EcontService implements CarrierAdapter {
     // (every carrier, every status, incl. terminal) to the carrier index prefix.
     // Terminal-state exclusion stays in JS: stored `status` is Econt's raw text and
     // uiShipmentStatus maps it by substring, which can't be expressed sargably.
-    // Selecting full rows lets applyShipmentStatus run without a per-shipment re-SELECT.
+    // Explicit column projection: this cron sweeps EVERY active Econt shipment across
+    // ALL tenants, so the heavy `trackingJson` blob (raw Econt tracking history per
+    // parcel) must not ride along on every row — applyShipmentStatus only reads the
+    // columns below (trackingJson is written, never read, from this path; see there).
     const rows = await this.db
-      .select()
+      .select({
+        id: shipments.id,
+        tenantId: shipments.tenantId,
+        orderId: shipments.orderId,
+        econtShipmentNumber: shipments.econtShipmentNumber,
+        status: shipments.status,
+        customerNotifiedAt: shipments.customerNotifiedAt,
+        codCollectedAt: shipments.codCollectedAt,
+        codSettledAt: shipments.codSettledAt,
+      })
       .from(shipments)
       .where(and(eq(shipments.carrier, 'econt'), isNotNull(shipments.econtShipmentNumber)));
     // Skip terminal states (delivered + returned/refused) and tenant-less rows up front,
@@ -1507,7 +1526,7 @@ export class EcontService implements CarrierAdapter {
       const ui = uiShipmentStatus(r.econtShipmentNumber, r.status);
       return ui !== 'delivered' && ui !== 'returned' && ui !== 'refused';
     });
-    const byTenant = new Map<string, (typeof shipments.$inferSelect)[]>();
+    const byTenant = new Map<string, (typeof rows)[number][]>();
     for (const r of eligible) {
       const list = byTenant.get(r.tenantId!);
       if (list) list.push(r);

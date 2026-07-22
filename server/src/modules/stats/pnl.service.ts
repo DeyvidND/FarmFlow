@@ -33,15 +33,16 @@ export class PnlService {
   ): Promise<PnlResponse> {
     const { from, to, range } = resolveWindow(opts, bgToday());
 
-    // Стоките на поръчка се сумират в подзаявка. Иначе join-ът към редовете
-    // размножава `orders.total_stotinki` по броя артикули и доставката излиза
-    // няколкократно завишена. Построена като СУРОВ SQL (не `this.db.select(...).as(...)`)
-    // нарочно: a typed Subquery embeds live Column↔Table objects that carry a
-    // circular back-reference (`column.table.columns[...] === column`), which is
-    // fine for driving real Postgres but breaks any inspection of the rendered
-    // fragment that walks it naively (e.g. JSON.stringify). Raw identifiers are
-    // fixed literals defined right here, never user input — no injection risk.
-    const itemsSub = sql`(select ${orderItems.orderId} as order_id, sum(${orderItems.quantity} * ${orderItems.priceStotinki}) as items from ${orderItems} group by ${orderItems.orderId}) as order_items_sum`;
+    // Стоките на поръчка се сумират в LATERAL по ред — корелирана подзаявка,
+    // пресмятаща сумата само за текущата поръчка (`orders.id`), вместо да
+    // хеш-агрегира ЦЯЛАТА таблица order_items (всички тенанти/история) при
+    // всяко зареждане на П&Л. Построена като СУРОВ SQL (не
+    // `this.db.select(...).as(...)`) нарочно: a typed Subquery embeds live
+    // Column↔Table objects that carry a circular back-reference
+    // (`column.table.columns[...] === column`), which is fine for driving real
+    // Postgres but breaks any inspection of the rendered fragment that walks it
+    // naively (e.g. JSON.stringify). Raw identifiers are fixed literals defined
+    // right here, never user input — no injection risk.
 
     // `deliveredAt` е timestamptz → ЕДНА конверсия (bgDateTz). Двойната
     // конверсия на bgDate() тук би изместила деня.
@@ -54,7 +55,12 @@ export class PnlService {
         deliveryStotinki: sql<number>`coalesce(sum(greatest(0, ${sql.raw('orders.total_stotinki')} - coalesce(${sql.raw('order_items_sum.items')}, 0))), 0)::int`,
       })
       .from(orders)
-      .leftJoin(itemsSub, sql`${sql.raw('order_items_sum.order_id')} = ${orders.id}`)
+      .leftJoin(
+        sql`lateral (select coalesce(sum(${orderItems.quantity} * ${orderItems.priceStotinki}), 0) as items
+             from ${orderItems}
+             where ${orderItems.orderId} = ${orders.id}) as order_items_sum`,
+        sql`true`,
+      )
       // Кой е карал тази лента в деня на доставката. `date` в дъската е text
       // 'YYYY-MM-DD', затова датата се форматира, вместо да се кастне.
       .leftJoin(

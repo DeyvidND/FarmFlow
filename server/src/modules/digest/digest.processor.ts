@@ -4,6 +4,7 @@ import { Job, Queue } from 'bullmq';
 import { DigestService } from './digest.service';
 import { DIGEST_QUEUE } from '../../common/queue/queue.constants';
 import { registerRepeatable } from '../../common/queue/register-repeatable';
+import { bgToday } from '../../common/time/bg-time';
 
 @Processor(DIGEST_QUEUE)
 export class DigestProcessor extends WorkerHost implements OnModuleInit {
@@ -27,8 +28,19 @@ export class DigestProcessor extends WorkerHost implements OnModuleInit {
   async process(job: Job): Promise<void> {
     if (job.name === 'daily') {
       const ids = await this.digest.eligibleTenantIds();
+      // Deterministic jobId (per tenant, per BG calendar day) so a mid-loop
+      // parent-job retry (attempts: 3) re-fanning this loop dedups against
+      // already-enqueued/child jobs instead of double-sending digests. The
+      // retention override keeps the id reserved across the retry window —
+      // the queue default is removeOnComplete: true, which would otherwise
+      // free up the id (and re-add a duplicate) as soon as a child finishes.
+      const ymd = bgToday().replace(/-/g, '');
       for (const tenantId of ids) {
-        await this.queue.add('tenant', { tenantId });
+        await this.queue.add(
+          'tenant',
+          { tenantId },
+          { jobId: `digest-tenant-${tenantId}-${ymd}`, removeOnComplete: { age: 86400 } },
+        );
       }
       this.logger.log(`[digest] fanned out ${ids.length} tenant job(s)`);
       return;
@@ -42,8 +54,14 @@ export class DigestProcessor extends WorkerHost implements OnModuleInit {
     // block the rest.
     if (job.name === 'tomorrow') {
       const ids = await this.digest.allTenantIds();
+      // Same deterministic-jobId dedup as the 'daily' fan-out above.
+      const ymd = bgToday().replace(/-/g, '');
       for (const tenantId of ids) {
-        await this.queue.add('tenant-tomorrow', { tenantId });
+        await this.queue.add(
+          'tenant-tomorrow',
+          { tenantId },
+          { jobId: `digest-tomorrow-${tenantId}-${ymd}`, removeOnComplete: { age: 86400 } },
+        );
       }
       this.logger.log(`[digest] fanned out ${ids.length} tomorrow-email tenant job(s)`);
       return;

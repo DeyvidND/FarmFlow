@@ -351,8 +351,11 @@ describe('OrdersController mine routing', () => {
   });
 });
 
-// GET /orders/prep mirrors /mine's owner-vs-producer split — no tenant-wide
-// "prep" either (an owner MUST pass ?farmerId).
+// GET /orders/prep's owner-vs-producer split now DIFFERS from /mine: a
+// producer is still forced to its own farmerId, but an owner without
+// ?farmerId gets the tenant-wide «Всички» feed (prepSummary called with
+// null — see OrdersService.prepOrders' per-(order,farmer)-slice mode)
+// instead of a 400.
 describe('OrdersController prep routing', () => {
   const svc = { prepSummary: jest.fn().mockResolvedValue('scoped') };
   const ctrl = new OrdersController(svc as any, {} as any, {} as any);
@@ -376,13 +379,9 @@ describe('OrdersController prep routing', () => {
     expect(svc.prepSummary).toHaveBeenCalledWith('t', 'farmer-1', '2026-07-15');
   });
 
-  it('an owner without ?farmerId gets a 400', async () => {
-    // prep() is async (it also fetches the route to order the feed) — the guard
-    // now rejects the promise rather than throwing synchronously.
-    await expect(ctrl.prep(tenant({ role: 'admin' }), undefined, undefined)).rejects.toThrow(
-      BadRequestException,
-    );
-    expect(svc.prepSummary).not.toHaveBeenCalled();
+  it('an owner without ?farmerId gets the tenant-wide prep feed (prepSummary called with null, not a 400)', async () => {
+    await ctrl.prep(tenant({ role: 'admin' }), undefined, undefined);
+    expect(svc.prepSummary).toHaveBeenCalledWith('t', null, undefined);
   });
 
   it('rejects a malformed farmer token (role=farmer, no farmerId) with 403', async () => {

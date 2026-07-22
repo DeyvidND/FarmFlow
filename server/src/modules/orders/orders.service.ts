@@ -9,7 +9,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   type Database,
   orders,
@@ -353,9 +353,17 @@ export interface TomorrowOrderItem {
   quantity: number;
 }
 
-/** One of tomorrow's orders on the «Утре» panel — this farmer's own items only. */
+/** One of tomorrow's orders on the «Утре» panel — this farmer's own items only.
+ *  Under a scoped call (`farmerId` a string) this is the whole order (one row);
+ *  under the tenant-wide call (`farmerId` null) `prepOrders` returns one row per
+ *  (order, farmer) SLICE — a shared order across two producers becomes two
+ *  TomorrowOrders, each carrying only that producer's own items/state and its
+ *  own `farmerId`, exactly mirroring what N per-farmer calls used to produce. */
 export interface TomorrowOrder {
   id: string;
+  /** The producer this slice belongs to. Always set — scoped calls stamp the
+   *  caller's own farmerId; the tenant-wide call stamps each row's product owner. */
+  farmerId: string | null;
   orderNumber: number | null;
   customerName: string | null;
   customerPhone: string | null;
@@ -1105,7 +1113,7 @@ export class OrdersService {
     return pickNearestDay(day, new Set(rows.map((r) => r.day)), span);
   }
 
-  async prepSummary(tenantId: string, farmerId: string, date?: string): Promise<PrepSummary> {
+  async prepSummary(tenantId: string, farmerId: string | null, date?: string): Promise<PrepSummary> {
     const day = date ?? bgAddDays(bgToday(), 1);
     const [orders, pendingOrders] = await Promise.all([
       this.prepOrders(tenantId, farmerId, day),
@@ -1122,8 +1130,20 @@ export class OrdersService {
    * Mirrors ordersForFarmer's per-farmer item attribution: this farmer's own
    * lines only — a co-producer's lines on a shared order never appear here.
    * `date` defaults to tomorrow (the main prep horizon).
+   *
+   * `farmerId` null = TENANT-WIDE (owner «Всички»): instead of the caller
+   * fanning out one HTTP call per producer (N round-trips for a co-op), this
+   * single call returns every producer's own slice of every order — one
+   * TomorrowOrder per (order, farmer) pair, each carrying only that farmer's
+   * items/state/farmerId. A shared order across farmers A and B comes back as
+   * TWO rows (same `id`, different `farmerId`); the client's mergeOrderSlices/
+   * aggregateByProduct/aggregateByCourier already treat multiple same-id rows
+   * this way (previously arriving from separate per-farmer calls), so they
+   * work unchanged. Products with no farmerId (`isNotNull` below) are excluded
+   * — the old N-call path never surfaced them either, since every call was
+   * scoped to a real producer id.
    */
-  async prepOrders(tenantId: string, farmerId: string, date?: string): Promise<TomorrowOrder[]> {
+  async prepOrders(tenantId: string, farmerId: string | null, date?: string): Promise<TomorrowOrder[]> {
     const targetDay = date ?? bgAddDays(bgToday(), 1);
     const day = sql<string>`coalesce(${deliverySlots.date}, ${bgDate(orders.createdAt)})`;
     const rows = await this.db
@@ -1138,6 +1158,7 @@ export class OrdersService {
         slotFrom: deliverySlots.timeFrom,
         slotTo: deliverySlots.timeTo,
         state: orderFulfillments.state,
+        farmerId: products.farmerId,
         productId: orderItems.productId,
         productName: products.name,
         variantLabel: orderItems.variantLabel,
@@ -1149,18 +1170,30 @@ export class OrdersService {
       .leftJoin(deliverySlots, eq(orders.slotId, deliverySlots.id))
       .leftJoin(
         orderFulfillments,
-        and(eq(orderFulfillments.orderId, orders.id), eq(orderFulfillments.farmerId, farmerId)),
+        and(
+          eq(orderFulfillments.orderId, orders.id),
+          // Scoped: this farmer's own fulfilment row. Tenant-wide: each row's
+          // OWN product-owner's fulfilment row (per-farmer state, not the caller's).
+          farmerId ? eq(orderFulfillments.farmerId, farmerId) : eq(orderFulfillments.farmerId, products.farmerId),
+        ),
       )
       .where(
         and(
           eq(orders.tenantId, tenantId),
           eq(orders.status, 'confirmed'),
-          eq(products.farmerId, farmerId),
+          // Scoped: only this farmer's lines (as before). Tenant-wide: every
+          // attributed line (never an unattributed/null-farmerId product — the
+          // N-call path never surfaced those either).
+          farmerId ? eq(products.farmerId, farmerId) : isNotNull(products.farmerId),
           scheduledForDay(targetDay),
         )!,
       )
       .orderBy(orders.createdAt);
 
+    // Tenant-wide: key by (order, farmer) so a shared order becomes one slice per
+    // producer, exactly matching what N per-farmer calls used to return. Scoped:
+    // farmerId is constant across every row, so the key collapses to plain
+    // orderId — same grouping as before.
     const byOrder = new Map<string, TomorrowOrder>();
     for (const r of rows as Array<{
       orderId: string;
@@ -1173,15 +1206,21 @@ export class OrdersService {
       slotFrom: string | null;
       slotTo: string | null;
       state: FulfillmentState | null;
+      farmerId: string | null;
       productId: string | null;
       productName: string | null;
       variantLabel: string | null;
       quantity: number;
     }>) {
-      let o = byOrder.get(r.orderId);
+      // Scoped calls stamp the caller's own (fixed) farmerId regardless of what
+      // the row itself carries; tenant-wide calls trust the row's product owner.
+      const sliceFarmerId = farmerId ?? r.farmerId;
+      const key = `${r.orderId}::${sliceFarmerId}`;
+      let o = byOrder.get(key);
       if (!o) {
         o = {
           id: r.orderId,
+          farmerId: sliceFarmerId,
           orderNumber: r.orderNumber,
           customerName: r.customerName,
           customerPhone: r.customerPhone,
@@ -1197,7 +1236,7 @@ export class OrdersService {
           courierIndex: null,
           courierName: null,
         };
-        byOrder.set(r.orderId, o);
+        byOrder.set(key, o);
       }
       if (r.productId) {
         o.items.push({
@@ -1272,6 +1311,9 @@ export class OrdersService {
       if (!o) {
         o = {
           id: r.orderId,
+          // A courier's van load spans any farmer's items on one order — unlike
+          // prepOrders' per-(order,farmer) slices, there's no single owner to stamp.
+          farmerId: null,
           orderNumber: r.orderNumber,
           customerName: r.customerName,
           customerPhone: r.customerPhone,
@@ -1304,10 +1346,16 @@ export class OrdersService {
 
   /** Pending (unconfirmed) orders on `day` that contain this farmer's items — they
    *  aren't in the prep feed yet, so the UI nudges the farmer to confirm them.
-   *  Needs the deliverySlots leftJoin for scheduledForDay. */
+   *  Needs the deliverySlots leftJoin for scheduledForDay.
+   *
+   *  `farmerId` null = tenant-wide (owner «Всички»): omits the products.farmerId
+   *  filter entirely, so this becomes one exact DISTINCT count of pending orders
+   *  across the whole tenant — a correctness improvement over the old client-side
+   *  sum of N per-farmer counts, which double-counted a pending order shared by
+   *  more than one producer. */
   private async pendingCountForFarmer(
     tenantId: string,
-    farmerId: string,
+    farmerId: string | null,
     day: string,
   ): Promise<number> {
     const [{ pending }] = await this.db
@@ -1320,7 +1368,7 @@ export class OrdersService {
         and(
           eq(orders.tenantId, tenantId),
           eq(orders.status, 'pending'),
-          eq(products.farmerId, farmerId),
+          farmerId ? eq(products.farmerId, farmerId) : undefined,
           scheduledForDay(day),
         )!,
       );

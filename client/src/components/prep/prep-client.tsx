@@ -111,22 +111,20 @@ export function PrepClient({
     if (role === 'admin' && !farmerId) return;
     let live = true;
     setLoading(true);
-    // «Всички» (owner, multi-farmer): fan out one feed per farmer and flatten to raw
-    // per-farmer slices. The product view aggregates these directly (per-farmer picked
-    // stays accurate); the order view merges them by order id (read-only). pendingOrders
-    // is summed — an approximate nudge count that may double-count a shared order.
-    const load = farmerId === 'all'
-      ? Promise.all(farmers.map((f) => getPrep(date, f.id))).then((sums) => ({
-          orders: sums.flatMap((s) => s.orders),
-          pendingOrders: sums.reduce((n, s) => n + s.pendingOrders, 0),
-        }))
-      : getPrep(date, role === 'admin' ? farmerId : undefined);
+    // «Всички» (owner, multi-farmer): ONE tenant-wide call (no farmerId) — the
+    // backend already returns one TomorrowOrder per (order, farmer) slice, so no
+    // client-side fan-out/flatten is needed. The product view aggregates these
+    // slices directly (per-farmer picked stays accurate); the order view merges
+    // them by order id (read-only, mergeOrderSlices). pendingOrders is now an
+    // exact tenant-wide distinct-order count from the backend (previously summed
+    // per-farmer client-side, which could double-count a shared order).
+    const load = farmerId === 'all' ? getPrep(date) : getPrep(date, role === 'admin' ? farmerId : undefined);
     load
       .then((s) => { if (live) { setOrders(s.orders); setPendingOrders(s.pendingOrders); } })
       .catch((e) => { if (live) toast.error(errMsg(e)); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [date, farmerId, role, farmers]);
+  }, [date, farmerId, role]);
 
   // Courier roster + per-day leg board, for the „Маршрут N · email (аз)" headers.
   // Farmer panel only (not the driver app). Failures fall back to no email —

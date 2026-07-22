@@ -1085,3 +1085,112 @@ describe('syncOrderCodOutcome (econt)', () => {
     expect(del).not.toHaveBeenCalled();
   });
 });
+
+describe('EcontService.applyShipmentStatus (trackingJson no-clobber on the narrowed projection)', () => {
+  /** `refreshActiveShipments` now SELECTs a narrow column projection (drops the heavy
+   *  `trackingJson` jsonb) before calling this, so `row.trackingJson` is never available
+   *  here. This db spy captures the `.set(...)` payload so a test can assert whether
+   *  `trackingJson` was included, without touching the real `orders`/codRisk side effects
+   *  (those are stubbed out — covered separately by the syncOrderCodOutcome/cod-risk specs). */
+  function makeApplyStatusSvc(updatedRow: Record<string, unknown>) {
+    const returning = jest.fn().mockResolvedValue([updatedRow]);
+    const where = jest.fn((..._args: unknown[]) => ({ returning }));
+    const set = jest.fn((_payload: Record<string, unknown>) => ({ where }));
+    const update = jest.fn(() => ({ set }));
+    const svc = new EcontService(
+      {} as never,
+      { get: () => '' } as never,
+      {} as never,
+      { sendShipped: jest.fn().mockResolvedValue(undefined) } as never,
+      { recordReturnIfApplicable: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+    (svc as any).db = { update };
+    // Best-effort side effect on the same `db` — stub it so this test stays scoped to the
+    // trackingJson question instead of also exercising the orders-table update chain.
+    (svc as any).syncOrderCodOutcome = jest.fn().mockResolvedValue(undefined);
+    return { svc, update, set, where, returning };
+  }
+
+  const baseRow = {
+    id: 's1',
+    tenantId: 't1',
+    orderId: null as string | null,
+    econtShipmentNumber: '1051000000001',
+    status: 'pending',
+    customerNotifiedAt: null as Date | null,
+    codCollectedAt: null as Date | null,
+    codSettledAt: null as Date | null,
+  };
+
+  it('st=null (failed/empty Econt lookup) → omits trackingJson from the update payload entirely', async () => {
+    const { svc, set } = makeApplyStatusSvc({ ...baseRow, status: 'pending' });
+    await (svc as any).applyShipmentStatus(baseRow, null);
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set.mock.calls[0][0]).not.toHaveProperty('trackingJson');
+  });
+
+  it('st present → writes trackingJson to the new status payload', async () => {
+    const st = { shipmentNumber: '1051000000001', shortDeliveryStatus: 'доставена' };
+    const { svc, set } = makeApplyStatusSvc({ ...baseRow, status: 'доставена' });
+    await (svc as any).applyShipmentStatus(baseRow, st);
+    expect(set.mock.calls[0][0]).toHaveProperty('trackingJson', st);
+  });
+
+  it('st present → still applies the status + COD fallbacks from the projected row', async () => {
+    const st = { shipmentNumber: '1051000000001', shortDeliveryStatus: 'доставена' };
+    const row = { ...baseRow, codCollectedAt: new Date('2026-01-01') };
+    const { svc, set } = makeApplyStatusSvc({ ...row, status: 'доставена' });
+    await (svc as any).applyShipmentStatus(row, st);
+    expect(set.mock.calls[0][0]).toMatchObject({
+      status: 'доставена',
+      codCollectedAt: row.codCollectedAt, // no cod.collectedAt from `st` → falls back to row's
+    });
+  });
+});
+
+describe('EcontService.refreshActiveShipments', () => {
+  function makeSvc() {
+    return new EcontService({} as never, { get: () => '' } as never, {} as never, {} as never, {} as never);
+  }
+
+  it('projects only the columns applyShipmentStatus needs — no trackingJson', async () => {
+    const svc = makeSvc();
+    const where = jest.fn().mockResolvedValue([]);
+    const from = jest.fn().mockReturnValue({ where });
+    const select = jest.fn().mockReturnValue({ from });
+    (svc as any).db = { select };
+
+    await svc.refreshActiveShipments();
+
+    expect(select).toHaveBeenCalledTimes(1);
+    const projection = select.mock.calls[0][0] as Record<string, unknown>;
+    expect(Object.keys(projection).sort()).toEqual(
+      ['codCollectedAt', 'codSettledAt', 'customerNotifiedAt', 'econtShipmentNumber', 'id', 'orderId', 'status', 'tenantId'].sort(),
+    );
+    expect(projection).not.toHaveProperty('trackingJson');
+  });
+
+  it('drops delivered/returned/refused + tenant-less rows; only the eligible row reaches applyShipmentStatus', async () => {
+    const svc = makeSvc();
+    const rows = [
+      { id: 's-shipped', tenantId: 't1', orderId: null, econtShipmentNumber: '1', status: 'в транзит', customerNotifiedAt: null, codCollectedAt: null, codSettledAt: null },
+      { id: 's-delivered', tenantId: 't1', orderId: null, econtShipmentNumber: '2', status: 'доставена', customerNotifiedAt: null, codCollectedAt: null, codSettledAt: null },
+      { id: 's-returned', tenantId: 't1', orderId: null, econtShipmentNumber: '3', status: 'върната пратка', customerNotifiedAt: null, codCollectedAt: null, codSettledAt: null },
+      { id: 's-refused', tenantId: 't1', orderId: null, econtShipmentNumber: '4', status: 'отказана пратка', customerNotifiedAt: null, codCollectedAt: null, codSettledAt: null },
+      { id: 's-no-tenant', tenantId: null, orderId: null, econtShipmentNumber: '5', status: 'в транзит', customerNotifiedAt: null, codCollectedAt: null, codSettledAt: null },
+    ];
+    const where = jest.fn().mockResolvedValue(rows);
+    const from = jest.fn().mockReturnValue({ where });
+    const select = jest.fn().mockReturnValue({ from });
+    (svc as any).db = { select };
+    (svc as any).callTenant = jest.fn().mockResolvedValue({ shipmentStatuses: [] });
+    const applyShipmentStatus = jest.fn().mockResolvedValue({});
+    (svc as any).applyShipmentStatus = applyShipmentStatus;
+
+    const out = await svc.refreshActiveShipments();
+
+    expect(applyShipmentStatus).toHaveBeenCalledTimes(1);
+    expect(applyShipmentStatus.mock.calls[0][0].id).toBe('s-shipped');
+    expect(out.refreshed).toBe(1);
+  });
+});

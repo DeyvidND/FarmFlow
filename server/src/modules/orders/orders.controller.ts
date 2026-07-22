@@ -137,13 +137,15 @@ export class OrdersController {
     return this.ordersService.ordersForFarmer(user.tenantId, scope, query);
   }
 
-  // Literal route — declared before `:id`. «Подготовка» feed: one farmer's confirmed
-  // orders for a day (default tomorrow) with fulfillment state + contact, plus the
-  // day's pending count. Same scope rule as /mine — a producer is forced to its own
-  // farmerId; an owner MUST pass ?farmerId. Not gated (every farmer preps).
-  // Opened to courier logins (role='driver'): a driver has no farmerId at all, so
-  // it's routed to prepForDriver instead — packing list for their OWN route leg
-  // (any farmer's items), not one producer's harvest.
+  // Literal route — declared before `:id`. «Подготовка» feed: one day's confirmed
+  // orders with fulfillment state + contact, plus the day's pending count. A
+  // producer is forced to its own farmerId; an owner may pass ?farmerId to scope
+  // to one producer, or omit it for the tenant-wide «Всички» view — one row per
+  // (order, farmer) slice (see OrdersService.prepOrders), which collapses what
+  // used to be N per-farmer client calls into this single one. Not gated (every
+  // farmer preps). Opened to courier logins (role='driver'): a driver has no
+  // farmerId at all, so it's routed to prepForDriver instead — packing list for
+  // their OWN route leg (any farmer's items), not one producer's harvest.
   @Get('prep')
   @Roles('admin', 'farmer', 'driver')
   @ApiQuery({ name: 'date', required: false })
@@ -156,8 +158,9 @@ export class OrdersController {
     if (user.role === 'driver') {
       return this.prepForDriver(user.tenantId, user, date);
     }
+    // scope null (owner, no ?farmerId) = tenant-wide «Всички»: prepSummary
+    // returns per-(order,farmer) slices instead of throwing.
     const scope = effectiveFarmerId(user.role, user.farmerId, farmerId);
-    if (!scope) throw new BadRequestException('farmerId required for admin');
     const summary = await this.ordersService.prepSummary(user.tenantId, scope, date);
     // Order the feed to match the delivery route (pin #1 = first order) and stamp
     // each order's courier + visit position, so the client can show the stop

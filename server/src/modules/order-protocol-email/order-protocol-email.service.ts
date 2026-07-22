@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import { type Database, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PROTOCOL_EMAIL_QUEUE } from '../../common/queue/queue.constants';
@@ -51,18 +51,49 @@ export class OrderProtocolEmailService {
       .limit(1);
     if (!order) return { ok: false, error: 'Поръчката не е намерена' };
 
-    // Idempotent: a prior successful send (this attempt, a previous confirm
-    // attempt, or an earlier queued job) must not re-render/re-send. The
-    // caller still gets `ok: true` so any status flip it's gating proceeds.
+    // Fast path: already done. (Doesn't claim — pure read short-circuit for
+    // the common case; the real dup-prevention guarantee is the atomic claim
+    // below, which is what makes this safe under concurrent callers.)
     if (order.protocolEmailStatus === 'sent') {
       return { ok: true, skipped: 'already-sent' };
     }
 
     const to = order.customerEmail?.trim();
     if (!to) {
-      // Nothing to email — not a failure. Mirrors the existing
+      // Nothing to email — not a failure, and we do NOT claim: there's
+      // nothing in flight to make exclusive. Mirrors the existing
       // OrderConfirmationService no-op-without-email convention.
       return { ok: true, skipped: 'no-email' };
+    }
+
+    // Atomic exclusive claim: row is claimable ONLY from {NULL, 'failed'} →
+    // 'sending'. This is the load-bearing correctness detail — it MUST be
+    // `IS NULL OR = 'failed'`, not `<> 'sent'`: in SQL, `NULL <> 'sent'`
+    // evaluates to NULL (not TRUE), so a first-ever send would never match
+    // and could never claim; and `'sending' <> 'sent'` is TRUE, which would
+    // let a second concurrent caller claim a row another worker already owns
+    // — defeating exclusivity. Whichever caller's UPDATE returns a row owns
+    // this send; every other concurrent caller gets zero rows back and skips.
+    //
+    // Known accepted tradeoff: if the process crashes between this claim and
+    // the terminal write, the row is stranded at 'sending' forever (no
+    // stale-reclaim timeout in this batch). Recoverable via a manual reset of
+    // protocol_email_status to NULL/'failed'.
+    const [claimed] = await this.db
+      .update(orders)
+      .set({ protocolEmailStatus: 'sending' })
+      .where(
+        and(
+          eq(orders.id, orderId),
+          eq(orders.tenantId, tenantId),
+          or(isNull(orders.protocolEmailStatus), eq(orders.protocolEmailStatus, 'failed')),
+        ),
+      )
+      .returning({ id: orders.id });
+    // No row back → another worker owns the send ('sending') or it flipped to
+    // 'sent' between the read and the claim. Skip; the owner finishes the send.
+    if (!claimed) {
+      return { ok: true, skipped: 'already-sent' };
     }
 
     const { id: protocolId } = await this.handover.ensureDraftTarget(tenantId, {
@@ -106,7 +137,16 @@ export class OrderProtocolEmailService {
    */
   async enqueueProtocolEmail(tenantId: string, orderId: string): Promise<void> {
     const data: ProtocolEmailJobData = { tenantId, orderId };
-    await this.queue.add('send-protocol-email', data);
+    // Stable per-order jobId de-dupes concurrent enqueues (BullMQ refuses a
+    // second add() with a jobId already active/waiting) — belt-and-braces
+    // alongside the atomic claim in `sendProtocolEmail` itself.
+    // removeOnFail frees the id once settled so a later "прати пак" resend
+    // can re-enqueue after a failure.
+    await this.queue.add('send-protocol-email', data, {
+      jobId: `protocol-${orderId}`,
+      removeOnComplete: true,
+      removeOnFail: true,
+    });
   }
 
   /** Minimal transactional body — this is NOT the storefront thank-you email

@@ -1,4 +1,5 @@
 import { SQL, Param } from 'drizzle-orm';
+import { orders } from '@fermeribg/db';
 import { PnlService } from './pnl.service';
 
 function paramValues(node: unknown, out: unknown[] = []): unknown[] {
@@ -7,6 +8,41 @@ function paramValues(node: unknown, out: unknown[] = []): unknown[] {
     for (const c of (node as unknown as { queryChunks: unknown[] }).queryChunks) paramValues(c, out);
   else if (Array.isArray(node)) for (const c of node) paramValues(c, out);
   return out;
+}
+
+/**
+ * Walk a drizzle SQL tree and pull out every embedded chunk (Column
+ * references included, not just Params) — mirrors
+ * routing.service.spec.ts's `flattenSql`/`hasColumn` pair, needed here to
+ * prove the LATERAL join fragment actually correlates on `orders.id`
+ * (a Column reference, not a bound Param).
+ */
+function flattenSql(node: unknown, out: unknown[] = []): unknown[] {
+  if (node instanceof SQL) {
+    for (const chunk of (node as unknown as { queryChunks: unknown[] }).queryChunks) flattenSql(chunk, out);
+  } else if (Array.isArray(node)) {
+    for (const item of node) flattenSql(item, out);
+  } else {
+    out.push(node);
+  }
+  return out;
+}
+
+function hasColumn(node: unknown, col: unknown): boolean {
+  return flattenSql(node).includes(col);
+}
+
+/** Flattens a drizzle `SQL` object's (possibly nested) queryChunks into the
+ *  literal SQL text it was built from — mirrors orders.status-scope.spec.ts's
+ *  helper of the same name. */
+function literalText(node: unknown): string {
+  const n = node as { queryChunks?: unknown[]; value?: unknown } | null;
+  if (!n || typeof n !== 'object') return '';
+  if (Array.isArray(n.value) && n.value.every((v) => typeof v === 'string')) {
+    return (n.value as string[]).join('');
+  }
+  if (Array.isArray(n.queryChunks)) return n.queryChunks.map(literalText).join('');
+  return '';
 }
 
 /**
@@ -21,6 +57,7 @@ function makeDb(canned: {
   settings?: unknown[];
 }) {
   const wheres: Record<string, unknown> = {};
+  const joins: Record<string, unknown[]> = {};
   const tag = (proj: Record<string, unknown>) => {
     const keys = Object.keys(proj ?? {});
     if (keys.includes('deliveryStotinki')) return 'revenue';
@@ -41,7 +78,14 @@ function makeDb(canned: {
   const chain = (proj: Record<string, unknown>) => {
     const t = tag(proj);
     const b: any = {};
-    for (const m of ['from', 'innerJoin', 'leftJoin', 'groupBy', 'orderBy', 'as']) b[m] = jest.fn(() => b);
+    for (const m of ['from', 'innerJoin', 'groupBy', 'orderBy', 'as']) b[m] = jest.fn(() => b);
+    // Capture EVERY leftJoin's join-target arg (there are two on the revenue
+    // query: the order-items LATERAL, then routeCourierAssignments) so a test
+    // can inspect the first one instead of only trusting the mock resolved.
+    b.leftJoin = jest.fn((joinTarget: unknown) => {
+      (joins[t] ??= []).push(joinTarget);
+      return b;
+    });
     b.where = jest.fn((w: unknown) => {
       wheres[t] = w;
       return b;
@@ -51,7 +95,7 @@ function makeDb(canned: {
       Promise.resolve(rowsFor(t)).then(res, rej);
     return b;
   };
-  return { db: { select: jest.fn((proj: Record<string, unknown>) => chain(proj)) }, wheres };
+  return { db: { select: jest.fn((proj: Record<string, unknown>) => chain(proj)) }, wheres, joins };
 }
 
 describe('PnlService.pnl', () => {
@@ -109,6 +153,20 @@ describe('PnlService.pnl', () => {
       .find((p: Record<string, unknown>) => 'deliveryStotinki' in p);
     const rendered = JSON.stringify((proj.deliveryStotinki as SQL).queryChunks);
     expect(rendered).toContain('greatest(0,');
+  });
+
+  it('стоките на поръчка се сумират с LATERAL корелирана по orders.id, не с whole-table подзаявка', async () => {
+    const { db, joins } = makeDb({});
+    const svc = new PnlService(db as any);
+    await svc.pnl('tenant-1', { range: '30d' });
+
+    // Първият leftJoin на приходната заявка е order-items LATERAL-ът (вторият
+    // е routeCourierAssignments) — виж pnl.service.ts.
+    const lateralJoin = joins.revenue?.[0];
+    expect(literalText(lateralJoin)).toMatch(/lateral/i);
+    // Корелацията e по `orders.id` — Column референция, не bound Param, затова
+    // paramValues не би я хванал; hasColumn ходи по същите queryChunks.
+    expect(hasColumn(lateralJoin, orders.id)).toBe(true);
   });
 
   it('невалиден период гърми с 400, не смята каквото и да е', async () => {

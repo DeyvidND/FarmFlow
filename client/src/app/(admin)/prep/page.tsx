@@ -66,16 +66,11 @@ export default async function PrepPage(props: { searchParams: Promise<{ date?: s
   if (!canFetch) {
     initial = empty;
   } else if (initialFarmerId === 'all') {
-    // «Всички»: fan out one feed per producer and flatten to raw per-farmer
-    // slices — exactly what PrepClient's own «Всички» branch expects, so the
-    // first render matches and no client refetch (or flash) is needed.
-    const sums = await Promise.all(farmers.map((f) => loadFor(f.id)));
-    initial = {
-      date: sums[0]?.date ?? day ?? '',
-      confirmedOrders: sums.reduce((n, s) => n + s.confirmedOrders, 0),
-      pendingOrders: sums.reduce((n, s) => n + s.pendingOrders, 0),
-      orders: sums.flatMap((s) => s.orders),
-    };
+    // «Всички»: ONE tenant-wide call (no farmerId) — the backend already returns
+    // one TomorrowOrder per (order, farmer) slice, exactly what PrepClient's own
+    // «Всички» branch expects, so the first render matches and no client
+    // refetch (or flash) is needed. No more N-per-farmer fan-out/flatten.
+    initial = await loadFor();
   } else {
     initial = await loadFor(initialFarmerId || undefined);
   }

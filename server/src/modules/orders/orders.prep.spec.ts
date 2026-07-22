@@ -43,6 +43,10 @@ describe('OrdersService.prepOrders', () => {
     expect(result[0].fulfillmentState).toBe('pending');
     expect(result[0].items).toHaveLength(2);
     expect(result[0].customerPhone).toBe('0888111222');
+    // Scoped call stamps the CALLER's farmerId (the passthrough mock rows carry
+    // no farmerId field at all — the real query wouldn't need to project it for
+    // a scoped call since it's already known).
+    expect(result[0].farmerId).toBe('farmer-1');
   });
 
   it('surfaces a non-default fulfillmentState from order_fulfillments', async () => {
@@ -68,6 +72,60 @@ describe('OrdersService.prepOrders', () => {
     const { svc } = makeSvc([]);
     const result = await svc.prepOrders('t', 'farmer-1');
     expect(result).toEqual([]);
+  });
+
+  // Tenant-wide («Всички», farmerId null): collapses what used to be N per-farmer
+  // HTTP calls into one — rows now carry their own product's farmerId, and the
+  // grouping key becomes (order, farmer) instead of plain order id.
+  it('tenant-wide: a shared order across two farmers comes back as TWO slices, each with only that farmer\'s items and own fulfillment state', async () => {
+    const { svc } = makeSvc([
+      {
+        orderId: 'o1', orderNumber: 9, customerName: 'Обединена поръчка', customerPhone: '0888000000',
+        customerEmail: null, deliveryType: 'address', day: '2026-07-16',
+        slotFrom: null, slotTo: null, state: 'fulfilled', farmerId: 'farmer-A',
+        productId: 'pA', productName: 'Домати', variantLabel: null, quantity: 2,
+      },
+      {
+        orderId: 'o1', orderNumber: 9, customerName: 'Обединена поръчка', customerPhone: '0888000000',
+        customerEmail: null, deliveryType: 'address', day: '2026-07-16',
+        slotFrom: null, slotTo: null, state: null, farmerId: 'farmer-B',
+        productId: 'pB', productName: 'Мед', variantLabel: null, quantity: 1,
+      },
+    ]);
+    const result = await svc.prepOrders('t', null, '2026-07-16');
+    expect(result).toHaveLength(2);
+
+    const a = result.find((o) => o.farmerId === 'farmer-A')!;
+    const b = result.find((o) => o.farmerId === 'farmer-B')!;
+    expect(a.id).toBe('o1');
+    expect(b.id).toBe('o1');
+    expect(a.items).toEqual([{ productId: 'pA', productName: 'Домати', variantLabel: null, quantity: 2 }]);
+    expect(b.items).toEqual([{ productId: 'pB', productName: 'Мед', variantLabel: null, quantity: 1 }]);
+    // Each slice's own order_fulfillments state — farmer A already marked
+    // fulfilled; farmer B's own row is absent (defaults to 'pending'), even
+    // though it's the SAME order.
+    expect(a.fulfillmentState).toBe('fulfilled');
+    expect(b.fulfillmentState).toBe('pending');
+  });
+
+  it('tenant-wide: two independent single-farmer orders stay two separate slices, not merged', async () => {
+    const { svc } = makeSvc([
+      {
+        orderId: 'o2', orderNumber: 10, customerName: 'Х', customerPhone: null,
+        customerEmail: null, deliveryType: 'pickup', day: '2026-07-16',
+        slotFrom: null, slotTo: null, state: null, farmerId: 'farmer-A',
+        productId: 'p1', productName: 'Ябълки', variantLabel: null, quantity: 1,
+      },
+      {
+        orderId: 'o3', orderNumber: 11, customerName: 'Y', customerPhone: null,
+        customerEmail: null, deliveryType: 'pickup', day: '2026-07-16',
+        slotFrom: null, slotTo: null, state: null, farmerId: 'farmer-B',
+        productId: 'p2', productName: 'Круши', variantLabel: null, quantity: 1,
+      },
+    ]);
+    const result = await svc.prepOrders('t', null, '2026-07-16');
+    expect(result.map((o) => o.id).sort()).toEqual(['o2', 'o3']);
+    expect(result.map((o) => o.farmerId).sort()).toEqual(['farmer-A', 'farmer-B']);
   });
 });
 
@@ -138,11 +196,11 @@ describe('OrdersService.prepSummary', () => {
   it('composes orders + counts, defaulting confirmedOrders to orders.length', async () => {
     const { svc } = makeSvc();
     const orders = [
-      { id: 'o1', orderNumber: 1, customerName: null, customerPhone: null, customerEmail: null,
+      { id: 'o1', farmerId: 'farmer-1', orderNumber: 1, customerName: null, customerPhone: null, customerEmail: null,
         deliveryType: 'pickup', day: '2026-07-15', slotFrom: null, slotTo: null,
         fulfillmentState: 'pending' as const, items: [],
         routeSeq: null, courierIndex: null, courierName: null },
-      { id: 'o2', orderNumber: 2, customerName: null, customerPhone: null, customerEmail: null,
+      { id: 'o2', farmerId: 'farmer-1', orderNumber: 2, customerName: null, customerPhone: null, customerEmail: null,
         deliveryType: 'pickup', day: '2026-07-15', slotFrom: null, slotTo: null,
         fulfillmentState: 'fulfilled' as const, items: [],
         routeSeq: null, courierIndex: null, courierName: null },
@@ -270,6 +328,7 @@ describe('OrdersService.prepForCourierLeg', () => {
 describe('applyRouteOrder', () => {
   const mk = (id: string, over: Partial<TomorrowOrder> = {}): TomorrowOrder => ({
     id,
+    farmerId: null,
     orderNumber: null,
     customerName: null,
     customerPhone: null,

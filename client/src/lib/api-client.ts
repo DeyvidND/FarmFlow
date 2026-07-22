@@ -1159,6 +1159,10 @@ export interface TomorrowOrderItem {
 
 export interface TomorrowOrder {
   id: string;
+  /** The producer this slice belongs to. Under the tenant-wide «Всички» call
+   *  (no ?farmerId), one order shared by two producers arrives as two slices
+   *  with the same `id` and different `farmerId` — see server prepOrders. */
+  farmerId: string | null;
   orderNumber: number | null;
   customerName: string | null;
   customerPhone: string | null;
