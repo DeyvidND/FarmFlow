@@ -5,7 +5,7 @@ import { OrderConfirmationService } from './order-confirmation.service';
 /**
  * Thenable chainable Drizzle mock: every builder method returns the same object,
  * and awaiting it resolves the next queued result — so each query in
- * sendForOrder (order → tenant → items → products → media) pulls one entry.
+ * buildReceivedEmail (order → tenant → items → products → media) pulls one entry.
  */
 function makeDb(queue: unknown[]) {
   let i = 0;
@@ -44,8 +44,10 @@ const ORDER = {
   totalStotinki: 1348, // 2×499 + 350 shipping
 };
 
-describe('OrderConfirmationService.sendForOrder', () => {
-  it('sends a styled confirmation with items, photos and euro totals, without an order number', async () => {
+/** buildReceivedEmail RENDERS the buyer's one mail (received + разписка) but
+ *  never sends — OrderProtocolEmailService attaches the PDF and delivers. */
+describe('OrderConfirmationService.buildReceivedEmail', () => {
+  it('builds the styled received email with items, photos and euro totals, without an order number', async () => {
     const email = makeEmail();
     const svc = build(
       [
@@ -58,24 +60,27 @@ describe('OrderConfirmationService.sendForOrder', () => {
       email,
     );
 
-    await svc.sendForOrder('order-uuid-1');
+    const arg = await svc.buildReceivedEmail('order-uuid-1');
 
-    expect(email.sendMail).toHaveBeenCalledTimes(1);
-    const arg = email.sendMail.mock.calls[0][0];
-    expect(arg.to).toBe('buyer@example.com');
-    expect(arg.stream).toBe('transactional');
-    expect(arg.subject).toContain('Поръчката ти е потвърдена');
-    expect(arg.subject).toContain('Ферма Петрови');
+    expect(arg).not.toBeNull();
+    // Renders only — the single send (with the разписка attachment) belongs
+    // to OrderProtocolEmailService.
+    expect(email.sendMail).not.toHaveBeenCalled();
+    expect(arg!.to).toBe('buyer@example.com');
+    expect(arg!.subject).toContain('Получихме поръчката ти');
+    expect(arg!.subject).toContain('Ферма Петрови');
     // The order number is intentionally hidden from the buyer (a sequential №N
     // would reveal the shop's order count), so it appears in neither subject nor body.
-    expect(arg.subject).not.toContain('42');
-    expect(arg.html).not.toContain('№42');
-    expect(arg.html).toContain('Одит Ябълки');
-    expect(arg.html).toContain('cdn.example.com/apple.jpg'); // product photo
-    expect(arg.html).toContain('13,48 €'); // grand total
-    expect(arg.html).toContain('9,98 €'); // subtotal (2×4,99)
-    expect(arg.html).toContain('3,50 €'); // shipping (1348−998)
-    expect(arg.html).toContain('Иван Купувач');
+    expect(arg!.subject).not.toContain('42');
+    expect(arg!.html).not.toContain('№42');
+    expect(arg!.html).toContain('Одит Ябълки');
+    expect(arg!.html).toContain('cdn.example.com/apple.jpg'); // product photo
+    expect(arg!.html).toContain('13,48 €'); // grand total
+    expect(arg!.html).toContain('9,98 €'); // subtotal (2×4,99)
+    expect(arg!.html).toContain('3,50 €'); // shipping (1348−998)
+    expect(arg!.html).toContain('Иван Купувач');
+    // The body announces the attached разписка — this is the buyer's ONE mail.
+    expect(arg!.html).toContain('разписка');
   });
 
   it('falls back to the gallery cover when the product has no legacy imageUrl', async () => {
@@ -91,8 +96,8 @@ describe('OrderConfirmationService.sendForOrder', () => {
       email,
     );
 
-    await svc.sendForOrder('order-uuid-1');
-    expect(email.sendMail.mock.calls[0][0].html).toContain('cdn.example.com/cover.jpg');
+    const arg = await svc.buildReceivedEmail('order-uuid-1');
+    expect(arg!.html).toContain('cdn.example.com/cover.jpg');
   });
 
   // Finding #4: a basket child order_items row is stored priced at 0 (the
@@ -123,9 +128,7 @@ describe('OrderConfirmationService.sendForOrder', () => {
       email,
     );
 
-    await svc.sendForOrder('order-uuid-1');
-
-    const { html, text } = email.sendMail.mock.calls[0][0];
+    const { html, text } = (await svc.buildReceivedEmail('order-uuid-1'))!;
     expect(html).toContain('Домати');
     expect(html).toContain('Сирене');
     expect(html).toContain('в кошницата');
@@ -139,33 +142,15 @@ describe('OrderConfirmationService.sendForOrder', () => {
     expect(html).toContain('39,90 €');
   });
 
-  it('no-ops (no send) when the order has no customer email', async () => {
+  it('returns null when the order has no customer email', async () => {
     const email = makeEmail();
     const svc = build([[{ ...ORDER, customerEmail: null }]], email);
-    await svc.sendForOrder('order-uuid-1');
-    expect(email.sendMail).not.toHaveBeenCalled();
+    await expect(svc.buildReceivedEmail('order-uuid-1')).resolves.toBeNull();
   });
 
-  it('no-ops when the order is not found', async () => {
+  it('returns null when the order is not found', async () => {
     const email = makeEmail();
     const svc = build([[]], email);
-    await svc.sendForOrder('missing');
-    expect(email.sendMail).not.toHaveBeenCalled();
-  });
-
-  it('never throws — a send failure is swallowed', async () => {
-    const email = makeEmail();
-    email.sendMail.mockRejectedValueOnce(new Error('smtp down'));
-    const svc = build(
-      [
-        [ORDER],
-        [{ name: 'Ферма Петрови' }],
-        [{ productId: 'p1', name: 'X', quantity: 1, priceStotinki: 100 }],
-        [{ id: 'p1', imageUrl: null, tint: null }],
-        [],
-      ],
-      email,
-    );
-    await expect(svc.sendForOrder('order-uuid-1')).resolves.toBeUndefined();
+    await expect(svc.buildReceivedEmail('missing')).resolves.toBeNull();
   });
 });

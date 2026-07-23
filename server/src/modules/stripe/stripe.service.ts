@@ -19,7 +19,6 @@ import {
 import { BillingService } from '../billing/billing.service';
 import { EcontService } from '../econt/econt.service';
 import { CarrierFulfillmentService } from '../orders/carrier-fulfillment.service';
-import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { CommissionService } from '../vendor-finance/commission.service';
 import { OrderProtocolEmailService } from '../order-protocol-email/order-protocol-email.service';
@@ -107,7 +106,6 @@ export class StripeService {
     config: ConfigService,
     private readonly billing: BillingService,
     private readonly econt: EcontService,
-    private readonly orderEmail: OrderConfirmationService,
     private readonly publicCache: PublicCacheService,
     private readonly carrierFulfillment: CarrierFulfillmentService,
     private readonly analytics: AnalyticsService,
@@ -755,15 +753,16 @@ export class StripeService {
     await this.publicCache.del(`stripe:summary:${tenantId}`);
 
     // Fire-and-forget: auto-create the carrier waybill (Econt or Speedy, routed
-    // by orders.carrier) if the farm enabled it + email the buyer confirmation.
-    // Neither must block or fail the webhook (both swallow their own errors).
+    // by orders.carrier) if the farm enabled it. Must not block or fail the
+    // webhook (swallows its own errors).
     void this.carrierFulfillment.autoCreateForOrder(orderId);
-    void this.orderEmail.sendForOrder(orderId);
-    // Phase 2 (2026-07-22): enqueue (never await) the bilateral protocol
-    // email — per §4.3 "опашка — Stripe чака бърз 200", this webhook must NOT
-    // pay real SMTP latency. `enqueueProtocolEmail` is a fast queue.add; unlike
-    // the two fire-and-forget calls above (whose own implementations swallow
-    // their errors internally), `enqueueProtocolEmail` does NOT catch its own
+    // The buyer's ONE email — "Получихме поръчката ти" + разписка PDF
+    // (2026-07-23) — a Stripe order sends it here, at payment, because checkout
+    // skips the cash-path mail for it. Enqueue (never await): per §4.3 "опашка —
+    // Stripe чака бърз 200", this webhook must NOT pay real SMTP latency.
+    // `enqueueProtocolEmail` is a fast queue.add; unlike the fire-and-forget
+    // call above (whose implementation swallows its errors internally),
+    // `enqueueProtocolEmail` does NOT catch its own
     // rejection (e.g. Redis down) — so this call site catches explicitly,
     // otherwise a queue hiccup would surface as an unhandled rejection and
     // could crash the process instead of just failing to enqueue. A lost

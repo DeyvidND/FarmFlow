@@ -6,6 +6,7 @@ import { type Database, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { PROTOCOL_EMAIL_QUEUE } from '../../common/queue/queue.constants';
 import { HandoverService } from '../handover/handover.service';
+import { OrderConfirmationService } from '../order-email/order-confirmation.service';
 import { EmailService } from '../../common/email/email.service';
 
 export type SendProtocolEmailResult =
@@ -39,6 +40,7 @@ export class OrderProtocolEmailService {
   constructor(
     @Inject(DB_TOKEN) private readonly db: Database,
     private readonly handover: HandoverService,
+    private readonly orderConfirmation: OrderConfirmationService,
     private readonly email: EmailService,
     @InjectQueue(PROTOCOL_EMAIL_QUEUE) private readonly queue: Queue,
   ) {}
@@ -102,10 +104,13 @@ export class OrderProtocolEmailService {
     } as any);
 
     try {
+      // The buyer's ONE email per order (2026-07-23): the full "Получихме
+      // поръчката ти" body (items, totals, delivery block) with the разписка
+      // PDF attached — replaces the received + потвърдена + разписка triple.
+      const built = await this.orderConfirmation.buildReceivedEmail(orderId);
+      if (!built) throw new Error('Поръчката вече няма имейл или не е намерена');
       await this.email.sendMailNow({
-        to,
-        subject: `Разписка за поръчка №${order.orderNumber ?? ''}`.trim(),
-        html: this.renderHtml(order),
+        ...built,
         attachments: [{ kind: 'handover-protocol', protocolId, tenantId }],
         stream: 'transactional',
       });
@@ -149,15 +154,4 @@ export class OrderProtocolEmailService {
     });
   }
 
-  /** Minimal transactional body — this is NOT the storefront thank-you email
-   *  (OrderConfirmationService owns that, unchanged); it exists only to carry
-   *  the attachment and explain what it is. Kept intentionally plain. */
-  private renderHtml(order: { customerName: string | null; orderNumber: number | null }): string {
-    const greeting = order.customerName ? `Здравей, ${order.customerName}!` : 'Здравей!';
-    return `<!doctype html><html lang="bg"><body style="font-family:Arial,Helvetica,sans-serif">
-<p>${greeting}</p>
-<p>Прилагаме разписка за получена стока по поръчка №${order.orderNumber ?? ''}. Документът е
-предварителен — подписва се при предаването на стоката.</p>
-</body></html>`;
-  }
 }

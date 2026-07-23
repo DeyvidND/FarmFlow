@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -8,7 +8,7 @@ import { OrdersService } from './orders.service';
 import { StripeService, type CheckoutLine } from '../stripe/stripe.service';
 import { EcontService } from '../econt/econt.service';
 import { SpeedyService } from '../speedy/speedy.service';
-import { OrderConfirmationService } from '../order-email/order-confirmation.service';
+import { OrderProtocolEmailService } from '../order-protocol-email/order-protocol-email.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { visitorHash } from '../analytics/analytics.helpers';
 import { bgToday } from '../../common/time/bg-time';
@@ -63,10 +63,28 @@ export class CheckoutService {
     private readonly stripe: StripeService,
     private readonly econt: EcontService,
     private readonly speedy: SpeedyService,
-    private readonly orderConfirmation: OrderConfirmationService,
     private readonly config: ConfigService,
     private readonly analytics: AnalyticsService,
+    @Optional() private readonly protocolEmail?: OrderProtocolEmailService,
   ) {}
+
+  /**
+   * Queue the buyer's ONE email — "Получихме поръчката ти" with the разписка
+   * PDF attached (2026-07-23; replaced the received + потвърдена + разписка
+   * triple). Cash/COD paths call this right at placement; Stripe orders get
+   * the same mail from markOrderPaid instead, once actually paid. Detached +
+   * caught: `enqueueProtocolEmail` does NOT swallow its own rejection (e.g.
+   * Redis down), and a queue hiccup must fail the email, never the checkout.
+   * Recoverable via "прати пак" — protocol_email_status stays null.
+   */
+  private queueReceiptEmail(tenantId: string | null, orderId: string): void {
+    if (!tenantId) return;
+    this.protocolEmail?.enqueueProtocolEmail(tenantId, orderId).catch((err) => {
+      this.logger.warn(
+        `[protocol-email] enqueue failed for order ${orderId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
 
   /**
    * Create the order and fold the delivery fee into its total. Shared by the
@@ -102,9 +120,9 @@ export class CheckoutService {
    */
   async placeOrder(slug: string, dto: CreateOrderDto): Promise<PlacedOrder> {
     const { order } = await this.createAndFold(slug, dto);
-    // Cash path → the order is final now (no online payment to wait for). Tell the
-    // buyer we received it; the "confirmed" mail follows when the farm confirms.
-    void this.orderConfirmation.sendReceived(order.id);
+    // Cash path → the order is final now (no online payment to wait for). The
+    // buyer's single mail — received + разписка PDF — goes out right away.
+    this.queueReceiptEmail(order.tenantId, order.id);
     return order;
   }
 
@@ -127,8 +145,8 @@ export class CheckoutService {
         .limit(1);
       const hash = t ? visitorHash(ip, ua, day, t.id, analyticsSecret) : null;
       const placed = await this.ordersService.createCourierOrders(slug, dto, hash);
-      // COD → final now; send the "received" mail per leg (best-effort, detached).
-      for (const o of placed) void this.orderConfirmation.sendReceived(o.id);
+      // COD → final now; queue the received-mail (+ разписка) per leg.
+      for (const o of placed) this.queueReceiptEmail(t?.id ?? null, o.id);
       // ONE purchase event for the whole courier checkout (not per leg) — the
       // funnel counts distinct visitors, and this is one shopper's one purchase.
       if (placed.length) {
@@ -212,9 +230,9 @@ export class CheckoutService {
           .set({ paymentMethod: 'cod' })
           .where(eq(orders.id, order.id));
       }
-      // Cash path → final now; send the "received" mail (Stripe orders instead get
-      // their mail after payment succeeds).
-      void this.orderConfirmation.sendReceived(order.id);
+      // Cash path → final now; queue the buyer's single mail (Stripe orders
+      // instead get theirs from markOrderPaid, after payment succeeds).
+      this.queueReceiptEmail(order.tenantId, order.id);
       // COD has no payment gate — record the purchase now (Stripe orders instead
       // get it from markOrderPaid on the online branch, once actually paid).
       const ph = hash ?? createHash('sha256').update(`purchase|${order.id}`).digest('hex');

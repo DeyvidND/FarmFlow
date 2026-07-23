@@ -72,10 +72,11 @@ function contactPhone(settings: unknown): string | null {
 }
 
 /**
- * Sends the buyer their order-confirmation email when an order becomes
- * `confirmed`. Self-contained (depends only on the global DB + EmailService),
- * so both OrdersService (cash / admin confirm) and StripeService (online
- * payment) can fire it without a circular module dependency.
+ * Renders the buyer's "Получихме поръчката ти" email body (sent once per order,
+ * with the разписка PDF attached, by OrderProtocolEmailService) plus the
+ * standalone moved-day / delivery-window / reminder mails. Self-contained
+ * (depends only on the global DB + EmailService) to stay clear of circular
+ * module dependencies.
  */
 @Injectable()
 export class OrderConfirmationService {
@@ -92,18 +93,56 @@ export class OrderConfirmationService {
       .replace(/\/+$/, '');
   }
 
-  /** Email the buyer that we RECEIVED their order — fired on placement (cash path). */
-  async sendReceived(orderId: string): Promise<void> {
-    return this.send(orderId, 'received');
-  }
-
   /**
-   * Email the buyer their confirmation when the order becomes `confirmed`.
-   * Fire-and-forget from callers (the confirm transition must never block on
-   * mail) — so this swallows its own errors and no-ops when there's no email.
+   * Build (never send) the buyer's single "Получихме поръчката ти" email —
+   * subject/html/text ready for EmailService. `OrderProtocolEmailService` is
+   * the one sender: it attaches the разписка PDF and owns the tracking
+   * columns, so the buyer gets exactly ONE mail per order (2026-07-23 —
+   * replaced the received + потвърдена + разписка triple). Returns null when
+   * the order is gone or carries no email (guest checkout).
    */
-  async sendForOrder(orderId: string): Promise<void> {
-    return this.send(orderId, 'confirmed');
+  async buildReceivedEmail(
+    orderId: string,
+  ): Promise<{ to: string; subject: string; html: string; text: string } | null> {
+    const [order] = await this.db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+    if (!order) return null;
+    const to = order.customerEmail?.trim();
+    if (!to) return null; // guest checkout without an email — nothing to send
+
+    const [tenant] = order.tenantId
+      ? await this.db
+          .select({ name: tenants.name })
+          .from(tenants)
+          .where(eq(tenants.id, order.tenantId))
+          .limit(1)
+      : [undefined];
+    const farmName = tenant?.name ?? 'ФермериБГ';
+
+    const rawItems = await this.db
+      .select({
+        productId: orderItems.productId,
+        name: orderItems.productName,
+        quantity: orderItems.quantity,
+        priceStotinki: orderItems.priceStotinki,
+        bundleParentId: orderItems.bundleParentId,
+      })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId));
+    const items = await this.withImages(rawItems);
+
+    // Strip CR/LF from the tenant-controlled farm name before it enters the
+    // email subject — defense-in-depth against header injection.
+    const safeFarmName = farmName.replace(/[\r\n]+/g, ' ').trim();
+    return {
+      to,
+      subject: `Получихме поръчката ти — ${safeFarmName}`.trim(),
+      html: this.renderHtml(order, items, farmName),
+      text: this.renderText(order, items, farmName),
+    };
   }
 
   /**
@@ -209,62 +248,6 @@ export class OrderConfirmationService {
       text: this.renderWindowText(order, farmName, date, windowStart, windowEnd, phone),
       stream: 'transactional',
     });
-  }
-
-  private async send(orderId: string, phase: 'received' | 'confirmed'): Promise<void> {
-    try {
-      const [order] = await this.db
-        .select()
-        .from(orders)
-        .where(eq(orders.id, orderId))
-        .limit(1);
-      if (!order) return;
-      const to = order.customerEmail?.trim();
-      if (!to) return; // guest checkout without an email — nothing to send
-
-      const [tenant] = order.tenantId
-        ? await this.db
-            .select({ name: tenants.name })
-            .from(tenants)
-            .where(eq(tenants.id, order.tenantId))
-            .limit(1)
-        : [undefined];
-      const farmName = tenant?.name ?? 'ФермериБГ';
-
-      const rawItems = await this.db
-        .select({
-          productId: orderItems.productId,
-          name: orderItems.productName,
-          quantity: orderItems.quantity,
-          priceStotinki: orderItems.priceStotinki,
-          bundleParentId: orderItems.bundleParentId,
-        })
-        .from(orderItems)
-        .where(eq(orderItems.orderId, orderId));
-      const items = await this.withImages(rawItems);
-
-      // Strip CR/LF from the tenant-controlled farm name before it enters the
-      // email subject — defense-in-depth against header injection.
-      const safeFarmName = farmName.replace(/[\r\n]+/g, ' ').trim();
-      const subject = (phase === 'received'
-        ? `Получихме поръчката ти — ${safeFarmName}`
-        : `Поръчката ти е потвърдена — ${safeFarmName}`
-      ).trim();
-
-      await this.email.sendMail({
-        to,
-        subject,
-        html: this.renderHtml(order, items, farmName, phase),
-        text: this.renderText(order, items, farmName, phase),
-        stream: 'transactional',
-      });
-    } catch (err) {
-      this.logger.error(
-        `order-${phase} email failed for ${orderId}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
   }
 
   /** Attach each line's product cover photo (gallery position 0, else legacy imageUrl) + tint. */
@@ -443,7 +426,7 @@ export class OrderConfirmationService {
       .join('\n');
   }
 
-  private renderHtml(order: OrderRow, items: EmailItem[], farmName: string, phase: 'received' | 'confirmed'): string {
+  private renderHtml(order: OrderRow, items: EmailItem[], farmName: string): string {
     const subtotal = items.reduce((s, it) => s + it.priceStotinki * it.quantity, 0);
     const total = order.totalStotinki ?? subtotal;
     const shipping = Math.max(0, total - subtotal);
@@ -487,11 +470,7 @@ export class OrderConfirmationService {
         <tr><td style="padding:28px">
           <h1 style="margin:0 0 6px;font-size:22px;color:#23210f">Благодарим за поръчката!</h1>
           <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#4a4733">
-            ${greetingName ? `Здравей, ${greetingName}! ` : ''}${
-              phase === 'received'
-                ? '<strong>Получихме поръчката ти!</strong> Ще се свържем по телефона, ако трябва да уточним нещо, и ще ти пишем пак, щом я потвърдим.'
-                : 'Поръчката ти е <strong>потвърдена</strong> и вече я приготвяме.'
-            }
+            ${greetingName ? `Здравей, ${greetingName}! ` : ''}<strong>Получихме поръчката ти!</strong> Прилагаме разписка (PDF) за нея. Ще се свържем по телефона, ако трябва да уточним нещо.
           </p>
 
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
@@ -520,7 +499,7 @@ export class OrderConfirmationService {
 </body></html>`;
   }
 
-  private renderText(order: OrderRow, items: EmailItem[], farmName: string, phase: 'received' | 'confirmed'): string {
+  private renderText(order: OrderRow, items: EmailItem[], farmName: string): string {
     const subtotal = items.reduce((s, it) => s + it.priceStotinki * it.quantity, 0);
     const total = order.totalStotinki ?? subtotal;
     const shipping = Math.max(0, total - subtotal);
@@ -533,9 +512,7 @@ export class OrderConfirmationService {
         : `- ${it.name} × ${it.quantity} = ${money(it.priceStotinki * it.quantity)}`,
     );
     return [
-      phase === 'received'
-        ? `${farmName} — Получихме поръчката ти.`
-        : `${farmName} — Поръчката ти е потвърдена.`,
+      `${farmName} — Получихме поръчката ти. Прилагаме разписка (PDF).`,
       order.customerName ? `Здравей, ${order.customerName}!` : '',
       '',
       ...lines,

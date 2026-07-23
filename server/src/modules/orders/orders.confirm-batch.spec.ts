@@ -78,21 +78,17 @@ describe('OrdersService.confirmBatch', () => {
     expect(rendered.params).toContain('foreign-o9');
   });
 
-  it('an enqueue rejection is counted in `failed` without unwinding the already-committed confirm', async () => {
+  it('never enqueues any email — the buyer already got their one mail at placement (2026-07-23)', async () => {
     const { db } = buildDb([{ id: 'o1' }, { id: 'o2' }]);
-    const protocolEmail = {
-      enqueueProtocolEmail: jest
-        .fn()
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('Redis unreachable')),
-    };
+    const protocolEmail = { enqueueProtocolEmail: jest.fn(), sendProtocolEmail: jest.fn() };
     const svc = service(db, protocolEmail);
 
     const out = await svc.confirmBatch('tenant-1', ['o1', 'o2']);
 
-    // Both rows are already committed to 'confirmed' by the bulk UPDATE before
-    // any enqueue is attempted — a rejected enqueue must not un-confirm a row.
-    expect(out).toEqual({ confirmed: 2, failed: 1, ids: ['o1', 'o2'] });
+    // `failed` survives in the response shape for API compatibility, pinned 0.
+    expect(out).toEqual({ confirmed: 2, failed: 0, ids: ['o1', 'o2'] });
+    expect(protocolEmail.enqueueProtocolEmail).not.toHaveBeenCalled();
+    expect(protocolEmail.sendProtocolEmail).not.toHaveBeenCalled();
   });
 
   it('busts the payments cache only when at least one order was confirmed', async () => {

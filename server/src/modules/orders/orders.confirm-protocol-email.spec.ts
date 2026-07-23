@@ -1,17 +1,15 @@
 import { OrdersService } from './orders.service';
 
 /**
- * OrdersService.updateStatus — gates the pending→confirmed transition on the
- * bilateral protocol email (Phase 2, §4.3 human/single confirm path). SAFETY
- * FLOOR: proves render+send happen BEFORE the status-flip write (call order),
- * and that a send failure blocks the flip entirely — the row is never touched
- * and the caller sees a loud error, per the plan's HARD REQUIREMENT (scoped to
- * this one path only — see confirmPending/markOrderPaid, which queue instead).
- * Mirrors the mocking style of orders.delivered-at.spec.ts.
+ * OrdersService.updateStatus — confirming is a PURE status flip (2026-07-23).
+ * The buyer's ONE email ("Получихме поръчката ти" + разписка PDF) already went
+ * out at placement (checkout) / payment (Stripe webhook), so the confirm
+ * transition must neither send nor gate on any mail. These tests pin that:
+ * no sendProtocolEmail, no confirmation mail, the row flips unconditionally,
+ * and the carrier auto-create side effect still fires.
  */
-function buildSvc(prevStatus: string | undefined, sendResult: unknown) {
+function buildSvc(prevStatus: string | undefined) {
   const rowAfterFlip = { id: 'o1', tenantId: 't1', status: 'confirmed' };
-  const callOrder: string[] = [];
 
   const selectChain: any = {};
   selectChain.from = jest.fn(() => selectChain);
@@ -21,23 +19,18 @@ function buildSvc(prevStatus: string | undefined, sendResult: unknown) {
   const updateChain: any = {};
   updateChain.set = jest.fn(() => updateChain);
   updateChain.where = jest.fn(() => updateChain);
-  updateChain.returning = jest.fn(() => {
-    callOrder.push('flip');
-    return Promise.resolve([rowAfterFlip]);
-  });
+  updateChain.returning = jest.fn(() => Promise.resolve([rowAfterFlip]));
 
   const db: any = {};
   db.select = jest.fn(() => selectChain);
   db.update = jest.fn(() => updateChain);
 
   const cache = { del: jest.fn().mockResolvedValue(undefined), get: jest.fn(), set: jest.fn() };
-  const orderEmail = { sendForOrder: jest.fn().mockResolvedValue(undefined) };
+  const orderEmail = { sendMoved: jest.fn().mockResolvedValue(undefined) };
   const carrierFulfillment = { autoCreateForOrder: jest.fn().mockResolvedValue(undefined) };
   const protocolEmail = {
-    sendProtocolEmail: jest.fn().mockImplementation(async () => {
-      callOrder.push('email');
-      return sendResult;
-    }),
+    sendProtocolEmail: jest.fn().mockResolvedValue({ ok: true }),
+    enqueueProtocolEmail: jest.fn().mockResolvedValue(undefined),
   };
 
   const svc = new OrdersService(
@@ -52,38 +45,38 @@ function buildSvc(prevStatus: string | undefined, sendResult: unknown) {
     undefined,
     protocolEmail as never,
   );
-  return { svc, db, protocolEmail, callOrder };
+  return { svc, db, protocolEmail, carrierFulfillment };
 }
 
-describe('OrdersService.updateStatus — confirm gates on the protocol email (§4.3 human path)', () => {
-  it('calls sendProtocolEmail BEFORE writing status=confirmed, and only writes it on success', async () => {
-    const { svc, protocolEmail, callOrder } = buildSvc('pending', { ok: true });
+describe('OrdersService.updateStatus — confirm is a pure status flip (no emails, 2026-07-23)', () => {
+  it('pending→confirmed flips the row WITHOUT any protocol/confirmation email', async () => {
+    const { svc, db, protocolEmail, carrierFulfillment } = buildSvc('pending');
 
-    await svc.updateStatus('o1', 't1', { status: 'confirmed' } as never);
+    const row = await svc.updateStatus('o1', 't1', { status: 'confirmed' } as never);
 
-    expect(callOrder).toEqual(['email', 'flip']);
-    expect(protocolEmail.sendProtocolEmail).toHaveBeenCalledWith('t1', 'o1');
+    expect(row).toEqual(expect.objectContaining({ status: 'confirmed' }));
+    expect(db.update).toHaveBeenCalled();
+    expect(protocolEmail.sendProtocolEmail).not.toHaveBeenCalled();
+    expect(protocolEmail.enqueueProtocolEmail).not.toHaveBeenCalled();
+    // The waybill side effect survives the email removal.
+    expect(carrierFulfillment.autoCreateForOrder).toHaveBeenCalledWith('o1');
   });
 
-  it('a failed send throws and the row is never flipped to confirmed', async () => {
-    const { svc, db } = buildSvc('pending', { ok: false, error: 'SMTP timeout' });
+  it('works identically with NO protocolEmail wired at all (@Optional)', async () => {
+    const { svc, db, protocolEmail } = buildSvc('pending');
+    // Simulate the un-wired case the @Optional() decorator allows.
+    (svc as any).protocolEmail = undefined;
 
-    await expect(svc.updateStatus('o1', 't1', { status: 'confirmed' } as never)).rejects.toThrow(
-      /SMTP timeout/,
-    );
-    expect(db.update).not.toHaveBeenCalled();
-  });
-
-  it('re-confirming an already-confirmed order does not re-gate on the email', async () => {
-    const { svc, protocolEmail } = buildSvc('confirmed', { ok: true });
-    await svc.updateStatus('o1', 't1', { status: 'confirmed' } as never);
+    await expect(svc.updateStatus('o1', 't1', { status: 'confirmed' } as never)).resolves.toBeDefined();
+    expect(db.update).toHaveBeenCalled();
     expect(protocolEmail.sendProtocolEmail).not.toHaveBeenCalled();
   });
 
-  it('a non-confirm transition (e.g. delivered) never calls sendProtocolEmail', async () => {
-    const { svc, protocolEmail } = buildSvc('confirmed', { ok: true });
+  it('a non-confirm transition (e.g. delivered) also never emails', async () => {
+    const { svc, protocolEmail } = buildSvc('confirmed');
     await svc.updateStatus('o1', 't1', { status: 'delivered' } as never);
     expect(protocolEmail.sendProtocolEmail).not.toHaveBeenCalled();
+    expect(protocolEmail.enqueueProtocolEmail).not.toHaveBeenCalled();
   });
 });
 

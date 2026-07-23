@@ -154,48 +154,17 @@ function serviceWithProtocolEmail(db: unknown, protocolEmail: any): OrdersServic
   );
 }
 
-describe('OrdersService.confirmPending — enqueues (never awaits) a protocol email per confirmed order', () => {
-  it('enqueues one job per confirmed order and reports 0 failed on success', async () => {
+describe('OrdersService.confirmPending — pure bulk flip, no emails (2026-07-23)', () => {
+  it('confirms every pending row and enqueues NOTHING — the buyer already got their one mail at placement', async () => {
     const { db } = buildDb([{ id: 'o1' }, { id: 'o2' }]);
-    const protocolEmail = { enqueueProtocolEmail: jest.fn().mockResolvedValue(undefined) };
+    const protocolEmail = { enqueueProtocolEmail: jest.fn(), sendProtocolEmail: jest.fn() };
     const svc = serviceWithProtocolEmail(db, protocolEmail);
 
     const out = await svc.confirmPending('tenant-1');
 
+    // `failed` survives in the response shape for API compatibility, pinned 0.
     expect(out).toEqual({ confirmed: 2, failed: 0 });
-    expect(protocolEmail.enqueueProtocolEmail).toHaveBeenCalledTimes(2);
-    expect(protocolEmail.enqueueProtocolEmail).toHaveBeenCalledWith('tenant-1', 'o1');
-    expect(protocolEmail.enqueueProtocolEmail).toHaveBeenCalledWith('tenant-1', 'o2');
-  });
-
-  it('a single enqueue failure is counted in `failed`, but BOTH orders stay confirmed', async () => {
-    const { db } = buildDb([{ id: 'o1' }, { id: 'o2' }]);
-    const protocolEmail = {
-      enqueueProtocolEmail: jest.fn()
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('Redis unreachable')),
-    };
-    const svc = serviceWithProtocolEmail(db, protocolEmail);
-
-    const out = await svc.confirmPending('tenant-1');
-
-    // The enqueue failure is NOT a reason to un-confirm an order — the bulk
-    // UPDATE already committed both rows to 'confirmed' before any enqueue was
-    // attempted. `failed` here means "email didn't even get queued", not
-    // "order didn't confirm".
-    expect(out).toEqual({ confirmed: 2, failed: 1 });
-  });
-
-  it('never calls sendProtocolEmail (the blocking helper) — only enqueueProtocolEmail', async () => {
-    const { db } = buildDb([{ id: 'o1' }]);
-    const protocolEmail = {
-      enqueueProtocolEmail: jest.fn().mockResolvedValue(undefined),
-      sendProtocolEmail: jest.fn(),
-    };
-    const svc = serviceWithProtocolEmail(db, protocolEmail);
-
-    await svc.confirmPending('tenant-1');
-
+    expect(protocolEmail.enqueueProtocolEmail).not.toHaveBeenCalled();
     expect(protocolEmail.sendProtocolEmail).not.toHaveBeenCalled();
   });
 });

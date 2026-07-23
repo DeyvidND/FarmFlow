@@ -52,7 +52,8 @@ function build(order: any, opts: { canCard?: boolean; speedy?: any; courierOrder
   };
   const econt = { estimateShipping: jest.fn().mockResolvedValue(null) };
   const speedy = opts.speedy ?? { searchSites: jest.fn().mockResolvedValue([]), estimateShipping: jest.fn().mockResolvedValue(null) };
-  const orderConfirmation = { sendReceived: jest.fn().mockResolvedValue(undefined) };
+  // The buyer's ONE mail (received + разписка PDF) is queued, not sent inline.
+  const protocolEmail = { enqueueProtocolEmail: jest.fn().mockResolvedValue(undefined) };
   const analytics = { recordPurchase: jest.fn().mockResolvedValue(undefined) };
   const svc = new CheckoutService(
     db as never,
@@ -60,11 +61,11 @@ function build(order: any, opts: { canCard?: boolean; speedy?: any; courierOrder
     stripe as never,
     econt as never,
     speedy as never,
-    orderConfirmation as never,
     cfg({ STOREFRONT_URL: 'https://shop' }) as never,
     analytics as never,
+    protocolEmail as never,
   );
-  return { svc, db, ordersService, stripe, econt, speedy, orderConfirmation, analytics };
+  return { svc, db, ordersService, stripe, econt, speedy, protocolEmail, analytics };
 }
 
 const dto = (over: Record<string, any> = {}) =>
@@ -270,7 +271,7 @@ describe('CheckoutService.create (courier split)', () => {
   ] as any[];
 
   it('delivery_type=courier → splits into N legs, no Stripe, no single-order intake, one purchase emit', async () => {
-    const { svc, db, ordersService, stripe, orderConfirmation, analytics } = build(
+    const { svc, db, ordersService, stripe, protocolEmail, analytics } = build(
       makeOrder(),
       { courierOrders: courierLegs },
     );
@@ -298,9 +299,9 @@ describe('CheckoutService.create (courier split)', () => {
     expect((ordersService as any).create).not.toHaveBeenCalled();
     // Stripe session must NOT have been opened.
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
-    // "Received" mail fired for each leg.
-    expect(orderConfirmation.sendReceived).toHaveBeenCalledWith('o1');
-    expect(orderConfirmation.sendReceived).toHaveBeenCalledWith('o2');
+    // The single received+разписка mail queued for each leg.
+    expect(protocolEmail.enqueueProtocolEmail).toHaveBeenCalledWith('tenant-1', 'o1');
+    expect(protocolEmail.enqueueProtocolEmail).toHaveBeenCalledWith('tenant-1', 'o2');
   });
 });
 

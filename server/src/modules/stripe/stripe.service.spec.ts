@@ -11,10 +11,9 @@ describe('StripeService (Stripe disabled)', () => {
   } as unknown as ConfigService;
   const billing = { handleBillingEvent: jest.fn() } as never;
   const econt = { autoCreateForOrder: jest.fn() } as never;
-  const orderEmail = { sendForOrder: jest.fn() } as never;
   const carrierFulfillment = { autoCreateForOrder: jest.fn() } as never;
   const analytics = { recordPurchase: jest.fn() } as never;
-  const svc = new StripeService({} as never, config, billing, econt, orderEmail, {
+  const svc = new StripeService({} as never, config, billing, econt, {
     del: jest.fn(),
   } as never, carrierFulfillment, analytics);
 
@@ -86,10 +85,9 @@ describe('StripeService webhook — cross-tenant order authorization', () => {
     const { db, calls } = makeDb(ordersResult);
     const billing = { handleBillingEvent: jest.fn() } as never;
     const econt = { autoCreateForOrder: jest.fn() } as never;
-    const orderEmail = { sendForOrder: jest.fn() } as never;
     const carrierFulfillment = { autoCreateForOrder: jest.fn() } as never;
     const analytics = { recordPurchase: jest.fn() };
-    const svc = new StripeService(db as never, config, billing, econt, orderEmail, {
+    const svc = new StripeService(db as never, config, billing, econt, {
       del: jest.fn(),
     } as never, carrierFulfillment, analytics as never);
     // The constructor leaves client=null with no secret key; inject a stub whose
@@ -186,10 +184,9 @@ describe('StripeService webhook — verifies against either configured secret', 
     };
     const billing = { handleBillingEvent: jest.fn() } as never;
     const econt = { autoCreateForOrder: jest.fn() } as never;
-    const orderEmail = { sendForOrder: jest.fn() } as never;
     const carrierFulfillment = { autoCreateForOrder: jest.fn() } as never;
     const analytics = { recordPurchase: jest.fn() } as never;
-    const svc = new StripeService(db as never, config, billing, econt, orderEmail, {
+    const svc = new StripeService(db as never, config, billing, econt, {
       del: jest.fn(),
     } as never, carrierFulfillment, analytics);
     const tried: string[] = [];
@@ -261,7 +258,6 @@ describe('StripeService webhook — checkout.session.expired frees the slot', ()
       config,
       { handleBillingEvent: jest.fn() } as never,
       { autoCreateForOrder: jest.fn() } as never,
-      { sendForOrder: jest.fn() } as never,
       { del: jest.fn() } as never,
       { autoCreateForOrder: jest.fn() } as never,
       { recordPurchase: jest.fn() } as never,
@@ -332,7 +328,6 @@ describe('StripeService webhook — full refund voids the commission accrual', (
       config,
       { handleBillingEvent: jest.fn() } as never,
       { autoCreateForOrder: jest.fn() } as never,
-      { sendForOrder: jest.fn() } as never,
       { del: jest.fn() } as never,
       { autoCreateForOrder: jest.fn() } as never,
       { recordPurchase: jest.fn() } as never,
@@ -429,7 +424,6 @@ describe('StripeService webhook — releases the idempotency claim when a handle
       config,
       { handleBillingEvent: jest.fn() } as never,
       { autoCreateForOrder: jest.fn() } as never,
-      { sendForOrder: jest.fn() } as never,
       { del: jest.fn() } as never,
       { autoCreateForOrder: jest.fn() } as never,
       { recordPurchase: jest.fn() } as never,
@@ -500,7 +494,6 @@ describe('StripeService.markOrderPaid — queues the protocol email, never block
     const { db, calls } = makeDb([{ id: 'victim-order', total: 1000 }], updateReturning);
     const billing = { handleBillingEvent: jest.fn() } as never;
     const econt = { autoCreateForOrder: jest.fn() } as never;
-    const orderEmail = { sendForOrder: jest.fn() } as never;
     const carrierFulfillment = { autoCreateForOrder: jest.fn() } as never;
     const analytics = { recordPurchase: jest.fn() } as never;
     const svc = new StripeService(
@@ -508,7 +501,6 @@ describe('StripeService.markOrderPaid — queues the protocol email, never block
       config,
       billing,
       econt,
-      orderEmail,
       { del: jest.fn() } as never,
       carrierFulfillment,
       analytics,

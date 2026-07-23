@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { HandoverModule } from '../handover/handover.module';
+import { OrderEmailModule } from '../order-email/order-email.module';
 import { OrderProtocolEmailService } from './order-protocol-email.service';
 import { OrderProtocolEmailProcessor } from './order-protocol-email.processor';
 import { HandoverProtocolAttachmentResolver } from './handover-protocol-attachment.resolver';
@@ -30,6 +31,10 @@ import { RUN_WORKERS } from '../../config/app-role';
     // Handover→Routing→Orders chain imports it back, so the cycle is gone and a
     // deferred forwardRef here is both unnecessary and a DI-resolution hazard.
     HandoverModule,
+    // Body renderer for the ONE buyer email (buildReceivedEmail). Import-safe:
+    // OrderEmailModule imports nothing itself (global DB + EmailService only),
+    // so it can't close a cycle back to this module.
+    OrderEmailModule,
     BullModule.registerQueue({
       name: PROTOCOL_EMAIL_QUEUE,
       defaultJobOptions: {

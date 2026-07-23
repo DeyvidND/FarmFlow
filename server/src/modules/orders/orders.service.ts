@@ -5,7 +5,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  ServiceUnavailableException,
   Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -1920,22 +1919,9 @@ export class OrdersService {
       .from(orders)
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)))
       .limit(1);
-    // Phase 2 (2026-07-22), §4.3 human/single confirm path: render + send the
-    // bilateral protocol email BEFORE the status write, and only proceed to
-    // flip on a genuine success (or a safe skip — no email on file / already
-    // sent). A send failure throws loudly here — the row is never touched, so
-    // the order stays `pending` and re-clicking confirm is the retry. This is
-    // the ONE path allowed to pay this latency (§4.3/§9.2); confirmPending and
-    // the Stripe webhook flip first and queue the email instead (never gate).
-    const enteringConfirmed = dto.status === 'confirmed' && prev?.status !== 'confirmed';
-    if (enteringConfirmed && this.protocolEmail) {
-      const result = await this.protocolEmail.sendProtocolEmail(tenantId, id);
-      if (!result.ok) {
-        throw new ServiceUnavailableException(
-          `Протоколът не можа да се изпрати: ${result.error}. Поръчката остава непотвърдена.`,
-        );
-      }
-    }
+    // 2026-07-23: confirming no longer emails the buyer — their ONE mail
+    // ("Получихме поръчката ти" + разписка PDF) already went out at placement
+    // (checkout) or payment (Stripe webhook). Confirm is a pure status flip.
     // Task #9/#10: delivered_at tracks the day the order was ACTUALLY delivered,
     // kept in lockstep with `status`. Set once on the first transition into
     // 'delivered' (idempotent — re-marking an already-delivered order must not
@@ -1956,7 +1942,6 @@ export class OrdersService {
       .returning();
     if (!row) throw new NotFoundException('Поръчката не е намерена');
     if (dto.status === 'confirmed' && prev?.status !== 'confirmed') {
-      void this.orderEmail.sendForOrder(id);
       // Idempotent dispatcher: routes to Speedy or Econt based on orders.carrier.
       // Only fires when the carrier has auto-create enabled. Covers COD/cash orders
       // (Econt/Speedy), which never reach the Stripe paid-webhook.
@@ -2293,30 +2278,17 @@ export class OrdersService {
       .where(whereClause)
       .returning({ id: orders.id });
 
-    // Fire the protocol-email job per confirmed order — enqueue only, never
-    // awaited SMTP (§9.2/§4.3). A rejection here means the JOB never made it
-    // onto the queue (infra failure); counted in `failed`, NOT a delivery
-    // outcome, and does not touch the row's already-committed 'confirmed'
-    // status.
-    let failed = 0;
-    await Promise.all(
-      rows.map(async (r) => {
-        try {
-          await this.protocolEmail?.enqueueProtocolEmail(tenantId, r.id);
-        } catch {
-          failed++;
-        }
-      }),
-    );
-
-    // Each row was pending → confirmed (one-time): notify each buyer + (for Econt
-    // orders on an auto-create farm) generate the waybill. Drained with a small
-    // concurrency cap (detached) so a large bulk confirm doesn't open N SMTP/Econt
-    // connections at once. Unrelated to the protocol email above (unchanged).
+    // 2026-07-23: no buyer email here — their ONE mail (received + разписка)
+    // went out at placement/payment. `failed` stays in the response shape for
+    // API compatibility but can no longer count anything.
+    // Each row was pending → confirmed (one-time): for Econt/Speedy orders on
+    // an auto-create farm, generate the waybill. Drained with a small
+    // concurrency cap (detached) so a large bulk confirm doesn't open N Econt
+    // connections at once.
     void this.drainConfirmEffects(rows.map((r) => r.id));
     // Newly-confirmed orders enter the counted set — refresh the Плащания cache.
     if (rows.length) await this.bustPayments(tenantId);
-    return { confirmed: rows.length, failed };
+    return { confirmed: rows.length, failed: 0 };
   }
 
   /**
@@ -2336,20 +2308,10 @@ export class OrdersService {
       .where(and(eq(orders.tenantId, tenantId), eq(orders.status, 'pending'), inArray(orders.id, ids)))
       .returning({ id: orders.id });
 
-    let failed = 0;
-    await Promise.all(
-      rows.map(async (r) => {
-        try {
-          await this.protocolEmail?.enqueueProtocolEmail(tenantId, r.id);
-        } catch {
-          failed++;
-        }
-      }),
-    );
-
+    // 2026-07-23: no buyer email here (see confirmPending) — waybills only.
     void this.drainConfirmEffects(rows.map((r) => r.id));
     if (rows.length) await this.bustPayments(tenantId);
-    return { confirmed: rows.length, failed, ids: rows.map((r) => r.id) };
+    return { confirmed: rows.length, failed: 0, ids: rows.map((r) => r.id) };
   }
 
   /** Run per-order post-confirm side effects with bounded concurrency. Detached
@@ -2360,11 +2322,6 @@ export class OrdersService {
     const worker = async () => {
       while (i < ids.length) {
         const id = ids[i++];
-        try {
-          await this.orderEmail.sendForOrder(id);
-        } catch {
-          /* email is best-effort */
-        }
         try {
           await this.carrierFulfillment.autoCreateForOrder(id);
         } catch {

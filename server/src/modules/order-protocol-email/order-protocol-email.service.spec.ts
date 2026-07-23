@@ -30,8 +30,18 @@ function buildDeps(orderRow: any, claimResult: any[] = [{ id: orderRow?.id }]) {
     renderPdfForEmail: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4 real bytes')),
   };
   const email = { sendMailNow: jest.fn().mockResolvedValue(undefined) };
+  // Body renderer for the buyer's ONE mail (2026-07-23) — the service spreads
+  // this into sendMailNow and adds the разписка attachment descriptor.
+  const orderConfirmation = {
+    buildReceivedEmail: jest.fn().mockResolvedValue({
+      to: 'buyer@x.bg',
+      subject: 'Получихме поръчката ти — Ферма',
+      html: '<p>Прилагаме разписка (PDF)</p>',
+      text: 'Получихме поръчката ти. Прилагаме разписка (PDF).',
+    }),
+  };
   const queue = { add: jest.fn().mockResolvedValue(undefined) };
-  return { db, handover, email, queue, updateCalls, updateChain };
+  return { db, handover, orderConfirmation, email, queue, updateCalls, updateChain };
 }
 
 describe('OrderProtocolEmailService.sendProtocolEmail', () => {
@@ -55,7 +65,7 @@ describe('OrderProtocolEmailService.sendProtocolEmail', () => {
   // through into the descriptor handed to `sendMailNow`.
   it('claims the row, then gets the draft protocol + sends BEFORE writing protocol_email_status=sent (order of operations)', async () => {
     const order = { id: 'o1', tenantId: 't1', customerEmail: 'buyer@x.bg', customerName: 'Иван', orderNumber: 42, protocolEmailStatus: null };
-    const { db, handover, email, queue } = buildDeps(order, [{ id: 'o1' }]);
+    const { db, handover, orderConfirmation, email, queue } = buildDeps(order, [{ id: 'o1' }]);
     const callOrder: string[] = [];
     db.update.mockImplementation(() => {
       const chain: any = {};
@@ -71,7 +81,7 @@ describe('OrderProtocolEmailService.sendProtocolEmail', () => {
     handover.ensureDraftTarget.mockImplementation(async () => { callOrder.push('draft'); return { id: 'protocol-1' }; });
     email.sendMailNow.mockImplementation(async () => { callOrder.push('send'); });
 
-    const svc = new OrderProtocolEmailService(db, handover as any, email as any, queue as any);
+    const svc = new OrderProtocolEmailService(db, handover as any, orderConfirmation as any, email as any, queue as any);
     const result = await svc.sendProtocolEmail('t1', 'o1');
 
     expect(result).toEqual({ ok: true });
@@ -79,17 +89,22 @@ describe('OrderProtocolEmailService.sendProtocolEmail', () => {
     expect(email.sendMailNow).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'buyer@x.bg',
+        // The ONE buyer mail: the full received-email body from
+        // OrderConfirmationService.buildReceivedEmail + the разписка PDF.
+        subject: 'Получихме поръчката ти — Ферма',
+        html: '<p>Прилагаме разписка (PDF)</p>',
         attachments: [{ kind: 'handover-protocol', protocolId: 'protocol-1', tenantId: 't1' }],
       }),
     );
+    expect(orderConfirmation.buildReceivedEmail).toHaveBeenCalledWith('o1');
   });
 
   it('passes a REAL (non-placeholder) protocolId descriptor to the mailer, sourced from ensureDraftTarget — not eagerly-rendered bytes', async () => {
     const order = { id: 'o1', tenantId: 't1', customerEmail: 'buyer@x.bg', customerName: 'Иван', orderNumber: 42, protocolEmailStatus: null };
-    const { db, handover, email, queue } = buildDeps(order, [{ id: 'o1' }]);
+    const { db, handover, orderConfirmation, email, queue } = buildDeps(order, [{ id: 'o1' }]);
     handover.ensureDraftTarget.mockResolvedValue({ id: 'protocol-XYZ-real' });
 
-    const svc = new OrderProtocolEmailService(db, handover as any, email as any, queue as any);
+    const svc = new OrderProtocolEmailService(db, handover as any, orderConfirmation as any, email as any, queue as any);
     await svc.sendProtocolEmail('t1', 'o1');
 
     expect(handover.ensureDraftTarget).toHaveBeenCalledWith(
@@ -108,10 +123,10 @@ describe('OrderProtocolEmailService.sendProtocolEmail', () => {
 
   it('a mailer failure leaves protocol_email_status=failed and does NOT write sent (claim precedes the failure write)', async () => {
     const order = { id: 'o1', tenantId: 't1', customerEmail: 'buyer@x.bg', customerName: 'Иван', orderNumber: 42, protocolEmailStatus: null };
-    const { db, handover, email, queue, updateCalls } = buildDeps(order, [{ id: 'o1' }]);
+    const { db, handover, orderConfirmation, email, queue, updateCalls } = buildDeps(order, [{ id: 'o1' }]);
     email.sendMailNow.mockRejectedValue(new Error('SMTP timeout'));
 
-    const svc = new OrderProtocolEmailService(db, handover as any, email as any, queue as any);
+    const svc = new OrderProtocolEmailService(db, handover as any, orderConfirmation as any, email as any, queue as any);
     const result = await svc.sendProtocolEmail('t1', 'o1');
 
     expect(result).toEqual({ ok: false, error: 'SMTP timeout' });
@@ -126,8 +141,8 @@ describe('OrderProtocolEmailService.sendProtocolEmail', () => {
 
   it('skips render+send and reports skipped when the order has no email on file (does not claim)', async () => {
     const order = { id: 'o1', tenantId: 't1', customerEmail: null, customerName: 'Иван', orderNumber: 42, protocolEmailStatus: null };
-    const { db, handover, email, queue } = buildDeps(order);
-    const svc = new OrderProtocolEmailService(db, handover as any, email as any, queue as any);
+    const { db, handover, orderConfirmation, email, queue } = buildDeps(order);
+    const svc = new OrderProtocolEmailService(db, handover as any, orderConfirmation as any, email as any, queue as any);
 
     const result = await svc.sendProtocolEmail('t1', 'o1');
 
@@ -139,8 +154,8 @@ describe('OrderProtocolEmailService.sendProtocolEmail', () => {
 
   it('idempotent: a second call after protocol_email_status=sent does not resend (fast-path skip, no claim)', async () => {
     const order = { id: 'o1', tenantId: 't1', customerEmail: 'buyer@x.bg', customerName: 'Иван', orderNumber: 42, protocolEmailStatus: 'sent' };
-    const { db, handover, email, queue } = buildDeps(order);
-    const svc = new OrderProtocolEmailService(db, handover as any, email as any, queue as any);
+    const { db, handover, orderConfirmation, email, queue } = buildDeps(order);
+    const svc = new OrderProtocolEmailService(db, handover as any, orderConfirmation as any, email as any, queue as any);
 
     const result = await svc.sendProtocolEmail('t1', 'o1');
 
@@ -163,9 +178,9 @@ describe('OrderProtocolEmailService.sendProtocolEmail', () => {
   // make this pass "by accident".
   it('dup-prevention: an empty claim (another worker/webhook already owns it) skips send entirely', async () => {
     const order = { id: 'o1', tenantId: 't1', customerEmail: 'buyer@x.bg', customerName: 'Иван', orderNumber: 42, protocolEmailStatus: null };
-    const { db, handover, email, queue } = buildDeps(order, []); // claim returns no rows
+    const { db, handover, orderConfirmation, email, queue } = buildDeps(order, []); // claim returns no rows
 
-    const svc = new OrderProtocolEmailService(db, handover as any, email as any, queue as any);
+    const svc = new OrderProtocolEmailService(db, handover as any, orderConfirmation as any, email as any, queue as any);
     const result = await svc.sendProtocolEmail('t1', 'o1');
 
     expect(result).toEqual({ ok: true, skipped: 'already-sent' });
@@ -178,9 +193,9 @@ describe('OrderProtocolEmailService.sendProtocolEmail', () => {
   // 'sent'`, is what makes NULL claimable at all) and must land on 'sent'.
   it('first send: protocol_email_status=NULL is claimable, sends, and the terminal write sets sent', async () => {
     const order = { id: 'o1', tenantId: 't1', customerEmail: 'buyer@x.bg', customerName: 'Иван', orderNumber: 42, protocolEmailStatus: null };
-    const { db, handover, email, queue, updateCalls } = buildDeps(order, [{ id: 'o1' }]);
+    const { db, handover, orderConfirmation, email, queue, updateCalls } = buildDeps(order, [{ id: 'o1' }]);
 
-    const svc = new OrderProtocolEmailService(db, handover as any, email as any, queue as any);
+    const svc = new OrderProtocolEmailService(db, handover as any, orderConfirmation as any, email as any, queue as any);
     const result = await svc.sendProtocolEmail('t1', 'o1');
 
     expect(result).toEqual({ ok: true });
@@ -197,8 +212,8 @@ describe('OrderProtocolEmailService.sendProtocolEmail', () => {
 describe('OrderProtocolEmailService.enqueueProtocolEmail', () => {
   it('adds a job to PROTOCOL_EMAIL_QUEUE with a stable per-order jobId and returns without touching email/handover at all', async () => {
     const order = { id: 'o1', tenantId: 't1', customerEmail: 'buyer@x.bg', customerName: 'Иван', orderNumber: 42, protocolEmailStatus: null };
-    const { db, handover, email, queue } = buildDeps(order);
-    const svc = new OrderProtocolEmailService(db, handover as any, email as any, queue as any);
+    const { db, handover, orderConfirmation, email, queue } = buildDeps(order);
+    const svc = new OrderProtocolEmailService(db, handover as any, orderConfirmation as any, email as any, queue as any);
 
     await svc.enqueueProtocolEmail('t1', 'o1');
 
