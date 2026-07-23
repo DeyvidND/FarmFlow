@@ -3,7 +3,7 @@ import { aggregateByProduct, aggregateByCourier, mergeOrderSlices } from './aggr
 import type { TomorrowOrder } from '@/lib/api-client';
 
 const mkOrder = (id: string, state: TomorrowOrder['fulfillmentState'], items: [string, number][]): TomorrowOrder => ({
-  id, orderNumber: null, customerName: null, customerPhone: null, customerEmail: null,
+  id, farmerId: null, orderNumber: null, customerName: null, customerPhone: null, customerEmail: null,
   deliveryType: 'pickup', day: '2026-07-15', slotFrom: null, slotTo: null,
   routeSeq: null, courierIndex: null, courierName: null,
   fulfillmentState: state,
