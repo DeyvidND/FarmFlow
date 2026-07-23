@@ -4,7 +4,7 @@ import { and, eq, desc, inArray, isNotNull, isNull, notInArray, sql } from 'driz
 import { type Database, tenants, shipments, orders } from '@fermeribg/db';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { jsonbDeepMerge } from '../../common/db/jsonb';
-import { PublicCacheService } from '../../common/cache/public-cache.service';
+import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
 import { buildKeysetPage, clampLimit, cursorTs, keysetAfter, KEYSET_TS } from '../../common/pagination/keyset';
 import { decodeCursor } from '../../common/pagination/cursor';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
@@ -178,7 +178,10 @@ export class SpeedyService implements CarrierAdapter {
       .update(tenants)
       .set({ settings: jsonbDeepMerge(tenants.settings, speedySettingsPath(farmerId), nextSpeedy) })
       .where(eq(tenants.id, tenantId));
-    await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`);
+    // Disconnecting flips courierReady in the public farmers payload — bust
+    // `farmers:` too, or the storefront keeps offering courier delivery for a
+    // farmer who can no longer produce labels (up to PUBLIC_CACHE_TTL).
+    await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`, publicCacheKeys.farmers(tenantId));
     // Disconnecting can only make prices WRONG going forward (no creds → no live
     // quote), but a still-warm 8h estimate cache would keep serving the old live
     // price until it naturally expires — bust it so the next quote falls back cleanly.
@@ -232,7 +235,9 @@ export class SpeedyService implements CarrierAdapter {
     // Connecting flips `configured: true`, which changes the cached TenantMeta
     // (speedyConfigured / comparisonActive) — bust `tenant:` too, else the storefront
     // hides the Speedy option for up to PUBLIC_CACHE_TTL. Mirrors disconnect().
-    await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`);
+    // It also flips courierReady in the public farmers payload (storefront badge +
+    // checkout courier eligibility) — bust `farmers:` for the same reason.
+    await this.cache.del(`speedy:sites:${tenant.slug}`, `tenant:${tenant.slug}`, publicCacheKeys.farmers(tenantId));
     // Switching demo↔prod (or the account itself) changes the live price too — a
     // still-warm 8h estimate cache would keep quoting the OLD account's price.
     await this.cache.delByPrefix(`speedy:estimate:${tenantId}:`);

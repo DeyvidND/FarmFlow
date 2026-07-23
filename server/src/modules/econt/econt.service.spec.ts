@@ -1216,6 +1216,14 @@ describe('EcontService.disconnect / saveCredentials — estimate cache bust', ()
     await svc.disconnect('tenant-1');
 
     expect(delByPrefix).toHaveBeenCalledWith('econt:estimate:tenant-1:');
+    // Disconnecting flips courierReady in the public farmers payload (storefront
+    // badge + checkout eligibility) — the farmers key must be busted too.
+    expect(del).toHaveBeenCalledWith(
+      'tenant:ferma-x',
+      'econt:offices:ferma-x',
+      'econt:cities:ferma-x',
+      'farmers:tenant-1',
+    );
   });
 
   it('saveCredentials busts the tenant-scoped estimate prefix on a successful reconnect', async () => {
@@ -1233,5 +1241,12 @@ describe('EcontService.disconnect / saveCredentials — estimate cache bust', ()
     await svc.saveCredentials('tenant-1', { username: 'u', password: 'p' });
 
     expect(delByPrefix).toHaveBeenCalledWith('econt:estimate:tenant-1:');
+    // Connecting flips courierReady in the public farmers payload — same deal.
+    expect(del).toHaveBeenCalledWith(
+      'tenant:ferma-x',
+      'econt:offices:ferma-x',
+      'econt:cities:ferma-x',
+      'farmers:tenant-1',
+    );
   });
 });

@@ -310,11 +310,14 @@ export class EcontService implements CarrierAdapter {
     // office/city lists wrong — a stale demo office code can fail prod label
     // creation. The storefront picker (`offices`) + admin city autocomplete
     // (`cities`) repopulate on next read. (Per-city office lists are admin-only and
-    // ride their 24h TTL.)
+    // ride their 24h TTL.) Connecting also flips courierReady in the public farmers
+    // payload (storefront „Доставка с куриер" badge + checkout courier eligibility)
+    // — bust `farmers:` too, else it stays stale up to PUBLIC_CACHE_TTL.
     await this.cache.del(
       publicCacheKeys.tenant(tenant.slug),
       `econt:offices:${tenant.slug}`,
       `econt:cities:${tenant.slug}`,
+      publicCacheKeys.farmers(tenantId),
     );
     // Switching demo↔prod (or the account itself) changes the live price too — a
     // still-warm 8h estimate cache would keep quoting the OLD account's price.
@@ -657,10 +660,14 @@ export class EcontService implements CarrierAdapter {
       .update(tenants)
       .set({ settings: jsonbDeepMerge(tenants.settings, econtSettingsPath(farmerId), nextEcont) })
       .where(eq(tenants.id, tenantId));
+    // Disconnecting flips courierReady in the public farmers payload — bust
+    // `farmers:` too, or the storefront keeps offering courier delivery for a
+    // farmer who can no longer produce labels (up to PUBLIC_CACHE_TTL).
     await this.cache.del(
       publicCacheKeys.tenant(tenant.slug),
       `econt:offices:${tenant.slug}`,
       `econt:cities:${tenant.slug}`,
+      publicCacheKeys.farmers(tenantId),
     );
     // Disconnecting can only make prices WRONG going forward (no creds → no live
     // quote), but a still-warm 8h estimate cache would keep serving the old live
