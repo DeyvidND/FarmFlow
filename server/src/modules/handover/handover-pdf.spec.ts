@@ -173,6 +173,30 @@ describe('renderProtocolPdf preliminary notice (Phase 2)', () => {
   });
 });
 
+describe('renderProtocolPdf issuing brand (opts.brand)', () => {
+  // The letterhead/footer brand must be the TENANT's display name when the
+  // service passes it — an individual operator's PERSONAL name frozen in the
+  // party snapshot must never become „издаден електронно от <person>".
+  it('opts.brand overrides the operator-snapshot name in the footer', async () => {
+    const spy = jest.spyOn(PDFPage.prototype, 'drawText');
+    await renderProtocolPdf(
+      { ...ROW, toSnapshot: { name: 'Дейвид Дончев' } } as any,
+      { brand: 'Фермерски пазари' },
+    );
+    const texts = spy.mock.calls.map(([t]) => t as string);
+    expect(texts).toContain('Документът е издаден електронно от Фермерски пазари.');
+    expect(texts.some((t) => typeof t === 'string' && t.includes('издаден електронно от Дейвид'))).toBe(false);
+    spy.mockRestore();
+  });
+
+  it('without opts.brand the legacy snapshot fallback still applies', async () => {
+    const spy = jest.spyOn(PDFPage.prototype, 'drawText');
+    await renderProtocolPdf({ ...ROW, toSnapshot: { name: 'Оператор ООД' } } as any);
+    expect(spy.mock.calls.map(([t]) => t)).toContain('Документът е издаден електронно от Оператор ООД.');
+    spy.mockRestore();
+  });
+});
+
 describe('renderProtocolPdf — overflow (regression)', () => {
   const bigRow = (n: number) => ({
     ...ROW,

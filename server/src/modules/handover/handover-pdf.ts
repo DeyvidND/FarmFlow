@@ -130,12 +130,18 @@ export function composeProtocol(row: any): ProtocolText {
 
 export async function renderProtocolPdf(
   row: any,
-  opts?: { preliminaryNotice?: boolean },
+  opts?: { preliminaryNotice?: boolean; brand?: string },
 ): Promise<Buffer> {
   const d = await createDoc(A4_PORTRAIT);
   const t = composeProtocol(row);
+  // The issuing brand (letterhead + „издаден електронно от" footer) is the
+  // TENANT's display name, passed in by the service. The old fallback derived
+  // it from the operator party snapshot — which, for an individual operator,
+  // stamped a PERSON's name as the issuing platform on every document
+  // (Vasil: „на документите още пише Дейвид Дончев"). The snapshot fallback
+  // remains only for legacy callers that pass no brand.
   const operatorSnap = row.kind === 'operator_to_customer' ? row.fromSnapshot : row.toSnapshot;
-  const brand = String(operatorSnap?.name ?? 'ФермериБГ');
+  const brand = opts?.brand?.trim() || String(operatorSnap?.name ?? 'ФермериБГ');
 
   drawDocumentHeader(d, {
     brand,

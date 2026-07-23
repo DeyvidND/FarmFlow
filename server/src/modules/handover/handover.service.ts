@@ -1408,10 +1408,22 @@ export class HandoverService {
     };
   }
 
+  /** Tenant display name for PDF branding — the letterhead and the „издаден
+   *  електронно от" footer must show the marketplace brand, never the operator
+   *  party's legal (possibly personal) name frozen in a row snapshot. */
+  private async tenantBrand(tenantId: string): Promise<string> {
+    const [t] = await this.db
+      .select({ name: tenants.name })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    return t?.name?.trim() || 'ФермериБГ';
+  }
+
   /** Renders a single protocol (tenant-scoped) to a PDF buffer. */
   async renderPdf(tenantId: string, id: string): Promise<Buffer> {
     const row = await this.getById(tenantId, id);
-    return renderProtocolPdf(row);
+    return renderProtocolPdf(row, { brand: await this.tenantBrand(tenantId) });
   }
 
   /**
@@ -1426,7 +1438,7 @@ export class HandoverService {
    */
   async renderPdfForEmail(tenantId: string, id: string): Promise<Buffer> {
     const row = await this.getById(tenantId, id);
-    return renderProtocolPdf(row, { preliminaryNotice: true });
+    return renderProtocolPdf(row, { preliminaryNotice: true, brand: await this.tenantBrand(tenantId) });
   }
 
   /** Renders a single target's protocol to PDF on the fly WITHOUT persisting it —
@@ -1434,19 +1446,22 @@ export class HandoverService {
    *  protocol number is assigned (it's not a saved document yet). */
   async renderPreviewPdf(tenantId: string, q: DraftQueryDto): Promise<Buffer> {
     const draft = await this.buildDraft(tenantId, q);
-    return renderProtocolPdf({
-      kind: draft.kind,
-      protocolNumber: null,
-      createdAt: new Date(),
-      signedAt: null,
-      fromSnapshot: draft.from,
-      toSnapshot: draft.to,
-      items: draft.items,
-      totalStotinki: draft.total,
-      meta: { orderNumbers: draft.orderNumbers },
-      fromSignaturePng: null,
-      toSignaturePng: null,
-    });
+    return renderProtocolPdf(
+      {
+        kind: draft.kind,
+        protocolNumber: null,
+        createdAt: new Date(),
+        signedAt: null,
+        fromSnapshot: draft.from,
+        toSnapshot: draft.to,
+        items: draft.items,
+        totalStotinki: draft.total,
+        meta: { orderNumbers: draft.orderNumbers },
+        fromSignaturePng: null,
+        toSignaturePng: null,
+      },
+      { brand: await this.tenantBrand(tenantId) },
+    );
   }
 
   /** Renders every protocol matching the slot/date (via `list`) to PDF and
@@ -1457,7 +1472,8 @@ export class HandoverService {
     if (rows.length === 0) {
       throw new BadRequestException('Няма протоколи за тази дата.');
     }
-    const pdfs = await Promise.all(rows.map((row) => renderProtocolPdf(row)));
+    const brand = await this.tenantBrand(tenantId); // once, not per row
+    const pdfs = await Promise.all(rows.map((row) => renderProtocolPdf(row, { brand })));
     return mergePdfs(pdfs);
   }
 
