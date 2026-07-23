@@ -1,4 +1,4 @@
-<!-- last-verified: 2026-07-14 | invariants: files=server/src/main.ts,server/src/app.module.ts; server.modules=50 -->
+<!-- last-verified: 2026-07-23 | invariants: files=server/src/main.ts,server/src/app.module.ts; server.modules=52 -->
 
 # server — `@fermeribg/api` (NestJS)
 
@@ -23,7 +23,7 @@ Dev DB runs on port **5433** (see repo root `docker-compose.yml`).
 
 ## Layout
 
-- `src/modules/*` — one folder per domain (50 `*.module.ts` total). Each is a
+- `src/modules/*` — one folder per domain (52 `*.module.ts` total under `src/`). Each is a
   standard Nest module (`*.module.ts` / `*.controller.ts` / `*.service.ts` / `dto/`).
 - `src/common/` — cross-cutting guards, interceptors, decorators, pipes.
 - `src/config/` — config/env wiring.
@@ -37,7 +37,7 @@ Dev DB runs on port **5433** (see repo root `docker-compose.yml`).
 | Delivery/logistics | `routing`, `handover`, `econt`, `econt-app`, `speedy`, `cod-risk` |
 | Tenancy/identity | `tenants`, `farmers`, `auth`, `platform` |
 | Money | `billing`, `stripe`, `vendor-finance` |
-| Comms | `order-email`, `newsletter`, `digest`, `sms-reminder`, `help` |
+| Comms | `order-email`, `order-protocol-email`, `newsletter`, `digest`, `sms-reminder`, `help` |
 | Ops/AI | `ai-import`, `import`, `intake`, `image-queue`, `storage`, `analytics`, `stats`, `dashboard`, `demo-request`, `articles`, `public-bootstrap` |
 
 ## Conventions

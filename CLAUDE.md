@@ -1,4 +1,4 @@
-<!-- last-verified: 2026-07-14 | invariants: apps=server,client,admin,delivery-web; server.modules=50; files=server/src/main.ts,packages/db/src/schema.ts,ARCHITECTURE.md -->
+<!-- last-verified: 2026-07-23 | invariants: apps=server,client,admin,delivery-web; server.modules=52; files=server/src/main.ts,packages/db/src/schema.ts,ARCHITECTURE.md -->
 
 # FarmFlow / ФермериБГ
 
@@ -17,7 +17,7 @@ pnpm@9.12 + turbo. Node ≥20. Workspace: `server`, `client`, `admin`, `delivery
 
 | Dir | Package | Stack | Role | Docs |
 |-----|---------|-------|------|------|
-| `server` | `@fermeribg/api` | NestJS | Backend API (50 modules) | [server/CLAUDE.md](server/CLAUDE.md) |
+| `server` | `@fermeribg/api` | NestJS | Backend API (52 modules) | [server/CLAUDE.md](server/CLAUDE.md) |
 | `client` | `@fermeribg/web` | Next.js | **Farmer/operator panel** (main) | [client/CLAUDE.md](client/CLAUDE.md) |
 | `admin` | `@fermeribg/admin` | Next.js | Super-admin console | [admin/CLAUDE.md](admin/CLAUDE.md) |
 | `delivery-web` | `@fermeribg/delivery-web` | Next.js | Dostavki courier app | [delivery-web/CLAUDE.md](delivery-web/CLAUDE.md) |
