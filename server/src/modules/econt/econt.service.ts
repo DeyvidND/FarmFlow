@@ -17,7 +17,7 @@ import { buildKeysetPage, clampLimit, cursorTs, keysetAfter, KEYSET_TS } from '.
 import { decodeCursor } from '../../common/pagination/cursor';
 import { encryptSecret, decryptSecret } from '../../common/crypto/secret.util';
 import { deriveSenderFromFarm } from './econt.sender';
-import { isEcontLabelUrl } from './econt-label-url';
+import { normalizeEcontLabelUrl } from './econt-label-url';
 import {
   type EcontStored,
   type InspectMode,
@@ -1202,13 +1202,14 @@ export class EcontService implements CarrierAdapter {
 
   /** GET an Econt-hosted label PDF using already-resolved Basic credentials. */
   private async fetchLabelPdf(c: ResolvedCreds, url: string): Promise<Buffer> {
-    if (!isEcontLabelUrl(url)) {
+    const labelUrl = normalizeEcontLabelUrl(url);
+    if (!labelUrl) {
       throw new BadRequestException('Невалиден адрес на товарителница');
     }
     const auth = Buffer.from(`${c.username}:${c.password}`).toString('base64');
     let res: Awaited<ReturnType<typeof fetch>>;
     try {
-      res = await fetch(url, {
+      res = await fetch(labelUrl, {
         headers: { Authorization: `Basic ${auth}` },
         signal: AbortSignal.timeout(15000),
       });
