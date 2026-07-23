@@ -538,6 +538,7 @@ export function ProductsClient({
           subcats={subcats}
           multiFarmer={multiFarmer}
           multiSubcat={multiSubcat}
+          isFarmerAccount={isFarmer}
           onOpenCourierSettings={() => setCourierOpen(true)}
           onClose={() => setCreateOpen(false)}
           onSubmit={onCreate}
@@ -566,6 +567,7 @@ export function ProductsClient({
           subcats={subcats}
           multiFarmer={multiFarmer}
           multiSubcat={multiSubcat}
+          isFarmerAccount={isFarmer}
           onOpenCourierSettings={() => setCourierOpen(true)}
           onClose={() => setFullEdit(null)}
           onSubmit={onFullUpdate}

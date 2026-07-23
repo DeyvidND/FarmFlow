@@ -31,6 +31,14 @@ export function CourierSettingsModal({
   const [farmerFilter, setFarmerFilter] = useState<string>('all');
 
   const farmerName = useMemo(() => new Map(farmers.map((f) => [f.id, f.name])), [farmers]);
+  // Farmers without a connected Econt/Speedy account: their products' toggles are
+  // locked (shown off, inert) and excluded from save — stored values stay untouched
+  // so nothing needs re-enabling once the farmer connects a real account.
+  const lockedFarmerIds = useMemo(
+    () => new Set(farmers.filter((f) => f.courierReady === false).map((f) => f.id)),
+    [farmers],
+  );
+  const isLocked = (p: ProductOption) => !!p.farmerId && lockedFarmerIds.has(p.farmerId);
 
   useEffect(() => {
     if (!open) return;
@@ -58,9 +66,9 @@ export function CourierSettingsModal({
     });
 
   async function save() {
-    // compare courierDisabled (inverted back)
+    // compare courierDisabled (inverted back); locked farmers' products never save
     const updates = prods
-      .filter((p) => state.get(p.id) !== originalRef.current.get(p.id))
+      .filter((p) => !isLocked(p) && state.get(p.id) !== originalRef.current.get(p.id))
       .map((p) => ({ id: p.id, courierDisabled: !state.get(p.id) }));
     if (!updates.length) { onClose(); return; }
     setSaving(true);
@@ -87,8 +95,9 @@ export function CourierSettingsModal({
     return farmers.filter((f) => ids.has(f.id));
   }, [prods, farmers]);
 
-  const changedCount = prods.filter((p) => state.get(p.id) !== originalRef.current.get(p.id)).length;
-  const blockedCount = prods.filter((p) => state.get(p.id) === false).length;
+  const changedCount = prods.filter((p) => !isLocked(p) && state.get(p.id) !== originalRef.current.get(p.id)).length;
+  // Locked farmers' products count as "без куриер" in the header — that IS their effective state.
+  const blockedCount = prods.filter((p) => isLocked(p) || state.get(p.id) === false).length;
   const enabledCount = prods.length - blockedCount;
 
   if (!open) return null;
@@ -129,6 +138,18 @@ export function CourierSettingsModal({
           </p>
         </div>
 
+        {/* Locked farmers (no connected carrier account) — their rows below are inert. */}
+        {activeFarmers.some((f) => lockedFarmerIds.has(f.id)) && (
+          <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-5 py-3">
+            <p className="text-xs leading-relaxed text-amber-800">
+              <span className="font-semibold">🔒 Без свързан Еконт/Спиди акаунт:</span>{' '}
+              {activeFarmers.filter((f) => lockedFarmerIds.has(f.id)).map((f) => f.name).join(', ')}.
+              {' '}Докато не свържат реален акаунт, продуктите им не могат да бъдат добавяни към
+              товарителница и куриерът им е заключен.
+            </p>
+          </div>
+        )}
+
         {/* Farmer filter */}
         {multiFarmer && activeFarmers.length > 1 && (
           <div className="shrink-0 border-b border-ff-border px-5 py-2.5">
@@ -156,14 +177,15 @@ export function CourierSettingsModal({
           ) : (
             <ul className="divide-y divide-ff-border">
               {displayed.map((p) => {
-                const enabled = state.get(p.id) ?? true;
-                const changed = state.get(p.id) !== originalRef.current.get(p.id);
+                const locked = isLocked(p);
+                const enabled = !locked && (state.get(p.id) ?? true);
+                const changed = !locked && state.get(p.id) !== originalRef.current.get(p.id);
                 return (
                   <li
                     key={p.id}
                     className={`flex items-center gap-3 px-5 py-3 transition-colors ${
                       changed ? 'bg-blue-50/60' : ''
-                    }`}
+                    } ${locked ? 'opacity-60' : ''}`}
                   >
                     {/* Status icon */}
                     <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${
@@ -180,7 +202,9 @@ export function CourierSettingsModal({
                       {multiFarmer && p.farmerId && (
                         <p className="truncate text-xs text-ff-muted">{farmerName.get(p.farmerId) ?? '—'}</p>
                       )}
-                      {!enabled && (
+                      {locked ? (
+                        <p className="text-[11px] font-medium text-amber-700 mt-0.5">🔒 Фермерът няма свързан куриерски акаунт</p>
+                      ) : !enabled && (
                         <p className="text-[11px] text-ff-muted font-medium mt-0.5">Без куриер · лична / местна доставка</p>
                       )}
                     </div>
@@ -192,16 +216,23 @@ export function CourierSettingsModal({
                       </span>
                     )}
 
-                    {/* Toggle — ON = с куриер (green), OFF = без куриер (gray). */}
+                    {/* Toggle — ON = с куриер (green), OFF = без куриер (gray).
+                        Locked → inert, shown off. */}
                     <button
                       type="button"
                       role="switch"
                       aria-checked={enabled}
-                      onClick={() => toggle(p.id)}
-                      title={enabled ? 'С куриер — кликни за блокиране' : 'Само на място — кликни за включване с куриер'}
+                      aria-disabled={locked}
+                      disabled={locked}
+                      onClick={() => { if (!locked) toggle(p.id); }}
+                      title={
+                        locked
+                          ? 'Заключено — фермерът няма свързан Еконт/Спиди акаунт'
+                          : enabled ? 'С куриер — кликни за блокиране' : 'Само на място — кликни за включване с куриер'
+                      }
                       className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
                         enabled ? 'bg-green-500' : 'bg-ff-border-2'
-                      }`}
+                      } ${locked ? 'cursor-not-allowed' : ''}`}
                     >
                       <span
                         className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${

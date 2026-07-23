@@ -197,6 +197,11 @@ export interface Farmer {
   /** When the pin was last (re)geocoded — operator-only, used only to decide the
    *  "Автоматично от адреса" status line; never sent to the storefront. */
   geocodedAt?: string | null;
+  /** Carrier readiness: the farmer has a real Econt/Speedy account connected.
+   *  false → the products screens lock the „Доставка с куриер" toggle (their
+   *  products can't go on a waybill). Optional: older cached responses may lack
+   *  it — treat missing as ready (server backstops still reject at order time). */
+  courierReady?: boolean;
 }
 
 export interface FarmerAccess {

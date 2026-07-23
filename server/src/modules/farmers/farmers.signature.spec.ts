@@ -151,6 +151,7 @@ describe('FarmersService general CRUD path never leaks the signature blob', () =
   it('findAll strips signaturePng from every row in the list', async () => {
     const db = makeDb();
     db.queue([ROW, { ...ROW, id: 'farmer-2', signaturePng: 'other-ciphertext' }]);
+    db.queue([{ settings: {} }]); // findAll's follow-up tenant-settings read (courierReady)
     const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any, { enabled: false } as any);
 
     const out = await svc.findAll(TENANT);

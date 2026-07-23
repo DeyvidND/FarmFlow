@@ -75,7 +75,10 @@ export class FarmersService {
 
   /** Farmers for the tenant, ordered by display position then age. `scope` (a
    *  producer's own id) narrows the list to that single farmer; null = all. */
-  async findAll(tenantId: string, scope: string | null = null): Promise<FarmerRow[]> {
+  async findAll(
+    tenantId: string,
+    scope: string | null = null,
+  ): Promise<Array<FarmerRow & { courierReady: boolean }>> {
     const rows = await this.db
       .select()
       .from(farmers)
@@ -85,7 +88,20 @@ export class FarmersService {
           : eq(farmers.tenantId, tenantId),
       )
       .orderBy(asc(farmers.position), asc(farmers.createdAt));
-    return rows.map((r) => this.stripSignature(r));
+    // Carrier readiness (Econt/Speedy configured in the farmer's settings
+    // sub-namespace) — the products screens lock the „Доставка с куриер" toggle
+    // for farmers without a connected account, so the panel list must carry it
+    // (same computation the public projection uses further down).
+    const [tenantRow] = await this.db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const settings = tenantRow?.settings ?? {};
+    return rows.map((r) => ({
+      ...this.stripSignature(r),
+      courierReady: farmerCourierReady(farmerDeliveryNamespace(settings, r.id)),
+    }));
   }
 
   /** Persist a new display order for the tenant's farmers. Tenant-scoped, one

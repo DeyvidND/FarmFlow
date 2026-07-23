@@ -118,12 +118,14 @@ describe('FarmersService public payload', () => {
       commissionRateBps: 500, subscriptionFeeStotinki: 1200,
     };
     db.queue([row]);
+    db.queue([{ settings: {} }]); // findAll's follow-up tenant-settings read (courierReady)
 
     const svc = new FarmersService(db as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
 
     const out = await svc.findAll(TENANT);
 
-    expect(out).toEqual([row]);
+    // The finance fields survive untouched; courierReady is the panel's carrier-lock stamp.
+    expect(out).toEqual([{ ...row, courierReady: false }]);
     expect(out[0]).toHaveProperty('commissionRateBps', 500);
     expect(out[0]).toHaveProperty('subscriptionFeeStotinki', 1200);
   });

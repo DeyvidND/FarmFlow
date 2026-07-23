@@ -45,6 +45,7 @@ export function ProductDialog({
   multiSubcat,
   basketMode,
   onOpenCourierSettings,
+  isFarmerAccount,
   onClose,
   onSubmit,
   onCoverChange,
@@ -60,6 +61,10 @@ export function ProductDialog({
   basketMode?: boolean;
   /** Lets the farmer jump straight to the bulk "Куриер" editor instead of toggling one product at a time. */
   onOpenCourierSettings?: () => void;
+  /** The dialog is being used by a producer sub-account (role='farmer') — the
+   *  courier-lock message then speaks to THEM („свържи си акаунта") instead of
+   *  about a third-party farmer. */
+  isFarmerAccount?: boolean;
   onClose: () => void;
   /** `members` is only ever passed for a NEW basket (`basketMode`, no `product`
    *  yet): the products picked before the basket had an id, to be attached via
@@ -92,6 +97,15 @@ export function ProductDialog({
   // product with category==='bundle'. Persisted immediately per add/remove (full
   // replace), independent of the main product save.
   const isBundle = basketMode || product?.category === 'bundle';
+  // Courier LOCK: the product's farmer has no real Econt/Speedy account connected
+  // (`courierReady === false` from GET /farmers) — the toggle is shown off and
+  // disabled, and `courierDisabled` is OMITTED from the payload (stored value
+  // untouched, so nothing to re-enable product-by-product once they connect).
+  // `undefined` courierReady (stale cache) fails OPEN — order-time backstops
+  // still reject unready farmers. Bundles have no courier setting at all.
+  const lockFarmerId = multiFarmer || isFarmerAccount ? farmerId : (product?.farmerId ?? '');
+  const courierLocked =
+    !isBundle && !!lockFarmerId && farmers.find((f) => f.id === lockFarmerId)?.courierReady === false;
   const [bundleItems, setBundleItemsState] = useState<BundleMember[]>([]);
   const [bundleOptions, setBundleOptions] = useState<ProductOption[]>([]);
   const [bundleLoading, setBundleLoading] = useState(false);
@@ -384,7 +398,9 @@ export function ProductDialog({
           saleEndsAt: promoEnd,
           salePriceStotinki: productSalePriceStotinki,
           variants: variantPayload,
-          courierDisabled: !courierEnabled,
+          // Locked (farmer without a connected carrier account) → omit: keep the
+          // stored value untouched so their prior choices survive the connect.
+          ...(courierLocked ? {} : { courierDisabled: !courierEnabled }),
           requiresCompanion,
           companionMinPriceStotinki: requiresCompanion ? euroInputToStotinki(companionMinPrice) : null,
           ...(isEdit ? { coverCrop } : { isActive: true }),
@@ -752,52 +768,73 @@ export function ProductDialog({
               lie about a product that has no courier setting of its own. */}
           {!isBundle && (
             <>
-              {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only. */}
+              {/* Courier toggle — ON (green) = ships by courier, OFF = local/pickup only.
+                  courierLocked (farmer without a carrier account) → rendered OFF and
+                  inert; the message below explains why. */}
               <button
                 type="button"
                 role="switch"
-                aria-checked={courierEnabled}
-                onClick={() => setCourierEnabled((v) => !v)}
+                aria-checked={courierLocked ? false : courierEnabled}
+                aria-disabled={courierLocked}
+                disabled={courierLocked}
+                onClick={() => { if (!courierLocked) setCourierEnabled((v) => !v); }}
                 className={`flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
-                  courierEnabled
-                    ? 'border-green-200 bg-green-50'
-                    : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
+                  courierLocked
+                    ? 'cursor-not-allowed border-ff-border bg-ff-surface-2 opacity-60'
+                    : courierEnabled
+                      ? 'border-green-200 bg-green-50'
+                      : 'border-ff-border bg-ff-surface-2 hover:border-ff-border-2'
                 }`}
               >
                 <span
                   className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition ${
-                    courierEnabled ? 'bg-green-100 text-green-700' : 'bg-ff-surface text-ff-muted'
+                    !courierLocked && courierEnabled ? 'bg-green-100 text-green-700' : 'bg-ff-surface text-ff-muted'
                   }`}
                 >
-                  {courierEnabled ? <PackageCheck size={18} /> : <PackageX size={18} />}
+                  {!courierLocked && courierEnabled ? <PackageCheck size={18} /> : <PackageX size={18} />}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="text-[13.5px] font-bold text-ff-ink">
-                    {courierEnabled ? 'С куриер' : 'Без куриер'}
+                    {courierLocked ? 'Куриер — заключен' : courierEnabled ? 'С куриер' : 'Без куриер'}
                   </span>
                   <span className="text-[12px] leading-snug text-ff-muted">
-                    {courierEnabled
-                      ? 'Продуктът може да се изпраща с Еконт или Спиди.'
-                      : 'Без куриер — лична доставка, вземане от място или местна доставка до адрес.'}
+                    {courierLocked
+                      ? 'Фермерът няма свързан Еконт/Спиди акаунт.'
+                      : courierEnabled
+                        ? 'Продуктът може да се изпраща с Еконт или Спиди.'
+                        : 'Без куриер — лична доставка, вземане от място или местна доставка до адрес.'}
                   </span>
                 </span>
                 <span
                   className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition ${
-                    courierEnabled ? 'bg-green-500' : 'bg-ff-border-2'
+                    !courierLocked && courierEnabled ? 'bg-green-500' : 'bg-ff-border-2'
                   }`}
                 >
                   <span
                     className={`absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all ${
-                      courierEnabled ? 'left-[19px]' : 'left-[3px]'
+                      !courierLocked && courierEnabled ? 'left-[19px]' : 'left-[3px]'
                     }`}
                   />
                 </span>
               </button>
 
+              {/* Courier lock explainer — who has to do what before the checkbox opens. */}
+              {courierLocked && (
+                <p className="-mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-snug text-amber-800">
+                  {isFarmerAccount
+                    ? 'Свържи реален Еконт или Спиди акаунт от приложението Доставки, за да изпращаш продуктите си с куриер. Дотогава те не могат да бъдат добавяни към товарителница.'
+                    : 'Докато фермерът не свърже реален Еконт/Спиди акаунт, продуктите му не могат да бъдат добавяни към товарителница.'}
+                </p>
+              )}
+
               {/* Explicit shippability line (task #11) — same signal as the toggle above,
                   spelled out unambiguously for the farmer. */}
               <p className="-mt-1 pl-1 text-[12px] font-semibold text-ff-ink-2">
-                {courierEnabled ? '📦 Може по Еконт/куриер' : '🚫 Само вземане/местна доставка (не се праща по куриер)'}
+                {courierLocked
+                  ? '🔒 Не може към товарителница (няма свързан куриерски акаунт)'
+                  : courierEnabled
+                    ? '📦 Може по Еконт/куриер'
+                    : '🚫 Само вземане/местна доставка (не се праща по куриер)'}
               </p>
 
               {onOpenCourierSettings && (
