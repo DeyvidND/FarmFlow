@@ -120,6 +120,21 @@ export interface ConsolidatedFieldOverride {
 }
 
 /**
+ * A reusable transport (vehicle + driver) the operator saved once and picks
+ * from on every consolidated protocol's В.Транспорт form instead of retyping
+ * it. Identity fields only — start/end times are per-day (carried/derived by
+ * the draft prefill, not part of the preset). Stored as a plain list at
+ * `tenants.settings.transportPresets`.
+ */
+export interface TransportPreset {
+  id: string;
+  vehicle?: string;
+  plate?: string;
+  driverName?: string;
+  startPlace?: string;
+}
+
+/**
  * The `overrides` jsonb layer on `consolidated_protocols` (spec §1.4). Applied
  * on top of the live-computed rows while `status='draft'`; folded into
  * `frozen_rows` at sign time and never consulted again after that.

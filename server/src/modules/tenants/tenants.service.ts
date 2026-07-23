@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { type Database, tenants, products } from '@fermeribg/db';
 import { jsonbDeepMerge } from '../../common/db/jsonb';
-import type { PublicTenant, Tenant, LegalIdentity, TenantRole } from '@fermeribg/types';
+import type { PublicTenant, Tenant, LegalIdentity, TenantRole, TransportPreset } from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { MapsService } from '../../common/maps/maps.service';
 import { PublicCacheService, publicCacheKeys } from '../../common/cache/public-cache.service';
@@ -41,6 +41,7 @@ import {
 import { buildPublicCopy, buildPublicFaq, cleanCopy, normalizeFaq, sanitizeSiteUrl, isValidSlotKey, type PublicFaqItem } from './site-copy';
 import { SiteEditContentDto } from './dto/site-edit-content.dto';
 import { LegalDto } from './dto/legal.dto';
+import { TransportPresetsDto } from './dto/transport-presets.dto';
 import { normalizeLegal } from './legal';
 import { parseSmsSettings } from './sms-settings';
 import { encryptSignature, decryptSignature, SignatureKeyMissingError } from '../../common/crypto/signature-crypto';
@@ -471,6 +472,49 @@ export class TenantsService {
       })
       .where(eq(tenants.id, tenantId));
     return legal;
+  }
+
+  // ---- Transport presets (consolidated protocol В.Транспорт) ----
+
+  /** Saved reusable transports for the В.Транспорт form (settings.transportPresets). */
+  async getTransportPresets(tenantId: string): Promise<TransportPreset[]> {
+    const settings = await this.loadSettings(tenantId);
+    const raw = settings.transportPresets;
+    return Array.isArray(raw) ? (raw as TransportPreset[]) : [];
+  }
+
+  /**
+   * Atomic whole-list write to settings.transportPresets — jsonb_set on the one
+   * key, so concurrent writes to sibling settings keys survive (same convention
+   * as settings.legal / settings.routing.couriers[]). Normalizes: trims every
+   * field, drops entries with no content at all, assigns an id to new entries.
+   */
+  async updateTransportPresets(tenantId: string, dto: TransportPresetsDto): Promise<TransportPreset[]> {
+    const clean = (v?: string): string | undefined => {
+      const t = v?.trim();
+      return t ? t : undefined;
+    };
+    const presets: TransportPreset[] = [];
+    for (const p of dto.presets ?? []) {
+      const preset: TransportPreset = {
+        id: clean(p.id) ?? randomUUID(),
+        ...(clean(p.vehicle) ? { vehicle: clean(p.vehicle) } : {}),
+        ...(clean(p.plate) ? { plate: clean(p.plate) } : {}),
+        ...(clean(p.driverName) ? { driverName: clean(p.driverName) } : {}),
+        ...(clean(p.startPlace) ? { startPlace: clean(p.startPlace) } : {}),
+      };
+      if (!preset.vehicle && !preset.plate && !preset.driverName && !preset.startPlace) continue;
+      presets.push(preset);
+    }
+    const [updated] = await this.db
+      .update(tenants)
+      .set({
+        settings: sql`jsonb_set(coalesce(${tenants.settings}, '{}'::jsonb), array['transportPresets'], ${JSON.stringify(presets)}::jsonb, true)`,
+      })
+      .where(eq(tenants.id, tenantId))
+      .returning({ id: tenants.id });
+    if (!updated) throw new NotFoundException('Фермата не е намерена');
+    return presets;
   }
 
   // ---- Operator signature (handover-protocol приел/предал auto-sign) ----

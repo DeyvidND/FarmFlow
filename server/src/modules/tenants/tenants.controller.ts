@@ -25,6 +25,7 @@ import { SiteMarketingDto } from './dto/site-marketing.dto';
 import { LandingDto } from './dto/landing.dto';
 import { MerchandisingDto } from './dto/merchandising.dto';
 import { LegalDto } from './dto/legal.dto';
+import { TransportPresetsDto } from './dto/transport-presets.dto';
 import { SignatureDto } from '../farmers/dto/signature.dto';
 
 @ApiTags('tenants')
@@ -110,6 +111,18 @@ export class TenantsController {
   @Patch('me/legal')
   updateLegal(@CurrentTenant() tenantId: string, @Body() dto: LegalDto) {
     return this.tenantsService.updateLegal(tenantId, dto);
+  }
+
+  @ApiOperation({ summary: 'Saved transports for consolidated-protocol В.Транспорт' })
+  @Get('me/transport-presets')
+  getTransportPresets(@CurrentTenant() tenantId: string) {
+    return this.tenantsService.getTransportPresets(tenantId);
+  }
+
+  @ApiOperation({ summary: 'Replace the saved-transports list' })
+  @Put('me/transport-presets')
+  updateTransportPresets(@CurrentTenant() tenantId: string, @Body() dto: TransportPresetsDto) {
+    return this.tenantsService.updateTransportPresets(tenantId, dto);
   }
 
   @ApiOperation({ summary: 'Operator signature for handover protocols' })

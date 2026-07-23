@@ -1,11 +1,16 @@
 import {
   BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException,
 } from '@nestjs/common';
-import { and, eq, inArray, isNull, sql, type SQLWrapper } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, sql, type SQLWrapper } from 'drizzle-orm';
 import {
   type Database, consolidatedProtocols, deliverySlots, farmers, orderItems, orders, products, tenants, users,
 } from '@fermeribg/db';
-import type { ConsolidatedProtocolMeta, ConsolidatedProtocolOverrides, LegalIdentity } from '@fermeribg/types';
+import type {
+  ConsolidatedFieldOverride,
+  ConsolidatedProtocolMeta,
+  ConsolidatedProtocolOverrides,
+  LegalIdentity,
+} from '@fermeribg/types';
 import { DB_TOKEN } from '../../common/drizzle/drizzle.constants';
 import { decryptSignature, encryptSignature, SignatureKeyMissingError } from '../../common/crypto/signature-crypto';
 import { cityFromAddress } from './handover-city';
@@ -179,6 +184,11 @@ export class ConsolidatedProtocolService {
         .from(consolidatedProtocols)
         .where(eq(consolidatedProtocols.tenantId, tenantId));
 
+      // Prefill the fresh draft from what the system already knows (2026-07-23):
+      // transport identity + Партида/Е-док carried from the latest prior
+      // protocol of the same scope, plannedEnd from the day's delivery windows.
+      const seed = await this.buildDraftSeed(tenantId, date, scope, legIndex);
+
       const [row] = await tx
         .insert(consolidatedProtocols)
         .values({
@@ -188,14 +198,91 @@ export class ConsolidatedProtocolService {
           legIndex: scope === 'leg' ? legIndex! : null,
           docNumber: (max ?? 0) + 1,
           status: 'draft',
-          meta: {},
-          overrides: {},
+          meta: seed.meta,
+          overrides: seed.overrides,
         })
         .returning({ id: consolidatedProtocols.id });
       return row;
     });
 
     return { id: inserted.id };
+  }
+
+  /**
+   * Best-effort prefill for a BRAND-NEW draft — „черновата да се попълва от
+   * системата". Everything stays editable on the screen afterwards:
+   *  - В.Транспорт identity (vehicle/plate/driverName/startPlace/startTime) is
+   *    carried from the latest PRIOR protocol of the same scope (same legIndex
+   *    for a leg protocol — each courier keeps their own transport).
+   *  - plannedEnd comes from the day itself: the latest delivery-window end
+   *    among this scope's orders; falls back to the carried value.
+   *  - Партида/Е-док (`overrides.fieldOverrides['f:<farmerId>']`) carry from
+   *    the same prior protocol. Only farmer keys — `o:<orderId>` corrections
+   *    are order-specific and must never leak across days. `note` never
+   *    carries either (day-specific by design, and absent from the PDF).
+   * A prefill failure only logs — creating the draft must never be blocked by
+   * a routing/Maps hiccup in resolveScopeOrderIds.
+   */
+  private async buildDraftSeed(
+    tenantId: string,
+    date: string,
+    scope: ConsolidatedScope,
+    legIndex?: number | null,
+  ): Promise<{ meta: ConsolidatedProtocolMeta; overrides: ConsolidatedProtocolOverrides }> {
+    try {
+      const conds = [
+        eq(consolidatedProtocols.tenantId, tenantId),
+        eq(consolidatedProtocols.scope, scope),
+        lt(consolidatedProtocols.date, date),
+      ];
+      if (scope === 'leg') conds.push(eq(consolidatedProtocols.legIndex, legIndex!));
+      const [prev] = await this.db
+        .select({ meta: consolidatedProtocols.meta, overrides: consolidatedProtocols.overrides })
+        .from(consolidatedProtocols)
+        .where(and(...conds))
+        .orderBy(desc(consolidatedProtocols.date), desc(consolidatedProtocols.createdAt))
+        .limit(1);
+
+      const prevMeta = (prev?.meta as ConsolidatedProtocolMeta | null) ?? {};
+      const meta: ConsolidatedProtocolMeta = {};
+      for (const k of ['vehicle', 'plate', 'driverName', 'startPlace', 'startTime'] as const) {
+        const v = typeof prevMeta[k] === 'string' ? prevMeta[k]!.trim() : '';
+        if (v) meta[k] = v;
+      }
+
+      // plannedEnd from the actual day: the last delivery window's end.
+      const ids = await this.resolveScopeOrderIds(tenantId, date, scope, legIndex);
+      if (ids.length) {
+        const [w] = await this.db
+          .select({ max: sql<string | null>`max(${orders.deliveryWindowEnd})` })
+          .from(orders)
+          .where(inArray(orders.id, ids));
+        if (w?.max) meta.plannedEnd = String(w.max).slice(0, 5);
+      }
+      if (!meta.plannedEnd && typeof prevMeta.plannedEnd === 'string' && prevMeta.plannedEnd.trim()) {
+        meta.plannedEnd = prevMeta.plannedEnd.trim();
+      }
+
+      const prevOverrides = (prev?.overrides as ConsolidatedProtocolOverrides | null) ?? {};
+      const fieldOverrides: Record<string, ConsolidatedFieldOverride> = {};
+      for (const [key, ov] of Object.entries(prevOverrides.fieldOverrides ?? {})) {
+        if (!key.startsWith('f:')) continue;
+        const batch = ov?.batch?.trim();
+        const eDoc = ov?.eDoc?.trim();
+        if (!batch && !eDoc) continue;
+        fieldOverrides[key] = { ...(batch ? { batch } : {}), ...(eDoc ? { eDoc } : {}) };
+      }
+
+      return {
+        meta,
+        overrides: Object.keys(fieldOverrides).length ? { fieldOverrides } : {},
+      };
+    } catch (err) {
+      this.logger.warn(
+        `draft seed failed for ${tenantId}/${date}/${scope}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { meta: {}, overrides: {} };
+    }
   }
 
   /** The day's protocol targets: the day-scope document plus one per courier

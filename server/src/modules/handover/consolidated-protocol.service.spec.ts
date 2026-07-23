@@ -46,6 +46,9 @@ describe('ConsolidatedProtocolService.ensureDraft', () => {
     db.queue([]);          // fast-path pre-check: none
     db.queue([]);          // in-tx re-check under the lock: none
     db.queue([{ max: 5 }]); // current max doc_number
+    db.queue([]);          // draft seed: no prior protocol to carry from
+    // (seed's resolveScopeOrderIds for a leg goes через routing.getRoute — the
+    // bare {} routing mock throws there, which buildDraftSeed swallows)
     db.queue([{ id: 'cp1' }]); // insert ... returning
     const svc = makeSvc(db);
     const res = await svc.ensureDraft('t1', '2026-07-22', 'leg', 1);
@@ -59,10 +62,61 @@ describe('ConsolidatedProtocolService.ensureDraft', () => {
 
   it('day scope stores legIndex NULL even when called with no legIndex argument', async () => {
     const db = makeDb();
-    db.queue([]); db.queue([]); db.queue([{ max: 0 }]); db.queue([{ id: 'cp1' }]);
+    db.queue([]); db.queue([]); db.queue([{ max: 0 }]);
+    db.queue([]); // draft seed: no prior protocol
+    db.queue([]); // draft seed: no delivery slots for the day → no window query
+    db.queue([{ id: 'cp1' }]);
     const svc = makeSvc(db);
     await svc.ensureDraft('t1', '2026-07-22', 'day');
     expect((db.calls.values[0] as any).legIndex).toBeNull();
+  });
+
+  // 2026-07-23 draft prefill: a NEW draft carries the transport identity +
+  // per-farmer Партида/Е-док from the latest prior protocol of the same scope,
+  // and derives plannedEnd from the day's latest delivery-window end. `note`
+  // and `o:<orderId>` overrides must NOT leak across days.
+  it('seeds a new day draft from the previous protocol + the day\'s windows', async () => {
+    const db = makeDb();
+    db.queue([]); // fast-path pre-check
+    db.queue([]); // in-tx re-check
+    db.queue([{ max: 3 }]); // doc_number
+    db.queue([
+      {
+        meta: { vehicle: 'Форд Транзит', plate: 'В1234КХ', driverName: 'Иван', startPlace: 'склад', startTime: '07:30', plannedEnd: '17:00' },
+        overrides: {
+          excludedOrderIds: ['old'],
+          fieldOverrides: {
+            'f:farmer-1': { batch: 'L-88', eDoc: 'E-9', note: 'само днес' },
+            'o:order-1': { batch: 'поръчкова' },
+            'f:farmer-2': { note: 'само бележка' },
+          },
+        },
+      },
+    ]); // seed: latest prior protocol
+    db.queue([{ id: 'slot-1' }]); // seed: the day's slots
+    db.queue([{ id: 'o1' }]); // seed: scope order ids
+    db.queue([{ max: '18:30:00' }]); // seed: latest window end
+    db.queue([{ id: 'cp-new' }]); // insert ... returning
+    const svc = makeSvc(db);
+
+    const res = await svc.ensureDraft('t1', '2026-07-23', 'day');
+
+    expect(res).toEqual({ id: 'cp-new' });
+    const inserted = db.calls.values[0] as any;
+    expect(inserted.meta).toEqual({
+      vehicle: 'Форд Транзит',
+      plate: 'В1234КХ',
+      driverName: 'Иван',
+      startPlace: 'склад',
+      startTime: '07:30',
+      plannedEnd: '18:30', // from the day's windows, NOT the carried 17:00
+    });
+    expect(inserted.overrides).toEqual({
+      fieldOverrides: {
+        'f:farmer-1': { batch: 'L-88', eDoc: 'E-9' }, // note dropped
+        // 'o:order-1' dropped (order-scoped), 'f:farmer-2' dropped (note-only)
+      },
+    });
   });
 
   it('rejects a leg scope request with no legIndex', async () => {

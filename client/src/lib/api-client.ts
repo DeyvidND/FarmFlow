@@ -7,6 +7,7 @@ import type {
   ConsolidatedCourierRecipient,
   ConsolidatedCourierSendReport,
   ConsolidatedProtocolMeta,
+  TransportPreset,
   ConsolidatedProtocolOverrides,
   ConsolidatedProtocolSummary,
   ConsolidatedProtocolView,
@@ -1553,6 +1554,18 @@ export const signConsolidatedProtocol = (id: string, receiverSignaturePng?: stri
   apiFetch<void>(`consolidated-protocols/${id}/sign`, { method: 'POST', ...json({ receiverSignaturePng }) }, 'Неуспешно подписване');
 
 export const consolidatedProtocolPdfHref = (id: string) => `/bff/consolidated-protocols/${id}/pdf`;
+
+/** Saved transports for the В.Транспорт form (tenants.settings.transportPresets). */
+export const getTransportPresets = () => apiFetch<TransportPreset[]>('tenants/me/transport-presets');
+
+/** Replaces the WHOLE saved-transports list (server convention — same as
+ *  settings.routing.couriers[]): callers send the full array on every save. */
+export const saveTransportPresets = (presets: TransportPreset[]) =>
+  apiFetch<TransportPreset[]>(
+    'tenants/me/transport-presets',
+    { method: 'PUT', ...json({ presets }) },
+    'Транспортите не бяха запазени',
+  );
 
 /** §4.4 "Прати на куриерите" — recipient PREVIEW, fetched before the button
  *  shows its confirm dialog. */

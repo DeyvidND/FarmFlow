@@ -18,6 +18,8 @@ import {
 } from './consolidated-protocol-overrides';
 import { META_FIELDS, META_LABELS, isMetaDirty, seedMetaForm, type MetaFormState } from './consolidated-protocol-meta';
 import { SignaturePadField } from './signature-pad-field';
+import { TransportPresetPicker } from './transport-preset-picker';
+import type { TransportPreset } from '@/lib/types';
 
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Възникна грешка');
 
@@ -151,6 +153,25 @@ export function ConsolidatedProtocolEdit({ id }: { id: string }) {
     }
   }
 
+  /** Fill the В form from a saved transport (only its non-empty fields — a
+   *  preset without e.g. „Тръгва от" must not wipe a hand-typed one) and
+   *  persist right away via the same full-form flushMeta path. */
+  async function applyPreset(preset: TransportPreset) {
+    if (!metaForm || view?.status !== 'draft') return;
+    const next = { ...metaForm };
+    for (const k of ['vehicle', 'plate', 'driverName', 'startPlace'] as const) {
+      const v = preset[k]?.trim();
+      if (v) next[k] = v;
+    }
+    setMetaForm(next);
+    try {
+      await flushMeta(next);
+      toast.success('Транспортът е приложен');
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  }
+
   async function sign() {
     setSaving(true);
     try {
@@ -275,6 +296,20 @@ export function ConsolidatedProtocolEdit({ id }: { id: string }) {
         <div className="border-b border-ff-border-2 px-5 py-3">
           <h2 className="text-[14px] font-extrabold">В. Транспорт</h2>
         </div>
+        {isDraft && (
+          <div className="border-b border-ff-border-2 px-5 py-3">
+            <TransportPresetPicker
+              current={{
+                vehicle: metaForm.vehicle,
+                plate: metaForm.plate,
+                driverName: metaForm.driverName,
+                startPlace: metaForm.startPlace,
+              }}
+              onApply={(p) => void applyPreset(p)}
+              disabled={saving}
+            />
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3 p-5">
           {META_FIELDS.map((field) => (
             <label key={field} className="text-[12.5px] font-semibold text-ff-muted">

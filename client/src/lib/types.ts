@@ -1150,6 +1150,17 @@ export interface ConsolidatedProtocolMeta {
   plannedEnd?: string;
 }
 
+/** A reusable saved transport (vehicle + driver identity) the operator picks
+ *  from on every consolidated protocol's В.Транспорт form —
+ *  `tenants.settings.transportPresets[]`. Times are per-day, not preset. */
+export interface TransportPreset {
+  id: string;
+  vehicle?: string;
+  plate?: string;
+  driverName?: string;
+  startPlace?: string;
+}
+
 /** A manually-added row on a consolidated protocol — `overrides.extraRows`. */
 export interface ConsolidatedExtraRow {
   section: 'A' | 'B';
