@@ -7,6 +7,7 @@ import { cn, moneyFromStotinki } from '@/lib/utils';
 import type { RouteStop } from '@/lib/types';
 import { isMajorRoadAddress } from './major-road';
 import { windowShiftDeltaMin } from './delivery-window-shift';
+import { TimeInput24 } from './time-input-24';
 
 interface StopListProps {
   stops: RouteStop[];
@@ -54,16 +55,7 @@ function WindowShiftBadge({
   status: string | null;
   onShift: (stopId: string, deltaMin: number) => void;
 }) {
-  const [val, setVal] = useState(start);
   const approved = status === 'approved' || status === 'sent';
-  const commit = () => {
-    const delta = windowShiftDeltaMin(start, val);
-    if (delta == null || delta === 0) {
-      setVal(start); // invalid or unchanged → revert to the persisted time
-      return;
-    }
-    onShift(stopId, delta);
-  };
   return (
     <span
       onClick={(e) => e.stopPropagation()}
@@ -74,16 +66,14 @@ function WindowShiftBadge({
       )}
     >
       {status === 'sent' ? <Check size={11} /> : <Clock size={11} />}
-      <input
-        type="time"
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+      <TimeInput24
+        value={start}
+        onCommit={(next) => {
+          const delta = windowShiftDeltaMin(start, next);
+          if (delta != null && delta !== 0) onShift(stopId, delta);
         }}
-        aria-label="Начален час на доставка"
-        className="w-[58px] bg-transparent font-bold tabular-nums outline-none"
+        ariaLabel="Начален час на доставка"
+        className="w-[46px] bg-transparent font-bold tabular-nums outline-none"
       />
       <span>–{end}</span>
     </span>

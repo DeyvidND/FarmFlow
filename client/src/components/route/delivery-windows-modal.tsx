@@ -17,6 +17,7 @@ import {
   updateSlot,
 } from '@/lib/api-client';
 import type { DeliveryWindowProposal, Slot } from '@/lib/types';
+import { TimeInput24 } from './time-input-24';
 
 const WEEKDAYS = ['Неделя', 'Понеделник', 'Вторник', 'Сряда', 'Четвъртък', 'Петък', 'Събота'];
 
@@ -195,9 +196,14 @@ export function DeliveryWindowsModal({
     setEdited((cur) => ({ ...cur, [id]: { ...(cur[id] ?? { start: '', end: '' }), [field]: v } }));
   }
 
-  async function commit(stopId: string, orig: { windowStart: string; windowEnd: string }) {
-    const cur = edited[stopId];
-    if (!cur) return;
+  /** Persist one stop's edited window. Takes the values EXPLICITLY — the
+   *  TimeInput24 commit callback runs in the same tick as its setField, so
+   *  reading `edited` state here would still see the pre-edit value. */
+  async function commit(
+    stopId: string,
+    orig: { windowStart: string; windowEnd: string },
+    cur: { start: string; end: string },
+  ) {
     if (cur.start === orig.windowStart && cur.end === orig.windowEnd) return; // no-op
     if (!isValidTime(cur.start) || !isValidTime(cur.end)) return; // guard, silent
     try {
@@ -482,22 +488,24 @@ export function DeliveryWindowsModal({
                             {s.hasEmail && (
                               <Mail size={13} className="shrink-0 text-ff-green-700" />
                             )}
-                            <input
-                              type="time"
+                            <TimeInput24
                               value={cur.start}
-                              onChange={(e) => setField(s.id, 'start', e.target.value)}
-                              onBlur={() => void commit(s.id, s)}
-                              aria-label={`Начало за ${s.customer ?? 'клиента'}`}
-                              className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
+                              onCommit={(next) => {
+                                setField(s.id, 'start', next);
+                                void commit(s.id, s, { ...cur, start: next });
+                              }}
+                              ariaLabel={`Начало за ${s.customer ?? 'клиента'}`}
+                              className="w-[64px] rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-center text-[13px] font-bold tabular-nums text-ff-ink outline-none"
                             />
                             <span className="text-ff-muted">–</span>
-                            <input
-                              type="time"
+                            <TimeInput24
                               value={cur.end}
-                              onChange={(e) => setField(s.id, 'end', e.target.value)}
-                              onBlur={() => void commit(s.id, s)}
-                              aria-label={`Край за ${s.customer ?? 'клиента'}`}
-                              className="rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-[13px] font-bold text-ff-ink outline-none"
+                              onCommit={(next) => {
+                                setField(s.id, 'end', next);
+                                void commit(s.id, s, { ...cur, end: next });
+                              }}
+                              ariaLabel={`Край за ${s.customer ?? 'клиента'}`}
+                              className="w-[64px] rounded-md border border-ff-border bg-ff-surface-2 px-2 py-1 text-center text-[13px] font-bold tabular-nums text-ff-ink outline-none"
                             />
                           </div>
                         </div>
