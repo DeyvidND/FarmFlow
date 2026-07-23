@@ -919,6 +919,7 @@ describe('HandoverService.renderPdf', () => {
   it('loads the row via getById (tenant-scoped) and renders it to a PDF buffer', async () => {
     const db = makeDb();
     db.queue([PDF_ROW]); // getById
+    db.queue([{ name: 'Фермерски пазари' }]); // tenantBrand — issuing brand is the TENANT name
     const svc = await build(db);
     const buf = await svc.renderPdf('t1', 'p1');
     expect(buf.length).toBeGreaterThan(1000);
@@ -937,6 +938,7 @@ describe('HandoverService.renderPdfForEmail', () => {
   it('renders the persisted protocol (via getById) with the unsigned/preliminary notice, producing a real PDF', async () => {
     const db = makeDb();
     db.queue([PDF_ROW]); // getById
+    db.queue([{ name: 'Фермерски пазари' }]); // tenantBrand
     const svc = await build(db);
 
     const [plainBuf, emailBuf] = await Promise.all([
@@ -944,6 +946,7 @@ describe('HandoverService.renderPdfForEmail', () => {
       (async () => {
         const db2 = makeDb();
         db2.queue([PDF_ROW]);
+        db2.queue([{ name: 'Фермерски пазари' }]); // tenantBrand
         const svc2 = await build(db2);
         return svc2.renderPdfForEmail('t1', 'p1');
       })(),
@@ -1046,6 +1049,7 @@ describe('HandoverService.renderBatchPdf', () => {
   it('merges N protocol rows (via list) into one non-empty PDF buffer', async () => {
     const db = makeDb();
     db.queue([PDF_ROW, { ...PDF_ROW, id: 'p2', protocolNumber: 42 }]); // list()
+    db.queue([{ name: 'Фермерски пазари' }]); // tenantBrand (fetched once, not per row)
     const svc = await build(db);
     const buf = await svc.renderBatchPdf('t1', { slotId: 's1' } as any);
     expect(buf.length).toBeGreaterThan(0);
